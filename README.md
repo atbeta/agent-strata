@@ -13,6 +13,8 @@ Cross-backend agent session/event layer: a canonical event format (CASF v0), an 
 | `@agent-strata/adapter-acp` | ACP (ndjson subprocess) adapter: `AcpRecorder` + `connectAcpAgent` |
 | `@agent-strata/adapter-opencode` | opencode v1 event-stream adapter: `OpencodeMapper` + `connectOpencode` |
 
+`connectOpencode` resolves only after the event stream is attached (first `server.connected` event, bounded by `connectTimeoutMs`, default 10s). `onEvent(evt)` is called after each raw event is ingested, for observing lifecycle events like idle.
+
 v0 adapter-opencode limitations: no SSE reconnect yet; a lazily started session keeps its placeholder `session.started` (workspace "unknown") if the real `session.created` arrives later; only the v1 `/event` stream is consumed.
 
 ## Security model

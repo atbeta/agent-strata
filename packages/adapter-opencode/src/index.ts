@@ -414,6 +414,8 @@ export async function connectOpencode(opts: {
   sink: Sink;
   policy?: Policy;
   onAsk?: OnAsk;
+  onEvent?: (evt: Event) => void;
+  connectTimeoutMs?: number;
   fetch?: typeof fetch;
 }): Promise<{ stop: () => void; importSession: (sessionID: string) => Promise<void> }> {
   const client: OpencodeClient = createOpencodeClient({
@@ -433,12 +435,35 @@ export async function connectOpencode(opts: {
   });
 
   const { stream } = await client.event.subscribe();
+  // the SDK stream attaches lazily on the first next() pull; pull eagerly and
+  // wait for the first event (server.connected) so no later events are missed
+  const it = stream[Symbol.asyncIterator]();
+  const connectTimeout = opts.connectTimeoutMs ?? 10_000;
+  const first = await Promise.race([
+    it.next(),
+    Bun.sleep(connectTimeout).then(() => "timeout" as const),
+  ]);
+  if (first === "timeout")
+    throw new Error(`opencode event stream produced no events within ${connectTimeout}ms`);
+  if (first.done) throw new Error("opencode event stream ended before server.connected");
+  const dispatch = (evt: Event) => {
+    ingestor.handle(evt);
+    if (!opts.onEvent) return;
+    try {
+      opts.onEvent(evt);
+    } catch (err) {
+      console.error("opencode onEvent error:", err);
+    }
+  };
+  dispatch(first.value as Event);
+
   const abort = new AbortController();
   const loop = (async () => {
     try {
-      for await (const evt of stream) {
-        if (abort.signal.aborted) break;
-        ingestor.handle(evt as Event);
+      for (;;) {
+        const r = await it.next();
+        if (r.done || abort.signal.aborted) break;
+        dispatch(r.value as Event);
       }
     } catch (err) {
       if (!abort.signal.aborted) console.error("opencode event stream error:", err);
