@@ -2,9 +2,11 @@ import { createResource, For, Show } from "solid-js";
 import {
   fmtUsd,
   getJson,
+  respondPermission,
   STATUS_DOT,
   STATUS_LABEL,
   type ContentBlock,
+  type PendingAsk,
   type SessionView,
   type ToolCallView,
   type Turn,
@@ -87,6 +89,15 @@ export function SessionDetail(props: { id: string; back: () => void }) {
     () => props.id,
     (id) => getJson<SessionView>(`/sessions/${id}/view`),
   );
+  const [asks, { refetch: refetchAsks }] = createResource(async () => {
+    const r = await getJson<{ pending: PendingAsk[] }>("/permissions");
+    return r.pending.filter((p) => p.session_id === props.id);
+  });
+
+  const respond = async (requestId: string, decision: "allow" | "deny") => {
+    await respondPermission(requestId, decision);
+    refetchAsks();
+  };
 
   return (
     <main class="mx-auto max-w-3xl p-6">
@@ -117,6 +128,33 @@ export function SessionDetail(props: { id: string; back: () => void }) {
               {v().backend} · {v().workspace ?? "—"} · {v().turns.length} turns ·{" "}
               {v().totals.tool_calls} tools · {fmtUsd(v().totals.cost_usd)}
             </div>
+
+            <For each={asks() ?? []}>
+              {(p) => (
+                <div class="mt-5 rounded-lg border border-event-permission/50 bg-event-permission/10 p-4">
+                  <div class="flex items-center gap-2 text-sm font-medium text-event-permission">
+                    permission requested — {p.tool}
+                    <span class="ml-auto flex gap-2">
+                      <button
+                        class="rounded-md bg-status-active/20 px-3 py-1 text-xs font-medium text-status-active transition-opacity hover:opacity-80"
+                        onClick={() => void respond(p.request_id, "allow")}
+                      >
+                        allow once
+                      </button>
+                      <button
+                        class="rounded-md bg-destructive/20 px-3 py-1 text-xs font-medium text-destructive transition-opacity hover:opacity-80"
+                        onClick={() => void respond(p.request_id, "deny")}
+                      >
+                        deny
+                      </button>
+                    </span>
+                  </div>
+                  <div class="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap rounded bg-secondary/50 p-2 font-mono text-xs text-muted-foreground">
+                    {JSON.stringify(p.input, null, 2)}
+                  </div>
+                </div>
+              )}
+            </For>
 
             <section class="mt-6 space-y-5">
               <For each={v().turns}>{(t) => <TurnBlock turn={t} />}</For>

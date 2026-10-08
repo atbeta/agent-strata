@@ -86,6 +86,16 @@ describe("agent-strata service", () => {
     });
     expect(bad.status).toBe(502);
 
+    const pending = await fetch(`${base}/permissions`).then((r) => r.json());
+    expect(pending.pending).toEqual([]);
+
+    const respond404 = await fetch(`${base}/permissions/nope/respond`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ decision: "allow" }),
+    });
+    expect(respond404.status).toBe(404);
+
     svc.stop();
   });
 
