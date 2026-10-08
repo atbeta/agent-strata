@@ -206,7 +206,7 @@ describe("AcpRecorder unit", () => {
     expect(evs.filter((e) => e.type === "tool.call").length).toBe(1);
     expect(evs.filter((e) => e.type === "tool.result").length).toBe(1);
     const tc = evs.find((e) => e.type === "tool.call")!;
-    expect(tc.id).toBe("acp:m:acp-1:c1:tool.call:tool.call");
+    expect(tc.id).toBe("acp:m:acp-1:c1:tool.call");
     parseEvent({ ...tc, id: tc.id ?? "x", seq: 1 });
   });
 
@@ -250,6 +250,37 @@ describe("AcpRecorder unit", () => {
     expect(res3.outcome).toEqual({ outcome: "cancelled" });
     const resolved = appended.flat().find((e) => e.type === "permission.resolved" && (e.data as { request_id: string }).request_id);
     expect(resolved).toBeDefined();
+  });
+
+  test("ask with no onAsk answers reject, not cancel", async () => {
+    const appended: EventInput[][] = [];
+    const r = new AcpRecorder({ agentName: "m", sink: { append: (e) => appended.push(e) } });
+    r.startSession("s", "acp:m:s");
+    const res = await r.requestPermission({
+      sessionId: "s",
+      options: [
+        { optionId: "a1", name: "allow", kind: "allow_once" },
+        { optionId: "r1", name: "reject", kind: "reject_once" },
+      ],
+      toolCall: { toolCallId: "c", title: "t", kind: "execute", rawInput: {} },
+    });
+    expect(res.outcome).toEqual({ outcome: "selected", optionId: "r1" });
+    const resolved = appended.flat().find((e) => e.type === "permission.resolved")!;
+    expect(resolved.data).toMatchObject({ decision: "deny", by: "auto", reason: "no handler" });
+    // only reject_always offered -> still selected
+    const res2 = await r.requestPermission({
+      sessionId: "s",
+      options: [{ optionId: "r2", name: "reject", kind: "reject_always" }],
+      toolCall: { toolCallId: "c2", title: "t", kind: "execute", rawInput: {} },
+    });
+    expect(res2.outcome).toEqual({ outcome: "selected", optionId: "r2" });
+    // neither reject kind offered -> cancelled
+    const res3 = await r.requestPermission({
+      sessionId: "s",
+      options: [{ optionId: "a1", name: "allow", kind: "allow_once" }],
+      toolCall: { toolCallId: "c3", title: "t", kind: "execute", rawInput: {} },
+    });
+    expect(res3.outcome).toEqual({ outcome: "cancelled" });
   });
 
   test("policy never selects allow_always on its own", async () => {

@@ -98,7 +98,7 @@ export class AcpRecorder implements Client {
       type: kind,
       data,
     } as EventInput;
-    if (key) base.id = `acp:${this.opts.agentName}:${s.acpSessionId}:${key}:${kind}`;
+    if (key) base.id = `acp:${this.opts.agentName}:${s.acpSessionId}:${key}`;
     return base;
   }
 
@@ -354,7 +354,10 @@ export class AcpRecorder implements Client {
     const request_id = req.data.request_id;
     if (!this.opts.onAsk) {
       resolved("deny", "auto", { reason: "no handler" });
-      return cancelled;
+      const opt =
+        params.options.find((o) => o.kind === "reject_once") ??
+        params.options.find((o) => o.kind === "reject_always");
+      return opt ? selected(opt) : cancelled;
     }
     const answer = await this.opts.onAsk(req);
     if (answer.decision === "allow") {
@@ -402,6 +405,7 @@ export async function connectAcpAgent(opts: {
   const input = new WritableStream<Uint8Array>({
     write: (chunk) => {
       stdin.write(chunk);
+      stdin.flush();
     },
     close: () => {
       stdin.end();
