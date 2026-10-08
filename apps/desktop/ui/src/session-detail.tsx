@@ -1,5 +1,6 @@
-import { createResource, For, Show } from "solid-js";
+import { createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import {
+  api,
   fmtUsd,
   getJson,
   respondPermission,
@@ -85,7 +86,7 @@ function TurnBlock(props: { turn: Turn }) {
 }
 
 export function SessionDetail(props: { id: string; back: () => void }) {
-  const [view] = createResource(
+  const [view, { refetch }] = createResource(
     () => props.id,
     (id) => getJson<SessionView>(`/sessions/${id}/view`),
   );
@@ -93,10 +94,45 @@ export function SessionDetail(props: { id: string; back: () => void }) {
     const r = await getJson<{ pending: PendingAsk[] }>("/permissions");
     return r.pending.filter((p) => p.session_id === props.id);
   });
+  const [draft, setDraft] = createSignal("");
+  const [sendErr, setSendErr] = createSignal("");
+
+  onMount(() => {
+    const es = new EventSource(api("/stream"));
+    es.onmessage = (m) => {
+      try {
+        const evt = JSON.parse(m.data) as { session_id?: string; type: string };
+        if (evt.session_id === props.id || evt.type === "permission.requested") {
+          refetch();
+          refetchAsks();
+        }
+      } catch {
+        // non-session frames (service.connected)
+      }
+    };
+    onCleanup(() => es.close());
+  });
 
   const respond = async (requestId: string, decision: "allow" | "deny") => {
     await respondPermission(requestId, decision);
     refetchAsks();
+  };
+
+  const send = async () => {
+    const text = draft().trim();
+    if (!text) return;
+    setDraft("");
+    setSendErr("");
+    const res = await fetch(api(`/sessions/${encodeURIComponent(props.id)}/prompt`), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      setSendErr(body.error ?? `service ${res.status}`);
+      setDraft(text);
+    }
   };
 
   return (
@@ -158,6 +194,30 @@ export function SessionDetail(props: { id: string; back: () => void }) {
 
             <section class="mt-6 space-y-5">
               <For each={v().turns}>{(t) => <TurnBlock turn={t} />}</For>
+            </section>
+
+            <section class="mt-8">
+              <textarea
+                class="w-full rounded-lg border border-input bg-secondary/50 p-3 font-sans text-sm text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none"
+                rows={3}
+                placeholder="send a prompt…"
+                value={draft()}
+                onInput={(e) => setDraft(e.currentTarget.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void send();
+                }}
+              />
+              <div class="mt-2 flex items-center gap-3">
+                <button
+                  class="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+                  onClick={() => void send()}
+                >
+                  send ��↵
+                </button>
+                <Show when={sendErr()}>
+                  <span class="text-xs text-destructive">{sendErr()}</span>
+                </Show>
+              </div>
             </section>
 
             <Show when={v().files_changed.length > 0}>
