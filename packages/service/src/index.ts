@@ -240,20 +240,31 @@ export function startService(opts: ServiceOpts = {}): RunningService {
 
       if (path === "/stream") {
         let enqueue: ((evt: Event) => void) | undefined;
+        let heartbeat: ReturnType<typeof setInterval> | undefined;
+        const drop = () => {
+          if (enqueue) subscribers.delete(enqueue);
+          if (heartbeat) clearInterval(heartbeat);
+          heartbeat = undefined;
+        };
         const stream = new ReadableStream<string>({
           start(ctrl) {
-            ctrl.enqueue(`data: ${JSON.stringify({ type: "service.connected" })}\n\n`);
-            enqueue = (evt) => {
+            const write = (chunk: string) => {
               try {
-                ctrl.enqueue(`data: ${JSON.stringify(evt)}\n\n`);
+                ctrl.enqueue(chunk);
               } catch {
-                subscribers.delete(enqueue!);
+                // desiredSize === null means the stream is closed for good
+                if (ctrl.desiredSize === null) drop();
               }
             };
+            write(`data: ${JSON.stringify({ type: "service.connected" })}\n\n`);
+            // comment-frame heartbeat: keeps proxies flushing the stream and
+            // surfaces dead connections so stale subscribers get reaped
+            heartbeat = setInterval(() => write(`: hb\n\n`), 15_000);
+            enqueue = (evt) => write(`data: ${JSON.stringify(evt)}\n\n`);
             subscribers.add(enqueue);
           },
           cancel() {
-            if (enqueue) subscribers.delete(enqueue);
+            drop();
           },
         });
         return new Response(stream, {
@@ -261,6 +272,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
             "content-type": "text/event-stream",
             "cache-control": "no-cache",
             connection: "keep-alive",
+            "x-accel-buffering": "no",
           },
         });
       }

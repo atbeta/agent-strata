@@ -212,7 +212,7 @@ export function SessionDetail(props: { id: string; back: () => void }) {
                   class="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
                   onClick={() => void send()}
                 >
-                  send ��↵
+                  send (Ctrl+Enter)
                 </button>
                 <Show when={sendErr()}>
                   <span class="text-xs text-destructive">{sendErr()}</span>
