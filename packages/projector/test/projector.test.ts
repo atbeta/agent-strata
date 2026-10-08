@@ -80,6 +80,19 @@ describe("projector", () => {
     expect(v.totals.permissions_denied).toBe(1);
   });
 
+  test("permission.requested before its tool.call still attaches", () => {
+    const v = projectSession([
+      mk("s", "permission.requested", { request_id: "r1", call_id: "c1", tool: "bash", input: {} }),
+      mk("s", "tool.call", { turn_id: "t", call_id: "c1", tool: "bash", input: {} }),
+      mk("s", "permission.resolved", { request_id: "r1", decision: "allow", by: "policy", rule_id: "allow-echo" }),
+      mk("s", "tool.result", { call_id: "c1", status: "ok", output: "hi" }),
+    ]);
+    const call = v.turns[0]!.tool_calls[0]!;
+    expect(call.permission!.decision).toBe("allow");
+    expect(call.permission!.rule_id).toBe("allow-echo");
+    expect(v.pending_permissions.length).toBe(0);
+  });
+
   test("out-of-order input sorted by seq", () => {
     const call = mk("s", "tool.call", { turn_id: "t", call_id: "c1", tool: "bash", input: {} });
     const result = mk("s", "tool.result", { call_id: "c1", status: "ok" });
