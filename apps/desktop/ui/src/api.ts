@@ -5,10 +5,14 @@ export interface SessionRow {
     workspace: string | null;
     title: string | null;
     started_at: string;
+    last_ts: string;
     last_seq: number;
   };
   status: string;
+  busy?: boolean;
   title?: string;
+  /** set for subagent / child sessions; the sidebar hides these */
+  parent?: string;
   totals: { input: number; output: number; cost_usd: number; tool_calls: number };
 }
 
@@ -60,14 +64,33 @@ export interface PendingPermission {
   reason?: string;
 }
 
+export interface QuestionOption {
+  label: string;
+  description: string;
+}
+
+export interface PendingQuestion {
+  request_id: string;
+  questions: {
+    question: string;
+    header: string;
+    options: QuestionOption[];
+    multiple?: boolean;
+    custom?: boolean;
+  }[];
+}
+
 export interface SessionView {
   session_id: string;
   backend: string;
   workspace?: string;
   title?: string;
   status: string;
+  busy?: boolean;
   turns: Turn[];
   pending_permissions: PendingPermission[];
+  pending_questions?: PendingQuestion[];
+  plan?: { content: string; status: "pending" | "in_progress" | "completed" }[];
   files_changed: { path: string; change: "add" | "modify" | "delete"; count: number }[];
   totals: SessionRow["totals"] & {
     reasoning: number;
@@ -122,6 +145,13 @@ export interface Connection {
   baseUrl: string;
   name?: string;
   directory?: string;
+  capabilities?: {
+    prompt: boolean;
+    abort: boolean;
+    models: boolean;
+    agents: boolean;
+    import: boolean;
+  };
 }
 
 export interface OptionsResponse {
@@ -166,6 +196,35 @@ export async function getJson<T>(p: string): Promise<T> {
   const res = await fetch(api(p));
   if (!res.ok) throw new Error(`service ${res.status}`);
   return (await res.json()) as T;
+}
+
+export async function importSession(id: string): Promise<void> {
+  const res = await fetch(api(`/sessions/${encodeURIComponent(id)}/import`), { method: "POST" });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `service ${res.status}`);
+  }
+}
+
+export async function abortSession(id: string): Promise<void> {
+  const res = await fetch(api(`/sessions/${encodeURIComponent(id)}/abort`), { method: "POST" });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `service ${res.status}`);
+  }
+}
+
+export async function respondQuestion(
+  requestId: string,
+  decision: "reply" | "reject",
+  answers?: string[][],
+): Promise<void> {
+  const res = await fetch(api(`/questions/${encodeURIComponent(requestId)}/respond`), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ decision, answers }),
+  });
+  if (!res.ok) throw new Error(`service ${res.status}`);
 }
 
 export async function respondPermission(
@@ -238,6 +297,12 @@ export async function testPolicy(body: {
 
 export function fmtUsd(n: number) {
   return `$${n.toFixed(4)}`;
+}
+
+/** Placeholder workspaces the adapter emits before a real directory is known. */
+export function realWorkspace(ws?: string | null): string | undefined {
+  if (!ws || ws === "unknown" || ws === "no workspace") return undefined;
+  return ws;
 }
 
 export const STATUS_DOT: Record<string, string> = {

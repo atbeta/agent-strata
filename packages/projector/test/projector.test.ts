@@ -150,6 +150,39 @@ describe("projector", () => {
     expect(agg.total.cost_usd).toBe(1.5);
   });
 
+  test("busy flag and pending questions follow the latest events", () => {
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      mk("s", "session.status", { state: "busy" }),
+      mk("s", "question.asked", {
+        request_id: "q1",
+        questions: [
+          {
+            question: "Pick",
+            header: "Pick",
+            options: [{ label: "a", description: "A" }],
+          },
+        ],
+      }),
+    ]);
+    expect(v.busy).toBe(true);
+    expect(v.pending_questions.map((q) => q.request_id)).toEqual(["q1"]);
+    const done = projectSession([
+      ...[
+        mk("s2", "session.started", { workspace: "/w" }),
+        mk("s2", "session.status", { state: "busy" }),
+        mk("s2", "question.asked", {
+          request_id: "q1",
+          questions: [{ question: "Pick", header: "Pick", options: [{ label: "a", description: "A" }] }],
+        }),
+        mk("s2", "question.resolved", { request_id: "q1", decision: "reply", answers: [["a"]] }),
+        mk("s2", "session.status", { state: "idle" }),
+      ],
+    ]);
+    expect(done.busy).toBe(false);
+    expect(done.pending_questions).toEqual([]);
+  });
+
   test("mixed session ids throw", () => {
     expect(() =>
       projectSession([

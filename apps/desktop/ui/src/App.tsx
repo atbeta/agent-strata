@@ -5,8 +5,7 @@ import {
   disconnectBackend,
   fmtUsd,
   getJson,
-  STATUS_DOT,
-  STATUS_LABEL,
+  realWorkspace,
   type Connection,
   type SessionRow,
   type SessionsResponse,
@@ -15,6 +14,7 @@ import {
 import { SessionDetail } from "./session-detail";
 import { CompareView } from "./compare";
 import { PolicyEditor } from "./policy";
+import { Icon } from "./icons";
 
 type Route =
   | { name: "fleet" }
@@ -25,57 +25,20 @@ type Route =
 function parseHash(): Route {
   const h = location.hash.slice(1);
   const s = h.match(/^\/session\/(.+)$/);
-  if (s) return { name: "session", id: s[1]! };
+  if (s) return { name: "session", id: decodeURIComponent(s[1]!) };
   const c = h.match(/^\/compare\/([^/]+)\/(.+)$/);
-  if (c) return { name: "compare", a: c[1]!, b: c[2]! };
+  if (c) return { name: "compare", a: decodeURIComponent(c[1]!), b: decodeURIComponent(c[2]!) };
   if (h === "/policy") return { name: "policy" };
   return { name: "fleet" };
 }
 
-function SessionCard(props: {
-  s: SessionRow;
-  compareSelected: boolean;
-  onCompareToggle: () => void;
-}) {
-  const dot = () => STATUS_DOT[props.s.status] ?? "bg-status-pending";
-  const label = () => STATUS_LABEL[props.s.status] ?? props.s.status;
-  return (
-    <article
-      class={`cursor-pointer rounded-lg border bg-card p-4 text-card-foreground transition-colors hover:border-ring/50 ${
-        props.compareSelected ? "border-ring" : "border-border"
-      }`}
-      onClick={() => (location.hash = `/session/${props.s.summary.session_id}`)}
-    >
-      <div class="flex items-center gap-2">
-        <span class={`h-2 w-2 shrink-0 rounded-full ${dot()}`} />
-        <b class="truncate text-sm font-medium">
-          {props.s.title ?? props.s.summary.title ?? props.s.summary.session_id}
-        </b>
-        <span class="ml-auto shrink-0 text-xs text-muted-foreground">{label()}</span>
-      </div>
-      <div class="mt-2 truncate font-mono text-xs text-muted-foreground">
-        {props.s.summary.backend} · {props.s.summary.workspace ?? "—"}
-      </div>
-      <div class="mt-3 flex items-center gap-4 font-mono text-xs text-muted-foreground tabular-nums">
-        <span>{props.s.totals.tool_calls} tools</span>
-        <span>{(props.s.totals.input + props.s.totals.output).toLocaleString()} tok</span>
-        <span>{fmtUsd(props.s.totals.cost_usd)}</span>
-        <button
-          class={`ml-auto rounded px-2 py-0.5 text-[10px] transition-colors ${
-            props.compareSelected
-              ? "bg-primary text-primary-foreground"
-              : "bg-secondary text-muted-foreground hover:text-foreground"
-          }`}
-          onClick={(e) => {
-            e.stopPropagation();
-            props.onCompareToggle();
-          }}
-        >
-          {props.compareSelected ? "A/B ✓" : "compare"}
-        </button>
-      </div>
-    </article>
-  );
+function relTime(iso: string): string {
+  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60_000);
+  if (!Number.isFinite(mins) || mins < 1) return "now";
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.round(mins / 60);
+  if (hours < 36) return `${hours}h`;
+  return `${Math.round(hours / 24)}d`;
 }
 
 function eventPreview(e: StrataEvent): string {
@@ -83,21 +46,26 @@ function eventPreview(e: StrataEvent): string {
   const blocks = (d.content ?? d.output) as unknown;
   if (Array.isArray(blocks))
     return blocks
-      .map((b) => (typeof b === "object" && b !== null ? String((b as { text?: string }).text ?? `[${(b as { type?: string }).type}]`) : String(b)))
+      .map((b) =>
+        typeof b === "object" && b !== null
+          ? String((b as { text?: string }).text ?? `[${(b as { type?: string }).type}]`)
+          : String(b),
+      )
       .join(" ")
-      .slice(0, 140);
-  if (typeof blocks === "string") return blocks.slice(0, 140);
-  if (d.tool) return `${String(d.tool)} ${JSON.stringify(d.input ?? "").slice(0, 100)}`;
-  if (d.path) return String(d.path);
+      .slice(0, 160);
+  if (typeof blocks === "string") return blocks.slice(0, 160);
+  if (d.tool) return `${String(d.tool)} ${JSON.stringify(d.input ?? "").slice(0, 80)}`;
   if (d.title) return String(d.title);
-  return JSON.stringify(d).slice(0, 140);
+  return JSON.stringify(d).slice(0, 160);
 }
 
-function Fleet() {
+export function App() {
+  const [route, setRoute] = createSignal<Route>(parseHash());
   const [data, { refetch }] = createResource(() => getJson<SessionsResponse>("/sessions"));
   const [conns, { refetch: refetchConns }] = createResource(() =>
     getJson<{ connections: Connection[] }>("/connections"),
   );
+  const [query, setQuery] = createSignal("");
   const [connOpen, setConnOpen] = createSignal(false);
   const [connUrl, setConnUrl] = createSignal("http://127.0.0.1:4096");
   const [connName, setConnName] = createSignal("");
@@ -105,16 +73,33 @@ function Fleet() {
   const [connPass, setConnPass] = createSignal("");
   const [connErr, setConnErr] = createSignal("");
   const [connecting, setConnecting] = createSignal(false);
-  const [liveCount, setLiveCount] = createSignal(0);
+  const [compareOn, setCompareOn] = createSignal(false);
   const [compareSel, setCompareSel] = createSignal<string[]>([]);
-  const [query, setQuery] = createSignal("");
   const [results] = createResource(query, async (q) =>
     q.trim()
-      ? (await getJson<{ events: StrataEvent[] }>(
-          `/events?text=${encodeURIComponent(q.trim())}&order=desc&limit=50`,
-        )).events
+      ? (
+          await getJson<{ events: StrataEvent[] }>(
+            `/events?text=${encodeURIComponent(q.trim())}&order=desc&limit=40`,
+          )
+        ).events
       : [],
   );
+
+  onMount(() => {
+    const onHash = () => setRoute(parseHash());
+    window.addEventListener("hashchange", onHash);
+    const es = new EventSource(api("/stream"));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    es.onmessage = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => refetch(), 200);
+    };
+    onCleanup(() => {
+      window.removeEventListener("hashchange", onHash);
+      clearTimeout(timer);
+      es.close();
+    });
+  });
 
   const connect = async () => {
     setConnErr("");
@@ -129,6 +114,7 @@ function Fleet() {
       setConnOpen(false);
       refetchConns();
       refetch();
+      window.dispatchEvent(new Event("strata-connections"));
     } catch (e) {
       setConnErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -136,261 +122,312 @@ function Fleet() {
     }
   };
 
-  const toggleCompare = (id: string) =>
-    setCompareSel((sel) =>
-      sel.includes(id) ? sel.filter((x) => x !== id) : [...sel.slice(-1), id],
-    );
+  const newSession = async () => {
+    const res = await fetch(api("/sessions"), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    const body = (await res.json()) as { id?: string; error?: string };
+    if (body.id) {
+      refetch();
+      location.hash = `/session/${encodeURIComponent(body.id)}`;
+    } else {
+      setConnErr(body.error ?? "could not create a session");
+      setConnOpen(true);
+    }
+  };
+
+  const openSession = (id: string) => {
+    if (compareOn()) {
+      setCompareSel((sel) =>
+        sel.includes(id) ? sel.filter((x) => x !== id) : [...sel.slice(-1), id],
+      );
+      return;
+    }
+    location.hash = `/session/${encodeURIComponent(id)}`;
+  };
+
+  const sessions = () => {
+    const q = query().trim().toLowerCase();
+    const rows = (data()?.sessions ?? []).filter((s) => !s.parent);
+    if (!q) return rows;
+    return rows.filter((s) => {
+      const title = (s.title ?? s.summary.title ?? s.summary.session_id).toLowerCase();
+      const ws = (s.summary.workspace ?? "").toLowerCase();
+      return title.includes(q) || ws.includes(q);
+    });
+  };
 
   const groups = () => {
     const byWs = new Map<string, SessionRow[]>();
-    for (const s of data()?.sessions ?? []) {
+    for (const s of sessions()) {
       const ws = s.summary.workspace ?? "no workspace";
       byWs.set(ws, [...(byWs.get(ws) ?? []), s]);
     }
-    return [...byWs.entries()].map(([workspace, sessions]) => ({ workspace, sessions }));
+    return [...byWs.entries()];
   };
 
-  onMount(() => {
-    const es = new EventSource(api("/stream"));
-    es.onmessage = () => {
-      setLiveCount((n) => n + 1);
-      refetch();
-    };
-    onCleanup(() => es.close());
-  });
+  const activeId = () => {
+    const r = route();
+    return r.name === "session" ? r.id : undefined;
+  };
+  const connected = () => (conns()?.connections.length ?? 0) > 0;
 
   return (
-    <main class="mx-auto max-w-6xl p-6">
-      <header class="flex items-end">
-        <div>
-          <h1 class="text-2xl font-semibold">Agent Strata</h1>
-          <p class="mt-1 text-sm text-muted-foreground">
-            fleet view — all agent sessions, live from the event log
-          </p>
-        </div>
-        <div class="ml-auto flex gap-2">
+    <div class="flex h-full min-h-0 bg-background">
+      <aside class="flex w-[272px] shrink-0 flex-col border-r border-border bg-card/50">
+        <div class="flex h-12 items-center gap-2 px-3">
           <button
-            class="rounded-md border border-border bg-secondary px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-            onClick={() => (location.hash = "/policy")}
+            class="text-sm font-semibold tracking-tight"
+            onClick={() => (location.hash = "/")}
           >
-            policy
+            strata
           </button>
           <button
-            class="rounded-md border border-border bg-secondary px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-            onClick={async () => {
-              const res = await fetch(api("/sessions"), {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: "{}",
-              });
-              const body = (await res.json()) as { id?: string };
-              if (body.id) location.hash = `/session/${body.id}`;
-            }}
+            class="ml-auto grid h-7 w-7 place-items-center rounded-md text-lg leading-none text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            title="new session"
+            onClick={() => void newSession()}
           >
-            + new session
-          </button>
-          <Show when={compareSel().length === 2}>
-          <button
-            class="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
-            onClick={() => {
-              const [a, b] = compareSel();
-              location.hash = `/compare/${a}/${b}`;
-            }}
-          >
-            compare 2 sessions →
-          </button>
-          </Show>
-        </div>
-      </header>
-
-      <section class="mt-5 flex gap-8 rounded-lg border border-border bg-muted px-4 py-3 text-sm text-muted-foreground">
-        <div>
-          total cost:{" "}
-          <b class="font-mono text-foreground tabular-nums">
-            {fmtUsd(data()?.aggregate.total.cost_usd ?? 0)}
-          </b>
-        </div>
-        <div>
-          tokens:{" "}
-          <b class="font-mono text-foreground tabular-nums">
-            {(data()?.aggregate.total.input ?? 0).toLocaleString()} in
-          </b>
-          {" / "}
-          <b class="font-mono text-foreground tabular-nums">
-            {(data()?.aggregate.total.output ?? 0).toLocaleString()} out
-          </b>
-        </div>
-        <div>
-          live events: <b class="font-mono text-foreground tabular-nums">{liveCount()}</b>
-        </div>
-      </section>
-
-      <section class="mt-4 rounded-lg border border-border bg-card px-4 py-3">
-        <div class="flex flex-wrap items-center gap-2 text-xs">
-          <span class="font-medium text-muted-foreground">backends</span>
-          <For each={conns()?.connections ?? []}>
-            {(c) => (
-              <span class="flex items-center gap-1.5 rounded-md bg-secondary px-2 py-1 font-mono">
-                <span class="h-1.5 w-1.5 rounded-full bg-status-active" />
-                {c.name ?? c.baseUrl}
-                <span class="text-muted-foreground">
-                  {c.name ? c.baseUrl : c.backend}
-                </span>
-                <button
-                  class="ml-1 text-muted-foreground transition-colors hover:text-destructive"
-                  title="disconnect"
-                  onClick={() =>
-                    void disconnectBackend(c.id).then(() => {
-                      refetchConns();
-                      refetch();
-                    })
-                  }
-                >
-                  ✕
-                </button>
-              </span>
-            )}
-          </For>
-          <Show when={(conns()?.connections.length ?? 0) === 0}>
-            <span class="text-muted-foreground">none connected</span>
-          </Show>
-          <button
-            class="ml-auto rounded-md bg-secondary px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent"
-            onClick={() => setConnOpen((v) => !v)}
-          >
-            {connOpen() ? "cancel" : "+ connect"}
+            +
           </button>
         </div>
-        <Show when={connOpen()}>
-          <div class="mt-3 flex flex-wrap items-center gap-1.5 border-t border-border pt-3">
-            <input
-              class="w-52 rounded-md border border-input bg-secondary/50 px-2 py-1 font-mono text-xs text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none"
-              placeholder="server URL"
-              value={connUrl()}
-              onInput={(e) => setConnUrl(e.currentTarget.value)}
-            />
-            <input
-              class="w-32 rounded-md border border-input bg-secondary/50 px-2 py-1 font-mono text-xs text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none"
-              placeholder="name (optional)"
-              value={connName()}
-              onInput={(e) => setConnName(e.currentTarget.value)}
-            />
-            <input
-              class="w-28 rounded-md border border-input bg-secondary/50 px-2 py-1 font-mono text-xs text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none"
-              placeholder="username (optional)"
-              value={connUser()}
-              onInput={(e) => setConnUser(e.currentTarget.value)}
-            />
-            <input
-              type="password"
-              class="w-28 rounded-md border border-input bg-secondary/50 px-2 py-1 font-mono text-xs text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none"
-              placeholder="password (optional)"
-              value={connPass()}
-              onInput={(e) => setConnPass(e.currentTarget.value)}
-            />
-            <button
-              class="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
-              disabled={connecting() || !connUrl().trim()}
-              onClick={() => void connect()}
-            >
-              {connecting() ? "connecting…" : "add server"}
-            </button>
-          </div>
-        </Show>
-        <Show when={connErr()}>
-          <p class="mt-2 font-mono text-xs text-destructive">{connErr()}</p>
-        </Show>
-      </section>
-
-      <div class="mt-4">
-        <input
-          class="w-full max-w-md rounded-md border border-input bg-secondary/50 px-3 py-1.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none"
-          placeholder="search all sessions (FTS)…"
-          value={query()}
-          onInput={(e) => setQuery(e.currentTarget.value)}
-        />
-      </div>
-
-      <Show when={query().trim()}>
-        <section class="mt-4 rounded-lg border border-border bg-card">
+        <div class="px-3 pb-2">
+          <input
+            class="w-full rounded-md border border-transparent bg-secondary/70 px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none"
+            placeholder="Search"
+            value={query()}
+            onInput={(e) => setQuery(e.currentTarget.value)}
+          />
+        </div>
+        <div class="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
           <For
-            each={results() ?? []}
+            each={groups()}
             fallback={
-              <p class="p-4 text-sm text-muted-foreground">
-                {results.loading ? "searching…" : "no events match"}
+              <p class="px-2 py-6 text-xs text-muted-foreground">
+                {connected() ? "no sessions yet" : "connect a backend to see sessions"}
               </p>
             }
           >
-            {(e) => (
-              <button
-                class="block w-full border-b border-border px-4 py-2.5 text-left transition-colors last:border-0 hover:bg-secondary/50"
-                onClick={() => (location.hash = `/session/${e.session_id}`)}
-              >
-                <div class="flex items-center gap-2 text-xs">
-                  <span class="font-mono text-event-tool">{e.type}</span>
-                  <span class="truncate font-mono text-muted-foreground">{e.session_id}</span>
-                  <span class="ml-auto shrink-0 font-mono text-muted-foreground tabular-nums">
-                    {e.ts.slice(0, 19).replace("T", " ")}
-                  </span>
-                </div>
-                <div class="mt-1 truncate text-sm text-foreground/80">{eventPreview(e)}</div>
-              </button>
+            {([ws, rows]) => (
+              <section class="mb-3">
+                <Show when={realWorkspace(ws)}>
+                  <h2 class="truncate px-2 py-1 font-mono text-[10px] text-muted-foreground">{ws}</h2>
+                </Show>
+                <For each={rows}>
+                  {(s) => {
+                    const id = s.summary.session_id;
+                    const on = () => activeId() === id || compareSel().includes(id);
+                    return (
+                      <button
+                        class={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${
+                          on() ? "bg-accent text-foreground" : "text-foreground/80 hover:bg-secondary/70"
+                        }`}
+                        onClick={() => openSession(id)}
+                      >
+                        <Show when={s.busy}>
+                          <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-status-active" />
+                        </Show>
+                        <span class="min-w-0 flex-1 truncate text-[13px]">
+                          {s.title ?? s.summary.title ?? "untitled"}
+                        </span>
+                        <span class="shrink-0 font-mono text-[10px] text-muted-foreground tabular-nums">
+                          {relTime(s.summary.last_ts)}
+                        </span>
+                      </button>
+                    );
+                  }}
+                </For>
+              </section>
             )}
           </For>
-        </section>
-      </Show>
-
-      <Show when={!query().trim()}>
-      <For each={groups()} fallback={<p class="mt-5 text-muted-foreground">no sessions yet</p>}>
-        {(g) => (
-          <section class="mt-6">
-            <h2 class="mb-3 font-mono text-xs font-medium text-muted-foreground">{g.workspace}</h2>
-            <div class="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-3">
-              <For each={g.sessions}>
-                {(s) => (
-                  <SessionCard
-                    s={s}
-                    compareSelected={compareSel().includes(s.summary.session_id)}
-                    onCompareToggle={() => toggleCompare(s.summary.session_id)}
-                  />
-                )}
-              </For>
+        </div>
+        <div class="border-t border-border p-3">
+          <div class="flex flex-wrap items-center gap-1.5">
+            <For each={conns()?.connections ?? []}>
+              {(c) => (
+                <span class="flex max-w-full items-center gap-1.5 rounded-full bg-secondary px-2 py-0.5 text-[11px]">
+                  <span class="h-1.5 w-1.5 rounded-full bg-status-active" />
+                  <span class="truncate">{c.name ?? c.baseUrl}</span>
+                  <button
+                    class="text-muted-foreground hover:text-destructive"
+                    title="disconnect"
+                    onClick={() =>
+                      void disconnectBackend(c.id).then(() => {
+                        refetchConns();
+                        window.dispatchEvent(new Event("strata-connections"));
+                      })
+                    }
+                  >
+                    ×
+                  </button>
+                </span>
+              )}
+            </For>
+          </div>
+          <Show when={connOpen()}>
+            <div class="mt-2 space-y-1.5">
+              <input
+                class="w-full rounded-md border border-input bg-background px-2 py-1 font-mono text-[11px] focus:border-ring focus:outline-none"
+                placeholder="http://127.0.0.1:4096"
+                value={connUrl()}
+                onInput={(e) => setConnUrl(e.currentTarget.value)}
+              />
+              <div class="flex gap-1.5">
+                <input
+                  class="w-1/3 rounded-md border border-input bg-background px-2 py-1 text-[11px] focus:border-ring focus:outline-none"
+                  placeholder="name"
+                  value={connName()}
+                  onInput={(e) => setConnName(e.currentTarget.value)}
+                />
+                <input
+                  class="w-1/3 rounded-md border border-input bg-background px-2 py-1 text-[11px] focus:border-ring focus:outline-none"
+                  placeholder="user"
+                  value={connUser()}
+                  onInput={(e) => setConnUser(e.currentTarget.value)}
+                />
+                <input
+                  type="password"
+                  class="w-1/3 rounded-md border border-input bg-background px-2 py-1 text-[11px] focus:border-ring focus:outline-none"
+                  placeholder="password"
+                  value={connPass()}
+                  onInput={(e) => setConnPass(e.currentTarget.value)}
+                />
+              </div>
+              <button
+                class="w-full rounded-md bg-primary py-1 text-xs font-medium text-primary-foreground disabled:opacity-50"
+                disabled={connecting() || !connUrl().trim()}
+                onClick={() => void connect()}
+              >
+                {connecting() ? "connecting…" : "connect"}
+              </button>
             </div>
-          </section>
-        )}
-      </For>
-      </Show>
-    </main>
-  );
-}
+          </Show>
+          <Show when={connErr()}>
+            <p class="mt-1.5 font-mono text-[10px] text-destructive">{connErr()}</p>
+          </Show>
+          <div class="mt-2 flex items-center gap-0.5">
+            <button
+              class={`grid h-7 w-7 place-items-center rounded-md hover:bg-secondary ${
+                connOpen() ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+              }`}
+              title={connOpen() ? "Close" : "Connect"}
+              aria-label={connOpen() ? "Close" : "Connect"}
+              onClick={() => setConnOpen((v) => !v)}
+            >
+              <Icon name="link" />
+            </button>
+            <button
+              class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
+              title="Policy"
+              aria-label="Policy"
+              onClick={() => (location.hash = "/policy")}
+            >
+              <Icon name="shield" />
+            </button>
+            <button
+              class={`grid h-7 w-7 place-items-center rounded-md hover:bg-secondary ${
+                compareOn() ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground"
+              }`}
+              title="Compare"
+              aria-label="Compare"
+              onClick={() => {
+                setCompareOn((v) => !v);
+                setCompareSel([]);
+              }}
+            >
+              <Icon name="columns" />
+            </button>
+            <Show when={compareSel().length === 2}>
+              <button
+                class="ml-auto rounded-md bg-primary px-2 py-1 font-medium text-primary-foreground"
+                onClick={() => {
+                  const [a, b] = compareSel();
+                  location.hash = `/compare/${encodeURIComponent(a!)}/${encodeURIComponent(b!)}`;
+                  setCompareOn(false);
+                  setCompareSel([]);
+                }}
+              >
+                open
+              </button>
+            </Show>
+          </div>
+        </div>
+      </aside>
 
-export function App() {
-  const [route, setRoute] = createSignal<Route>(parseHash());
-  onMount(() => {
-    const onHash = () => setRoute(parseHash());
-    window.addEventListener("hashchange", onHash);
-    onCleanup(() => window.removeEventListener("hashchange", onHash));
-  });
-  const back = () => (location.hash = "/");
-
-  return (
-    <>
-      <Show when={route().name === "fleet"}>
-        <Fleet />
-      </Show>
-      <Show when={route().name === "session"}>
-        <SessionDetail id={(route() as { id: string }).id} back={back} />
-      </Show>
-      <Show when={route().name === "compare"}>
-        <CompareView
-          a={(route() as { a: string }).a}
-          b={(route() as { b: string }).b}
-          back={back}
-        />
-      </Show>
-      <Show when={route().name === "policy"}>
-        <PolicyEditor back={back} />
-      </Show>
-    </>
+      <main class="min-w-0 flex-1">
+        <Show when={route().name === "fleet"}>
+          <div class="flex h-full flex-col">
+            <div class="flex h-12 items-center border-b border-border px-6 text-xs text-muted-foreground">
+              <span>
+                {(data()?.sessions.length ?? 0).toLocaleString()} sessions ·{" "}
+                <span class="font-mono tabular-nums text-foreground">
+                  {fmtUsd(data()?.aggregate.total.cost_usd ?? 0)}
+                </span>
+              </span>
+            </div>
+            <div class="min-h-0 flex-1 overflow-y-auto">
+              <Show
+                when={query().trim() && (results()?.length ?? 0) > 0}
+                fallback={
+                  <div class="mx-auto flex max-w-md flex-col items-center px-6 pt-28 text-center">
+                    <p class="text-lg font-medium">
+                      {connected() ? "Pick a session" : "Connect OpenCode"}
+                    </p>
+                    <p class="mt-2 text-sm text-muted-foreground">
+                      {connected()
+                        ? "Sessions already on the server show up in the sidebar. New ones start with +."
+                        : "Point strata at an opencode serve URL. Existing sessions are indexed as soon as the stream attaches."}
+                    </p>
+                    <button
+                      class="mt-5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90"
+                      onClick={() => (connected() ? void newSession() : setConnOpen(true))}
+                    >
+                      {connected() ? "new session" : "connect"}
+                    </button>
+                  </div>
+                }
+              >
+                <div class="mx-auto max-w-2xl py-4">
+                  <For each={results() ?? []}>
+                    {(e) => (
+                      <button
+                        class="block w-full px-4 py-2.5 text-left hover:bg-secondary/50"
+                        onClick={() => (location.hash = `/session/${encodeURIComponent(e.session_id)}`)}
+                      >
+                        <div class="flex items-center gap-2 text-[11px]">
+                          <span class="font-mono text-event-tool">{e.type}</span>
+                          <span class="ml-auto font-mono text-muted-foreground tabular-nums">
+                            {e.ts.slice(0, 16).replace("T", " ")}
+                          </span>
+                        </div>
+                        <div class="mt-0.5 truncate text-sm text-foreground/85">{eventPreview(e)}</div>
+                      </button>
+                    )}
+                  </For>
+                </div>
+              </Show>
+            </div>
+          </div>
+        </Show>
+        <Show when={route().name === "session" ? (route() as { id: string }).id : undefined} keyed>
+          {(id) => <SessionDetail id={id} />}
+        </Show>
+        <Show when={route().name === "compare"}>
+          <div class="h-full overflow-y-auto">
+            <CompareView
+              a={(route() as { a: string }).a}
+              b={(route() as { b: string }).b}
+              back={() => (location.hash = "/")}
+            />
+          </div>
+        </Show>
+        <Show when={route().name === "policy"}>
+          <div class="h-full overflow-y-auto">
+            <PolicyEditor back={() => (location.hash = "/")} />
+          </div>
+        </Show>
+      </main>
+    </div>
   );
 }

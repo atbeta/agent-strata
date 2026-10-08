@@ -140,6 +140,38 @@ describe("OpencodeMapper", () => {
     expect((tu.data as { content: object[] }).content).toEqual([{ type: "text", text: "early" }]);
   });
 
+  test("question.asked maps options; idle emits session.status", () => {
+    const m = new OpencodeMapper();
+    const asked = m.handle({
+      id: "q",
+      type: "question.asked",
+      properties: {
+        id: "req1",
+        sessionID: sid,
+        questions: [
+          {
+            question: "Pick one",
+            header: "Pick",
+            options: [{ label: "a", description: "A" }],
+            multiple: false,
+          },
+        ],
+      },
+    } as unknown as Event);
+    expect(asked.some((e) => e.type === "session.started")).toBe(true);
+    const q = asked.find((e) => e.type === "question.asked")!;
+    expect(q.data).toMatchObject({
+      request_id: "req1",
+      questions: [{ header: "Pick", options: [{ label: "a", description: "A" }] }],
+    });
+    const idle = m.handle({
+      id: "idle1",
+      type: "session.idle",
+      properties: { sessionID: sid },
+    } as unknown as Event);
+    expect(idle.find((e) => e.type === "session.status")!.data).toEqual({ state: "idle" });
+  });
+
   test("turn.user echoes on first text part; idle doesn't re-emit", () => {
     const m = new OpencodeMapper();
     const out1 = [

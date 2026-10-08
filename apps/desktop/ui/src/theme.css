@@ -77,16 +77,29 @@
   :root {
     color-scheme: dark;
   }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
   body {
     @apply bg-background text-foreground font-sans antialiased;
+  }
+  ::selection {
+    background: hsl(217 91% 60% / 0.35);
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(220 14% 24%) transparent;
   }
 }
 
 /* rendered markdown (chat messages) — hand-rolled, shadcn-token-colored */
 .md {
-  @apply text-sm leading-relaxed text-foreground/90;
+  @apply text-[15px] leading-7 text-foreground/90;
   word-break: break-word;
 }
+.md-bubble p { margin: 0; }
 .md > :first-child { margin-top: 0; }
 .md > :last-child { margin-bottom: 0; }
 .md p { @apply my-2.5; }

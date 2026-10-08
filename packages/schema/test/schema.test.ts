@@ -20,6 +20,7 @@ const base = {
 const fixtures: Record<string, unknown> = {
   "session.started": { workspace: "/repo", title: "t", model: "m" },
   "session.ended": { reason: "completed" },
+  "session.status": { state: "busy" },
   "turn.user": { turn_id: "t1", content: [{ type: "text", text: "hi" }] },
   "turn.assistant": {
     turn_id: "t1",
@@ -49,6 +50,18 @@ const fixtures: Record<string, unknown> = {
   },
   "file.changed": { path: "a.ts", change: "modify", diff: "@@" },
   "plan.updated": { entries: [{ content: "do", status: "pending" }] },
+  "question.asked": {
+    request_id: "q1",
+    questions: [
+      {
+        question: "Which runtime?",
+        header: "Runtime",
+        options: [{ label: "bun", description: "Bun" }],
+        multiple: false,
+      },
+    ],
+  },
+  "question.resolved": { request_id: "q1", decision: "reply", answers: [["bun"]] },
 };
 
 describe("schema", () => {

@@ -45,15 +45,35 @@ export interface Totals {
   permissions_denied: number;
 }
 
+export interface QuestionOption {
+  label: string;
+  description: string;
+}
+
+export interface QuestionPrompt {
+  request_id: string;
+  questions: {
+    question: string;
+    header: string;
+    options: QuestionOption[];
+    multiple?: boolean;
+    custom?: boolean;
+  }[];
+}
+
 export interface SessionView {
   session_id: string;
   backend: string;
   workspace?: string;
   title?: string;
+  parent_session_id?: string;
   status: "active" | "completed" | "cancelled" | "error";
+  /** backend is mid-generation; last session.status wins */
+  busy: boolean;
   turns: Turn[];
   orphans: ToolCallView[];
   pending_permissions: PermissionInfo[];
+  pending_questions: QuestionPrompt[];
   plan?: { content: string; status: "pending" | "in_progress" | "completed" }[];
   files_changed: { path: string; change: "add" | "modify" | "delete"; count: number }[];
   totals: Totals;
@@ -83,9 +103,11 @@ export function projectSession(events: Event[]): SessionView {
     session_id: sessionId,
     backend: sorted[0]!.source.backend,
     status: "active",
+    busy: false,
     turns: [],
     orphans: [],
     pending_permissions: [],
+    pending_questions: [],
     files_changed: [],
     totals: zeroTotals(),
   };
@@ -97,6 +119,7 @@ export function projectSession(events: Event[]): SessionView {
   // permission.asked first) — index by call_id so a late call still attaches
   const requestsByCall = new Map<string, PermissionInfo>();
   const files = new Map<string, { change: "add" | "modify" | "delete"; count: number }>();
+  const questions = new Map<string, QuestionPrompt>();
   const orphanResults: { call_id: string; status: string; output?: string; latency_ms?: number }[] = [];
 
   const getTurn = (id: string): Turn => {
@@ -114,9 +137,14 @@ export function projectSession(events: Event[]): SessionView {
       case "session.started":
         view.workspace = e.data.workspace;
         view.title = e.data.title;
+        if (e.data.parent_session_id) view.parent_session_id = e.data.parent_session_id;
         break;
       case "session.ended":
         view.status = e.data.reason;
+        view.busy = false;
+        break;
+      case "session.status":
+        view.busy = e.data.state === "busy";
         break;
       case "turn.user": {
         const t = getTurn(e.data.turn_id);
@@ -228,6 +256,26 @@ export function projectSession(events: Event[]): SessionView {
       case "plan.updated":
         view.plan = e.data.entries;
         break;
+      case "question.asked":
+        questions.set(e.data.request_id, {
+          request_id: e.data.request_id,
+          questions: e.data.questions,
+        });
+        break;
+      case "question.resolved":
+        questions.delete(e.data.request_id);
+        break;
+    }
+  }
+
+  view.pending_questions = [...questions.values()];
+  if (!view.title) {
+    for (const t of view.turns) {
+      const block = t.user?.find((b) => b.type === "text" && b.text.trim());
+      if (block?.type === "text") {
+        view.title = block.text.trim().slice(0, 80);
+        break;
+      }
     }
   }
 

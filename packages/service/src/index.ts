@@ -6,10 +6,11 @@ import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { openStore, type Store, type EventQuery } from "@agent-strata/store";
 import { projectSession, aggregate, type SessionView } from "@agent-strata/projector";
-import { connectOpencode } from "@agent-strata/adapter-opencode";
 import { compareSessions, exportEvents } from "@agent-strata/core";
 import { evaluate, loadPolicy, type Policy } from "@agent-strata/policy";
 import type { Event } from "@agent-strata/schema";
+import type { BackendDriver } from "./driver";
+import { connectOpencodeDriver } from "./opencode-driver";
 
 export interface ServiceOpts {
   db?: string;
@@ -21,29 +22,6 @@ export interface ServiceOpts {
   autoConnectTimeoutMs?: number;
 }
 
-interface Conn {
-  id: string;
-  backend: string;
-  baseUrl: string;
-  name?: string;
-  directory?: string;
-  stop: () => void;
-  createSession: (opts?: { title?: string }) => Promise<{ id: string }>;
-  prompt: (
-    sessionID: string,
-    text: string,
-    opts?: {
-      model?: { providerID: string; modelID: string };
-      agent?: string;
-      variant?: string;
-    },
-  ) => Promise<void>;
-  listModels: () => Promise<
-    { providerID: string; modelID: string; name: string; variants?: string[] }[]
-  >;
-  listAgents: () => Promise<{ name: string; mode?: string }[]>;
-}
-
 interface PendingAsk {
   request_id: string;
   session_id: string;
@@ -51,6 +29,20 @@ interface PendingAsk {
   input: Record<string, unknown>;
   asked_at: string;
   resolve: (ans: { decision: "allow" | "deny"; scope?: "once" | "always" }) => void;
+}
+
+interface PendingQuestion {
+  request_id: string;
+  session_id: string;
+  questions: {
+    question: string;
+    header: string;
+    options: { label: string; description: string }[];
+    multiple?: boolean;
+    custom?: boolean;
+  }[];
+  asked_at: string;
+  resolve: (ans: { decision: "reply" | "reject"; answers?: string[][] }) => void;
 }
 
 export interface RunningService {
@@ -61,7 +53,9 @@ export interface RunningService {
 
 export function startService(opts: ServiceOpts = {}): RunningService {
   const store = openStore(opts.db ?? ":memory:");
-  const conns = new Map<string, Conn>();
+  const conns = new Map<string, BackendDriver>();
+  // casf session id -> driver id, filled as sessions are indexed or created
+  const owners = new Map<string, string>();
   // live policy: applies to every connection (hot-swapped via PUT /policy)
   let currentPolicy: Policy | undefined;
   const loadPolicyFile = (): Policy | undefined => {
@@ -87,6 +81,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     writeFileSync(opts.policyFile, JSON.stringify(currentPolicy, null, 2) + "\n");
   };
   const pendingAsks = new Map<string, PendingAsk>();
+  const pendingQuestions = new Map<string, PendingQuestion>();
   const subscribers = new Set<(evt: Event) => void>();
   store.subscribe((e) => {
     for (const fn of subscribers) fn(e);
@@ -99,7 +94,16 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     });
 
   const sessionView = (sessionId: string): SessionView =>
-    projectSession(store.read({ session_id: sessionId }));
+    projectSession(store.read({ session_id: sessionId, limit: 20_000 }));
+
+  const driverFor = (casfId: string): BackendDriver | undefined => {
+    const owned = owners.get(casfId);
+    if (owned) return conns.get(owned);
+    if (conns.size === 1) return [...conns.values()][0];
+    const backend = casfId.split(":")[0];
+    const matches = [...conns.values()].filter((c) => c.backend === backend);
+    return matches.length === 1 ? matches[0] : undefined;
+  };
 
   const connectBackend = async (body: {
     backend?: string;
@@ -110,55 +114,59 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     password?: string;
     policy?: unknown;
     connectTimeoutMs?: number;
-  }): Promise<{ id: string }> => {
-    if ((body.backend ?? "opencode") !== "opencode")
-      throw new Error("only opencode backend supported");
+  }): Promise<{ id: string; indexed: number }> => {
+    const backend = body.backend ?? "opencode";
+    if (backend !== "opencode") throw new Error(`backend ${backend} is not registered`);
     const explicit: Policy | undefined = body.policy
       ? loadPolicy(body.policy)
       : undefined;
-    const conn = await connectOpencode({
+    const driver = await connectOpencodeDriver({
+      sink: store,
       baseUrl: body.baseUrl,
+      name: body.name,
       directory: body.directory,
       username: body.username,
       password: body.password,
-      sink: store,
       // per-connect policy wins; otherwise follow the live shared policy
       policy: explicit ? () => explicit : () => currentPolicy,
       connectTimeoutMs: body.connectTimeoutMs,
       onAsk: (req) => {
         store.append([req]);
-        const data = req.data as {
-          request_id: string;
-          tool: string;
-          input: Record<string, unknown>;
-        };
-        return new Promise<{ decision: "allow" | "deny"; scope?: "once" | "always" }>(
-          (resolve) =>
-            pendingAsks.set(data.request_id, {
-              request_id: data.request_id,
-              session_id: req.session_id,
-              tool: data.tool,
-              input: data.input,
-              asked_at: req.ts,
-              resolve,
-            }),
+        const data = req.data;
+        return new Promise((resolve) =>
+          pendingAsks.set(data.request_id, {
+            request_id: data.request_id,
+            session_id: req.session_id,
+            tool: data.tool,
+            input: data.input,
+            asked_at: req.ts,
+            resolve,
+          }),
+        );
+      },
+      onQuestion: (req) => {
+        store.append([req]);
+        const data = req.data;
+        return new Promise((resolve) =>
+          pendingQuestions.set(data.request_id, {
+            request_id: data.request_id,
+            session_id: req.session_id,
+            questions: data.questions,
+            asked_at: req.ts,
+            resolve,
+          }),
         );
       },
     });
-    const id = `opencode:${body.baseUrl}`;
-    conns.set(id, {
-      id,
-      backend: "opencode",
-      baseUrl: body.baseUrl,
-      name: body.name,
-      directory: body.directory,
-      stop: conn.stop,
-      createSession: conn.createSession,
-      prompt: conn.prompt,
-      listModels: conn.listModels,
-      listAgents: conn.listAgents,
-    });
-    return { id };
+    conns.set(driver.id, driver);
+    let indexed: string[] = [];
+    try {
+      indexed = await driver.indexSessions();
+      for (const casfId of indexed) owners.set(casfId, driver.id);
+    } catch (e) {
+      console.error(`index sessions on ${driver.id} failed: ${e}`);
+    }
+    return { id: driver.id, indexed: indexed.length };
   };
 
   // boot auto-connect (e.g. Tauri spawning `opencode serve` next to us):
@@ -198,7 +206,14 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         });
         const views = summaries.map((s) => {
           const v = sessionView(s.session_id);
-          return { summary: s, status: v.status, totals: v.totals, title: v.title };
+          return {
+            summary: s,
+            status: v.status,
+            busy: v.busy,
+            totals: v.totals,
+            title: v.title,
+            parent: v.parent_session_id,
+          };
         });
         return json({ sessions: views, aggregate: aggregate(views.map((v) => sessionView(v.summary.session_id))) });
       }
@@ -245,34 +260,65 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       }
 
       if (path === "/sessions" && req.method === "POST") {
-        const conn = [...conns.values()][0];
+        const body = (await req.json().catch(() => ({}))) as {
+          title?: string;
+          connection_id?: string;
+        };
+        const conn = body.connection_id
+          ? conns.get(body.connection_id)
+          : [...conns.values()][0];
         if (!conn) return json({ error: "no backend connected" }, 400);
-        const body = (await req.json().catch(() => ({}))) as { title?: string };
+        if (!conn.capabilities.prompt) return json({ error: "backend cannot create sessions" }, 400);
         const created = await conn.createSession({ title: body.title });
-        return json({ id: `opencode:${created.id}`, native_id: created.id });
+        owners.set(created.casfId, conn.id);
+        return json({ id: created.casfId, native_id: created.nativeId });
       }
 
-      const promptMatch = path.match(/^\/sessions\/([^/]+)\/prompt$/);
-      if (promptMatch && req.method === "POST") {
-        const conn = [...conns.values()][0];
+      const sessionCmd = path.match(/^\/sessions\/([^/]+)\/(prompt|abort|import)$/);
+      if (sessionCmd) {
+        const casfId = decodeURIComponent(sessionCmd[1]!);
+        const cmd = sessionCmd[2]!;
+        const conn = driverFor(casfId);
         if (!conn) return json({ error: "no backend connected" }, 400);
-        const body = (await req.json().catch(() => null)) as {
-          text?: string;
-          model?: { providerID: string; modelID: string };
-          agent?: string;
-          variant?: string;
-        } | null;
-        if (!body?.text) return json({ error: "text required" }, 400);
-        const native = decodeURIComponent(promptMatch[1]!).replace(/^opencode:/, "");
-        try {
-          await conn.prompt(native, body.text, {
-            model: body.model,
-            agent: body.agent,
-            variant: body.variant,
-          });
-          return json({ ok: true });
-        } catch (e) {
-          return json({ error: String(e) }, 502);
+        const native = conn.nativeId(casfId);
+        if (!native) return json({ error: "session is not owned by a connected backend" }, 400);
+        owners.set(casfId, conn.id);
+        if (cmd === "import" && req.method === "POST") {
+          if (!conn.capabilities.import) return json({ error: "backend cannot import" }, 400);
+          try {
+            await conn.importSession(native);
+            return json({ ok: true });
+          } catch (e) {
+            return json({ error: String(e) }, 502);
+          }
+        }
+        if (cmd === "abort" && req.method === "POST") {
+          if (!conn.capabilities.abort) return json({ error: "backend cannot abort" }, 400);
+          try {
+            await conn.abort(native);
+            return json({ ok: true });
+          } catch (e) {
+            return json({ error: String(e) }, 502);
+          }
+        }
+        if (cmd === "prompt" && req.method === "POST") {
+          const body = (await req.json().catch(() => null)) as {
+            text?: string;
+            model?: { providerID: string; modelID: string };
+            agent?: string;
+            variant?: string;
+          } | null;
+          if (!body?.text) return json({ error: "text required" }, 400);
+          try {
+            await conn.prompt(native, body.text, {
+              model: body.model,
+              agent: body.agent,
+              variant: body.variant,
+            });
+            return json({ ok: true });
+          } catch (e) {
+            return json({ error: String(e) }, 502);
+          }
         }
       }
 
@@ -315,7 +361,14 @@ export function startService(opts: ServiceOpts = {}): RunningService {
 
       if (path === "/connections" && req.method === "GET") {
         return json({
-          connections: [...conns.values()].map(({ stop: _s, ...c }) => c),
+          connections: [...conns.values()].map((c) => ({
+            id: c.id,
+            backend: c.backend,
+            baseUrl: c.baseUrl,
+            name: c.name,
+            directory: c.directory,
+            capabilities: c.capabilities,
+          })),
         });
       }
 
@@ -379,6 +432,28 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         ask.resolve({
           decision: body.decision === "deny" ? "deny" : "allow",
           scope: body.scope,
+        });
+        return json({ ok: true });
+      }
+
+      if (path === "/questions" && req.method === "GET") {
+        return json({
+          pending: [...pendingQuestions.values()].map(({ resolve: _r, ...p }) => p),
+        });
+      }
+
+      const questionMatch = path.match(/^\/questions\/([^/]+)\/respond$/);
+      if (questionMatch && req.method === "POST") {
+        const q = pendingQuestions.get(decodeURIComponent(questionMatch[1]!));
+        if (!q) return json({ error: "no pending question" }, 404);
+        const body = (await req.json().catch(() => ({}))) as {
+          decision?: string;
+          answers?: string[][];
+        };
+        pendingQuestions.delete(q.request_id);
+        q.resolve({
+          decision: body.decision === "reject" ? "reject" : "reply",
+          answers: body.answers,
         });
         return json({ ok: true });
       }

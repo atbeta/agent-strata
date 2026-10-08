@@ -59,6 +59,9 @@ const data = {
     reason: z.enum(["completed", "cancelled", "error"]),
     error: z.string().optional(),
   }),
+  "session.status": z.object({
+    state: z.enum(["busy", "idle"]),
+  }),
   "turn.user": z.object({
     turn_id: z.string(),
     content: z.array(ContentBlock),
@@ -117,6 +120,23 @@ const data = {
         status: z.enum(["pending", "in_progress", "completed"]),
       }),
     ),
+  }),
+  "question.asked": z.object({
+    request_id: z.string(),
+    questions: z.array(
+      z.object({
+        question: z.string(),
+        header: z.string(),
+        options: z.array(z.object({ label: z.string(), description: z.string() })),
+        multiple: z.boolean().optional(),
+        custom: z.boolean().optional(),
+      }),
+    ),
+  }),
+  "question.resolved": z.object({
+    request_id: z.string(),
+    decision: z.enum(["reply", "reject"]),
+    answers: z.array(z.array(z.string())).optional(),
   }),
 } as const;
 

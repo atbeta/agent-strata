@@ -10,6 +10,10 @@ export type OnAsk = (
   req: Extract<EventInput, { type: "permission.requested" }>,
 ) => Promise<{ decision: "allow" | "deny"; scope?: "once" | "always" }>;
 
+export type OnQuestion = (
+  req: Extract<EventInput, { type: "question.asked" }>,
+) => Promise<{ decision: "reply" | "reject"; answers?: string[][] }>;
+
 const SHELL_PERMS = new Set(["bash", "pwsh", "powershell", "cmd"]);
 
 // how often a mid-generation assistant snapshot is emitted (part updates can
@@ -299,6 +303,65 @@ export class OpencodeMapper {
         const idle =
           evt.type === "session.idle" || evt.properties.status.type === "idle";
         if (idle) for (const msgID of [...s.pendingUserMsgs]) this.flushUser(s, out, msgID);
+        out.push(
+          this.ev(
+            s,
+            "session.status",
+            { state: idle ? "idle" : "busy" },
+            `opencode:${sessionID}:status:${evt.id}`,
+          ),
+        );
+        return out;
+      }
+      case "question.asked": {
+        const p = evt.properties;
+        const { s, out: pre } = this.ensureSession(p.sessionID);
+        out.push(...pre);
+        out.push(
+          this.ev(
+            s,
+            "question.asked",
+            {
+              request_id: p.id,
+              questions: p.questions.map((q) => ({
+                question: q.question,
+                header: q.header,
+                options: q.options.map((o) => ({ label: o.label, description: o.description })),
+                multiple: q.multiple,
+                custom: q.custom,
+              })),
+            },
+            `opencode:${p.id}:question.asked`,
+          ),
+        );
+        return out;
+      }
+      case "question.replied": {
+        const p = evt.properties;
+        const { s, out: pre } = this.ensureSession(p.sessionID);
+        out.push(...pre);
+        out.push(
+          this.ev(
+            s,
+            "question.resolved",
+            { request_id: p.requestID, decision: "reply", answers: p.answers },
+            `opencode:${p.requestID}:question.resolved`,
+          ),
+        );
+        return out;
+      }
+      case "question.rejected": {
+        const p = evt.properties;
+        const { s, out: pre } = this.ensureSession(p.sessionID);
+        out.push(...pre);
+        out.push(
+          this.ev(
+            s,
+            "question.resolved",
+            { request_id: p.requestID, decision: "reject" },
+            `opencode:${p.requestID}:question.resolved`,
+          ),
+        );
         return out;
       }
       case "permission.asked": {
@@ -373,7 +436,10 @@ export function createIngestor(opts: {
   sink: Sink;
   policy?: Policy | (() => Policy | undefined);
   onAsk?: OnAsk;
+  onQuestion?: OnQuestion;
   reply: (requestID: string, reply: "once" | "reject", message?: string) => Promise<unknown>;
+  replyQuestion?: (requestID: string, answers: string[][]) => Promise<unknown>;
+  rejectQuestion?: (requestID: string) => Promise<unknown>;
 }): { handle: (evt: Event) => void } {
   const { mapper, sink } = opts;
 
@@ -439,12 +505,65 @@ export function createIngestor(opts: {
     });
   };
 
+  const emitQuestionResolved = (
+    sessionID: string,
+    requestID: string,
+    decision: "reply" | "reject",
+    answers?: string[][],
+  ) => {
+    const s = mapper.sessions.get(sessionID);
+    if (!s) return;
+    emit([
+      mapper.ev(
+        s,
+        "question.resolved",
+        { request_id: requestID, decision, answers },
+        `opencode:${requestID}:question.resolved`,
+      ),
+    ]);
+  };
+
+  const handleQuestion = async (evt: Extract<Event, { type: "question.asked" }>) => {
+    if (!opts.onQuestion || !opts.replyQuestion || !opts.rejectQuestion) return;
+    const p = evt.properties;
+    const s = mapper.sessions.get(p.sessionID);
+    if (!s) return;
+    const req = mapper.ev(
+      s,
+      "question.asked",
+      {
+        request_id: p.id,
+        questions: p.questions.map((q) => ({
+          question: q.question,
+          header: q.header,
+          options: q.options.map((o) => ({ label: o.label, description: o.description })),
+          multiple: q.multiple,
+          custom: q.custom,
+        })),
+      },
+      `opencode:${p.id}:question.asked`,
+    ) as Extract<EventInput, { type: "question.asked" }>;
+    const ans = await opts.onQuestion(req);
+    if (ans.decision === "reply") {
+      await opts.replyQuestion(p.id, ans.answers ?? []);
+      emitQuestionResolved(p.sessionID, p.id, "reply", ans.answers);
+      return;
+    }
+    await opts.rejectQuestion(p.id);
+    emitQuestionResolved(p.sessionID, p.id, "reject");
+  };
+
   return {
     handle(evt: Event) {
       emit(mapper.handle(evt));
       if (evt.type === "permission.asked") {
         void handlePermission(evt).catch((err) =>
           console.error("opencode permission handling error:", err),
+        );
+      }
+      if (evt.type === "question.asked") {
+        void handleQuestion(evt).catch((err) =>
+          console.error("opencode question handling error:", err),
         );
       }
     },
@@ -460,6 +579,7 @@ export async function connectOpencode(opts: {
   sink: Sink;
   policy?: Policy | (() => Policy | undefined);
   onAsk?: OnAsk;
+  onQuestion?: OnQuestion;
   onEvent?: (evt: Event) => void;
   connectTimeoutMs?: number;
   fetch?: typeof fetch;
@@ -480,6 +600,9 @@ export async function connectOpencode(opts: {
     { providerID: string; modelID: string; name: string; variants: string[] }[]
   >;
   listAgents: () => Promise<{ name: string; mode?: string }[]>;
+  listSessions: () => Promise<{ id: string; title: string; directory: string }[]>;
+  abort: (sessionID: string) => Promise<void>;
+  indexSessions: () => Promise<string[]>;
 }> {
   const abort = new AbortController();
   // The SDK builds the SSE request with its own internal signal and ignores a
@@ -535,8 +658,15 @@ export async function connectOpencode(opts: {
     sink: opts.sink,
     policy: opts.policy,
     onAsk: opts.onAsk,
+    onQuestion: opts.onQuestion,
     reply: async (requestID, r, message) => {
       await client.permission.reply({ requestID, reply: r, message });
+    },
+    replyQuestion: async (requestID, answers) => {
+      await client.question.reply({ requestID, answers, directory: opts.directory });
+    },
+    rejectQuestion: async (requestID) => {
+      await client.question.reject({ requestID, directory: opts.directory });
     },
   });
 
@@ -629,7 +759,33 @@ export async function connectOpencode(opts: {
     },
     async listAgents() {
       const r = await client.app.agents();
-      return (r.data ?? []).map((a) => ({ name: a.name, mode: (a as { mode?: string }).mode }));
+      // same cut as the official desktop picker: subagents and hidden builtins stay out
+      return (r.data ?? [])
+        .filter((a) => a.mode !== "subagent" && a.hidden !== true)
+        .map((a) => ({ name: a.name, mode: a.mode }));
+    },
+    async listSessions() {
+      const r = await client.session.list({ directory: opts.directory, roots: true, limit: 80 });
+      return (r.data ?? [])
+        .filter((s) => !s.parentID)
+        .map((s) => ({ id: s.id, title: s.title, directory: s.directory }));
+    },
+    async abort(sessionID: string) {
+      await client.session.abort({ sessionID, directory: opts.directory });
+    },
+    async indexSessions() {
+      const sessions = await client.session.list({ directory: opts.directory, roots: true, limit: 80 });
+      const ids: string[] = [];
+      for (const info of sessions.data ?? []) {
+        if (info.parentID) continue;
+        ingestor.handle({
+          id: `index:${info.id}`,
+          type: "session.created",
+          properties: { sessionID: info.id, info },
+        } as Event);
+        ids.push(info.id);
+      }
+      return ids;
     },
     async importSession(sessionID: string) {
       const sess = await client.session.get({ sessionID });

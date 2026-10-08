@@ -106,6 +106,18 @@ describe("agent-strata service", () => {
     const options = await fetch(`${base}/options`).then((r) => r.json());
     expect(options).toEqual({ models: [], agents: [] });
 
+    const abort = await fetch(`${base}/sessions/opencode:s1/abort`, { method: "POST" });
+    expect(abort.status).toBe(400);
+
+    const questions = await fetch(`${base}/questions`).then((r) => r.json());
+    expect(questions.pending).toEqual([]);
+    const q404 = await fetch(`${base}/questions/nope/respond`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ decision: "reject" }),
+    });
+    expect(q404.status).toBe(404);
+
     svc.stop();
   });
 
