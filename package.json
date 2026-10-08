@@ -1,0 +1,13 @@
+{
+  "name": "agent-core",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p packages/schema && tsc --noEmit -p packages/store && tsc --noEmit -p packages/projector && tsc --noEmit -p packages/policy"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0",
+    "typescript": "5.5.4"
+  }
+}

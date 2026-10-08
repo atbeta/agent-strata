@@ -1,0 +1,71 @@
+{
+  "lockfileVersion": 2,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "agent-core",
+      "devDependencies": {
+        "@types/bun": "^1.2.0",
+        "typescript": "5.5.4",
+      },
+    },
+    "packages/policy": {
+      "name": "@agent-core/policy",
+      "version": "0.0.0",
+      "dependencies": {
+        "@agent-core/schema": "workspace:*",
+        "ulid": "2.3.0",
+        "zod": "3.23.8",
+      },
+    },
+    "packages/projector": {
+      "name": "@agent-core/projector",
+      "version": "0.0.0",
+      "dependencies": {
+        "@agent-core/schema": "workspace:*",
+        "ulid": "2.3.0",
+        "zod": "3.23.8",
+      },
+    },
+    "packages/schema": {
+      "name": "@agent-core/schema",
+      "version": "0.0.0",
+      "dependencies": {
+        "ulid": "2.3.0",
+        "zod": "3.23.8",
+      },
+    },
+    "packages/store": {
+      "name": "@agent-core/store",
+      "version": "0.0.0",
+      "dependencies": {
+        "@agent-core/schema": "workspace:*",
+        "ulid": "2.3.0",
+        "zod": "3.23.8",
+      },
+    },
+  },
+  "packages": {
+    "@agent-core/policy": ["@agent-core/policy@workspace:packages/policy"],
+
+    "@agent-core/projector": ["@agent-core/projector@workspace:packages/projector"],
+
+    "@agent-core/schema": ["@agent-core/schema@workspace:packages/schema"],
+
+    "@agent-core/store": ["@agent-core/store@workspace:packages/store"],
+
+    "@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
+
+    "@types/node": ["@types/node@26.6.4", "", { "dependencies": { "undici-types": "~8.9.0" } }, "sha512-ldVPDCzj7fsaGZrLB0NuHuTvJcsNasysBAqMolr/cgxrLd1xbqxIr3XJiPnHHJUCxj5sNF1vnRj9aWnrVh5Jcg=="],
+
+    "bun-types": ["bun-types@1.4.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w=="],
+
+    "typescript": ["typescript@5.5.4", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-Mtq29sKDAEYP7aljRgtPOpTvOfbwRWlS6dPRzwjdE+C0R4brX/GUyhHSecbHMFLNBLcJIPt9nl9yG5TZ1weH+Q=="],
+
+    "ulid": ["ulid@2.3.0", "", { "bin": { "ulid": "./bin/cli.js" } }, "sha512-keqHubrlpvT6G2wH0OEfSW4mquYRcbe/J8NMmveoQOjUqmo+hXtO+ORCpWhdbZ7k72UtY61BL7haGxW6enBnjw=="],
+
+    "undici-types": ["undici-types@8.9.0", "", {}, "sha512-KTDyRTYX8sWmKXAikPHHSyc63CRPETMctyjKFupcC6OBLXT3xsN0e9aF7m+mIXutFWpUXuedtowG7iLOzp0kQg=="],
+
+    "zod": ["zod@3.23.8", "", {}, "sha512-XBx9AXhXktjUqnepgTiE5flcKIYWi/rme0Eaj+5Y0lftuGBq+jyRu/md4WnuxqgP1ubdpNCsYEYPxrzVHD8d6g=="],
+  }
+}
