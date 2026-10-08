@@ -72,6 +72,18 @@
         "zod": "3.23.8",
       },
     },
+    "packages/service": {
+      "name": "@agent-strata/service",
+      "version": "0.0.0",
+      "dependencies": {
+        "@agent-strata/adapter-opencode": "workspace:*",
+        "@agent-strata/core": "workspace:*",
+        "@agent-strata/policy": "workspace:*",
+        "@agent-strata/projector": "workspace:*",
+        "@agent-strata/schema": "workspace:*",
+        "@agent-strata/store": "workspace:*",
+      },
+    },
     "packages/store": {
       "name": "@agent-strata/store",
       "version": "0.0.0",
@@ -94,6 +106,8 @@
     "@agent-strata/projector": ["@agent-strata/projector@workspace:packages/projector"],
 
     "@agent-strata/schema": ["@agent-strata/schema@workspace:packages/schema"],
+
+    "@agent-strata/service": ["@agent-strata/service@workspace:packages/service"],
 
     "@agent-strata/store": ["@agent-strata/store@workspace:packages/store"],
 
