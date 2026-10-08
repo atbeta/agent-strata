@@ -18,6 +18,7 @@ import {
 } from "./api";
 import { Md } from "./md";
 import { Icon } from "./icons";
+import { inDesktopShell } from "./shell";
 
 function BlockText(props: { blocks: ContentBlock[]; tight?: boolean }) {
   return (
@@ -418,7 +419,10 @@ export function SessionDetail(props: { id: string }) {
         <Show when={view()} fallback={<p class="p-8 text-sm text-muted-foreground">loading…</p>}>
           {(v) => (
             <>
-              <header class="flex h-12 shrink-0 items-center gap-2.5 px-5">
+              <header
+                class="flex h-12 shrink-0 items-center gap-2.5 px-5"
+                data-tauri-drag-region={inDesktopShell() ? "" : undefined}
+              >
                 <Show when={generating()}>
                   <span class="h-2 w-2 shrink-0 animate-pulse rounded-full bg-status-active" />
                 </Show>

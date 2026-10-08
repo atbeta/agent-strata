@@ -15,6 +15,7 @@ import { SessionDetail } from "./session-detail";
 import { CompareView } from "./compare";
 import { PolicyEditor } from "./policy";
 import { Icon } from "./icons";
+import { inDesktopShell } from "./shell";
 
 type Route =
   | { name: "fleet" }
@@ -177,7 +178,10 @@ export function App() {
   return (
     <div class="flex h-full min-h-0 bg-background">
       <aside class="flex w-[272px] shrink-0 flex-col border-r border-border bg-card/50">
-        <div class="flex h-12 items-center gap-2 px-3">
+        <div
+          class={`flex h-12 items-center gap-2 pr-3 ${inDesktopShell() ? "pl-[76px]" : "px-3"}`}
+          data-tauri-drag-region
+        >
           <button
             class="text-sm font-semibold tracking-tight"
             onClick={() => (location.hash = "/")}
@@ -358,7 +362,10 @@ export function App() {
       <main class="min-w-0 flex-1">
         <Show when={route().name === "fleet"}>
           <div class="flex h-full flex-col">
-            <div class="flex h-12 items-center border-b border-border px-6 text-xs text-muted-foreground">
+            <div
+              class="flex h-12 items-center border-b border-border px-6 text-xs text-muted-foreground"
+              data-tauri-drag-region
+            >
               <span>
                 {(data()?.sessions.length ?? 0).toLocaleString()} sessions ·{" "}
                 <span class="font-mono tabular-nums text-foreground">

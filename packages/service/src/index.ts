@@ -17,8 +17,11 @@ export interface ServiceOpts {
   port?: number;
   // optional JSON file the live policy is loaded from / persisted to
   policyFile?: string;
-  // backend baseUrl to connect on boot, retried until autoConnectTimeoutMs
+  // backend baseUrl to connect on boot, retried until autoConnectTimeoutMs.
+  // username/password are the HTTP basic pair for `opencode serve`.
   autoConnect?: string;
+  autoConnectUsername?: string;
+  autoConnectPassword?: string;
   autoConnectTimeoutMs?: number;
 }
 
@@ -177,7 +180,11 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     void (async () => {
       for (;;) {
         try {
-          const { id } = await connectBackend({ baseUrl });
+          const { id } = await connectBackend({
+            baseUrl,
+            username: opts.autoConnectUsername,
+            password: opts.autoConnectPassword,
+          });
           console.log(`auto-connected backend ${id}`);
           return;
         } catch (e) {
@@ -532,6 +539,8 @@ if (import.meta.main) {
     policyFile,
     // e.g. STRATA_OPENCODE_URL=http://127.0.0.1:4096 (Tauri embed sets this)
     autoConnect: process.env.STRATA_OPENCODE_URL,
+    autoConnectUsername: process.env.STRATA_OPENCODE_USERNAME,
+    autoConnectPassword: process.env.STRATA_OPENCODE_PASSWORD,
   });
   console.log(`agent-strata service listening on http://127.0.0.1:${svc.port} (db: ${db})`);
 }
