@@ -1,0 +1,20 @@
+{
+  "name": "@agent-core/adapter-acp",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@agent-core/policy": "workspace:*",
+    "@agent-core/schema": "workspace:*",
+    "@agentclientprotocol/sdk": "0.21.0",
+    "diff": "5.2.0",
+    "@agent-core/store": "workspace:*",
+    "@agent-core/projector": "workspace:*",
+    "ulid": "2.3.0",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@types/diff": "5.2.3"
+  }
+}

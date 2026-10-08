@@ -10,6 +10,8 @@ Cross-backend agent session/event layer: a canonical event format (CASF v0), an 
 | `@agent-core/store` | Append-only `bun:sqlite` event store with FTS5 search and subscriptions |
 | `@agent-core/projector` | Pure projections from events to `SessionView` + cross-session `aggregate` |
 | `@agent-core/policy` | Permission policy engine (rules, glob/regex conditions, shell segmentation) |
+| `@agent-core/adapter-acp` | ACP (ndjson subprocess) adapter: `AcpRecorder` + `connectAcpAgent` |
+| `@agent-core/adapter-opencode` | opencode v1 event-stream adapter: `OpencodeMapper` + `connectOpencode` |
 
 ## Security model
 
