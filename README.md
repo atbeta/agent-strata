@@ -16,7 +16,7 @@ Cross-backend agent session/event layer: a canonical event format (CASF v0), an 
 
 `connectOpencode` resolves only after the event stream is attached (first `server.connected` event, bounded by `connectTimeoutMs`, default 10s). `onEvent(evt)` is called after each raw event is ingested, for observing lifecycle events like idle.
 
-v0 adapter-opencode limitations: no SSE reconnect yet; a lazily started session keeps its placeholder `session.started` (workspace "unknown") if the real `session.created` arrives later; only the v1 `/event` stream is consumed.
+v0 adapter-opencode limitations: a lazily started session keeps its placeholder `session.started` (workspace "unknown") if the real `session.created` arrives later; only the v1 `/event` stream is consumed. The SDK's SSE client retries dropped connections internally (exponential backoff); `stop()` aborts the in-flight fetch.
 
 ## Security model
 
