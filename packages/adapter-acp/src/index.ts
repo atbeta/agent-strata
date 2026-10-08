@@ -15,8 +15,8 @@ import {
 } from "@agentclientprotocol/sdk";
 import { createPatch } from "diff";
 import { monotonicFactory } from "ulid";
-import { makeEvent, type ContentBlock, type EventInput } from "@agent-core/schema";
-import { evaluate, type Policy } from "@agent-core/policy";
+import { makeEvent, type ContentBlock, type EventInput } from "@agent-strata/schema";
+import { evaluate, type Policy } from "@agent-strata/policy";
 
 const ulid = monotonicFactory();
 

@@ -3,20 +3,20 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "agent-core",
+      "name": "agent-strata",
       "devDependencies": {
         "@types/bun": "^1.2.0",
         "typescript": "5.5.4",
       },
     },
     "packages/adapter-acp": {
-      "name": "@agent-core/adapter-acp",
+      "name": "@agent-strata/adapter-acp",
       "version": "0.0.0",
       "dependencies": {
-        "@agent-core/policy": "workspace:*",
-        "@agent-core/projector": "workspace:*",
-        "@agent-core/schema": "workspace:*",
-        "@agent-core/store": "workspace:*",
+        "@agent-strata/policy": "workspace:*",
+        "@agent-strata/projector": "workspace:*",
+        "@agent-strata/schema": "workspace:*",
+        "@agent-strata/store": "workspace:*",
         "@agentclientprotocol/sdk": "0.21.0",
         "diff": "5.2.0",
         "ulid": "2.3.0",
@@ -27,36 +27,36 @@
       },
     },
     "packages/adapter-opencode": {
-      "name": "@agent-core/adapter-opencode",
+      "name": "@agent-strata/adapter-opencode",
       "version": "0.0.0",
       "dependencies": {
-        "@agent-core/policy": "workspace:*",
-        "@agent-core/projector": "workspace:*",
-        "@agent-core/schema": "workspace:*",
-        "@agent-core/store": "workspace:*",
+        "@agent-strata/policy": "workspace:*",
+        "@agent-strata/projector": "workspace:*",
+        "@agent-strata/schema": "workspace:*",
+        "@agent-strata/store": "workspace:*",
         "@opencode-ai/sdk": "1.18.35",
       },
     },
     "packages/policy": {
-      "name": "@agent-core/policy",
+      "name": "@agent-strata/policy",
       "version": "0.0.0",
       "dependencies": {
-        "@agent-core/schema": "workspace:*",
+        "@agent-strata/schema": "workspace:*",
         "ulid": "2.3.0",
         "zod": "3.23.8",
       },
     },
     "packages/projector": {
-      "name": "@agent-core/projector",
+      "name": "@agent-strata/projector",
       "version": "0.0.0",
       "dependencies": {
-        "@agent-core/schema": "workspace:*",
+        "@agent-strata/schema": "workspace:*",
         "ulid": "2.3.0",
         "zod": "3.23.8",
       },
     },
     "packages/schema": {
-      "name": "@agent-core/schema",
+      "name": "@agent-strata/schema",
       "version": "0.0.0",
       "dependencies": {
         "ulid": "2.3.0",
@@ -64,27 +64,27 @@
       },
     },
     "packages/store": {
-      "name": "@agent-core/store",
+      "name": "@agent-strata/store",
       "version": "0.0.0",
       "dependencies": {
-        "@agent-core/schema": "workspace:*",
+        "@agent-strata/schema": "workspace:*",
         "ulid": "2.3.0",
         "zod": "3.23.8",
       },
     },
   },
   "packages": {
-    "@agent-core/adapter-acp": ["@agent-core/adapter-acp@workspace:packages/adapter-acp"],
+    "@agent-strata/adapter-acp": ["@agent-strata/adapter-acp@workspace:packages/adapter-acp"],
 
-    "@agent-core/adapter-opencode": ["@agent-core/adapter-opencode@workspace:packages/adapter-opencode"],
+    "@agent-strata/adapter-opencode": ["@agent-strata/adapter-opencode@workspace:packages/adapter-opencode"],
 
-    "@agent-core/policy": ["@agent-core/policy@workspace:packages/policy"],
+    "@agent-strata/policy": ["@agent-strata/policy@workspace:packages/policy"],
 
-    "@agent-core/projector": ["@agent-core/projector@workspace:packages/projector"],
+    "@agent-strata/projector": ["@agent-strata/projector@workspace:packages/projector"],
 
-    "@agent-core/schema": ["@agent-core/schema@workspace:packages/schema"],
+    "@agent-strata/schema": ["@agent-strata/schema@workspace:packages/schema"],
 
-    "@agent-core/store": ["@agent-core/store@workspace:packages/store"],
+    "@agent-strata/store": ["@agent-strata/store@workspace:packages/store"],
 
     "@agentclientprotocol/sdk": ["@agentclientprotocol/sdk@0.21.0", "", { "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" } }, "sha512-ONj+Q8qOdNQp5XbH5jnMwzT9IKZJsSN0p0lkceS4GtUtNOPVLpNzSS8gqQdGMKfBvA0ESbkL8BTaSN1Rc9miEw=="],
 
@@ -120,12 +120,12 @@
 
     "zod": ["zod@3.25.76", "", {}, "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="],
 
-    "@agent-core/policy/zod": ["zod@3.23.8", "", {}, "sha512-XBx9AXhXktjUqnepgTiE5flcKIYWi/rme0Eaj+5Y0lftuGBq+jyRu/md4WnuxqgP1ubdpNCsYEYPxrzVHD8d6g=="],
+    "@agent-strata/policy/zod": ["zod@3.23.8", "", {}, "sha512-XBx9AXhXktjUqnepgTiE5flcKIYWi/rme0Eaj+5Y0lftuGBq+jyRu/md4WnuxqgP1ubdpNCsYEYPxrzVHD8d6g=="],
 
-    "@agent-core/projector/zod": ["zod@3.23.8", "", {}, "sha512-XBx9AXhXktjUqnepgTiE5flcKIYWi/rme0Eaj+5Y0lftuGBq+jyRu/md4WnuxqgP1ubdpNCsYEYPxrzVHD8d6g=="],
+    "@agent-strata/projector/zod": ["zod@3.23.8", "", {}, "sha512-XBx9AXhXktjUqnepgTiE5flcKIYWi/rme0Eaj+5Y0lftuGBq+jyRu/md4WnuxqgP1ubdpNCsYEYPxrzVHD8d6g=="],
 
-    "@agent-core/schema/zod": ["zod@3.23.8", "", {}, "sha512-XBx9AXhXktjUqnepgTiE5flcKIYWi/rme0Eaj+5Y0lftuGBq+jyRu/md4WnuxqgP1ubdpNCsYEYPxrzVHD8d6g=="],
+    "@agent-strata/schema/zod": ["zod@3.23.8", "", {}, "sha512-XBx9AXhXktjUqnepgTiE5flcKIYWi/rme0Eaj+5Y0lftuGBq+jyRu/md4WnuxqgP1ubdpNCsYEYPxrzVHD8d6g=="],
 
-    "@agent-core/store/zod": ["zod@3.23.8", "", {}, "sha512-XBx9AXhXktjUqnepgTiE5flcKIYWi/rme0Eaj+5Y0lftuGBq+jyRu/md4WnuxqgP1ubdpNCsYEYPxrzVHD8d6g=="],
+    "@agent-strata/store/zod": ["zod@3.23.8", "", {}, "sha512-XBx9AXhXktjUqnepgTiE5flcKIYWi/rme0Eaj+5Y0lftuGBq+jyRu/md4WnuxqgP1ubdpNCsYEYPxrzVHD8d6g=="],
   }
 }

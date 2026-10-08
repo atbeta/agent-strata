@@ -1,6 +1,6 @@
 import { createOpencodeClient, type Event, type OpencodeClient, type Part } from "@opencode-ai/sdk/v2";
-import { makeEvent, type ContentBlock, type EventInput } from "@agent-core/schema";
-import { evaluate, type Policy } from "@agent-core/policy";
+import { makeEvent, type ContentBlock, type EventInput } from "@agent-strata/schema";
+import { evaluate, type Policy } from "@agent-strata/policy";
 
 export interface Sink {
   append(events: EventInput[]): unknown;

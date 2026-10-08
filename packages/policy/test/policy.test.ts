@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { decide, evaluate, loadPolicy, splitShell } from "../src/index";
-import { makeEvent, parseEvent, type EventInput } from "@agent-core/schema";
+import { makeEvent, parseEvent, type EventInput } from "@agent-strata/schema";
 
 const P = (rules: object[], def?: string) =>
   loadPolicy({ version: 1, default: def ?? "ask", rules });

@@ -1,8 +1,8 @@
 {
-  "name": "@agent-core/projector",
+  "name": "@agent-strata/projector",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "main": "src/index.ts",
-  "dependencies": { "zod": "3.23.8", "ulid": "2.3.0", "@agent-core/schema": "workspace:*" }
+  "dependencies": { "zod": "3.23.8", "ulid": "2.3.0", "@agent-strata/schema": "workspace:*" }
 }

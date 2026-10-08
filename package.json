@@ -1,5 +1,5 @@
 {
-  "name": "agent-core",
+  "name": "agent-strata",
   "private": true,
   "workspaces": ["packages/*"],
   "scripts": {

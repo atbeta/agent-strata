@@ -1,5 +1,5 @@
 {
-  "name": "@agent-core/schema",
+  "name": "@agent-strata/schema",
   "version": "0.0.0",
   "private": true,
   "type": "module",

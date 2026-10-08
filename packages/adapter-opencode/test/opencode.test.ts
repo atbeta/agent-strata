@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { OpencodeMapper, createIngestor } from "../src/index";
-import { loadPolicy } from "@agent-core/policy";
+import { loadPolicy } from "@agent-strata/policy";
 import type { Event } from "@opencode-ai/sdk/v2";
-import { openStore } from "@agent-core/store";
-import { projectSession } from "@agent-core/projector";
-import type { EventInput } from "@agent-core/schema";
+import { openStore } from "@agent-strata/store";
+import { projectSession } from "@agent-strata/projector";
+import type { EventInput } from "@agent-strata/schema";
 
 const sid = "ses_1";
 

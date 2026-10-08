@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { Event, EventInput, makeEvent, parseEvent } from "@agent-core/schema";
+import { Event, EventInput, makeEvent, parseEvent } from "@agent-strata/schema";
 
 export interface SessionSummary {
   session_id: string;

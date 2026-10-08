@@ -1,16 +1,16 @@
 {
-  "name": "@agent-core/adapter-acp",
+  "name": "@agent-strata/adapter-acp",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "main": "src/index.ts",
   "dependencies": {
-    "@agent-core/policy": "workspace:*",
-    "@agent-core/schema": "workspace:*",
+    "@agent-strata/policy": "workspace:*",
+    "@agent-strata/schema": "workspace:*",
     "@agentclientprotocol/sdk": "0.21.0",
     "diff": "5.2.0",
-    "@agent-core/store": "workspace:*",
-    "@agent-core/projector": "workspace:*",
+    "@agent-strata/store": "workspace:*",
+    "@agent-strata/projector": "workspace:*",
     "ulid": "2.3.0",
     "zod": "3.25.76"
   },

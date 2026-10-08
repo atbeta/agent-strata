@@ -1,4 +1,4 @@
-import type { ContentBlock, Event, Usage } from "@agent-core/schema";
+import type { ContentBlock, Event, Usage } from "@agent-strata/schema";
 
 export interface PermissionInfo {
   request_id: string;

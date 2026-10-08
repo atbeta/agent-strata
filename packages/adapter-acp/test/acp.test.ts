@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { connectAcpAgent, AcpRecorder, type OnAsk } from "../src/index";
-import { openStore } from "@agent-core/store";
-import { projectSession } from "@agent-core/projector";
-import { loadPolicy } from "@agent-core/policy";
-import { parseEvent, type EventInput } from "@agent-core/schema";
+import { openStore } from "@agent-strata/store";
+import { projectSession } from "@agent-strata/projector";
+import { loadPolicy } from "@agent-strata/policy";
+import { parseEvent, type EventInput } from "@agent-strata/schema";
 import { fileURLToPath } from "node:url";
 
 const MOCK = fileURLToPath(new URL("./fixtures/mock-agent.ts", import.meta.url));

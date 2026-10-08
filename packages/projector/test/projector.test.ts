@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { aggregate, projectSession } from "../src/index";
-import { makeEvent, parseEvent, type Event, type EventInput } from "@agent-core/schema";
+import { makeEvent, parseEvent, type Event, type EventInput } from "@agent-strata/schema";
 
 let seq = 0;
 const mk = (session_id: string, type: string, data: object): Event => {

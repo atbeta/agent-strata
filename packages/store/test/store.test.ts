@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openStore } from "../src/index";
-import { makeEvent, type EventInput } from "@agent-core/schema";
+import { makeEvent, type EventInput } from "@agent-strata/schema";
 
 const mk = (session_id: string, type: string, data: object, ts?: string): EventInput =>
   makeEvent({
@@ -78,7 +78,7 @@ describe("store", () => {
   });
 
   test("reopen file DB persists and continues seq", () => {
-    const dir = mkdtempSync(join(tmpdir(), "agent-core-"));
+    const dir = mkdtempSync(join(tmpdir(), "agent-strata-"));
     const path = join(dir, "db.sqlite");
     try {
       const s1 = openStore(path);

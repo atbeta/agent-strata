@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Event, EventInput } from "@agent-core/schema";
+import type { Event, EventInput } from "@agent-strata/schema";
 
 const Condition = z.object({
   matches: z.string().optional(),
