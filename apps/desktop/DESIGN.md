@@ -52,5 +52,12 @@ Scale: `xs`–`2xl`. Radius: `sm`–`xl` (`lg` = 10px is the card default).
 
 - **Fleet dashboard** (`App.tsx`): aggregate cost bar + session card grid, live
   over SSE. Cards: status dot, title, backend · workspace, tool-call/token/cost
-  stats.
-- Planned: session detail (timeline replay), compare view, policy editor.
+  stats. Cross-session FTS search box.
+- **Session detail** (`session-detail.tsx`): turn timeline with tool calls and
+  permission decisions, pending-ask banner, prompt composer with model/agent
+  pickers, replay scrubber (projector over an event prefix).
+- **Compare view** (`compare.tsx`): two-session turn-pair diff with cost/token
+  deltas.
+- **Policy editor** (`policy.tsx`): rule list editor (id · effect · tool glob ·
+  when-conditions), default effect, dry-run test panel against the unsaved
+  draft; saves via `PUT /policy`.

@@ -12,12 +12,17 @@ export type OnAsk = (
 
 const SHELL_PERMS = new Set(["bash", "pwsh", "powershell", "cmd"]);
 
+// how often a mid-generation assistant snapshot is emitted (part updates can
+// fire per-token; the store and SSE fan-out only need periodic snapshots)
+const STREAM_SNAPSHOT_MS = 150;
+
 interface MsgState {
   role?: string;
   parentID?: string;
   parts: Map<string, ContentBlock>;
   toolParts: Map<string, { emittedCall: boolean; emittedResult: boolean }>;
   emittedAssistant: boolean;
+  lastStreamAt?: number;
   patchSeen?: Set<string>;
 }
 
@@ -152,6 +157,7 @@ export class OpencodeMapper {
                 "turn.assistant",
                 {
                   turn_id: info.parentID,
+                  msg_id: info.id,
                   content,
                   model: `${info.providerID}/${info.modelID}`,
                   usage: {
@@ -180,19 +186,13 @@ export class OpencodeMapper {
         const m = this.ensureMsg(s, part.messageID);
         if (part.type === "text") {
           m.parts.set(part.id, { type: "text", text: part.text });
-          return out;
-        }
-        if (part.type === "reasoning") {
+        } else if (part.type === "reasoning") {
           m.parts.set(part.id, { type: "thinking", text: part.text });
-          return out;
-        }
-        if (part.type === "file") {
+        } else if (part.type === "file") {
           const path =
             part.source && "path" in part.source ? part.source.path : (part.filename ?? part.url);
           m.parts.set(part.id, { type: "file_ref", path });
-          return out;
-        }
-        if (part.type === "tool") {
+        } else if (part.type === "tool") {
           const t =
             m.toolParts.get(part.id) ?? { emittedCall: false, emittedResult: false };
           m.toolParts.set(part.id, t);
@@ -247,6 +247,47 @@ export class OpencodeMapper {
             );
           }
           return out;
+        }
+        // shared tail for content parts (text/reasoning/file):
+        // — user messages emit turn.user as soon as text lands so the prompt
+        //   echoes instantly (id is a content hash: a later, fuller part
+        //   snapshot re-emits and the projector overwrites it)
+        // — assistant messages emit throttled partial turn.assistant
+        //   snapshots so the UI streams during generation
+        if (m.role === "user") {
+          const content = [...m.parts.values()].filter((b) => b.type !== "thinking");
+          if (content.length) {
+            s.pendingUserMsgs.delete(part.messageID);
+            out.push(
+              this.ev(
+                s,
+                "turn.user",
+                { turn_id: part.messageID, content },
+                `opencode:${part.messageID}:turn.user:${Bun.hash(JSON.stringify(content)).toString(36)}`,
+              ),
+            );
+          }
+        } else if (m.role === "assistant" && m.parentID) {
+          const now = Date.now();
+          if (now - (m.lastStreamAt ?? 0) >= STREAM_SNAPSHOT_MS) {
+            const content = [...m.parts.values()].filter((b) => b.type !== "file_ref");
+            if (content.length) {
+              m.lastStreamAt = now;
+              out.push(
+                this.ev(
+                  s,
+                  "turn.assistant",
+                  {
+                    turn_id: m.parentID,
+                    msg_id: part.messageID,
+                    partial: true,
+                    content,
+                  },
+                  `opencode:${part.messageID}:assistant.partial:${Bun.hash(JSON.stringify(content)).toString(36)}`,
+                ),
+              );
+            }
+          }
         }
         return out;
       }
@@ -330,7 +371,7 @@ export class OpencodeMapper {
 export function createIngestor(opts: {
   mapper: OpencodeMapper;
   sink: Sink;
-  policy?: Policy;
+  policy?: Policy | (() => Policy | undefined);
   onAsk?: OnAsk;
   reply: (requestID: string, reply: "once" | "reject", message?: string) => Promise<unknown>;
 }): { handle: (evt: Event) => void } {
@@ -354,8 +395,10 @@ export function createIngestor(opts: {
     const input: Record<string, unknown> = { ...p.metadata, patterns: p.patterns };
     if (shell) input.command = p.patterns.join("\n");
     const tool = shell ? "bash" : p.permission;
-    const d = opts.policy
-      ? evaluate(opts.policy, { tool, input })
+    const policy =
+      typeof opts.policy === "function" ? opts.policy() : opts.policy;
+    const d = policy
+      ? evaluate(policy, { tool, input })
       : { decision: "ask" as const };
     if (d.decision === "allow") {
       await opts.reply(p.id, "once");
@@ -411,8 +454,11 @@ export function createIngestor(opts: {
 export async function connectOpencode(opts: {
   baseUrl: string;
   directory?: string;
+  // HTTP basic auth for `opencode serve --username/--password`
+  username?: string;
+  password?: string;
   sink: Sink;
-  policy?: Policy;
+  policy?: Policy | (() => Policy | undefined);
   onAsk?: OnAsk;
   onEvent?: (evt: Event) => void;
   connectTimeoutMs?: number;
@@ -424,9 +470,15 @@ export async function connectOpencode(opts: {
   prompt: (
     sessionID: string,
     text: string,
-    opts?: { model?: { providerID: string; modelID: string }; agent?: string },
+    opts?: {
+      model?: { providerID: string; modelID: string };
+      agent?: string;
+      variant?: string;
+    },
   ) => Promise<void>;
-  listModels: () => Promise<{ providerID: string; modelID: string; name: string }[]>;
+  listModels: () => Promise<
+    { providerID: string; modelID: string; name: string; variants: string[] }[]
+  >;
   listAgents: () => Promise<{ name: string; mode?: string }[]>;
 }> {
   const abort = new AbortController();
@@ -469,6 +521,12 @@ export async function connectOpencode(opts: {
   const client: OpencodeClient = createOpencodeClient({
     baseUrl: opts.baseUrl,
     directory: opts.directory,
+    headers:
+      opts.username !== undefined || opts.password !== undefined
+        ? {
+            Authorization: `Basic ${btoa(`${opts.username ?? ""}:${opts.password ?? ""}`)}`,
+          }
+        : undefined,
     fetch: abortingFetch as typeof fetch,
   });
   const mapper = new OpencodeMapper({ directory: opts.directory });
@@ -541,15 +599,30 @@ export async function connectOpencode(opts: {
         directory: opts.directory,
         model: promptOpts?.model,
         agent: promptOpts?.agent,
+        // server schema accepts `variant` (reasoning effort); SDK types lag
+        ...(promptOpts?.variant ? ({ variant: promptOpts.variant } as object) : {}),
         parts: [{ type: "text", text }],
       });
     },
     async listModels() {
       const r = await client.provider.list();
-      const out: { providerID: string; modelID: string; name: string }[] = [];
+      // `all` is the full provider catalog; `connected` is what actually has
+      // credentials — only those are pickable. Each provider's default model
+      // sorts first.
+      const connected = r.data?.connected;
+      const out: { providerID: string; modelID: string; name: string; variants: string[] }[] = [];
       for (const p of r.data?.all ?? []) {
-        for (const [modelID, m] of Object.entries(p.models ?? {})) {
-          out.push({ providerID: p.id, modelID, name: (m as { name?: string }).name ?? modelID });
+        if (connected && !connected.includes(p.id)) continue;
+        const def = r.data?.default?.[p.id];
+        const models = Object.entries(p.models ?? {});
+        models.sort(([a], [b]) => (a === def ? -1 : b === def ? 1 : 0));
+        for (const [modelID, m] of models) {
+          out.push({
+            providerID: p.id,
+            modelID,
+            name: (m as { name?: string }).name ?? modelID,
+            variants: Object.keys((m as { variants?: object }).variants ?? {}),
+          });
         }
       }
       return out;

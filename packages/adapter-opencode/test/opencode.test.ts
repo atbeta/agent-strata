@@ -78,14 +78,19 @@ describe("OpencodeMapper", () => {
     expect(out.map((e) => e.type)).toEqual([
       "session.started",
       "turn.user",
+      "turn.assistant", // partial stream snapshot from the first reasoning part
       "tool.call",
       "tool.result",
-      "turn.assistant",
+      "turn.assistant", // final completed message (same msg_id, replaces partial)
       "plan.updated",
       "permission.requested",
       "permission.resolved",
     ]);
-    const ta = out.find((e) => e.type === "turn.assistant")!;
+    const assistants = out.filter((e) => e.type === "turn.assistant");
+    expect(assistants.length).toBe(2);
+    const partial = assistants[0]!.data as { partial?: boolean; msg_id?: string };
+    expect(partial).toMatchObject({ partial: true, msg_id: "a1" });
+    const ta = assistants.at(-1)!;
     const d = ta.data as { model: string; usage: { input: number; cache_read: number }; cost_usd: number; latency_ms: number; stop_reason: string; content: object[]; turn_id: string };
     expect(d.turn_id).toBe("u1");
     expect(d.model).toBe("anthropic/claude");
@@ -135,18 +140,59 @@ describe("OpencodeMapper", () => {
     expect((tu.data as { content: object[] }).content).toEqual([{ type: "text", text: "early" }]);
   });
 
-  test("turn.user buffered until assistant arrives; idle flush fallback", () => {
+  test("turn.user echoes on first text part; idle doesn't re-emit", () => {
     const m = new OpencodeMapper();
     const out1 = [
       m.handle(sessionCreated()),
       m.handle(msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 1 } })),
       m.handle(partUpdated({ id: "pt", sessionID: sid, messageID: "u1", type: "text", text: "hi" })),
     ].flat();
-    expect(out1.filter((e) => e.type === "turn.user").length).toBe(0);
+    expect(out1.filter((e) => e.type === "turn.user").length).toBe(1);
     const out2 = m.handle({
       id: "i", type: "session.idle", properties: { sessionID: sid },
     } as unknown as Event);
-    expect(out2.map((e) => e.type)).toEqual(["turn.user"]);
+    expect(out2.filter((e) => e.type === "turn.user").length).toBe(0);
+  });
+
+  test("assistant part updates emit throttled partial turn.assistant", async () => {
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    m.handle(msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 1 } }));
+    m.handle(partUpdated({ id: "pt", sessionID: sid, messageID: "u1", type: "text", text: "hi" }));
+    m.handle(msgUpdated({
+      id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
+      time: { created: 2 }, providerID: "anthropic", modelID: "claude",
+    }));
+    const p1 = m.handle(partUpdated({ id: "pa", sessionID: sid, messageID: "a1", type: "text", text: "h" }));
+    expect(p1.filter((e) => e.type === "turn.assistant").length).toBe(1);
+    // inside the throttle window -> dropped
+    const p2 = m.handle(partUpdated({ id: "pb", sessionID: sid, messageID: "a1", type: "text", text: "he" }));
+    expect(p2.filter((e) => e.type === "turn.assistant").length).toBe(0);
+    await Bun.sleep(160);
+    const p3 = m.handle(partUpdated({ id: "pc", sessionID: sid, messageID: "a1", type: "text", text: "hel" }));
+    const partials = p3.filter((e) => e.type === "turn.assistant");
+    expect(partials.length).toBe(1);
+    expect(partials[0]!.data).toMatchObject({ partial: true, msg_id: "a1", turn_id: "u1" });
+  });
+
+  test("partial snapshots merge into the final message in projection", () => {
+    const store = openStore(":memory:");
+    const m = new OpencodeMapper();
+    for (const e of basicFixture()) {
+      const evts = m.handle(e);
+      if (evts.length) store.append(evts);
+    }
+    const view = projectSession(store.read({ session_id: `opencode:${sid}` }));
+    const turn = view.turns.find((t) => t.turn_id === "u1")!;
+    expect(turn.assistant.length).toBe(1);
+    expect(turn.assistant[0]!.partial).toBeUndefined();
+    expect(turn.assistant[0]!.content).toEqual([
+      { type: "thinking", text: "hmm" },
+      { type: "text", text: "answer" },
+    ]);
+    expect(view.totals.input).toBe(100);
+    expect(view.totals.cost_usd).toBe(0.25);
+    store.close();
   });
 
   test("permission.asked -> permission.requested; replied -> resolved with shared id", () => {

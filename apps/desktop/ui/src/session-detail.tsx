@@ -14,44 +14,81 @@ import {
   type ToolCallView,
   type Turn,
 } from "./api";
+import { Md } from "./md";
 
 function BlockText(props: { blocks: ContentBlock[] }) {
   return (
     <For each={props.blocks}>
       {(b) => (
-        <p class="whitespace-pre-wrap text-sm leading-relaxed">{b.text ?? `[${b.type}]`}</p>
+        <Show
+          when={b.type !== "thinking"}
+          fallback={
+            <details class="group my-2 rounded-md bg-muted/60 px-3 py-2">
+              <summary class="flex cursor-pointer select-none items-center gap-1.5 text-xs text-muted-foreground [list-style:none]">
+                <span class="transition-transform group-open:rotate-90">▸</span>
+                thinking
+              </summary>
+              <Md class="mt-2 text-xs text-muted-foreground/90" text={b.text ?? ""} />
+            </details>
+          }
+        >
+          <Show
+            when={b.type !== "file_ref"}
+            fallback={
+              <p class="my-1 font-mono text-xs text-muted-foreground">
+                📎 {(b as { path?: string }).path}
+              </p>
+            }
+          >
+            <Md text={b.text ?? `[${b.type}]`} />
+          </Show>
+        </Show>
       )}
     </For>
   );
 }
 
 function ToolCallRow(props: { call: ToolCallView }) {
+  const [open, setOpen] = createSignal(false);
   const statusColor = () =>
     props.call.status === "error" || props.call.permission?.decision === "deny"
       ? "text-status-error"
       : "text-event-tool";
   const inputPreview = () => {
     const s = JSON.stringify(props.call.input);
-    return s.length > 80 ? s.slice(0, 80) + "…" : s;
+    return s.length > 100 ? s.slice(0, 100) + "…" : s;
   };
   return (
-    <div class="rounded-md border border-border bg-secondary/50 px-3 py-2 font-mono text-xs">
-      <div class="flex items-center gap-2">
-        <span class={statusColor()}>▸ {props.call.tool}</span>
-        <span class="truncate text-muted-foreground">{inputPreview()}</span>
+    <div class="overflow-hidden rounded-lg border border-border bg-secondary/40 font-mono text-xs">
+      <button
+        class="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-secondary/70"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span class={`text-muted-foreground transition-transform ${open() ? "rotate-90" : ""}`}>
+          ▸
+        </span>
+        <span class={statusColor()}>{props.call.tool}</span>
+        <span class="min-w-0 truncate text-muted-foreground">{inputPreview()}</span>
         <span class="ml-auto shrink-0 text-muted-foreground">{props.call.status}</span>
-      </div>
-      <Show when={props.call.permission}>
-        {(p) => (
-          <div class="mt-1 text-event-permission">
-            permission {p().decision ?? "pending"} by {p().by ?? "?"}
-            {p().reason ? ` — ${p().reason}` : ""}
-          </div>
-        )}
-      </Show>
-      <Show when={props.call.output}>
-        <div class="mt-1 max-h-24 overflow-y-auto whitespace-pre-wrap text-muted-foreground">
-          {props.call.output}
+      </button>
+      <Show when={open()}>
+        <div class="space-y-2 border-t border-border px-3 py-2.5">
+          <Show when={props.call.permission}>
+            {(p) => (
+              <div class="text-event-permission">
+                permission {p().decision ?? "pending"} by {p().by ?? "?"}
+                {p().reason ? ` — ${p().reason}` : ""}
+              </div>
+            )}
+          </Show>
+          <pre class="whitespace-pre-wrap break-all text-muted-foreground">
+            {JSON.stringify(props.call.input, null, 2)}
+          </pre>
+          <Show when={props.call.output}>
+            <pre class="max-h-64 overflow-y-auto whitespace-pre-wrap break-all rounded-md bg-background/60 p-2 text-muted-foreground">
+              {props.call.output}
+            </pre>
+          </Show>
         </div>
       </Show>
     </div>
@@ -60,22 +97,26 @@ function ToolCallRow(props: { call: ToolCallView }) {
 
 function TurnBlock(props: { turn: Turn }) {
   return (
-    <div class="space-y-2">
+    <div class="space-y-3">
       <Show when={props.turn.user}>
         {(blocks) => (
-          <div class="border-l-2 border-event-user pl-3">
-            <div class="text-xs font-medium text-event-user">user</div>
-            <BlockText blocks={blocks()} />
+          <div class="flex justify-end">
+            <div class="max-w-[85%] rounded-2xl rounded-br-md bg-secondary px-4 py-2.5">
+              <BlockText blocks={blocks()} />
+            </div>
           </div>
         )}
       </Show>
       <For each={props.turn.assistant}>
         {(a) => (
-          <div class="border-l-2 border-event-assistant pl-3">
-            <div class="flex gap-2 text-xs font-medium text-event-assistant">
-              assistant
+          <div class="pr-8">
+            <div class="mb-1.5 flex items-center gap-2 text-xs text-muted-foreground">
+              <span class="font-medium text-event-assistant">assistant</span>
               <Show when={a.model}>
-                <span class="font-mono font-normal text-muted-foreground">{a.model}</span>
+                <span class="font-mono">{a.model}</span>
+              </Show>
+              <Show when={a.partial}>
+                <span class="animate-pulse">▋ streaming</span>
               </Show>
             </div>
             <BlockText blocks={a.content} />
@@ -112,23 +153,44 @@ export function SessionDetail(props: { id: string; back: () => void }) {
   const [options] = createResource(() => getJson<OptionsResponse>("/options"));
   const [modelSel, setModelSel] = createSignal("");
   const [agentSel, setAgentSel] = createSignal("");
+  const [variantSel, setVariantSel] = createSignal("");
+  let draftEl: HTMLTextAreaElement | undefined;
+
+  const selectedModel = () =>
+    options()?.models.find((m) => `${m.providerID}/${m.modelID}` === modelSel());
+  const modelGroups = () => {
+    const byProvider = new Map<string, NonNullable<OptionsResponse>["models"]>();
+    for (const m of options()?.models ?? []) {
+      byProvider.set(m.providerID, [...(byProvider.get(m.providerID) ?? []), m]);
+    }
+    return [...byProvider.entries()];
+  };
 
   onMount(() => {
     const es = new EventSource(api("/stream"));
+    // partial assistant snapshots arrive rapidly during streaming — coalesce
+    // refetches instead of re-projecting the whole log per snapshot
+    let timer: ReturnType<typeof setTimeout> | undefined;
     es.onmessage = (m) => {
       try {
         const evt = JSON.parse(m.data) as { session_id?: string; type: string };
         if (evt.session_id === props.id || evt.type === "permission.requested") {
           if (replayPos() === null) {
-            refetch();
-            refetchAsks();
+            clearTimeout(timer);
+            timer = setTimeout(() => {
+              refetch();
+              refetchAsks();
+            }, 100);
           }
         }
       } catch {
         // non-session frames (service.connected)
       }
     };
-    onCleanup(() => es.close());
+    onCleanup(() => {
+      clearTimeout(timer);
+      es.close();
+    });
   });
 
   const respond = async (requestId: string, decision: "allow" | "deny") => {
@@ -136,19 +198,27 @@ export function SessionDetail(props: { id: string; back: () => void }) {
     refetchAsks();
   };
 
+  const autogrow = () => {
+    if (!draftEl) return;
+    draftEl.style.height = "auto";
+    draftEl.style.height = `${Math.min(draftEl.scrollHeight, 240)}px`;
+  };
+
   const send = async () => {
     const text = draft().trim();
     if (!text) return;
     setDraft("");
     setSendErr("");
+    if (draftEl) draftEl.style.height = "auto";
     const m = modelSel().split("/");
     const model = m.length === 2 ? { providerID: m[0]!, modelID: m[1]! } : undefined;
     const agent = agentSel() || undefined;
+    const variant = variantSel() || undefined;
     try {
       const res = await fetch(api(`/sessions/${encodeURIComponent(props.id)}/prompt`), {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text, model, agent }),
+        body: JSON.stringify({ text, model, agent, variant }),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
@@ -160,6 +230,9 @@ export function SessionDetail(props: { id: string; back: () => void }) {
       setDraft(text);
     }
   };
+
+  const pickerCls =
+    "h-7 max-w-48 rounded-md border border-transparent bg-transparent px-1.5 font-mono text-xs text-muted-foreground transition-colors hover:bg-secondary focus:border-input focus:outline-none";
 
   return (
     <main class="mx-auto max-w-3xl p-6">
@@ -178,26 +251,12 @@ export function SessionDetail(props: { id: string; back: () => void }) {
               <span class="text-sm text-muted-foreground">
                 {STATUS_LABEL[v().status] ?? v().status}
               </span>
-              <a
-                class="ml-auto rounded-md border border-border bg-secondary px-3 py-1 text-xs transition-colors hover:border-ring/50"
-                href={`/api/export?session=${v().session_id}`}
-                download=""
-              >
-                export CASF
-              </a>
-            </header>
-            <div class="mt-1 font-mono text-xs text-muted-foreground">
-              {v().backend} · {v().workspace ?? "—"} · {v().turns.length} turns ·{" "}
-              {v().totals.tool_calls} tools · {fmtUsd(v().totals.cost_usd)}
-            </div>
-
-            <section class="mt-4 rounded-lg border border-border bg-card p-3">
-              <div class="flex items-center gap-3">
+              <span class="ml-auto flex gap-2">
                 <button
                   class={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
                     replayPos() !== null
                       ? "bg-event-assistant/20 text-event-assistant"
-                      : "bg-secondary text-muted-foreground hover:text-foreground"
+                      : "border border-border bg-secondary text-muted-foreground hover:text-foreground"
                   }`}
                   onClick={() =>
                     setReplayPos(replayPos() === null ? (maxSeq() ?? 0) : null)
@@ -205,21 +264,35 @@ export function SessionDetail(props: { id: string; back: () => void }) {
                 >
                   {replayPos() !== null ? "exit replay" : "⏮ replay"}
                 </button>
-                <Show when={replayPos() !== null}>
-                  <input
-                    type="range"
-                    class="flex-1 accent-event-assistant"
-                    min={1}
-                    max={maxSeq() ?? 1}
-                    value={replayPos() ?? 1}
-                    onInput={(e) => setReplayPos(Number(e.currentTarget.value))}
-                  />
-                  <span class="shrink-0 font-mono text-xs text-muted-foreground tabular-nums">
-                    event {replayPos()} / {maxSeq() ?? "?"}
-                  </span>
-                </Show>
-              </div>
-            </section>
+                <a
+                  class="rounded-md border border-border bg-secondary px-3 py-1 text-xs text-muted-foreground transition-colors hover:border-ring/50 hover:text-foreground"
+                  href={`/api/export?session_id=${v().session_id}`}
+                  download=""
+                >
+                  export CASF
+                </a>
+              </span>
+            </header>
+            <div class="mt-1 font-mono text-xs text-muted-foreground">
+              {v().backend} · {v().workspace ?? "—"} · {v().turns.length} turns ·{" "}
+              {v().totals.tool_calls} tools · {fmtUsd(v().totals.cost_usd)}
+            </div>
+
+            <Show when={replayPos() !== null}>
+              <section class="mt-4 flex items-center gap-3 rounded-lg border border-event-assistant/40 bg-event-assistant/5 px-4 py-2.5">
+                <input
+                  type="range"
+                  class="flex-1 accent-event-assistant"
+                  min={1}
+                  max={maxSeq() ?? 1}
+                  value={replayPos() ?? 1}
+                  onInput={(e) => setReplayPos(Number(e.currentTarget.value))}
+                />
+                <span class="shrink-0 font-mono text-xs text-muted-foreground tabular-nums">
+                  event {replayPos()} / {maxSeq() ?? "?"}
+                </span>
+              </section>
+            </Show>
 
             <Show when={replayPos() === null}>
             <For each={asks() ?? []}>
@@ -250,57 +323,95 @@ export function SessionDetail(props: { id: string; back: () => void }) {
             </For>
             </Show>
 
-            <section class="mt-6 space-y-5">
+            <section class="mt-6 space-y-6">
               <For each={v().turns}>{(t) => <TurnBlock turn={t} />}</For>
             </section>
 
             <Show when={replayPos() === null}>
             <section class="mt-8">
-              <textarea
-                class="w-full rounded-lg border border-input bg-secondary/50 p-3 font-sans text-sm text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none"
-                rows={3}
-                placeholder="send a prompt…"
-                value={draft()}
-                onInput={(e) => setDraft(e.currentTarget.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void send();
-                }}
-              />
-              <div class="mt-2 flex items-center gap-3">
-                <button
-                  class="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
-                  onClick={() => void send()}
-                >
-                  send (Ctrl+Enter)
-                </button>
-                <Show when={(options()?.models.length ?? 0) > 0}>
-                  <select
-                    class="rounded-md border border-input bg-secondary/50 px-2 py-1 font-mono text-xs text-muted-foreground"
-                    value={modelSel()}
-                    onChange={(e) => setModelSel(e.currentTarget.value)}
+              <div class="rounded-xl border border-input bg-card transition-colors focus-within:border-ring">
+                <textarea
+                  ref={draftEl}
+                  class="max-h-60 w-full resize-none bg-transparent px-4 py-3 font-sans text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none"
+                  rows={1}
+                  placeholder="send a prompt…"
+                  value={draft()}
+                  onInput={(e) => {
+                    setDraft(e.currentTarget.value);
+                    autogrow();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void send();
+                  }}
+                />
+                <div class="flex items-center gap-1.5 border-t border-border px-2.5 py-2">
+                  <Show when={(options()?.models.length ?? 0) > 0}>
+                    <select
+                      class={pickerCls}
+                      value={modelSel()}
+                      onChange={(e) => {
+                        setModelSel(e.currentTarget.value);
+                        setVariantSel("");
+                      }}
+                    >
+                      <option value="">model: default</option>
+                      <For each={modelGroups()}>
+                        {([pid, models]) => (
+                          <optgroup label={pid}>
+                            <For each={models}>
+                              {(m) => (
+                                <option value={`${m.providerID}/${m.modelID}`}>
+                                  {m.modelID}
+                                </option>
+                              )}
+                            </For>
+                          </optgroup>
+                        )}
+                      </For>
+                    </select>
+                  </Show>
+                  <Show when={(selectedModel()?.variants?.length ?? 0) > 0}>
+                    <select
+                      class={pickerCls}
+                      value={variantSel()}
+                      onChange={(e) => setVariantSel(e.currentTarget.value)}
+                    >
+                      <option value="">effort: default</option>
+                      <For each={selectedModel()!.variants}>
+                        {(v) => <option value={v}>{v}</option>}
+                      </For>
+                    </select>
+                  </Show>
+                  <Show when={(options()?.agents.length ?? 0) > 0}>
+                    <select
+                      class={pickerCls}
+                      value={agentSel()}
+                      onChange={(e) => setAgentSel(e.currentTarget.value)}
+                    >
+                      <option value="">agent: default</option>
+                      <For each={options()!.agents}>
+                        {(a) => <option value={a.name}>{a.name}</option>}
+                      </For>
+                    </select>
+                  </Show>
+                  <span class="ml-auto hidden text-[10px] text-muted-foreground sm:inline">
+                    ⌘/Ctrl+Enter
+                  </span>
+                  <button
+                    class="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-primary text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
+                    disabled={!draft().trim()}
+                    title="send"
+                    onClick={() => void send()}
                   >
-                    <option value="">model: default</option>
-                    <For each={options()!.models}>
-                      {(m) => <option value={`${m.providerID}/${m.modelID}`}>{m.providerID}/{m.modelID}</option>}
-                    </For>
-                  </select>
-                </Show>
-                <Show when={(options()?.agents.length ?? 0) > 0}>
-                  <select
-                    class="rounded-md border border-input bg-secondary/50 px-2 py-1 font-mono text-xs text-muted-foreground"
-                    value={agentSel()}
-                    onChange={(e) => setAgentSel(e.currentTarget.value)}
-                  >
-                    <option value="">agent: default</option>
-                    <For each={options()!.agents}>
-                      {(a) => <option value={a.name}>{a.name}</option>}
-                    </For>
-                  </select>
-                </Show>
-                <Show when={sendErr()}>
-                  <span class="text-xs text-destructive">{sendErr()}</span>
-                </Show>
+                    <svg viewBox="0 0 16 16" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M8 12.5v-9M3.8 7.3 8 3l4.2 4.3" />
+                    </svg>
+                  </button>
+                </div>
               </div>
+              <Show when={sendErr()}>
+                <p class="mt-2 font-mono text-xs text-destructive">{sendErr()}</p>
+              </Show>
             </section>
             </Show>
 
@@ -312,7 +423,7 @@ export function SessionDetail(props: { id: string; back: () => void }) {
                     {(f) => (
                       <li class="flex gap-3">
                         <span class="w-14 text-event-file">{f.change}</span>
-                        <span class="text-muted-foreground">{f.path}</span>
+                        <span class="break-all text-muted-foreground">{f.path}</span>
                       </li>
                     )}
                   </For>

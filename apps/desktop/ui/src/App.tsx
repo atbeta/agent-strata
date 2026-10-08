@@ -1,21 +1,26 @@
 import { createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import {
   api,
+  connectBackend,
+  disconnectBackend,
   fmtUsd,
   getJson,
   STATUS_DOT,
   STATUS_LABEL,
+  type Connection,
   type SessionRow,
   type SessionsResponse,
   type StrataEvent,
 } from "./api";
 import { SessionDetail } from "./session-detail";
 import { CompareView } from "./compare";
+import { PolicyEditor } from "./policy";
 
 type Route =
   | { name: "fleet" }
   | { name: "session"; id: string }
-  | { name: "compare"; a: string; b: string };
+  | { name: "compare"; a: string; b: string }
+  | { name: "policy" };
 
 function parseHash(): Route {
   const h = location.hash.slice(1);
@@ -23,6 +28,7 @@ function parseHash(): Route {
   if (s) return { name: "session", id: s[1]! };
   const c = h.match(/^\/compare\/([^/]+)\/(.+)$/);
   if (c) return { name: "compare", a: c[1]!, b: c[2]! };
+  if (h === "/policy") return { name: "policy" };
   return { name: "fleet" };
 }
 
@@ -89,6 +95,16 @@ function eventPreview(e: StrataEvent): string {
 
 function Fleet() {
   const [data, { refetch }] = createResource(() => getJson<SessionsResponse>("/sessions"));
+  const [conns, { refetch: refetchConns }] = createResource(() =>
+    getJson<{ connections: Connection[] }>("/connections"),
+  );
+  const [connOpen, setConnOpen] = createSignal(false);
+  const [connUrl, setConnUrl] = createSignal("http://127.0.0.1:4096");
+  const [connName, setConnName] = createSignal("");
+  const [connUser, setConnUser] = createSignal("");
+  const [connPass, setConnPass] = createSignal("");
+  const [connErr, setConnErr] = createSignal("");
+  const [connecting, setConnecting] = createSignal(false);
   const [liveCount, setLiveCount] = createSignal(0);
   const [compareSel, setCompareSel] = createSignal<string[]>([]);
   const [query, setQuery] = createSignal("");
@@ -99,6 +115,26 @@ function Fleet() {
         )).events
       : [],
   );
+
+  const connect = async () => {
+    setConnErr("");
+    setConnecting(true);
+    try {
+      await connectBackend({
+        baseUrl: connUrl().trim(),
+        name: connName().trim() || undefined,
+        username: connUser() || undefined,
+        password: connPass() || undefined,
+      });
+      setConnOpen(false);
+      refetchConns();
+      refetch();
+    } catch (e) {
+      setConnErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setConnecting(false);
+    }
+  };
 
   const toggleCompare = (id: string) =>
     setCompareSel((sel) =>
@@ -133,6 +169,12 @@ function Fleet() {
           </p>
         </div>
         <div class="ml-auto flex gap-2">
+          <button
+            class="rounded-md border border-border bg-secondary px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+            onClick={() => (location.hash = "/policy")}
+          >
+            policy
+          </button>
           <button
             class="rounded-md border border-border bg-secondary px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
             onClick={async () => {
@@ -181,6 +223,83 @@ function Fleet() {
         <div>
           live events: <b class="font-mono text-foreground tabular-nums">{liveCount()}</b>
         </div>
+      </section>
+
+      <section class="mt-4 rounded-lg border border-border bg-card px-4 py-3">
+        <div class="flex flex-wrap items-center gap-2 text-xs">
+          <span class="font-medium text-muted-foreground">backends</span>
+          <For each={conns()?.connections ?? []}>
+            {(c) => (
+              <span class="flex items-center gap-1.5 rounded-md bg-secondary px-2 py-1 font-mono">
+                <span class="h-1.5 w-1.5 rounded-full bg-status-active" />
+                {c.name ?? c.baseUrl}
+                <span class="text-muted-foreground">
+                  {c.name ? c.baseUrl : c.backend}
+                </span>
+                <button
+                  class="ml-1 text-muted-foreground transition-colors hover:text-destructive"
+                  title="disconnect"
+                  onClick={() =>
+                    void disconnectBackend(c.id).then(() => {
+                      refetchConns();
+                      refetch();
+                    })
+                  }
+                >
+                  ✕
+                </button>
+              </span>
+            )}
+          </For>
+          <Show when={(conns()?.connections.length ?? 0) === 0}>
+            <span class="text-muted-foreground">none connected</span>
+          </Show>
+          <button
+            class="ml-auto rounded-md bg-secondary px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+            onClick={() => setConnOpen((v) => !v)}
+          >
+            {connOpen() ? "cancel" : "+ connect"}
+          </button>
+        </div>
+        <Show when={connOpen()}>
+          <div class="mt-3 flex flex-wrap items-center gap-1.5 border-t border-border pt-3">
+            <input
+              class="w-52 rounded-md border border-input bg-secondary/50 px-2 py-1 font-mono text-xs text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none"
+              placeholder="server URL"
+              value={connUrl()}
+              onInput={(e) => setConnUrl(e.currentTarget.value)}
+            />
+            <input
+              class="w-32 rounded-md border border-input bg-secondary/50 px-2 py-1 font-mono text-xs text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none"
+              placeholder="name (optional)"
+              value={connName()}
+              onInput={(e) => setConnName(e.currentTarget.value)}
+            />
+            <input
+              class="w-28 rounded-md border border-input bg-secondary/50 px-2 py-1 font-mono text-xs text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none"
+              placeholder="username (optional)"
+              value={connUser()}
+              onInput={(e) => setConnUser(e.currentTarget.value)}
+            />
+            <input
+              type="password"
+              class="w-28 rounded-md border border-input bg-secondary/50 px-2 py-1 font-mono text-xs text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none"
+              placeholder="password (optional)"
+              value={connPass()}
+              onInput={(e) => setConnPass(e.currentTarget.value)}
+            />
+            <button
+              class="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+              disabled={connecting() || !connUrl().trim()}
+              onClick={() => void connect()}
+            >
+              {connecting() ? "connecting…" : "add server"}
+            </button>
+          </div>
+        </Show>
+        <Show when={connErr()}>
+          <p class="mt-2 font-mono text-xs text-destructive">{connErr()}</p>
+        </Show>
       </section>
 
       <div class="mt-4">
@@ -255,24 +374,23 @@ export function App() {
   const back = () => (location.hash = "/");
 
   return (
-    <Show
-      when={route().name === "fleet"}
-      fallback={
-        <Show
-          when={route().name === "session" && (route() as { id: string }).id}
-          fallback={
-            <CompareView
-              a={(route() as { a: string }).a}
-              b={(route() as { b: string }).b}
-              back={back}
-            />
-          }
-        >
-          <SessionDetail id={(route() as { id: string }).id} back={back} />
-        </Show>
-      }
-    >
-      <Fleet />
-    </Show>
+    <>
+      <Show when={route().name === "fleet"}>
+        <Fleet />
+      </Show>
+      <Show when={route().name === "session"}>
+        <SessionDetail id={(route() as { id: string }).id} back={back} />
+      </Show>
+      <Show when={route().name === "compare"}>
+        <CompareView
+          a={(route() as { a: string }).a}
+          b={(route() as { b: string }).b}
+          back={back}
+        />
+      </Show>
+      <Show when={route().name === "policy"}>
+        <PolicyEditor back={back} />
+      </Show>
+    </>
   );
 }

@@ -109,6 +109,103 @@ describe("agent-strata service", () => {
     svc.stop();
   });
 
+  test("policy endpoints: get/put/test/delete + file persistence", async () => {
+    const dir = `${import.meta.dir}/.tmp-${Bun.randomUUIDv7()}`;
+    const svc = startService({
+      db: ":memory:",
+      port: 0,
+      policyFile: `${dir}/policy.json`,
+    });
+    const base = `http://127.0.0.1:${svc.port}`;
+
+    const empty = await fetch(`${base}/policy`).then((r) => r.json());
+    expect(empty.policy).toBeNull();
+
+    const noPolicy = await fetch(`${base}/policy/test`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tool: "bash", input: { command: "rm -rf /" } }),
+    }).then((r) => r.json());
+    expect(noPolicy.decision).toBe("ask");
+
+    const bad = await fetch(`${base}/policy`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        version: 1,
+        rules: [{ id: "x", effect: "allow", tool: "*", when: { c: { matches: "[" } } }],
+      }),
+    });
+    expect(bad.status).toBe(400);
+
+    const policy = {
+      version: 1,
+      default: "ask",
+      rules: [
+        { id: "deny-rm", effect: "deny", tool: "bash", when: { command: { matches: "\\brm\\b" } } },
+        { id: "allow-read", effect: "allow", tool: "read" },
+      ],
+    };
+    const put = await fetch(`${base}/policy`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(policy),
+    });
+    expect(put.status).toBe(200);
+
+    const got = await fetch(`${base}/policy`).then((r) => r.json());
+    expect(got.policy.rules.length).toBe(2);
+    expect(got.file).toBe(`${dir}/policy.json`);
+
+    const denied = await fetch(`${base}/policy/test`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tool: "bash", input: { command: "rm -rf /tmp/x" } }),
+    }).then((r) => r.json());
+    expect(denied).toMatchObject({ decision: "deny", rule_id: "deny-rm" });
+
+    // inline draft policy overrides the live one without saving it
+    const draft = await fetch(`${base}/policy/test`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        tool: "bash",
+        input: { command: "rm -rf /tmp/x" },
+        policy: { version: 1, rules: [{ id: "yolo", effect: "allow", tool: "*" }] },
+      }),
+    }).then((r) => r.json());
+    expect(draft).toMatchObject({ decision: "allow", rule_id: "yolo" });
+
+    // a fresh service over the same file loads the persisted policy
+    const svc2 = startService({ db: ":memory:", port: 0, policyFile: `${dir}/policy.json` });
+    const got2 = await fetch(`http://127.0.0.1:${svc2.port}/policy`).then((r) => r.json());
+    expect(got2.policy.rules.length).toBe(2);
+    svc2.stop();
+
+    const del = await fetch(`${base}/policy`, { method: "DELETE" });
+    expect(del.status).toBe(200);
+    expect((await fetch(`${base}/policy`).then((r) => r.json())).policy).toBeNull();
+
+    svc.stop();
+    const svc3 = startService({ db: ":memory:", port: 0, policyFile: `${dir}/policy.json` });
+    expect((await fetch(`http://127.0.0.1:${svc3.port}/policy`).then((r) => r.json())).policy).toBeNull();
+    svc3.stop();
+  });
+
+  test("autoConnect to a dead backend retries then gives up, service stays up", async () => {
+    const svc = startService({
+      db: ":memory:",
+      port: 0,
+      autoConnect: "http://127.0.0.1:1",
+      autoConnectTimeoutMs: 400,
+    });
+    await Bun.sleep(600);
+    const health = await fetch(`http://127.0.0.1:${svc.port}/health`).then((r) => r.json());
+    expect(health.ok).toBe(true);
+    expect(health.conns).toBe(0);
+    svc.stop();
+  });
+
   test("live stream broadcasts new events", async () => {
     const svc = startService({ db: ":memory:", port: 0 });
     const base = `http://127.0.0.1:${svc.port}`;

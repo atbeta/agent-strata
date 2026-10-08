@@ -17,7 +17,7 @@ Cross-backend agent session/event layer: a canonical event format (CASF v0), an 
 
 ## Apps
 
-`apps/desktop` — Tauri shell (v2 scaffold): spawns the strata service (and optionally an embedded `opencode serve` when `STRATA_OPENCODE_EMBED=1`), renders `ui/` (Vite + Solid) with a live fleet dashboard of all sessions against the service API.
+`apps/desktop` — Tauri shell (v2 scaffold): spawns the strata service (and optionally an embedded `opencode serve` when `STRATA_OPENCODE_EMBED=1`), renders `ui/` (Vite + Solid): live fleet dashboard with FTS search, session detail timeline + replay scrubber, compare view, and a policy editor backed by `GET/PUT/DELETE /policy` + `POST /policy/test`.
 
 `connectOpencode` resolves only after the event stream is attached (first `server.connected` event, bounded by `connectTimeoutMs`, default 10s). `onEvent(evt)` is called after each raw event is ingested, for observing lifecycle events like idle.
 
@@ -35,6 +35,10 @@ bun test          # all package tests
 bun run typecheck # tsc --noEmit per package
 
 # strata service (local API for UIs)
+# STRATA_POLICY persists the live permission policy (default ~/.agent-strata/policy.json)
+# STRATA_OPENCODE_URL auto-connects a backend on boot, retrying until it is up
+#   (the Tauri shell sets this to its spawned `opencode serve` in embed mode);
+#   otherwise attach later via POST /connect or the fleet "backends" panel
 STRATA_DB=~/.agent-strata/events.db STRATA_PORT=7700 bun run packages/service/src/index.ts
 
 # desktop UI dev (proxies /api -> service)

@@ -42,16 +42,24 @@ impl Sidecars {
             format!("{home}/.agent-strata/events.db")
         });
 
+        // embed mode: we spawn `opencode serve` below, and the service
+        // auto-connects to it on boot (it retries until the server is up)
+        let embed = std::env::var("STRATA_OPENCODE_EMBED").as_deref() == Ok("1");
+        let mut envs = vec![("STRATA_DB", db), ("STRATA_PORT", "7700".into())];
+        if embed {
+            envs.push(("STRATA_OPENCODE_URL", "http://127.0.0.1:4096".into()));
+        }
+
         if let Some(c) = Self::spawn(
             "bun",
             &["run", "src/index.ts"],
             Some(&service_dir),
-            &[("STRATA_DB", db), ("STRATA_PORT", "7700".into())],
+            &envs,
         ) {
             children.push(c);
         }
 
-        if std::env::var("STRATA_OPENCODE_EMBED").as_deref() == Ok("1") {
+        if embed {
             if let Some(c) = Self::spawn("opencode", &["serve", "--port", "4096"], None, &[]) {
                 children.push(c);
             }

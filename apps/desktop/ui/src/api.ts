@@ -43,6 +43,8 @@ export interface Turn {
   user?: ContentBlock[];
   assistant: {
     content: ContentBlock[];
+    msg_id?: string;
+    partial?: boolean;
     model?: string;
     cost_usd?: number;
     latency_ms?: number;
@@ -114,9 +116,48 @@ export interface StrataEvent {
   data: Record<string, unknown>;
 }
 
+export interface Connection {
+  id: string;
+  backend: string;
+  baseUrl: string;
+  name?: string;
+  directory?: string;
+}
+
 export interface OptionsResponse {
-  models: { providerID: string; modelID: string; name: string }[];
+  models: { providerID: string; modelID: string; name: string; variants?: string[] }[];
   agents: { name: string; mode?: string }[];
+}
+
+export interface PolicyCondition {
+  matches?: string;
+  equals?: string | number | boolean;
+  glob?: string;
+}
+
+export interface PolicyRule {
+  id: string;
+  effect: "allow" | "deny" | "ask";
+  tool: string;
+  when?: Record<string, PolicyCondition>;
+  reason?: string;
+}
+
+export interface Policy {
+  version: 1;
+  default: "ask" | "allow" | "deny";
+  rules: PolicyRule[];
+}
+
+export interface PolicyResponse {
+  policy: Policy | null;
+  file: string | null;
+}
+
+export interface PolicyDecision {
+  decision: "allow" | "deny" | "ask";
+  rule_id?: string;
+  reason?: string;
 }
 
 export const api = (p: string) => `/api${p}`;
@@ -138,6 +179,61 @@ export async function respondPermission(
     body: JSON.stringify({ decision, scope }),
   });
   if (!res.ok) throw new Error(`service ${res.status}`);
+}
+
+async function throwOnError(res: Response): Promise<void> {
+  if (res.ok) return;
+  const body = (await res.json().catch(() => ({}))) as { error?: string };
+  throw new Error(body.error ?? `service ${res.status}`);
+}
+
+export async function savePolicy(policy: Policy): Promise<void> {
+  const res = await fetch(api("/policy"), {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(policy),
+  });
+  await throwOnError(res);
+}
+
+export async function clearPolicy(): Promise<void> {
+  await throwOnError(await fetch(api("/policy"), { method: "DELETE" }));
+}
+
+export async function connectBackend(body: {
+  baseUrl: string;
+  name?: string;
+  directory?: string;
+  username?: string;
+  password?: string;
+}): Promise<string> {
+  const res = await fetch(api("/connect"), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
+  if (!res.ok) throw new Error(data.error ?? `service ${res.status}`);
+  return data.id!;
+}
+
+export async function disconnectBackend(id: string): Promise<void> {
+  await throwOnError(await fetch(api(`/connections/${encodeURIComponent(id)}`), { method: "DELETE" }));
+}
+
+export async function testPolicy(body: {
+  tool: string;
+  input: Record<string, unknown>;
+  policy?: unknown;
+}): Promise<PolicyDecision> {
+  const res = await fetch(api("/policy/test"), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as PolicyDecision & { error?: string };
+  if (!res.ok) throw new Error(data.error ?? `service ${res.status}`);
+  return data;
 }
 
 export function fmtUsd(n: number) {

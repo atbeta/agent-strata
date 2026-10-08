@@ -23,6 +23,8 @@ export interface Turn {
   user?: ContentBlock[];
   assistant: {
     content: ContentBlock[];
+    msg_id?: string;
+    partial?: boolean;
     model?: string;
     usage?: Usage;
     cost_usd?: number;
@@ -123,22 +125,45 @@ export function projectSession(events: Event[]): SessionView {
       }
       case "turn.assistant": {
         const t = getTurn(e.data.turn_id);
-        t.assistant.push({
-          content: e.data.content,
-          model: e.data.model,
-          usage: e.data.usage,
-          cost_usd: e.data.cost_usd,
-          latency_ms: e.data.latency_ms,
-        });
-        const u = e.data.usage;
-        if (u) {
-          view.totals.input += u.input;
-          view.totals.output += u.output;
-          view.totals.reasoning += u.reasoning ?? 0;
-          view.totals.cache_read += u.cache_read ?? 0;
-          view.totals.cache_write += u.cache_write ?? 0;
+        const addUsage = (sign: 1 | -1, u?: Usage, cost?: number) => {
+          if (u) {
+            view.totals.input += sign * u.input;
+            view.totals.output += sign * u.output;
+            view.totals.reasoning += sign * (u.reasoning ?? 0);
+            view.totals.cache_read += sign * (u.cache_read ?? 0);
+            view.totals.cache_write += sign * (u.cache_write ?? 0);
+          }
+          view.totals.cost_usd += sign * (cost ?? 0);
+        };
+        // a snapshot with a msg_id already seen replaces that entry — this is
+        // how streaming partials resolve into the final completed message
+        const idx = e.data.msg_id
+          ? t.assistant.findIndex((a) => a.msg_id === e.data.msg_id)
+          : -1;
+        if (idx >= 0) {
+          const old = t.assistant[idx]!;
+          addUsage(-1, old.usage, old.cost_usd);
+          t.assistant[idx] = {
+            content: e.data.content,
+            msg_id: e.data.msg_id,
+            partial: e.data.partial,
+            model: e.data.model ?? old.model,
+            usage: e.data.usage,
+            cost_usd: e.data.cost_usd,
+            latency_ms: e.data.latency_ms,
+          };
+        } else {
+          t.assistant.push({
+            content: e.data.content,
+            msg_id: e.data.msg_id,
+            partial: e.data.partial,
+            model: e.data.model,
+            usage: e.data.usage,
+            cost_usd: e.data.cost_usd,
+            latency_ms: e.data.latency_ms,
+          });
         }
-        view.totals.cost_usd += e.data.cost_usd ?? 0;
+        addUsage(1, e.data.usage, e.data.cost_usd);
         break;
       }
       case "tool.call": {

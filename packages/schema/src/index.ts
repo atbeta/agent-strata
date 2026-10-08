@@ -66,6 +66,12 @@ const data = {
   "turn.assistant": z.object({
     turn_id: z.string(),
     content: z.array(ContentBlock),
+    // backend message id — lets a later snapshot replace an earlier partial
+    // one for the same message instead of appending a duplicate
+    msg_id: z.string().optional(),
+    // still streaming: a later snapshot (or the final completed event)
+    // supersedes this content
+    partial: z.boolean().optional(),
     model: z.string().optional(),
     usage: Usage.optional(),
     cost_usd: z.number().min(0).optional(),

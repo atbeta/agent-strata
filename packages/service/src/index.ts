@@ -2,31 +2,45 @@
 // The desktop shell (Tauri) runs this as a sidecar and talks to it over
 // localhost. One store file, many backend connections, SSE fan-out to clients.
 
+import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { openStore, type Store, type EventQuery } from "@agent-strata/store";
 import { projectSession, aggregate, type SessionView } from "@agent-strata/projector";
 import { connectOpencode } from "@agent-strata/adapter-opencode";
 import { compareSessions, exportEvents } from "@agent-strata/core";
-import { loadPolicy, type Policy } from "@agent-strata/policy";
+import { evaluate, loadPolicy, type Policy } from "@agent-strata/policy";
 import type { Event } from "@agent-strata/schema";
 
 export interface ServiceOpts {
   db?: string;
   port?: number;
+  // optional JSON file the live policy is loaded from / persisted to
+  policyFile?: string;
+  // backend baseUrl to connect on boot, retried until autoConnectTimeoutMs
+  autoConnect?: string;
+  autoConnectTimeoutMs?: number;
 }
 
 interface Conn {
   id: string;
   backend: string;
   baseUrl: string;
+  name?: string;
   directory?: string;
   stop: () => void;
   createSession: (opts?: { title?: string }) => Promise<{ id: string }>;
   prompt: (
     sessionID: string,
     text: string,
-    opts?: { model?: { providerID: string; modelID: string }; agent?: string },
+    opts?: {
+      model?: { providerID: string; modelID: string };
+      agent?: string;
+      variant?: string;
+    },
   ) => Promise<void>;
-  listModels: () => Promise<{ providerID: string; modelID: string; name: string }[]>;
+  listModels: () => Promise<
+    { providerID: string; modelID: string; name: string; variants?: string[] }[]
+  >;
   listAgents: () => Promise<{ name: string; mode?: string }[]>;
 }
 
@@ -48,6 +62,30 @@ export interface RunningService {
 export function startService(opts: ServiceOpts = {}): RunningService {
   const store = openStore(opts.db ?? ":memory:");
   const conns = new Map<string, Conn>();
+  // live policy: applies to every connection (hot-swapped via PUT /policy)
+  let currentPolicy: Policy | undefined;
+  const loadPolicyFile = (): Policy | undefined => {
+    if (!opts.policyFile) return undefined;
+    try {
+      return loadPolicy(JSON.parse(readFileSync(opts.policyFile, "utf8")));
+    } catch {
+      return undefined;
+    }
+  };
+  currentPolicy = loadPolicyFile();
+  const persistPolicy = () => {
+    if (!opts.policyFile) return;
+    if (currentPolicy === undefined) {
+      try {
+        unlinkSync(opts.policyFile);
+      } catch {
+        // already gone
+      }
+      return;
+    }
+    mkdirSync(dirname(opts.policyFile), { recursive: true });
+    writeFileSync(opts.policyFile, JSON.stringify(currentPolicy, null, 2) + "\n");
+  };
   const pendingAsks = new Map<string, PendingAsk>();
   const subscribers = new Set<(evt: Event) => void>();
   store.subscribe((e) => {
@@ -62,6 +100,88 @@ export function startService(opts: ServiceOpts = {}): RunningService {
 
   const sessionView = (sessionId: string): SessionView =>
     projectSession(store.read({ session_id: sessionId }));
+
+  const connectBackend = async (body: {
+    backend?: string;
+    baseUrl: string;
+    name?: string;
+    directory?: string;
+    username?: string;
+    password?: string;
+    policy?: unknown;
+    connectTimeoutMs?: number;
+  }): Promise<{ id: string }> => {
+    if ((body.backend ?? "opencode") !== "opencode")
+      throw new Error("only opencode backend supported");
+    const explicit: Policy | undefined = body.policy
+      ? loadPolicy(body.policy)
+      : undefined;
+    const conn = await connectOpencode({
+      baseUrl: body.baseUrl,
+      directory: body.directory,
+      username: body.username,
+      password: body.password,
+      sink: store,
+      // per-connect policy wins; otherwise follow the live shared policy
+      policy: explicit ? () => explicit : () => currentPolicy,
+      connectTimeoutMs: body.connectTimeoutMs,
+      onAsk: (req) => {
+        store.append([req]);
+        const data = req.data as {
+          request_id: string;
+          tool: string;
+          input: Record<string, unknown>;
+        };
+        return new Promise<{ decision: "allow" | "deny"; scope?: "once" | "always" }>(
+          (resolve) =>
+            pendingAsks.set(data.request_id, {
+              request_id: data.request_id,
+              session_id: req.session_id,
+              tool: data.tool,
+              input: data.input,
+              asked_at: req.ts,
+              resolve,
+            }),
+        );
+      },
+    });
+    const id = `opencode:${body.baseUrl}`;
+    conns.set(id, {
+      id,
+      backend: "opencode",
+      baseUrl: body.baseUrl,
+      name: body.name,
+      directory: body.directory,
+      stop: conn.stop,
+      createSession: conn.createSession,
+      prompt: conn.prompt,
+      listModels: conn.listModels,
+      listAgents: conn.listAgents,
+    });
+    return { id };
+  };
+
+  // boot auto-connect (e.g. Tauri spawning `opencode serve` next to us):
+  // the server takes a moment to come up, so retry until the deadline
+  if (opts.autoConnect) {
+    const baseUrl = opts.autoConnect;
+    const deadline = Date.now() + (opts.autoConnectTimeoutMs ?? 15_000);
+    void (async () => {
+      for (;;) {
+        try {
+          const { id } = await connectBackend({ baseUrl });
+          console.log(`auto-connected backend ${id}`);
+          return;
+        } catch (e) {
+          if (Date.now() > deadline) {
+            console.error(`auto-connect to ${baseUrl} gave up: ${e}`);
+            return;
+          }
+          await Bun.sleep(750);
+        }
+      }
+    })();
+  }
 
   const server = Bun.serve({
     port: opts.port ?? 0,
@@ -140,11 +260,16 @@ export function startService(opts: ServiceOpts = {}): RunningService {
           text?: string;
           model?: { providerID: string; modelID: string };
           agent?: string;
+          variant?: string;
         } | null;
         if (!body?.text) return json({ error: "text required" }, 400);
         const native = decodeURIComponent(promptMatch[1]!).replace(/^opencode:/, "");
         try {
-          await conn.prompt(native, body.text, { model: body.model, agent: body.agent });
+          await conn.prompt(native, body.text, {
+            model: body.model,
+            agent: body.agent,
+            variant: body.variant,
+          });
           return json({ ok: true });
         } catch (e) {
           return json({ error: String(e) }, 502);
@@ -173,54 +298,16 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         const body = (await req.json().catch(() => null)) as {
           backend?: string;
           baseUrl?: string;
+          name?: string;
           directory?: string;
+          username?: string;
+          password?: string;
           policy?: unknown;
           connectTimeoutMs?: number;
         } | null;
         if (!body?.baseUrl) return json({ error: "baseUrl required" }, 400);
-        if ((body.backend ?? "opencode") !== "opencode")
-          return json({ error: "only opencode backend supported" }, 400);
         try {
-          const policy: Policy | undefined = body.policy ? loadPolicy(body.policy) : undefined;
-          const conn = await connectOpencode({
-            baseUrl: body.baseUrl,
-            directory: body.directory,
-            sink: store,
-            policy,
-            connectTimeoutMs: body.connectTimeoutMs,
-            onAsk: (req) => {
-              store.append([req]);
-              const data = req.data as {
-                request_id: string;
-                tool: string;
-                input: Record<string, unknown>;
-              };
-              return new Promise<{ decision: "allow" | "deny"; scope?: "once" | "always" }>(
-                (resolve) =>
-                  pendingAsks.set(data.request_id, {
-                    request_id: data.request_id,
-                    session_id: req.session_id,
-                    tool: data.tool,
-                    input: data.input,
-                    asked_at: req.ts,
-                    resolve,
-                  }),
-              );
-            },
-          });
-          const id = `opencode:${body.baseUrl}`;
-          conns.set(id, {
-            id,
-            backend: "opencode",
-            baseUrl: body.baseUrl,
-            directory: body.directory,
-            stop: conn.stop,
-            createSession: conn.createSession,
-            prompt: conn.prompt,
-            listModels: conn.listModels,
-            listAgents: conn.listAgents,
-          });
-          return json({ id });
+          return json(await connectBackend({ ...body, baseUrl: body.baseUrl }));
         } catch (e) {
           return json({ error: String(e) }, 502);
         }
@@ -230,6 +317,48 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         return json({
           connections: [...conns.values()].map(({ stop: _s, ...c }) => c),
         });
+      }
+
+      if (path === "/policy" && req.method === "GET") {
+        return json({ policy: currentPolicy ?? null, file: opts.policyFile ?? null });
+      }
+
+      if (path === "/policy" && req.method === "PUT") {
+        const body = (await req.json().catch(() => null)) as unknown;
+        try {
+          currentPolicy = loadPolicy(body);
+        } catch (e) {
+          return json({ error: String(e) }, 400);
+        }
+        persistPolicy();
+        return json({ ok: true, policy: currentPolicy });
+      }
+
+      if (path === "/policy" && req.method === "DELETE") {
+        currentPolicy = undefined;
+        persistPolicy();
+        return json({ ok: true });
+      }
+
+      if (path === "/policy/test" && req.method === "POST") {
+        // dry-run the permission engine: body { tool, input, policy? } —
+        // an inline policy is validated and used, else the live one
+        const body = (await req.json().catch(() => null)) as {
+          tool?: string;
+          input?: Record<string, unknown>;
+          policy?: unknown;
+        } | null;
+        if (!body?.tool) return json({ error: "tool required" }, 400);
+        let p = currentPolicy;
+        if (body.policy !== undefined) {
+          try {
+            p = loadPolicy(body.policy);
+          } catch (e) {
+            return json({ error: String(e) }, 400);
+          }
+        }
+        if (!p) return json({ decision: "ask", reason: "no policy" });
+        return json(evaluate(p, { tool: body.tool, input: body.input ?? {} }));
       }
 
       if (path === "/permissions" && req.method === "GET") {
@@ -320,6 +449,14 @@ export function startService(opts: ServiceOpts = {}): RunningService {
 if (import.meta.main) {
   const db = process.env.STRATA_DB ?? `${process.env.HOME}/.agent-strata/events.db`;
   const port = Number(process.env.STRATA_PORT ?? 7700);
-  const svc = startService({ db, port });
+  const policyFile =
+    process.env.STRATA_POLICY ?? `${process.env.HOME}/.agent-strata/policy.json`;
+  const svc = startService({
+    db,
+    port,
+    policyFile,
+    // e.g. STRATA_OPENCODE_URL=http://127.0.0.1:4096 (Tauri embed sets this)
+    autoConnect: process.env.STRATA_OPENCODE_URL,
+  });
   console.log(`agent-strata service listening on http://127.0.0.1:${svc.port} (db: ${db})`);
 }
