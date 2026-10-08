@@ -20,6 +20,12 @@ interface Conn {
   baseUrl: string;
   directory?: string;
   stop: () => void;
+  createSession: (opts?: { title?: string }) => Promise<{ id: string }>;
+  prompt: (
+    sessionID: string,
+    text: string,
+    opts?: { model?: { providerID: string; modelID: string }; agent?: string },
+  ) => Promise<void>;
 }
 
 interface PendingAsk {
@@ -95,6 +101,33 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         return json(sessionView(decodeURIComponent(sessionMatch[1]!)));
       }
 
+      if (path === "/sessions" && req.method === "POST") {
+        const conn = [...conns.values()][0];
+        if (!conn) return json({ error: "no backend connected" }, 400);
+        const body = (await req.json().catch(() => ({}))) as { title?: string };
+        const created = await conn.createSession({ title: body.title });
+        return json({ id: `opencode:${created.id}`, native_id: created.id });
+      }
+
+      const promptMatch = path.match(/^\/sessions\/([^/]+)\/prompt$/);
+      if (promptMatch && req.method === "POST") {
+        const conn = [...conns.values()][0];
+        if (!conn) return json({ error: "no backend connected" }, 400);
+        const body = (await req.json().catch(() => null)) as {
+          text?: string;
+          model?: { providerID: string; modelID: string };
+          agent?: string;
+        } | null;
+        if (!body?.text) return json({ error: "text required" }, 400);
+        const native = decodeURIComponent(promptMatch[1]!).replace(/^opencode:/, "");
+        try {
+          await conn.prompt(native, body.text, { model: body.model, agent: body.agent });
+          return json({ ok: true });
+        } catch (e) {
+          return json({ error: String(e) }, 502);
+        }
+      }
+
       if (path === "/compare" && req.method === "GET") {
         const a = url.searchParams.get("a");
         const b = url.searchParams.get("b");
@@ -159,6 +192,8 @@ export function startService(opts: ServiceOpts = {}): RunningService {
             baseUrl: body.baseUrl,
             directory: body.directory,
             stop: conn.stop,
+            createSession: conn.createSession,
+            prompt: conn.prompt,
           });
           return json({ id });
         } catch (e) {

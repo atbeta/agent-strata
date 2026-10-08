@@ -417,7 +417,16 @@ export async function connectOpencode(opts: {
   onEvent?: (evt: Event) => void;
   connectTimeoutMs?: number;
   fetch?: typeof fetch;
-}): Promise<{ stop: () => void; importSession: (sessionID: string) => Promise<void> }> {
+}): Promise<{
+  stop: () => void;
+  importSession: (sessionID: string) => Promise<void>;
+  createSession: (opts?: { title?: string }) => Promise<{ id: string }>;
+  prompt: (
+    sessionID: string,
+    text: string,
+    opts?: { model?: { providerID: string; modelID: string }; agent?: string },
+  ) => Promise<void>;
+}> {
   const abort = new AbortController();
   // The SDK builds the SSE request with its own internal signal and ignores a
   // caller-provided one. Wrap fetch so stop() truly ends the stream: an
@@ -518,6 +527,20 @@ export async function connectOpencode(opts: {
     stop() {
       abort.abort();
       void loop;
+    },
+    async createSession(sessOpts?: { title?: string }) {
+      const r = await client.session.create({ title: sessOpts?.title });
+      if (!r.data) throw new Error("session.create returned no data");
+      return { id: r.data.id };
+    },
+    async prompt(sessionID: string, text: string, promptOpts?) {
+      await client.session.promptAsync({
+        sessionID,
+        directory: opts.directory,
+        model: promptOpts?.model,
+        agent: promptOpts?.agent,
+        parts: [{ type: "text", text }],
+      });
     },
     async importSession(sessionID: string) {
       const sess = await client.session.get({ sessionID });

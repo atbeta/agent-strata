@@ -108,9 +108,24 @@ function Fleet() {
             fleet view — all agent sessions, live from the event log
           </p>
         </div>
-        <Show when={compareSel().length === 2}>
+        <div class="ml-auto flex gap-2">
           <button
-            class="ml-auto rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+            class="rounded-md border border-border bg-secondary px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+            onClick={async () => {
+              const res = await fetch(api("/sessions"), {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: "{}",
+              });
+              const body = (await res.json()) as { id?: string };
+              if (body.id) location.hash = `/session/${body.id}`;
+            }}
+          >
+            + new session
+          </button>
+          <Show when={compareSel().length === 2}>
+          <button
+            class="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
             onClick={() => {
               const [a, b] = compareSel();
               location.hash = `/compare/${a}/${b}`;
@@ -118,7 +133,8 @@ function Fleet() {
           >
             compare 2 sessions →
           </button>
-        </Show>
+          </Show>
+        </div>
       </header>
 
       <section class="mt-5 flex gap-8 rounded-lg border border-border bg-muted px-4 py-3 text-sm text-muted-foreground">
