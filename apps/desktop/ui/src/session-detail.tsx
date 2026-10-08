@@ -7,6 +7,7 @@ import {
   STATUS_DOT,
   STATUS_LABEL,
   type ContentBlock,
+  type OptionsResponse,
   type PendingAsk,
   type SessionView,
   type ToolCallView,
@@ -96,6 +97,9 @@ export function SessionDetail(props: { id: string; back: () => void }) {
   });
   const [draft, setDraft] = createSignal("");
   const [sendErr, setSendErr] = createSignal("");
+  const [options] = createResource(() => getJson<OptionsResponse>("/options"));
+  const [modelSel, setModelSel] = createSignal("");
+  const [agentSel, setAgentSel] = createSignal("");
 
   onMount(() => {
     const es = new EventSource(api("/stream"));
@@ -123,14 +127,22 @@ export function SessionDetail(props: { id: string; back: () => void }) {
     if (!text) return;
     setDraft("");
     setSendErr("");
-    const res = await fetch(api(`/sessions/${encodeURIComponent(props.id)}/prompt`), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text }),
-    });
-    if (!res.ok) {
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
-      setSendErr(body.error ?? `service ${res.status}`);
+    const m = modelSel().split("/");
+    const model = m.length === 2 ? { providerID: m[0]!, modelID: m[1]! } : undefined;
+    const agent = agentSel() || undefined;
+    try {
+      const res = await fetch(api(`/sessions/${encodeURIComponent(props.id)}/prompt`), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text, model, agent }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setSendErr(body.error ?? `service ${res.status}`);
+        setDraft(text);
+      }
+    } catch (err) {
+      setSendErr(err instanceof Error ? err.message : "network error");
       setDraft(text);
     }
   };
@@ -214,6 +226,30 @@ export function SessionDetail(props: { id: string; back: () => void }) {
                 >
                   send (Ctrl+Enter)
                 </button>
+                <Show when={(options()?.models.length ?? 0) > 0}>
+                  <select
+                    class="rounded-md border border-input bg-secondary/50 px-2 py-1 font-mono text-xs text-muted-foreground"
+                    value={modelSel()}
+                    onChange={(e) => setModelSel(e.currentTarget.value)}
+                  >
+                    <option value="">model: default</option>
+                    <For each={options()!.models}>
+                      {(m) => <option value={`${m.providerID}/${m.modelID}`}>{m.providerID}/{m.modelID}</option>}
+                    </For>
+                  </select>
+                </Show>
+                <Show when={(options()?.agents.length ?? 0) > 0}>
+                  <select
+                    class="rounded-md border border-input bg-secondary/50 px-2 py-1 font-mono text-xs text-muted-foreground"
+                    value={agentSel()}
+                    onChange={(e) => setAgentSel(e.currentTarget.value)}
+                  >
+                    <option value="">agent: default</option>
+                    <For each={options()!.agents}>
+                      {(a) => <option value={a.name}>{a.name}</option>}
+                    </For>
+                  </select>
+                </Show>
                 <Show when={sendErr()}>
                   <span class="text-xs text-destructive">{sendErr()}</span>
                 </Show>
