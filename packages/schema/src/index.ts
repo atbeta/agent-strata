@@ -43,7 +43,7 @@ const EnvelopeBase = z.object({
   id: z.string(),
   session_id: z.string(),
   seq: z.number().int().min(1),
-  ts: z.string(),
+  ts: z.string().datetime({ offset: true }),
   source: Source,
 });
 
@@ -146,7 +146,7 @@ export const EventInput = z.discriminatedUnion(
       z.object({
         id: z.string().optional(),
         session_id: z.string(),
-        ts: z.string().optional(),
+        ts: z.string().datetime({ offset: true }).optional(),
         source: Source,
         type: v.shape.type as z.ZodTypeAny,
         data: v.shape.data as z.ZodTypeAny,

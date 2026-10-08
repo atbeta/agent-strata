@@ -92,6 +92,14 @@ describe("schema", () => {
     expect("extra" in e.data).toBe(false);
   });
 
+  test("ts must be ISO-8601", () => {
+    const e = (ts: string) => ({ ...base, ts, type: "session.ended", data: { reason: "completed" } });
+    expect(() => parseEvent(e("yesterday"))).toThrow();
+    expect(() => parseEvent(e("not a date"))).toThrow();
+    expect(parseEvent(e("2026-10-08T03:00:00Z")).ts).toBe("2026-10-08T03:00:00Z");
+    expect(parseEvent(e("2026-10-08T03:00:00+08:00")).ts).toBe("2026-10-08T03:00:00+08:00");
+  });
+
   test("makeEvent defaults id and ts", () => {
     const e = makeEvent({
       session_id: "s",
