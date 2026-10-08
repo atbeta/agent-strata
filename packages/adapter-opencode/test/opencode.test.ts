@@ -555,3 +555,63 @@ describe.skipIf(!(E2E && HAS_KEY))("opencode live e2e (deepseek)", () => {
     store.close();
   }, 180_000);
 });
+
+describe("connectOpencode lifecycle", () => {
+  test("stop() aborts the SSE fetch signal", async () => {
+    const { connectOpencode } = await import("../src/index");
+    const enc = new TextEncoder();
+    let fetchSignal: AbortSignal | undefined;
+    const fakeFetch = async (input: Request | URL | string, init?: RequestInit) => {
+      fetchSignal = init?.signal ?? (input instanceof Request ? input.signal : undefined);
+      const body = new ReadableStream<Uint8Array>({
+        start(ctrl) {
+          ctrl.enqueue(
+            enc.encode('data: {"type":"server.connected","properties":{}}\n\n'),
+          );
+          // stream stays open forever
+        },
+      });
+      return new Response(body, {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      });
+    };
+    const store = openStore(":memory:");
+    const conn = await connectOpencode({
+      baseUrl: "http://fake",
+      sink: store,
+      fetch: fakeFetch as typeof fetch,
+      connectTimeoutMs: 5_000,
+    });
+    expect(fetchSignal).toBeDefined();
+    expect(fetchSignal!.aborted).toBe(false);
+    conn.stop();
+    expect(fetchSignal!.aborted).toBe(true);
+    store.close();
+  });
+
+  test("connect timeout aborts the fetch and rejects", async () => {
+    const { connectOpencode } = await import("../src/index");
+    let fetchSignal: AbortSignal | undefined;
+    const fakeFetch = async (input: Request | URL | string, init?: RequestInit) => {
+      fetchSignal = init?.signal ?? (input instanceof Request ? input.signal : undefined);
+      // stream that never emits anything
+      const body = new ReadableStream<Uint8Array>({ start() {} });
+      return new Response(body, {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      });
+    };
+    const store = openStore(":memory:");
+    await expect(
+      connectOpencode({
+        baseUrl: "http://fake",
+        sink: store,
+        fetch: fakeFetch as typeof fetch,
+        connectTimeoutMs: 50,
+      }),
+    ).rejects.toThrow(/no events within/);
+    expect(fetchSignal?.aborted).toBe(true);
+    store.close();
+  });
+});

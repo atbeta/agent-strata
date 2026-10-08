@@ -418,10 +418,47 @@ export async function connectOpencode(opts: {
   connectTimeoutMs?: number;
   fetch?: typeof fetch;
 }): Promise<{ stop: () => void; importSession: (sessionID: string) => Promise<void> }> {
+  const abort = new AbortController();
+  // The SDK builds the SSE request with its own internal signal and ignores a
+  // caller-provided one. Wrap fetch so stop() truly ends the stream: an
+  // in-flight request is aborted via our signal, an already-open response body
+  // has its reader cancelled, and any later retried fetch hangs so the
+  // abandoned generator goes inert instead of reconnecting forever.
+  const rawFetch = opts.fetch ?? globalThis.fetch;
+  let openReader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  const abortingFetch = async (request: Request): Promise<Response> => {
+    if (abort.signal.aborted) return new Promise<Response>(() => {});
+    const res = await rawFetch(new Request(request, { signal: abort.signal }));
+    if (!res.body) return res;
+    const real = res.body.getReader();
+    openReader = real;
+    const body = new ReadableStream<Uint8Array>({
+      async pull(ctrl) {
+        const { done, value } = await real.read();
+        if (done) ctrl.close();
+        else ctrl.enqueue(value);
+      },
+      cancel() {
+        void real.cancel();
+      },
+    });
+    return new Response(body, {
+      status: res.status,
+      statusText: res.statusText,
+      headers: res.headers,
+    });
+  };
+  abort.signal.addEventListener("abort", () => {
+    try {
+      void openReader?.cancel().catch(() => {});
+    } catch {
+      // reader may already be released
+    }
+  });
   const client: OpencodeClient = createOpencodeClient({
     baseUrl: opts.baseUrl,
     directory: opts.directory,
-    fetch: opts.fetch,
+    fetch: abortingFetch as typeof fetch,
   });
   const mapper = new OpencodeMapper({ directory: opts.directory });
   const ingestor = createIngestor({
@@ -439,13 +476,21 @@ export async function connectOpencode(opts: {
   // wait for the first event (server.connected) so no later events are missed
   const it = stream[Symbol.asyncIterator]();
   const connectTimeout = opts.connectTimeoutMs ?? 10_000;
+  const firstNext = it.next();
+  // swallow rejections if the timeout wins the race and the stream then dies
+  firstNext.catch(() => {});
   const first = await Promise.race([
-    it.next(),
+    firstNext,
     Bun.sleep(connectTimeout).then(() => "timeout" as const),
   ]);
-  if (first === "timeout")
+  if (first === "timeout") {
+    abort.abort();
     throw new Error(`opencode event stream produced no events within ${connectTimeout}ms`);
-  if (first.done) throw new Error("opencode event stream ended before server.connected");
+  }
+  if (first.done) {
+    abort.abort();
+    throw new Error("opencode event stream ended before server.connected");
+  }
   const dispatch = (evt: Event) => {
     ingestor.handle(evt);
     if (!opts.onEvent) return;
@@ -457,7 +502,6 @@ export async function connectOpencode(opts: {
   };
   dispatch(first.value as Event);
 
-  const abort = new AbortController();
   const loop = (async () => {
     try {
       for (;;) {
