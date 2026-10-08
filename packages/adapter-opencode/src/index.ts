@@ -459,11 +459,7 @@ export async function connectOpencode(opts: {
       } as Event);
       const msgs = await client.session.messages({ sessionID });
       for (const m of msgs.data ?? []) {
-        ingestor.handle({
-          id: `import:${m.info.id}`,
-          type: "message.updated",
-          properties: { sessionID, info: m.info },
-        } as Event);
+        // parts first: a completed assistant message emits turn.assistant on message.updated
         for (const part of m.parts) {
           ingestor.handle({
             id: `import:${part.id}`,
@@ -471,6 +467,11 @@ export async function connectOpencode(opts: {
             properties: { sessionID, part, time: Date.now() },
           } as Event);
         }
+        ingestor.handle({
+          id: `import:${m.info.id}`,
+          type: "message.updated",
+          properties: { sessionID, info: m.info },
+        } as Event);
       }
     },
   };
