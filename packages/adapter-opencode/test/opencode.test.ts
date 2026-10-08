@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { OpencodeMapper } from "../src/index";
+import { OpencodeMapper, createIngestor } from "../src/index";
+import { loadPolicy } from "@agent-core/policy";
 import type { Event } from "@opencode-ai/sdk/v2";
 import { openStore } from "@agent-core/store";
 import { projectSession } from "@agent-core/projector";
@@ -49,6 +50,25 @@ const basicFixture = (): Event[] => [
     mode: "build", path: { cwd: "/repo", root: "/repo" }, cost: 0.25, finish: "stop",
     tokens: { input: 100, output: 40, reasoning: 5, cache: { read: 3, write: 2 } },
   }),
+  {
+    id: "t1",
+    type: "todo.updated",
+    properties: { sessionID: sid, todos: [{ content: "a", status: "pending", priority: "high" }] },
+  } as unknown as Event,
+  {
+    id: "pa",
+    type: "permission.asked",
+    properties: {
+      id: "perm1", sessionID: sid, permission: "bash",
+      patterns: ["ls"], metadata: {}, always: [],
+      tool: { messageID: "a1", callID: "call1" },
+    },
+  } as unknown as Event,
+  {
+    id: "pr",
+    type: "permission.replied",
+    properties: { sessionID: sid, requestID: "perm1", reply: "once" },
+  } as unknown as Event,
 ];
 
 describe("OpencodeMapper", () => {
@@ -61,6 +81,9 @@ describe("OpencodeMapper", () => {
       "tool.call",
       "tool.result",
       "turn.assistant",
+      "plan.updated",
+      "permission.requested",
+      "permission.resolved",
     ]);
     const ta = out.find((e) => e.type === "turn.assistant")!;
     const d = ta.data as { model: string; usage: { input: number; cache_read: number }; cost_usd: number; latency_ms: number; stop_reason: string; content: object[]; turn_id: string };
@@ -94,10 +117,22 @@ describe("OpencodeMapper", () => {
       if (evts.length) store.append(evts);
     }
     const n2 = store.read({ session_id: `opencode:${sid}` }).length;
-    // deterministic ids dedupe tool.call/tool.result/turn.user/turn.assistant/session.started;
-    // ULID-generated events would duplicate — fixture only has deterministic ones
+    // all fixture events carry deterministic ids (incl. todo/permission) -> replay adds nothing
     expect(n2).toBe(n1);
     store.close();
+  });
+
+  test("part.updated before message.updated still lands in turn.user", () => {
+    const m = new OpencodeMapper();
+    const out = [
+      m.handle(sessionCreated()),
+      // user text part arrives before the user message.updated
+      m.handle(partUpdated({ id: "pt", sessionID: sid, messageID: "u1", type: "text", text: "early" })),
+      m.handle(msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 1 } })),
+      m.handle({ id: "i", type: "session.idle", properties: { sessionID: sid } } as unknown as Event),
+    ].flat();
+    const tu = out.find((e) => e.type === "turn.user")!;
+    expect((tu.data as { content: object[] }).content).toEqual([{ type: "text", text: "early" }]);
   });
 
   test("turn.user buffered until assistant arrives; idle flush fallback", () => {
@@ -193,6 +228,87 @@ describe("OpencodeMapper", () => {
     expect(view.turns[0]!.tool_calls[0]).toMatchObject({ tool: "bash", status: "ok" });
     expect(view.totals.input).toBe(100);
     expect(view.totals.cost_usd).toBeCloseTo(0.25);
+    store.close();
+  });
+});
+
+describe("createIngestor seam", () => {
+  const asked = (permission: string, patterns: string[], id = "perm1"): Event =>
+    ({
+      id: `pa-${id}`,
+      type: "permission.asked",
+      properties: {
+        id, sessionID: sid, permission, patterns, metadata: {}, always: [],
+      },
+    }) as unknown as Event;
+
+  test("(c) policy allow/deny reply and emit resolved", async () => {
+    const replies: { requestID: string; reply: string; message?: string }[] = [];
+    const store = openStore(":memory:");
+    const policy = loadPolicy({
+      version: 1,
+      rules: [
+        { id: "ok", effect: "allow", tool: "bash", when: { command: { matches: "^ls" } } },
+        { id: "no", effect: "deny", tool: "bash", when: { command: { matches: "^rm" } } },
+      ],
+    });
+    const ing = createIngestor({
+      mapper: new OpencodeMapper(),
+      sink: store,
+      policy,
+      reply: async (requestID, reply, message) => {
+        replies.push({ requestID, reply, message });
+      },
+    });
+    ing.handle(sessionCreated());
+    ing.handle(asked("bash", ["ls"], "perm1"));
+    ing.handle(asked("bash", ["rm -rf /"], "perm2"));
+    await Bun.sleep(50);
+    expect(replies).toEqual([
+      { requestID: "perm1", reply: "once", message: undefined },
+      { requestID: "perm2", reply: "reject", message: expect.anything() },
+    ]);
+    const evs = store.read({ session_id: `opencode:${sid}` });
+    const resolved = evs.filter((e) => e.type === "permission.resolved");
+    expect(resolved.map((e) => (e.data as { decision: string; by: string }).decision)).toEqual(["allow", "deny"]);
+    store.close();
+  });
+
+  test("(a) pending onAsk does not block later events", async () => {
+    const store = openStore(":memory:");
+    const ing = createIngestor({
+      mapper: new OpencodeMapper(),
+      sink: store,
+      onAsk: () => new Promise(() => {}), // never resolves
+      reply: async () => {},
+    });
+    ing.handle(sessionCreated());
+    ing.handle(asked("bash", ["xyz-unknown"])); // default ask -> onAsk hangs
+    // a later event must still be mapped and stored
+    ing.handle(partUpdated({ id: "pt", sessionID: sid, messageID: "u1", type: "text", text: "later" }));
+    await Bun.sleep(50);
+    const evs = store.read({ session_id: `opencode:${sid}` });
+    expect(evs.some((e) => e.type === "permission.requested")).toBe(true);
+    store.close();
+  });
+
+  test("(b) reply throwing leaves stream usable and stores no resolved", async () => {
+    const store = openStore(":memory:");
+    const ing = createIngestor({
+      mapper: new OpencodeMapper(),
+      sink: store,
+      policy: loadPolicy({ version: 1, rules: [{ id: "ok", effect: "allow", tool: "*" }] }),
+      reply: async () => {
+        throw new Error("network down");
+      },
+    });
+    ing.handle(sessionCreated());
+    ing.handle(asked("bash", ["ls"]));
+    await Bun.sleep(50);
+    ing.handle(partUpdated({ id: "pt", sessionID: sid, messageID: "u1", type: "text", text: "after" }));
+    const evs = store.read({ session_id: `opencode:${sid}` });
+    expect(evs.some((e) => e.type === "permission.resolved")).toBe(false);
+    expect(evs.some((e) => e.type === "permission.requested")).toBe(true);
     store.close();
   });
 });

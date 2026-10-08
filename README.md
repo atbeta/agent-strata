@@ -13,6 +13,8 @@ Cross-backend agent session/event layer: a canonical event format (CASF v0), an 
 | `@agent-core/adapter-acp` | ACP (ndjson subprocess) adapter: `AcpRecorder` + `connectAcpAgent` |
 | `@agent-core/adapter-opencode` | opencode v1 event-stream adapter: `OpencodeMapper` + `connectOpencode` |
 
+v0 adapter-opencode limitations: no SSE reconnect yet; a lazily started session keeps its placeholder `session.started` (workspace "unknown") if the real `session.created` arrives later; only the v1 `/event` stream is consumed.
+
 ## Security model
 
 The policy engine performs advisory static analysis of commands — it is not a sandbox. Constructs it cannot analyze safely are downgraded to `ask`; real enforcement requires a sandboxed execution layer (future work).

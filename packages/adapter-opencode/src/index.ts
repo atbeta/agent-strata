@@ -13,10 +13,9 @@ export type OnAsk = (
 const SHELL_PERMS = new Set(["bash", "pwsh", "powershell", "cmd"]);
 
 interface MsgState {
-  role: string;
+  role?: string;
   parentID?: string;
-  userParts: Map<string, ContentBlock>;
-  assistantParts: Map<string, ContentBlock>;
+  parts: Map<string, ContentBlock>;
   toolParts: Map<string, { emittedCall: boolean; emittedResult: boolean }>;
   emittedAssistant: boolean;
   patchSeen?: Set<string>;
@@ -77,9 +76,7 @@ export class OpencodeMapper {
     let m = s.messages.get(messageID);
     if (!m) {
       m = {
-        role: "assistant",
-        userParts: new Map(),
-        assistantParts: new Map(),
+        parts: new Map(),
         toolParts: new Map(),
         emittedAssistant: false,
       };
@@ -92,7 +89,7 @@ export class OpencodeMapper {
     if (!s.pendingUserMsgs.delete(msgID)) return;
     const m = s.messages.get(msgID);
     if (!m) return;
-    const content = [...m.userParts.values()];
+    const content = [...m.parts.values()].filter((b) => b.type !== "thinking");
     if (!content.length) return;
     out.push(
       this.ev(
@@ -147,7 +144,7 @@ export class OpencodeMapper {
           this.flushUser(s, out, info.parentID);
           if (info.time.completed !== undefined && !m.emittedAssistant) {
             m.emittedAssistant = true;
-            const content = [...m.assistantParts.values()];
+            const content = [...m.parts.values()].filter((b) => b.type !== "file_ref");
             const u = info.tokens;
             out.push(
               this.ev(
@@ -181,22 +178,18 @@ export class OpencodeMapper {
         out.push(...pre);
         const part: Part = evt.properties.part;
         const m = this.ensureMsg(s, part.messageID);
-        const role = m.role;
         if (part.type === "text") {
-          const block: ContentBlock = { type: "text", text: part.text };
-          if (role === "user") m.userParts.set(part.id, block);
-          else m.assistantParts.set(part.id, block);
+          m.parts.set(part.id, { type: "text", text: part.text });
           return out;
         }
         if (part.type === "reasoning") {
-          m.assistantParts.set(part.id, { type: "thinking", text: part.text });
+          m.parts.set(part.id, { type: "thinking", text: part.text });
           return out;
         }
         if (part.type === "file") {
-          if (role === "user") {
-            const path = part.source && "path" in part.source ? part.source.path : (part.filename ?? part.url);
-            m.userParts.set(part.id, { type: "file_ref", path });
-          }
+          const path =
+            part.source && "path" in part.source ? part.source.path : (part.filename ?? part.url);
+          m.parts.set(part.id, { type: "file_ref", path });
           return out;
         }
         if (part.type === "tool") {
@@ -318,13 +311,101 @@ export class OpencodeMapper {
             content: t.content,
             status: t.status as "pending" | "in_progress" | "completed",
           }));
-        out.push(this.ev(s, "plan.updated", { entries }));
+        out.push(
+          this.ev(
+            s,
+            "plan.updated",
+            { entries },
+            `opencode:${sessionID}:plan:${Bun.hash(JSON.stringify(entries)).toString(36)}`,
+          ),
+        );
         return out;
       }
       default:
         return out;
     }
   }
+}
+
+export function createIngestor(opts: {
+  mapper: OpencodeMapper;
+  sink: Sink;
+  policy?: Policy;
+  onAsk?: OnAsk;
+  reply: (requestID: string, reply: "once" | "reject", message?: string) => Promise<unknown>;
+}): { handle: (evt: Event) => void } {
+  const { mapper, sink } = opts;
+
+  const emit = (evts: EventInput[]) => {
+    if (evts.length) sink.append(evts);
+  };
+
+  const emitResolved = (sessionID: string, data: Record<string, unknown>) => {
+    const s = mapper.sessions.get(sessionID);
+    if (!s) return;
+    emit([
+      mapper.ev(s, "permission.resolved", data, `opencode:${data.request_id}:permission.resolved`),
+    ]);
+  };
+
+  const handlePermission = async (evt: Extract<Event, { type: "permission.asked" }>) => {
+    const p = evt.properties;
+    const shell = SHELL_PERMS.has(p.permission);
+    const input: Record<string, unknown> = { ...p.metadata, patterns: p.patterns };
+    if (shell) input.command = p.patterns.join("\n");
+    const tool = shell ? "bash" : p.permission;
+    const d = opts.policy
+      ? evaluate(opts.policy, { tool, input })
+      : { decision: "ask" as const };
+    if (d.decision === "allow") {
+      await opts.reply(p.id, "once");
+      emitResolved(p.sessionID, {
+        request_id: p.id, decision: "allow", by: "policy",
+        scope: "once", rule_id: d.rule_id, reason: d.reason,
+      });
+      return;
+    }
+    if (d.decision === "deny") {
+      await opts.reply(p.id, "reject", d.reason);
+      emitResolved(p.sessionID, {
+        request_id: p.id, decision: "deny", by: "policy",
+        scope: "once", rule_id: d.rule_id, reason: d.reason,
+      });
+      return;
+    }
+    if (!opts.onAsk) return;
+    const s = mapper.sessions.get(p.sessionID);
+    if (!s) return;
+    const req = mapper.ev(
+      s,
+      "permission.requested",
+      { request_id: p.id, call_id: p.tool?.callID, tool: p.permission, input },
+      `opencode:${p.id}:permission.requested`,
+    ) as Extract<EventInput, { type: "permission.requested" }>;
+    const ans = await opts.onAsk(req);
+    if (ans.decision === "allow") {
+      await opts.reply(p.id, "once");
+      emitResolved(p.sessionID, {
+        request_id: p.id, decision: "allow", by: "user", scope: ans.scope ?? "once",
+      });
+      return;
+    }
+    await opts.reply(p.id, "reject");
+    emitResolved(p.sessionID, {
+      request_id: p.id, decision: "deny", by: "user", scope: "once",
+    });
+  };
+
+  return {
+    handle(evt: Event) {
+      emit(mapper.handle(evt));
+      if (evt.type === "permission.asked") {
+        void handlePermission(evt).catch((err) =>
+          console.error("opencode permission handling error:", err),
+        );
+      }
+    },
+  };
 }
 
 export async function connectOpencode(opts: {
@@ -341,86 +422,15 @@ export async function connectOpencode(opts: {
     fetch: opts.fetch,
   });
   const mapper = new OpencodeMapper({ directory: opts.directory });
-  const { sink } = opts;
-
-  const emit = (evts: EventInput[]) => {
-    if (evts.length) sink.append(evts);
-  };
-
-  const reply = async (requestID: string, r: "once" | "reject", message?: string) => {
-    await client.permission.reply({ requestID, reply: r, message });
-  };
-
-  const handlePermission = async (evt: Event) => {
-    if (evt.type !== "permission.asked") return;
-    const p = evt.properties;
-    const shell = SHELL_PERMS.has(p.permission);
-    const input: Record<string, unknown> = { ...p.metadata, patterns: p.patterns };
-    if (shell) input.command = p.patterns.join("\n");
-    const tool = shell ? "bash" : p.permission;
-    const d = opts.policy
-      ? evaluate(opts.policy, { tool, input })
-      : { decision: "ask" as const };
-    const s = mapper.sessions.get(p.sessionID);
-    if (d.decision === "allow") {
-      await reply(p.id, "once");
-      emit([
-        mapper.ev(s!, "permission.resolved", {
-          request_id: p.id,
-          decision: "allow",
-          by: "policy",
-          scope: "once",
-          rule_id: d.rule_id,
-          reason: d.reason,
-        }, `opencode:${p.id}:permission.resolved`),
-      ]);
-      return;
-    }
-    if (d.decision === "deny") {
-      await reply(p.id, "reject", d.reason);
-      emit([
-        mapper.ev(s!, "permission.resolved", {
-          request_id: p.id,
-          decision: "deny",
-          by: "policy",
-          scope: "once",
-          rule_id: d.rule_id,
-          reason: d.reason,
-        }, `opencode:${p.id}:permission.resolved`),
-      ]);
-      return;
-    }
-    if (opts.onAsk) {
-      const req = mapper.ev(
-        s!,
-        "permission.requested",
-        { request_id: p.id, call_id: p.tool?.callID, tool: p.permission, input },
-        `opencode:${p.id}:permission.requested`,
-      ) as Extract<EventInput, { type: "permission.requested" }>;
-      const ans = await opts.onAsk(req);
-      if (ans.decision === "allow") {
-        await reply(p.id, "once");
-        emit([
-          mapper.ev(s!, "permission.resolved", {
-            request_id: p.id,
-            decision: "allow",
-            by: "user",
-            scope: ans.scope ?? "once",
-          }, `opencode:${p.id}:permission.resolved`),
-        ]);
-      } else {
-        await reply(p.id, "reject");
-        emit([
-          mapper.ev(s!, "permission.resolved", {
-            request_id: p.id,
-            decision: "deny",
-            by: "user",
-            scope: "once",
-          }, `opencode:${p.id}:permission.resolved`),
-        ]);
-      }
-    }
-  };
+  const ingestor = createIngestor({
+    mapper,
+    sink: opts.sink,
+    policy: opts.policy,
+    onAsk: opts.onAsk,
+    reply: async (requestID, r, message) => {
+      await client.permission.reply({ requestID, reply: r, message });
+    },
+  });
 
   const { stream } = await client.event.subscribe();
   const abort = new AbortController();
@@ -428,9 +438,7 @@ export async function connectOpencode(opts: {
     try {
       for await (const evt of stream) {
         if (abort.signal.aborted) break;
-        const e = evt as Event;
-        emit(mapper.handle(e));
-        if (e.type === "permission.asked") await handlePermission(e);
+        ingestor.handle(evt as Event);
       }
     } catch (err) {
       if (!abort.signal.aborted) console.error("opencode event stream error:", err);
@@ -444,30 +452,24 @@ export async function connectOpencode(opts: {
     },
     async importSession(sessionID: string) {
       const sess = await client.session.get({ sessionID });
-      emit(
-        mapper.handle({
-          id: `import:${sessionID}`,
-          type: "session.created",
-          properties: { sessionID, info: sess.data! },
-        } as Event),
-      );
+      ingestor.handle({
+        id: `import:${sessionID}`,
+        type: "session.created",
+        properties: { sessionID, info: sess.data! },
+      } as Event);
       const msgs = await client.session.messages({ sessionID });
       for (const m of msgs.data ?? []) {
-        emit(
-          mapper.handle({
-            id: `import:${m.info.id}`,
-            type: "message.updated",
-            properties: { sessionID, info: m.info },
-          } as Event),
-        );
+        ingestor.handle({
+          id: `import:${m.info.id}`,
+          type: "message.updated",
+          properties: { sessionID, info: m.info },
+        } as Event);
         for (const part of m.parts) {
-          emit(
-            mapper.handle({
-              id: `import:${part.id}`,
-              type: "message.part.updated",
-              properties: { sessionID, part, time: Date.now() },
-            } as Event),
-          );
+          ingestor.handle({
+            id: `import:${part.id}`,
+            type: "message.part.updated",
+            properties: { sessionID, part, time: Date.now() },
+          } as Event);
         }
       }
     },
