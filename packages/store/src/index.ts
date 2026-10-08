@@ -1,6 +1,18 @@
 import { Database } from "bun:sqlite";
 import { Event, EventInput, makeEvent, parseEvent } from "@agent-strata/schema";
 
+export interface EventQuery {
+  session_id?: string;
+  backend?: string;
+  types?: string[];
+  since?: string;
+  until?: string;
+  text?: string;
+  order?: "asc" | "desc";
+  offset?: number;
+  limit?: number;
+}
+
 export interface SessionSummary {
   session_id: string;
   backend: string;
@@ -14,6 +26,7 @@ export interface SessionSummary {
 export interface Store {
   append(inputs: EventInput[]): Event[];
   read(opts: { session_id: string; after_seq?: number; limit?: number }): Event[];
+  query(q: EventQuery): Event[];
   listSessions(opts?: { limit?: number; backend?: string }): SessionSummary[];
   search(
     query: string,
@@ -159,6 +172,57 @@ export function openStore(path: string | ":memory:"): Store {
           "SELECT body FROM events WHERE session_id=? AND seq>? ORDER BY seq ASC LIMIT ?",
         )
         .all(session_id, after_seq, limit) as { body: string }[];
+      return rows.map((r) => parseEvent(JSON.parse(r.body)));
+    },
+
+    query(q) {
+      const where: string[] = [];
+      const params: (string | number)[] = [];
+      const useFts = q.text !== undefined && q.text.trim() !== "";
+      let sql = useFts
+        ? "SELECT e.body FROM events e JOIN events_fts f ON f.event_id = e.id"
+        : "SELECT e.body FROM events e";
+      if (useFts) {
+        const terms = ftsQuote(q.text!);
+        if (terms) {
+          where.push("events_fts MATCH ?");
+          params.push(terms);
+        }
+      }
+      if (q.session_id !== undefined) {
+        where.push("e.session_id = ?");
+        params.push(q.session_id);
+      }
+      if (q.backend !== undefined) {
+        where.push("e.backend = ?");
+        params.push(q.backend);
+      }
+      if (q.types !== undefined && q.types.length > 0) {
+        where.push(`e.type IN (${q.types.map(() => "?").join(",")})`);
+        params.push(...q.types);
+      }
+      if (q.since !== undefined) {
+        where.push("e.ts > ?");
+        params.push(q.since);
+      }
+      if (q.until !== undefined) {
+        where.push("e.ts <= ?");
+        params.push(q.until);
+      }
+      if (where.length > 0) sql += ` WHERE ${where.join(" AND ")}`;
+      if (useFts && q.order === undefined) {
+        sql += " ORDER BY f.rank";
+      } else {
+        sql += ` ORDER BY e.session_id ${q.order === "desc" ? "DESC" : "ASC"}, e.seq ${q.order === "desc" ? "DESC" : "ASC"}`;
+      }
+      const limit = Math.min(q.limit ?? 500, 10_000);
+      sql += " LIMIT ?";
+      params.push(limit);
+      if (q.offset !== undefined && q.offset > 0) {
+        sql += " OFFSET ?";
+        params.push(q.offset);
+      }
+      const rows = db.query(sql).all(...params) as { body: string }[];
       return rows.map((r) => parseEvent(JSON.parse(r.body)));
     },
 

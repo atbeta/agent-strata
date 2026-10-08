@@ -175,3 +175,61 @@ describe("store", () => {
     s.close();
   });
 });
+
+describe("store.query", () => {
+  const seed = (s: ReturnType<typeof openStore>) =>
+    s.append([
+      mk("a", "session.started", { workspace: "/a" }, "2026-01-01T00:00:00Z"),
+      mk("b", "session.started", { workspace: "/b" }, "2026-01-01T00:01:00Z"),
+      mk("a", "turn.user", { turn_id: "t1", content: [{ type: "text", text: "hello auth bug" }] }, "2026-01-01T00:02:00Z"),
+      mk("a", "tool.call", { turn_id: "t1", call_id: "c1", tool: "bash", input: { command: "ls" } }, "2026-01-01T00:03:00Z"),
+      mk("b", "turn.user", { turn_id: "t2", content: [{ type: "text", text: "other task" }] }, "2026-01-01T00:04:00Z"),
+      mk("a", "tool.result", { turn_id: "t1", call_id: "c1", status: "ok", output: "done auth" }, "2026-01-01T00:05:00Z"),
+    ]);
+
+  test("filters by session, type, time, backend", () => {
+    const s = openStore(":memory:");
+    seed(s);
+    expect(s.query({ session_id: "a" }).length).toBe(4);
+    expect(s.query({ types: ["tool.call", "tool.result"] }).map((e) => e.type)).toEqual([
+      "tool.call",
+      "tool.result",
+    ]);
+    expect(
+      s.query({ session_id: "a", since: "2026-01-01T00:02:00Z", until: "2026-01-01T00:04:00Z" }).map((e) => e.type),
+    ).toEqual(["tool.call"]);
+    expect(s.query({ backend: "test" }).length).toBe(6);
+    expect(s.query({ backend: "opencode" }).length).toBe(0);
+    s.close();
+  });
+
+  test("text filter uses fts and orders by rank, not seq", () => {
+    const s = openStore(":memory:");
+    seed(s);
+    const hits = s.query({ text: "auth" });
+    expect(hits.length).toBe(2);
+    expect(hits.every((e) => e.session_id === "a")).toBe(true);
+    const none = s.query({ text: 'notacommand"; DROP TABLE events; --' });
+    expect(none.length).toBe(0);
+    s.close();
+  });
+
+  test("order, limit, offset", () => {
+    const s = openStore(":memory:");
+    seed(s);
+    const desc = s.query({ session_id: "a", order: "desc" });
+    expect(desc[0]!.seq).toBe(4);
+    const page = s.query({ session_id: "a", order: "asc", offset: 1, limit: 2 });
+    expect(page.map((e) => e.seq)).toEqual([2, 3]);
+    const clamped = s.query({ session_id: "a", limit: 999_999 });
+    expect(clamped.length).toBe(4);
+    s.close();
+  });
+
+  test("empty result, no filters returns everything", () => {
+    const s = openStore(":memory:");
+    seed(s);
+    expect(s.query({}).length).toBe(6);
+    s.close();
+  });
+});
