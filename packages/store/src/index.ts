@@ -80,6 +80,7 @@ export function openStore(path: string | ":memory:"): Store {
         return withDefaults;
       });
       const out: Event[] = [];
+      const inserted: Event[] = [];
       const txn = db.transaction(() => {
         for (const input of parsed) {
           const existing = db
@@ -137,10 +138,18 @@ export function openStore(path: string | ":memory:"): Store {
             ).run(event.id, event.session_id, text);
           }
           out.push(event);
+          inserted.push(event);
         }
       });
       txn();
-      for (const e of out) for (const fn of listeners) fn(e);
+      for (const e of inserted)
+        for (const fn of listeners) {
+          try {
+            fn(e);
+          } catch (err) {
+            console.error("store subscriber error:", err);
+          }
+        }
       return out;
     },
 
@@ -180,7 +189,7 @@ export function openStore(path: string | ":memory:"): Store {
         sql += " AND f.session_id=?";
         params.push(session_id);
       }
-      sql += " ORDER BY f.rowid";
+      sql += " ORDER BY f.rank";
       if (limit !== undefined) {
         sql += " LIMIT ?";
         params.push(limit);

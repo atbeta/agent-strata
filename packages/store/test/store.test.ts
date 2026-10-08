@@ -133,6 +133,32 @@ describe("store", () => {
     s.close();
   });
 
+  test("subscribe does not fire for idempotent duplicates", () => {
+    const s = openStore(":memory:");
+    const seen: string[] = [];
+    s.subscribe((e) => seen.push(e.id));
+    const e = mk("a", "session.started", { workspace: "/a" });
+    const e2 = mk("a", "file.changed", { path: "x", change: "add" });
+    const out = s.append([e, e2]);
+    expect(seen).toEqual([out[0]!.id, out[1]!.id]);
+    s.append([e]); // duplicate: returned but not notified
+    expect(seen.length).toBe(2);
+    s.close();
+  });
+
+  test("throwing listener does not break append or other listeners", () => {
+    const s = openStore(":memory:");
+    const seen: string[] = [];
+    s.subscribe(() => {
+      throw new Error("boom");
+    });
+    s.subscribe((e) => seen.push(e.id));
+    const out = s.append([mk("a", "session.started", { workspace: "/a" })]);
+    expect(out.length).toBe(1);
+    expect(seen).toEqual([out[0]!.id]);
+    s.close();
+  });
+
   test("listSessions ordering by last_ts desc and backend filter", () => {
     const s = openStore(":memory:");
     s.append([
