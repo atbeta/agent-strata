@@ -96,6 +96,9 @@ describe("agent-strata service", () => {
     });
     expect(respond404.status).toBe(404);
 
+    const options = await fetch(`${base}/options`).then((r) => r.json());
+    expect(options).toEqual({ models: [], agents: [] });
+
     svc.stop();
   });
 

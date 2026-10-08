@@ -426,6 +426,8 @@ export async function connectOpencode(opts: {
     text: string,
     opts?: { model?: { providerID: string; modelID: string }; agent?: string },
   ) => Promise<void>;
+  listModels: () => Promise<{ providerID: string; modelID: string; name: string }[]>;
+  listAgents: () => Promise<{ name: string; mode?: string }[]>;
 }> {
   const abort = new AbortController();
   // The SDK builds the SSE request with its own internal signal and ignores a
@@ -541,6 +543,20 @@ export async function connectOpencode(opts: {
         agent: promptOpts?.agent,
         parts: [{ type: "text", text }],
       });
+    },
+    async listModels() {
+      const r = await client.provider.list();
+      const out: { providerID: string; modelID: string; name: string }[] = [];
+      for (const p of r.data?.all ?? []) {
+        for (const [modelID, m] of Object.entries(p.models ?? {})) {
+          out.push({ providerID: p.id, modelID, name: (m as { name?: string }).name ?? modelID });
+        }
+      }
+      return out;
+    },
+    async listAgents() {
+      const r = await client.app.agents();
+      return (r.data ?? []).map((a) => ({ name: a.name, mode: (a as { mode?: string }).mode }));
     },
     async importSession(sessionID: string) {
       const sess = await client.session.get({ sessionID });

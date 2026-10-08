@@ -26,6 +26,8 @@ interface Conn {
     text: string,
     opts?: { model?: { providerID: string; modelID: string }; agent?: string },
   ) => Promise<void>;
+  listModels: () => Promise<{ providerID: string; modelID: string; name: string }[]>;
+  listAgents: () => Promise<{ name: string; mode?: string }[]>;
 }
 
 interface PendingAsk {
@@ -94,6 +96,21 @@ export function startService(opts: ServiceOpts = {}): RunningService {
           limit: url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : undefined,
         };
         return json({ events: store.query(q) });
+      }
+
+      if (path === "/options" && req.method === "GET") {
+        // model/agent pickers: merge every connected backend's lists
+        const models: { providerID: string; modelID: string; name: string }[] = [];
+        const agents: { name: string; mode?: string }[] = [];
+        for (const conn of conns.values()) {
+          try {
+            models.push(...(await conn.listModels()));
+            agents.push(...(await conn.listAgents()));
+          } catch {
+            // a backend that can't list options just contributes nothing
+          }
+        }
+        return json({ models, agents });
       }
 
       const sessionMatch = path.match(/^\/sessions\/([^/]+)\/view$/);
@@ -194,6 +211,8 @@ export function startService(opts: ServiceOpts = {}): RunningService {
             stop: conn.stop,
             createSession: conn.createSession,
             prompt: conn.prompt,
+            listModels: conn.listModels,
+            listAgents: conn.listAgents,
           });
           return json({ id });
         } catch (e) {

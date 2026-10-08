@@ -7,6 +7,7 @@ import {
   STATUS_LABEL,
   type SessionRow,
   type SessionsResponse,
+  type StrataEvent,
 } from "./api";
 import { SessionDetail } from "./session-detail";
 import { CompareView } from "./compare";
@@ -71,10 +72,33 @@ function SessionCard(props: {
   );
 }
 
+function eventPreview(e: StrataEvent): string {
+  const d = e.data;
+  const blocks = (d.content ?? d.output) as unknown;
+  if (Array.isArray(blocks))
+    return blocks
+      .map((b) => (typeof b === "object" && b !== null ? String((b as { text?: string }).text ?? `[${(b as { type?: string }).type}]`) : String(b)))
+      .join(" ")
+      .slice(0, 140);
+  if (typeof blocks === "string") return blocks.slice(0, 140);
+  if (d.tool) return `${String(d.tool)} ${JSON.stringify(d.input ?? "").slice(0, 100)}`;
+  if (d.path) return String(d.path);
+  if (d.title) return String(d.title);
+  return JSON.stringify(d).slice(0, 140);
+}
+
 function Fleet() {
   const [data, { refetch }] = createResource(() => getJson<SessionsResponse>("/sessions"));
   const [liveCount, setLiveCount] = createSignal(0);
   const [compareSel, setCompareSel] = createSignal<string[]>([]);
+  const [query, setQuery] = createSignal("");
+  const [results] = createResource(query, async (q) =>
+    q.trim()
+      ? (await getJson<{ events: StrataEvent[] }>(
+          `/events?text=${encodeURIComponent(q.trim())}&order=desc&limit=50`,
+        )).events
+      : [],
+  );
 
   const toggleCompare = (id: string) =>
     setCompareSel((sel) =>
@@ -159,6 +183,45 @@ function Fleet() {
         </div>
       </section>
 
+      <div class="mt-4">
+        <input
+          class="w-full max-w-md rounded-md border border-input bg-secondary/50 px-3 py-1.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none"
+          placeholder="search all sessions (FTS)…"
+          value={query()}
+          onInput={(e) => setQuery(e.currentTarget.value)}
+        />
+      </div>
+
+      <Show when={query().trim()}>
+        <section class="mt-4 rounded-lg border border-border bg-card">
+          <For
+            each={results() ?? []}
+            fallback={
+              <p class="p-4 text-sm text-muted-foreground">
+                {results.loading ? "searching…" : "no events match"}
+              </p>
+            }
+          >
+            {(e) => (
+              <button
+                class="block w-full border-b border-border px-4 py-2.5 text-left transition-colors last:border-0 hover:bg-secondary/50"
+                onClick={() => (location.hash = `/session/${e.session_id}`)}
+              >
+                <div class="flex items-center gap-2 text-xs">
+                  <span class="font-mono text-event-tool">{e.type}</span>
+                  <span class="truncate font-mono text-muted-foreground">{e.session_id}</span>
+                  <span class="ml-auto shrink-0 font-mono text-muted-foreground tabular-nums">
+                    {e.ts.slice(0, 19).replace("T", " ")}
+                  </span>
+                </div>
+                <div class="mt-1 truncate text-sm text-foreground/80">{eventPreview(e)}</div>
+              </button>
+            )}
+          </For>
+        </section>
+      </Show>
+
+      <Show when={!query().trim()}>
       <For each={groups()} fallback={<p class="mt-5 text-muted-foreground">no sessions yet</p>}>
         {(g) => (
           <section class="mt-6">
@@ -177,6 +240,7 @@ function Fleet() {
           </section>
         )}
       </For>
+      </Show>
     </main>
   );
 }

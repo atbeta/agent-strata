@@ -104,6 +104,21 @@ export interface PendingAsk {
   asked_at: string;
 }
 
+export interface StrataEvent {
+  id: string;
+  session_id: string;
+  backend: string;
+  type: string;
+  seq: number;
+  ts: string;
+  data: Record<string, unknown>;
+}
+
+export interface OptionsResponse {
+  models: { providerID: string; modelID: string; name: string }[];
+  agents: { name: string; mode?: string }[];
+}
+
 export const api = (p: string) => `/api${p}`;
 
 export async function getJson<T>(p: string): Promise<T> {
