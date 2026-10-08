@@ -414,6 +414,7 @@ export async function connectOpencode(opts: {
   sink: Sink;
   policy?: Policy;
   onAsk?: OnAsk;
+  onEvent?: (evt: Event) => void;
   connectTimeoutMs?: number;
   fetch?: typeof fetch;
 }): Promise<{ stop: () => void; importSession: (sessionID: string) => Promise<void> }> {
@@ -445,7 +446,15 @@ export async function connectOpencode(opts: {
   if (first === "timeout")
     throw new Error(`opencode event stream produced no events within ${connectTimeout}ms`);
   if (first.done) throw new Error("opencode event stream ended before server.connected");
-  const dispatch = (evt: Event) => ingestor.handle(evt);
+  const dispatch = (evt: Event) => {
+    ingestor.handle(evt);
+    if (!opts.onEvent) return;
+    try {
+      opts.onEvent(evt);
+    } catch (err) {
+      console.error("opencode onEvent error:", err);
+    }
+  };
   dispatch(first.value as Event);
 
   const abort = new AbortController();
