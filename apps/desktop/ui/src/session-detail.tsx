@@ -10,6 +10,7 @@ import {
   type OptionsResponse,
   type PendingAsk,
   type SessionView,
+  type StrataEvent,
   type ToolCallView,
   type Turn,
 } from "./api";
@@ -87,10 +88,21 @@ function TurnBlock(props: { turn: Turn }) {
 }
 
 export function SessionDetail(props: { id: string; back: () => void }) {
+  // replayPos: when set, the view is projected from events up to that seq only
+  const [replayPos, setReplayPos] = createSignal<number | null>(null);
   const [view, { refetch }] = createResource(
-    () => props.id,
-    (id) => getJson<SessionView>(`/sessions/${id}/view`),
+    () => ({ id: props.id, pos: replayPos() }),
+    ({ id, pos }) =>
+      getJson<SessionView>(
+        `/sessions/${id}/view${pos === null ? "" : `?until_seq=${pos}`}`,
+      ),
   );
+  const [maxSeq] = createResource(async () => {
+    const r = await getJson<{ events: StrataEvent[] }>(
+      `/events?session_id=${encodeURIComponent(props.id)}&order=desc&limit=1`,
+    );
+    return r.events[0]?.seq ?? 0;
+  });
   const [asks, { refetch: refetchAsks }] = createResource(async () => {
     const r = await getJson<{ pending: PendingAsk[] }>("/permissions");
     return r.pending.filter((p) => p.session_id === props.id);
@@ -107,8 +119,10 @@ export function SessionDetail(props: { id: string; back: () => void }) {
       try {
         const evt = JSON.parse(m.data) as { session_id?: string; type: string };
         if (evt.session_id === props.id || evt.type === "permission.requested") {
-          refetch();
-          refetchAsks();
+          if (replayPos() === null) {
+            refetch();
+            refetchAsks();
+          }
         }
       } catch {
         // non-session frames (service.connected)
@@ -177,6 +191,37 @@ export function SessionDetail(props: { id: string; back: () => void }) {
               {v().totals.tool_calls} tools · {fmtUsd(v().totals.cost_usd)}
             </div>
 
+            <section class="mt-4 rounded-lg border border-border bg-card p-3">
+              <div class="flex items-center gap-3">
+                <button
+                  class={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                    replayPos() !== null
+                      ? "bg-event-assistant/20 text-event-assistant"
+                      : "bg-secondary text-muted-foreground hover:text-foreground"
+                  }`}
+                  onClick={() =>
+                    setReplayPos(replayPos() === null ? (maxSeq() ?? 0) : null)
+                  }
+                >
+                  {replayPos() !== null ? "exit replay" : "⏮ replay"}
+                </button>
+                <Show when={replayPos() !== null}>
+                  <input
+                    type="range"
+                    class="flex-1 accent-event-assistant"
+                    min={1}
+                    max={maxSeq() ?? 1}
+                    value={replayPos() ?? 1}
+                    onInput={(e) => setReplayPos(Number(e.currentTarget.value))}
+                  />
+                  <span class="shrink-0 font-mono text-xs text-muted-foreground tabular-nums">
+                    event {replayPos()} / {maxSeq() ?? "?"}
+                  </span>
+                </Show>
+              </div>
+            </section>
+
+            <Show when={replayPos() === null}>
             <For each={asks() ?? []}>
               {(p) => (
                 <div class="mt-5 rounded-lg border border-event-permission/50 bg-event-permission/10 p-4">
@@ -203,11 +248,13 @@ export function SessionDetail(props: { id: string; back: () => void }) {
                 </div>
               )}
             </For>
+            </Show>
 
             <section class="mt-6 space-y-5">
               <For each={v().turns}>{(t) => <TurnBlock turn={t} />}</For>
             </section>
 
+            <Show when={replayPos() === null}>
             <section class="mt-8">
               <textarea
                 class="w-full rounded-lg border border-input bg-secondary/50 p-3 font-sans text-sm text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none"
@@ -255,6 +302,7 @@ export function SessionDetail(props: { id: string; back: () => void }) {
                 </Show>
               </div>
             </section>
+            </Show>
 
             <Show when={v().files_changed.length > 0}>
               <section class="mt-8 rounded-lg border border-border bg-card p-4">
