@@ -1,45 +1,44 @@
-import { createResource, createSignal, For, onCleanup, onMount } from "solid-js";
+import { createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import {
+  api,
+  fmtUsd,
+  getJson,
+  STATUS_DOT,
+  STATUS_LABEL,
+  type SessionRow,
+  type SessionsResponse,
+} from "./api";
+import { SessionDetail } from "./session-detail";
+import { CompareView } from "./compare";
 
-interface SessionRow {
-  summary: {
-    session_id: string;
-    backend: string;
-    workspace: string | null;
-    title: string | null;
-    started_at: string;
-    last_seq: number;
-  };
-  status: "active" | "completed" | "cancelled" | "error" | string;
-  title?: string;
-  totals: { input: number; output: number; cost_usd: number; tool_calls: number };
+type Route =
+  | { name: "fleet" }
+  | { name: "session"; id: string }
+  | { name: "compare"; a: string; b: string };
+
+function parseHash(): Route {
+  const h = location.hash.slice(1);
+  const s = h.match(/^\/session\/(.+)$/);
+  if (s) return { name: "session", id: s[1]! };
+  const c = h.match(/^\/compare\/([^/]+)\/(.+)$/);
+  if (c) return { name: "compare", a: c[1]!, b: c[2]! };
+  return { name: "fleet" };
 }
 
-interface SessionsResponse {
-  sessions: SessionRow[];
-  aggregate: { total: { cost_usd: number; input: number; output: number } };
-}
-
-const api = (p: string) => `/api${p}`;
-
-const STATUS_DOT: Record<string, string> = {
-  active: "bg-status-active",
-  completed: "bg-status-completed",
-  error: "bg-status-error",
-  cancelled: "bg-status-cancelled",
-};
-
-const STATUS_LABEL: Record<string, string> = {
-  active: "running",
-  completed: "done",
-  error: "error",
-  cancelled: "stopped",
-};
-
-function SessionCard(props: { s: SessionRow }) {
+function SessionCard(props: {
+  s: SessionRow;
+  compareSelected: boolean;
+  onCompareToggle: () => void;
+}) {
   const dot = () => STATUS_DOT[props.s.status] ?? "bg-status-pending";
   const label = () => STATUS_LABEL[props.s.status] ?? props.s.status;
   return (
-    <article class="rounded-lg border border-border bg-card p-4 text-card-foreground transition-colors hover:border-ring/50">
+    <article
+      class={`cursor-pointer rounded-lg border bg-card p-4 text-card-foreground transition-colors hover:border-ring/50 ${
+        props.compareSelected ? "border-ring" : "border-border"
+      }`}
+      onClick={() => (location.hash = `/session/${props.s.summary.session_id}`)}
+    >
       <div class="flex items-center gap-2">
         <span class={`h-2 w-2 shrink-0 rounded-full ${dot()}`} />
         <b class="truncate text-sm font-medium">
@@ -50,22 +49,37 @@ function SessionCard(props: { s: SessionRow }) {
       <div class="mt-2 truncate font-mono text-xs text-muted-foreground">
         {props.s.summary.backend} · {props.s.summary.workspace ?? "—"}
       </div>
-      <div class="mt-3 flex gap-4 font-mono text-xs text-muted-foreground tabular-nums">
+      <div class="mt-3 flex items-center gap-4 font-mono text-xs text-muted-foreground tabular-nums">
         <span>{props.s.totals.tool_calls} tools</span>
         <span>{(props.s.totals.input + props.s.totals.output).toLocaleString()} tok</span>
-        <span>${props.s.totals.cost_usd.toFixed(4)}</span>
+        <span>{fmtUsd(props.s.totals.cost_usd)}</span>
+        <button
+          class={`ml-auto rounded px-2 py-0.5 text-[10px] transition-colors ${
+            props.compareSelected
+              ? "bg-primary text-primary-foreground"
+              : "bg-secondary text-muted-foreground hover:text-foreground"
+          }`}
+          onClick={(e) => {
+            e.stopPropagation();
+            props.onCompareToggle();
+          }}
+        >
+          {props.compareSelected ? "A/B ✓" : "compare"}
+        </button>
       </div>
     </article>
   );
 }
 
-export function App() {
-  const [data, { refetch }] = createResource(async () => {
-    const res = await fetch(api("/sessions"));
-    if (!res.ok) throw new Error(`service ${res.status}`);
-    return (await res.json()) as SessionsResponse;
-  });
+function Fleet() {
+  const [data, { refetch }] = createResource(() => getJson<SessionsResponse>("/sessions"));
   const [liveCount, setLiveCount] = createSignal(0);
+  const [compareSel, setCompareSel] = createSignal<string[]>([]);
+
+  const toggleCompare = (id: string) =>
+    setCompareSel((sel) =>
+      sel.includes(id) ? sel.filter((x) => x !== id) : [...sel.slice(-1), id],
+    );
 
   onMount(() => {
     const es = new EventSource(api("/stream"));
@@ -78,18 +92,31 @@ export function App() {
 
   return (
     <main class="mx-auto max-w-6xl p-6">
-      <header>
-        <h1 class="text-2xl font-semibold">Agent Strata</h1>
-        <p class="mt-1 text-sm text-muted-foreground">
-          fleet view — all agent sessions, live from the event log
-        </p>
+      <header class="flex items-end">
+        <div>
+          <h1 class="text-2xl font-semibold">Agent Strata</h1>
+          <p class="mt-1 text-sm text-muted-foreground">
+            fleet view — all agent sessions, live from the event log
+          </p>
+        </div>
+        <Show when={compareSel().length === 2}>
+          <button
+            class="ml-auto rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+            onClick={() => {
+              const [a, b] = compareSel();
+              location.hash = `/compare/${a}/${b}`;
+            }}
+          >
+            compare 2 sessions →
+          </button>
+        </Show>
       </header>
 
       <section class="mt-5 flex gap-8 rounded-lg border border-border bg-muted px-4 py-3 text-sm text-muted-foreground">
         <div>
           total cost:{" "}
           <b class="font-mono text-foreground tabular-nums">
-            ${(data()?.aggregate.total.cost_usd ?? 0).toFixed(4)}
+            {fmtUsd(data()?.aggregate.total.cost_usd ?? 0)}
           </b>
         </div>
         <div>
@@ -108,10 +135,51 @@ export function App() {
       </section>
 
       <section class="mt-5 grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-3">
-        <For each={data()?.sessions ?? []} fallback={<p class="text-muted-foreground">no sessions yet</p>}>
-          {(s) => <SessionCard s={s} />}
+        <For
+          each={data()?.sessions ?? []}
+          fallback={<p class="text-muted-foreground">no sessions yet</p>}
+        >
+          {(s) => (
+            <SessionCard
+              s={s}
+              compareSelected={compareSel().includes(s.summary.session_id)}
+              onCompareToggle={() => toggleCompare(s.summary.session_id)}
+            />
+          )}
         </For>
       </section>
     </main>
+  );
+}
+
+export function App() {
+  const [route, setRoute] = createSignal<Route>(parseHash());
+  onMount(() => {
+    const onHash = () => setRoute(parseHash());
+    window.addEventListener("hashchange", onHash);
+    onCleanup(() => window.removeEventListener("hashchange", onHash));
+  });
+  const back = () => (location.hash = "/");
+
+  return (
+    <Show
+      when={route().name === "fleet"}
+      fallback={
+        <Show
+          when={route().name === "session" && (route() as { id: string }).id}
+          fallback={
+            <CompareView
+              a={(route() as { a: string }).a}
+              b={(route() as { b: string }).b}
+              back={back}
+            />
+          }
+        >
+          <SessionDetail id={(route() as { id: string }).id} back={back} />
+        </Show>
+      }
+    >
+      <Fleet />
+    </Show>
   );
 }
