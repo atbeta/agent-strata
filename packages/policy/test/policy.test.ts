@@ -55,6 +55,105 @@ describe("policy evaluate (table-driven)", () => {
       { decision: "ask" },
     ],
     [
+      "echo \"$(rm -rf /)\" -> ask",
+      P([{ id: "echo", effect: "allow", tool: "bash", when: { command: { matches: "^echo\\b" } } }]),
+      bash('echo "$(rm -rf /)"'),
+      { decision: "ask" },
+    ],
+    [
+      "escaped quote does not swallow && -> deny",
+      P([
+        { id: "echo", effect: "allow", tool: "bash", when: { command: { matches: "^echo\\b" } } },
+        { id: "rm", effect: "deny", tool: "bash", when: { command: { matches: "^rm\\b" } } },
+      ]),
+      bash('echo "\\"" && rm -rf /'),
+      { decision: "deny", rule_id: "rm" },
+    ],
+    [
+      "single & separator -> deny",
+      P([
+        { id: "ls", effect: "allow", tool: "bash", when: { command: { matches: "^ls\\b" } } },
+        { id: "rm", effect: "deny", tool: "bash", when: { command: { matches: "^rm\\b" } } },
+      ]),
+      bash("ls & rm -rf /"),
+      { decision: "deny", rule_id: "rm" },
+    ],
+    [
+      "|& separator -> deny",
+      P([
+        { id: "ls", effect: "allow", tool: "bash", when: { command: { matches: "^ls\\b" } } },
+        { id: "rm", effect: "deny", tool: "bash", when: { command: { matches: "^rm\\b" } } },
+      ]),
+      bash("ls |& rm -rf /"),
+      { decision: "deny", rule_id: "rm" },
+    ],
+    [
+      "fd duplication 2>&1 -> allow",
+      P([{ id: "ls", effect: "allow", tool: "bash", when: { command: { matches: "^ls\\b" } } }]),
+      bash("ls 2>&1"),
+      { decision: "allow", rule_id: "ls" },
+    ],
+    [
+      "redirect to /dev/null -> allow",
+      P([{ id: "ls", effect: "allow", tool: "bash", when: { command: { matches: "^ls\\b" } } }]),
+      bash("ls > /dev/null"),
+      { decision: "allow", rule_id: "ls" },
+    ],
+    [
+      "&> to /dev/null -> allow",
+      P([{ id: "ls", effect: "allow", tool: "bash", when: { command: { matches: "^ls\\b" } } }]),
+      bash("ls &>/dev/null"),
+      { decision: "allow", rule_id: "ls" },
+    ],
+    [
+      "redirect to file -> ask",
+      P([{ id: "echo", effect: "allow", tool: "bash", when: { command: { matches: "^echo\\b" } } }]),
+      bash("echo hi > ~/.bashrc"),
+      { decision: "ask" },
+    ],
+    [
+      "append redirect -> ask",
+      P([{ id: "echo", effect: "allow", tool: "bash", when: { command: { matches: "^echo\\b" } } }]),
+      bash("echo hi >> f"),
+      { decision: "ask" },
+    ],
+    [
+      "/bin/bash -c -> ask",
+      P([{ id: "all", effect: "allow", tool: "*" }]),
+      bash("/bin/bash -c 'ls'"),
+      { decision: "ask" },
+    ],
+    [
+      "env bash -lc -> ask",
+      P([{ id: "all", effect: "allow", tool: "*" }]),
+      bash("env bash -lc ls"),
+      { decision: "ask" },
+    ],
+    [
+      "zsh -c -> ask",
+      P([{ id: "all", effect: "allow", tool: "*" }]),
+      bash("zsh -c ls"),
+      { decision: "ask" },
+    ],
+    [
+      "escaped $( in double quotes -> allow",
+      P([{ id: "echo", effect: "allow", tool: "bash", when: { command: { matches: "^echo\\b" } } }]),
+      bash('echo "\\$(x)"'),
+      { decision: "allow", rule_id: "echo" },
+    ],
+    [
+      "$( in single quotes -> allow",
+      P([{ id: "echo", effect: "allow", tool: "bash", when: { command: { matches: "^echo\\b" } } }]),
+      bash("echo '$(x)'"),
+      { decision: "allow", rule_id: "echo" },
+    ],
+    [
+      "trailing & -> allow",
+      P([{ id: "sleep", effect: "allow", tool: "bash", when: { command: { matches: "^sleep\\b" } } }]),
+      bash("sleep 1 &"),
+      { decision: "allow", rule_id: "sleep" },
+    ],
+    [
       "deny > ask > allow regardless of order",
       P([
         { id: "allow-first", effect: "allow", tool: "*" },

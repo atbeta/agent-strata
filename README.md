@@ -11,6 +11,10 @@ Cross-backend agent session/event layer: a canonical event format (CASF v0), an 
 | `@agent-core/projector` | Pure projections from events to `SessionView` + cross-session `aggregate` |
 | `@agent-core/policy` | Permission policy engine (rules, glob/regex conditions, shell segmentation) |
 
+## Security model
+
+The policy engine performs advisory static analysis of commands — it is not a sandbox. Constructs it cannot analyze safely are downgraded to `ask`; real enforcement requires a sandboxed execution layer (future work).
+
 ## Run
 
 ```sh
