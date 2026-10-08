@@ -50,6 +50,14 @@ export interface Turn {
   tool_calls: ToolCallView[];
 }
 
+export interface PendingPermission {
+  request_id: string;
+  decision?: "allow" | "deny";
+  by?: "user" | "policy" | "auto";
+  rule_id?: string;
+  reason?: string;
+}
+
 export interface SessionView {
   session_id: string;
   backend: string;
@@ -57,7 +65,7 @@ export interface SessionView {
   title?: string;
   status: string;
   turns: Turn[];
-  pending_permissions: unknown[];
+  pending_permissions: PendingPermission[];
   files_changed: { path: string; change: "add" | "modify" | "delete"; count: number }[];
   totals: SessionRow["totals"] & {
     reasoning: number;
@@ -88,12 +96,33 @@ export interface SessionComparison {
   };
 }
 
+export interface PendingAsk {
+  request_id: string;
+  session_id: string;
+  tool: string;
+  input: Record<string, unknown>;
+  asked_at: string;
+}
+
 export const api = (p: string) => `/api${p}`;
 
 export async function getJson<T>(p: string): Promise<T> {
   const res = await fetch(api(p));
   if (!res.ok) throw new Error(`service ${res.status}`);
   return (await res.json()) as T;
+}
+
+export async function respondPermission(
+  requestId: string,
+  decision: "allow" | "deny",
+  scope?: "once" | "always",
+): Promise<void> {
+  const res = await fetch(api(`/permissions/${encodeURIComponent(requestId)}/respond`), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ decision, scope }),
+  });
+  if (!res.ok) throw new Error(`service ${res.status}`);
 }
 
 export function fmtUsd(n: number) {

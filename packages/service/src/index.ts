@@ -22,6 +22,15 @@ interface Conn {
   stop: () => void;
 }
 
+interface PendingAsk {
+  request_id: string;
+  session_id: string;
+  tool: string;
+  input: Record<string, unknown>;
+  asked_at: string;
+  resolve: (ans: { decision: "allow" | "deny"; scope?: "once" | "always" }) => void;
+}
+
 export interface RunningService {
   port: number;
   store: Store;
@@ -31,6 +40,7 @@ export interface RunningService {
 export function startService(opts: ServiceOpts = {}): RunningService {
   const store = openStore(opts.db ?? ":memory:");
   const conns = new Map<string, Conn>();
+  const pendingAsks = new Map<string, PendingAsk>();
   const subscribers = new Set<(evt: Event) => void>();
   store.subscribe((e) => {
     for (const fn of subscribers) fn(e);
@@ -122,6 +132,25 @@ export function startService(opts: ServiceOpts = {}): RunningService {
             sink: store,
             policy,
             connectTimeoutMs: body.connectTimeoutMs,
+            onAsk: (req) => {
+              store.append([req]);
+              const data = req.data as {
+                request_id: string;
+                tool: string;
+                input: Record<string, unknown>;
+              };
+              return new Promise<{ decision: "allow" | "deny"; scope?: "once" | "always" }>(
+                (resolve) =>
+                  pendingAsks.set(data.request_id, {
+                    request_id: data.request_id,
+                    session_id: req.session_id,
+                    tool: data.tool,
+                    input: data.input,
+                    asked_at: req.ts,
+                    resolve,
+                  }),
+              );
+            },
           });
           const id = `opencode:${body.baseUrl}`;
           conns.set(id, {
@@ -141,6 +170,28 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         return json({
           connections: [...conns.values()].map(({ stop: _s, ...c }) => c),
         });
+      }
+
+      if (path === "/permissions" && req.method === "GET") {
+        return json({
+          pending: [...pendingAsks.values()].map(({ resolve: _r, ...p }) => p),
+        });
+      }
+
+      const permMatch = path.match(/^\/permissions\/([^/]+)\/respond$/);
+      if (permMatch && req.method === "POST") {
+        const ask = pendingAsks.get(decodeURIComponent(permMatch[1]!));
+        if (!ask) return json({ error: "no pending ask" }, 404);
+        const body = (await req.json().catch(() => ({}))) as {
+          decision?: string;
+          scope?: "once" | "always";
+        };
+        pendingAsks.delete(ask.request_id);
+        ask.resolve({
+          decision: body.decision === "deny" ? "deny" : "allow",
+          scope: body.scope,
+        });
+        return json({ ok: true });
       }
 
       const discMatch = path.match(/^\/connections\/([^/]+)$/);

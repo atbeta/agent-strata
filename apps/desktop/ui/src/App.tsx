@@ -81,6 +81,15 @@ function Fleet() {
       sel.includes(id) ? sel.filter((x) => x !== id) : [...sel.slice(-1), id],
     );
 
+  const groups = () => {
+    const byWs = new Map<string, SessionRow[]>();
+    for (const s of data()?.sessions ?? []) {
+      const ws = s.summary.workspace ?? "no workspace";
+      byWs.set(ws, [...(byWs.get(ws) ?? []), s]);
+    }
+    return [...byWs.entries()].map(([workspace, sessions]) => ({ workspace, sessions }));
+  };
+
   onMount(() => {
     const es = new EventSource(api("/stream"));
     es.onmessage = () => {
@@ -134,20 +143,24 @@ function Fleet() {
         </div>
       </section>
 
-      <section class="mt-5 grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-3">
-        <For
-          each={data()?.sessions ?? []}
-          fallback={<p class="text-muted-foreground">no sessions yet</p>}
-        >
-          {(s) => (
-            <SessionCard
-              s={s}
-              compareSelected={compareSel().includes(s.summary.session_id)}
-              onCompareToggle={() => toggleCompare(s.summary.session_id)}
-            />
-          )}
-        </For>
-      </section>
+      <For each={groups()} fallback={<p class="mt-5 text-muted-foreground">no sessions yet</p>}>
+        {(g) => (
+          <section class="mt-6">
+            <h2 class="mb-3 font-mono text-xs font-medium text-muted-foreground">{g.workspace}</h2>
+            <div class="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-3">
+              <For each={g.sessions}>
+                {(s) => (
+                  <SessionCard
+                    s={s}
+                    compareSelected={compareSel().includes(s.summary.session_id)}
+                    onCompareToggle={() => toggleCompare(s.summary.session_id)}
+                  />
+                )}
+              </For>
+            </div>
+          </section>
+        )}
+      </For>
     </main>
   );
 }
