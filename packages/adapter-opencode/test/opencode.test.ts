@@ -314,7 +314,7 @@ describe("createIngestor seam", () => {
 });
 
 // gated live test
-const E2E = process.env.AGENT_CORE_OPENCODE_E2E === "1";
+const E2E = process.env.AGENT_STRATA_OPENCODE_E2E === "1";
 describe.skipIf(!E2E)("opencode live e2e", () => {
   test("session.created -> session.started end-to-end", async () => {
     const { connectOpencode } = await import("../src/index");
