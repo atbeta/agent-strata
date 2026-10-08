@@ -91,6 +91,9 @@ export function projectSession(events: Event[]): SessionView {
   const turns = new Map<string, Turn>();
   const calls = new Map<string, ToolCallView>();
   const requests = new Map<string, PermissionInfo>();
+  // permission.requested can arrive before its tool.call (opencode emits
+  // permission.asked first) — index by call_id so a late call still attaches
+  const requestsByCall = new Map<string, PermissionInfo>();
   const files = new Map<string, { change: "add" | "modify" | "delete"; count: number }>();
   const orphanResults: { call_id: string; status: string; output?: string; latency_ms?: number }[] = [];
 
@@ -148,6 +151,11 @@ export function projectSession(events: Event[]): SessionView {
         };
         t.tool_calls.push(call);
         calls.set(e.data.call_id, call);
+        const pendingReq = requestsByCall.get(e.data.call_id);
+        if (pendingReq) {
+          call.permission = pendingReq;
+          requestsByCall.delete(e.data.call_id);
+        }
         view.totals.tool_calls++;
         break;
       }
@@ -167,9 +175,11 @@ export function projectSession(events: Event[]): SessionView {
       case "permission.requested": {
         const p: PermissionInfo = { request_id: e.data.request_id };
         requests.set(p.request_id, p);
-        const call = e.data.call_id ? calls.get(e.data.call_id) : undefined;
-        if (call) call.permission = p;
-        else view.pending_permissions.push(p);
+        if (e.data.call_id) {
+          const call = calls.get(e.data.call_id);
+          if (call) call.permission = p;
+          else requestsByCall.set(e.data.call_id, p);
+        } else view.pending_permissions.push(p);
         break;
       }
       case "permission.resolved": {
