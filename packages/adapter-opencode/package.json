@@ -1,0 +1,14 @@
+{
+  "name": "@agent-core/adapter-opencode",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@agent-core/policy": "workspace:*",
+    "@agent-core/schema": "workspace:*",
+    "@opencode-ai/sdk": "1.18.35",
+    "@agent-core/store": "workspace:*",
+    "@agent-core/projector": "workspace:*"
+  }
+}
