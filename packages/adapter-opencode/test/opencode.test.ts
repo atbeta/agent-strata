@@ -353,42 +353,31 @@ const HAS_KEY = !!process.env.DEEPSEEK_API_KEY;
 const port = Number(process.env.OPENCODE_PORT ?? 4096);
 const dir = process.env.OPENCODE_DIR ?? "/tmp";
 
-type EventIterator = AsyncIterator<Event>;
-
-// the SDK's event stream attaches lazily on the first next() call, so pull once
-// immediately to connect before any create/prompt call emits events
-async function subscribeIdle(
-  client: { event: { subscribe: (p: { directory?: string }) => Promise<{ stream: AsyncIterable<Event> }> } },
-): Promise<{ it: EventIterator; pending: Promise<IteratorResult<Event>> }> {
-  const { stream } = await client.event.subscribe({ directory: dir });
-  const it = stream[Symbol.asyncIterator]();
-  return { it, pending: it.next() };
-}
-
-async function waitForIdle(
-  sub: { it: EventIterator; pending: Promise<IteratorResult<Event>> },
+// resolves when a session.status idle (or session.idle) event for sessionID
+// arrives through onEvent; rejects after timeoutMs
+function waitForIdle(
   sessionID: string,
+  onEvent: (cb: (evt: Event) => void) => void,
   timeoutMs = 120_000,
 ) {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const remaining = deadline - Date.now();
-    if (remaining <= 0)
-      throw new Error(`session ${sessionID} did not reach idle within ${timeoutMs}ms`);
-    const r = await Promise.race([
-      sub.pending,
-      Bun.sleep(remaining).then(() => "timeout" as const),
-    ]);
-    if (r === "timeout")
-      throw new Error(`session ${sessionID} did not reach idle within ${timeoutMs}ms`);
-    if (r.done) throw new Error(`event stream ended before ${sessionID} went idle`);
-    sub.pending = sub.it.next();
-    const evt = r.value;
-    const props = evt.properties as { sessionID?: string; status?: { type: string } };
-    if (props.sessionID !== sessionID) continue;
-    if (evt.type === "session.status" && props.status?.type === "idle") return;
-    if (evt.type === "session.idle") return;
-  }
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`session ${sessionID} did not reach idle within ${timeoutMs}ms`)),
+      timeoutMs,
+    );
+    onEvent((evt) => {
+      const props = evt.properties as { sessionID?: string; status?: { type: string } };
+      if (props.sessionID !== sessionID) return;
+      if (evt.type === "session.status" && props.status?.type === "idle") {
+        clearTimeout(timer);
+        resolve();
+      }
+      if (evt.type === "session.idle") {
+        clearTimeout(timer);
+        resolve();
+      }
+    });
+  });
 }
 
 async function prompt(
@@ -457,15 +446,27 @@ describe.skipIf(!E2E)("opencode live e2e", () => {
     const { createOpencodeClient } = await import("@opencode-ai/sdk/v2");
     const store = openStore(":memory:");
     const client = createOpencodeClient({ baseUrl: `http://localhost:${port}`, directory: dir });
+    let sessionID = "";
+    let sessionCreated!: (evt: Event) => void;
+    const created = new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("no session.created within 10s")), 10_000);
+      sessionCreated = (evt) => {
+        const props = evt.properties as { sessionID?: string };
+        if (evt.type === "session.created" && props.sessionID === sessionID) {
+          clearTimeout(timer);
+          resolve();
+        }
+      };
+    });
     const conn = await connectOpencode({
       baseUrl: `http://localhost:${port}`,
       directory: dir,
       sink: store,
+      onEvent: (evt) => sessionCreated(evt),
     });
-    await Bun.sleep(500); // let the SSE handshake settle before creating the session
     const sess = await client.session.create({ directory: dir });
-    const sessionID = sess.data!.id;
-    await Bun.sleep(1000);
+    sessionID = sess.data!.id;
+    await created;
     conn.stop();
     const evs = store.read({ session_id: `opencode:${sessionID}` });
     expect(evs[0]?.type).toBe("session.started");
@@ -483,25 +484,28 @@ describe.skipIf(!(E2E && HAS_KEY))("opencode live e2e (deepseek)", () => {
       rules: [{ id: "echo-ok", effect: "allow", tool: "bash", when: { command: { matches: "^echo\\b" } } }],
     });
     const client = createOpencodeClient({ baseUrl: `http://localhost:${port}`, directory: dir });
+    const listeners = new Set<(evt: Event) => void>();
     const conn = await connectOpencode({
       baseUrl: `http://localhost:${port}`,
       directory: dir,
       sink: store,
       policy,
+      onEvent: (evt) => {
+        for (const cb of listeners) cb(evt);
+      },
     });
-    await Bun.sleep(500);
     const sess = await client.session.create({ directory: dir });
     const sessionID = sess.data!.id;
     const text = "Use the bash tool to run exactly: echo agent-strata-e2e — then reply with its output.";
-    const it = await subscribeIdle(client as never);
+    const idle = waitForIdle(sessionID, (cb) => listeners.add(cb));
     await prompt(client as never, sessionID, text);
-    await waitForIdle(it, sessionID);
+    await idle;
     if (!casf(store, sessionID).some((e) => e.type === "permission.requested")) {
       // model may not have called the tool: retry once
+      const idle2 = waitForIdle(sessionID, (cb) => listeners.add(cb));
       await prompt(client as never, sessionID, text);
-      await waitForIdle(it, sessionID);
+      await idle2;
     }
-    await Bun.sleep(500); // let the ingestor drain events buffered behind idle
     conn.stop();
 
     const evs = casf(store, sessionID);
@@ -520,20 +524,22 @@ describe.skipIf(!(E2E && HAS_KEY))("opencode live e2e (deepseek)", () => {
       rules: [{ id: "no-rm", effect: "deny", tool: "bash", when: { command: { matches: "^rm\\b" } } }],
     });
     const client = createOpencodeClient({ baseUrl: `http://localhost:${port}`, directory: dir });
+    const listeners = new Set<(evt: Event) => void>();
     const conn = await connectOpencode({
       baseUrl: `http://localhost:${port}`,
       directory: dir,
       sink: store,
       policy,
+      onEvent: (evt) => {
+        for (const cb of listeners) cb(evt);
+      },
     });
-    await Bun.sleep(500);
     const sess = await client.session.create({ directory: dir });
     const sessionID = sess.data!.id;
     const text = "Use the bash tool to run exactly: rm -f /tmp/strata-e2e/nonexistent.txt — then tell me the result.";
-    const it = await subscribeIdle(client as never);
+    const idle = waitForIdle(sessionID, (cb) => listeners.add(cb));
     await prompt(client as never, sessionID, text);
-    await waitForIdle(it, sessionID);
-    await Bun.sleep(500); // let the ingestor drain events buffered behind idle
+    await idle;
     conn.stop();
 
     const evs = casf(store, sessionID);
