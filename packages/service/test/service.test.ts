@@ -70,6 +70,13 @@ describe("agent-strata service", () => {
     expect(view.totals.input).toBe(10);
     expect(view.status).toBe("active");
 
+    // replay: until_seq projects only the prefix
+    const at2 = await fetch(`${base}/sessions/opencode:s1/view?until_seq=2`).then((r) =>
+      r.json(),
+    );
+    expect(at2.turns[0].assistant.length).toBe(0);
+    expect(at2.totals.input).toBe(0);
+
     const cmp = await fetch(`${base}/compare?a=opencode:s1&b=opencode:s2`).then((r) => r.json());
     expect(cmp.summary.same_prompt).toBeGreaterThanOrEqual(1);
     expect(cmp.turn_pairs.length).toBeGreaterThanOrEqual(1);

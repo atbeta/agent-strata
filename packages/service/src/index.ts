@@ -115,7 +115,13 @@ export function startService(opts: ServiceOpts = {}): RunningService {
 
       const sessionMatch = path.match(/^\/sessions\/([^/]+)\/view$/);
       if (sessionMatch && req.method === "GET") {
-        return json(sessionView(decodeURIComponent(sessionMatch[1]!)));
+        const sid = decodeURIComponent(sessionMatch[1]!);
+        const untilSeq = url.searchParams.get("until_seq");
+        if (untilSeq === null) return json(sessionView(sid));
+        const n = Number(untilSeq);
+        return json(
+          projectSession(store.read({ session_id: sid }).filter((e) => e.seq <= n)),
+        );
       }
 
       if (path === "/sessions" && req.method === "POST") {
