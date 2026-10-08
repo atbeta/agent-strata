@@ -1,0 +1,83 @@
+@import "tailwindcss";
+
+/*
+ * agent-strata design tokens — shadcn/ui token model (HSL components, no hsl()
+ * wrapper) adapted for Tailwind 4 @theme. Domain tokens for agent sessions
+ * (status, event types, cost direction) extend the base set.
+ * Spec: ../DESIGN.md
+ */
+
+@theme {
+  /* --- base scale (shadcn-compatible semantics) --- */
+  --color-background: hsl(222 24% 7%);
+  --color-foreground: hsl(213 27% 90%);
+
+  --color-card: hsl(222 22% 10%);
+  --color-card-foreground: hsl(213 27% 90%);
+
+  --color-popover: hsl(222 22% 9%);
+  --color-popover-foreground: hsl(213 27% 90%);
+
+  --color-primary: hsl(217 91% 60%);
+  --color-primary-foreground: hsl(222 47% 11%);
+
+  --color-secondary: hsl(220 16% 16%);
+  --color-secondary-foreground: hsl(213 27% 90%);
+
+  --color-muted: hsl(220 16% 14%);
+  --color-muted-foreground: hsl(218 14% 62%);
+
+  --color-accent: hsl(220 16% 18%);
+  --color-accent-foreground: hsl(213 27% 90%);
+
+  --color-destructive: hsl(0 72% 55%);
+  --color-destructive-foreground: hsl(213 27% 98%);
+
+  --color-border: hsl(220 14% 20%);
+  --color-input: hsl(220 14% 24%);
+  --color-ring: hsl(217 91% 60%);
+
+  /* --- session status --- */
+  --color-status-active: hsl(152 62% 52%);
+  --color-status-completed: hsl(217 91% 60%);
+  --color-status-error: hsl(0 72% 55%);
+  --color-status-cancelled: hsl(33 90% 55%);
+  --color-status-pending: hsl(218 14% 55%);
+
+  /* --- event types (timeline/replay) --- */
+  --color-event-user: hsl(217 91% 68%);
+  --color-event-assistant: hsl(152 62% 52%);
+  --color-event-tool: hsl(262 66% 65%);
+  --color-event-permission: hsl(33 90% 55%);
+  --color-event-file: hsl(190 80% 55%);
+
+  /* --- cost direction --- */
+  --color-cost-up: hsl(0 72% 55%);
+  --color-cost-down: hsl(152 62% 52%);
+  --color-cost-flat: hsl(218 14% 62%);
+
+  /* --- typography --- */
+  --font-sans: ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", monospace;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+
+  /* --- radius --- */
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.625rem;
+  --radius-xl: 0.75rem;
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+}
