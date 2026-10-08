@@ -37,6 +37,15 @@
         "@opencode-ai/sdk": "1.18.35",
       },
     },
+    "packages/core": {
+      "name": "@agent-strata/core",
+      "version": "0.0.0",
+      "dependencies": {
+        "@agent-strata/projector": "workspace:*",
+        "@agent-strata/schema": "workspace:*",
+        "@agent-strata/store": "workspace:*",
+      },
+    },
     "packages/policy": {
       "name": "@agent-strata/policy",
       "version": "0.0.0",
@@ -77,6 +86,8 @@
     "@agent-strata/adapter-acp": ["@agent-strata/adapter-acp@workspace:packages/adapter-acp"],
 
     "@agent-strata/adapter-opencode": ["@agent-strata/adapter-opencode@workspace:packages/adapter-opencode"],
+
+    "@agent-strata/core": ["@agent-strata/core@workspace:packages/core"],
 
     "@agent-strata/policy": ["@agent-strata/policy@workspace:packages/policy"],
 

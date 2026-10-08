@@ -1,10 +1,12 @@
 {
   "name": "agent-strata",
   "private": true,
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "test": "bun test",
-    "typecheck": "tsc --noEmit -p packages/schema && tsc --noEmit -p packages/store && tsc --noEmit -p packages/projector && tsc --noEmit -p packages/policy && tsc --noEmit -p packages/adapter-acp && tsc --noEmit -p packages/adapter-opencode"
+    "typecheck": "tsc --noEmit -p packages/schema && tsc --noEmit -p packages/store && tsc --noEmit -p packages/projector && tsc --noEmit -p packages/policy && tsc --noEmit -p packages/adapter-acp && tsc --noEmit -p packages/adapter-opencode && tsc --noEmit -p packages/core"
   },
   "devDependencies": {
     "@types/bun": "^1.2.0",
