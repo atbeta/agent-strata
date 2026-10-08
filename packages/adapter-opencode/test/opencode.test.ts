@@ -330,32 +330,19 @@ describe("live fixture replay", () => {
         store.append([out]);
       }
     }
-    const evs = store.read({ session_id: sessionID });
-    expect(evs[0]?.type).toBe("session.started");
-    expect(JSON.stringify(evs.find((e) => e.type === "turn.user")!.data)).toContain(
-      "echo agent-strata-e2e",
-    );
-    expect(evs.some((e) => e.type === "permission.requested")).toBe(true);
-    const res = evs.find((e) => e.type === "permission.resolved")!;
-    expect((res.data as { decision: string }).decision).toBe("allow");
-    const tc = evs.find((e) => e.type === "tool.call")!;
-    expect((tc.data as { tool: string }).tool).toBe("bash");
-    const tr = evs.find((e) => e.type === "tool.result")!;
-    const trd = tr.data as { status: string; output?: string };
-    expect(trd.status).toBe("ok");
-    expect(trd.output).toContain("agent-strata-e2e");
-    const ta = evs.find((e) => e.type === "turn.assistant")!;
-    const tad = ta.data as { model?: string; usage?: { input: number; output: number } };
-    expect(tad.model).toBe("deepseek/deepseek-flash");
-    expect(tad.usage!.input).toBeGreaterThan(0);
+    // fixture must end at the idle signal for its session
+    const last = JSON.parse(
+      text.trimEnd().split("\n").at(-1)!,
+    ) as Event;
+    const lastProps = last.properties as { sessionID?: string; status?: { type: string } };
+    expect(lastProps.sessionID).toBe(sessionID.replace(/^opencode:/, ""));
+    const idle =
+      last.type === "session.idle" ||
+      (last.type === "session.status" && lastProps.status?.type === "idle");
+    expect(idle).toBe(true);
 
-    const view = projectSession(evs);
-    const pending = [...view.turns.flatMap((t) => t.tool_calls), ...view.orphans].filter(
-      (c) => c.status === "pending",
-    );
-    expect(pending.length).toBe(0);
-    expect(view.totals.input).toBeGreaterThan(0);
-    expect(view.totals.tool_calls).toBeGreaterThan(0);
+    const evs = store.read({ session_id: sessionID });
+    expectAllowPath(evs);
     store.close();
   });
 });
@@ -366,20 +353,42 @@ const HAS_KEY = !!process.env.DEEPSEEK_API_KEY;
 const port = Number(process.env.OPENCODE_PORT ?? 4096);
 const dir = process.env.OPENCODE_DIR ?? "/tmp";
 
+type EventIterator = AsyncIterator<Event>;
+
+// the SDK's event stream attaches lazily on the first next() call, so pull once
+// immediately to connect before any create/prompt call emits events
+async function subscribeIdle(
+  client: { event: { subscribe: (p: { directory?: string }) => Promise<{ stream: AsyncIterable<Event> }> } },
+): Promise<{ it: EventIterator; pending: Promise<IteratorResult<Event>> }> {
+  const { stream } = await client.event.subscribe({ directory: dir });
+  const it = stream[Symbol.asyncIterator]();
+  return { it, pending: it.next() };
+}
+
 async function waitForIdle(
-  client: { session: { status: (p: { directory?: string }) => Promise<{ data?: Record<string, { type: string }> }> } },
+  sub: { it: EventIterator; pending: Promise<IteratorResult<Event>> },
   sessionID: string,
   timeoutMs = 120_000,
 ) {
   const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const st = await client.session.status({ directory: dir });
-    const s = st.data?.[sessionID]?.type;
-    // opencode omits idle sessions from the status map
-    if (s !== "busy" && s !== "retry") return;
-    await Bun.sleep(500);
+  for (;;) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0)
+      throw new Error(`session ${sessionID} did not reach idle within ${timeoutMs}ms`);
+    const r = await Promise.race([
+      sub.pending,
+      Bun.sleep(remaining).then(() => "timeout" as const),
+    ]);
+    if (r === "timeout")
+      throw new Error(`session ${sessionID} did not reach idle within ${timeoutMs}ms`);
+    if (r.done) throw new Error(`event stream ended before ${sessionID} went idle`);
+    sub.pending = sub.it.next();
+    const evt = r.value;
+    const props = evt.properties as { sessionID?: string; status?: { type: string } };
+    if (props.sessionID !== sessionID) continue;
+    if (evt.type === "session.status" && props.status?.type === "idle") return;
+    if (evt.type === "session.idle") return;
   }
-  throw new Error(`session ${sessionID} did not reach idle within ${timeoutMs}ms`);
 }
 
 async function prompt(
@@ -396,6 +405,51 @@ async function prompt(
 
 const casf = (store: ReturnType<typeof openStore>, sessionID: string) =>
   store.read({ session_id: `opencode:${sessionID}` });
+
+function expectAllowPath(evs: ReturnType<ReturnType<typeof openStore>["read"]>) {
+  expect(evs[0]?.type).toBe("session.started");
+  expect(JSON.stringify(evs.find((e) => e.type === "turn.user")!.data)).toContain(
+    "echo agent-strata-e2e",
+  );
+  expect(evs.some((e) => e.type === "permission.requested")).toBe(true);
+  const res = evs.find((e) => e.type === "permission.resolved")!;
+  expect((res.data as { decision: string }).decision).toBe("allow");
+  const tc = evs.find((e) => e.type === "tool.call")!;
+  expect((tc.data as { tool: string }).tool).toBe("bash");
+  const tr = evs.find((e) => e.type === "tool.result")!;
+  const trd = tr.data as { status: string; output?: string };
+  expect(trd.status).toBe("ok");
+  expect(trd.output).toContain("agent-strata-e2e");
+  const assistants = evs.filter((e) => e.type === "turn.assistant");
+  expect(assistants.length).toBeGreaterThanOrEqual(2);
+  const last = assistants.at(-1)!.data as {
+    model?: string;
+    stop_reason?: string;
+    usage?: { input: number; output: number; cache_read?: number };
+    content?: { type: string; text?: string }[];
+  };
+  expect(last.model).toBe("deepseek/deepseek-flash");
+  expect(last.stop_reason).not.toBe("tool-calls");
+  expect(
+    (last.content ?? []).some((b) => b.type === "text" && b.text?.includes("agent-strata-e2e")),
+  ).toBe(true);
+  expect(
+    assistants.some(
+      (e) =>
+        ((e.data as { usage?: { cache_read?: number } }).usage?.cache_read ?? 0) > 0,
+    ),
+  ).toBe(true);
+
+  const view = projectSession(evs);
+  const pending = [...view.turns.flatMap((t) => t.tool_calls), ...view.orphans].filter(
+    (c) => c.status === "pending",
+  );
+  expect(pending.length).toBe(0);
+  expect(view.totals.input).toBeGreaterThan(0);
+  expect(view.totals.output).toBeGreaterThan(0);
+  expect(view.totals.tool_calls).toBeGreaterThan(0);
+  expect(view.totals.cost_usd).toBeGreaterThan(0);
+}
 
 describe.skipIf(!E2E)("opencode live e2e", () => {
   test("session.created -> session.started end-to-end", async () => {
@@ -439,46 +493,21 @@ describe.skipIf(!(E2E && HAS_KEY))("opencode live e2e (deepseek)", () => {
     const sess = await client.session.create({ directory: dir });
     const sessionID = sess.data!.id;
     const text = "Use the bash tool to run exactly: echo agent-strata-e2e — then reply with its output.";
+    const it = await subscribeIdle(client as never);
     await prompt(client as never, sessionID, text);
-    await waitForIdle(client as never, sessionID);
+    await waitForIdle(it, sessionID);
+    if (!casf(store, sessionID).some((e) => e.type === "permission.requested")) {
+      // model may not have called the tool: retry once
+      await prompt(client as never, sessionID, text);
+      await waitForIdle(it, sessionID);
+    }
+    await Bun.sleep(500); // let the ingestor drain events buffered behind idle
     conn.stop();
 
     const evs = casf(store, sessionID);
-    expect(evs[0]?.type).toBe("session.started");
-    const tu = evs.find((e) => e.type === "turn.user")!;
-    expect(JSON.stringify(tu.data)).toContain("echo agent-strata-e2e");
-    const req = evs.find((e) => e.type === "permission.requested");
-    const res = evs.find((e) => e.type === "permission.resolved");
-    if (!req) {
-      // model may not have called the tool: retry once
-      await prompt(client as never, sessionID, text);
-      await waitForIdle(client as never, sessionID);
-    }
-    const req2 = evs.find((e) => e.type === "permission.requested")!;
-    const res2 = evs.find((e) => e.type === "permission.resolved")!;
-    expect((res2.data as { decision: string }).decision).toBe("allow");
-    expect((res2.data as { by: string }).by).toBe("policy");
-    void req2;
-    const tc = evs.find((e) => e.type === "tool.call")!;
-    expect((tc.data as { tool: string }).tool).toBe("bash");
-    expect(JSON.stringify(tc.data)).toContain("echo");
-    const tr = evs.find((e) => e.type === "tool.result")!;
-    const trd = tr.data as { status: string; output?: string };
-    expect(trd.status).toBe("ok");
-    expect(trd.output).toContain("agent-strata-e2e");
-    const ta = evs.find((e) => e.type === "turn.assistant")!;
-    const tad = ta.data as { model?: string; usage?: { input: number; output: number } };
-    expect(tad.model).toBe("deepseek/deepseek-flash");
-    expect(tad.usage!.input).toBeGreaterThan(0);
-
-    const view = projectSession(evs);
-    const pending = [...view.turns.flatMap((t) => t.tool_calls), ...view.orphans].filter(
-      (c) => c.status === "pending",
-    );
-    expect(pending.length).toBe(0);
-    expect(view.totals.input).toBeGreaterThan(0);
-    expect(view.totals.output).toBeGreaterThan(0);
-    expect(view.totals.tool_calls).toBeGreaterThan(0);
+    expectAllowPath(evs);
+    const res = evs.find((e) => e.type === "permission.resolved")!;
+    expect((res.data as { by: string }).by).toBe("policy");
     store.close();
   }, 180_000);
 
@@ -501,11 +530,14 @@ describe.skipIf(!(E2E && HAS_KEY))("opencode live e2e (deepseek)", () => {
     const sess = await client.session.create({ directory: dir });
     const sessionID = sess.data!.id;
     const text = "Use the bash tool to run exactly: rm -f /tmp/strata-e2e/nonexistent.txt — then tell me the result.";
+    const it = await subscribeIdle(client as never);
     await prompt(client as never, sessionID, text);
-    await waitForIdle(client as never, sessionID);
+    await waitForIdle(it, sessionID);
+    await Bun.sleep(500); // let the ingestor drain events buffered behind idle
     conn.stop();
 
     const evs = casf(store, sessionID);
+    expect(evs.some((e) => e.type === "permission.requested")).toBe(true);
     const res = evs.find((e) => e.type === "permission.resolved")!;
     expect((res.data as { decision: string }).decision).toBe("deny");
     expect((res.data as { by: string }).by).toBe("policy");
