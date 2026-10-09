@@ -466,7 +466,7 @@ export function SessionDetail(props: { id: string }) {
           {(v) => (
             <>
               <header
-                class="flex h-12 shrink-0 items-center gap-2.5 px-5"
+                class="flex h-11 shrink-0 items-center gap-2.5 border-b border-border px-5"
                 data-tauri-drag-region={inDesktopShell() ? "" : undefined}
               >
                 <Show when={generating()}>
@@ -757,7 +757,7 @@ export function SessionDetail(props: { id: string }) {
       </Show>
       <Show when={filesOpen() && !traceBlock() && view()}>
         <aside class="flex w-72 shrink-0 flex-col border-l border-border bg-card/30">
-          <div class="flex h-12 items-center px-4 text-xs font-medium text-muted-foreground">
+          <div class="flex h-11 items-center border-b border-border px-4 text-[13px] font-medium text-muted-foreground">
             session
           </div>
           <div class="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 pb-6">

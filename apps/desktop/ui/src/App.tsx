@@ -478,9 +478,9 @@ export function App() {
 
   return (
     <div class="flex h-full min-h-0 bg-background">
-      <aside class="flex w-[300px] shrink-0 flex-col border-r border-border bg-card">
+      <aside class="flex w-[300px] shrink-0 flex-col border-r border-border bg-background">
         <div
-          class={`flex h-12 items-center gap-2 pr-3 ${inDesktopShell() ? "pl-[76px]" : "px-3"}`}
+          class={`flex h-11 items-center gap-2 pr-3 ${inDesktopShell() ? "pl-[76px]" : "px-3"}`}
           data-tauri-drag-region
         >
           <button
@@ -505,12 +505,10 @@ export function App() {
         </div>
         <div class="space-y-2 px-3 pb-3">
           <div class="relative">
-            <p class="mb-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-              Project
-            </p>
+            <p class="mb-1 px-0.5 text-[11px] font-medium text-muted-foreground">Project</p>
             <button
-              class={`flex w-full items-center gap-2 rounded-lg border border-border bg-background/50 px-2 py-1.5 text-left transition-colors hover:bg-secondary ${
-                wsOpen() ? "border-ring bg-secondary" : ""
+              class={`flex w-full items-center gap-2 rounded-md border border-border bg-secondary/40 px-2 py-1.5 text-left transition-colors hover:bg-secondary ${
+                wsOpen() ? "bg-secondary" : ""
               }`}
               title={currentDir() ?? "All projects"}
               aria-expanded={wsOpen()}
@@ -536,7 +534,7 @@ export function App() {
                 aria-label="Close"
                 onClick={() => setWsOpen(false)}
               />
-              <div class="absolute left-0 right-0 z-20 mt-1 max-h-80 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-lg">
+              <div class="surface-popover absolute left-0 right-0 z-20 mt-1 max-h-80 overflow-y-auto rounded-md border border-border bg-popover p-1">
                 <button
                   class={`flex w-full flex-col rounded-md px-2 py-1.5 text-left hover:bg-secondary ${
                     !currentDir() ? "bg-secondary/80" : ""
@@ -568,7 +566,7 @@ export function App() {
                     if (path) chooseWorkspace(path);
                   }}
                 >
-                  <label class="mb-1 block px-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                  <label class="mb-1 block px-1 text-[11px] font-medium text-muted-foreground">
                     Open directory
                   </label>
                   <input
@@ -587,7 +585,7 @@ export function App() {
               class="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
             />
             <input
-              class="w-full rounded-lg border border-border bg-background/50 py-1.5 pr-7 pl-8 text-[13px] text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none"
+              class="w-full rounded-md border border-border bg-secondary/40 py-1.5 pr-7 pl-8 text-[13px] text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none"
               placeholder="Search sessions"
               value={query()}
               onInput={(e) => setQuery(e.currentTarget.value)}
@@ -631,8 +629,8 @@ export function App() {
           >
             {(group) => (
               <section class="mb-2">
-                <h2 class="flex items-baseline gap-2 px-2 pt-2 pb-1" title={group.hint}>
-                  <span class="shrink-0 text-[10px] font-medium tracking-[0.14em] text-muted-foreground uppercase">
+                <h2 class="flex items-baseline gap-2 px-2 pt-3 pb-1" title={group.hint}>
+                  <span class="shrink-0 text-[11px] font-medium text-muted-foreground">
                     {group.label}
                   </span>
                   <Show when={group.hint}>
@@ -785,7 +783,7 @@ export function App() {
         <Show when={route().name === "fleet"}>
           <div class="flex h-full flex-col">
             <div
-              class="flex h-12 items-center border-b border-border px-6 text-xs text-muted-foreground"
+              class="flex h-11 items-center border-b border-border px-5 text-[13px] text-muted-foreground"
               data-tauri-drag-region
             >
               <span>
@@ -799,11 +797,11 @@ export function App() {
               <Show
                 when={query().trim()}
                 fallback={
-                  <div class="mx-auto flex max-w-md flex-col items-center px-6 pt-28 text-center">
-                    <p class="text-lg font-medium">
+                  <div class="mx-auto flex max-w-sm flex-col items-start px-8 pt-24">
+                    <p class="text-sm font-medium text-foreground">
                       {connected() ? "Pick a session" : "Connect OpenCode"}
                     </p>
-                    <p class="mt-2 text-sm text-muted-foreground">
+                    <p class="mt-1.5 text-[13px] leading-5 text-muted-foreground">
                       {connected()
                         ? "Sessions already on the server show up in the sidebar. New ones start with +."
                         : "Point strata at an opencode serve URL. Existing sessions are indexed as soon as the stream attaches."}
