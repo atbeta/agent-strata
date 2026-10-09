@@ -179,7 +179,7 @@ function SessionListItem(props: {
       />
       <Show
         when={editing()}
-        fallback={<span class="min-w-0 flex-1 truncate pr-[4.75rem] text-[13px] leading-none">{props.title}</span>}
+        fallback={<span class="min-w-0 flex-1 truncate pr-[4.75rem] text-sm leading-none">{props.title}</span>}
       >
         <input
           ref={(el) => {
@@ -187,7 +187,7 @@ function SessionListItem(props: {
             el.focus();
             el.select();
           }}
-          class="min-w-0 flex-1 rounded bg-background px-1 py-0.5 text-[13px] leading-none focus:outline-none"
+          class="min-w-0 flex-1 rounded bg-background px-1 py-0.5 text-sm leading-none focus:outline-none"
           value={draft()}
           onClick={(e) => e.stopPropagation()}
           onInput={(e) => setDraft(e.currentTarget.value)}
@@ -201,7 +201,7 @@ function SessionListItem(props: {
       </Show>
       <Show when={!editing()}>
         <span
-          class={`pointer-events-none absolute right-2 top-1/2 w-[4.5rem] -translate-y-1/2 text-right font-mono text-[10px] text-muted-foreground tabular-nums ${
+          class={`pointer-events-none absolute right-2 top-1/2 w-[4.5rem] -translate-y-1/2 text-right font-mono text-2xs text-muted-foreground tabular-nums ${
             reveal() ? "invisible" : ""
           }`}
           title={props.timeTitle}
@@ -576,7 +576,7 @@ export function App() {
         />
         <div class="flex flex-col gap-2 px-3 pt-2 pb-3">
           <div>
-            <p class="mb-1 px-0.5 text-[11px] font-medium text-muted-foreground">Project</p>
+            <p class="mb-1 px-0.5 text-2xs font-medium text-muted-foreground">Project</p>
             <DropdownMenu open={wsOpen()} onOpenChange={setWsOpen} gutter={6}>
               <DropdownMenuTrigger
                 class={cn(
@@ -589,10 +589,10 @@ export function App() {
                   <Icon name="folder" class="size-3.5" />
                 </span>
                 <span class="min-w-0 flex-1">
-                  <span class="block truncate text-[13px] font-medium leading-tight">
+                  <span class="block truncate text-sm font-medium leading-tight">
                     {currentDir() ? projectName(currentDir()!) : "All projects"}
                   </span>
-                  <span class="block truncate font-mono text-[10px] leading-tight text-muted-foreground">
+                  <span class="block truncate font-mono text-2xs leading-tight text-muted-foreground">
                     {currentDir() ? projectHint(currentDir()!) : `${sessions().length} sessions`}
                   </span>
                 </span>
@@ -607,7 +607,7 @@ export function App() {
                   onSelect={() => chooseWorkspace(ALL)}
                 >
                   <span class="font-medium">All projects</span>
-                  <span class="text-[10px] text-muted-foreground">Every directory on this connection</span>
+                  <span class="text-2xs text-muted-foreground">Every directory on this connection</span>
                 </DropdownMenuItem>
                 <For each={workspaceOptions()}>
                   {(w) => (
@@ -617,7 +617,7 @@ export function App() {
                       onSelect={() => chooseWorkspace(w.directory)}
                     >
                       <span class="w-full truncate">{projectName(w.directory)}</span>
-                      <span class="w-full truncate font-mono text-[10px] text-muted-foreground">{w.directory}</span>
+                      <span class="w-full truncate font-mono text-2xs text-muted-foreground">{w.directory}</span>
                     </DropdownMenuItem>
                   )}
                 </For>
@@ -632,9 +632,9 @@ export function App() {
                   onPointerDown={(e) => e.stopPropagation()}
                 >
                   <TextField value={wsDraft()} onChange={setWsDraft}>
-                    <TextFieldLabel class="text-[11px] font-medium text-muted-foreground">Open directory</TextFieldLabel>
+                    <TextFieldLabel class="text-2xs font-medium text-muted-foreground">Open directory</TextFieldLabel>
                     <TextFieldInput
-                      class="h-8 font-mono text-[11px]"
+                      class="h-8 font-mono text-2xs"
                       placeholder="/path/to/project"
                       onKeyDown={(e) => e.stopPropagation()}
                     />
@@ -644,7 +644,7 @@ export function App() {
             </DropdownMenu>
           </div>
           <Show when={actionErr()}>
-            <p class="truncate font-mono text-[10px] text-destructive" title={actionErr()}>
+            <p class="truncate font-mono text-2xs text-destructive" title={actionErr()}>
               {actionErr()}
             </p>
           </Show>
@@ -665,15 +665,15 @@ export function App() {
             {(group) => (
               <section class="mb-2">
                 <h2 class="flex items-baseline gap-2 px-2 pt-3 pb-1" title={group.hint}>
-                  <span class="shrink-0 text-[11px] font-medium text-muted-foreground">
+                  <span class="shrink-0 text-2xs font-medium text-muted-foreground">
                     {group.label}
                   </span>
                   <Show when={group.hint}>
-                    <span class="min-w-0 flex-1 truncate font-mono text-[10px] text-muted-foreground/80">
+                    <span class="min-w-0 flex-1 truncate font-mono text-2xs text-muted-foreground/80">
                       {group.hint}
                     </span>
                   </Show>
-                  <span class="ml-auto font-mono text-[10px] text-muted-foreground/70 tabular-nums">
+                  <span class="ml-auto font-mono text-2xs text-muted-foreground/70 tabular-nums">
                     {group.rows.length}
                   </span>
                 </h2>
@@ -706,21 +706,21 @@ export function App() {
             <div class="mb-1.5 space-y-1.5 px-1">
               <TextField value={connUrl()} onChange={setConnUrl} class="gap-0">
                 <TextFieldInput
-                  class="h-8 bg-background font-mono text-[11px]"
+                  class="h-8 bg-background font-mono text-2xs"
                   placeholder="http://127.0.0.1:4096"
                 />
               </TextField>
               <div class="flex gap-1.5">
                 <TextField value={connName()} onChange={setConnName} class="w-1/3 gap-0">
-                  <TextFieldInput class="h-8 bg-background px-2 text-[11px]" placeholder="name" />
+                  <TextFieldInput class="h-8 bg-background px-2 text-2xs" placeholder="name" />
                 </TextField>
                 <TextField value={connUser()} onChange={setConnUser} class="w-1/3 gap-0">
-                  <TextFieldInput class="h-8 bg-background px-2 text-[11px]" placeholder="user" />
+                  <TextFieldInput class="h-8 bg-background px-2 text-2xs" placeholder="user" />
                 </TextField>
                 <TextField value={connPass()} onChange={setConnPass} class="w-1/3 gap-0">
                   <TextFieldInput
                     type="password"
-                    class="h-8 bg-background px-2 text-[11px]"
+                    class="h-8 bg-background px-2 text-2xs"
                     placeholder="password"
                   />
                 </TextField>
@@ -735,23 +735,23 @@ export function App() {
             </div>
           </Show>
           <Show when={connErr()}>
-            <p class="mb-1 px-1.5 font-mono text-[10px] text-destructive">{connErr()}</p>
+            <p class="mb-1 px-1.5 font-mono text-2xs text-destructive">{connErr()}</p>
           </Show>
           <div class="flex items-center gap-1">
             <div class="min-w-0 flex-1">
               <Show
                 when={(settled(conns)?.connections.length ?? 0) > 0}
                 fallback={
-                  <p class="truncate px-1.5 py-1 text-[12px] text-muted-foreground">No backend</p>
+                  <p class="truncate px-1.5 py-1 text-xs text-muted-foreground">No backend</p>
                 }
               >
                 <For each={settled(conns)?.connections ?? []}>
                   {(c) => (
-                    <p class="flex items-center gap-2 truncate px-1.5 py-1 text-[12px]" title={c.baseUrl}>
+                    <p class="flex items-center gap-2 truncate px-1.5 py-1 text-xs" title={c.baseUrl}>
                       <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-status-active" />
                       <span class="truncate">
                         {backendLabel(c.backend)}
-                        <span class="font-mono text-[11px] text-muted-foreground">
+                        <span class="font-mono text-2xs text-muted-foreground">
                           {" "}
                           · {endpointHost(c.baseUrl)}
                         </span>
@@ -761,7 +761,7 @@ export function App() {
                 </For>
               </Show>
               <Show when={compareOn() && compareSel().length < 2}>
-                <p class="px-1.5 pb-0.5 text-[11px] text-muted-foreground">
+                <p class="px-1.5 pb-0.5 text-2xs text-muted-foreground">
                   Pick {2 - compareSel().length}
                 </p>
               </Show>
@@ -835,7 +835,7 @@ export function App() {
       <main class="relative min-w-0 flex-1">
         <Show when={route().name === "fleet"}>
           <div class="flex h-full flex-col">
-            <DragBar class="text-[13px] text-muted-foreground">
+            <DragBar class="text-sm text-muted-foreground">
               <span class="min-w-0 truncate">
                 {sessions().length.toLocaleString()}
                 {currentDir() ? " in this project" : " sessions"} ·{" "}
@@ -849,7 +849,7 @@ export function App() {
                 <p class="text-sm font-medium text-foreground">
                   {connected() ? "Pick a session" : "Connect a backend"}
                 </p>
-                <p class="mt-1.5 text-[13px] leading-5 text-muted-foreground">
+                <p class="mt-1.5 text-sm leading-5 text-muted-foreground">
                   {connected()
                     ? "Sessions already on the server show up in the sidebar. New ones start with +."
                     : "Attach a running agent server. Sessions already on it show up as soon as the stream connects."}
@@ -871,12 +871,12 @@ export function App() {
           <div class="flex h-full min-h-0 flex-col">
             <DragBar>
               <button
-                class="text-[13px] text-muted-foreground hover:text-foreground"
+                class="text-sm text-muted-foreground hover:text-foreground"
                 onClick={() => (location.hash = "/")}
               >
                 ← fleet
               </button>
-              <span class="text-[13px] text-foreground">Compare</span>
+              <span class="text-sm text-foreground">Compare</span>
             </DragBar>
             <div class="min-h-0 flex-1 overflow-y-auto">
               <CompareView
@@ -890,12 +890,12 @@ export function App() {
           <div class="flex h-full min-h-0 flex-col">
             <DragBar>
               <button
-                class="text-[13px] text-muted-foreground hover:text-foreground"
+                class="text-sm text-muted-foreground hover:text-foreground"
                 onClick={() => (location.hash = "/")}
               >
                 ← fleet
               </button>
-              <span class="text-[13px] text-foreground">Settings</span>
+              <span class="text-sm text-foreground">Settings</span>
             </DragBar>
             <div class="min-h-0 flex-1 overflow-y-auto">
               <SettingsPage />
@@ -906,12 +906,12 @@ export function App() {
           <div class="flex h-full min-h-0 flex-col">
             <DragBar>
               <button
-                class="text-[13px] text-muted-foreground hover:text-foreground"
+                class="text-sm text-muted-foreground hover:text-foreground"
                 onClick={() => (location.hash = "/")}
               >
                 ← fleet
               </button>
-              <span class="text-[13px] text-foreground">Policy</span>
+              <span class="text-sm text-foreground">Policy</span>
             </DragBar>
             <div class="min-h-0 flex-1 overflow-y-auto">
               <PolicyEditor />

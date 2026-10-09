@@ -153,7 +153,7 @@ function RuleCard(props: { index: number; draft: Draft; setDraft: (fn: (d: Draft
         <div class="flex items-center gap-2 text-xs text-muted-foreground">
           <span>when — every condition must match (input path · condition · value)</span>
           <button
-            class="rounded bg-secondary px-1.5 py-0.5 text-[10px] transition-colors hover:text-foreground"
+            class="rounded bg-secondary px-1.5 py-0.5 text-2xs transition-colors hover:text-foreground"
             onClick={() => setRule((r) => r.conds.push({ path: "", op: "glob", value: "" }))}
           >
             + condition

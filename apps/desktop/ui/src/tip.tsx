@@ -25,7 +25,7 @@ export function Tip(props: { label: string; class?: string; children: JSX.Elemen
         {(b) => (
           <span
             role="tooltip"
-            class={`pointer-events-none fixed z-[80] -translate-x-1/2 whitespace-nowrap rounded-md border border-border bg-popover px-1.5 py-0.5 text-[11px] text-popover-foreground shadow-md ${
+            class={`pointer-events-none fixed z-[80] -translate-x-1/2 whitespace-nowrap rounded-md border border-border bg-popover px-1.5 py-0.5 text-2xs text-popover-foreground shadow-md ${
               b().below ? "" : "-translate-y-full"
             }`}
             style={{ left: `${b().x}px`, top: `${b().y}px` }}

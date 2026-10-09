@@ -6,6 +6,8 @@
   ],
   "scripts": {
     "test": "bun test",
+    "sidecar": "bun run scripts/build-sidecar.ts",
+    "sidecar:force": "bun run scripts/build-sidecar.ts --force",
     "typecheck": "tsc --noEmit -p packages/schema && tsc --noEmit -p packages/store && tsc --noEmit -p packages/projector && tsc --noEmit -p packages/policy && tsc --noEmit -p packages/adapter-acp && tsc --noEmit -p packages/adapter-opencode && tsc --noEmit -p packages/core && tsc --noEmit -p packages/service"
   },
   "devDependencies": {

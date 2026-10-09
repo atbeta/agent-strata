@@ -21,7 +21,7 @@ function DropdownMenuTrigger(props: TriggerProps) {
   return (
     <DropdownMenuPrimitive.Trigger
       class={cn(
-        "inline-flex items-center justify-center rounded-md text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40",
+        "inline-flex items-center justify-center rounded-md text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40",
         local.class,
       )}
       {...rest}
@@ -53,7 +53,7 @@ function DropdownMenuItem(props: ItemProps) {
   return (
     <DropdownMenuPrimitive.Item
       class={cn(
-        "relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1.5 text-[13px] outline-none transition-colors data-[disabled]:pointer-events-none data-[disabled]:opacity-40 data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground",
+        "relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none transition-colors data-[disabled]:pointer-events-none data-[disabled]:opacity-40 data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground",
         local.class,
       )}
       {...rest}
@@ -82,7 +82,7 @@ function DropdownMenuGroupLabel(props: GroupLabelProps) {
   const [local, rest] = splitProps(props, ["class"]);
   return (
     <DropdownMenuPrimitive.GroupLabel
-      class={cn("px-2 py-1 text-[11px] font-medium text-muted-foreground", local.class)}
+      class={cn("px-2 py-1 text-2xs font-medium text-muted-foreground", local.class)}
       {...rest}
     />
   );

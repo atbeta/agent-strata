@@ -24,7 +24,7 @@ function TextFieldInput(rawProps: InputProps) {
     <TextFieldPrimitive.Input
       type={local.type}
       class={cn(
-        "flex h-9 w-full rounded-md border border-border bg-secondary/40 px-3 text-[13px] text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40",
+        "flex h-9 w-full rounded-md border border-border bg-secondary/40 px-3 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40",
         local.class,
       )}
       {...others}
@@ -32,12 +32,12 @@ function TextFieldInput(rawProps: InputProps) {
   );
 }
 
-const labelVariants = cva("text-[13px] font-medium leading-none", {
+const labelVariants = cva("text-sm font-medium leading-none", {
   variants: {
     variant: {
       label: "",
       description: "font-normal text-muted-foreground",
-      error: "text-[11px] text-destructive",
+      error: "text-2xs text-destructive",
     },
   },
   defaultVariants: { variant: "label" },

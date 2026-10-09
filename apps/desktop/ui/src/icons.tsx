@@ -38,14 +38,18 @@ function Glyph(props: { class?: string; children: JSX.Element }) {
 }
 
 export function Icon(props: { name: Name; class?: string }) {
-  // A playhead on a run of ticks — a position in the session, not a refresh.
+  // A run of events down a rail with the current position marked. Vertical on
+  // purpose: the horizontal variant read as a squashed progress bar and sat
+  // badly next to the taller toolbar glyphs.
   if (props.name === "replay")
     return (
       <Glyph class={props.class}>
-        <path d="M2 11.5h12" />
-        <path d="M3.5 11.5v-1.5M6.5 11.5v-2M12.5 11.5v-1.5" />
-        <circle cx="9.5" cy="11.5" r="1.6" fill="currentColor" stroke="none" />
-        <path d="M9.5 9.9V6.5" />
+        <path d="M4.5 2.6v10.8" />
+        <circle cx="4.5" cy="4.2" r="1.15" fill="currentColor" stroke="none" />
+        <circle cx="4.5" cy="11.8" r="1.15" fill="currentColor" stroke="none" />
+        <path d="M8 4.2h4.8M8 11.8h4.8" />
+        <circle cx="4.5" cy="8" r="2.1" />
+        <path d="M8 8h3.2" />
       </Glyph>
     );
   // A panel with a rail, matching the drawer it opens.

@@ -18,7 +18,7 @@ function PopoverTrigger(props: TriggerProps) {
   return (
     <PopoverPrimitive.Trigger
       class={cn(
-        "inline-flex items-center justify-center rounded-md text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40",
+        "inline-flex items-center justify-center rounded-md text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40",
         local.class,
       )}
       {...rest}

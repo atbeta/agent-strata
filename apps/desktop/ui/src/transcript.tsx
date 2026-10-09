@@ -2,6 +2,8 @@ import { createEffect, createSignal, For, Index, Match, on, Show, Switch } from 
 import type { ContentBlock, ToolCallView, Turn } from "./api";
 import { Icon } from "./icons";
 import { Md } from "./md";
+import { stripAnsi } from "./ansi";
+import { Code } from "./payload";
 import {
   diffStat,
   fmtLatency,
@@ -28,7 +30,7 @@ function ThinkingBlock(props: { text: string; live?: boolean }) {
   return (
     <div class="my-2">
       <button
-        class="flex max-w-full items-center gap-1.5 text-left text-[13px] text-muted-foreground hover:text-foreground"
+        class="flex max-w-full items-center gap-1.5 text-left text-sm text-muted-foreground hover:text-foreground"
         aria-expanded={open()}
         onClick={() => setOpen((v) => !v)}
       >
@@ -40,7 +42,7 @@ function ThinkingBlock(props: { text: string; live?: boolean }) {
       </button>
       <Show when={open()}>
         <Md
-          class="mt-1.5 border-l border-border pl-3 text-[13px] leading-6 text-muted-foreground"
+          class="mt-1.5 border-l border-border pl-3 text-sm leading-6 text-muted-foreground"
           text={props.text}
         />
       </Show>
@@ -57,7 +59,7 @@ function FileChip(props: { path: string; range?: { start: number; end: number } 
     props.range ? `${props.range.start}–${props.range.end}` : undefined;
   return (
     <span
-      class="my-1 inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-secondary/50 px-2 py-0.5 align-middle font-mono text-[11px] text-event-file"
+      class="my-1 inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-secondary/50 px-2 py-0.5 align-middle font-mono text-2xs text-event-file"
       title={props.path}
     >
       <Icon name="files" class="size-3 shrink-0" />
@@ -139,19 +141,26 @@ function diffLineClass(line: string): string {
   return "text-muted-foreground";
 }
 
+/**
+ * Tool output. The `break-all` here was doing damage, not wrapping: a long
+ * unbroken token would break mid-word and leave fragments like `r|ecognized`
+ * stacked down the card. Normal wrapping plus `break-words` breaks only where
+ * the line actually overflows, and only at the last chance to do so.
+ */
 function OutputWell(props: { text: string; kind: ToolKind }) {
-  const diff = () => props.kind === "edit" && isDiff(props.text);
+  const clean = () => stripAnsi(props.text);
+  const diff = () => props.kind === "edit" && isDiff(clean());
   return (
-    <pre class="max-h-72 overflow-auto rounded-md bg-background px-3 py-2 font-mono text-[12px] leading-5">
-      <Show
-        when={diff()}
-        fallback={<span class="whitespace-pre-wrap break-all text-foreground/80">{props.text}</span>}
-      >
-        <For each={props.text.split("\n")}>
-          {(line) => <div class={`whitespace-pre-wrap break-all ${diffLineClass(line)}`}>{line || " "}</div>}
+    <Show
+      when={diff()}
+      fallback={<Code source={clean()} maxHeight="max-h-72" class="bg-background" />}
+    >
+      <pre class="max-h-72 overflow-auto rounded-md bg-background px-3 py-2 font-mono text-xs leading-5">
+        <For each={clean().split("\n")}>
+          {(line) => <div class={`break-words whitespace-pre-wrap ${diffLineClass(line)}`}>{line || " "}</div>}
         </For>
-      </Show>
-    </pre>
+      </pre>
+    </Show>
   );
 }
 
@@ -187,15 +196,15 @@ function ToolCallCard(props: { call: ToolCallView }) {
           name={toolIcon(headline().kind)}
           class={`size-3.5 shrink-0 ${denied() ? "text-destructive" : "text-event-tool"}`}
         />
-        <span class={`shrink-0 text-[11px] font-medium ${denied() ? "text-destructive" : "text-muted-foreground"}`}>
+        <span class={`shrink-0 text-2xs font-medium ${denied() ? "text-destructive" : "text-muted-foreground"}`}>
           {headline().verb}
         </span>
-        <span class="min-w-0 flex-1 truncate font-mono text-[12px] text-foreground/90" title={headline().title}>
+        <span class="min-w-0 flex-1 truncate font-mono text-xs text-foreground/90" title={headline().title}>
           {headline().title}
         </span>
         <Show when={stat()}>
           {(s) => (
-            <span class="shrink-0 font-mono text-[10px] tabular-nums">
+            <span class="shrink-0 font-mono text-2xs tabular-nums">
               <span class="text-status-active">+{s().add}</span>{" "}
               <span class="text-destructive">−{s().del}</span>
             </span>
@@ -203,7 +212,7 @@ function ToolCallCard(props: { call: ToolCallView }) {
         </Show>
         <Show when={label()}>
           <span
-            class={`shrink-0 text-[11px] ${
+            class={`shrink-0 text-2xs ${
               props.call.status === "pending"
                 ? "text-status-active"
                 : denied()
@@ -218,7 +227,7 @@ function ToolCallCard(props: { call: ToolCallView }) {
           </span>
         </Show>
         <Show when={!label() && fmtLatency(props.call.latency_ms)}>
-          <span class="shrink-0 font-mono text-[10px] text-muted-foreground tabular-nums">
+          <span class="shrink-0 font-mono text-2xs text-muted-foreground tabular-nums">
             {fmtLatency(props.call.latency_ms)}
           </span>
         </Show>
@@ -232,13 +241,13 @@ function ToolCallCard(props: { call: ToolCallView }) {
       <Show when={open()}>
         <div class="space-y-2 border-t border-border px-2.5 py-2">
           <Show when={permissionLabel(props.call.permission)}>
-            <p class="text-[11px] text-event-permission">{permissionLabel(props.call.permission)}</p>
+            <p class="text-2xs text-event-permission">{permissionLabel(props.call.permission)}</p>
           </Show>
           <Show when={headline().kind === "todo" && todos().length > 0}>
             <ul class="space-y-1">
               <For each={todos()}>
                 {(item) => (
-                  <li class="flex items-start gap-2 text-[13px]">
+                  <li class="flex items-start gap-2 text-sm">
                     <span
                       class={`mt-1.5 size-1.5 shrink-0 rounded-full ${
                         item.status === "completed"
@@ -258,7 +267,7 @@ function ToolCallCard(props: { call: ToolCallView }) {
           </Show>
           <Show when={props.call.output} fallback={
             <Show when={props.call.status === "pending"}>
-              <p class="text-[12px] text-muted-foreground">Running…</p>
+              <p class="text-xs text-muted-foreground">Running…</p>
             </Show>
           }>
             <OutputWell text={props.call.output!} kind={headline().kind} />

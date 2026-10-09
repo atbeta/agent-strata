@@ -141,13 +141,13 @@ export function CommandSearch(props: {
           fallback={
             <button
               type="button"
-              class="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              class="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
               aria-label="Search"
               onClick={() => props.onOpenChange(true)}
             >
               <Icon name="search" class="size-3.5 shrink-0" />
               <span>Search</span>
-              <kbd class="ml-auto font-mono text-[10px] text-muted-foreground/80">{shortcutLabel()}</kbd>
+              <kbd class="ml-auto font-mono text-2xs text-muted-foreground/80">{shortcutLabel()}</kbd>
             </button>
           }
         >
@@ -155,7 +155,7 @@ export function CommandSearch(props: {
             <Icon name="search" class="size-3.5 shrink-0 text-muted-foreground" />
             <input
               ref={input}
-              class="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
+              class="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
               placeholder="Sessions and transcripts"
               value={props.query}
               aria-label="Search"
@@ -163,30 +163,30 @@ export function CommandSearch(props: {
               onKeyDown={onKeyDown}
               onMouseDown={(e) => e.stopPropagation()}
             />
-            <kbd class="font-mono text-[10px] text-muted-foreground">esc</kbd>
+            <kbd class="font-mono text-2xs text-muted-foreground">esc</kbd>
           </div>
           <div class="surface-popover absolute top-[calc(100%+4px)] right-1.5 left-1.5 z-40 max-h-80 overflow-y-auto rounded-md border border-border bg-popover p-1 text-popover-foreground">
               <Show
                 when={props.query.trim()}
-                fallback={<p class="px-2 py-3 text-[12px] text-muted-foreground">Search every session and its transcript.</p>}
+                fallback={<p class="px-2 py-3 text-xs text-muted-foreground">Search every session and its transcript.</p>}
               >
                 <Show
                   when={hits().length > 0}
                   fallback={
-                    <p class="px-2 py-3 text-[12px] text-muted-foreground">
+                    <p class="px-2 py-3 text-xs text-muted-foreground">
                       {props.searching ? "Searching…" : "No matches"}
                     </p>
                   }
                 >
                   <Show when={sessionHits().length > 0}>
-                    <p class="px-2 pt-1.5 pb-1 text-[10px] font-medium text-muted-foreground">Sessions</p>
+                    <p class="px-2 pt-1.5 pb-1 text-2xs font-medium text-muted-foreground">Sessions</p>
                     <For each={sessionHits()}>
                       {(hit) => {
                         const index = () => hits().indexOf(hit);
                         return (
                           <button
                             type="button"
-                            class={`flex w-full items-baseline gap-2 rounded-sm px-2 py-1.5 text-left text-[13px] ${
+                            class={`flex w-full items-baseline gap-2 rounded-sm px-2 py-1.5 text-left text-sm ${
                               cursor() === index() ? "bg-accent text-accent-foreground" : "hover:bg-accent/60"
                             }`}
                             onMouseEnter={() => setCursor(index())}
@@ -194,7 +194,7 @@ export function CommandSearch(props: {
                           >
                             <span class="min-w-0 flex-1 truncate">{hit.title}</span>
                             <Show when={hit.hint}>
-                              <span class="shrink-0 font-mono text-[10px] text-muted-foreground">{hit.hint}</span>
+                              <span class="shrink-0 font-mono text-2xs text-muted-foreground">{hit.hint}</span>
                             </Show>
                           </button>
                         );
@@ -202,7 +202,7 @@ export function CommandSearch(props: {
                     </For>
                   </Show>
                   <Show when={eventHits().length > 0}>
-                    <p class="px-2 pt-1.5 pb-1 text-[10px] font-medium text-muted-foreground">Transcript</p>
+                    <p class="px-2 pt-1.5 pb-1 text-2xs font-medium text-muted-foreground">Transcript</p>
                     <For each={eventHits()}>
                       {(hit) => {
                         const index = () => hits().indexOf(hit);
@@ -215,11 +215,11 @@ export function CommandSearch(props: {
                             onMouseEnter={() => setCursor(index())}
                             onClick={() => go(hit)}
                           >
-                            <span class="flex items-center gap-2 text-[11px]">
+                            <span class="flex items-center gap-2 text-2xs">
                               <span class="font-mono text-event-tool">{hit.type}</span>
                               <span class="ml-auto font-mono text-muted-foreground tabular-nums">{hit.when}</span>
                             </span>
-                            <span class="mt-0.5 block truncate text-[13px]">{hit.preview}</span>
+                            <span class="mt-0.5 block truncate text-sm">{hit.preview}</span>
                           </button>
                         );
                       }}

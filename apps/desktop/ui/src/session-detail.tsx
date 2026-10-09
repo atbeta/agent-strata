@@ -75,7 +75,7 @@ function QuestionCard(props: { q: PendingQuestion; onDone: () => void }) {
       <For each={props.q.questions}>
         {(question, qi) => (
           <div class={qi() > 0 ? "mt-4 border-t border-border/60 pt-4" : ""}>
-            <div class="text-[11px] font-medium uppercase tracking-wide text-event-permission">
+            <div class="text-2xs font-medium uppercase tracking-wide text-event-permission">
               {question.header}
             </div>
             <p class="mt-1 text-sm">{question.question}</p>
@@ -223,9 +223,9 @@ function ContextBar(props: { percent: number | null }) {
 function InfoRow(props: { label: string; value: string; mono?: boolean; tone?: string }) {
   return (
     <div class="flex items-baseline justify-between gap-6 py-1">
-      <span class="text-[12px] text-muted-foreground">{props.label}</span>
+      <span class="text-xs text-muted-foreground">{props.label}</span>
       <span
-        class={`text-[12px] tabular-nums ${props.mono ? "font-mono" : ""} ${props.tone ?? "text-foreground"}`}
+        class={`text-xs tabular-nums ${props.mono ? "font-mono" : ""} ${props.tone ?? "text-foreground"}`}
       >
         {props.value}
       </span>
@@ -254,12 +254,12 @@ function SessionInfo(props: {
 
   return (
     <div class="w-72">
-      <div class="mb-2 text-[13px] font-medium">Session</div>
+      <div class="mb-2 text-sm font-medium">Session</div>
 
       <div class="rounded-md border border-border bg-secondary/40 p-2.5">
         <div class="flex items-baseline justify-between">
-          <span class="text-[12px] text-muted-foreground">Context</span>
-          <span class="font-mono text-[12px] tabular-nums text-foreground">
+          <span class="text-xs text-muted-foreground">Context</span>
+          <span class="font-mono text-xs tabular-nums text-foreground">
             {props.context
               ? props.context.percent == null
                 ? `${props.context.total.toLocaleString()} tok`
@@ -270,7 +270,7 @@ function SessionInfo(props: {
         <div class="mt-2">
           <ContextBar percent={props.context?.percent ?? null} />
         </div>
-        <div class="mt-1.5 flex items-baseline justify-between text-[11px] text-muted-foreground">
+        <div class="mt-1.5 flex items-baseline justify-between text-2xs text-muted-foreground">
           <span>
             {props.context ? `${props.context.total.toLocaleString()} tokens` : "no usage reported"}
           </span>
@@ -626,13 +626,13 @@ export function SessionDetail(props: { id: string }) {
                 data-tauri-drag-region={inDesktopShell() ? "" : undefined}
               >
                 <div class="flex min-w-0 flex-1 items-baseline gap-2">
-                  <h1 class="min-w-0 truncate text-[13px] font-medium" title={v().title ?? "untitled session"}>
+                  <h1 class="min-w-0 truncate text-sm font-medium" title={v().title ?? "untitled session"}>
                     {v().title ?? "untitled session"}
                   </h1>
                   <Show when={realWorkspace(v().workspace)}>
                     {(ws) => (
                       <span
-                        class="max-w-40 shrink-0 truncate font-mono text-[11px] text-muted-foreground"
+                        class="max-w-40 shrink-0 truncate font-mono text-2xs text-muted-foreground"
                         title={ws()}
                       >
                         {ws() === "/" || ws() === "\\" ? "Root" : ws().split(/[/\\]/).filter(Boolean).at(-1)}
@@ -643,7 +643,7 @@ export function SessionDetail(props: { id: string }) {
                 <span class="flex shrink-0 items-center gap-0.5">
                   <Show when={v().totals.cost_usd > 0}>
                     <Tip label={`${fmtUsd(v().totals.cost_usd)} so far — open the context ring for the breakdown`}>
-                      <span class="mr-1 font-mono text-[11px] text-muted-foreground tabular-nums">
+                      <span class="mr-1 font-mono text-2xs text-muted-foreground tabular-nums">
                         {fmtUsd(v().totals.cost_usd)}
                       </span>
                     </Tip>
@@ -765,7 +765,7 @@ export function SessionDetail(props: { id: string }) {
                               </button>
                             </span>
                           </div>
-                          <pre class="mt-2 max-h-24 overflow-y-auto whitespace-pre-wrap rounded-md bg-background/50 p-2 font-mono text-[11px] text-muted-foreground">
+                          <pre class="mt-2 max-h-24 overflow-y-auto whitespace-pre-wrap rounded-md bg-background/50 p-2 font-mono text-2xs text-muted-foreground">
                             {JSON.stringify(p.input, null, 2)}
                           </pre>
                         </div>
@@ -785,17 +785,17 @@ export function SessionDetail(props: { id: string }) {
                     <div>
                       <Show when={queued().length > 0}>
                         <div class="rounded-t-2xl border border-b-0 border-input bg-secondary/70 px-3 pb-4 pt-2">
-                          <p class="text-[11px] font-medium text-muted-foreground">
+                          <p class="text-2xs font-medium text-muted-foreground">
                             {queued().length === 1 ? "Queued" : `${queued().length} queued`}
                           </p>
                           <ul class="mt-1 space-y-1">
                             <For each={queued()}>
                               {(text, i) => (
                                 <li class="flex items-center gap-2">
-                                  <span class="min-w-0 flex-1 truncate text-[13px]">{text}</span>
+                                  <span class="min-w-0 flex-1 truncate text-sm">{text}</span>
                                   <button
                                     type="button"
-                                    class="shrink-0 text-[12px] text-muted-foreground hover:text-foreground"
+                                    class="shrink-0 text-xs text-muted-foreground hover:text-foreground"
                                     onClick={() => editQueued(i())}
                                   >
                                     Edit
@@ -859,7 +859,7 @@ export function SessionDetail(props: { id: string }) {
                       />
                       <div class="flex items-center gap-2 px-3 pb-2.5">
                         <Show when={generating()}>
-                          <span class="text-[12px] text-muted-foreground">Running</span>
+                          <span class="text-xs text-muted-foreground">Running</span>
                         </Show>
                         <div class="ml-auto">
                           <Show
@@ -950,7 +950,7 @@ export function SessionDetail(props: { id: string }) {
                       </div>
                     </div>
                     <Show when={sendErr()}>
-                      <p class="font-mono text-[11px] text-destructive">{sendErr()}</p>
+                      <p class="font-mono text-2xs text-destructive">{sendErr()}</p>
                     </Show>
                   </div>
                 </div>
@@ -986,10 +986,10 @@ export function SessionDetail(props: { id: string }) {
                 class="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3 select-none"
                 data-tauri-drag-region={inDesktopShell() ? "" : undefined}
               >
-                <span class="shrink-0 text-[13px] font-medium">
+                <span class="shrink-0 text-sm font-medium">
                   {generating() ? "Running" : "Done"}
                 </span>
-                <span class="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">{fileLabel()}</span>
+                <span class="min-w-0 flex-1 truncate text-xs text-muted-foreground">{fileLabel()}</span>
                 <button
                   class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
                   aria-label="Hide files"
@@ -1001,8 +1001,8 @@ export function SessionDetail(props: { id: string }) {
               <div class="min-h-0 flex-1 space-y-5 overflow-y-auto px-3 py-3">
                 <Show when={(v().plan?.length ?? 0) > 0}>
                   <section>
-                    <h2 class="px-1 text-[11px] font-medium text-muted-foreground">Plan</h2>
-                    <ul class="mt-1.5 space-y-1 text-[13px]">
+                    <h2 class="px-1 text-2xs font-medium text-muted-foreground">Plan</h2>
+                    <ul class="mt-1.5 space-y-1 text-sm">
                       <For each={v().plan}>
                         {(item) => (
                           <li class="flex gap-2 px-1">
@@ -1026,14 +1026,14 @@ export function SessionDetail(props: { id: string }) {
                 </Show>
                 <Show
                   when={files().length > 0}
-                  fallback={<p class="px-1 text-[12px] text-muted-foreground">Nothing changed yet.</p>}
+                  fallback={<p class="px-1 text-xs text-muted-foreground">Nothing changed yet.</p>}
                 >
                   <ul class="space-y-0.5">
                     <For each={files()}>
                       {(f) => (
                         <li class="flex items-baseline gap-2 rounded-md px-1 py-1" title={f.path}>
-                          <span class="min-w-0 flex-1 truncate text-[13px]">{fileName(f.path)}</span>
-                          <span class="shrink-0 text-[10px] text-muted-foreground">{changeWord(f.change)}</span>
+                          <span class="min-w-0 flex-1 truncate text-sm">{fileName(f.path)}</span>
+                          <span class="shrink-0 text-2xs text-muted-foreground">{changeWord(f.change)}</span>
                         </li>
                       )}
                     </For>

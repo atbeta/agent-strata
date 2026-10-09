@@ -139,7 +139,7 @@ export function AppMark() {
           <path d="M2 8h8" />
           <path d="M2 12h4" />
         </svg>
-        <span class="text-[13px] font-medium">Agent Strata</span>
+        <span class="text-sm font-medium">Agent Strata</span>
       </span>
     </Show>
   );

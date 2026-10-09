@@ -2,6 +2,7 @@ import { createEffect, createResource, createSignal, For, Show } from "solid-js"
 import { getJson, type StrataEvent } from "./api";
 import { inDesktopShell } from "./shell";
 import { Md } from "./md";
+import { CopyButton, Payload } from "./payload";
 
 export interface TraceBlock {
   key: string;
@@ -10,8 +11,10 @@ export interface TraceBlock {
   lane: "user" | "assistant" | "tool";
   title: string;
   preview: string;
-  input?: string;
-  result?: string;
+  /** Raw event payloads, not serialised. The drawer decides how to render them:
+   *  a JSON value becomes a tree, a string becomes highlighted text. */
+  input?: unknown;
+  result?: unknown;
   detail?: string;
   model?: string;
   tone: string;
@@ -146,7 +149,7 @@ export function traceBlocks(events: StrataEvent[]): TraceBlock[] {
         lane: "tool",
         title,
         preview: inputPreview(d.input) || title,
-        input: pretty(d.input),
+        input: d.input,
         tone: toolTone(title),
       };
       tools.set(callId, block);
@@ -154,7 +157,7 @@ export function traceBlocks(events: StrataEvent[]): TraceBlock[] {
     } else if (e.type === "tool.result") {
       const callId = String(d.call_id ?? "");
       const block = tools.get(callId);
-      const output = pretty(d.output);
+      const output = d.output;
       const failed = d.status === "error";
       if (block) {
         block.seq = e.seq;
@@ -225,7 +228,7 @@ export function TraceStrip(props: {
           <div class="mb-1.5 flex flex-wrap gap-x-3 gap-y-1">
             <For each={models()}>
               {(model, i) => (
-                <span class="inline-flex items-center gap-1.5 font-mono text-[10px] text-muted-foreground">
+                <span class="inline-flex items-center gap-1.5 font-mono text-2xs text-muted-foreground">
                   <span class={`h-1.5 w-3 rounded-sm ${modelTone(model, i())}`} />
                   {model.slice(model.indexOf("/") + 1)}
                 </span>
@@ -239,7 +242,7 @@ export function TraceStrip(props: {
               const row = () => (events() ?? []).filter((b) => b.lane === lane.id);
               return (
                 <div class="flex items-center gap-2">
-                  <span class="w-8 shrink-0 text-[10px] text-muted-foreground">{lane.label}</span>
+                  <span class="w-8 shrink-0 text-2xs text-muted-foreground">{lane.label}</span>
                   <div class="relative h-3 rounded-sm bg-secondary/40" style={{ width: `${placed().width}px` }}>
                     <For each={row()}>
                       {(block) => {
@@ -322,7 +325,7 @@ export function TraceDrawer(props: { block: TraceBlock; onClose: () => void }) {
         <For each={tabs()}>
           {(item) => (
             <button
-              class={`rounded-md px-2 py-1 text-[11px] transition-colors ${
+              class={`rounded-md px-2 py-1 text-2xs transition-colors ${
                 tab() === item.id
                   ? "bg-secondary text-foreground"
                   : "text-muted-foreground hover:bg-secondary hover:text-foreground"
@@ -336,35 +339,33 @@ export function TraceDrawer(props: { block: TraceBlock; onClose: () => void }) {
       </div>
       <div class="min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-4">
         <Show when={tab() === "overview"}>
-          <Md text={props.block.preview} class="text-[13px] leading-6" />
-          <Show when={props.block.result}>
+          <Md text={props.block.preview} class="text-xs leading-[1.65]" />
+          <Show when={props.block.result !== undefined}>
             <section class="mt-4">
-              <h3 class="mb-1.5 text-[11px] font-medium text-muted-foreground">Result</h3>
-              <pre class="max-h-48 overflow-y-auto rounded-md border border-border bg-secondary/40 p-2.5 font-mono text-[11px] leading-5 break-all whitespace-pre-wrap text-foreground/80">
-                {props.block.result!.slice(0, 1200)}
-              </pre>
+              <h3 class="mb-1.5 text-2xs font-medium text-muted-foreground">Result</h3>
+              <Payload value={props.block.result} maxHeight="max-h-48" />
             </section>
           </Show>
           <Show when={props.block.detail}>
-            <p class="mt-3 font-mono text-[11px] text-muted-foreground">{props.block.detail}</p>
+            <p class="mt-3 font-mono text-2xs text-muted-foreground">{props.block.detail}</p>
           </Show>
         </Show>
         <Show when={tab() === "input"}>
-          <Block label="Input" body={props.block.input} />
+          <Block label="Input" value={props.block.input} />
         </Show>
         <Show when={tab() === "result"}>
-          <Block label="Result" body={props.block.result} />
+          <Block label="Result" value={props.block.result} />
         </Show>
         <Show when={tab() === "time"}>
           <dl class="divide-y divide-border border-t border-border">
             <div class="flex items-baseline justify-between gap-4 py-2">
-              <dt class="text-[12px] text-muted-foreground">Started</dt>
-              <dd class="font-mono text-[12px] tabular-nums">{when()}</dd>
+              <dt class="text-xs text-muted-foreground">Started</dt>
+              <dd class="font-mono text-xs tabular-nums">{when()}</dd>
             </div>
             <Show when={props.block.detail}>
               <div class="flex items-baseline justify-between gap-4 py-2">
-                <dt class="text-[12px] text-muted-foreground">Elapsed</dt>
-                <dd class="font-mono text-[12px] tabular-nums">{props.block.detail}</dd>
+                <dt class="text-xs text-muted-foreground">Elapsed</dt>
+                <dd class="font-mono text-xs tabular-nums">{props.block.detail}</dd>
               </div>
             </Show>
           </dl>
@@ -374,19 +375,24 @@ export function TraceDrawer(props: { block: TraceBlock; onClose: () => void }) {
   );
 }
 
-/** A labelled, bordered pre block. Raw JSON wants a frame, not loose text. */
-function Block(props: { label: string; body?: string }) {
+/** A labelled, bordered payload. Structured data wants a frame, not loose text. */
+function Block(props: { label: string; value: unknown }) {
+  const text = () =>
+    typeof props.value === "string"
+      ? props.value
+      : props.value === undefined
+        ? ""
+        : JSON.stringify(props.value, null, 2);
+
   return (
     <section>
-      <h3 class="mb-1.5 text-[11px] font-medium text-muted-foreground">{props.label}</h3>
-      <Show
-        when={props.body}
-        fallback={<p class="text-[12px] text-muted-foreground">None.</p>}
-      >
-        <pre class="max-h-96 overflow-auto rounded-md border border-border bg-secondary/40 p-2.5 font-mono text-[11px] leading-5 break-all whitespace-pre-wrap text-foreground/80">
-          {props.body}
-        </pre>
-      </Show>
+      <div class="group mb-1.5 flex items-center justify-between gap-2">
+        <h3 class="text-2xs font-medium text-muted-foreground">{props.label}</h3>
+        <Show when={text()}>
+          <CopyButton text={text()} />
+        </Show>
+      </div>
+      <Payload value={props.value} empty="无" />
     </section>
   );
 }

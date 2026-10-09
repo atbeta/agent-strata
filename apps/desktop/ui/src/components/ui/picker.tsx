@@ -69,7 +69,7 @@ export function Picker(props: PickerProps) {
     <DropdownMenu open={open()} onOpenChange={setOpen} gutter={6}>
       <DropdownMenuTrigger
         class={cn(
-          "flex h-7 max-w-52 items-center gap-1 truncate rounded-md bg-transparent px-1.5 text-[12px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground",
+          "flex h-7 max-w-52 items-center gap-1 truncate rounded-md bg-transparent px-1.5 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground",
           props.capitalize && "capitalize",
           props.class,
         )}
@@ -118,7 +118,7 @@ export function Picker(props: PickerProps) {
                       opt.value === props.value && "text-foreground",
                     )}
                   >
-                    <span class="truncate font-mono text-[12px]">{opt.label}</span>
+                    <span class="truncate font-mono text-xs">{opt.label}</span>
                     <Show when={opt.value === props.value}>
                       <svg
                         viewBox="0 0 12 12"

@@ -1,6 +1,6 @@
 # Agent Strata design system v0.2
 
-The shell is a dark, quiet desktop app. Visual references are Linear (one neutral surface, hairline borders, 13px UI type, accent used sparingly) and OpenCode Desktop (session sidebar, conversation, composer, custom window chrome). Tokens live in `ui/src/theme.css`. Interactive controls come from a small Solid component set in `ui/src/components/ui`, styled with those tokens.
+The shell is a dark, quiet desktop app. Visual references are Linear (one neutral surface, hairline borders, 13px UI type, accent used sparingly) and OpenCode Desktop (session sidebar, conversation, composer, custom window chrome). Tokens live in `ui/src/theme.css`. Interactive controls come from a small Solid component set in `ui/src/components/ui`, styled with those tokens. Light is available via `theme.ts`; dark stays the default.
 
 ## Components
 
@@ -47,7 +47,28 @@ macOS already overlays the traffic lights in that strip (`pl-[76px]`). Windows i
 | `cost-up` / `cost-down` / `cost-flat` | compare deltas |
 
 ### Type and radius
-System sans for UI, mono for paths, ids, commands, and money. UI copy is 13px; section labels are 11px. Radius stays small (`md` on rows and fields).
+System sans for UI, mono for paths, ids, commands, and money. Radius stays small (`md` on rows and fields).
+
+The type scale is declared once in `theme.css` and tuned to this app rather than to Tailwind's defaults, so `text-sm` — not `text-base` — is the UI size:
+
+| Step | px | Use |
+| --- | --- | --- |
+| `text-2xs` | 11 | section labels, kbd hints, counts, mono metadata |
+| `text-xs` | 12 | secondary copy, table cells, payload panes |
+| `text-sm` | 13 | UI default: rows, buttons, fields, prose |
+| `text-base` | 14 | emphasised body |
+| `text-lg` / `text-xl` | 16 / 20 | `.md h2` / `.md h1`, page titles |
+
+Use the named steps. `text-[13px]` is the same size as `text-sm` today, but only one of them survives a change to the scale. `.md` lives in the components layer so a caller can size rendered markdown with a utility; that is why the drawer passes `text-xs` and gets it.
+
+### Payload rendering
+Tool `input` and `result` arrive as raw event data and are rendered by `Payload` in `payload.tsx`, which decides the shape rather than guessing at draw time:
+
+- An object or array — or a string that parses to one — becomes a `JsonView` tree: keyed rows, type-coloured scalars, one level open by default, collapsible below that.
+- Anything else is highlighted mono: `ansi.ts` drops terminal escapes first, `highlight.ts` colours comments, strings, numbers, keywords and diff markers. Guessing is bounded — a bare version string stays plain rather than being dressed up as shell.
+- Code fences inside markdown go through the same tokenizer, after DOMPurify, and carry their language in `data-lang`.
+
+Wrapping is `break-words`, never `break-all`: breaking inside a word turns one long token into a column of fragments.
 
 ## Screens
 

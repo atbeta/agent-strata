@@ -20,7 +20,7 @@ function TurnPairRow(props: { pair: TurnPair; i: number }) {
       <div class="flex items-center gap-2 text-xs text-muted-foreground">
         <span class="font-mono">turn {props.i + 1}</span>
         <Show when={props.pair.same_prompt}>
-          <span class="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">
+          <span class="rounded bg-secondary px-1.5 py-0.5 text-2xs text-muted-foreground">
             same prompt
           </span>
         </Show>
@@ -33,7 +33,7 @@ function TurnPairRow(props: { pair: TurnPair; i: number }) {
         <div class="truncate text-sm text-event-user">{label(props.pair.a_turn)}</div>
         <div class="truncate text-sm text-event-assistant">{label(props.pair.b_turn)}</div>
       </div>
-      <div class="mt-2 flex flex-wrap gap-1.5 font-mono text-[10px]">
+      <div class="mt-2 flex flex-wrap gap-1.5 font-mono text-2xs">
         <For each={props.pair.tools.only_a}>
           {(t) => (
             <span class="rounded bg-event-user/15 px-1.5 py-0.5 text-event-user">A: {t}</span>
