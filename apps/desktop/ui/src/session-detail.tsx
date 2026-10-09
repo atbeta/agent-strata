@@ -25,8 +25,9 @@ import {
   type SessionView,
 } from "./api";
 import { Icon } from "./icons";
+import { num, t, tn } from "./i18n";
 import { DragBar } from "./chrome";
-import { inDesktopShell } from "./shell";
+import { inDesktopShell, shellPlatform } from "./shell";
 import { Tip } from "./tip";
 import { TraceDrawer, TraceStrip, type TraceBlock } from "./trace";
 import { TurnBlock } from "./transcript";
@@ -74,7 +75,7 @@ function QuestionCard(props: { q: PendingQuestion; onDone: () => void }) {
 
   const submit = async () => {
     if (answers().some((a) => a.length === 0)) {
-      setErr("answer each question");
+      setErr(t("question.err.answer_each"));
       return;
     }
     setErr("");
@@ -115,7 +116,7 @@ function QuestionCard(props: { q: PendingQuestion; onDone: () => void }) {
             <Show when={question.custom}>
               <input
                 class="mt-2 w-full rounded-md border border-input bg-background/50 px-2.5 py-1.5 text-sm focus:border-ring focus:outline-none"
-                placeholder="or type your own"
+                placeholder={t("question.placeholder.custom")}
                 value={custom()[qi()] ?? ""}
                 onInput={(e) =>
                   setCustom((all) => all.map((v, i) => (i === qi() ? e.currentTarget.value : v)))
@@ -130,13 +131,13 @@ function QuestionCard(props: { q: PendingQuestion; onDone: () => void }) {
           class="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:opacity-90"
           onClick={() => void submit()}
         >
-          reply
+          {t("question.reply")}
         </button>
         <button
           class="rounded-md px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground"
           onClick={() => void respondQuestion(props.q.request_id, "reject").then(props.onDone)}
         >
-          dismiss
+          {t("question.dismiss")}
         </button>
         <Show when={err()}>
           <span class="text-xs text-destructive">{err()}</span>
@@ -178,10 +179,16 @@ function fileName(path: string): string {
   return parts.at(-1) || path;
 }
 
+/** Ctrl on a PC, ⌘ on a Mac. The tooltip used to say "Ctrl+F" on every platform. */
+function findKey(): string {
+  return shellPlatform() === "macos" ? "⌘F" : "Ctrl+F";
+}
+
+/** How a file changed. The wire values are `add`/`modify`/`delete`; these are labels. */
 function changeWord(change: string): string {
-  if (change === "add") return "added";
-  if (change === "delete") return "deleted";
-  return "edited";
+  if (change === "add") return t("file.added");
+  if (change === "delete") return t("file.deleted");
+  return t("file.edited");
 }
 
 function ContextRing(props: { percent: number | null }) {
@@ -267,15 +274,15 @@ function SessionInfo(props: {
 
   return (
     <div class="w-72">
-      <div class="mb-2 text-sm font-medium">Session</div>
+      <div class="mb-2 text-sm font-medium">{t("info.session")}</div>
 
       <div class="rounded-md border border-border bg-secondary/40 p-2.5">
         <div class="flex items-baseline justify-between">
-          <span class="text-xs text-muted-foreground">Context</span>
+          <span class="text-xs text-muted-foreground">{t("info.context")}</span>
           <span class="font-mono text-xs tabular-nums text-foreground">
             {props.context
               ? props.context.percent == null
-                ? `${props.context.total.toLocaleString()} tok`
+                ? `${num(props.context.total)} tok`
                 : `${props.context.percent}%`
               : "—"}
           </span>
@@ -285,35 +292,35 @@ function SessionInfo(props: {
         </div>
         <div class="mt-1.5 flex items-baseline justify-between text-2xs text-muted-foreground">
           <span>
-            {props.context ? `${props.context.total.toLocaleString()} tokens` : "no usage reported"}
+            {props.context ? `${num(props.context.total)} tokens` : t("info.context.none")}
           </span>
           <Show when={contextLimit()}>
-            <span class="font-mono">of {contextLimit()!.toLocaleString()}</span>
+            <span class="font-mono">{t("info.context.of", { n: num(contextLimit()!) })}</span>
           </Show>
         </div>
       </div>
 
       <div class="mt-3 divide-y divide-border border-t border-border">
-        <InfoRow label="Model" value={props.model || "—"} mono />
-        <InfoRow label="Cost" value={fmtUsd(props.totals.cost_usd)} mono />
-        <InfoRow label="Input" value={props.totals.input.toLocaleString()} mono />
-        <InfoRow label="Output" value={props.totals.output.toLocaleString()} mono />
+        <InfoRow label={t("info.model")} value={props.model || "—"} mono />
+        <InfoRow label={t("info.cost")} value={fmtUsd(props.totals.cost_usd)} mono />
+        <InfoRow label={t("info.input")} value={num(props.totals.input)} mono />
+        <InfoRow label={t("info.output")} value={num(props.totals.output)} mono />
         <Show when={props.totals.reasoning > 0}>
-          <InfoRow label="Reasoning" value={props.totals.reasoning.toLocaleString()} mono />
+          <InfoRow label={t("info.reasoning")} value={num(props.totals.reasoning)} mono />
         </Show>
         <Show when={props.totals.cache_read > 0}>
-          <InfoRow label="Cache read" value={props.totals.cache_read.toLocaleString()} mono />
+          <InfoRow label={t("info.cache_read")} value={num(props.totals.cache_read)} mono />
         </Show>
         <InfoRow
-          label="Tool calls"
-          value={`${props.totals.tool_calls}${props.totals.tool_errors ? ` · ${props.totals.tool_errors} failed` : ""}`}
+          label={t("info.tool_calls")}
+          value={`${props.totals.tool_calls}${props.totals.tool_errors ? ` · ${t("info.tool_calls.failed", { n: num(props.totals.tool_errors) })}` : ""}`}
           mono
           tone={props.totals.tool_errors > 0 ? "text-status-error" : undefined}
         />
-        <InfoRow label="Status" value={props.status} />
-        <InfoRow label="Backend" value={props.backend} mono />
+        <InfoRow label={t("info.status")} value={props.status} />
+        <InfoRow label={t("info.backend")} value={props.backend} mono />
         <Show when={props.workspace}>
-          <InfoRow label="Workspace" value={props.workspace!} mono />
+          <InfoRow label={t("info.workspace")} value={props.workspace!} mono />
         </Show>
       </div>
     </div>
@@ -482,10 +489,7 @@ const turnIndexOf = (h: SearchHit): number => {
   };
 
   /** Turns are addressed by an opaque id, so a result has to say which one it is. */
-  const turnNumber = (h: SearchHit) => {
-    const i = turnIndexOf(h);
-    return i >= 0 ? `#${i + 1}` : "—";
-  };
+  const turnNumber = (h: SearchHit) => turnIndexOf(h) + 1;
 
   const step = (delta: number) => {
     const all = targets();
@@ -678,12 +682,12 @@ const turnIndexOf = (h: SearchHit): number => {
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
-        setSendErr(body.error ?? `service ${res.status}`);
+        setSendErr(body.error ?? t("err.service", { status: res.status }));
         setDraft(text);
         setPendingSend(false);
       }
     } catch (err) {
-      setSendErr(err instanceof Error ? err.message : "network error");
+      setSendErr(err instanceof Error ? err.message : t("err.network"));
       setDraft(text);
       setPendingSend(false);
     }
@@ -738,8 +742,8 @@ const turnIndexOf = (h: SearchHit): number => {
   };
   const contextLabel = (total: number, percent: number | null) =>
     percent == null
-      ? `${total.toLocaleString()} tokens in context`
-      : `${percent}% of context · ${total.toLocaleString()} tokens`;
+      ? t("context.none", { n: num(total) })
+      : t("context.percent", { percent, n: num(total) });
 
   const stop = async () => {
     if (stopping()) return;
@@ -749,7 +753,7 @@ const turnIndexOf = (h: SearchHit): number => {
       await abortSession(props.id);
       setPendingSend(false);
     } catch (err) {
-      setSendErr(err instanceof Error ? err.message : "abort failed");
+      setSendErr(err instanceof Error ? err.message : t("err.abort"));
     } finally {
       setStopping(false);
     }
@@ -784,7 +788,7 @@ const turnIndexOf = (h: SearchHit): number => {
                 when={view.error}
                 fallback={<LoadingTranscript />}
               >
-                <p class="px-8 pt-24 text-sm text-muted-foreground">Can't reach the strata service.</p>
+                <p class="px-8 pt-24 text-sm text-muted-foreground">{t("session.service_unreachable")}</p>
               </Show>
             </div>
           }
@@ -796,8 +800,8 @@ const turnIndexOf = (h: SearchHit): number => {
                 data-tauri-drag-region={inDesktopShell() ? "" : undefined}
               >
                 <div class="flex min-w-0 flex-1 items-baseline gap-2">
-                  <h1 class="min-w-0 truncate text-sm font-medium" title={v().title ?? "untitled session"}>
-                    {v().title ?? "untitled session"}
+                  <h1 class="min-w-0 truncate text-sm font-medium" title={v().title ?? t("session.untitled")}>
+                    {v().title ?? t("session.untitled")}
                   </h1>
                   <Show when={realWorkspace(v().workspace)}>
                     {(ws) => (
@@ -805,41 +809,41 @@ const turnIndexOf = (h: SearchHit): number => {
                         class="max-w-40 shrink-0 truncate font-mono text-2xs text-muted-foreground"
                         title={ws()}
                       >
-                        {ws() === "/" || ws() === "\\" ? "Root" : ws().split(/[/\\]/).filter(Boolean).at(-1)}
+                        {ws() === "/" || ws() === "\\" ? t("path.root") : ws().split(/[/\\]/).filter(Boolean).at(-1)}
                       </span>
                     )}
                   </Show>
                 </div>
                 <span class="flex shrink-0 items-center gap-0.5">
                   <Show when={v().totals.cost_usd > 0}>
-                    <Tip label={`${fmtUsd(v().totals.cost_usd)} so far — open the context ring for the breakdown`}>
+                    <Tip label={t("header.cost.tip", { amount: fmtUsd(v().totals.cost_usd) })}>
                       <span class="mr-1 font-mono text-2xs text-muted-foreground tabular-nums">
                         {fmtUsd(v().totals.cost_usd)}
                       </span>
                     </Tip>
                   </Show>
-                  <Tip label="Search this session — Ctrl+F">
+                  <Tip label={t("session.search.tip", { shortcut: findKey() })}>
                   <button
                     class={`grid h-7 w-7 place-items-center rounded-md transition-colors ${
                       searchOpen()
                         ? "bg-secondary text-foreground"
                         : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                     }`}
-                    aria-label="Search session"
+                    aria-label={t("session.search.label")}
                     aria-expanded={searchOpen()}
                     onClick={() => (searchOpen() ? closeSearch() : openSearch())}
                   >
                     <Icon name="search" />
                   </button>
                 </Tip>
-                <Tip label={traceOn() ? "Back to live" : "Replay"}>
+                <Tip label={traceOn() ? t("trace.live") : t("trace.replay")}>
                     <button
                       class={`grid h-7 w-7 place-items-center rounded-md transition-colors ${
                         traceOn()
                           ? "bg-secondary text-foreground"
                           : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                       }`}
-                      aria-label={traceOn() ? "Back to live" : "Replay"}
+                      aria-label={traceOn() ? t("trace.live") : t("trace.replay")}
                       onClick={() => {
                         if (traceOn()) {
                           setTraceOn(false);
@@ -853,14 +857,14 @@ const turnIndexOf = (h: SearchHit): number => {
                       <Icon name="replay" />
                     </button>
                   </Tip>
-                  <Tip label={railOn() ? "Hide files" : "Files and plan"}>
+                  <Tip label={railOn() ? t("rail.hide") : t("rail.show")}>
                     <button
                       class={`relative grid h-7 w-7 place-items-center rounded-md transition-colors ${
                         railOn()
                           ? "bg-secondary text-foreground"
                           : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                       }`}
-                      aria-label={railOn() ? "Hide files" : "Files and plan"}
+                      aria-label={railOn() ? t("rail.hide") : t("rail.show")}
                       onClick={toggleRail}
                     >
                       <Icon name="files" />
@@ -872,10 +876,10 @@ const turnIndexOf = (h: SearchHit): number => {
                       </Show>
                     </button>
                   </Tip>
-                  <Tip label="Export transcript">
+                  <Tip label={t("header.export")}>
                     <a
                       class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                      aria-label="Export transcript"
+                      aria-label={t("header.export")}
                       href={`${api("/export")}?session_id=${encodeURIComponent(v().session_id)}`}
                       download=""
                     >
@@ -892,7 +896,7 @@ const turnIndexOf = (h: SearchHit): number => {
                     <input
                       ref={(el) => (searchEl = el)}
                       class="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-                      placeholder="Search this session"
+                      placeholder={t("session.search.placeholder")}
                       value={query()}
                       onInput={(e) => onQuery(e.currentTarget.value)}
                       onKeyDown={(e) => {
@@ -912,12 +916,12 @@ const turnIndexOf = (h: SearchHit): number => {
                           ? "…"
                           : targets().length
                             ? `${hitAt() + 1}/${targets().length}${result()?.more ? "+" : ""}`
-                            : "none"}
+                            : t("session.search.counter.none")}
                       </span>
                     </Show>
                     <button
                       class="grid h-6 w-6 shrink-0 place-items-center rounded text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
-                      aria-label="Previous match"
+                      aria-label={t("session.search.prev")}
                       disabled={!targets().length}
                       onClick={() => step(-1)}
                     >
@@ -925,7 +929,7 @@ const turnIndexOf = (h: SearchHit): number => {
                     </button>
                     <button
                       class="grid h-6 w-6 shrink-0 place-items-center rounded text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
-                      aria-label="Next match"
+                      aria-label={t("session.search.next")}
                       disabled={!targets().length}
                       onClick={() => step(1)}
                     >
@@ -938,7 +942,7 @@ const turnIndexOf = (h: SearchHit): number => {
                     fallback={
                       <Show when={probe() && !result.loading}>
                         <p class="px-3 py-4 text-center text-xs text-muted-foreground">
-                          Nothing in this session matches.
+                          {t("session.search.empty")}
                         </p>
                       </Show>
                     }
@@ -959,7 +963,7 @@ const turnIndexOf = (h: SearchHit): number => {
                             >
                               <Snippet text={h.snippet} />
                               <span class="font-mono text-2xs text-muted-foreground">
-                                turn {turnNumber(h)}
+                                {t("session.search.turn", { n: turnNumber(h) })}
                               </span>
                             </button>
                           </li>
@@ -1005,7 +1009,7 @@ const turnIndexOf = (h: SearchHit): number => {
                       when={v().turns.length > 0}
                       fallback={
                         <p class="pt-16 text-center text-sm text-muted-foreground">
-                          Empty session. Write a prompt to start.
+                          {t("session.empty")}
                         </p>
                       }
                     >
@@ -1034,19 +1038,19 @@ const turnIndexOf = (h: SearchHit): number => {
                         <div class="rounded-xl border border-event-permission/40 bg-event-permission/10 p-3">
                           <div class="flex items-center gap-2 text-sm">
                             <span class="font-medium text-event-permission">{p.tool}</span>
-                            <span class="text-xs text-muted-foreground">wants to run</span>
+                            <span class="text-xs text-muted-foreground">{t("permission.wants_to_run")}</span>
                             <span class="ml-auto flex gap-1.5">
                               <button
                                 class="rounded-md bg-status-active/15 px-2.5 py-1 text-xs font-medium text-status-active hover:bg-status-active/25"
                                 onClick={() => void respond(p.request_id, "allow")}
                               >
-                                allow
+                                {t("permission.allow")}
                               </button>
                               <button
                                 class="rounded-md bg-destructive/15 px-2.5 py-1 text-xs font-medium text-destructive hover:bg-destructive/25"
                                 onClick={() => void respond(p.request_id, "deny")}
                               >
-                                deny
+                                {t("permission.deny")}
                               </button>
                             </span>
                           </div>
@@ -1071,7 +1075,7 @@ const turnIndexOf = (h: SearchHit): number => {
                       <Show when={queued().length > 0}>
                         <div class="rounded-t-2xl border border-b-0 border-input bg-secondary/70 px-3 pb-4 pt-2">
                           <p class="text-2xs font-medium text-muted-foreground">
-                            {queued().length === 1 ? "Queued" : `${queued().length} queued`}
+                            {tn("composer.queued", queued().length)}
                           </p>
                           <ul class="mt-1 space-y-1">
                             <For each={queued()}>
@@ -1083,12 +1087,12 @@ const turnIndexOf = (h: SearchHit): number => {
                                     class="shrink-0 text-xs text-muted-foreground hover:text-foreground"
                                     onClick={() => editQueued(i())}
                                   >
-                                    Edit
+                                    {t("composer.edit")}
                                   </button>
                                   <button
                                     type="button"
                                     class="grid h-5 w-5 shrink-0 place-items-center rounded text-muted-foreground hover:bg-background hover:text-foreground"
-                                    aria-label="Remove queued message"
+                                    aria-label={t("composer.remove_queued")}
                                     onClick={() => setQueued((q) => q.filter((_, n) => n !== i()))}
                                   >
                                     ×
@@ -1106,7 +1110,7 @@ const turnIndexOf = (h: SearchHit): number => {
                         ref={draftEl}
                         class="max-h-56 w-full resize-none bg-transparent px-4 py-3 font-sans text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none"
                         rows={1}
-                        placeholder={generating() ? "Queue a follow-up…" : "Message…"}
+                        placeholder={generating() ? t("composer.placeholder.queue") : t("composer.placeholder.message")}
                         value={draft()}
                         onInput={(e) => {
                           setDraft(e.currentTarget.value);
@@ -1144,17 +1148,17 @@ const turnIndexOf = (h: SearchHit): number => {
                       />
                       <div class="flex items-center gap-2 px-3 pb-2.5">
                         <Show when={generating()}>
-                          <span class="text-xs text-muted-foreground">Running</span>
+                          <span class="text-xs text-muted-foreground">{t("composer.running")}</span>
                         </Show>
                         <div class="ml-auto">
                           <Show
                             when={!generating()}
                             fallback={
-                              <Tip label={stopping() ? "Stopping…" : "Stop"}>
+                              <Tip label={stopping() ? t("composer.stopping") : t("composer.stop")}>
                                 <button
                                   class="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-foreground text-background transition-opacity hover:opacity-80 active:scale-95 disabled:opacity-40"
                                   disabled={stopping()}
-                                  aria-label={stopping() ? "Stopping" : "Stop"}
+                                  aria-label={stopping() ? t("composer.stopping_aria") : t("composer.stop")}
                                   onClick={() => void stop()}
                                 >
                                   <span class="h-2.5 w-2.5 rounded-[2px] bg-background" />
@@ -1162,11 +1166,11 @@ const turnIndexOf = (h: SearchHit): number => {
                               </Tip>
                             }
                           >
-                            <Tip label={draft().trim() ? "Send" : "Type a message"}>
+                            <Tip label={draft().trim() ? t("composer.send") : t("composer.type")}>
                               <button
                                 class="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-primary text-primary-foreground transition-opacity hover:opacity-90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-30 disabled:active:scale-100"
                                 disabled={!draft().trim()}
-                                aria-label={draft().trim() ? "Send" : "Type a message"}
+                                aria-label={draft().trim() ? t("composer.send") : t("composer.type")}
                                 onClick={() => void send()}
                               >
                                 <svg viewBox="0 0 16 16" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1184,7 +1188,7 @@ const turnIndexOf = (h: SearchHit): number => {
                         <Tip label={contextLabel(context()?.total ?? 0, context()?.percent ?? null)}>
                           <PopoverTrigger
                             class="mr-auto grid h-7 w-7 place-items-center rounded-md transition-colors hover:bg-secondary"
-                            aria-label="Session details"
+                            aria-label={t("composer.details")}
                           >
                             <ContextRing percent={context()?.percent ?? null} />
                           </PopoverTrigger>
@@ -1203,7 +1207,7 @@ const turnIndexOf = (h: SearchHit): number => {
                       <div class="flex min-w-0 items-center justify-end gap-0.5">
                       <Show when={(settled(options)?.models.length ?? 0) > 0 && (Boolean(modelSel()) || !booting())}>
                         <Picker
-                          label="Model"
+                          label={t("picker.model")}
                           value={modelSel()}
                           options={modelOptions()}
                           onChange={(value) => {
@@ -1215,10 +1219,10 @@ const turnIndexOf = (h: SearchHit): number => {
                       </Show>
                       <Show when={(effortModel()?.variants?.length ?? 0) > 0}>
                         <Picker
-                          label="Thinking effort"
+                          label={t("picker.effort")}
                           capitalize
-                          emptyOption="Default"
-                          placeholder="Default"
+                          emptyOption={t("picker.default")}
+                          placeholder={t("picker.default")}
                           value={variantSel()}
                           options={(effortModel()?.variants ?? []).map((name) => ({ value: name, label: name }))}
                           onChange={setVariantSel}
@@ -1226,7 +1230,7 @@ const turnIndexOf = (h: SearchHit): number => {
                       </Show>
                       <Show when={(settled(options)?.agents.length ?? 0) > 0}>
                         <Picker
-                          label="Agent"
+                          label={t("picker.agent")}
                           capitalize
                           value={agentSel()}
                           options={(settled(options)!.agents ?? []).map((a) => ({ value: a.name, label: a.name }))}
@@ -1262,9 +1266,8 @@ const turnIndexOf = (h: SearchHit): number => {
           const files = () => v().files_changed;
           const fileLabel = () => {
             const n = files().length;
-            if (n === 1) return "1 file";
-            if (n > 1) return `${n} files`;
-            return "Plan";
+            if (n === 0) return t("rail.plan");
+            return tn("rail.files", n);
           };
           return (
             <aside class="flex w-72 shrink-0 flex-col border-l border-border">
@@ -1273,12 +1276,12 @@ const turnIndexOf = (h: SearchHit): number => {
                 data-tauri-drag-region={inDesktopShell() ? "" : undefined}
               >
                 <span class="shrink-0 text-sm font-medium">
-                  {generating() ? "Running" : "Done"}
+                  {generating() ? t("rail.running") : t("rail.done")}
                 </span>
                 <span class="min-w-0 flex-1 truncate text-xs text-muted-foreground">{fileLabel()}</span>
                 <button
                   class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
-                  aria-label="Hide files"
+                  aria-label={t("rail.hide")}
                   onClick={toggleRail}
                 >
                   ×
@@ -1287,7 +1290,7 @@ const turnIndexOf = (h: SearchHit): number => {
               <div class="min-h-0 flex-1 space-y-5 overflow-y-auto px-3 py-3">
                 <Show when={(v().plan?.length ?? 0) > 0}>
                   <section>
-                    <h2 class="px-1 text-2xs font-medium text-muted-foreground">Plan</h2>
+                    <h2 class="px-1 text-2xs font-medium text-muted-foreground">{t("rail.plan")}</h2>
                     <ul class="mt-1.5 space-y-1 text-sm">
                       <For each={v().plan}>
                         {(item) => (
@@ -1312,7 +1315,7 @@ const turnIndexOf = (h: SearchHit): number => {
                 </Show>
                 <Show
                   when={files().length > 0}
-                  fallback={<p class="px-1 text-xs text-muted-foreground">Nothing changed yet.</p>}
+                  fallback={<p class="px-1 text-xs text-muted-foreground">{t("rail.nothing")}</p>}
                 >
                   <ul class="space-y-0.5">
                     <For each={files()}>

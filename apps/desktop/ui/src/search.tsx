@@ -1,10 +1,11 @@
 import { createEffect, createSignal, For, on, Show } from "solid-js";
 import { realWorkspace, type SessionRow, type StrataEvent } from "./api";
+import { t } from "./i18n";
 import { Icon } from "./icons";
 
 function projectLabel(path?: string | null): string {
   if (!path) return "";
-  if (path === "/" || path === "\\") return "Root";
+  if (path === "/" || path === "\\") return t("project.root");
   const parts = path.split(/[/\\]/).filter(Boolean);
   return parts.at(-1) ?? path;
 }
@@ -61,7 +62,7 @@ export function CommandSearch(props: {
       .map((s) => ({
         kind: "session" as const,
         id: s.summary.session_id,
-        title: s.title ?? s.summary.title ?? "untitled",
+        title: s.title ?? s.summary.title ?? t("common.untitled"),
         hint: projectLabel(realWorkspace(s.workspace ?? s.summary.workspace)),
       }));
     const events: Hit[] = (props.events ?? []).slice(0, 12).map((e) => ({
@@ -142,11 +143,11 @@ export function CommandSearch(props: {
             <button
               type="button"
               class="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-              aria-label="Search"
+              aria-label={t("search.label")}
               onClick={() => props.onOpenChange(true)}
             >
               <Icon name="search" class="size-3.5 shrink-0" />
-              <span>Search</span>
+              <span>{t("search.label")}</span>
               <kbd class="ml-auto font-mono text-2xs text-muted-foreground/80">{shortcutLabel()}</kbd>
             </button>
           }
@@ -156,9 +157,9 @@ export function CommandSearch(props: {
             <input
               ref={input}
               class="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
-              placeholder="Sessions and transcripts"
+              placeholder={t("search.placeholder")}
               value={props.query}
-              aria-label="Search"
+              aria-label={t("search.label")}
               onInput={(e) => props.onQuery(e.currentTarget.value)}
               onKeyDown={onKeyDown}
               onMouseDown={(e) => e.stopPropagation()}
@@ -168,18 +169,22 @@ export function CommandSearch(props: {
           <div class="surface-popover absolute top-[calc(100%+4px)] right-1.5 left-1.5 z-40 max-h-80 overflow-y-auto rounded-md border border-border bg-popover p-1 text-popover-foreground">
               <Show
                 when={props.query.trim()}
-                fallback={<p class="px-2 py-3 text-xs text-muted-foreground">Search every session and its transcript.</p>}
+                fallback={
+                  <p class="px-2 py-3 text-xs text-muted-foreground">{t("search.hint")}</p>
+                }
               >
                 <Show
                   when={hits().length > 0}
                   fallback={
                     <p class="px-2 py-3 text-xs text-muted-foreground">
-                      {props.searching ? "Searching…" : "No matches"}
+                      {props.searching ? t("search.searching") : t("search.noMatches")}
                     </p>
                   }
                 >
                   <Show when={sessionHits().length > 0}>
-                    <p class="px-2 pt-1.5 pb-1 text-2xs font-medium text-muted-foreground">Sessions</p>
+                    <p class="px-2 pt-1.5 pb-1 text-2xs font-medium text-muted-foreground">
+                      {t("search.results.sessions")}
+                    </p>
                     <For each={sessionHits()}>
                       {(hit) => {
                         const index = () => hits().indexOf(hit);
@@ -202,7 +207,9 @@ export function CommandSearch(props: {
                     </For>
                   </Show>
                   <Show when={eventHits().length > 0}>
-                    <p class="px-2 pt-1.5 pb-1 text-2xs font-medium text-muted-foreground">Transcript</p>
+                    <p class="px-2 pt-1.5 pb-1 text-2xs font-medium text-muted-foreground">
+                      {t("search.results.transcript")}
+                    </p>
                     <For each={eventHits()}>
                       {(hit) => {
                         const index = () => hits().indexOf(hit);

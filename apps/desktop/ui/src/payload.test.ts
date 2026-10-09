@@ -1,7 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { hasAnsi, stripAnsi } from "./ansi";
 import { grammarFor, guessGrammar, tokenize, tokenizeDiff } from "./highlight";
-import { asStructure, entriesOf, looksStructured, summaryOf } from "./structure";
+
+/**
+ * `structure` looks its strings up in `i18n`, which stamps
+ * `document.documentElement.lang` while its module is evaluated — and the test
+ * runtime has no DOM. The one property it touches is stood up here so the
+ * dynamic import below resolves.
+ */
+const globals = globalThis as { document?: Document };
+globals.document ??= { documentElement: {} } as Document;
+
+const { asStructure, entriesOf, looksStructured, summaryOf } = await import("./structure");
 
 describe("stripAnsi", () => {
   test("drops SGR colour codes but keeps the text between them", () => {
@@ -156,6 +166,8 @@ describe("structured payloads", () => {
   });
 
   test("sketches a collapsed container", () => {
+    // A sketch stands in for the value, not for the interface, so it is JSON
+    // in every language: `{a, b}`, never a translated brace.
     expect(summaryOf("array", ["0", "1", "2"])).toBe("[3]");
     expect(summaryOf("object", ["a", "b"])).toBe("{a, b}");
     expect(summaryOf("object", ["a", "b", "c", "d", "e"])).toBe("{a, b, c, d, …}");

@@ -10,6 +10,8 @@ import {
   type PolicyResponse,
   type PolicyRule,
 } from "./api";
+import { t, tn } from "./i18n";
+import type { MessageKey } from "./locales/zh";
 
 // editing model: `when` is a Record in CASF but easier to edit as flat rows
 interface CondRow {
@@ -82,10 +84,15 @@ function toPolicy(d: Draft): Policy {
   };
 }
 
-const EFFECT_LABEL: Record<PolicyRule["effect"], string> = {
-  allow: "allow",
-  deny: "deny",
-  ask: "ask",
+/**
+ * Effect names are wire values as well as words. The map carries the dictionary
+ * key so the `<option>` text can be translated; `value=` still sends the raw key
+ * to the backend.
+ */
+const EFFECT_LABEL: Record<PolicyRule["effect"], MessageKey> = {
+  allow: "policy.rule.effect.allow",
+  deny: "policy.rule.effect.deny",
+  ask: "policy.rule.effect.ask",
 };
 
 const DECISION_CLS: Record<PolicyDecision["decision"], string> = {
@@ -109,7 +116,7 @@ function RuleCard(props: { index: number; draft: Draft; setDraft: (fn: (d: Draft
       <div class="flex flex-wrap items-center gap-2">
         <input
           class={`${inputCls} w-40`}
-          placeholder="rule id"
+          placeholder={t("policy.field.ruleId")}
           value={rule().id}
           onInput={(e) => setRule((r) => (r.id = e.currentTarget.value))}
         />
@@ -125,10 +132,10 @@ function RuleCard(props: { index: number; draft: Draft; setDraft: (fn: (d: Draft
           onChange={(e) => setRule((r) => (r.effect = e.currentTarget.value as RuleDraft["effect"]))}
         >
           <For each={Object.keys(EFFECT_LABEL) as RuleDraft["effect"][]}>
-            {(fx) => <option value={fx}>{fx}</option>}
+            {(fx) => <option value={fx}>{t(EFFECT_LABEL[fx])}</option>}
           </For>
         </select>
-        <span class="text-xs text-muted-foreground">tool</span>
+        <span class="text-xs text-muted-foreground">{t("policy.field.tool")}</span>
         <input
           class={`${inputCls} w-36`}
           placeholder="bash | * | edit*"
@@ -139,24 +146,24 @@ function RuleCard(props: { index: number; draft: Draft; setDraft: (fn: (d: Draft
           class="ml-auto rounded-md bg-destructive/20 px-2.5 py-1 text-xs font-medium text-destructive transition-opacity hover:opacity-80"
           onClick={props.remove}
         >
-          remove
+          {t("policy.action.remove")}
         </button>
       </div>
       <input
         class={`${inputCls} mt-2 w-full font-sans`}
-        placeholder="reason shown to the agent when this rule fires (optional)"
+        placeholder={t("policy.field.reason")}
         value={rule().reason}
         onInput={(e) => setRule((r) => (r.reason = e.currentTarget.value))}
       />
 
       <div class="mt-3 space-y-1.5">
         <div class="flex items-center gap-2 text-xs text-muted-foreground">
-          <span>when — every condition must match (input path · condition · value)</span>
+          <span>{t("policy.conditions.hint")}</span>
           <button
             class="rounded bg-secondary px-1.5 py-0.5 text-2xs transition-colors hover:text-foreground"
             onClick={() => setRule((r) => r.conds.push({ path: "", op: "glob", value: "" }))}
           >
-            + condition
+            {t("policy.conditions.add")}
           </button>
         </div>
         <For each={rule().conds}>
@@ -224,7 +231,7 @@ export function PolicyEditor() {
     setNotice("");
     try {
       await savePolicy(toPolicy(draft));
-      setNotice("saved — live connections pick it up immediately");
+      setNotice("policy.notice.saved");
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     }
@@ -235,7 +242,7 @@ export function PolicyEditor() {
     setNotice("");
     await clearPolicy().catch((e) => setErr(e instanceof Error ? e.message : String(e)));
     setDraftRaw({ default: "ask", rules: [] });
-    setNotice("cleared — everything falls back to ask");
+    setNotice("policy.notice.cleared");
   };
 
   const runTest = async () => {
@@ -245,7 +252,7 @@ export function PolicyEditor() {
     try {
       input = JSON.parse(testInput()) as Record<string, unknown>;
     } catch {
-      setTestErr("input is not valid JSON");
+      setTestErr("policy.err.invalidJson");
       return;
     }
     try {
@@ -260,10 +267,9 @@ export function PolicyEditor() {
   return (
     <main class="mx-auto max-w-3xl p-6">
       <header>
-        <h1 class="text-xl font-semibold">policy editor</h1>
+        <h1 class="text-xl font-semibold">{t("policy.title")}</h1>
         <p class="mt-1 text-xs text-muted-foreground">
-          advisory permission rules — deny &gt; ask &gt; allow among matching rules,
-          no match falls back to the default. not a sandbox.
+          {t("policy.hint")}
           <Show when={saved()?.file}>
             <span class="font-mono"> · {saved()!.file}</span>
           </Show>
@@ -271,7 +277,7 @@ export function PolicyEditor() {
       </header>
 
       <section class="mt-4 flex items-center gap-3 rounded-lg border border-border bg-muted px-4 py-3 text-sm">
-        <span class="text-muted-foreground">default effect</span>
+        <span class="text-muted-foreground">{t("policy.default.label")}</span>
         <select
           class={inputCls}
           value={draft.default}
@@ -279,33 +285,38 @@ export function PolicyEditor() {
             setDraftRaw("default", e.currentTarget.value as Draft["default"])
           }
         >
-          <option value="ask">ask</option>
-          <option value="allow">allow</option>
-          <option value="deny">deny</option>
+          <option value="ask">{t("policy.rule.effect.ask")}</option>
+          <option value="allow">{t("policy.rule.effect.allow")}</option>
+          <option value="deny">{t("policy.rule.effect.deny")}</option>
         </select>
         <span class="text-xs text-muted-foreground">
-          {draft.rules.length} rules
+          {tn("policy.rules.count", draft.rules.length)}
         </span>
         <span class="ml-auto flex gap-2">
           <button
             class="rounded-md border border-border bg-secondary px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
             onClick={() => void clear()}
           >
-            clear
+            {t("policy.action.clear")}
           </button>
           <button
             class="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
             onClick={() => void save()}
           >
-            save policy
+            {t("policy.action.save")}
           </button>
         </span>
       </section>
       <Show when={err()}>
         <p class="mt-2 font-mono text-xs text-destructive">{err()}</p>
       </Show>
+      {/*
+        `notice` and `testErr` carry a dictionary key when the words are ours and
+        whatever the backend said otherwise. `t()` hands an unknown key back
+        verbatim, so one render site covers both and nothing is translated twice.
+      */}
       <Show when={notice()}>
-        <p class="mt-2 text-xs text-status-active">{notice()}</p>
+        <p class="mt-2 text-xs text-status-active">{t(notice() as MessageKey)}</p>
       </Show>
 
       <section class="mt-4 space-y-3">
@@ -327,20 +338,19 @@ export function PolicyEditor() {
             )
           }
         >
-          + add rule
+          {t("policy.action.addRule")}
         </button>
       </section>
 
       <section class="mt-6 rounded-lg border border-border bg-card p-4">
-        <h2 class="text-sm font-medium">test the draft</h2>
+        <h2 class="text-sm font-medium">{t("policy.test.title")}</h2>
         <p class="mt-1 text-xs text-muted-foreground">
-          runs the unsaved draft against a fake tool call — bash commands are
-          split and analyzed like real permission checks
+          {t("policy.test.hint")}
         </p>
         <div class="mt-3 flex gap-2">
           <input
             class={`${inputCls} w-32`}
-            placeholder="tool"
+            placeholder={t("policy.field.tool")}
             value={testTool()}
             onInput={(e) => setTestTool(e.currentTarget.value)}
           />
@@ -353,7 +363,7 @@ export function PolicyEditor() {
             class="rounded-md bg-secondary px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
             onClick={() => void runTest()}
           >
-            run
+            {t("policy.test.run")}
           </button>
         </div>
         <Show when={testResult()}>
@@ -361,7 +371,7 @@ export function PolicyEditor() {
             <div class="mt-3 rounded-md bg-secondary/50 px-3 py-2 font-mono text-xs">
               <span class={`font-medium ${DECISION_CLS[d().decision]}`}>{d().decision}</span>
               <Show when={d().rule_id}>
-                <span class="text-muted-foreground"> via </span>
+                <span class="text-muted-foreground">{t("policy.test.via")}</span>
                 <span class="text-foreground">{d().rule_id}</span>
               </Show>
               <Show when={d().reason}>
@@ -371,7 +381,9 @@ export function PolicyEditor() {
           )}
         </Show>
         <Show when={testErr()}>
-          <p class="mt-2 font-mono text-xs text-destructive">{testErr()}</p>
+          <p class="mt-2 font-mono text-xs text-destructive">
+            {t(testErr() as MessageKey)}
+          </p>
         </Show>
       </section>
     </main>

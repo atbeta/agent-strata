@@ -1,11 +1,12 @@
 import { createResource, For, Show } from "solid-js";
 import { fmtUsd, getJson, type SessionComparison, type TurnPair } from "./api";
+import { num, t, tn } from "./i18n";
 
 function Delta(props: { value: number; unit?: string; money?: boolean }) {
   const cls = () =>
     props.value > 0 ? "text-cost-up" : props.value < 0 ? "text-cost-down" : "text-cost-flat";
   const text = () => {
-    const v = props.money ? Math.abs(props.value).toFixed(4) : Math.abs(props.value).toLocaleString();
+    const v = props.money ? Math.abs(props.value).toFixed(4) : num(Math.abs(props.value));
     const sign = props.value > 0 ? "+" : props.value < 0 ? "-" : "";
     return `${sign}${props.money ? "$" : ""}${v}${props.unit ?? ""}`;
   };
@@ -18,10 +19,10 @@ function TurnPairRow(props: { pair: TurnPair; i: number }) {
   return (
     <div class="rounded-lg border border-border bg-card p-4">
       <div class="flex items-center gap-2 text-xs text-muted-foreground">
-        <span class="font-mono">turn {props.i + 1}</span>
+        <span class="font-mono">{t("compare.turn", { n: props.i + 1 })}</span>
         <Show when={props.pair.same_prompt}>
           <span class="rounded bg-secondary px-1.5 py-0.5 text-2xs text-muted-foreground">
-            same prompt
+            {t("compare.samePrompt")}
           </span>
         </Show>
         <span class="ml-auto font-mono tabular-nums">
@@ -64,13 +65,13 @@ export function CompareView(props: { a: string; b: string }) {
 
   return (
     <main class="mx-auto max-w-5xl p-6">
-      <Show when={cmp()} fallback={<p class="text-muted-foreground">loading…</p>}>
+      <Show when={cmp()} fallback={<p class="text-muted-foreground">{t("compare.loading")}</p>}>
         {(c) => (
           <>
             <header>
-              <h1 class="text-xl font-semibold">compare sessions</h1>
+              <h1 class="text-xl font-semibold">{t("compare.title")}</h1>
               <p class="mt-1 font-mono text-xs text-muted-foreground">
-                {c().a.session_id} vs {c().b.session_id}
+                {c().a.session_id} {t("compare.vs")} {c().b.session_id}
               </p>
             </header>
 
@@ -81,8 +82,8 @@ export function CompareView(props: { a: string; b: string }) {
                   <div class="mt-0.5 font-mono text-xs text-muted-foreground">{c().a.model}</div>
                 </Show>
                 <div class="mt-2 font-mono text-xs text-muted-foreground tabular-nums">
-                  {c().a.totals.tool_calls} tools ·{" "}
-                  {(c().a.totals.input + c().a.totals.output).toLocaleString()} tok ·{" "}
+                  {tn("compare.totals.tools", c().a.totals.tool_calls)} ·{" "}
+                  {num(c().a.totals.input + c().a.totals.output)} tok ·{" "}
                   {fmtUsd(c().a.totals.cost_usd)}
                 </div>
               </div>
@@ -92,8 +93,8 @@ export function CompareView(props: { a: string; b: string }) {
                   <div class="mt-0.5 font-mono text-xs text-muted-foreground">{c().b.model}</div>
                 </Show>
                 <div class="mt-2 font-mono text-xs text-muted-foreground tabular-nums">
-                  {c().b.totals.tool_calls} tools ·{" "}
-                  {(c().b.totals.input + c().b.totals.output).toLocaleString()} tok ·{" "}
+                  {tn("compare.totals.tools", c().b.totals.tool_calls)} ·{" "}
+                  {num(c().b.totals.input + c().b.totals.output)} tok ·{" "}
                   {fmtUsd(c().b.totals.cost_usd)}
                 </div>
               </div>
@@ -101,10 +102,11 @@ export function CompareView(props: { a: string; b: string }) {
 
             <section class="mt-3 flex gap-6 rounded-lg border border-border bg-muted px-4 py-2.5 text-xs text-muted-foreground">
               <span>
-                {c().summary.turn_pairs} turn pairs · {c().summary.same_prompt} same-prompt
+                {tn("compare.summary.turnPairs", c().summary.turn_pairs)} ·{" "}
+                {tn("compare.summary.samePrompt", c().summary.same_prompt)}
               </span>
               <span>
-                Δ total: <Delta value={c().summary.delta_totals.input + c().summary.delta_totals.output} />{" "}
+                {t("compare.delta.total")} <Delta value={c().summary.delta_totals.input + c().summary.delta_totals.output} />{" "}
                 tok · <Delta value={c().summary.delta_totals.cost_usd} money />
               </span>
             </section>

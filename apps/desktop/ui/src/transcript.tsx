@@ -5,6 +5,7 @@ import { Md } from "./md";
 import { Tip } from "./tip";
 import { stripAnsi } from "./ansi";
 import { Code } from "./payload";
+import { t } from "./i18n";
 import {
   diffStat,
   fmtLatency,
@@ -36,7 +37,9 @@ function ThinkingBlock(props: { text: string; live?: boolean }) {
         onClick={() => setOpen((v) => !v)}
       >
         <Icon name="spark" class={`size-3.5 shrink-0 ${props.live ? "animate-pulse text-event-assistant" : ""}`} />
-        <span class="shrink-0 font-medium">{props.live ? "Thinking" : "Thought"}</span>
+        <span class="shrink-0 font-medium">
+          {props.live ? t("transcript.thinking") : t("transcript.thought")}
+        </span>
         <Show when={!open() && thinkingPreview(props.text)}>
           <span class="min-w-0 truncate font-normal">{thinkingPreview(props.text)}</span>
         </Show>
@@ -82,7 +85,7 @@ function imageSrc(block: Extract<ContentBlock, { type: "image" }>): string | und
 function ImageBlock(props: { block: Extract<ContentBlock, { type: "image" }> }) {
   const src = () => imageSrc(props.block);
   return (
-    <Show when={src()} fallback={<p class="my-1 text-xs text-muted-foreground">image</p>}>
+    <Show when={src()} fallback={<p class="my-1 text-xs text-muted-foreground">{t("transcript.image")}</p>}>
       <img
         src={src()}
         alt=""
@@ -181,13 +184,13 @@ function ToolCallCard(props: { call: ToolCallView }) {
   );
   const todos = () => todoItems(props.call.input);
   const label = () => {
-    if (props.call.permission?.decision === "deny") return "Denied";
-    if (props.call.permission && !props.call.permission.decision) return "Needs permission";
+    if (props.call.permission?.decision === "deny") return t("tool.status.denied");
+    if (props.call.permission && !props.call.permission.decision) return t("tool.status.needs_permission");
     return statusLabel(props.call.status);
   };
   return (
     <div class={`overflow-hidden rounded-lg border bg-card ${denied() ? "border-destructive/35" : "border-border"}`}>
-      <Tip label={open() ? "Hide output" : "Show output"} class="w-full">
+      <Tip label={open() ? t("tool.output.hide") : t("tool.output.show")} class="w-full">
         <button
           class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left hover:bg-secondary/50"
           aria-expanded={open()}
@@ -269,7 +272,7 @@ function ToolCallCard(props: { call: ToolCallView }) {
           </Show>
           <Show when={props.call.output} fallback={
             <Show when={props.call.status === "pending"}>
-              <p class="text-xs text-muted-foreground">Running…</p>
+              <p class="text-xs text-muted-foreground">{t("tool.running")}</p>
             </Show>
           }>
             <OutputWell text={props.call.output!} kind={headline().kind} />

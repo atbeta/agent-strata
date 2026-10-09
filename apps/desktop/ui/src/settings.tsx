@@ -1,11 +1,14 @@
 import { createSignal } from "solid-js";
+import { LOCALES, LOCALE_LABEL, locale, setLocale, t, type Locale } from "./i18n";
 import { Icon } from "./icons";
 import { readTheme, saveTheme, type ThemeChoice } from "./theme";
 
-const CHOICES: { id: ThemeChoice; label: string; hint: string }[] = [
-  { id: "dark", label: "Dark", hint: "The default shell" },
-  { id: "light", label: "Light", hint: "A paper surface" },
-  { id: "system", label: "System", hint: "Follow this computer" },
+/** A function, not a const: the labels are translated, so they have to be read
+ *  during render for a language switch to reach them. */
+const CHOICES = (): { id: ThemeChoice; label: string; hint: string }[] => [
+  { id: "dark", label: t("settings.theme.dark"), hint: t("settings.theme.darkHint") },
+  { id: "light", label: t("settings.theme.light"), hint: t("settings.theme.lightHint") },
+  { id: "system", label: t("settings.theme.system"), hint: t("settings.theme.systemHint") },
 ];
 
 export function SettingsPage() {
@@ -18,13 +21,17 @@ export function SettingsPage() {
 
   return (
     <div class="mx-auto w-full max-w-lg px-8 py-10">
-      <h1 class="text-xl font-medium">Settings</h1>
-      <p class="mt-1 text-sm text-muted-foreground">Saved on this computer.</p>
+      <h1 class="text-xl font-medium">{t("settings.title")}</h1>
+      <p class="mt-1 text-sm text-muted-foreground">{t("settings.savedHere")}</p>
 
       <section class="mt-8">
-        <h2 class="text-sm font-medium">Appearance</h2>
-        <div class="mt-3 grid grid-cols-3 gap-2" role="radiogroup" aria-label="Theme">
-          {CHOICES.map((item) => (
+        <h2 class="text-sm font-medium">{t("settings.appearance")}</h2>
+        <div
+          class="mt-3 grid grid-cols-3 gap-2"
+          role="radiogroup"
+          aria-label={t("settings.theme")}
+        >
+          {CHOICES().map((item) => (
             <button
               type="button"
               role="radio"
@@ -52,10 +59,38 @@ export function SettingsPage() {
         </div>
       </section>
 
+      <section class="mt-8">
+        <h2 class="text-sm font-medium">{t("settings.language")}</h2>
+        <p class="mt-1 text-sm leading-5 text-muted-foreground">{t("settings.language.hint")}</p>
+        <div
+          class="mt-3 grid grid-cols-2 gap-2"
+          role="radiogroup"
+          aria-label={t("settings.language")}
+        >
+          {LOCALES.map((id: Locale) => (
+            <button
+              type="button"
+              role="radio"
+              aria-checked={locale() === id}
+              class={`rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                locale() === id
+                  ? "border-ring bg-secondary"
+                  : "border-border hover:bg-secondary/60"
+              }`}
+              onClick={() => setLocale(id)}
+            >
+              {/* Each language in its own name. "English" is not a translation of
+                  "英文" to someone who cannot read the one they are looking at. */}
+              <span class="block text-sm font-medium">{LOCALE_LABEL[id]}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
       <section class="mt-8 border-t border-border pt-6">
-        <h2 class="text-sm font-medium">Permission policy</h2>
+        <h2 class="text-sm font-medium">{t("settings.permission.title")}</h2>
         <p class="mt-1 text-sm leading-5 text-muted-foreground">
-          Rules that allow, ask, or deny a tool call before it runs.
+          {t("settings.permission.hint")}
         </p>
         <button
           type="button"
@@ -63,7 +98,7 @@ export function SettingsPage() {
           onClick={() => (location.hash = "/policy")}
         >
           <Icon name="shield" class="size-3.5 text-muted-foreground" />
-          Open policy
+          {t("settings.permission.open")}
         </button>
       </section>
     </div>

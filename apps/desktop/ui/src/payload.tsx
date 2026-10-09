@@ -3,6 +3,7 @@ import { stripAnsi } from "./ansi";
 import { grammarFor, guessGrammar, tokenize, tokenizeDiff } from "./highlight";
 import { asStructure, looksStructured } from "./structure";
 import { JsonView } from "./json-view";
+import { t } from "./i18n";
 
 /**
  * A framed block for a tool payload. Structure renders as a tree, text renders
@@ -25,7 +26,7 @@ function CopyButton(props: { text: string }) {
         }
       }}
     >
-      {done() ? "已复制" : "复制"}
+      {done() ? t("payload.copied") : t("payload.copy")}
     </button>
   );
 }
@@ -76,7 +77,7 @@ export function Payload(props: {
   return (
     <Show
       when={props.value !== undefined && props.value !== null && props.value !== ""}
-      fallback={<p class="text-xs text-muted-foreground">{props.empty ?? "无"}</p>}
+      fallback={<p class="text-xs text-muted-foreground">{props.empty ?? t("payload.empty")}</p>}
     >
       <Show
         when={structured()}

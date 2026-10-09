@@ -1,4 +1,6 @@
 import { inDesktopShell } from "./shell";
+import { t } from "./i18n";
+import type { MessageKey } from "./locales/zh";
 
 export interface SessionRow {
   summary: {
@@ -235,7 +237,7 @@ export const api = (p: string) => (inDesktopShell() ? `${DESKTOP_SERVICE}${p}` :
 
 export async function getJson<T>(p: string): Promise<T> {
   const res = await fetch(api(p));
-  if (!res.ok) throw new Error(`service ${res.status}`);
+  if (!res.ok) throw new Error(t("api.err.service", { status: res.status }));
   return (await res.json()) as T;
 }
 
@@ -254,7 +256,7 @@ export async function importSession(id: string): Promise<void> {
   const res = await fetch(api(`/sessions/${encodeURIComponent(id)}/import`), { method: "POST" });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(body.error ?? `service ${res.status}`);
+    throw new Error(body.error ?? t("api.err.service", { status: res.status }));
   }
 }
 
@@ -279,7 +281,7 @@ export async function abortSession(id: string): Promise<void> {
   const res = await fetch(api(`/sessions/${encodeURIComponent(id)}/abort`), { method: "POST" });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(body.error ?? `service ${res.status}`);
+    throw new Error(body.error ?? t("api.err.service", { status: res.status }));
   }
 }
 
@@ -293,7 +295,7 @@ export async function respondQuestion(
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ decision, answers }),
   });
-  if (!res.ok) throw new Error(`service ${res.status}`);
+  if (!res.ok) throw new Error(t("api.err.service", { status: res.status }));
 }
 
 export async function respondPermission(
@@ -306,13 +308,13 @@ export async function respondPermission(
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ decision, scope }),
   });
-  if (!res.ok) throw new Error(`service ${res.status}`);
+  if (!res.ok) throw new Error(t("api.err.service", { status: res.status }));
 }
 
 async function throwOnError(res: Response): Promise<void> {
   if (res.ok) return;
   const body = (await res.json().catch(() => ({}))) as { error?: string };
-  throw new Error(body.error ?? `service ${res.status}`);
+  throw new Error(body.error ?? t("api.err.service", { status: res.status }));
 }
 
 export async function savePolicy(policy: Policy): Promise<void> {
@@ -335,7 +337,7 @@ export async function syncBackend(): Promise<{ connected: boolean; imported: num
     imported?: number;
     error?: string;
   };
-  if (!res.ok) throw new Error(data.error ?? `service ${res.status}`);
+  if (!res.ok) throw new Error(data.error ?? t("api.err.service", { status: res.status }));
   return { connected: data.connected === true, imported: data.imported ?? 0 };
 }
 
@@ -352,7 +354,7 @@ export async function connectBackend(body: {
     body: JSON.stringify(body),
   });
   const data = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
-  if (!res.ok) throw new Error(data.error ?? `service ${res.status}`);
+  if (!res.ok) throw new Error(data.error ?? t("api.err.service", { status: res.status }));
   return data.id!;
 }
 
@@ -371,7 +373,7 @@ export async function testPolicy(body: {
     body: JSON.stringify(body),
   });
   const data = (await res.json().catch(() => ({}))) as PolicyDecision & { error?: string };
-  if (!res.ok) throw new Error(data.error ?? `service ${res.status}`);
+  if (!res.ok) throw new Error(data.error ?? t("api.err.service", { status: res.status }));
   return data;
 }
 
@@ -392,9 +394,14 @@ export const STATUS_DOT: Record<string, string> = {
   cancelled: "bg-status-cancelled",
 };
 
-export const STATUS_LABEL: Record<string, string> = {
-  active: "running",
-  completed: "done",
-  error: "error",
-  cancelled: "stopped",
+/**
+ * Dead today — nothing imports it — but kept so the status vocabulary has one
+ * home. Values are dictionary keys rather than finished words: a caller renders
+ * them with `t()` instead of freezing a language into a module-level object.
+ */
+export const STATUS_LABEL: Record<string, MessageKey> = {
+  active: "api.status.active",
+  completed: "api.status.completed",
+  error: "api.status.error",
+  cancelled: "api.status.cancelled",
 };

@@ -1,3 +1,5 @@
+import { t } from "./i18n";
+
 /**
  * Deciding what a tool payload *is*, kept apart from how it is drawn.
  *
@@ -54,10 +56,18 @@ export function entriesOf(value: unknown): ReadonlyArray<readonly [string, unkno
   return [];
 }
 
-/** A one-line sketch of a collapsed container: `{a, b, …}`. */
+/**
+ * A one-line sketch of a collapsed container: `{a, b, …}`.
+ *
+ * The braces and the count are JSON punctuation rather than prose, so both
+ * dictionaries hold them byte-identical — a translated sketch would stop
+ * looking like the value it stands for.
+ */
 export function summaryOf(kind: JsonKind, keys: string[]): string {
-  if (kind === "array") return `[${keys.length}]`;
-  if (keys.length === 0) return "{}";
+  if (kind === "array") return t("json.summary.array", { n: keys.length });
+  if (keys.length === 0) return t("json.summary.object.empty");
   const shown = keys.slice(0, 4).join(", ");
-  return keys.length > 4 ? `{${shown}, …}` : `{${shown}}`;
+  return keys.length > 4
+    ? t("json.summary.object.truncated", { shown })
+    : t("json.summary.object", { shown });
 }

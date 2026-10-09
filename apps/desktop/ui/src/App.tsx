@@ -23,6 +23,7 @@ import { applyTheme, readTheme } from "./theme";
 import { Icon } from "./icons";
 import { DragBar, WindowCaptionBar } from "./chrome";
 import { inDesktopShell } from "./shell";
+import { date, num, t, tn } from "./i18n";
 import { Tip } from "./tip";
 import { CommandSearch } from "./search";
 import { Button } from "@/components/ui/button";
@@ -55,32 +56,31 @@ function parseHash(): Route {
 }
 
 function relTime(iso: string, now = Date.now()): string {
-  const t = new Date(iso).getTime();
-  if (!Number.isFinite(t)) return "";
-  const mins = Math.round((now - t) / 60_000);
-  if (mins < 1) return "now";
+  const ts = new Date(iso).getTime();
+  if (!Number.isFinite(ts)) return "";
+  const mins = Math.round((now - ts) / 60_000);
+  if (mins < 1) return t("time.now");
   if (mins < 60) return `${mins}m`;
   const hours = Math.round(mins / 60);
   if (hours < 36) return `${hours}h`;
-  const d = new Date(t);
-  return `${d.getMonth() + 1}/${d.getDate()}`;
+  return date(ts);
 }
 
-const TIME_BUCKETS = ["Today", "Yesterday", "Previous 7 days", "Older"] as const;
+const TIME_BUCKETS = ["time.today", "time.yesterday", "time.week", "time.older"] as const;
 
 function dayBucket(iso: string, now: number): (typeof TIME_BUCKETS)[number] {
-  const t = new Date(iso).getTime();
-  if (!Number.isFinite(t)) return "Older";
+  const ts = new Date(iso).getTime();
+  if (!Number.isFinite(ts)) return "time.older";
   const start = (ms: number) => {
     const d = new Date(ms);
     d.setHours(0, 0, 0, 0);
     return d.getTime();
   };
-  const diff = Math.round((start(now) - start(t)) / 86_400_000);
-  if (diff <= 0) return "Today";
-  if (diff === 1) return "Yesterday";
-  if (diff < 7) return "Previous 7 days";
-  return "Older";
+  const diff = Math.round((start(now) - start(ts)) / 86_400_000);
+  if (diff <= 0) return "time.today";
+  if (diff === 1) return "time.yesterday";
+  if (diff < 7) return "time.week";
+  return "time.older";
 }
 
 const WS_KEY = "strata.workspace";
@@ -92,12 +92,12 @@ function baseName(path: string): string {
 }
 
 function projectName(path: string): string {
-  if (path === "/" || path === "\\") return "Root";
+  if (path === "/" || path === "\\") return t("project.root");
   return baseName(path);
 }
 
 function projectHint(path: string): string {
-  if (path === "/" || path === "\\") return "filesystem root";
+  if (path === "/" || path === "\\") return t("project.rootHint");
   const parent = parentPath(path);
   return parent === path ? path : parent;
 }
@@ -109,7 +109,7 @@ function settled<T>(resource: { error: unknown; (): T | undefined }): T | undefi
 
 function explain(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
-  if (msg === "Load failed" || msg === "Failed to fetch") return "Can't reach the strata service";
+  if (msg === "Load failed" || msg === "Failed to fetch") return t("error.serviceUnreachable");
   return msg;
 }
 
@@ -220,7 +220,7 @@ function SessionListItem(props: {
             class={`absolute right-1 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground ${
               reveal() ? "" : "invisible pointer-events-none"
             }`}
-            aria-label="Session actions"
+            aria-label={t("sidebar.session.actions")}
             data-session-menu=""
             tabIndex={reveal() ? 0 : -1}
             onPointerDown={(e) => e.stopPropagation()}
@@ -236,11 +236,11 @@ function SessionListItem(props: {
               }}
             >
               <Icon name="pencil" class="size-3.5 text-muted-foreground" />
-              Rename
+              {t("sidebar.session.rename")}
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => void props.onArchive()}>
               <Icon name="archive" class="size-3.5 text-muted-foreground" />
-              Archive
+              {t("sidebar.session.archive")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
@@ -255,7 +255,7 @@ function SessionListItem(props: {
               }}
             >
               <Icon name="trash" class={`size-3.5 ${armed() ? "" : "text-muted-foreground"}`} />
-              {armed() ? "Click again to delete" : "Delete"}
+              {armed() ? t("sidebar.session.deleteArmed") : t("sidebar.session.delete")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -437,7 +437,7 @@ export function App() {
       refetch();
       location.hash = `/session/${encodeURIComponent(body.id)}`;
     } else {
-      setConnErr(body.error ?? "could not create a session");
+      setConnErr(body.error ?? t("error.createSession"));
       setConnOpen(true);
     }
   };
@@ -496,7 +496,7 @@ export function App() {
         })
         .map(([ws, list]) => ({
           key: ws || "none",
-          label: ws ? projectName(ws) : "No project",
+          label: ws ? projectName(ws) : t("sidebar.project.none"),
           hint: ws || undefined,
           rows: list,
         }));
@@ -510,7 +510,7 @@ export function App() {
     }
     return TIME_BUCKETS.filter((bucket) => buckets.has(bucket)).map((bucket) => ({
       key: bucket,
-      label: bucket,
+      label: t(bucket),
       rows: buckets.get(bucket)!,
     }));
   };
@@ -541,12 +541,12 @@ export function App() {
           class="flex h-10 shrink-0 items-center gap-2 border-b border-border pr-3 pl-3 select-none"
           data-tauri-drag-region={inDesktopShell() ? "" : undefined}
         >
-          <Tip class="ml-auto" label={connected() ? "New session" : "Connect a backend"}>
+          <Tip class="ml-auto" label={connected() ? t("action.newSession") : t("action.connectBackend")}>
             <Button
               variant="ghost"
               size="icon-sm"
               class="text-lg leading-none text-muted-foreground"
-              aria-label={connected() ? "New session" : "Connect a backend"}
+              aria-label={connected() ? t("action.newSession") : t("action.connectBackend")}
               onClick={() => {
                 if (!connected()) {
                   setConnOpen(true);
@@ -576,9 +576,11 @@ export function App() {
         />
         <div class="flex flex-col gap-2 px-3 pt-2 pb-3">
           <div>
-            <p class="mb-1 px-0.5 text-2xs font-medium text-muted-foreground">Project</p>
+            <p class="mb-1 px-0.5 text-2xs font-medium text-muted-foreground">
+              {t("sidebar.project.label")}
+            </p>
             <DropdownMenu open={wsOpen()} onOpenChange={setWsOpen} gutter={6}>
-              <Tip label={currentDir() ?? "All projects"} class="w-full">
+              <Tip label={currentDir() ?? t("sidebar.project.all")} class="w-full">
                 <DropdownMenuTrigger
                   class={cn(
                     "flex w-full items-center gap-2 rounded-md border border-border bg-secondary/40 px-2 py-1.5 text-left transition-colors hover:bg-secondary",
@@ -590,10 +592,12 @@ export function App() {
                   </span>
                   <span class="min-w-0 flex-1">
                     <span class="block truncate text-sm font-medium leading-tight">
-                      {currentDir() ? projectName(currentDir()!) : "All projects"}
+                      {currentDir() ? projectName(currentDir()!) : t("sidebar.project.all")}
                     </span>
                     <span class="block truncate font-mono text-2xs leading-tight text-muted-foreground">
-                      {currentDir() ? projectHint(currentDir()!) : `${sessions().length} sessions`}
+                      {currentDir()
+                        ? projectHint(currentDir()!)
+                        : tn("sidebar.sessionCount", sessions().length)}
                     </span>
                   </span>
                   <Icon
@@ -607,8 +611,8 @@ export function App() {
                   class={cn("flex-col items-start gap-0", !currentDir() && "bg-accent")}
                   onSelect={() => chooseWorkspace(ALL)}
                 >
-                  <span class="font-medium">All projects</span>
-                  <span class="text-2xs text-muted-foreground">Every directory on this connection</span>
+                  <span class="font-medium">{t("sidebar.project.all")}</span>
+                  <span class="text-2xs text-muted-foreground">{t("sidebar.project.allHint")}</span>
                 </DropdownMenuItem>
                 <For each={workspaceOptions()}>
                   {(w) => (
@@ -633,7 +637,9 @@ export function App() {
                   onPointerDown={(e) => e.stopPropagation()}
                 >
                   <TextField value={wsDraft()} onChange={setWsDraft}>
-                    <TextFieldLabel class="text-2xs font-medium text-muted-foreground">Open directory</TextFieldLabel>
+                    <TextFieldLabel class="text-2xs font-medium text-muted-foreground">
+                      {t("sidebar.project.openDirectory")}
+                    </TextFieldLabel>
                     <TextFieldInput
                       class="h-8 font-mono text-2xs"
                       placeholder="/path/to/project"
@@ -658,8 +664,8 @@ export function App() {
                 {data.error
                   ? explain(data.error)
                   : settled(data)
-                    ? "No sessions in this project yet."
-                    : "Connect a backend to see sessions."}
+                    ? t("sidebar.empty.inProject")
+                    : t("sidebar.empty.needBackend")}
               </p>
             }
           >
@@ -684,7 +690,7 @@ export function App() {
                     return (
                       <SessionListItem
                         id={id}
-                        title={s.title ?? s.summary.title ?? "untitled"}
+                        title={s.title ?? s.summary.title ?? t("common.untitled")}
                         active={activeId() === id || compareSel().includes(id)}
                         busy={s.busy === true}
                         time={relTime(s.summary.last_ts, clock())}
@@ -712,16 +718,19 @@ export function App() {
               </TextField>
               <div class="flex gap-1.5">
                 <TextField value={connName()} onChange={setConnName} class="w-1/3 gap-0">
-                  <TextFieldInput class="h-8 bg-background px-2 text-2xs" placeholder="name" />
+                  <TextFieldInput class="h-8 bg-background px-2 text-2xs" placeholder={t("connect.form.name")} />
                 </TextField>
                 <TextField value={connUser()} onChange={setConnUser} class="w-1/3 gap-0">
-                  <TextFieldInput class="h-8 bg-background px-2 text-2xs" placeholder="user" />
+                  <TextFieldInput
+                    class="h-8 bg-background px-2 text-2xs"
+                    placeholder={t("connect.form.user")}
+                  />
                 </TextField>
                 <TextField value={connPass()} onChange={setConnPass} class="w-1/3 gap-0">
                   <TextFieldInput
                     type="password"
                     class="h-8 bg-background px-2 text-2xs"
-                    placeholder="password"
+                    placeholder={t("connect.form.password")}
                   />
                 </TextField>
               </div>
@@ -730,7 +739,7 @@ export function App() {
                 disabled={connecting() || !connUrl().trim()}
                 onClick={() => void connect()}
               >
-                {connecting() ? "connecting…" : "connect"}
+                {connecting() ? t("action.connecting") : t("action.connect")}
               </Button>
             </div>
           </Show>
@@ -742,7 +751,9 @@ export function App() {
               <Show
                 when={(settled(conns)?.connections.length ?? 0) > 0}
                 fallback={
-                  <p class="truncate px-1.5 py-1 text-xs text-muted-foreground">No backend</p>
+                  <p class="truncate px-1.5 py-1 text-xs text-muted-foreground">
+                    {t("sidebar.backend.none")}
+                  </p>
                 }
               >
                 <For each={settled(conns)?.connections ?? []}>
@@ -762,12 +773,12 @@ export function App() {
               </Show>
               <Show when={compareOn() && compareSel().length < 2}>
                 <p class="px-1.5 pb-0.5 text-2xs text-muted-foreground">
-                  Pick {2 - compareSel().length}
+                  {t("sidebar.compare.pick", { n: 2 - compareSel().length })}
                 </p>
               </Show>
             </div>
             <Show when={compareSel().length === 2}>
-              <Tip label="Open the comparison">
+              <Tip label={t("sidebar.compare.openTip")}>
                 <Button
                   size="sm"
                   onClick={() => {
@@ -777,26 +788,26 @@ export function App() {
                     setCompareSel([]);
                   }}
                 >
-                  open
+                  {t("sidebar.compare.open")}
                 </Button>
               </Tip>
             </Show>
             <DropdownMenu placement="top-end">
               <DropdownMenuTrigger
                 class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
-                aria-label="More"
+                aria-label={t("sidebar.menu.more")}
               >
                 ···
               </DropdownMenuTrigger>
               <DropdownMenuContent class="min-w-52">
                 <DropdownMenuItem onSelect={() => (location.hash = "/settings")}>
                   <Icon name="gear" class="size-3.5 text-muted-foreground" />
-                  Settings
+                  {t("settings.title")}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => setConnOpen((v) => !v)}>
                   <Icon name="link" class="size-3.5 text-muted-foreground" />
-                  {connOpen() ? "Close connect" : "Connect a backend"}
+                  {connOpen() ? t("action.closeConnect") : t("action.connectBackend")}
                 </DropdownMenuItem>
                 <For each={settled(conns)?.connections ?? []}>
                   {(c) => (
@@ -809,14 +820,14 @@ export function App() {
                       }
                     >
                       <span class="size-3.5 shrink-0" />
-                      Disconnect {endpointHost(c.baseUrl)}
+                      {t("sidebar.menu.disconnect", { host: endpointHost(c.baseUrl) })}
                     </DropdownMenuItem>
                   )}
                 </For>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => (location.hash = "/policy")}>
                   <Icon name="shield" class="size-3.5 text-muted-foreground" />
-                  Permission policy
+                  {t("settings.permission.title")}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onSelect={() => {
@@ -825,7 +836,7 @@ export function App() {
                   }}
                 >
                   <Icon name="columns" class="size-3.5 text-muted-foreground" />
-                  {compareOn() ? "Cancel compare" : "Compare two sessions"}
+                  {compareOn() ? t("sidebar.compare.cancel") : t("sidebar.compare.start")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -838,8 +849,12 @@ export function App() {
           <div class="flex h-full flex-col">
             <DragBar class="text-sm text-muted-foreground">
               <span class="min-w-0 truncate">
-                {sessions().length.toLocaleString()}
-                {currentDir() ? " in this project" : " sessions"} ·{" "}
+                {currentDir()
+                  ? t("fleet.topbar.countInProject", { n: num(sessions().length) })
+                  : tn("fleet.topbar.countAll", sessions().length, {
+                      n: num(sessions().length),
+                    })}
+                {" · "}
                 <span class="font-mono tabular-nums text-foreground">
                   {fmtUsd(settled(data)?.aggregate.total.cost_usd ?? 0)}
                 </span>
@@ -848,18 +863,16 @@ export function App() {
             <div class="min-h-0 flex-1 overflow-y-auto">
               <div class="mx-auto flex max-w-sm flex-col items-start px-8 pt-24">
                 <p class="text-sm font-medium text-foreground">
-                  {connected() ? "Pick a session" : "Connect a backend"}
+                  {connected() ? t("fleet.title.pickSession") : t("action.connectBackend")}
                 </p>
                 <p class="mt-1.5 text-sm leading-5 text-muted-foreground">
-                  {connected()
-                    ? "Sessions already on the server show up in the sidebar. New ones start with +."
-                    : "Attach a running agent server. Sessions already on it show up as soon as the stream connects."}
+                  {connected() ? t("fleet.hint.connected") : t("fleet.hint.disconnected")}
                 </p>
                 <Button
                   class="mt-5"
                   onClick={() => (connected() ? void newSession() : setConnOpen(true))}
                 >
-                  {connected() ? "new session" : "connect"}
+                  {connected() ? t("action.newSession") : t("action.connect")}
                 </Button>
               </div>
             </div>
@@ -875,9 +888,9 @@ export function App() {
                 class="text-sm text-muted-foreground hover:text-foreground"
                 onClick={() => (location.hash = "/")}
               >
-                ← fleet
+                {t("nav.backToFleet")}
               </button>
-              <span class="text-sm text-foreground">Compare</span>
+              <span class="text-sm text-foreground">{t("nav.compare")}</span>
             </DragBar>
             <div class="min-h-0 flex-1 overflow-y-auto">
               <CompareView
@@ -894,9 +907,9 @@ export function App() {
                 class="text-sm text-muted-foreground hover:text-foreground"
                 onClick={() => (location.hash = "/")}
               >
-                ← fleet
+                {t("nav.backToFleet")}
               </button>
-              <span class="text-sm text-foreground">Settings</span>
+              <span class="text-sm text-foreground">{t("settings.title")}</span>
             </DragBar>
             <div class="min-h-0 flex-1 overflow-y-auto">
               <SettingsPage />
@@ -910,9 +923,9 @@ export function App() {
                 class="text-sm text-muted-foreground hover:text-foreground"
                 onClick={() => (location.hash = "/")}
               >
-                ← fleet
+                {t("nav.backToFleet")}
               </button>
-              <span class="text-sm text-foreground">Policy</span>
+              <span class="text-sm text-foreground">{t("nav.policy")}</span>
             </DragBar>
             <div class="min-h-0 flex-1 overflow-y-auto">
               <PolicyEditor />

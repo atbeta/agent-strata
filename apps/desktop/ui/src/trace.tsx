@@ -4,6 +4,7 @@ import { inDesktopShell } from "./shell";
 import { Md } from "./md";
 import { Tip } from "./tip";
 import { CopyButton, Payload } from "./payload";
+import { stamp, t } from "./i18n";
 
 export interface TraceBlock {
   key: string;
@@ -24,10 +25,11 @@ export interface TraceBlock {
   quiet?: boolean;
 }
 
+/** `label` holds the dictionary key; the row renders `t()` over it. */
 const LANES = [
-  { id: "user", label: "输入", dot: "bg-event-user" },
-  { id: "assistant", label: "回复", dot: "bg-event-assistant" },
-  { id: "tool", label: "工具", dot: "bg-event-tool" },
+  { id: "user", label: "trace.lane.input", dot: "bg-event-user" },
+  { id: "assistant", label: "trace.lane.reply", dot: "bg-event-assistant" },
+  { id: "tool", label: "trace.lane.tool", dot: "bg-event-tool" },
 ] as const;
 
 function parts(content: unknown): { type?: string; text?: string }[] {
@@ -175,6 +177,27 @@ export function traceBlocks(events: StrataEvent[]): TraceBlock[] {
   return blocks;
 }
 
+/**
+ * `traceBlocks` runs inside a fetch, not a render pass, so calling `t()` there
+ * would freeze a word in whatever language was active when the events loaded.
+ * The stand-in words travel through the data as markers and are translated at
+ * the two places a title or preview is actually shown. A title that carries a
+ * model id or a tool name is passed through untouched, like every other piece of
+ * text the backend sends.
+ */
+function displayTitle(b: TraceBlock): string {
+  if (b.lane === "user" && b.title === "输入") return t("trace.lane.input");
+  if (b.lane === "assistant" && b.title === "回复") return t("trace.lane.reply");
+  if (b.lane === "tool" && b.title === "tool") return t("trace.title.tool");
+  return b.title;
+}
+
+function displayPreview(b: TraceBlock): string {
+  if (b.lane === "user" && b.preview === "message") return t("trace.preview.message");
+  if (b.lane === "assistant" && b.preview === "reply") return t("trace.preview.reply");
+  return b.preview;
+}
+
 function layout(blocks: TraceBlock[]) {
   const sorted = [...blocks].sort((a, b) => a.seq - b.seq);
   const pos = new Map<string, { left: number; width: number }>();
@@ -243,13 +266,16 @@ export function TraceStrip(props: {
               const row = () => (events() ?? []).filter((b) => b.lane === lane.id);
               return (
                 <div class="flex items-center gap-2">
-                  <span class="w-8 shrink-0 text-2xs text-muted-foreground">{lane.label}</span>
+                  <span class="w-8 shrink-0 text-2xs text-muted-foreground">{t(lane.label)}</span>
                   <div class="relative h-3 rounded-sm bg-secondary/40" style={{ width: `${placed().width}px` }}>
                     <For each={row()}>
                       {(block) => {
                         const box = () => placed().pos.get(block.key);
-                        const label = () =>
-                          `${block.title}${block.preview && block.preview !== block.title ? ` — ${block.preview.slice(0, 80)}` : ""}`;
+                        const label = () => {
+                          const title = displayTitle(block);
+                          const preview = displayPreview(block);
+                          return `${title}${preview && preview !== title ? ` — ${preview.slice(0, 80)}` : ""}`;
+                        };
                         return (
                           <Tip label={label()}>
                             <button
@@ -295,16 +321,20 @@ export function TraceDrawer(props: { block: TraceBlock; onClose: () => void }) {
   });
 
   const tabs = (): { id: Tab; label: string }[] => {
-    const out: { id: Tab; label: string }[] = [{ id: "overview", label: "概述" }];
-    if (props.block.input) out.push({ id: "input", label: "参数" });
-    if (props.block.result) out.push({ id: "result", label: "结果" });
-    out.push({ id: "time", label: "计时" });
+    const out: { id: Tab; label: string }[] = [
+      { id: "overview", label: t("trace.tab.overview") },
+    ];
+    if (props.block.input) out.push({ id: "input", label: t("trace.tab.input") });
+    if (props.block.result) out.push({ id: "result", label: t("trace.tab.result") });
+    out.push({ id: "time", label: t("trace.tab.time") });
     return out;
   };
 
   const when = () => {
-    const t = new Date(props.block.ts);
-    return Number.isNaN(t.getTime()) ? props.block.ts : t.toLocaleString();
+    const at = new Date(props.block.ts);
+    // Falls back to the raw string when the backend sent something unparseable,
+    // which is a better answer than "Invalid Date".
+    return Number.isNaN(at.getTime()) ? props.block.ts : stamp(at);
   };
 
   return (
@@ -316,11 +346,11 @@ export function TraceDrawer(props: { block: TraceBlock; onClose: () => void }) {
         <span
           class={`h-1.5 w-1.5 shrink-0 rounded-full ${props.block.tone}`}
         />
-        <h2 class="min-w-0 flex-1 truncate text-sm font-medium">{props.block.title}</h2>
-        <Tip label="关闭">
+        <h2 class="min-w-0 flex-1 truncate text-sm font-medium">{displayTitle(props.block)}</h2>
+        <Tip label={t("trace.action.close")}>
           <button
             class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
-            aria-label="关闭"
+            aria-label={t("trace.action.close")}
             onClick={() => props.onClose()}
           >
             ×
@@ -348,7 +378,9 @@ export function TraceDrawer(props: { block: TraceBlock; onClose: () => void }) {
           <Md text={props.block.preview} class="text-xs leading-[1.65]" />
           <Show when={props.block.result !== undefined}>
             <section class="mt-4">
-              <h3 class="mb-1.5 text-2xs font-medium text-muted-foreground">Result</h3>
+              <h3 class="mb-1.5 text-2xs font-medium text-muted-foreground">
+                {t("trace.section.result")}
+              </h3>
               <Payload value={props.block.result} maxHeight="max-h-48" />
             </section>
           </Show>
@@ -357,20 +389,20 @@ export function TraceDrawer(props: { block: TraceBlock; onClose: () => void }) {
           </Show>
         </Show>
         <Show when={tab() === "input"}>
-          <Block label="Input" value={props.block.input} />
+          <Block label={t("trace.section.input")} value={props.block.input} />
         </Show>
         <Show when={tab() === "result"}>
-          <Block label="Result" value={props.block.result} />
+          <Block label={t("trace.section.result")} value={props.block.result} />
         </Show>
         <Show when={tab() === "time"}>
           <dl class="divide-y divide-border border-t border-border">
             <div class="flex items-baseline justify-between gap-4 py-2">
-              <dt class="text-xs text-muted-foreground">Started</dt>
+              <dt class="text-xs text-muted-foreground">{t("trace.field.started")}</dt>
               <dd class="font-mono text-xs tabular-nums">{when()}</dd>
             </div>
             <Show when={props.block.detail}>
               <div class="flex items-baseline justify-between gap-4 py-2">
-                <dt class="text-xs text-muted-foreground">Elapsed</dt>
+                <dt class="text-xs text-muted-foreground">{t("trace.field.elapsed")}</dt>
                 <dd class="font-mono text-xs tabular-nums">{props.block.detail}</dd>
               </div>
             </Show>
@@ -398,7 +430,7 @@ function Block(props: { label: string; value: unknown }) {
           <CopyButton text={text()} />
         </Show>
       </div>
-      <Payload value={props.value} empty="无" />
+      <Payload value={props.value} empty={t("trace.empty")} />
     </section>
   );
 }

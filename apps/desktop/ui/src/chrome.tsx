@@ -1,5 +1,6 @@
 import { Show, createSignal, onCleanup, onMount, type JSX } from "solid-js";
 import { inDesktopShell, drawsOwnTopStrip, usesCustomCaption } from "./shell";
+import { t } from "./i18n";
 import { Tip } from "./tip";
 
 type WindowHandle = {
@@ -45,11 +46,11 @@ export function CaptionButtons() {
   return (
     <Show when={usesCustomCaption()}>
       <div class="flex h-full shrink-0">
-        <Tip label="Minimize" class="h-full">
+        <Tip label={t("window.caption.minimize")} class="h-full">
           <button
             type="button"
             class="grid h-full w-11 place-items-center text-muted-foreground hover:bg-secondary hover:text-foreground"
-            aria-label="Minimize"
+            aria-label={t("window.caption.minimize")}
             onClick={() => run((win) => win.minimize())}
           >
             <svg viewBox="0 0 12 12" class="size-3" fill="none" stroke="currentColor" stroke-width="1.2">
@@ -57,11 +58,11 @@ export function CaptionButtons() {
             </svg>
           </button>
         </Tip>
-        <Tip label={maximized() ? "Restore" : "Maximize"} class="h-full">
+        <Tip label={maximized() ? t("window.caption.restore") : t("window.caption.maximize")} class="h-full">
           <button
             type="button"
             class="grid h-full w-11 place-items-center text-muted-foreground hover:bg-secondary hover:text-foreground"
-            aria-label={maximized() ? "Restore" : "Maximize"}
+            aria-label={maximized() ? t("window.caption.restore") : t("window.caption.maximize")}
             onClick={() => run((win) => win.toggleMaximize())}
           >
             <Show
@@ -79,11 +80,11 @@ export function CaptionButtons() {
             </Show>
           </button>
         </Tip>
-        <Tip label="Close" class="h-full">
+        <Tip label={t("window.caption.close")} class="h-full">
           <button
             type="button"
             class="grid h-full w-12 place-items-center text-muted-foreground hover:bg-destructive hover:text-destructive-foreground"
-            aria-label="Close"
+            aria-label={t("window.caption.close")}
             onClick={() => run((win) => win.close())}
           >
             <svg viewBox="0 0 12 12" class="size-3" fill="none" stroke="currentColor" stroke-width="1.2">

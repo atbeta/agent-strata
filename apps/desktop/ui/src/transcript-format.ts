@@ -1,4 +1,5 @@
 import type { ToolCallView } from "./api";
+import { t, tn } from "./i18n";
 
 export type ToolKind = "shell" | "read" | "edit" | "search" | "web" | "todo" | "generic";
 
@@ -54,22 +55,22 @@ export function toolHeadline(call: Pick<ToolCallView, "tool" | "input">): ToolHe
   const url = field(input, ["url", "href"]);
 
   if (kind === "shell") {
-    return { kind, verb: "Bash", title: command ? firstLine(command) : call.tool };
+    return { kind, verb: t("tool.verb.bash"), title: command ? firstLine(command) : call.tool };
   }
   if (kind === "read") {
-    return { kind, verb: "Read", title: path ?? call.tool };
+    return { kind, verb: t("tool.verb.read"), title: path ?? call.tool };
   }
   if (kind === "edit") {
-    const verb = call.tool.toLowerCase() === "write" ? "Write" : "Edit";
+    const verb = call.tool.toLowerCase() === "write" ? t("tool.verb.write") : t("tool.verb.edit");
     return { kind, verb, title: path ?? call.tool };
   }
   if (kind === "search") {
-    const verb = call.tool.toLowerCase() === "glob" ? "Glob" : "Search";
-    const where = path ? ` in ${path}` : "";
+    const verb = call.tool.toLowerCase() === "glob" ? t("tool.verb.glob") : t("tool.verb.search");
+    const where = path ? ` ${t("tool.search.in", { path })}` : "";
     return { kind, verb, title: pattern ? `${pattern}${where}` : (path ?? call.tool) };
   }
   if (kind === "web") {
-    const verb = call.tool.toLowerCase().includes("search") ? "Search" : "Fetch";
+    const verb = call.tool.toLowerCase().includes("search") ? t("tool.verb.search") : t("tool.verb.fetch");
     return { kind, verb, title: url ?? pattern ?? call.tool };
   }
   if (kind === "todo") {
@@ -78,7 +79,8 @@ export function toolHeadline(call: Pick<ToolCallView, "tool" | "input">): ToolHe
       Array.isArray(todos) && todos.length > 0 && todos[0] && typeof todos[0] === "object"
         ? field(todos[0] as Record<string, unknown>, ["content", "title"])
         : undefined;
-    return { kind, verb: "Plan", title: first ?? `${Array.isArray(todos) ? todos.length : 0} items` };
+    const count = Array.isArray(todos) ? todos.length : 0;
+    return { kind, verb: t("tool.verb.plan"), title: first ?? tn("plan.items", count) };
   }
   const description = field(input, ["description", "prompt", "title"]);
   return { kind, verb: call.tool, title: description ?? path ?? command ?? pattern ?? "" };
@@ -110,27 +112,49 @@ export function thinkingPreview(text: string): string {
   return firstLine(text.replace(/\s+/g, " "), 88);
 }
 
+/** Milliseconds and seconds are units: `840ms`, `1.5s`, `12s` in every language. */
 export function fmtLatency(ms: number | undefined): string | undefined {
   if (ms == null || !Number.isFinite(ms)) return undefined;
-  if (ms < 1000) return `${Math.round(ms)}ms`;
+  if (ms < 1000) return t("latency.ms", { n: Math.round(ms) });
   const seconds = ms / 1000;
-  return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`;
+  return seconds < 10
+    ? t("latency.s.tenth", { n: seconds.toFixed(1) })
+    : t("latency.s", { n: Math.round(seconds) });
 }
 
 export function statusLabel(status: ToolCallView["status"]): string | undefined {
-  if (status === "pending") return "Running";
-  if (status === "error") return "Failed";
-  if (status === "interrupted") return "Stopped";
+  if (status === "pending") return t("status.running");
+  if (status === "error") return t("status.failed");
+  if (status === "interrupted") return t("status.stopped");
   return undefined;
 }
 
+/**
+ * The permission sentence, assembled from parts rather than concatenated.
+ *
+ * English says `Denied by you` — verb, space, actor, preposition. Chinese has
+ * no slot to fill and says `你已拒绝` — actor first, verb tight against it. One
+ * template cannot serve both word orders, so `permission.by` is a two-slot
+ * frame that each language fills its own way and the actor and verb are looked
+ * up separately before they meet. The reason behind the decision comes from
+ * the backend and is passed through untouched; only the frame is translated.
+ */
 export function permissionLabel(permission: ToolCallView["permission"]): string | undefined {
   if (!permission) return undefined;
-  if (!permission.decision) return "Waiting for permission";
-  const who = permission.by === "user" ? "you" : permission.by === "policy" ? "policy" : permission.by === "auto" ? "the session" : undefined;
-  const verb = permission.decision === "deny" ? "Denied" : "Allowed";
-  const by = who ? ` by ${who}` : "";
-  return permission.reason ? `${verb}${by} — ${permission.reason}` : `${verb}${by}`;
+  if (!permission.decision) return t("permission.pending");
+  const actor =
+    permission.by === "user"
+      ? t("permission.actor.you")
+      : permission.by === "policy"
+        ? t("permission.actor.policy")
+        : permission.by === "auto"
+          ? t("permission.actor.session")
+          : undefined;
+  const verb = t(permission.decision === "deny" ? "permission.denied" : "permission.allowed");
+  const sentence = actor ? t("permission.by", { verb, actor }) : verb;
+  return permission.reason
+    ? t("permission.with_reason", { verb: sentence, reason: permission.reason })
+    : sentence;
 }
 
 export interface TodoItem {

@@ -1,5 +1,6 @@
 import { createSignal, For, Show } from "solid-js";
 import { entriesOf, kindOf, summaryOf, type JsonKind } from "./structure";
+import { t } from "./i18n";
 
 /**
  * A collapsible tree for structured tool input/output.
@@ -48,7 +49,7 @@ function Node(props: {
         <button
           type="button"
           class="mt-px grid h-3.5 w-3.5 shrink-0 place-items-center text-muted-foreground"
-          aria-label={open() ? "折叠" : "展开"}
+          aria-label={open() ? t("json.tree.collapse") : t("json.tree.expand")}
           aria-expanded={open()}
           onClick={() => props.toggle(props.path)}
         >
