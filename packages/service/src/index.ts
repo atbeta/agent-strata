@@ -3,7 +3,7 @@
 // localhost. One store file, many backend connections, SSE fan-out to clients.
 
 import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { openStore, type Store, type EventQuery } from "@agent-strata/store";
 import { projectSession, aggregate, type SessionView } from "@agent-strata/projector";
 import { compareSessions, exportEvents } from "@agent-strata/core";
@@ -731,9 +731,9 @@ function userHome(): string {
 
 if (import.meta.main) {
   const home = userHome();
-  const db = process.env.STRATA_DB ?? `${home}/.agent-strata/events.db`;
+  const db = process.env.STRATA_DB ?? join(home, ".agent-strata", "events.db");
   const port = Number(process.env.STRATA_PORT ?? 7700);
-  const policyFile = process.env.STRATA_POLICY ?? `${home}/.agent-strata/policy.json`;
+  const policyFile = process.env.STRATA_POLICY ?? join(home, ".agent-strata", "policy.json");
   const svc = startService({
     db,
     port,

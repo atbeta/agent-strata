@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openStore } from "../src/index";
@@ -89,6 +89,21 @@ describe("store", () => {
       expect(out[0]!.seq).toBe(2);
       expect(s2.read({ session_id: "a" }).length).toBe(2);
       s2.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("openStore creates missing parent directories for a nested path", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agent-strata-"));
+    // fresh ~/.agent-strata-style layout: parent dir does not exist yet
+    const path = join(dir, "nested", "deeper", "db.sqlite");
+    try {
+      const s = openStore(path);
+      s.append([mk("a", "session.started", { workspace: "/a" })]);
+      expect(existsSync(join(dir, "nested", "deeper"))).toBe(true);
+      expect(s.read({ session_id: "a" }).length).toBe(1);
+      s.close();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

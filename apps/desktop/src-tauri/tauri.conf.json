@@ -7,7 +7,7 @@
     "frontendDist": "../ui/dist",
     "devUrl": "http://localhost:5178",
     "beforeDevCommand": {
-      "script": "STRATA_SERVICE_URL=http://127.0.0.1:7700 bun run dev",
+      "script": "bun run dev",
       "cwd": "../ui"
     },
     "beforeBuildCommand": {

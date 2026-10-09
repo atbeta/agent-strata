@@ -1,4 +1,6 @@
 import { Database } from "bun:sqlite";
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import { Event, EventInput, makeEvent, parseEvent } from "@agent-strata/schema";
 
 export interface EventQuery {
@@ -57,6 +59,9 @@ function ftsQuote(q: string): string {
 }
 
 export function openStore(path: string | ":memory:"): Store {
+  // SQLite does not create parent directories, so a first run against a fresh
+  // ~/.agent-strata fails with SQLITE_CANTOPEN. Create it up front.
+  if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
   const db = new Database(path === ":memory:" ? ":memory:" : path);
   if (path !== ":memory:") db.exec("PRAGMA journal_mode=WAL");
   db.exec(`
