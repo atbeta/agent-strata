@@ -159,6 +159,21 @@ describe("store", () => {
     s.close();
   });
 
+  test("an explicit source clock rewrites a stored event and the session list", () => {
+    const s = openStore(":memory:");
+    const ingested = "2026-10-08T17:28:29.520Z";
+    const activity = "2026-10-02T03:11:00.000Z";
+    const first = mk("a", "session.started", { workspace: "/a" }, ingested);
+    s.append([first]);
+    expect(s.listSessions()[0]!.last_ts).toBe(ingested);
+    s.append([{ ...first, ts: activity }]);
+    const again = s.read({ session_id: "a" });
+    expect(again).toHaveLength(1);
+    expect(again[0]!.ts).toBe(activity);
+    expect(s.listSessions()[0]!.last_ts).toBe(activity);
+    s.close();
+  });
+
   test("listSessions ordering by last_ts desc and backend filter", () => {
     const s = openStore(":memory:");
     s.append([

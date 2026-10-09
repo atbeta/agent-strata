@@ -200,6 +200,8 @@ export function startService(opts: ServiceOpts = {}): RunningService {
 
   const server = Bun.serve({
     port: opts.port ?? 0,
+    // projecting every session can outlast Bun's 10s default
+    idleTimeout: 0,
     async fetch(req) {
       const url = new URL(req.url);
       const path = url.pathname;

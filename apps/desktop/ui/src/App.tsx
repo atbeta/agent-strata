@@ -33,13 +33,16 @@ function parseHash(): Route {
   return { name: "fleet" };
 }
 
-function relTime(iso: string): string {
-  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60_000);
-  if (!Number.isFinite(mins) || mins < 1) return "now";
+function relTime(iso: string, now = Date.now()): string {
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return "";
+  const mins = Math.round((now - t) / 60_000);
+  if (mins < 1) return "now";
   if (mins < 60) return `${mins}m`;
   const hours = Math.round(mins / 60);
   if (hours < 36) return `${hours}h`;
-  return `${Math.round(hours / 24)}d`;
+  const d = new Date(t);
+  return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
 function eventPreview(e: StrataEvent): string {
@@ -62,6 +65,7 @@ function eventPreview(e: StrataEvent): string {
 
 export function App() {
   const [route, setRoute] = createSignal<Route>(parseHash());
+  const [clock, setClock] = createSignal(Date.now());
   const [data, { refetch }] = createResource(() => getJson<SessionsResponse>("/sessions"));
   const [conns, { refetch: refetchConns }] = createResource(() =>
     getJson<{ connections: Connection[] }>("/connections"),
@@ -89,6 +93,7 @@ export function App() {
   onMount(() => {
     const onHash = () => setRoute(parseHash());
     window.addEventListener("hashchange", onHash);
+    const clockTimer = setInterval(() => setClock(Date.now()), 30_000);
     const es = new EventSource(api("/stream"));
     let timer: ReturnType<typeof setTimeout> | undefined;
     es.onmessage = () => {
@@ -97,6 +102,7 @@ export function App() {
     };
     onCleanup(() => {
       window.removeEventListener("hashchange", onHash);
+      clearInterval(clockTimer);
       clearTimeout(timer);
       es.close();
     });
@@ -235,8 +241,11 @@ export function App() {
                         <span class="min-w-0 flex-1 truncate text-[13px]">
                           {s.title ?? s.summary.title ?? "untitled"}
                         </span>
-                        <span class="shrink-0 font-mono text-[10px] text-muted-foreground tabular-nums">
-                          {relTime(s.summary.last_ts)}
+                        <span
+                          class="shrink-0 font-mono text-[10px] text-muted-foreground tabular-nums"
+                          title={new Date(s.summary.last_ts).toLocaleString()}
+                        >
+                          {relTime(s.summary.last_ts, clock())}
                         </span>
                       </button>
                     );

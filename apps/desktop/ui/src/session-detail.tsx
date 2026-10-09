@@ -19,6 +19,7 @@ import {
 import { Md } from "./md";
 import { Icon } from "./icons";
 import { inDesktopShell } from "./shell";
+import { TraceDrawer, TraceStrip, type TraceBlock } from "./trace";
 
 function BlockText(props: { blocks: ContentBlock[]; tight?: boolean }) {
   return (
@@ -231,9 +232,40 @@ function QuestionCard(props: { q: PendingQuestion; onDone: () => void }) {
   );
 }
 
+function sessionModel(v: SessionView | undefined): string | undefined {
+  const turns = v?.turns ?? [];
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const assistant = turns[i]!.assistant;
+    for (let j = assistant.length - 1; j >= 0; j--) {
+      if (assistant[j]?.model) return assistant[j]!.model;
+    }
+  }
+  return undefined;
+}
+
+function splitModel(id: string): { providerID: string; modelID: string } | undefined {
+  const i = id.indexOf("/");
+  if (i <= 0) return undefined;
+  return { providerID: id.slice(0, i), modelID: id.slice(i + 1) };
+}
+
+function LoadingTranscript() {
+  return (
+    <div class="mx-auto w-full max-w-3xl space-y-4 px-5 py-8">
+      <div class="ml-auto h-10 w-2/3 animate-pulse rounded-2xl bg-secondary/80" />
+      <div class="h-4 w-5/6 animate-pulse rounded bg-secondary/50" />
+      <div class="h-4 w-2/3 animate-pulse rounded bg-secondary/40" />
+    </div>
+  );
+}
+
 export function SessionDetail(props: { id: string }) {
   const [replayPos, setReplayPos] = createSignal<number | null>(null);
+  const [traceOn, setTraceOn] = createSignal(false);
+  const [traceBlock, setTraceBlock] = createSignal<TraceBlock | null>(null);
   const [filesOpen, setFilesOpen] = createSignal(false);
+  const [booting, setBooting] = createSignal(true);
+  const [modelTouched, setModelTouched] = createSignal(false);
   const [view, { refetch }] = createResource(
     () => ({ id: props.id, pos: replayPos() }),
     ({ id, pos }) =>
@@ -278,10 +310,20 @@ export function SessionDetail(props: { id: string }) {
   let pinned = true;
 
   createEffect(() => {
-    const models = options()?.models ?? [];
-    if (!modelSel() && models[0]) setModelSel(`${models[0].providerID}/${models[0].modelID}`);
     const agents = options()?.agents ?? [];
     if (!agentSel() && agents[0]) setAgentSel(agents[0].name);
+  });
+
+  createEffect(() => {
+    if (modelTouched()) return;
+    const inherited = sessionModel(view());
+    if (inherited) {
+      setModelSel(inherited);
+      return;
+    }
+    if (booting() || !view()) return;
+    const models = options()?.models ?? [];
+    if (models[0]) setModelSel(`${models[0].providerID}/${models[0].modelID}`);
   });
 
   const selectedModel = () =>
@@ -314,8 +356,8 @@ export function SessionDetail(props: { id: string }) {
     void importSession(props.id)
       .catch(() => {})
       .finally(() => {
-        refetch();
-        refetchSeq();
+        void Promise.resolve(refetch()).finally(() => setBooting(false));
+        void refetchSeq();
       });
     const onConns = () => refetchOptions();
     window.addEventListener("strata-connections", onConns);
@@ -375,7 +417,7 @@ export function SessionDetail(props: { id: string }) {
     const source = picked ?? implied;
     const model = source
       ? { providerID: source.providerID, modelID: source.modelID }
-      : undefined;
+      : splitModel(modelSel());
     try {
       const res = await fetch(api(`/sessions/${encodeURIComponent(props.id)}/prompt`), {
         method: "POST",
@@ -416,7 +458,7 @@ export function SessionDetail(props: { id: string }) {
   return (
     <div class="flex h-full min-h-0">
       <div class="flex min-w-0 flex-1 flex-col">
-        <Show when={view()} fallback={<p class="p-8 text-sm text-muted-foreground">loading…</p>}>
+        <Show when={view()} fallback={<LoadingTranscript />}>
           {(v) => (
             <>
               <header
@@ -427,6 +469,13 @@ export function SessionDetail(props: { id: string }) {
                   <span class="h-2 w-2 shrink-0 animate-pulse rounded-full bg-status-active" />
                 </Show>
                 <h1 class="truncate text-sm font-medium">{v().title ?? "untitled session"}</h1>
+                <Show when={sessionModel(v())}>
+                  {(m) => (
+                    <span class="hidden truncate font-mono text-[11px] text-muted-foreground sm:inline">
+                      {m().slice(m().indexOf("/") + 1)}
+                    </span>
+                  )}
+                </Show>
                 <Show when={realWorkspace(v().workspace)}>
                   {(ws) => (
                     <span class="hidden truncate font-mono text-[11px] text-muted-foreground sm:inline">
@@ -442,13 +491,22 @@ export function SessionDetail(props: { id: string }) {
                   </Show>
                   <button
                     class={`grid h-7 w-7 place-items-center rounded-md transition-colors ${
-                      replayPos() !== null
-                        ? "bg-event-assistant/15 text-event-assistant"
+                      traceOn()
+                        ? "bg-secondary text-foreground"
                         : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                     }`}
-                    title={replayPos() !== null ? "Live" : "Replay"}
-                    aria-label={replayPos() !== null ? "Live" : "Replay"}
-                    onClick={() => setReplayPos(replayPos() === null ? (maxSeq() ?? 0) : null)}
+                    title={traceOn() ? "Live" : "Replay"}
+                    aria-label={traceOn() ? "Live" : "Replay"}
+                    onClick={() => {
+                      if (traceOn()) {
+                        setTraceOn(false);
+                        setTraceBlock(null);
+                        setReplayPos(null);
+                      } else {
+                        setTraceOn(true);
+                        setFilesOpen(false);
+                      }
+                    }}
                   >
                     <Icon name="replay" />
                   </button>
@@ -460,7 +518,11 @@ export function SessionDetail(props: { id: string }) {
                     }`}
                     title="Files"
                     aria-label="Files"
-                    onClick={() => setFilesOpen((o) => !o)}
+                    onClick={() => {
+                      setFilesOpen((o) => !o);
+                      setTraceBlock(null);
+                      setReplayPos(null);
+                    }}
                   >
                     <Icon name="files" />
                     <Show when={v().files_changed.length > 0}>
@@ -479,20 +541,21 @@ export function SessionDetail(props: { id: string }) {
                 </span>
               </header>
 
-              <Show when={replayPos() !== null}>
-                <div class="flex shrink-0 items-center gap-3 border-b border-event-assistant/30 bg-event-assistant/5 px-4 py-2">
-                  <input
-                    type="range"
-                    class="flex-1 accent-event-assistant"
-                    min={1}
-                    max={maxSeq() ?? 1}
-                    value={replayPos() ?? 1}
-                    onInput={(e) => setReplayPos(Number(e.currentTarget.value))}
-                  />
-                  <span class="shrink-0 font-mono text-[11px] text-muted-foreground tabular-nums">
-                    {replayPos()} / {maxSeq() ?? "?"}
-                  </span>
-                </div>
+              <Show when={traceOn()}>
+                <TraceStrip
+                  sessionId={props.id}
+                  selected={traceBlock()?.key ?? null}
+                  onSelect={(block) => {
+                    if (traceBlock()?.key === block.key) {
+                      setTraceBlock(null);
+                      setReplayPos(null);
+                      return;
+                    }
+                    setTraceBlock(block);
+                    setReplayPos(block.seq);
+                    setFilesOpen(false);
+                  }}
+                />
               </Show>
 
               <div
@@ -505,14 +568,19 @@ export function SessionDetail(props: { id: string }) {
               >
                 <div class="mx-auto w-full max-w-3xl space-y-8 px-5 py-4">
                   <Show
-                    when={v().turns.length > 0}
-                    fallback={
-                      <p class="pt-16 text-center text-sm text-muted-foreground">
-                        Empty session. Write a prompt to start.
-                      </p>
-                    }
+                    when={!booting()}
+                    fallback={<LoadingTranscript />}
                   >
+                    <Show
+                      when={v().turns.length > 0}
+                      fallback={
+                        <p class="pt-16 text-center text-sm text-muted-foreground">
+                          Empty session. Write a prompt to start.
+                        </p>
+                      }
+                    >
                     <For each={v().turns}>{(t) => <TurnBlock turn={t} />}</For>
+                    </Show>
                   </Show>
                 </div>
               </div>
@@ -577,16 +645,27 @@ export function SessionDetail(props: { id: string }) {
                         }}
                       />
                       <div class="flex items-center gap-1 px-2 pb-2">
-                        <Show when={(options()?.models.length ?? 0) > 0}>
+                        <Show when={(options()?.models.length ?? 0) > 0 && (Boolean(modelSel()) || !booting())}>
                           <select
                             class={pickerCls}
                             value={modelSel()}
                             title="Model"
                             onChange={(e) => {
+                              setModelTouched(true);
                               setModelSel(e.currentTarget.value);
                               setVariantSel("");
                             }}
                           >
+                            <Show
+                              when={
+                                modelSel() &&
+                                !(options()?.models ?? []).some(
+                                  (m) => `${m.providerID}/${m.modelID}` === modelSel(),
+                                )
+                              }
+                            >
+                              <option value={modelSel()}>{modelSel().slice(modelSel().indexOf("/") + 1)}</option>
+                            </Show>
                             <For each={modelGroups()}>
                               {([pid, models]) => (
                                 <optgroup label={pid}>
@@ -661,7 +740,18 @@ export function SessionDetail(props: { id: string }) {
         </Show>
       </div>
 
-      <Show when={filesOpen() && view()}>
+      <Show when={traceBlock()}>
+        {(block) => (
+          <TraceDrawer
+            block={block()}
+            onClose={() => {
+              setTraceBlock(null);
+              setReplayPos(null);
+            }}
+          />
+        )}
+      </Show>
+      <Show when={filesOpen() && !traceBlock() && view()}>
         <aside class="flex w-72 shrink-0 flex-col border-l border-border bg-card/30">
           <div class="flex h-12 items-center px-4 text-xs font-medium text-muted-foreground">
             session

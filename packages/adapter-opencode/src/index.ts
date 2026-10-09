@@ -16,6 +16,13 @@ export type OnQuestion = (
 
 const SHELL_PERMS = new Set(["bash", "pwsh", "powershell", "cmd"]);
 
+// OpenCode clocks are unix milliseconds. Fixture and synthetic values below
+// this are not real instants, so those events keep the ingest clock.
+function sourceTime(ms?: number): string | undefined {
+  if (ms == null || !Number.isFinite(ms) || ms < 1_000_000_000_000) return undefined;
+  return new Date(ms).toISOString();
+}
+
 // how often a mid-generation assistant snapshot is emitted (part updates can
 // fire per-token; the store and SSE fan-out only need periodic snapshots)
 const STREAM_SNAPSHOT_MS = 150;
@@ -23,6 +30,7 @@ const STREAM_SNAPSHOT_MS = 150;
 interface MsgState {
   role?: string;
   parentID?: string;
+  created?: number;
   parts: Map<string, ContentBlock>;
   toolParts: Map<string, { emittedCall: boolean; emittedResult: boolean }>;
   emittedAssistant: boolean;
@@ -34,6 +42,7 @@ interface SessionState {
   sessionID: string;
   casfId: string;
   started: boolean;
+  updated?: number;
   messages: Map<string, MsgState>;
   pendingUserMsgs: Set<string>;
 }
@@ -43,12 +52,19 @@ export class OpencodeMapper {
 
   constructor(private opts: { directory?: string } = {}) {}
 
-  ev(s: SessionState, kind: EventInput["type"], data: unknown, id?: string): EventInput {
+  ev(
+    s: SessionState,
+    kind: EventInput["type"],
+    data: unknown,
+    id?: string,
+    ts?: string,
+  ): EventInput {
     const base = makeEvent({
       session_id: s.casfId,
       source: { backend: "opencode", native_id: s.sessionID },
       type: kind,
       data,
+      ...(ts ? { ts } : {}),
     } as EventInput);
     if (id) base.id = id;
     return base;
@@ -106,6 +122,7 @@ export class OpencodeMapper {
         "turn.user",
         { turn_id: msgID, content },
         `opencode:${msgID}:turn.user`,
+        sourceTime(m.created ?? s.updated),
       ),
     );
   }
@@ -121,6 +138,7 @@ export class OpencodeMapper {
         const p = evt.properties;
         const { s, out: pre } = this.ensureSession(p.sessionID);
         out.push(...pre);
+        s.updated = p.info.time?.updated ?? p.info.time?.created ?? s.updated;
         // replace lazy started data with real info
         const i = out.findIndex((e) => e.type === "session.started");
         const started = this.ev(
@@ -132,6 +150,7 @@ export class OpencodeMapper {
             parent_session_id: p.info.parentID ? `opencode:${p.info.parentID}` : undefined,
           },
           `opencode:${p.sessionID}:session.started`,
+          sourceTime(s.updated),
         );
         if (i >= 0) out[i] = started;
         else out.push(started);
@@ -144,6 +163,7 @@ export class OpencodeMapper {
         const info = evt.properties.info;
         const m = this.ensureMsg(s, info.id);
         m.role = info.role;
+        if (info.time?.created) m.created = info.time.created;
         if (info.role === "user") {
           s.pendingUserMsgs.add(info.id);
           return out;
@@ -176,6 +196,7 @@ export class OpencodeMapper {
                   stop_reason: info.finish ?? (info.error ? "error" : undefined),
                 },
                 `opencode:${info.id}:turn.assistant`,
+                sourceTime(info.time.completed ?? info.time.created ?? s.updated),
               ),
             );
           }
@@ -214,6 +235,7 @@ export class OpencodeMapper {
                   input: st.input,
                 },
                 `opencode:${part.id}:tool.call`,
+                sourceTime(st.time.start || s.updated),
               ),
             );
           }
@@ -230,6 +252,7 @@ export class OpencodeMapper {
                   latency_ms: Math.max(0, Math.round(st.time.end - st.time.start)),
                 },
                 `opencode:${part.id}:tool.result`,
+                sourceTime(st.time.end || s.updated),
               ),
             );
           }
@@ -268,6 +291,7 @@ export class OpencodeMapper {
                 "turn.user",
                 { turn_id: part.messageID, content },
                 `opencode:${part.messageID}:turn.user:${Bun.hash(JSON.stringify(content)).toString(36)}`,
+                sourceTime(m.created ?? s.updated),
               ),
             );
           }

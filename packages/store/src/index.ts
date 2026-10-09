@@ -88,19 +88,37 @@ export function openStore(path: string | ":memory:"): Store {
 
   const store: Store = {
     append(inputs) {
-      const parsed = inputs.map((i) => {
-        const withDefaults = makeEvent(i);
-        return withDefaults;
-      });
+      const parsed = inputs.map((i) => ({
+        event: makeEvent(i),
+        // only an explicit source clock may rewrite an already-stored event
+        clock: i.ts,
+      }));
       const out: Event[] = [];
       const inserted: Event[] = [];
       const txn = db.transaction(() => {
-        for (const input of parsed) {
+        for (const item of parsed) {
+          const input = item.event;
           const existing = db
             .query("SELECT body FROM events WHERE id = ?")
             .get(input.id!) as { body: string } | null;
           if (existing) {
-            out.push(parseEvent(JSON.parse(existing.body)));
+            const stored = parseEvent(JSON.parse(existing.body));
+            if (item.clock && item.clock !== stored.ts) {
+              const next = parseEvent({ ...stored, ts: item.clock });
+              db.query("UPDATE events SET ts=?, body=? WHERE id=?").run(
+                next.ts,
+                JSON.stringify(next),
+                next.id,
+              );
+              db.query(
+                `UPDATE sessions SET last_ts=(SELECT MAX(ts) FROM events WHERE session_id=?)
+                 WHERE session_id=?`,
+              ).run(next.session_id, next.session_id);
+              out.push(next);
+              inserted.push(next);
+              continue;
+            }
+            out.push(stored);
             continue;
           }
           const sessionId = input.session_id;

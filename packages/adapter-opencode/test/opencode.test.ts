@@ -72,6 +72,41 @@ const basicFixture = (): Event[] => [
 ];
 
 describe("OpencodeMapper", () => {
+  test("session and message clocks come from OpenCode, not ingest time", () => {
+    const created = Date.parse("2026-10-01T08:00:00.000Z");
+    const updated = Date.parse("2026-10-03T11:30:00.000Z");
+    const m = new OpencodeMapper();
+    const started = m.handle({
+      id: "e1",
+      type: "session.created",
+      properties: {
+        sessionID: sid,
+        info: { id: sid, directory: "/repo", title: "T", time: { created, updated } },
+      },
+    } as unknown as Event);
+    expect(started[0]!.ts).toBe(new Date(updated).toISOString());
+    const done = Date.parse("2026-10-03T11:29:00.000Z");
+    const assistant = m.handle(
+      msgUpdated({
+        id: "a1",
+        sessionID: sid,
+        role: "assistant",
+        parentID: "u1",
+        time: { created: done - 1000, completed: done },
+        providerID: "deepseek",
+        modelID: "deepseek-v4-pro",
+        agent: "build",
+        mode: "build",
+        path: { cwd: "/repo", root: "/repo" },
+        cost: 0,
+        finish: "stop",
+        tokens: { input: 1, output: 1, reasoning: 0, cache: { read: 0, write: 0 } },
+      }),
+    );
+    const turn = assistant.find((e) => e.type === "turn.assistant");
+    expect(turn?.ts).toBe(new Date(done).toISOString());
+  });
+
   test("basic turn with reasoning+text+tool", () => {
     const m = new OpencodeMapper();
     const out = basicFixture().flatMap((e) => m.handle(e));
