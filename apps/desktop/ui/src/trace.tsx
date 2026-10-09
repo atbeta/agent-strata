@@ -1,6 +1,7 @@
 import { createEffect, createResource, createSignal, For, Show } from "solid-js";
 import { getJson, type StrataEvent } from "./api";
 import { inDesktopShell } from "./shell";
+import { Md } from "./md";
 
 export interface TraceBlock {
   key: string;
@@ -317,12 +318,14 @@ export function TraceDrawer(props: { block: TraceBlock; onClose: () => void }) {
           ×
         </button>
       </div>
-      <div class="flex gap-1 px-3">
+      <div class="flex gap-1 px-3 pt-3">
         <For each={tabs()}>
           {(item) => (
             <button
-              class={`rounded-md px-2 py-1 text-[11px] ${
-                tab() === item.id ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground"
+              class={`rounded-md px-2 py-1 text-[11px] transition-colors ${
+                tab() === item.id
+                  ? "bg-secondary text-foreground"
+                  : "text-muted-foreground hover:bg-secondary hover:text-foreground"
               }`}
               onClick={() => setTab(item.id)}
             >
@@ -331,37 +334,59 @@ export function TraceDrawer(props: { block: TraceBlock; onClose: () => void }) {
           )}
         </For>
       </div>
-      <div class="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+      <div class="min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-4">
         <Show when={tab() === "overview"}>
-          <p class="whitespace-pre-wrap break-words text-sm leading-6 text-foreground/90">
-            {props.block.preview}
-          </p>
+          <Md text={props.block.preview} class="text-[13px] leading-6" />
           <Show when={props.block.result}>
-            <pre class="mt-3 max-h-40 overflow-y-auto whitespace-pre-wrap break-all font-mono text-[11px] leading-5 text-muted-foreground">
-              {props.block.result!.slice(0, 700)}
-            </pre>
+            <section class="mt-4">
+              <h3 class="mb-1.5 text-[11px] font-medium text-muted-foreground">Result</h3>
+              <pre class="max-h-48 overflow-y-auto rounded-md border border-border bg-secondary/40 p-2.5 font-mono text-[11px] leading-5 break-all whitespace-pre-wrap text-foreground/80">
+                {props.block.result!.slice(0, 1200)}
+              </pre>
+            </section>
           </Show>
           <Show when={props.block.detail}>
             <p class="mt-3 font-mono text-[11px] text-muted-foreground">{props.block.detail}</p>
           </Show>
         </Show>
         <Show when={tab() === "input"}>
-          <pre class="whitespace-pre-wrap break-all font-mono text-[11px] leading-5 text-muted-foreground">
-            {props.block.input}
-          </pre>
+          <Block label="Input" body={props.block.input} />
         </Show>
         <Show when={tab() === "result"}>
-          <pre class="whitespace-pre-wrap break-all font-mono text-[11px] leading-5 text-muted-foreground">
-            {props.block.result}
-          </pre>
+          <Block label="Result" body={props.block.result} />
         </Show>
         <Show when={tab() === "time"}>
-          <p class="font-mono text-[11px] text-muted-foreground">{when()}</p>
-          <Show when={props.block.detail}>
-            <p class="mt-2 font-mono text-[11px] text-muted-foreground">{props.block.detail}</p>
-          </Show>
+          <dl class="divide-y divide-border border-t border-border">
+            <div class="flex items-baseline justify-between gap-4 py-2">
+              <dt class="text-[12px] text-muted-foreground">Started</dt>
+              <dd class="font-mono text-[12px] tabular-nums">{when()}</dd>
+            </div>
+            <Show when={props.block.detail}>
+              <div class="flex items-baseline justify-between gap-4 py-2">
+                <dt class="text-[12px] text-muted-foreground">Elapsed</dt>
+                <dd class="font-mono text-[12px] tabular-nums">{props.block.detail}</dd>
+              </div>
+            </Show>
+          </dl>
         </Show>
       </div>
     </aside>
+  );
+}
+
+/** A labelled, bordered pre block. Raw JSON wants a frame, not loose text. */
+function Block(props: { label: string; body?: string }) {
+  return (
+    <section>
+      <h3 class="mb-1.5 text-[11px] font-medium text-muted-foreground">{props.label}</h3>
+      <Show
+        when={props.body}
+        fallback={<p class="text-[12px] text-muted-foreground">None.</p>}
+      >
+        <pre class="max-h-96 overflow-auto rounded-md border border-border bg-secondary/40 p-2.5 font-mono text-[11px] leading-5 break-all whitespace-pre-wrap text-foreground/80">
+          {props.body}
+        </pre>
+      </Show>
+    </section>
   );
 }

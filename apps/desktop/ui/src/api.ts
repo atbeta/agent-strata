@@ -18,7 +18,14 @@ export interface SessionRow {
   parent?: string;
   archived?: boolean;
   deleted?: boolean;
-  totals: { input: number; output: number; cost_usd: number; tool_calls: number };
+  totals: {
+    input: number;
+    output: number;
+    cost_usd: number;
+    tool_calls: number;
+    cache_read: number;
+    cache_write: number;
+  };
 }
 
 export interface SessionsResponse {

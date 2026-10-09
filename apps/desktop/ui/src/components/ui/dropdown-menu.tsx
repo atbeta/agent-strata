@@ -2,6 +2,7 @@ import { splitProps } from "solid-js";
 import { DropdownMenu as DropdownMenuPrimitive } from "@kobalte/core/dropdown-menu";
 import type {
   DropdownMenuContentProps,
+  DropdownMenuGroupLabelProps,
   DropdownMenuItemProps,
   DropdownMenuSeparatorProps,
   DropdownMenuTriggerProps,
@@ -74,4 +75,25 @@ function DropdownMenuSeparator(props: SeparatorProps) {
   );
 }
 
-export { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator };
+type GroupLabelProps = PolymorphicProps<"div", DropdownMenuGroupLabelProps<"div">> & { class?: string };
+
+/** Section heading inside a menu — the stand-in for <optgroup>. */
+function DropdownMenuGroupLabel(props: GroupLabelProps) {
+  const [local, rest] = splitProps(props, ["class"]);
+  return (
+    <DropdownMenuPrimitive.GroupLabel
+      class={cn("px-2 py-1 text-[11px] font-medium text-muted-foreground", local.class)}
+      {...rest}
+    />
+  );
+}
+
+export {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuPrimitive,
+  DropdownMenuGroupLabel,
+};

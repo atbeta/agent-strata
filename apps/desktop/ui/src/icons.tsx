@@ -38,18 +38,22 @@ function Glyph(props: { class?: string; children: JSX.Element }) {
 }
 
 export function Icon(props: { name: Name; class?: string }) {
+  // A playhead on a run of ticks — a position in the session, not a refresh.
   if (props.name === "replay")
     return (
       <Glyph class={props.class}>
-        <path d="M3 8a5 5 0 1 0 1.2-3.2" />
-        <path d="M3 3.2V6.2H6" />
+        <path d="M2 11.5h12" />
+        <path d="M3.5 11.5v-1.5M6.5 11.5v-2M12.5 11.5v-1.5" />
+        <circle cx="9.5" cy="11.5" r="1.6" fill="currentColor" stroke="none" />
+        <path d="M9.5 9.9V6.5" />
       </Glyph>
     );
+  // A panel with a rail, matching the drawer it opens.
   if (props.name === "files")
     return (
       <Glyph class={props.class}>
-        <path d="M4 2.5h5l3 3V13.5H4z" />
-        <path d="M9 2.5V6h3" />
+        <rect x="2.5" y="3" width="11" height="10" rx="1.5" />
+        <path d="M9.5 3v10" />
       </Glyph>
     );
   if (props.name === "download")

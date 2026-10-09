@@ -19,6 +19,8 @@ import { inDesktopShell } from "./shell";
 import { Tip } from "./tip";
 import { TraceDrawer, TraceStrip, type TraceBlock } from "./trace";
 import { TurnBlock } from "./transcript";
+import { Picker } from "@/components/ui/picker";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 /** An errored Solid resource throws when read, which unmounts the whole window. */
 function settled<T>(resource: { error: unknown; (): T | undefined }): T | undefined {
@@ -199,6 +201,112 @@ function ContextRing(props: { percent: number | null }) {
   );
 }
 
+/** A filled bar reads faster than the ring once the number is spelled out. */
+function ContextBar(props: { percent: number | null }) {
+  const width = () => `${Math.max(0, Math.min(100, props.percent ?? 0))}%`;
+  const tone = () =>
+    props.percent == null
+      ? "bg-border"
+      : props.percent >= 90
+        ? "bg-destructive"
+        : props.percent >= 75
+          ? "bg-status-cancelled"
+          : "bg-foreground";
+  return (
+    <div class="h-1.5 w-full overflow-hidden rounded-full bg-border">
+      <div class={`h-full rounded-full transition-[width] ${tone()}`} style={{ width: width() }} />
+    </div>
+  );
+}
+
+/** Label / value row in the session details panel. */
+function InfoRow(props: { label: string; value: string; mono?: boolean; tone?: string }) {
+  return (
+    <div class="flex items-baseline justify-between gap-6 py-1">
+      <span class="text-[12px] text-muted-foreground">{props.label}</span>
+      <span
+        class={`text-[12px] tabular-nums ${props.mono ? "font-mono" : ""} ${props.tone ?? "text-foreground"}`}
+      >
+        {props.value}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * The context ring, made into the entry point for everything about the session
+ * that is not the transcript: context use, token breakdown, and cost. Cost
+ * used to sit in the header as bare text where it read as clutter next to the
+ * window caption; here it has room to be a real number.
+ */
+function SessionInfo(props: {
+  totals: SessionView["totals"];
+  context: { total: number; percent: number | null } | undefined;
+  model: string;
+  backend: string;
+  status: string;
+  workspace?: string;
+}) {
+  const contextLimit = () => {
+    if (!props.context || props.context.percent == null || props.context.total <= 0) return null;
+    return Math.round(props.context.total / (props.context.percent / 100));
+  };
+
+  return (
+    <div class="w-72">
+      <div class="mb-2 text-[13px] font-medium">Session</div>
+
+      <div class="rounded-md border border-border bg-secondary/40 p-2.5">
+        <div class="flex items-baseline justify-between">
+          <span class="text-[12px] text-muted-foreground">Context</span>
+          <span class="font-mono text-[12px] tabular-nums text-foreground">
+            {props.context
+              ? props.context.percent == null
+                ? `${props.context.total.toLocaleString()} tok`
+                : `${props.context.percent}%`
+              : "—"}
+          </span>
+        </div>
+        <div class="mt-2">
+          <ContextBar percent={props.context?.percent ?? null} />
+        </div>
+        <div class="mt-1.5 flex items-baseline justify-between text-[11px] text-muted-foreground">
+          <span>
+            {props.context ? `${props.context.total.toLocaleString()} tokens` : "no usage reported"}
+          </span>
+          <Show when={contextLimit()}>
+            <span class="font-mono">of {contextLimit()!.toLocaleString()}</span>
+          </Show>
+        </div>
+      </div>
+
+      <div class="mt-3 divide-y divide-border border-t border-border">
+        <InfoRow label="Model" value={props.model || "—"} mono />
+        <InfoRow label="Cost" value={fmtUsd(props.totals.cost_usd)} mono />
+        <InfoRow label="Input" value={props.totals.input.toLocaleString()} mono />
+        <InfoRow label="Output" value={props.totals.output.toLocaleString()} mono />
+        <Show when={props.totals.reasoning > 0}>
+          <InfoRow label="Reasoning" value={props.totals.reasoning.toLocaleString()} mono />
+        </Show>
+        <Show when={props.totals.cache_read > 0}>
+          <InfoRow label="Cache read" value={props.totals.cache_read.toLocaleString()} mono />
+        </Show>
+        <InfoRow
+          label="Tool calls"
+          value={`${props.totals.tool_calls}${props.totals.tool_errors ? ` · ${props.totals.tool_errors} failed` : ""}`}
+          mono
+          tone={props.totals.tool_errors > 0 ? "text-status-error" : undefined}
+        />
+        <InfoRow label="Status" value={props.status} />
+        <InfoRow label="Backend" value={props.backend} mono />
+        <Show when={props.workspace}>
+          <InfoRow label="Workspace" value={props.workspace!} mono />
+        </Show>
+      </div>
+    </div>
+  );
+}
+
 export function SessionDetail(props: { id: string }) {
   const [replayPos, setReplayPos] = createSignal<number | null>(null);
   const [traceOn, setTraceOn] = createSignal(false);
@@ -278,12 +386,29 @@ export function SessionDetail(props: { id: string }) {
   // empty model means "server default"; still offer that leading model's efforts
   const effortModel = () =>
     selectedModel() ?? settled(options)?.models.find((m) => (m.variants?.length ?? 0) > 0);
-  const modelGroups = () => {
-    const byProvider = new Map<string, NonNullable<OptionsResponse>["models"]>();
-    for (const m of settled(options)?.models ?? []) {
-      byProvider.set(m.providerID, [...(byProvider.get(m.providerID) ?? []), m]);
-    }
-    return [...byProvider.entries()];
+  const modelOptions = () => {
+    const models = settled(options)?.models ?? [];
+    const known = new Set(models.map((m) => `${m.providerID}/${m.modelID}`));
+    // A session can name a model the server no longer lists. Keep it selectable
+    // rather than silently snapping the composer to something else.
+    const stale =
+      modelSel() && !known.has(modelSel())
+        ? [
+            {
+              value: modelSel(),
+              label: modelSel().slice(modelSel().indexOf("/") + 1),
+              group: "Unavailable",
+            },
+          ]
+        : [];
+    return [
+      ...stale,
+      ...models.map((m) => ({
+        value: `${m.providerID}/${m.modelID}`,
+        label: m.modelID,
+        group: m.providerID,
+      })),
+    ];
   };
   const generating = () =>
     pendingSend() ||
@@ -477,9 +602,6 @@ export function SessionDetail(props: { id: string }) {
     setRailForced(true);
   };
 
-  const pickerCls =
-    "h-7 max-w-52 cursor-pointer truncate rounded-md bg-transparent px-1.5 text-[12px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus:outline-none";
-
   return (
     <div class="flex h-full min-h-0">
       <div class="flex min-w-0 flex-1 flex-col">
@@ -520,12 +642,11 @@ export function SessionDetail(props: { id: string }) {
                 </div>
                 <span class="flex shrink-0 items-center gap-0.5">
                   <Show when={v().totals.cost_usd > 0}>
-                    <span
-                      class="mr-1 font-mono text-[11px] text-muted-foreground tabular-nums"
-                      title="Session cost"
-                    >
-                      {fmtUsd(v().totals.cost_usd)}
-                    </span>
+                    <Tip label={`${fmtUsd(v().totals.cost_usd)} so far — open the context ring for the breakdown`}>
+                      <span class="mr-1 font-mono text-[11px] text-muted-foreground tabular-nums">
+                        {fmtUsd(v().totals.cost_usd)}
+                      </span>
+                    </Tip>
                   </Show>
                   <Tip label={traceOn() ? "Back to live" : "Replay"}>
                   <button
@@ -774,80 +895,57 @@ export function SessionDetail(props: { id: string }) {
                     </div>
                     </div>
                     <div class="flex items-center gap-0.5 px-1">
-                      <Show when={context()}>
-                        {(c) => (
-                          <Tip label={contextLabel(c().total, c().percent)} class="mr-auto">
-                            <span
-                              class="grid h-7 w-7 place-items-center"
-                              aria-label={contextLabel(c().total, c().percent)}
-                            >
-                              <ContextRing percent={c().percent} />
-                            </span>
-                          </Tip>
-                        )}
-                      </Show>
-                      <div class={`flex min-w-0 items-center justify-end gap-0.5 ${context() ? "" : "ml-auto"}`}>
+                      <Popover gutter={8} placement="top-start">
+                        <PopoverTrigger
+                          class="mr-auto grid h-7 w-7 place-items-center rounded-md transition-colors hover:bg-secondary"
+                          title={contextLabel(context()?.total ?? 0, context()?.percent ?? null)}
+                          aria-label="Session details"
+                        >
+                          <ContextRing percent={context()?.percent ?? null} />
+                        </PopoverTrigger>
+                        <PopoverContent>
+                          <SessionInfo
+                            totals={v().totals}
+                            context={context()}
+                            model={modelSel()}
+                            backend={v().backend}
+                            status={v().status}
+                            workspace={v().workspace}
+                          />
+                        </PopoverContent>
+                      </Popover>
+                      <div class="flex min-w-0 items-center justify-end gap-0.5">
                       <Show when={(settled(options)?.models.length ?? 0) > 0 && (Boolean(modelSel()) || !booting())}>
-                        <select
-                          class={pickerCls}
+                        <Picker
+                          label="Model"
                           value={modelSel()}
-                          title="Model"
-                          aria-label="Model"
-                          onChange={(e) => {
+                          options={modelOptions()}
+                          onChange={(value) => {
                             setModelTouched(true);
-                            setModelSel(e.currentTarget.value);
+                            setModelSel(value);
                             setVariantSel("");
                           }}
-                        >
-                          <Show
-                            when={
-                              modelSel() &&
-                              !(settled(options)?.models ?? []).some(
-                                (m) => `${m.providerID}/${m.modelID}` === modelSel(),
-                              )
-                            }
-                          >
-                            <option value={modelSel()}>{modelSel().slice(modelSel().indexOf("/") + 1)}</option>
-                          </Show>
-                          <For each={modelGroups()}>
-                            {([pid, models]) => (
-                              <optgroup label={pid}>
-                                <For each={models}>
-                                  {(m) => (
-                                    <option value={`${m.providerID}/${m.modelID}`}>{m.modelID}</option>
-                                  )}
-                                </For>
-                              </optgroup>
-                            )}
-                          </For>
-                        </select>
+                        />
                       </Show>
                       <Show when={(effortModel()?.variants?.length ?? 0) > 0}>
-                        <select
-                          class={`${pickerCls} capitalize`}
+                        <Picker
+                          label="Thinking effort"
+                          capitalize
+                          emptyOption="Default"
+                          placeholder="Default"
                           value={variantSel()}
-                          title="Thinking effort"
-                          aria-label="Thinking effort"
-                          onChange={(e) => setVariantSel(e.currentTarget.value)}
-                        >
-                          <option value="">Default</option>
-                          <For each={effortModel()?.variants ?? []}>
-                            {(name) => <option value={name}>{name}</option>}
-                          </For>
-                        </select>
+                          options={(effortModel()?.variants ?? []).map((name) => ({ value: name, label: name }))}
+                          onChange={setVariantSel}
+                        />
                       </Show>
                       <Show when={(settled(options)?.agents.length ?? 0) > 0}>
-                        <select
-                          class={`${pickerCls} capitalize`}
+                        <Picker
+                          label="Agent"
+                          capitalize
                           value={agentSel()}
-                          title="Agent"
-                          aria-label="Agent"
-                          onChange={(e) => setAgentSel(e.currentTarget.value)}
-                        >
-                          <For each={settled(options)!.agents}>
-                            {(a) => <option value={a.name}>{a.name}</option>}
-                          </For>
-                        </select>
+                          options={(settled(options)!.agents ?? []).map((a) => ({ value: a.name, label: a.name }))}
+                          onChange={setAgentSel}
+                        />
                       </Show>
                       </div>
                     </div>
