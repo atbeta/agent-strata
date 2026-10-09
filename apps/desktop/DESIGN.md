@@ -1,63 +1,46 @@
-# Agent Strata design system v0.1
+# Agent Strata design system v0.2
 
-shadcn/ui token model adapted to Solid (Kobalte primitives + Tailwind 4 `@theme`).
-Canonical source: `ui/src/theme.css`. Never hardcode raw palette colors — use the
-semantic tokens below so components stay themeable.
+The shell is a dark, quiet desktop app. Visual references are Linear (one neutral surface, hairline borders, 13px UI type, accent used sparingly) and OpenCode Desktop (session sidebar, conversation, composer, custom window chrome). Tokens live in `ui/src/theme.css`. Screens use those tokens through Tailwind. There is no separate component library yet: buttons, fields, and rows are styled in place, and they must keep using the tokens below.
+
+## What the references change
+
+Linear keeps the sidebar and the document on the same background. Separation is a 1px border at about 8% white, not a second gray panel. Selection is a soft fill. Section labels are 11px and sentence case. The accent color appears on the primary action, not on every border.
+
+OpenCode Desktop puts sessions in a left rail and the composer at the bottom of the conversation. On macOS the native title is hidden and traffic lights sit in the top of the sidebar (`titleBarStyle: Overlay`). On Windows the desktop app is frameless and draws its own title bar. Linux still ships the native title bar; that is a known gap in OpenCode, not a pattern to copy.
+
+## Window chrome
+
+The top 44px (`h-11`) of the sidebar and of the main column is the title strip. It uses `data-tauri-drag-region`, with both `app-region` and `-webkit-app-region`, and interactive controls inside it opt out of dragging.
+
+macOS already overlays the traffic lights in that strip (`pl-[76px]`). Windows and Linux still show the native title bar. The next shell step is a frameless window on those platforms, with minimize, maximize, and close drawn in this strip. Do not remove native decorations until those controls exist.
 
 ## Token layers
 
-### Base semantics (shadcn-compatible)
+### Base semantics
 | Token | Use |
 | --- | --- |
-| `background` / `foreground` | app shell |
-| `card` / `card-foreground` | session cards, panels |
-| `popover` | dropdowns, dialogs, tooltips surface |
-| `primary` | main actions (focus, open session) |
-| `secondary` | quiet surfaces (toolbar, chips) |
-| `muted` / `muted-foreground` | metadata, secondary text, disabled |
-| `accent` | hover/selected states |
-| `destructive` | deny/danger actions (stop session, deny permission) |
-| `border` / `input` / `ring` | dividers, form controls, focus ring |
+| `background` / `foreground` | the window, including the sidebar |
+| `card` | lifted blocks inside the window (tool calls, composer well) |
+| `popover` | menus |
+| `primary` | the one main action (send, connect) |
+| `secondary` | quiet fills (hover, fields, chips) |
+| `muted` / `muted-foreground` | metadata |
+| `accent` | selected row |
+| `destructive` | deny, delete confirm |
+| `border` / `input` / `ring` | hairline, fields, focus |
 
-### Domain tokens (agent-strata specific)
+### Domain tokens
 | Token | Use |
 | --- | --- |
-| `status-active` | running session dot/badge (green) |
-| `status-completed` | finished (blue) |
-| `status-error` | failed (red) |
-| `status-cancelled` | user-stopped (amber) |
-| `status-pending` | queued/waiting (gray) |
-| `event-user` | timeline/replay marker for user turns |
-| `event-assistant` | assistant turns |
-| `event-tool` | tool calls |
-| `event-permission` | permission prompts |
-| `event-file` | file changes |
-| `cost-up` / `cost-down` / `cost-flat` | compare-view deltas |
+| `status-active` / `completed` / `error` / `cancelled` / `pending` | session state. Pair the color with a label or a dot that has a text alternative. |
+| `event-user` / `assistant` / `tool` / `permission` / `file` | transcript markers |
+| `cost-up` / `cost-down` / `cost-flat` | compare deltas |
 
-### Typography / radius
-`font-sans` (system), `font-mono` (code, commands, event ids, JSON).
-Scale: `xs`–`2xl`. Radius: `sm`–`xl` (`lg` = 10px is the card default).
+### Type and radius
+System sans for UI, mono for paths, ids, commands, and money. UI copy is 13px; section labels are 11px. Radius stays small (`md` on rows and fields).
 
-## Component conventions
+## Screens
 
-- Components are Kobalte primitives (or plain Solid elements) styled with these
-  tokens via Tailwind classes — same model as shadcn on React.
-- Status is always a dot + label, never color alone (accessibility).
-- Mono font for anything machine-shaped: session ids, commands, event types,
-  token counts, file paths.
-- Numbers tabular for cost/token comparisons.
-- Dark-first: only one theme ships in v0; the token layer leaves room for light.
-
-## Screens v0
-
-- **Fleet dashboard** (`App.tsx`): aggregate cost bar + session card grid, live
-  over SSE. Cards: status dot, title, backend · workspace, tool-call/token/cost
-  stats. Cross-session FTS search box.
-- **Session detail** (`session-detail.tsx`): turn timeline with tool calls and
-  permission decisions, pending-ask banner, prompt composer with model/agent
-  pickers, replay scrubber (projector over an event prefix).
-- **Compare view** (`compare.tsx`): two-session turn-pair diff with cost/token
-  deltas.
-- **Policy editor** (`policy.tsx`): rule list editor (id · effect · tool glob ·
-  when-conditions), default effect, dry-run test panel against the unsaved
-  draft; saves via `PUT /policy`.
+- **Sidebar** (`App.tsx`): project switcher, search, sessions grouped by day or by project.
+- **Session** (`session-detail.tsx`): transcript, composer, optional files and replay.
+- **Compare** (`compare.tsx`) and **policy** (`policy.tsx`): same tokens, no separate theme.
