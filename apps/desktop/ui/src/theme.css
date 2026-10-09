@@ -164,11 +164,18 @@ html[data-theme="light"] {
      WebKit then ignores drag on every descendant, so the window cannot move.
      Interactive controls opt out everywhere, so a drag region cannot swallow
      clicks. macOS keeps overlay traffic lights. Windows is frameless and
-     draws its own caption buttons. */
+     draws its own caption buttons.
+
+     The cursor rule is scoped away from controls on purpose. An attribute
+     selector outranks a type selector, so an unscoped `cursor: default` here
+     beat `button { cursor: pointer }` everywhere below and every caption
+     button and header toggle showed an arrow instead of a hand. */
+  [data-tauri-drag-region]:not(:is(button, a, input, textarea, select, label, [role="button"])) {
+    cursor: default;
+  }
   [data-tauri-drag-region] {
     -webkit-app-region: drag;
     app-region: drag;
-    cursor: default;
     user-select: none;
     -webkit-user-select: none;
   }

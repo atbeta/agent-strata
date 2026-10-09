@@ -1,5 +1,6 @@
 import { Show, createSignal, onCleanup, onMount, type JSX } from "solid-js";
 import { inDesktopShell, drawsOwnTopStrip, usesCustomCaption } from "./shell";
+import { Tip } from "./tip";
 
 type WindowHandle = {
   minimize(): Promise<void>;
@@ -44,49 +45,52 @@ export function CaptionButtons() {
   return (
     <Show when={usesCustomCaption()}>
       <div class="flex h-full shrink-0">
-        <button
-          type="button"
-          class="grid h-full w-11 place-items-center text-muted-foreground hover:bg-secondary hover:text-foreground"
-          aria-label="Minimize"
-          title="Minimize"
-          onClick={() => run((win) => win.minimize())}
-        >
-          <svg viewBox="0 0 12 12" class="size-3" fill="none" stroke="currentColor" stroke-width="1.2">
-            <path d="M2 6h8" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          class="grid h-full w-11 place-items-center text-muted-foreground hover:bg-secondary hover:text-foreground"
-          aria-label={maximized() ? "Restore" : "Maximize"}
-          title={maximized() ? "Restore" : "Maximize"}
-          onClick={() => run((win) => win.toggleMaximize())}
-        >
-          <Show
-            when={maximized()}
-            fallback={
-              <svg viewBox="0 0 12 12" class="size-3" fill="none" stroke="currentColor" stroke-width="1.2">
-                <rect x="2" y="2" width="8" height="8" />
-              </svg>
-            }
+        <Tip label="Minimize" class="h-full">
+          <button
+            type="button"
+            class="grid h-full w-11 place-items-center text-muted-foreground hover:bg-secondary hover:text-foreground"
+            aria-label="Minimize"
+            onClick={() => run((win) => win.minimize())}
           >
             <svg viewBox="0 0 12 12" class="size-3" fill="none" stroke="currentColor" stroke-width="1.2">
-              <path d="M4 2.5h5.5V8" />
-              <rect x="2" y="4" width="6" height="6" />
+              <path d="M2 6h8" />
             </svg>
-          </Show>
-        </button>
-        <button
-          type="button"
-          class="grid h-full w-12 place-items-center text-muted-foreground hover:bg-destructive hover:text-destructive-foreground"
-          aria-label="Close"
-          title="Close"
-          onClick={() => run((win) => win.close())}
-        >
-          <svg viewBox="0 0 12 12" class="size-3" fill="none" stroke="currentColor" stroke-width="1.2">
-            <path d="M3 3l6 6M9 3 3 9" />
-          </svg>
-        </button>
+          </button>
+        </Tip>
+        <Tip label={maximized() ? "Restore" : "Maximize"} class="h-full">
+          <button
+            type="button"
+            class="grid h-full w-11 place-items-center text-muted-foreground hover:bg-secondary hover:text-foreground"
+            aria-label={maximized() ? "Restore" : "Maximize"}
+            onClick={() => run((win) => win.toggleMaximize())}
+          >
+            <Show
+              when={maximized()}
+              fallback={
+                <svg viewBox="0 0 12 12" class="size-3" fill="none" stroke="currentColor" stroke-width="1.2">
+                  <rect x="2" y="2" width="8" height="8" />
+                </svg>
+              }
+            >
+              <svg viewBox="0 0 12 12" class="size-3" fill="none" stroke="currentColor" stroke-width="1.2">
+                <path d="M4 2.5h5.5V8" />
+                <rect x="2" y="4" width="6" height="6" />
+              </svg>
+            </Show>
+          </button>
+        </Tip>
+        <Tip label="Close" class="h-full">
+          <button
+            type="button"
+            class="grid h-full w-12 place-items-center text-muted-foreground hover:bg-destructive hover:text-destructive-foreground"
+            aria-label="Close"
+            onClick={() => run((win) => win.close())}
+          >
+            <svg viewBox="0 0 12 12" class="size-3" fill="none" stroke="currentColor" stroke-width="1.2">
+              <path d="M3 3l6 6M9 3 3 9" />
+            </svg>
+          </button>
+        </Tip>
       </div>
     </Show>
   );

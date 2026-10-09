@@ -84,17 +84,18 @@ function QuestionCard(props: { q: PendingQuestion; onDone: () => void }) {
                 {(opt) => {
                   const on = () => (picks()[qi()] ?? []).includes(opt.label);
                   return (
-                    <button
-                      class={`rounded-full px-3 py-1 text-xs transition-colors ${
-                        on()
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-secondary text-foreground hover:bg-accent"
-                      }`}
-                      title={opt.description}
-                      onClick={() => toggle(qi(), opt.label, question.multiple)}
-                    >
-                      {opt.label}
-                    </button>
+                    <Tip label={opt.description}>
+                      <button
+                        class={`rounded-full px-3 py-1 text-xs transition-colors ${
+                          on()
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-secondary text-foreground hover:bg-accent"
+                        }`}
+                        onClick={() => toggle(qi(), opt.label, question.multiple)}
+                      >
+                        {opt.label}
+                      </button>
+                    </Tip>
                   );
                 }}
               </For>
@@ -649,51 +650,54 @@ export function SessionDetail(props: { id: string }) {
                     </Tip>
                   </Show>
                   <Tip label={traceOn() ? "Back to live" : "Replay"}>
-                  <button
-                    class={`grid h-7 w-7 place-items-center rounded-md transition-colors ${
-                      traceOn()
-                        ? "bg-secondary text-foreground"
-                        : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-                    }`}
-                    aria-label={traceOn() ? "Back to live" : "Replay"}
-                    onClick={() => {
-                      if (traceOn()) {
-                        setTraceOn(false);
-                        setTraceBlock(null);
-                        setReplayPos(null);
-                      } else {
-                        setTraceOn(true);
-                      }
-                    }}
-                  >
-                    <Icon name="replay" />
-                  </button>
+                    <button
+                      class={`grid h-7 w-7 place-items-center rounded-md transition-colors ${
+                        traceOn()
+                          ? "bg-secondary text-foreground"
+                          : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                      }`}
+                      aria-label={traceOn() ? "Back to live" : "Replay"}
+                      onClick={() => {
+                        if (traceOn()) {
+                          setTraceOn(false);
+                          setTraceBlock(null);
+                          setReplayPos(null);
+                        } else {
+                          setTraceOn(true);
+                        }
+                      }}
+                    >
+                      <Icon name="replay" />
+                    </button>
                   </Tip>
                   <Tip label={railOn() ? "Hide files" : "Files and plan"}>
-                  <button
-                    class={`relative grid h-7 w-7 place-items-center rounded-md transition-colors ${
-                      railOn()
-                        ? "bg-secondary text-foreground"
-                        : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-                    }`}
-                    aria-label={railOn() ? "Hide files" : "Files and plan"}
-                    onClick={toggleRail}
-                  >
-                    <Icon name="files" />
-                    <Show when={v().files_changed.length > 0}>
-                      <span class="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-event-file" />
-                    </Show>
-                  </button>
+                    <button
+                      class={`relative grid h-7 w-7 place-items-center rounded-md transition-colors ${
+                        railOn()
+                          ? "bg-secondary text-foreground"
+                          : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                      }`}
+                      aria-label={railOn() ? "Hide files" : "Files and plan"}
+                      onClick={toggleRail}
+                    >
+                      <Icon name="files" />
+                      {/* Only while the rail is open. A dot on a toggle that stays
+                          lit with the panel closed says "something is here" without
+                          saying where — and the rail itself already shows the count. */}
+                      <Show when={railOn() && v().files_changed.length > 0}>
+                        <span class="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-event-file" />
+                      </Show>
+                    </button>
                   </Tip>
                   <Tip label="Export transcript">
-                  <a
-                    class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                    aria-label="Export transcript"
-                    href={`${api("/export")}?session_id=${encodeURIComponent(v().session_id)}`}
-                    download=""
-                  >
-                    <Icon name="download" />
-                  </a>
+                    <a
+                      class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                      aria-label="Export transcript"
+                      href={`${api("/export")}?session_id=${encodeURIComponent(v().session_id)}`}
+                      download=""
+                    >
+                      <Icon name="download" />
+                    </a>
                   </Tip>
                 </span>
               </header>
@@ -896,13 +900,14 @@ export function SessionDetail(props: { id: string }) {
                     </div>
                     <div class="flex items-center gap-0.5 px-1">
                       <Popover gutter={8} placement="top-start">
-                        <PopoverTrigger
-                          class="mr-auto grid h-7 w-7 place-items-center rounded-md transition-colors hover:bg-secondary"
-                          title={contextLabel(context()?.total ?? 0, context()?.percent ?? null)}
-                          aria-label="Session details"
-                        >
-                          <ContextRing percent={context()?.percent ?? null} />
-                        </PopoverTrigger>
+                        <Tip label={contextLabel(context()?.total ?? 0, context()?.percent ?? null)}>
+                          <PopoverTrigger
+                            class="mr-auto grid h-7 w-7 place-items-center rounded-md transition-colors hover:bg-secondary"
+                            aria-label="Session details"
+                          >
+                            <ContextRing percent={context()?.percent ?? null} />
+                          </PopoverTrigger>
+                        </Tip>
                         <PopoverContent>
                           <SessionInfo
                             totals={v().totals}

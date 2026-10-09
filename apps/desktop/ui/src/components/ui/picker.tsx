@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "./dropdown-menu";
 import { cn } from "@/lib/utils";
+import { Tip } from "@/tip";
 
 export interface PickerOption {
   value: string;
@@ -67,28 +68,29 @@ export function Picker(props: PickerProps) {
 
   return (
     <DropdownMenu open={open()} onOpenChange={setOpen} gutter={6}>
-      <DropdownMenuTrigger
-        class={cn(
-          "flex h-7 max-w-52 items-center gap-1 truncate rounded-md bg-transparent px-1.5 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground",
-          props.capitalize && "capitalize",
-          props.class,
-        )}
-        title={props.label}
-        aria-label={props.label}
-      >
-        <span class="truncate">{triggerText()}</span>
-        <svg
-          viewBox="0 0 12 12"
-          class="size-3 shrink-0 opacity-60"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.3"
-          stroke-linecap="round"
-          stroke-linejoin="round"
+      <Tip label={props.label}>
+        <DropdownMenuTrigger
+          class={cn(
+            "flex h-7 max-w-52 items-center gap-1 truncate rounded-md bg-transparent px-1.5 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground",
+            props.capitalize && "capitalize",
+            props.class,
+          )}
+          aria-label={props.label}
         >
-          <path d="M3 4.75 6 7.75l3-3" />
-        </svg>
-      </DropdownMenuTrigger>
+          <span class="truncate">{triggerText()}</span>
+          <svg
+            viewBox="0 0 12 12"
+            class="size-3 shrink-0 opacity-60"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.3"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M3 4.75 6 7.75l3-3" />
+          </svg>
+        </DropdownMenuTrigger>
+      </Tip>
 
       <DropdownMenuContent class="max-h-80 max-w-64 overflow-y-auto">
         <Show when={props.emptyOption}>

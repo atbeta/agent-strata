@@ -2,6 +2,7 @@ import { createEffect, createResource, createSignal, For, Show } from "solid-js"
 import { getJson, type StrataEvent } from "./api";
 import { inDesktopShell } from "./shell";
 import { Md } from "./md";
+import { Tip } from "./tip";
 import { CopyButton, Payload } from "./payload";
 
 export interface TraceBlock {
@@ -247,24 +248,28 @@ export function TraceStrip(props: {
                     <For each={row()}>
                       {(block) => {
                         const box = () => placed().pos.get(block.key);
+                        const label = () =>
+                          `${block.title}${block.preview && block.preview !== block.title ? ` — ${block.preview.slice(0, 80)}` : ""}`;
                         return (
-                          <button
-                            class={`absolute rounded-[2px] ${block.tone} ${
-                              props.selected === block.key
-                                ? "z-10 opacity-100 ring-1 ring-foreground"
-                                : block.quiet
-                                  ? "opacity-40 hover:opacity-100"
-                                  : "opacity-90 hover:opacity-100"
-                            }`}
-                            style={{
-                              left: `${box()?.left ?? 0}px`,
-                              width: `${box()?.width ?? 8}px`,
-                              top: props.selected === block.key ? "0px" : "2px",
-                              height: props.selected === block.key ? "12px" : "8px",
-                            }}
-                            title={`${block.title}${block.preview && block.preview !== block.title ? ` — ${block.preview.slice(0, 80)}` : ""}`}
-                            onClick={() => props.onSelect(block)}
-                          />
+                          <Tip label={label()}>
+                            <button
+                              class={`absolute rounded-[2px] ${block.tone} ${
+                                props.selected === block.key
+                                  ? "z-10 opacity-100 ring-1 ring-foreground"
+                                  : block.quiet
+                                    ? "opacity-40 hover:opacity-100"
+                                    : "opacity-90 hover:opacity-100"
+                              }`}
+                              style={{
+                                left: `${box()?.left ?? 0}px`,
+                                width: `${box()?.width ?? 8}px`,
+                                top: props.selected === block.key ? "0px" : "2px",
+                                height: props.selected === block.key ? "12px" : "8px",
+                              }}
+                              aria-label={label()}
+                              onClick={() => props.onSelect(block)}
+                            />
+                          </Tip>
                         );
                       }}
                     </For>
@@ -312,14 +317,15 @@ export function TraceDrawer(props: { block: TraceBlock; onClose: () => void }) {
           class={`h-1.5 w-1.5 shrink-0 rounded-full ${props.block.tone}`}
         />
         <h2 class="min-w-0 flex-1 truncate text-sm font-medium">{props.block.title}</h2>
-        <button
-          class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
-          title="关闭"
-          aria-label="关闭"
-          onClick={() => props.onClose()}
-        >
-          ×
-        </button>
+        <Tip label="关闭">
+          <button
+            class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
+            aria-label="关闭"
+            onClick={() => props.onClose()}
+          >
+            ×
+          </button>
+        </Tip>
       </div>
       <div class="flex gap-1 px-3 pt-3">
         <For each={tabs()}>

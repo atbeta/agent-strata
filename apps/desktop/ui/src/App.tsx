@@ -126,7 +126,6 @@ function SessionListItem(props: {
   active: boolean;
   busy: boolean;
   time: string;
-  timeTitle: string;
   actions: boolean;
   onOpen: () => void;
   onRename: (title: string) => Promise<void>;
@@ -200,11 +199,12 @@ function SessionListItem(props: {
         />
       </Show>
       <Show when={!editing()}>
+        {/* No title here: the span is pointer-events-none, so a native tooltip
+            could never surface. The row's own hover covers it. */}
         <span
           class={`pointer-events-none absolute right-2 top-1/2 w-[4.5rem] -translate-y-1/2 text-right font-mono text-2xs text-muted-foreground tabular-nums ${
             reveal() ? "invisible" : ""
           }`}
-          title={props.timeTitle}
         >
           {props.time}
         </span>
@@ -542,21 +542,21 @@ export function App() {
           data-tauri-drag-region={inDesktopShell() ? "" : undefined}
         >
           <Tip class="ml-auto" label={connected() ? "New session" : "Connect a backend"}>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            class="text-lg leading-none text-muted-foreground"
-            aria-label={connected() ? "New session" : "Connect a backend"}
-            onClick={() => {
-              if (!connected()) {
-                setConnOpen(true);
-                return;
-              }
-              void newSession();
-            }}
-          >
-            +
-          </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              class="text-lg leading-none text-muted-foreground"
+              aria-label={connected() ? "New session" : "Connect a backend"}
+              onClick={() => {
+                if (!connected()) {
+                  setConnOpen(true);
+                  return;
+                }
+                void newSession();
+              }}
+            >
+              +
+            </Button>
           </Tip>
         </div>
         <CommandSearch
@@ -578,29 +578,30 @@ export function App() {
           <div>
             <p class="mb-1 px-0.5 text-2xs font-medium text-muted-foreground">Project</p>
             <DropdownMenu open={wsOpen()} onOpenChange={setWsOpen} gutter={6}>
-              <DropdownMenuTrigger
-                class={cn(
-                  "flex w-full items-center gap-2 rounded-md border border-border bg-secondary/40 px-2 py-1.5 text-left transition-colors hover:bg-secondary",
-                  wsOpen() && "bg-secondary",
-                )}
-                title={currentDir() ?? "All projects"}
-              >
-                <span class="grid size-7 shrink-0 place-items-center rounded-md bg-secondary text-muted-foreground">
-                  <Icon name="folder" class="size-3.5" />
-                </span>
-                <span class="min-w-0 flex-1">
-                  <span class="block truncate text-sm font-medium leading-tight">
-                    {currentDir() ? projectName(currentDir()!) : "All projects"}
+              <Tip label={currentDir() ?? "All projects"} class="w-full">
+                <DropdownMenuTrigger
+                  class={cn(
+                    "flex w-full items-center gap-2 rounded-md border border-border bg-secondary/40 px-2 py-1.5 text-left transition-colors hover:bg-secondary",
+                    wsOpen() && "bg-secondary",
+                  )}
+                >
+                  <span class="grid size-7 shrink-0 place-items-center rounded-md bg-secondary text-muted-foreground">
+                    <Icon name="folder" class="size-3.5" />
                   </span>
-                  <span class="block truncate font-mono text-2xs leading-tight text-muted-foreground">
-                    {currentDir() ? projectHint(currentDir()!) : `${sessions().length} sessions`}
+                  <span class="min-w-0 flex-1">
+                    <span class="block truncate text-sm font-medium leading-tight">
+                      {currentDir() ? projectName(currentDir()!) : "All projects"}
+                    </span>
+                    <span class="block truncate font-mono text-2xs leading-tight text-muted-foreground">
+                      {currentDir() ? projectHint(currentDir()!) : `${sessions().length} sessions`}
+                    </span>
                   </span>
-                </span>
-                <Icon
-                  name="chevron"
-                  class={cn("size-3.5 shrink-0 text-muted-foreground", wsOpen() && "rotate-180")}
-                />
-              </DropdownMenuTrigger>
+                  <Icon
+                    name="chevron"
+                    class={cn("size-3.5 shrink-0 text-muted-foreground", wsOpen() && "rotate-180")}
+                  />
+                </DropdownMenuTrigger>
+              </Tip>
               <DropdownMenuContent class="max-h-80 w-[276px] overflow-y-auto">
                 <DropdownMenuItem
                   class={cn("flex-col items-start gap-0", !currentDir() && "bg-accent")}
@@ -687,7 +688,6 @@ export function App() {
                         active={activeId() === id || compareSel().includes(id)}
                         busy={s.busy === true}
                         time={relTime(s.summary.last_ts, clock())}
-                        timeTitle={new Date(s.summary.last_ts).toLocaleString()}
                         actions={!compareOn()}
                         onOpen={() => openSession(id)}
                         onRename={(title) => runAction(id, () => renameSession(id, title), false)}
@@ -767,18 +767,19 @@ export function App() {
               </Show>
             </div>
             <Show when={compareSel().length === 2}>
-              <Button
-                size="sm"
-                title="Open the comparison"
-                onClick={() => {
-                  const [a, b] = compareSel();
-                  location.hash = `/compare/${encodeURIComponent(a!)}/${encodeURIComponent(b!)}`;
-                  setCompareOn(false);
-                  setCompareSel([]);
-                }}
-              >
-                open
-              </Button>
+              <Tip label="Open the comparison">
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    const [a, b] = compareSel();
+                    location.hash = `/compare/${encodeURIComponent(a!)}/${encodeURIComponent(b!)}`;
+                    setCompareOn(false);
+                    setCompareSel([]);
+                  }}
+                >
+                  open
+                </Button>
+              </Tip>
             </Show>
             <DropdownMenu placement="top-end">
               <DropdownMenuTrigger

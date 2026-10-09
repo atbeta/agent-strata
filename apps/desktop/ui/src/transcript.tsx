@@ -2,6 +2,7 @@ import { createEffect, createSignal, For, Index, Match, on, Show, Switch } from 
 import type { ContentBlock, ToolCallView, Turn } from "./api";
 import { Icon } from "./icons";
 import { Md } from "./md";
+import { Tip } from "./tip";
 import { stripAnsi } from "./ansi";
 import { Code } from "./payload";
 import {
@@ -186,58 +187,59 @@ function ToolCallCard(props: { call: ToolCallView }) {
   };
   return (
     <div class={`overflow-hidden rounded-lg border bg-card ${denied() ? "border-destructive/35" : "border-border"}`}>
-      <button
-        class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left hover:bg-secondary/50"
-        aria-expanded={open()}
-        title={open() ? "Hide output" : "Show output"}
-        onClick={() => setOpen((v) => !v)}
-      >
-        <Icon
-          name={toolIcon(headline().kind)}
-          class={`size-3.5 shrink-0 ${denied() ? "text-destructive" : "text-event-tool"}`}
-        />
-        <span class={`shrink-0 text-2xs font-medium ${denied() ? "text-destructive" : "text-muted-foreground"}`}>
-          {headline().verb}
-        </span>
-        <span class="min-w-0 flex-1 truncate font-mono text-xs text-foreground/90" title={headline().title}>
-          {headline().title}
-        </span>
-        <Show when={stat()}>
-          {(s) => (
-            <span class="shrink-0 font-mono text-2xs tabular-nums">
-              <span class="text-status-active">+{s().add}</span>{" "}
-              <span class="text-destructive">−{s().del}</span>
-            </span>
-          )}
-        </Show>
-        <Show when={label()}>
-          <span
-            class={`shrink-0 text-2xs ${
-              props.call.status === "pending"
-                ? "text-status-active"
-                : denied()
-                  ? "text-destructive"
-                  : "text-muted-foreground"
-            }`}
-          >
-            <Show when={props.call.status === "pending"}>
-              <span class="mr-1 inline-block size-1.5 animate-pulse rounded-full bg-status-active align-middle" />
-            </Show>
-            {label()}
-          </span>
-        </Show>
-        <Show when={!label() && fmtLatency(props.call.latency_ms)}>
-          <span class="shrink-0 font-mono text-2xs text-muted-foreground tabular-nums">
-            {fmtLatency(props.call.latency_ms)}
-          </span>
-        </Show>
-        <span
-          class="inline-flex shrink-0 text-muted-foreground transition-transform"
-          style={{ transform: open() ? "none" : "rotate(-90deg)" }}
+      <Tip label={open() ? "Hide output" : "Show output"} class="w-full">
+        <button
+          class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left hover:bg-secondary/50"
+          aria-expanded={open()}
+          onClick={() => setOpen((v) => !v)}
         >
-          <Icon name="chevron" class="size-3" />
-        </span>
-      </button>
+          <Icon
+            name={toolIcon(headline().kind)}
+            class={`size-3.5 shrink-0 ${denied() ? "text-destructive" : "text-event-tool"}`}
+          />
+          <span class={`shrink-0 text-2xs font-medium ${denied() ? "text-destructive" : "text-muted-foreground"}`}>
+            {headline().verb}
+          </span>
+          <span class="min-w-0 flex-1 truncate font-mono text-xs text-foreground/90" title={headline().title}>
+            {headline().title}
+          </span>
+          <Show when={stat()}>
+            {(s) => (
+              <span class="shrink-0 font-mono text-2xs tabular-nums">
+                <span class="text-status-active">+{s().add}</span>{" "}
+                <span class="text-destructive">−{s().del}</span>
+              </span>
+            )}
+          </Show>
+          <Show when={label()}>
+            <span
+              class={`shrink-0 text-2xs ${
+                props.call.status === "pending"
+                  ? "text-status-active"
+                  : denied()
+                    ? "text-destructive"
+                    : "text-muted-foreground"
+              }`}
+            >
+              <Show when={props.call.status === "pending"}>
+                <span class="mr-1 inline-block size-1.5 animate-pulse rounded-full bg-status-active align-middle" />
+              </Show>
+              {label()}
+            </span>
+          </Show>
+          <Show when={!label() && fmtLatency(props.call.latency_ms)}>
+            <span class="shrink-0 font-mono text-2xs text-muted-foreground tabular-nums">
+              {fmtLatency(props.call.latency_ms)}
+            </span>
+          </Show>
+          <span
+            class="inline-flex shrink-0 text-muted-foreground transition-transform"
+            style={{ transform: open() ? "none" : "rotate(-90deg)" }}
+          >
+            <Icon name="chevron" class="size-3" />
+          </span>
+        </button>
+      </Tip>
       <Show when={open()}>
         <div class="space-y-2 border-t border-border px-2.5 py-2">
           <Show when={permissionLabel(props.call.permission)}>
