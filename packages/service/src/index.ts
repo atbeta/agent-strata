@@ -125,7 +125,24 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     return matches.length === 1 ? matches[0] : undefined;
   };
 
-  const connectBackend = async (body: {
+  const inflightConnects = new Map<string, Promise<{ id: string; indexed: number }>>();
+  const connectBackend = (body: {
+    backend?: string;
+    baseUrl: string;
+    name?: string;
+    directory?: string;
+    username?: string;
+    password?: string;
+    policy?: unknown;
+    connectTimeoutMs?: number;
+  }): Promise<{ id: string; indexed: number }> => {
+    const pending = inflightConnects.get(body.baseUrl);
+    if (pending) return pending;
+    const job = connectOnce(body).finally(() => inflightConnects.delete(body.baseUrl));
+    inflightConnects.set(body.baseUrl, job);
+    return job;
+  };
+  const connectOnce = async (body: {
     backend?: string;
     baseUrl: string;
     name?: string;
@@ -137,6 +154,11 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   }): Promise<{ id: string; indexed: number }> => {
     const backend = body.backend ?? "opencode";
     if (backend !== "opencode") throw new Error(`backend ${backend} is not registered`);
+    const already = [...conns.values()].find((c) => c.baseUrl === body.baseUrl);
+    if (already) {
+      void already.sync().catch((e) => console.error(`sync ${already.id} failed: ${e}`));
+      return { id: already.id, indexed: 0 };
+    }
     const explicit: Policy | undefined = body.policy
       ? loadPolicy(body.policy)
       : undefined;
@@ -186,22 +208,82 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     } catch (e) {
       console.error(`index sessions on ${driver.id} failed: ${e}`);
     }
+    void driver.sync().catch((e) => console.error(`sync ${driver.id} failed: ${e}`));
     return { id: driver.id, indexed: indexed.length };
   };
 
-  // boot auto-connect (e.g. Tauri spawning `opencode serve` next to us):
-  // the server takes a moment to come up, so retry until the deadline
-  if (opts.autoConnect) {
-    const baseUrl = opts.autoConnect;
+  const connectionFile = (): string | undefined => {
+    if (!opts.db || opts.db === ":memory:") return undefined;
+    return `${dirname(opts.db)}/connection.json`;
+  };
+  const rememberConnection = (body: {
+    baseUrl: string;
+    name?: string;
+    directory?: string;
+    username?: string;
+    password?: string;
+  }) => {
+    const file = connectionFile();
+    if (!file) return;
+    try {
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, JSON.stringify(body));
+    } catch (e) {
+      console.error(`could not save connection: ${e}`);
+    }
+  };
+  const forgetConnection = () => {
+    const file = connectionFile();
+    if (!file) return;
+    try {
+      unlinkSync(file);
+    } catch {
+      // already gone
+    }
+  };
+  const savedConnection = ():
+    | {
+        baseUrl: string;
+        name?: string;
+        directory?: string;
+        username?: string;
+        password?: string;
+      }
+    | undefined => {
+    const file = connectionFile();
+    if (!file) return undefined;
+    try {
+      const parsed = JSON.parse(readFileSync(file, "utf8")) as { baseUrl?: string };
+      if (!parsed.baseUrl) return undefined;
+      return parsed as {
+        baseUrl: string;
+        name?: string;
+        directory?: string;
+        username?: string;
+        password?: string;
+      };
+    } catch {
+      return undefined;
+    }
+  };
+
+  // boot auto-connect. An explicit URL wins; otherwise reuse the last
+  // connection so reopening the app is not stuck on the previous snapshot.
+  const bootConnection = opts.autoConnect
+    ? {
+        baseUrl: opts.autoConnect,
+        username: opts.autoConnectUsername,
+        password: opts.autoConnectPassword,
+      }
+    : savedConnection();
+  if (bootConnection?.baseUrl) {
+    const baseUrl = bootConnection.baseUrl;
     const deadline = Date.now() + (opts.autoConnectTimeoutMs ?? 15_000);
     void (async () => {
       for (;;) {
         try {
-          const { id } = await connectBackend({
-            baseUrl,
-            username: opts.autoConnectUsername,
-            password: opts.autoConnectPassword,
-          });
+          const { id } = await connectBackend(bootConnection);
+          rememberConnection(bootConnection);
           console.log(`auto-connected backend ${id}`);
           return;
         } catch (e) {
@@ -441,10 +523,41 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         } | null;
         if (!body?.baseUrl) return json({ error: "baseUrl required" }, 400);
         try {
-          return json(await connectBackend({ ...body, baseUrl: body.baseUrl }));
+          const connected = await connectBackend({ ...body, baseUrl: body.baseUrl });
+          rememberConnection({
+            baseUrl: body.baseUrl,
+            name: body.name,
+            directory: body.directory,
+            username: body.username,
+            password: body.password,
+          });
+          return json(connected);
         } catch (e) {
           return json({ error: String(e) }, 502);
         }
+      }
+
+      if (path === "/sync" && req.method === "POST") {
+        if (conns.size === 0) {
+          const saved = savedConnection();
+          if (saved?.baseUrl) {
+            try {
+              await connectBackend({ ...saved, connectTimeoutMs: 2_000 });
+            } catch (e) {
+              console.error(`reconnect ${saved.baseUrl} failed: ${e}`);
+            }
+          }
+        }
+        if (conns.size === 0) return json({ connected: false, imported: 0 });
+        let imported = 0;
+        for (const conn of conns.values()) {
+          try {
+            imported += await conn.sync();
+          } catch (e) {
+            console.error(`sync ${conn.id} failed: ${e}`);
+          }
+        }
+        return json({ connected: true, imported });
       }
 
       if (path === "/connections" && req.method === "GET") {
@@ -552,6 +665,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         if (!conn) return json({ error: "not found" }, 404);
         conn.stop();
         conns.delete(conn.id);
+        if (conns.size === 0) forgetConnection();
         return json({ ok: true });
       }
 

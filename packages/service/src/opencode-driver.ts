@@ -21,7 +21,7 @@ export async function connectOpencodeDriver(opts: {
   onAsk?: OnAsk;
   onQuestion?: OnQuestion;
 }): Promise<BackendDriver> {
-  const imported = new Set<string>();
+  let syncing: Promise<number> | undefined;
   const conn = await connectOpencode({
     baseUrl: opts.baseUrl,
     directory: opts.directory,
@@ -65,15 +65,15 @@ export async function connectOpencodeDriver(opts: {
       const ids = await conn.indexSessions();
       return ids.map((native) => `${PREFIX}${native}`);
     },
+    sync: () => {
+      if (syncing) return syncing;
+      syncing = conn.refreshSessions().finally(() => {
+        syncing = undefined;
+      });
+      return syncing;
+    },
     async importSession(nativeId, directory) {
-      if (imported.has(nativeId)) return;
-      imported.add(nativeId);
-      try {
-        await conn.importSession(nativeId, directory);
-      } catch (err) {
-        imported.delete(nativeId);
-        throw err;
-      }
+      await conn.importSession(nativeId, directory);
     },
     nativeId(casfId) {
       return casfId.startsWith(PREFIX) ? casfId.slice(PREFIX.length) : undefined;

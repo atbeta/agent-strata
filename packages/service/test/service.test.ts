@@ -54,6 +54,9 @@ describe("agent-strata service", () => {
     const preflight = await fetch(`${base}/connect`, { method: "OPTIONS" });
     expect(preflight.status).toBe(204);
 
+    const sync = await fetch(`${base}/sync`, { method: "POST" }).then((r) => r.json());
+    expect(sync).toEqual({ connected: false, imported: 0 });
+
     seed(svc);
     seed(svc, "opencode:s2");
 

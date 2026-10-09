@@ -9,6 +9,7 @@ import {
   getJson,
   realWorkspace,
   renameSession,
+  syncBackend,
   type Connection,
   type SessionRow,
   type SessionsResponse,
@@ -247,6 +248,18 @@ export function App() {
     const clockTimer = setInterval(() => setClock(Date.now()), 30_000);
     const es = new EventSource(api("/stream"));
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const pull = () => {
+      void syncBackend()
+        .catch(() => {})
+        .finally(() => {
+          refetch();
+          void refetchWs();
+        });
+    };
+    pull();
+    const syncTimer = setInterval(pull, 12_000);
+    const onFocus = () => pull();
+    window.addEventListener("focus", onFocus);
     es.onmessage = () => {
       clearTimeout(timer);
       timer = setTimeout(() => {
@@ -271,7 +284,9 @@ export function App() {
       window.removeEventListener("hashchange", onHash);
       window.removeEventListener("keydown", onKey);
       clearInterval(clockTimer);
+      clearInterval(syncTimer);
       clearTimeout(timer);
+      window.removeEventListener("focus", onFocus);
       es.close();
     });
   });
