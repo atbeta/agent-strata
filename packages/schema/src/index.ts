@@ -67,6 +67,7 @@ const data = {
     title: z.string().optional(),
     workspace: z.string().optional(),
     archived: z.boolean().optional(),
+    parent_session_id: z.string().optional(),
   }),
   "session.deleted": z.object({}),
   "turn.user": z.object({

@@ -153,6 +153,7 @@ export function projectSession(events: Event[]): SessionView {
         if (e.data.title !== undefined) view.title = e.data.title;
         if (e.data.workspace !== undefined) view.workspace = e.data.workspace;
         if (e.data.archived !== undefined) view.archived = e.data.archived;
+        if (e.data.parent_session_id) view.parent_session_id = e.data.parent_session_id;
         break;
       case "session.deleted":
         view.deleted = true;
