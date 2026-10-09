@@ -14,8 +14,8 @@ import {
   type SessionView,
 } from "./api";
 import { Icon } from "./icons";
-import { CaptionGutter, DragBar } from "./chrome";
-import { inDesktopShell, usesCustomCaption } from "./shell";
+import { DragBar } from "./chrome";
+import { inDesktopShell } from "./shell";
 import { Tip } from "./tip";
 import { TraceDrawer, TraceStrip, type TraceBlock } from "./trace";
 import { TurnBlock } from "./transcript";
@@ -500,9 +500,7 @@ export function SessionDetail(props: { id: string }) {
           {(v) => (
             <>
               <header
-                class={`flex h-11 shrink-0 items-center gap-2 border-b border-border select-none ${
-                  usesCustomCaption() ? "pl-5 pr-2" : "px-4"
-                }`}
+                class="flex h-11 shrink-0 items-center gap-2 border-b border-border px-4 select-none"
                 data-tauri-drag-region={inDesktopShell() ? "" : undefined}
               >
                 <div class="flex min-w-0 flex-1 items-baseline gap-2">
@@ -577,7 +575,6 @@ export function SessionDetail(props: { id: string }) {
                   </a>
                   </Tip>
                 </span>
-                <CaptionGutter />
               </header>
 
               <Show when={traceOn()}>
@@ -902,7 +899,6 @@ export function SessionDetail(props: { id: string }) {
                 >
                   ×
                 </button>
-                <CaptionGutter />
               </div>
               <div class="min-h-0 flex-1 space-y-5 overflow-y-auto px-3 py-3">
                 <Show when={(v().plan?.length ?? 0) > 0}>

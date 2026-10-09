@@ -1,6 +1,5 @@
 import { createEffect, createResource, createSignal, For, Show } from "solid-js";
 import { getJson, type StrataEvent } from "./api";
-import { CaptionGutter } from "./chrome";
 import { inDesktopShell } from "./shell";
 
 export interface TraceBlock {
@@ -317,7 +316,6 @@ export function TraceDrawer(props: { block: TraceBlock; onClose: () => void }) {
         >
           ×
         </button>
-        <CaptionGutter />
       </div>
       <div class="flex gap-1 px-3">
         <For each={tabs()}>

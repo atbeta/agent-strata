@@ -15,7 +15,7 @@ export function shellPlatform(): ShellPlatform | null {
 }
 
 /** macOS draws traffic lights over the top-left of the webview. */
-export function usesOverlayTrafficLights(): boolean {
+function isMac(): boolean {
   return shellPlatform() === "macos";
 }
 
@@ -25,4 +25,13 @@ export function usesOverlayTrafficLights(): boolean {
  */
 export function usesCustomCaption(): boolean {
   return shellPlatform() === "windows";
+}
+
+/**
+ * True when the shell draws its own top strip: Windows for the caption it
+ * invents, macOS so the overlay traffic lights have a row to sit on. Linux and
+ * the browser keep the OS title bar and need no strip of their own.
+ */
+export function drawsOwnTopStrip(): boolean {
+  return isMac() || usesCustomCaption();
 }

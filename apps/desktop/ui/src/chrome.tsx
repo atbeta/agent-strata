@@ -1,5 +1,5 @@
 import { Show, createSignal, onCleanup, onMount, type JSX } from "solid-js";
-import { inDesktopShell, usesCustomCaption } from "./shell";
+import { inDesktopShell, drawsOwnTopStrip, usesCustomCaption } from "./shell";
 
 type WindowHandle = {
   minimize(): Promise<void>;
@@ -10,9 +10,6 @@ type WindowHandle = {
 };
 
 let windowPromise: Promise<WindowHandle> | undefined;
-
-/** Width the drawn caption reserves: 44px + 44px + 48px. */
-const CAPTION_W = 136;
 
 function desktopWindow(): Promise<WindowHandle> {
   windowPromise ??= import("@tauri-apps/api/window").then((mod) => mod.getCurrentWindow());
@@ -96,34 +93,34 @@ export function CaptionButtons() {
 }
 
 /**
- * The caption corner, pinned to the window's top-right.
+ * The window's own 44px strip, spanning every column.
  *
- * It belongs to the app root rather than to a column: the files drawer sits at
- * the right edge, so a caption living in the middle column would slide left the
- * moment the drawer opened. Title strips reserve the same width with
- * {@link CaptionGutter} so nothing ever renders underneath it.
+ * The caption gets this row to itself rather than sharing the right edge of
+ * one column: a drawer docked at the right would otherwise take the corner
+ * away, and the buttons would drift inward. With its own row, no screen
+ * header, drawer, or title strip can ever reach the top-right — there is
+ * nothing below it to reach.
  */
-export function CaptionOverlay() {
+export function WindowCaptionBar() {
   return (
-    <Show when={usesCustomCaption()}>
-      <div class="absolute right-0 top-0 z-50 flex h-11 shrink-0">
-        <CaptionButtons />
+    <Show when={drawsOwnTopStrip()}>
+      <div
+        class={`flex h-11 shrink-0 items-center gap-3 border-b border-border select-none ${
+          usesCustomCaption() ? "pl-5" : "pl-[76px]"
+        }`}
+        data-tauri-drag-region={inDesktopShell() ? "" : undefined}
+      >
+        <AppMark />
+        <div class="ml-auto flex h-full self-stretch">
+          <CaptionButtons />
+        </div>
       </div>
     </Show>
   );
 }
 
-/** Reserves the caption corner inside a title strip, as a sibling not a padding. */
-export function CaptionGutter() {
-  return (
-    <Show when={usesCustomCaption()}>
-      <div class="h-full shrink-0" style={{ width: `${CAPTION_W}px` }} />
-    </Show>
-  );
-}
-
 /**
- * Product mark for the title strip. Windows has no traffic lights to fill its
+ * Product mark for the caption bar. Windows has no traffic lights to fill its
  * top-left corner, so it carries the wordmark instead; macOS keeps that space.
  */
 export function AppMark() {
@@ -148,19 +145,22 @@ export function AppMark() {
   );
 }
 
-/** The 44px strip that moves the window. Every screen keeps one across the top. */
+/**
+ * A screen's own header row, below the window caption bar.
+ *
+ * It used to carry the caption and the pl-5 that went with it. The caption
+ * has a row of its own now, so this is just a bordered row of content that
+ * still doubles as a drag handle.
+ */
 export function DragBar(props: { class?: string; children?: JSX.Element }) {
   return (
     <div
-      class={`flex h-11 shrink-0 items-center gap-3 border-b border-border select-none ${
-        usesCustomCaption() ? "pl-5" : "px-5"
-      } ${props.class ?? ""}`}
+      class={`flex h-11 shrink-0 items-center gap-3 border-b border-border px-5 select-none ${
+        props.class ?? ""
+      }`}
       data-tauri-drag-region={inDesktopShell() ? "" : undefined}
     >
       {props.children}
-      <div class="ml-auto flex h-full">
-        <CaptionGutter />
-      </div>
     </div>
   );
 }

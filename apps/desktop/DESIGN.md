@@ -22,7 +22,7 @@ The top 44px (`h-11`) of the sidebar and of the main column is the title strip. 
 
 macOS already overlays the traffic lights in that strip (`pl-[76px]`). Windows is a frameless shell and draws minimize, maximize, and close itself; it has no traffic lights, so the strip carries the wordmark (`AppMark`) in that corner instead. Linux still ships the native title bar.
 
-The caption is a property of the window, not of a column: `CaptionOverlay` is absolutely positioned at the app root and `CaptionGutter` reserves the same width inside every title strip. Anything docked to the right edge — the files rail, the trace drawer — must render its gutter too, or it would slide under the buttons. Draw the controls inline in a column and they drift away from the corner as soon as a drawer opens.
+`WindowCaptionBar` is that strip, and it spans the full window width as a row of its own, above every column. The caption therefore never shares the top-right with anything: a screen header, the files rail, or the trace drawer can push as far right as it likes, because there is nothing above the row below it. Giving the caption its own row is the fix; it does not need to be pinned, overlaid, or given a reserved gutter. Windows and macOS draw the row (the latter for the traffic lights to sit on); Linux and the browser do not.
 
 ## Token layers
 
