@@ -49,12 +49,36 @@ function relTime(iso: string, now = Date.now()): string {
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
+const TIME_BUCKETS = ["Today", "Yesterday", "Previous 7 days", "Older"] as const;
+
+function dayBucket(iso: string, now: number): (typeof TIME_BUCKETS)[number] {
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return "Older";
+  const start = (ms: number) => {
+    const d = new Date(ms);
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  };
+  const diff = Math.round((start(now) - start(t)) / 86_400_000);
+  if (diff <= 0) return "Today";
+  if (diff === 1) return "Yesterday";
+  if (diff < 7) return "Previous 7 days";
+  return "Older";
+}
+
 const WS_KEY = "strata.workspace";
 const ALL = "__all__";
 
 function baseName(path: string): string {
   const parts = path.split(/[/\\]/).filter(Boolean);
   return parts.at(-1) ?? path;
+}
+
+function parentPath(path: string): string {
+  const parts = path.split(/[/\\]/).filter(Boolean);
+  if (parts.length <= 1) return path;
+  const parent = parts.slice(0, -1).join("/");
+  return path.startsWith("\\") ? parent : path.startsWith("/") ? `/${parent}` : parent;
 }
 
 function SessionListItem(props: {
@@ -92,7 +116,7 @@ function SessionListItem(props: {
     <div
       role="button"
       tabIndex={0}
-      class={`group flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition-colors ${
+      class={`relative flex h-8 w-full items-center gap-2 rounded-md px-2 text-left transition-colors ${
         props.active ? "bg-accent text-foreground" : "text-foreground/80 hover:bg-secondary/70"
       }`}
       onMouseEnter={() => setHot(true)}
@@ -106,12 +130,12 @@ function SessionListItem(props: {
         if (e.key === "Enter") props.onOpen();
       }}
     >
-      <Show when={props.busy}>
-        <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-status-active" />
-      </Show>
+      <span
+        class={`h-1.5 w-1.5 shrink-0 rounded-full ${props.busy ? "bg-status-active" : "bg-transparent"}`}
+      />
       <Show
         when={editing()}
-        fallback={<span class="min-w-0 flex-1 truncate text-[13px]">{props.title}</span>}
+        fallback={<span class="min-w-0 flex-1 truncate pr-[4.75rem] text-[13px] leading-none">{props.title}</span>}
       >
         <input
           ref={(el) => {
@@ -119,7 +143,7 @@ function SessionListItem(props: {
             el.focus();
             el.select();
           }}
-          class="min-w-0 flex-1 rounded bg-background px-1 py-0.5 text-[13px] focus:outline-none"
+          class="min-w-0 flex-1 rounded bg-background px-1 py-0.5 text-[13px] leading-none focus:outline-none"
           value={draft()}
           onClick={(e) => e.stopPropagation()}
           onInput={(e) => setDraft(e.currentTarget.value)}
@@ -131,22 +155,26 @@ function SessionListItem(props: {
           onBlur={() => void commit()}
         />
       </Show>
-      <Show
-        when={showActions() && !editing()}
-        fallback={
-          <span
-            class="shrink-0 font-mono text-[10px] text-muted-foreground tabular-nums"
-            title={props.timeTitle}
-          >
-            {props.time}
-          </span>
-        }
-      >
-        <span class="flex shrink-0 items-center">
+      <Show when={!editing()}>
+        <span
+          class={`pointer-events-none absolute right-2 top-1/2 w-[4.5rem] -translate-y-1/2 text-right font-mono text-[10px] text-muted-foreground tabular-nums ${
+            showActions() ? "invisible" : ""
+          }`}
+          title={props.timeTitle}
+        >
+          {props.time}
+        </span>
+        <span
+          class={`absolute right-0.5 top-1/2 flex -translate-y-1/2 items-center ${
+            showActions() ? "" : "invisible pointer-events-none"
+          }`}
+        >
           <button
+            type="button"
             class="grid h-6 w-6 place-items-center rounded text-muted-foreground hover:bg-background hover:text-foreground"
             title="Rename"
             aria-label="Rename"
+            tabIndex={showActions() ? 0 : -1}
             onClick={(e) => {
               e.stopPropagation();
               setArmed(false);
@@ -157,9 +185,11 @@ function SessionListItem(props: {
             <Icon name="pencil" class="h-3.5 w-3.5" />
           </button>
           <button
+            type="button"
             class="grid h-6 w-6 place-items-center rounded text-muted-foreground hover:bg-background hover:text-foreground"
             title="Archive"
             aria-label="Archive"
+            tabIndex={showActions() ? 0 : -1}
             onClick={(e) => {
               e.stopPropagation();
               void props.onArchive();
@@ -168,11 +198,13 @@ function SessionListItem(props: {
             <Icon name="archive" class="h-3.5 w-3.5" />
           </button>
           <button
+            type="button"
             class={`grid h-6 w-6 place-items-center rounded hover:bg-background ${
               armed() ? "text-destructive" : "text-muted-foreground hover:text-foreground"
             }`}
             title={armed() ? "Confirm delete" : "Delete"}
             aria-label={armed() ? "Confirm delete" : "Delete"}
+            tabIndex={showActions() ? 0 : -1}
             onClick={(e) => {
               e.stopPropagation();
               if (!armed()) {
@@ -389,16 +421,42 @@ export function App() {
     return [...map.entries()].map(([directory, name]) => ({ directory, name }));
   };
 
-  const groups = () => {
+  const groups = (): { key: string; label: string; hint?: string; rows: SessionRow[] }[] => {
     const rows = sessions();
-    if (rows.length === 0) return [] as [string, SessionRow[]][];
-    if (currentDir()) return [["", rows] as [string, SessionRow[]]];
-    const byWs = new Map<string, SessionRow[]>();
-    for (const s of rows) {
-      const ws = sessionWorkspace(s) ?? "no workspace";
-      byWs.set(ws, [...(byWs.get(ws) ?? []), s]);
+    if (rows.length === 0) return [];
+    if (!currentDir()) {
+      const byWs = new Map<string, SessionRow[]>();
+      for (const s of rows) {
+        const ws = sessionWorkspace(s) ?? "";
+        const list = byWs.get(ws) ?? [];
+        list.push(s);
+        byWs.set(ws, list);
+      }
+      return [...byWs.entries()]
+        .sort((a, b) => {
+          const ta = new Date(a[1][0]?.summary.last_ts ?? 0).getTime();
+          const tb = new Date(b[1][0]?.summary.last_ts ?? 0).getTime();
+          return tb - ta;
+        })
+        .map(([ws, list]) => ({
+          key: ws || "none",
+          label: ws ? baseName(ws) : "No project",
+          hint: ws || undefined,
+          rows: list,
+        }));
     }
-    return [...byWs.entries()];
+    const buckets = new Map<string, SessionRow[]>();
+    for (const s of rows) {
+      const bucket = dayBucket(s.summary.last_ts, clock());
+      const list = buckets.get(bucket) ?? [];
+      list.push(s);
+      buckets.set(bucket, list);
+    }
+    return TIME_BUCKETS.filter((bucket) => buckets.has(bucket)).map((bucket) => ({
+      key: bucket,
+      label: bucket,
+      rows: buckets.get(bucket)!,
+    }));
   };
 
   const runAction = async (id: string, fn: () => Promise<void>, leave: boolean) => {
@@ -420,7 +478,7 @@ export function App() {
 
   return (
     <div class="flex h-full min-h-0 bg-background">
-      <aside class="flex w-[272px] shrink-0 flex-col border-r border-border bg-card/50">
+      <aside class="flex w-[300px] shrink-0 flex-col border-r border-border bg-card">
         <div
           class={`flex h-12 items-center gap-2 pr-3 ${inDesktopShell() ? "pl-[76px]" : "px-3"}`}
           data-tauri-drag-region
@@ -445,103 +503,148 @@ export function App() {
             +
           </button>
         </div>
-        <div class="relative px-2 pb-1">
-          <button
-            class={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-secondary ${
-              wsOpen() ? "bg-secondary" : ""
-            }`}
-            title={currentDir() ?? "All workspaces"}
-            onClick={() => setWsOpen((v) => !v)}
-          >
-            <Icon name="folder" class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <span class="min-w-0 flex-1 truncate text-[13px]">
-              {currentDir() ? baseName(currentDir()!) : "All"}
-            </span>
-          </button>
-          <Show when={wsOpen()}>
+        <div class="space-y-2 px-3 pb-3">
+          <div class="relative">
+            <p class="mb-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+              Project
+            </p>
             <button
-              class="fixed inset-0 z-10 cursor-default"
-              aria-label="Close"
-              onClick={() => setWsOpen(false)}
-            />
-            <div class="absolute left-2 right-2 z-20 mt-1 rounded-md border border-border bg-card p-1 shadow-lg">
+              class={`flex w-full items-center gap-2 rounded-lg border border-border bg-background/50 px-2 py-1.5 text-left transition-colors hover:bg-secondary ${
+                wsOpen() ? "border-ring bg-secondary" : ""
+              }`}
+              title={currentDir() ?? "All projects"}
+              aria-expanded={wsOpen()}
+              aria-haspopup="listbox"
+              onClick={() => setWsOpen((v) => !v)}
+            >
+              <span class="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-secondary text-muted-foreground">
+                <Icon name="folder" class="h-3.5 w-3.5" />
+              </span>
+              <span class="min-w-0 flex-1">
+                <span class="block truncate text-[13px] font-medium leading-tight">
+                  {currentDir() ? baseName(currentDir()!) : "All projects"}
+                </span>
+                <span class="block truncate font-mono text-[10px] leading-tight text-muted-foreground">
+                  {currentDir() ? parentPath(currentDir()!) : `${sessions().length} sessions`}
+                </span>
+              </span>
+              <Icon name="chevron" class={`h-3.5 w-3.5 shrink-0 text-muted-foreground ${wsOpen() ? "rotate-180" : ""}`} />
+            </button>
+            <Show when={wsOpen()}>
               <button
-                class={`flex w-full items-center rounded px-2 py-1.5 text-left text-[13px] hover:bg-secondary ${
-                  !currentDir() ? "text-foreground" : "text-muted-foreground"
-                }`}
-                onClick={() => chooseWorkspace(ALL)}
+                class="fixed inset-0 z-10 cursor-default"
+                aria-label="Close"
+                onClick={() => setWsOpen(false)}
+              />
+              <div class="absolute left-0 right-0 z-20 mt-1 max-h-80 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-lg">
+                <button
+                  class={`flex w-full flex-col rounded-md px-2 py-1.5 text-left hover:bg-secondary ${
+                    !currentDir() ? "bg-secondary/80" : ""
+                  }`}
+                  onClick={() => chooseWorkspace(ALL)}
+                >
+                  <span class="text-[13px] font-medium">All projects</span>
+                  <span class="text-[10px] text-muted-foreground">Every directory on this connection</span>
+                </button>
+                <For each={workspaceOptions()}>
+                  {(w) => (
+                    <button
+                      class={`mt-0.5 flex w-full flex-col rounded-md px-2 py-1.5 text-left hover:bg-secondary ${
+                        currentDir() === w.directory ? "bg-secondary/80" : ""
+                      }`}
+                      title={w.directory}
+                      onClick={() => chooseWorkspace(w.directory)}
+                    >
+                      <span class="truncate text-[13px]">{w.name}</span>
+                      <span class="truncate font-mono text-[10px] text-muted-foreground">{w.directory}</span>
+                    </button>
+                  )}
+                </For>
+                <form
+                  class="mt-1 border-t border-border px-1 pt-2 pb-1"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const path = wsDraft().trim();
+                    if (path) chooseWorkspace(path);
+                  }}
+                >
+                  <label class="mb-1 block px-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                    Open directory
+                  </label>
+                  <input
+                    class="w-full rounded-md border border-input bg-background px-2 py-1.5 font-mono text-[11px] focus:border-ring focus:outline-none"
+                    placeholder="/path/to/project"
+                    value={wsDraft()}
+                    onInput={(e) => setWsDraft(e.currentTarget.value)}
+                  />
+                </form>
+              </div>
+            </Show>
+          </div>
+          <div class="relative">
+            <Icon
+              name="search"
+              class="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+            />
+            <input
+              class="w-full rounded-lg border border-border bg-background/50 py-1.5 pr-7 pl-8 text-[13px] text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none"
+              placeholder="Search sessions"
+              value={query()}
+              onInput={(e) => setQuery(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  setQuery("");
+                  e.currentTarget.blur();
+                }
+              }}
+            />
+            <Show when={query().trim()}>
+              <button
+                type="button"
+                class="absolute top-1/2 right-1.5 grid h-5 w-5 -translate-y-1/2 place-items-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground"
+                aria-label="Clear search"
+                title="Clear search"
+                onClick={() => setQuery("")}
               >
-                All
+                ×
               </button>
-              <For each={workspaceOptions()}>
-                {(w) => (
-                  <button
-                    class={`flex w-full items-center rounded px-2 py-1.5 text-left text-[13px] hover:bg-secondary ${
-                      currentDir() === w.directory ? "text-foreground" : "text-foreground/80"
-                    }`}
-                    title={w.directory}
-                    onClick={() => chooseWorkspace(w.directory)}
-                  >
-                    <span class="truncate">{w.name}</span>
-                  </button>
-                )}
-              </For>
-              <form
-                class="mt-1 border-t border-border pt-1"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const path = wsDraft().trim();
-                  if (path) chooseWorkspace(path);
-                }}
-              >
-                <input
-                  class="w-full rounded bg-secondary/70 px-2 py-1 font-mono text-[11px] focus:outline-none"
-                  placeholder="/path/to/project"
-                  value={wsDraft()}
-                  onInput={(e) => setWsDraft(e.currentTarget.value)}
-                />
-              </form>
-            </div>
-          </Show>
-        </div>
-        <div class="px-3 pb-2">
-          <input
-            class="w-full rounded-md border border-transparent bg-secondary/70 px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none"
-            placeholder="Search"
-            value={query()}
-            onInput={(e) => setQuery(e.currentTarget.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") {
-                setQuery("");
-                e.currentTarget.blur();
-              }
-            }}
-          />
+            </Show>
+          </div>
           <Show when={actionErr()}>
-            <p class="mt-1 truncate font-mono text-[10px] text-destructive" title={actionErr()}>
+            <p class="truncate font-mono text-[10px] text-destructive" title={actionErr()}>
               {actionErr()}
             </p>
           </Show>
         </div>
-        <div class="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+        <div class="min-h-0 flex-1 overflow-y-auto border-t border-border px-1.5 py-1">
           <For
             each={groups()}
             fallback={
-              <p class="px-2 py-6 text-xs text-muted-foreground">
+              <p class="px-2 py-8 text-center text-xs text-muted-foreground">
                 {query().trim()
-                  ? "no matching sessions"
+                  ? "No sessions match this search."
                   : data()
-                    ? "no sessions yet"
-                    : "connect a backend to see sessions"}
+                    ? "No sessions in this project yet."
+                    : "Connect a backend to see sessions."}
               </p>
             }
           >
-            {([ws, rows]) => (
-              <section class="mb-3">
-                <Show when={realWorkspace(ws)}>
-                  <h2 class="truncate px-2 py-1 font-mono text-[10px] text-muted-foreground">{ws}</h2>
-                </Show>
-                <For each={rows}>
+            {(group) => (
+              <section class="mb-2">
+                <h2 class="flex items-baseline gap-2 px-2 pt-2 pb-1" title={group.hint}>
+                  <span class="shrink-0 text-[10px] font-medium tracking-[0.14em] text-muted-foreground uppercase">
+                    {group.label}
+                  </span>
+                  <Show when={group.hint}>
+                    <span class="min-w-0 flex-1 truncate font-mono text-[10px] text-muted-foreground/80">
+                      {group.hint}
+                    </span>
+                  </Show>
+                  <span class="ml-auto font-mono text-[10px] text-muted-foreground/70 tabular-nums">
+                    {group.rows.length}
+                  </span>
+                </h2>
+                <For each={group.rows}>
                   {(s) => {
                     const id = s.summary.session_id;
                     return (

@@ -7,6 +7,7 @@ type Name =
   | "columns"
   | "search"
   | "folder"
+  | "chevron"
   | "pencil"
   | "archive"
   | "trash";
@@ -76,6 +77,12 @@ export function Icon(props: { name: Name; class?: string }) {
     return (
       <svg {...common}>
         <path d="M2.5 5.2c0-.7.5-1.2 1.2-1.2h2.2l1.2 1.3H12.3c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H3.7c-.7 0-1.2-.5-1.2-1.2z" />
+      </svg>
+    );
+  if (props.name === "chevron")
+    return (
+      <svg {...common}>
+        <path d="M4 6.2 8 10l4-3.8" />
       </svg>
     );
   if (props.name === "pencil")
