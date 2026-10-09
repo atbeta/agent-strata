@@ -1,6 +1,14 @@
 # Agent Strata design system v0.2
 
-The shell is a dark, quiet desktop app. Visual references are Linear (one neutral surface, hairline borders, 13px UI type, accent used sparingly) and OpenCode Desktop (session sidebar, conversation, composer, custom window chrome). Tokens live in `ui/src/theme.css`. Screens use those tokens through Tailwind. There is no separate component library yet: buttons, fields, and rows are styled in place, and they must keep using the tokens below.
+The shell is a dark, quiet desktop app. Visual references are Linear (one neutral surface, hairline borders, 13px UI type, accent used sparingly) and OpenCode Desktop (session sidebar, conversation, composer, custom window chrome). Tokens live in `ui/src/theme.css`. Interactive controls come from a small Solid component set in `ui/src/components/ui`, styled with those tokens.
+
+## Components
+
+The set is an owned copy of [solid-ui](https://github.com/stefan-karger/solid-ui) (the Solid port of the shadcn component model). Primitives are `@kobalte/core`. `cn()` in `ui/src/lib/utils.ts` merges classes. Import from `@/components/ui/*`.
+
+Official shadcn/ui is React, so its CLI is not used here. solid-ui's own CLI targets Tailwind 3 and this app is Tailwind 4, so new pieces are copied in and adapted by hand: keep the Kobalte behavior, restyle with the tokens in `theme.css`, and skip animation class names that are not defined in this theme. Density is tighter than the solid-ui defaults (13px type, 32px fields, 28px icon buttons).
+
+In use: `Button`, `TextField`, `DropdownMenu` on the sidebar (project switcher, search, row actions, connect). Session, compare, and policy still have hand-styled controls; they move onto this set as those screens are touched. Do not add a second styling path beside these components.
 
 ## What the references change
 
