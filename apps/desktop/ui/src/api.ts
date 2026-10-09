@@ -26,10 +26,11 @@ export interface SessionsResponse {
   aggregate: { total: { cost_usd: number; input: number; output: number } };
 }
 
-export interface ContentBlock {
-  type: string;
-  text?: string;
-}
+export type ContentBlock =
+  | { type: "text"; text: string }
+  | { type: "thinking"; text: string }
+  | { type: "image"; mime: string; data?: string; uri?: string }
+  | { type: "file_ref"; path: string; range?: { start: number; end: number } };
 
 export interface ToolCallView {
   call_id: string;

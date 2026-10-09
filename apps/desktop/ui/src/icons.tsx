@@ -10,7 +10,8 @@ type Name =
   | "chevron"
   | "pencil"
   | "archive"
-  | "trash";
+  | "trash"
+  | "spark";
 
 export function Icon(props: { name: Name; class?: string }) {
   const cls = props.class ?? "h-4 w-4";
@@ -97,6 +98,20 @@ export function Icon(props: { name: Name; class?: string }) {
         <path d="M2.5 3.5h11v2h-11z" />
         <path d="M3.5 5.5v7h9v-7" />
         <path d="M6.5 8.5h3" />
+      </svg>
+    );
+  if (props.name === "spark")
+    return (
+      <svg {...common}>
+        <path d="M8 1.8v2.2" />
+        <path d="M8 12v2.2" />
+        <path d="M1.8 8h2.2" />
+        <path d="M12 8h2.2" />
+        <path d="M3.6 3.6 5.2 5.2" />
+        <path d="M10.8 10.8l1.6 1.6" />
+        <path d="M12.4 3.6 10.8 5.2" />
+        <path d="M5.2 10.8 3.6 12.4" />
+        <circle cx="8" cy="8" r="1.4" />
       </svg>
     );
   return (
