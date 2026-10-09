@@ -47,8 +47,12 @@ describe("agent-strata service", () => {
     const svc = startService({ db: ":memory:", port: 0 });
     const base = `http://127.0.0.1:${svc.port}`;
 
-    const health = await fetch(`${base}/health`).then((r) => r.json());
+    const healthRes = await fetch(`${base}/health`);
+    expect(healthRes.headers.get("access-control-allow-origin")).toBe("*");
+    const health = await healthRes.json();
     expect(health.ok).toBe(true);
+    const preflight = await fetch(`${base}/connect`, { method: "OPTIONS" });
+    expect(preflight.status).toBe(204);
 
     seed(svc);
     seed(svc, "opencode:s2");

@@ -1,0 +1,54 @@
+name: Desktop Windows
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+
+      - name: Install workspace dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install desktop UI dependencies
+        working-directory: apps/desktop/ui
+        run: bun install --frozen-lockfile
+
+      - name: Compile the service sidecar
+        shell: pwsh
+        run: |
+          $triple = (rustc --print host-tuple).Trim()
+          if (-not $triple) { throw "rustc did not print a host tuple" }
+          $dir = "apps/desktop/src-tauri/binaries"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          bun build --compile ./packages/service/src/index.ts --outfile "$dir/strata-service-$triple.exe"
+          Get-Item "$dir/strata-service-$triple.exe" | Format-List FullName, Length
+
+      - name: Build the Windows installer
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: apps/desktop/src-tauri
+          tauriScript: bunx --bun @tauri-apps/cli@2
+          args: --bundles nsis
+          uploadWorkflowArtifacts: true
+          workflowArtifactNamePattern: agent-strata-windows-[bundle]

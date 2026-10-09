@@ -1,3 +1,5 @@
+import { inDesktopShell } from "./shell";
+
 export interface SessionRow {
   summary: {
     session_id: string;
@@ -194,7 +196,10 @@ export interface PolicyDecision {
   reason?: string;
 }
 
-export const api = (p: string) => `/api${p}`;
+/** Packaged webview has no Vite proxy, so it talks to the sidecar directly. */
+const DESKTOP_SERVICE = "http://127.0.0.1:7700";
+
+export const api = (p: string) => (inDesktopShell() ? `${DESKTOP_SERVICE}${p}` : `/api${p}`);
 
 export async function getJson<T>(p: string): Promise<T> {
   const res = await fetch(api(p));

@@ -11,7 +11,7 @@
       "cwd": "../ui"
     },
     "beforeBuildCommand": {
-      "script": "STRATA_SERVICE_URL=http://127.0.0.1:7700 bun run build",
+      "script": "bun run build",
       "cwd": "../ui"
     }
   },
