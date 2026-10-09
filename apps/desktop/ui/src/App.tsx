@@ -21,7 +21,7 @@ import { PolicyEditor } from "./policy";
 import { SettingsPage } from "./settings";
 import { applyTheme, readTheme } from "./theme";
 import { Icon } from "./icons";
-import { DragBar } from "./chrome";
+import { AppMark, CaptionGutter, CaptionOverlay, DragBar } from "./chrome";
 import { inDesktopShell, usesOverlayTrafficLights } from "./shell";
 import { Tip } from "./tip";
 import { CommandSearch } from "./search";
@@ -533,7 +533,8 @@ export function App() {
   const connected = () => (settled(conns)?.connections.length ?? 0) > 0;
 
   return (
-    <div class="flex h-full min-h-0 bg-background">
+    <div class="relative flex h-full min-h-0 bg-background">
+      <CaptionOverlay />
       <aside class="flex w-[300px] shrink-0 flex-col border-r border-border bg-background">
         <div
           class={`flex h-11 shrink-0 items-center gap-2 border-b border-border pr-3 select-none ${
@@ -541,6 +542,7 @@ export function App() {
           }`}
           data-tauri-drag-region={inDesktopShell() ? "" : undefined}
         >
+          <AppMark />
           <Tip class="ml-auto" label={connected() ? "New session" : "Connect a backend"}>
           <Button
             variant="ghost"
@@ -558,6 +560,7 @@ export function App() {
             +
           </Button>
           </Tip>
+          <CaptionGutter />
         </div>
         <CommandSearch
           open={searchOpen()}

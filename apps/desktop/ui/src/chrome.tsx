@@ -11,6 +11,9 @@ type WindowHandle = {
 
 let windowPromise: Promise<WindowHandle> | undefined;
 
+/** Width the drawn caption reserves: 44px + 44px + 48px. */
+const CAPTION_W = 136;
+
 function desktopWindow(): Promise<WindowHandle> {
   windowPromise ??= import("@tauri-apps/api/window").then((mod) => mod.getCurrentWindow());
   return windowPromise;
@@ -92,6 +95,59 @@ export function CaptionButtons() {
   );
 }
 
+/**
+ * The caption corner, pinned to the window's top-right.
+ *
+ * It belongs to the app root rather than to a column: the files drawer sits at
+ * the right edge, so a caption living in the middle column would slide left the
+ * moment the drawer opened. Title strips reserve the same width with
+ * {@link CaptionGutter} so nothing ever renders underneath it.
+ */
+export function CaptionOverlay() {
+  return (
+    <Show when={usesCustomCaption()}>
+      <div class="absolute right-0 top-0 z-50 flex h-11 shrink-0">
+        <CaptionButtons />
+      </div>
+    </Show>
+  );
+}
+
+/** Reserves the caption corner inside a title strip, as a sibling not a padding. */
+export function CaptionGutter() {
+  return (
+    <Show when={usesCustomCaption()}>
+      <div class="h-full shrink-0" style={{ width: `${CAPTION_W}px` }} />
+    </Show>
+  );
+}
+
+/**
+ * Product mark for the title strip. Windows has no traffic lights to fill its
+ * top-left corner, so it carries the wordmark instead; macOS keeps that space.
+ */
+export function AppMark() {
+  return (
+    <Show when={usesCustomCaption()}>
+      <span class="flex shrink-0 items-center gap-2">
+        <svg
+          viewBox="0 0 16 16"
+          class="size-4 text-muted-foreground"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+        >
+          <path d="M2 4h12" />
+          <path d="M2 8h8" />
+          <path d="M2 12h4" />
+        </svg>
+        <span class="text-[13px] font-medium">Agent Strata</span>
+      </span>
+    </Show>
+  );
+}
+
 /** The 44px strip that moves the window. Every screen keeps one across the top. */
 export function DragBar(props: { class?: string; children?: JSX.Element }) {
   return (
@@ -103,7 +159,7 @@ export function DragBar(props: { class?: string; children?: JSX.Element }) {
     >
       {props.children}
       <div class="ml-auto flex h-full">
-        <CaptionButtons />
+        <CaptionGutter />
       </div>
     </div>
   );

@@ -20,7 +20,9 @@ OpenCode Desktop puts sessions in a left rail and the composer at the bottom of 
 
 The top 44px (`h-11`) of the sidebar and of the main column is the title strip. It uses `data-tauri-drag-region`, with both `app-region` and `-webkit-app-region`, and interactive controls inside it opt out of dragging.
 
-macOS already overlays the traffic lights in that strip (`pl-[76px]`). Windows and Linux still show the native title bar. The next shell step is a frameless window on those platforms, with minimize, maximize, and close drawn in this strip. Do not remove native decorations until those controls exist.
+macOS already overlays the traffic lights in that strip (`pl-[76px]`). Windows is a frameless shell and draws minimize, maximize, and close itself; it has no traffic lights, so the strip carries the wordmark (`AppMark`) in that corner instead. Linux still ships the native title bar.
+
+The caption is a property of the window, not of a column: `CaptionOverlay` is absolutely positioned at the app root and `CaptionGutter` reserves the same width inside every title strip. Anything docked to the right edge — the files rail, the trace drawer — must render its gutter too, or it would slide under the buttons. Draw the controls inline in a column and they drift away from the corner as soon as a drawer opens.
 
 ## Token layers
 

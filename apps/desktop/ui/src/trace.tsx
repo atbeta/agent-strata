@@ -1,5 +1,7 @@
 import { createEffect, createResource, createSignal, For, Show } from "solid-js";
 import { getJson, type StrataEvent } from "./api";
+import { CaptionGutter } from "./chrome";
+import { inDesktopShell } from "./shell";
 
 export interface TraceBlock {
   key: string;
@@ -299,7 +301,10 @@ export function TraceDrawer(props: { block: TraceBlock; onClose: () => void }) {
 
   return (
     <aside class="flex w-80 shrink-0 flex-col border-l border-border bg-card/30">
-      <div class="flex h-12 items-center gap-2 px-3">
+      <div
+        class="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3 select-none"
+        data-tauri-drag-region={inDesktopShell() ? "" : undefined}
+      >
         <span
           class={`h-1.5 w-1.5 shrink-0 rounded-full ${props.block.tone}`}
         />
@@ -312,6 +317,7 @@ export function TraceDrawer(props: { block: TraceBlock; onClose: () => void }) {
         >
           ×
         </button>
+        <CaptionGutter />
       </div>
       <div class="flex gap-1 px-3">
         <For each={tabs()}>
