@@ -216,6 +216,11 @@ export function makeEvent(
   return { ...parsed, id: parsed.id ?? ulid(), ts: parsed.ts ?? new Date().toISOString() } as EventInput;
 }
 
+/** A mid-generation snapshot: shown while it lasts, superseded by the completed message, never stored. */
+export function isStreamingSnapshot(e: { type: string; data: unknown }): boolean {
+  return e.type === "turn.assistant" && (e.data as { partial?: unknown }).partial === true;
+}
+
 export const DEFAULT_SECRET_PATTERNS: RegExp[] = [
   /AKIA[0-9A-Z]{16}/g,
   /sk-[A-Za-z0-9_-]{20,}/g,

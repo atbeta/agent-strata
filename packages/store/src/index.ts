@@ -1,7 +1,14 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { Event, EventInput, makeEvent, parseEvent } from "@agent-strata/schema";
+import {
+  Event,
+  EventInput,
+  isStreamingSnapshot,
+  makeEvent,
+  parseEvent,
+  type EventType,
+} from "@agent-strata/schema";
 
 export interface EventQuery {
   session_id?: string;
@@ -23,13 +30,29 @@ export interface SessionSummary {
   started_at: string;
   last_seq: number;
   last_ts: string;
+  /** mapping version that produced the session's rebuildable events; null until a rebuild records one */
+  mapper: string | null;
+}
+
+export interface ReplaceOptions {
+  /** the event types the new events stand in for; every other type is kept */
+  replaceTypes: EventType[];
+  /** recorded on the session so a later mapping change can tell it is stale */
+  mapper?: string;
 }
 
 export interface Store {
   append(inputs: EventInput[]): Event[];
+  /**
+   * Swap one session's events of `replaceTypes` for `inputs` in one
+   * transaction. Subscribers are not called; the caller announces the rebuild.
+   */
+  replaceSession(session_id: string, inputs: EventInput[], opts: ReplaceOptions): number;
   read(opts: { session_id: string; after_seq?: number; limit?: number }): Event[];
   query(q: EventQuery): Event[];
   listSessions(opts?: { limit?: number; backend?: string }): SessionSummary[];
+  sessionMapper(session_id: string): string | null;
+  lastSeq(session_id: string): number;
   search(
     query: string,
     opts?: { session_id?: string; limit?: number },
@@ -58,6 +81,12 @@ function ftsQuote(q: string): string {
   return terms.map((t) => `"${t.replace(/"/g, '""')}"`).join(" ");
 }
 
+interface Parsed {
+  event: EventInput;
+  // only an explicit source clock may rewrite an already-stored event
+  clock: string | undefined;
+}
+
 export function openStore(path: string | ":memory:"): Store {
   // SQLite does not create parent directories, so a first run against a fresh
   // ~/.agent-strata fails with SQLITE_CANTOPEN. Create it up front.
@@ -82,120 +111,164 @@ export function openStore(path: string | ":memory:"): Store {
       title TEXT,
       started_at TEXT,
       last_seq INTEGER NOT NULL DEFAULT 0,
-      last_ts TEXT
+      last_ts TEXT,
+      mapper TEXT
     );
     CREATE VIRTUAL TABLE IF NOT EXISTS events_fts USING fts5(
       event_id UNINDEXED, session_id UNINDEXED, text
     );
   `);
+  const sessionColumns = db.query("PRAGMA table_info(sessions)").all() as { name: string }[];
+  if (!sessionColumns.some((c) => c.name === "mapper")) db.exec("ALTER TABLE sessions ADD COLUMN mapper TEXT");
 
   const listeners = new Set<(e: Event) => void>();
 
+  const notify = (events: Event[]) => {
+    for (const e of events)
+      for (const fn of listeners) {
+        try {
+          fn(e);
+        } catch (err) {
+          console.error("store subscriber error:", err);
+        }
+      }
+  };
+
+  const parseAll = (inputs: EventInput[]): Parsed[] =>
+    inputs
+      .filter((i) => !isStreamingSnapshot(i))
+      .map((i) => ({ event: makeEvent(i), clock: i.ts }));
+
+  // Runs inside a caller's transaction.
+  const insertAll = (parsed: Parsed[]): { out: Event[]; inserted: Event[] } => {
+    const out: Event[] = [];
+    const inserted: Event[] = [];
+    for (const item of parsed) {
+      const input = item.event;
+      const existing = db
+        .query("SELECT body FROM events WHERE id = ?")
+        .get(input.id!) as { body: string } | null;
+      if (existing) {
+        const stored = parseEvent(JSON.parse(existing.body));
+        if (item.clock && item.clock !== stored.ts) {
+          const next = parseEvent({ ...stored, ts: item.clock });
+          db.query("UPDATE events SET ts=?, body=? WHERE id=?").run(
+            next.ts,
+            JSON.stringify(next),
+            next.id,
+          );
+          db.query(
+            `UPDATE sessions SET last_ts=(SELECT MAX(ts) FROM events WHERE session_id=?)
+             WHERE session_id=?`,
+          ).run(next.session_id, next.session_id);
+          out.push(next);
+          inserted.push(next);
+          continue;
+        }
+        out.push(stored);
+        continue;
+      }
+      const sessionId = input.session_id;
+      const last =
+        (db
+          .query("SELECT last_seq FROM sessions WHERE session_id = ?")
+          .get(sessionId) as { last_seq: number } | null)?.last_seq ?? 0;
+      const seq = last + 1;
+      const candidate = { ...input, seq };
+      const event = parseEvent(candidate); // throws -> rollback
+      db.query(
+        "INSERT INTO events(id,session_id,seq,ts,type,backend,body) VALUES(?,?,?,?,?,?,?)",
+      ).run(
+        event.id,
+        event.session_id,
+        event.seq,
+        event.ts,
+        event.type,
+        event.source.backend,
+        JSON.stringify(event),
+      );
+      if (event.type === "session.started") {
+        const d = event.data;
+        db.query(
+          `INSERT INTO sessions(session_id,backend,workspace,title,started_at,last_seq,last_ts)
+           VALUES(?,?,?,?,?,?,?)
+           ON CONFLICT(session_id) DO UPDATE SET
+             backend=excluded.backend, workspace=excluded.workspace,
+             title=COALESCE(excluded.title, sessions.title),
+             started_at=MIN(sessions.started_at, excluded.started_at),
+             last_seq=MAX(sessions.last_seq, excluded.last_seq),
+             last_ts=MAX(sessions.last_ts, excluded.last_ts)`,
+        ).run(sessionId, event.source.backend, d.workspace, d.title ?? null, event.ts, seq, event.ts);
+      } else {
+        db.query(
+          `INSERT INTO sessions(session_id,backend,started_at,last_seq,last_ts)
+           VALUES(?,?,?,?,?)
+           ON CONFLICT(session_id) DO UPDATE SET
+             last_seq=MAX(sessions.last_seq, excluded.last_seq),
+             last_ts=MAX(sessions.last_ts, excluded.last_ts),
+             started_at=MIN(sessions.started_at, excluded.started_at)`,
+        ).run(sessionId, event.source.backend, event.ts, seq, event.ts);
+        if (event.type === "session.updated") {
+          const d = event.data;
+          if (d.title !== undefined) {
+            db.query("UPDATE sessions SET title=? WHERE session_id=?").run(d.title, sessionId);
+          }
+          if (d.workspace !== undefined) {
+            db.query("UPDATE sessions SET workspace=? WHERE session_id=?").run(d.workspace, sessionId);
+          }
+        }
+      }
+      const text = ftsText(event);
+      if (text.trim()) {
+        db.query(
+          "INSERT INTO events_fts(event_id,session_id,text) VALUES(?,?,?)",
+        ).run(event.id, event.session_id, text);
+      }
+      out.push(event);
+      inserted.push(event);
+    }
+    return { out, inserted };
+  };
+
   const store: Store = {
     append(inputs) {
-      const parsed = inputs.map((i) => ({
-        event: makeEvent(i),
-        // only an explicit source clock may rewrite an already-stored event
-        clock: i.ts,
-      }));
-      const out: Event[] = [];
-      const inserted: Event[] = [];
-      const txn = db.transaction(() => {
-        for (const item of parsed) {
-          const input = item.event;
-          const existing = db
-            .query("SELECT body FROM events WHERE id = ?")
-            .get(input.id!) as { body: string } | null;
-          if (existing) {
-            const stored = parseEvent(JSON.parse(existing.body));
-            if (item.clock && item.clock !== stored.ts) {
-              const next = parseEvent({ ...stored, ts: item.clock });
-              db.query("UPDATE events SET ts=?, body=? WHERE id=?").run(
-                next.ts,
-                JSON.stringify(next),
-                next.id,
-              );
-              db.query(
-                `UPDATE sessions SET last_ts=(SELECT MAX(ts) FROM events WHERE session_id=?)
-                 WHERE session_id=?`,
-              ).run(next.session_id, next.session_id);
-              out.push(next);
-              inserted.push(next);
-              continue;
-            }
-            out.push(stored);
-            continue;
-          }
-          const sessionId = input.session_id;
-          const last =
-            (db
-              .query("SELECT last_seq FROM sessions WHERE session_id = ?")
-              .get(sessionId) as { last_seq: number } | null)?.last_seq ?? 0;
-          const seq = last + 1;
-          const candidate = { ...input, seq };
-          const event = parseEvent(candidate); // throws -> rollback
+      const parsed = parseAll(inputs);
+      const result = db.transaction(() => insertAll(parsed))();
+      notify(result.inserted);
+      return result.out;
+    },
+
+    replaceSession(session_id, inputs, { replaceTypes, mapper }) {
+      for (const i of inputs) {
+        if (i.session_id !== session_id) {
+          throw new Error(`event for ${i.session_id} in a rebuild of ${session_id}`);
+        }
+      }
+      const parsed = parseAll(inputs);
+      const marks = replaceTypes.map(() => "?").join(",");
+      return db.transaction(() => {
+        if (replaceTypes.length > 0) {
           db.query(
-            "INSERT INTO events(id,session_id,seq,ts,type,backend,body) VALUES(?,?,?,?,?,?,?)",
-          ).run(
-            event.id,
-            event.session_id,
-            event.seq,
-            event.ts,
-            event.type,
-            event.source.backend,
-            JSON.stringify(event),
+            `DELETE FROM events_fts WHERE event_id IN
+               (SELECT id FROM events WHERE session_id=? AND type IN (${marks}))`,
+          ).run(session_id, ...replaceTypes);
+          db.query(`DELETE FROM events WHERE session_id=? AND type IN (${marks})`).run(
+            session_id,
+            ...replaceTypes,
           );
-          if (event.type === "session.started") {
-            const d = event.data;
-            db.query(
-              `INSERT INTO sessions(session_id,backend,workspace,title,started_at,last_seq,last_ts)
-               VALUES(?,?,?,?,?,?,?)
-               ON CONFLICT(session_id) DO UPDATE SET
-                 backend=excluded.backend, workspace=excluded.workspace,
-                 title=COALESCE(excluded.title, sessions.title),
-                 started_at=MIN(sessions.started_at, excluded.started_at),
-                 last_seq=MAX(sessions.last_seq, excluded.last_seq),
-                 last_ts=MAX(sessions.last_ts, excluded.last_ts)`,
-            ).run(sessionId, event.source.backend, d.workspace, d.title ?? null, event.ts, seq, event.ts);
-          } else {
-            db.query(
-              `INSERT INTO sessions(session_id,backend,started_at,last_seq,last_ts)
-               VALUES(?,?,?,?,?)
-               ON CONFLICT(session_id) DO UPDATE SET
-                 last_seq=MAX(sessions.last_seq, excluded.last_seq),
-                 last_ts=MAX(sessions.last_ts, excluded.last_ts),
-                 started_at=MIN(sessions.started_at, excluded.started_at)`,
-            ).run(sessionId, event.source.backend, event.ts, seq, event.ts);
-            if (event.type === "session.updated") {
-              const d = event.data;
-              if (d.title !== undefined) {
-                db.query("UPDATE sessions SET title=? WHERE session_id=?").run(d.title, sessionId);
-              }
-              if (d.workspace !== undefined) {
-                db.query("UPDATE sessions SET workspace=? WHERE session_id=?").run(d.workspace, sessionId);
-              }
-            }
-          }
-          const text = ftsText(event);
-          if (text.trim()) {
-            db.query(
-              "INSERT INTO events_fts(event_id,session_id,text) VALUES(?,?,?)",
-            ).run(event.id, event.session_id, text);
-          }
-          out.push(event);
-          inserted.push(event);
         }
-      });
-      txn();
-      for (const e of inserted)
-        for (const fn of listeners) {
-          try {
-            fn(e);
-          } catch (err) {
-            console.error("store subscriber error:", err);
-          }
+        const { inserted } = insertAll(parsed);
+        db.query(
+          `UPDATE sessions SET
+             last_ts=(SELECT MAX(ts) FROM events WHERE session_id=?),
+             started_at=(SELECT MIN(ts) FROM events WHERE session_id=?)
+           WHERE session_id=?`,
+        ).run(session_id, session_id, session_id);
+        if (mapper !== undefined) {
+          db.query("UPDATE sessions SET mapper=? WHERE session_id=?").run(mapper, session_id);
         }
-      return out;
+        return inserted.length;
+      })();
     },
 
     read({ session_id, after_seq = 0, limit = 500 }) {
@@ -260,7 +333,7 @@ export function openStore(path: string | ":memory:"): Store {
 
     listSessions({ limit, backend } = {}) {
       let sql =
-        "SELECT session_id,backend,workspace,title,started_at,last_seq,last_ts FROM sessions";
+        "SELECT session_id,backend,workspace,title,started_at,last_seq,last_ts,mapper FROM sessions";
       const params: (string | number)[] = [];
       if (backend !== undefined) {
         sql += " WHERE backend=?";
@@ -272,6 +345,20 @@ export function openStore(path: string | ":memory:"): Store {
         params.push(limit);
       }
       return db.query(sql).all(...params) as SessionSummary[];
+    },
+
+    sessionMapper(session_id) {
+      const row = db.query("SELECT mapper FROM sessions WHERE session_id=?").get(session_id) as
+        | { mapper: string | null }
+        | null;
+      return row?.mapper ?? null;
+    },
+
+    lastSeq(session_id) {
+      const row = db.query("SELECT last_seq FROM sessions WHERE session_id=?").get(session_id) as
+        | { last_seq: number }
+        | null;
+      return row?.last_seq ?? 0;
     },
 
     search(query, { session_id, limit } = {}) {
