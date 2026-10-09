@@ -80,6 +80,33 @@ describe("schema", () => {
     expect(safeParseEvent({ ...base, type: "nope", data: {} }).success).toBe(false);
   });
 
+  test("tool.call keeps its declaration order and tolerates its absence", () => {
+    // zod strips keys the schema does not declare, so this field only exists
+    // because it was added to the schema. The round trip is the whole contract.
+    const withOrder = parseEvent({
+      ...base,
+      type: "tool.call",
+      data: { turn_id: "t1", call_id: "c1", tool: "bash", input: {}, order: 7 },
+    });
+    expect((withOrder.data as { order?: number }).order).toBe(7);
+
+    const withoutOrder = parseEvent({
+      ...base,
+      type: "tool.call",
+      data: { turn_id: "t1", call_id: "c1", tool: "bash", input: {} },
+    });
+    expect((withoutOrder.data as { order?: number }).order).toBeUndefined();
+  });
+
+  test("tool.call rejects a negative declaration order", () => {
+    const r = safeParseEvent({
+      ...base,
+      type: "tool.call",
+      data: { turn_id: "t1", call_id: "c1", tool: "bash", input: {}, order: -1 },
+    });
+    expect(r.success).toBe(false);
+  });
+
   test("image requires exactly one of data/uri", () => {
     const img = (o: object) => ({ ...base, type: "turn.user", data: { turn_id: "t", content: [{ type: "image", mime: "image/png", ...o }] } });
     expect(() => parseEvent(img({}))).toThrow();
