@@ -76,6 +76,32 @@ describe("agent-strata service", () => {
     svc.stop();
   });
 
+  test("views follow appends and rebuilds, and the list projects each session once", async () => {
+    const svc = startService({ db: ":memory:", port: 0 });
+    const base = `http://127.0.0.1:${svc.port}`;
+    const sid = "opencode:cached";
+    seed(svc, sid);
+    const view = () => fetch(`${base}/sessions/${encodeURIComponent(sid)}/view`).then((r) => r.json());
+    expect((await view()).totals.input).toBe(10);
+
+    svc.store.append([
+      ev(sid, "turn.assistant", { turn_id: "t1", msg_id: "m9", usage: { input: 5, output: 1 }, content: [] }, "2026-01-01T00:00:03Z"),
+    ]);
+    expect((await view()).totals.input).toBe(15);
+
+    svc.sink.replaceSession(
+      sid,
+      [ev(sid, "turn.assistant", { turn_id: "t1", usage: { input: 1, output: 1 }, content: [] }, "2026-01-01T00:00:04Z")],
+      { replaceTypes: ["turn.assistant"] },
+    );
+    expect((await view()).totals.input).toBe(1);
+
+    const list = await fetch(`${base}/sessions`).then((r) => r.json());
+    expect(list.sessions[0].totals.input).toBe(1);
+    expect(list.aggregate.total.input).toBe(1);
+    svc.stop();
+  });
+
   test("health, sessions, events, view, compare, export", async () => {
     const svc = startService({ db: ":memory:", port: 0 });
     const base = `http://127.0.0.1:${svc.port}`;

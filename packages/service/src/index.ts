@@ -11,6 +11,7 @@ import { evaluate, loadPolicy, type Policy } from "@agent-strata/policy";
 import type { BackendDriver, BackendSink, ModelChoice } from "./driver";
 import { connectOpencodeDriver } from "./opencode-driver";
 import { LiveOverlay } from "./live";
+import { ViewCache } from "./views";
 
 export interface ServiceOpts {
   db?: string;
@@ -91,6 +92,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     for (const fn of subscribers) fn(payload);
   };
   const live = new LiveOverlay();
+  const views = new ViewCache(store);
   store.subscribe((e) => {
     live.settle(e);
     broadcast(e);
@@ -102,6 +104,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     },
     replaceSession: (sessionId, events, replace) => {
       const n = store.replaceSession(sessionId, events, replace);
+      views.drop(sessionId);
       broadcast({ type: "session.rebuilt", session_id: sessionId });
       return n;
     },
@@ -124,7 +127,8 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     });
 
   const sessionView = (sessionId: string): SessionView => {
-    const stored = store.read({ session_id: sessionId, limit: 20_000 });
+    if (!live.has(sessionId)) return views.view(sessionId);
+    const stored = views.events(sessionId);
     return projectSession([...stored, ...live.events(sessionId, stored.at(-1)?.seq ?? 0)]);
   };
 
@@ -337,21 +341,19 @@ export function startService(opts: ServiceOpts = {}): RunningService {
           backend: url.searchParams.get("backend") ?? undefined,
           limit: Number(url.searchParams.get("limit") ?? 200),
         });
-        const views = summaries.map((s) => {
-          const v = sessionView(s.session_id);
-          return {
-            summary: s,
-            status: v.status,
-            busy: v.busy,
-            totals: v.totals,
-            title: v.title,
-            workspace: v.workspace,
-            parent: v.parent_session_id,
-            archived: v.archived === true,
-            deleted: v.deleted === true,
-          };
-        });
-        return json({ sessions: views, aggregate: aggregate(views.map((v) => sessionView(v.summary.session_id))) });
+        const rows = summaries.map((summary) => ({ summary, view: sessionView(summary.session_id) }));
+        const sessions = rows.map(({ summary, view: v }) => ({
+          summary,
+          status: v.status,
+          busy: v.busy,
+          totals: v.totals,
+          title: v.title,
+          workspace: v.workspace,
+          parent: v.parent_session_id,
+          archived: v.archived === true,
+          deleted: v.deleted === true,
+        }));
+        return json({ sessions, aggregate: aggregate(rows.map((r) => r.view)) });
       }
 
       if (path === "/events" && req.method === "GET") {
@@ -391,7 +393,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         if (untilSeq === null) return json(sessionView(sid));
         const n = Number(untilSeq);
         return json(
-          projectSession(store.read({ session_id: sid }).filter((e) => e.seq <= n)),
+          projectSession(views.events(sid).filter((e) => e.seq <= n)),
         );
       }
 
