@@ -7,6 +7,7 @@ import {
   type EventType,
 } from "@agent-strata/schema";
 import { evaluate, type Policy } from "@agent-strata/policy";
+import { createPatch } from "diff";
 
 export interface Sink {
   append(events: EventInput[]): unknown;
@@ -61,12 +62,49 @@ function sourceTime(ms?: number): string | undefined {
   return new Date(ms).toISOString();
 }
 
+/** One shape for a path: separators unified, and a Windows drive path compared without case. */
+function pathKey(path: string): string {
+  const p = path.replace(/\\/g, "/");
+  return /^[A-Za-z]:\//.test(p) ? p.toLowerCase() : p;
+}
+
+/**
+ * The change a finished edit or write made. An edit carries OpenCode's own
+ * unified diff in its metadata; a write carries the whole new file.
+ */
+function fileChangeOf(
+  tool: string,
+  input: Record<string, unknown> | undefined,
+  metadata: Record<string, unknown> | undefined,
+): { path: string; change: "add" | "modify"; diff: string; whole_file?: true } | undefined {
+  const { filePath, oldString, newString, content } = input ?? {};
+  if (typeof filePath !== "string") return undefined;
+  if (tool === "edit") {
+    const filediff = metadata?.filediff as { patch?: unknown } | undefined;
+    const patch = typeof filediff?.patch === "string" ? filediff.patch : metadata?.diff;
+    if (typeof patch === "string" && patch) return { path: filePath, change: "modify", diff: patch };
+    if (typeof oldString === "string" && typeof newString === "string") {
+      return { path: filePath, change: "modify", diff: createPatch(filePath, oldString, newString) };
+    }
+    return undefined;
+  }
+  if (tool === "write" && typeof content === "string") {
+    return {
+      path: filePath,
+      change: metadata?.exists === false ? "add" : "modify",
+      diff: createPatch(filePath, "", content),
+      whole_file: true,
+    };
+  }
+  return undefined;
+}
+
 // how often a mid-generation assistant snapshot is emitted (part updates can
 // fire per-token; the store and SSE fan-out only need periodic snapshots)
 const STREAM_SNAPSHOT_MS = 150;
 
 /** Bump when the mapping changes; stored sessions mapped by an older version are rebuilt. */
-export const OPENCODE_MAPPER_VERSION = "opencode-1";
+export const OPENCODE_MAPPER_VERSION = "opencode-2";
 
 /** The event types an import reproduces from OpenCode's own record of a session. */
 export const OPENCODE_REBUILT_TYPES: EventType[] = [
@@ -119,16 +157,28 @@ export function rebuildEvents(events: Event[], directory?: string): EventInput[]
     .filter((e) => !isStreamingSnapshot(e) && OPENCODE_REBUILT_TYPES.includes(e.type));
 }
 
+type ToolPart = Extract<Part, { type: "tool" }>;
+
+interface ToolTrack {
+  emittedCall: boolean;
+  emittedResult: boolean;
+  order: number;
+  /** latest state of a part seen before its message named the turn */
+  deferred?: ToolPart;
+}
+
 interface MsgState {
   role?: string;
   parentID?: string;
   created?: number;
   completed?: number;
   parts: Map<string, ContentBlock>;
-  toolParts: Map<string, { emittedCall: boolean; emittedResult: boolean; order: number }>;
+  toolParts: Map<string, ToolTrack>;
   emittedAssistant: boolean;
   lastStreamAt?: number;
   patchSeen?: Set<string>;
+  /** files a successful edit or write in this message already reported, by pathKey */
+  editedPaths?: Set<string>;
 }
 
 interface SessionState {
@@ -301,6 +351,65 @@ export class OpencodeMapper {
     );
   }
 
+  private toolEvents(s: SessionState, m: MsgState, part: ToolPart, t: ToolTrack): EventInput[] {
+    const out: EventInput[] = [];
+    const st = part.state;
+    if (!t.emittedCall && st.status !== "pending") {
+      t.emittedCall = true;
+      out.push(
+        this.ev(
+          s,
+          "tool.call",
+          {
+            turn_id: m.parentID ?? part.messageID,
+            call_id: part.callID,
+            tool: part.tool,
+            input: st.input,
+            order: t.order,
+            // `order` counts only within this message. Naming the message
+            // too is what lets a reader see a call beside the words that
+            // asked for it instead of in a pile at the end of the turn.
+            msg_id: part.messageID,
+          },
+          `opencode:${part.id}:tool.call`,
+          sourceTime(st.time.start || s.updated),
+        ),
+      );
+    }
+    if (!t.emittedResult && (st.status === "completed" || st.status === "error")) {
+      t.emittedResult = true;
+      out.push(
+        this.ev(
+          s,
+          "tool.result",
+          {
+            call_id: part.callID,
+            status: st.status === "completed" ? "ok" : "error",
+            output: st.status === "completed" ? st.output : st.error,
+            latency_ms: Math.max(0, Math.round(st.time.end - st.time.start)),
+          },
+          `opencode:${part.id}:tool.result`,
+          sourceTime(st.time.end || s.updated),
+        ),
+      );
+      if (st.status === "completed") {
+        const change = fileChangeOf(part.tool, st.input, st.metadata);
+        if (change) {
+          out.push(
+            this.ev(
+              s,
+              "file.changed",
+              { ...change, call_id: part.callID },
+              `opencode:${part.id}:file`,
+              sourceTime(st.time.end || s.updated),
+            ),
+          );
+        }
+      }
+    }
+    return out;
+  }
+
   handle(evt: Event): EventInput[] {
     const out: EventInput[] = [];
     const props = "properties" in evt ? evt.properties : undefined;
@@ -384,6 +493,12 @@ export class OpencodeMapper {
         if (info.role === "assistant") {
           m.parentID = info.parentID;
           this.flushUser(s, out, info.parentID);
+          for (const t of m.toolParts.values()) {
+            const part = t.deferred;
+            if (!part) continue;
+            t.deferred = undefined;
+            out.push(...this.toolEvents(s, m, part, t));
+          }
           if (info.time.completed !== undefined && !m.emittedAssistant) {
             m.emittedAssistant = true;
             const content = [...m.parts.values()].filter((b) => b.type !== "file_ref");
@@ -441,46 +556,18 @@ export class OpencodeMapper {
             t = { emittedCall: false, emittedResult: false, order: m.toolParts.size };
             m.toolParts.set(part.id, t);
           }
-          const st = part.state;
-          if (!t.emittedCall && st.status !== "pending") {
-            t.emittedCall = true;
-            out.push(
-              this.ev(
-                s,
-                "tool.call",
-                {
-                  turn_id: m.parentID ?? part.messageID,
-                  call_id: part.callID,
-                  tool: part.tool,
-                  input: st.input,
-                  order: t.order,
-                  // `order` counts only within this message. Naming the message
-                  // too is what lets a reader see a call beside the words that
-                  // asked for it instead of in a pile at the end of the turn.
-                  msg_id: part.messageID,
-                },
-                `opencode:${part.id}:tool.call`,
-                sourceTime(st.time.start || s.updated),
-              ),
-            );
+          if (part.state.status === "completed") {
+            const change = fileChangeOf(part.tool, part.state.input, part.state.metadata);
+            if (change) (m.editedPaths ??= new Set()).add(pathKey(change.path));
           }
-          if (!t.emittedResult && (st.status === "completed" || st.status === "error")) {
-            t.emittedResult = true;
-            out.push(
-              this.ev(
-                s,
-                "tool.result",
-                {
-                  call_id: part.callID,
-                  status: st.status === "completed" ? "ok" : "error",
-                  output: st.status === "completed" ? st.output : st.error,
-                  latency_ms: Math.max(0, Math.round(st.time.end - st.time.start)),
-                },
-                `opencode:${part.id}:tool.result`,
-                sourceTime(st.time.end || s.updated),
-              ),
-            );
+          // A call belongs to the user turn its message answers, and only
+          // message.updated names that turn. A stored session replays parts
+          // before their message, so the call waits for it.
+          if (m.parentID === undefined) {
+            t.deferred = part;
+            return out;
           }
+          out.push(...this.toolEvents(s, m, part, t));
           return out;
         }
         if (part.type === "patch") {
@@ -496,6 +583,7 @@ export class OpencodeMapper {
             const key = `${part.id}:${f}`;
             if (seen.has(key)) continue;
             seen.add(key);
+            if (m.editedPaths?.has(pathKey(f))) continue;
             out.push(
               this.ev(
                 s,

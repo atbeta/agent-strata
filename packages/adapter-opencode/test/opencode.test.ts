@@ -1027,4 +1027,83 @@ describe("rebuild from OpenCode's own record", () => {
     expect(store.sessionMapper(casfId)).toBe(OPENCODE_MAPPER_VERSION);
     store.close();
   });
+
+  test("a stored session puts its calls in the user's turn", () => {
+    const evs = rebuildEvents(snapshotFixture(), "/repo");
+    expect(evs.map((e) => e.type)).toEqual([
+      "session.started",
+      "turn.user",
+      "tool.call",
+      "tool.result",
+      "turn.assistant",
+    ]);
+    expect(evs.find((e) => e.type === "tool.call")!.data).toMatchObject({ turn_id: "u1", msg_id: "a1" });
+  });
+});
+
+describe("file changes come from the call that made them", () => {
+  const assistant = () =>
+    msgUpdated({
+      id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
+      time: { created: 20 }, providerID: "p", modelID: "m", cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    });
+  const patch = "Index: D:\\r\\x.ts\n===\n--- D:\\r\\x.ts\n+++ D:\\r\\x.ts\n@@ -1 +1 @@\n-a\n+b\n";
+
+  test("an edit records OpenCode's own diff, and the patch part does not repeat it", () => {
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    m.handle(assistant());
+    const out = [
+      m.handle(partUpdated({
+        id: "pe", sessionID: sid, messageID: "a1", type: "tool", callID: "c-edit", tool: "edit",
+        state: {
+          status: "completed",
+          input: { filePath: "D:\\r\\x.ts", oldString: "a", newString: "b" },
+          output: "", title: "",
+          metadata: { diff: patch, filediff: { file: "D:\\r\\x.ts", patch, additions: 1, deletions: 1 } },
+          time: { start: 1, end: 2 },
+        },
+      })),
+      m.handle(partUpdated({
+        id: "pp", sessionID: sid, messageID: "a1", type: "patch", hash: "h", files: ["D:/r/x.ts", "D:/r/y.ts"],
+      })),
+    ].flat();
+    const changes = out.filter((e) => e.type === "file.changed");
+    expect(changes.map((e) => e.data)).toEqual([
+      { path: "D:\\r\\x.ts", change: "modify", diff: patch, call_id: "c-edit" },
+      { path: "D:/r/y.ts", change: "modify" },
+    ]);
+    expect(changes[0]!.id).toBe("opencode:pe:file");
+  });
+
+  test("a write records the whole file and says whether it is new", () => {
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    m.handle(assistant());
+    const out = m.handle(partUpdated({
+      id: "pw", sessionID: sid, messageID: "a1", type: "tool", callID: "c-write", tool: "write",
+      state: {
+        status: "completed", input: { filePath: "/r/new.ts", content: "a\nb\n" }, output: "", title: "",
+        metadata: { filepath: "/r/new.ts", exists: false }, time: { start: 1, end: 2 },
+      },
+    }));
+    const change = out.find((e) => e.type === "file.changed")!;
+    expect(change.data).toMatchObject({ path: "/r/new.ts", change: "add", whole_file: true, call_id: "c-write" });
+    expect((change.data as { diff: string }).diff).toContain("+a");
+  });
+
+  test("a failed edit records no change", () => {
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    m.handle(assistant());
+    const out = m.handle(partUpdated({
+      id: "pf", sessionID: sid, messageID: "a1", type: "tool", callID: "c-fail", tool: "edit",
+      state: {
+        status: "error", input: { filePath: "/r/x.ts", oldString: "a", newString: "b" },
+        error: "oldString not found", time: { start: 1, end: 2 },
+      },
+    }));
+    expect(out.some((e) => e.type === "file.changed")).toBe(false);
+  });
 });

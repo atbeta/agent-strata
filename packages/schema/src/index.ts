@@ -132,6 +132,10 @@ const data = {
     path: z.string(),
     change: z.enum(["add", "modify", "delete"]),
     diff: z.string().optional(),
+    /** the tool call that made the change, when one did */
+    call_id: z.string().optional(),
+    /** the diff is the whole file rather than a region of it */
+    whole_file: z.boolean().optional(),
   }),
   "plan.updated": z.object({
     entries: z.array(

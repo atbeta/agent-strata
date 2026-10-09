@@ -35,6 +35,10 @@
         "@agent-strata/schema": "workspace:*",
         "@agent-strata/store": "workspace:*",
         "@opencode-ai/sdk": "1.18.35",
+        "diff": "5.2.0",
+      },
+      "devDependencies": {
+        "@types/diff": "5.2.3",
       },
     },
     "packages/core": {
