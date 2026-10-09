@@ -621,6 +621,26 @@ describe("createIngestor seam", () => {
     expect(evs.some((e) => e.type === "permission.requested")).toBe(true);
     store.close();
   });
+
+  test("streaming snapshots go to publish, never to append", () => {
+    const appended: EventInput[] = [];
+    const published: EventInput[] = [];
+    const ing = createIngestor({
+      mapper: new OpencodeMapper(),
+      sink: {
+        append: (e) => appended.push(...e),
+        publish: (e) => published.push(...e),
+      },
+      reply: async () => {},
+    });
+    for (const e of basicFixture()) ing.handle(e);
+    expect(
+      appended.some((e) => e.type === "turn.assistant" && (e.data as { partial?: boolean }).partial === true),
+    ).toBe(false);
+    expect(appended.some((e) => e.type === "turn.assistant")).toBe(true);
+    expect(published.map((e) => e.type)).toEqual(["turn.assistant"]);
+    expect(published[0]!.data).toMatchObject({ partial: true, msg_id: "a1" });
+  });
 });
 
 // offline replay of a recorded real-server event stream

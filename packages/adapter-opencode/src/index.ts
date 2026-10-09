@@ -1,9 +1,22 @@
 import { createOpencodeClient, type Event, type OpencodeClient, type Part } from "@opencode-ai/sdk/v2";
-import { makeEvent, type ContentBlock, type EventInput } from "@agent-strata/schema";
+import {
+  isStreamingSnapshot,
+  makeEvent,
+  type ContentBlock,
+  type EventInput,
+  type EventType,
+} from "@agent-strata/schema";
 import { evaluate, type Policy } from "@agent-strata/policy";
 
 export interface Sink {
   append(events: EventInput[]): unknown;
+  /** live-only state such as a message still being written; never stored */
+  publish?(events: EventInput[]): void;
+  replaceSession?(
+    sessionId: string,
+    events: EventInput[],
+    opts: { replaceTypes: EventType[]; mapper?: string },
+  ): unknown;
 }
 
 export type OnAsk = (
@@ -640,7 +653,10 @@ export function createIngestor(opts: {
   const { mapper, sink } = opts;
 
   const emit = (evts: EventInput[]) => {
-    if (evts.length) sink.append(evts);
+    const live = evts.filter(isStreamingSnapshot);
+    const durable = live.length ? evts.filter((e) => !isStreamingSnapshot(e)) : evts;
+    if (durable.length) sink.append(durable);
+    if (live.length) sink.publish?.(live);
   };
 
   const emitResolved = (sessionID: string, data: Record<string, unknown>) => {
