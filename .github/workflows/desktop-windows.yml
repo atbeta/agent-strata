@@ -6,7 +6,6 @@ on:
   push:
     branches:
       - main
-      - cursor/windows-hide-console-9641
 
 jobs:
   build:
