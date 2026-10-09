@@ -361,6 +361,9 @@ export function SessionDetail(props: { id: string }) {
       });
     const onConns = () => refetchOptions();
     window.addEventListener("strata-connections", onConns);
+    const poll = setInterval(() => {
+      if (replayPos() === null) refetch();
+    }, 3_000);
     const es = new EventSource(api("/stream"));
     let timer: ReturnType<typeof setTimeout> | undefined;
     es.onmessage = (m) => {
@@ -388,6 +391,7 @@ export function SessionDetail(props: { id: string }) {
       }
     };
     onCleanup(() => {
+      clearInterval(poll);
       clearTimeout(timer);
       es.close();
       window.removeEventListener("strata-connections", onConns);

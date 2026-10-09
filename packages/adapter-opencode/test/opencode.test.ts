@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { OpencodeMapper, createIngestor } from "../src/index";
+import { normalizeOpencodeEvent, OpencodeMapper, createIngestor } from "../src/index";
 import { loadPolicy } from "@agent-strata/policy";
 import type { Event } from "@opencode-ai/sdk/v2";
 import { openStore } from "@agent-strata/store";
@@ -105,6 +105,31 @@ describe("OpencodeMapper", () => {
     );
     const turn = assistant.find((e) => e.type === "turn.assistant");
     expect(turn?.ts).toBe(new Date(done).toISOString());
+  });
+
+  test("a global event with data instead of properties still updates the title", () => {
+    const evt = normalizeOpencodeEvent({
+      directory: "/repo",
+      payload: {
+        id: "g1",
+        type: "session.updated",
+        data: {
+          sessionID: sid,
+          info: {
+            id: sid,
+            directory: "/repo",
+            title: "Renamed",
+            time: { created: 1, updated: 2 },
+          },
+        },
+      },
+    });
+    expect(evt?.type).toBe("session.updated");
+    const out = new OpencodeMapper().handle(evt!);
+    expect(out.find((e) => e.type === "session.updated")?.data).toMatchObject({
+      title: "Renamed",
+      workspace: "/repo",
+    });
   });
 
   test("session.updated emits only when title, directory, or archive changes", () => {

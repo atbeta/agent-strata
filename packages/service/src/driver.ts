@@ -49,8 +49,10 @@ export interface BackendDriver {
   listAgents(): Promise<{ name: string; mode?: string }[]>;
   /** projects the backend already knows, plus any directory the caller can open */
   listWorkspaces(): Promise<WorkspaceInfo[]>;
-  /** emit session.started for sessions that already exist, without their history */
+  /** emit session metadata for sessions that already exist, without their history */
   indexSessions(): Promise<string[]>;
+  /** pull metadata and transcripts that changed since the last sync */
+  sync(): Promise<number>;
   importSession(nativeId: string, directory?: string): Promise<void>;
   rename(nativeId: string, title: string, directory?: string): Promise<void>;
   archive(nativeId: string, directory?: string): Promise<void>;

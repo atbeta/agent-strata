@@ -16,6 +16,31 @@ export type OnQuestion = (
 
 const SHELL_PERMS = new Set(["bash", "pwsh", "powershell", "cmd"]);
 
+/** OpenCode's global bus wraps the event, and newer servers put the body in `data`. */
+export function normalizeOpencodeEvent(raw: unknown): Event | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  let evt = raw as Record<string, unknown>;
+  if (evt.payload && typeof evt.payload === "object") evt = evt.payload as Record<string, unknown>;
+  if (evt.data && typeof evt.data === "object" && !evt.properties) {
+    evt = { ...evt, properties: evt.data };
+  }
+  if (typeof evt.type !== "string") return undefined;
+  return evt as unknown as Event;
+}
+
+function eventSessionID(evt: Event): string | undefined {
+  if (!("properties" in evt) || !evt.properties || typeof evt.properties !== "object") return undefined;
+  const id = (evt.properties as { sessionID?: unknown }).sessionID;
+  return typeof id === "string" ? id : undefined;
+}
+
+/** `/global/event` wraps the payload and names the project directory beside it. */
+function eventDirectory(raw: unknown): string | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const dir = (raw as { directory?: unknown }).directory;
+  return typeof dir === "string" && dir.length > 0 ? dir : undefined;
+}
+
 // OpenCode clocks are unix milliseconds. Fixture and synthetic values below
 // this are not real instants, so those events keep the ingest clock.
 function sourceTime(ms?: number): string | undefined {
@@ -715,6 +740,7 @@ export async function connectOpencode(opts: {
   listWorkspaces: () => Promise<{ id: string; name?: string; directory: string }[]>;
   abort: (sessionID: string, directory?: string) => Promise<void>;
   indexSessions: () => Promise<string[]>;
+  refreshSessions: () => Promise<number>;
   updateSession: (
     sessionID: string,
     patch: { title?: string; archived?: boolean },
@@ -788,28 +814,123 @@ export async function connectOpencode(opts: {
     },
   });
 
-  const { stream } = await client.event.subscribe();
-  // the SDK stream attaches lazily on the first next() pull; pull eagerly and
-  // wait for the first event (server.connected) so no later events are missed
-  const it = stream[Symbol.asyncIterator]();
   const connectTimeout = opts.connectTimeoutMs ?? 10_000;
-  const firstNext = it.next();
-  // swallow rejections if the timeout wins the race and the stream then dies
-  firstNext.catch(() => {});
-  const first = await Promise.race([
-    firstNext,
-    Bun.sleep(connectTimeout).then(() => "timeout" as const),
-  ]);
-  if (first === "timeout") {
+  // `/event` is one project directory. `/global/event` carries every project,
+  // which is what a desktop session list has to follow. A 404 only rejects
+  // once the body is read, so probe the global bus and fall back to `/event`.
+  let preferGlobal = true;
+  const openStream = async () => {
+    if (preferGlobal) {
+      try {
+        return await client.global.event();
+      } catch {
+        preferGlobal = false;
+      }
+    }
+    return client.event.subscribe();
+  };
+  const firstEvent = async (
+    open: () => Promise<{ stream: AsyncGenerator<unknown> }>,
+    timeoutMs: number,
+  ) => {
+    let opened: { stream: AsyncGenerator<unknown> };
+    try {
+      opened = await open();
+    } catch {
+      return undefined;
+    }
+    const stream = opened.stream;
+    const iter = stream[Symbol.asyncIterator]();
+    const pending = iter.next();
+    pending.catch(() => {});
+    const first = await Promise.race([
+      pending.then(
+        (value) => value,
+        () => "error" as const,
+      ),
+      Bun.sleep(timeoutMs).then(() => "timeout" as const),
+    ]);
+    if (first === "timeout" || first === "error" || first.done) {
+      // return() waits on the in-flight read, which is the thing that timed
+      // out, so it must not be awaited. stop()/abort cancels the body.
+      void stream.return(undefined).catch(() => {});
+      return undefined;
+    }
+    return { iter, value: first.value };
+  };
+  let got = await firstEvent(
+    () => client.global.event() as Promise<{ stream: AsyncGenerator<unknown> }>,
+    Math.min(connectTimeout, 3_000),
+  );
+  if (!got) {
+    preferGlobal = false;
+    got = await firstEvent(
+      () => client.event.subscribe() as Promise<{ stream: AsyncGenerator<unknown> }>,
+      connectTimeout,
+    );
+  }
+  if (!got) {
     abort.abort();
     throw new Error(`opencode event stream produced no events within ${connectTimeout}ms`);
   }
-  if (first.done) {
-    abort.abort();
-    throw new Error("opencode event stream ended before server.connected");
-  }
-  const dispatch = (evt: Event) => {
+  const importedRevision = new Map<string, number>();
+  const importTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const handlePart = (sessionID: string, part: Part) => {
+    ingestor.handle({
+      id: `import:${part.id}`,
+      type: "message.part.updated",
+      properties: { sessionID, part, time: Date.now() },
+    } as Event);
+  };
+  const importSession = async (sessionID: string, directory?: string) => {
+    const dir = directory ?? opts.directory;
+    const sess = await client.session.get({ sessionID, directory: dir });
+    if (!sess.data) throw new Error(`session ${sessionID} not found`);
+    ingestor.handle({
+      id: `import:${sessionID}`,
+      type: "session.created",
+      properties: { sessionID, info: sess.data },
+    } as Event);
+    const msgs = await client.session.messages({ sessionID, directory: dir });
+    for (const m of msgs.data ?? []) {
+      const openAssistant =
+        m.info.role === "assistant" && m.info.time?.completed === undefined;
+      // parts first: a completed assistant message emits turn.assistant on message.updated
+      for (const part of m.parts) handlePart(sessionID, part);
+      ingestor.handle({
+        id: `import:${m.info.id}`,
+        type: "message.updated",
+        properties: { sessionID, info: m.info },
+      } as Event);
+      // role and parent land on message.updated, so an in-progress assistant
+      // only streams once the parts are applied a second time
+      if (openAssistant) for (const part of m.parts) handlePart(sessionID, part);
+    }
+  };
+  const dispatch = (raw: unknown) => {
+    const evt = normalizeOpencodeEvent(raw);
+    if (!evt) return;
     ingestor.handle(evt);
+    const type = evt.type;
+    const sessionID = eventSessionID(evt);
+    const directory = eventDirectory(raw);
+    if (
+      sessionID &&
+      (type.startsWith("session.next.") || type === "session.idle" || type === "session.status")
+    ) {
+      const prev = importTimers.get(sessionID);
+      if (prev) clearTimeout(prev);
+      importTimers.set(
+        sessionID,
+        setTimeout(() => {
+          importTimers.delete(sessionID);
+          importedRevision.delete(sessionID);
+          void importSession(sessionID, directory).catch((err) =>
+            console.error("import session failed:", err),
+          );
+        }, 400),
+      );
+    }
     if (!opts.onEvent) return;
     try {
       opts.onEvent(evt);
@@ -817,23 +938,40 @@ export async function connectOpencode(opts: {
       console.error("opencode onEvent error:", err);
     }
   };
-  dispatch(first.value as Event);
+  dispatch(got.value);
 
+  const pump = async (iter: AsyncIterator<unknown>) => {
+    for (;;) {
+      const r = await iter.next();
+      if (r.done || abort.signal.aborted) return;
+      dispatch(r.value);
+    }
+  };
   const loop = (async () => {
-    try {
-      for (;;) {
-        const r = await it.next();
-        if (r.done || abort.signal.aborted) break;
-        dispatch(r.value as Event);
+    let current: AsyncIterator<unknown> = got.iter;
+    while (!abort.signal.aborted) {
+      try {
+        await pump(current);
+      } catch (err) {
+        if (!abort.signal.aborted) console.error("opencode event stream error:", err);
       }
-    } catch (err) {
-      if (!abort.signal.aborted) console.error("opencode event stream error:", err);
+      if (abort.signal.aborted) return;
+      await Bun.sleep(1000);
+      if (abort.signal.aborted) return;
+      try {
+        const again = await openStream();
+        current = again.stream[Symbol.asyncIterator]();
+      } catch (err) {
+        if (!abort.signal.aborted) console.error("opencode event stream reconnect failed:", err);
+      }
     }
   })();
 
   return {
     stop() {
       abort.abort();
+      for (const timer of importTimers.values()) clearTimeout(timer);
+      importTimers.clear();
       void loop;
     },
     async createSession(sessOpts?: { title?: string; directory?: string }) {
@@ -943,36 +1081,60 @@ export async function connectOpencode(opts: {
         if (info.parentID) continue;
         ingestor.handle({
           id: `index:${info.id}`,
-          type: "session.created",
+          type: "session.updated",
           properties: { sessionID: info.id, info },
         } as Event);
         ids.push(info.id);
       }
       return ids;
     },
-    async importSession(sessionID: string, directory?: string) {
-      const sess = await client.session.get({ sessionID, directory: directory ?? opts.directory });
-      ingestor.handle({
-        id: `import:${sessionID}`,
-        type: "session.created",
-        properties: { sessionID, info: sess.data! },
-      } as Event);
-      const msgs = await client.session.messages({ sessionID, directory: directory ?? opts.directory });
-      for (const m of msgs.data ?? []) {
-        // parts first: a completed assistant message emits turn.assistant on message.updated
-        for (const part of m.parts) {
-          ingestor.handle({
-            id: `import:${part.id}`,
-            type: "message.part.updated",
-            properties: { sessionID, part, time: Date.now() },
-          } as Event);
+    /**
+     * Re-read every project the server knows and pull transcripts that moved
+     * since the last sync. Safe to call repeatedly: an unchanged session is
+     * not imported again.
+     */
+    async refreshSessions() {
+      const directories = new Set<string | undefined>([opts.directory]);
+      try {
+        const projects = await client.project.list();
+        for (const project of projects.data ?? []) {
+          if (project.worktree) directories.add(project.worktree);
+          for (const sandbox of project.sandboxes ?? []) directories.add(sandbox);
         }
-        ingestor.handle({
-          id: `import:${m.info.id}`,
-          type: "message.updated",
-          properties: { sessionID, info: m.info },
-        } as Event);
+      } catch (err) {
+        console.error("opencode project list failed:", err);
       }
+      const seen = new Set<string>();
+      let imported = 0;
+      for (const directory of directories) {
+        let sessions;
+        try {
+          sessions = await client.session.list({ directory, roots: true, limit: 80 });
+        } catch (err) {
+          console.error(`opencode session list failed for ${directory ?? "(default)"}:`, err);
+          continue;
+        }
+        for (const info of sessions.data ?? []) {
+          if (!info?.id || info.parentID || seen.has(info.id)) continue;
+          seen.add(info.id);
+          try {
+            ingestor.handle({
+              id: `sync:${info.id}:${info.time?.updated ?? 0}`,
+              type: "session.updated",
+              properties: { sessionID: info.id, info },
+            } as Event);
+            const updated = info.time?.updated ?? info.time?.created ?? 0;
+            if (importedRevision.get(info.id) === updated) continue;
+            await importSession(info.id, info.directory || directory);
+            importedRevision.set(info.id, updated);
+            imported += 1;
+          } catch (err) {
+            console.error(`sync session ${info.id} failed:`, err);
+          }
+        }
+      }
+      return imported;
     },
+    importSession,
   };
 }

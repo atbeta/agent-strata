@@ -285,6 +285,17 @@ export async function clearPolicy(): Promise<void> {
   await throwOnError(await fetch(api("/policy"), { method: "DELETE" }));
 }
 
+export async function syncBackend(): Promise<{ connected: boolean; imported: number }> {
+  const res = await fetch(api("/sync"), { method: "POST" });
+  const data = (await res.json().catch(() => ({}))) as {
+    connected?: boolean;
+    imported?: number;
+    error?: string;
+  };
+  if (!res.ok) throw new Error(data.error ?? `service ${res.status}`);
+  return { connected: data.connected === true, imported: data.imported ?? 0 };
+}
+
 export async function connectBackend(body: {
   baseUrl: string;
   name?: string;
