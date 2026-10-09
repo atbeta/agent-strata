@@ -7,56 +7,120 @@
  * Spec: ../DESIGN.md
  */
 
+/* Colors live on the document so a theme switch repaints every utility.
+   Dark is the default. html[data-theme="light"] replaces the set. */
+:root {
+  color-scheme: dark;
+  --background: hsl(240 6% 6.5%);
+  --foreground: hsl(240 10% 93%);
+  --card: hsl(240 5% 9%);
+  --card-foreground: hsl(240 10% 93%);
+  --popover: hsl(240 5% 10%);
+  --popover-foreground: hsl(240 10% 93%);
+  --primary: hsl(222 72% 64%);
+  --primary-foreground: hsl(0 0% 100%);
+  --secondary: hsl(240 4% 13%);
+  --secondary-foreground: hsl(240 10% 93%);
+  --muted: hsl(240 4% 12%);
+  --muted-foreground: hsl(240 4% 58%);
+  --accent: hsl(240 4% 15%);
+  --accent-foreground: hsl(240 10% 93%);
+  --destructive: hsl(0 72% 58%);
+  --destructive-foreground: hsl(0 0% 100%);
+  --border: hsl(0 0% 100% / 0.08);
+  --input: hsl(0 0% 100% / 0.1);
+  --ring: hsl(222 72% 64%);
+  --status-active: hsl(152 62% 52%);
+  --status-completed: hsl(217 91% 60%);
+  --status-error: hsl(0 72% 55%);
+  --status-cancelled: hsl(33 90% 55%);
+  --status-pending: hsl(218 14% 55%);
+  --event-user: hsl(217 91% 68%);
+  --event-assistant: hsl(152 62% 52%);
+  --event-tool: hsl(262 66% 65%);
+  --event-permission: hsl(33 90% 55%);
+  --event-file: hsl(190 80% 55%);
+  --cost-up: hsl(0 72% 55%);
+  --cost-down: hsl(152 62% 52%);
+  --cost-flat: hsl(218 14% 62%);
+  --scrollbar: hsl(0 0% 100% / 0.16);
+  --popover-shadow: 0 16px 40px hsl(0 0% 0% / 0.45), 0 0 0 1px hsl(0 0% 100% / 0.06);
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+  --background: hsl(240 20% 99%);
+  --foreground: hsl(240 10% 12%);
+  --card: hsl(0 0% 100%);
+  --card-foreground: hsl(240 10% 12%);
+  --popover: hsl(0 0% 100%);
+  --popover-foreground: hsl(240 10% 12%);
+  --primary: hsl(222 72% 48%);
+  --primary-foreground: hsl(0 0% 100%);
+  --secondary: hsl(240 8% 94%);
+  --secondary-foreground: hsl(240 10% 12%);
+  --muted: hsl(240 8% 95%);
+  --muted-foreground: hsl(240 4% 40%);
+  --accent: hsl(240 8% 92%);
+  --accent-foreground: hsl(240 10% 12%);
+  --destructive: hsl(0 72% 46%);
+  --destructive-foreground: hsl(0 0% 100%);
+  --border: hsl(240 6% 12% / 0.1);
+  --input: hsl(240 6% 12% / 0.14);
+  --ring: hsl(222 72% 48%);
+  --status-active: hsl(152 62% 32%);
+  --status-completed: hsl(217 80% 46%);
+  --status-error: hsl(0 72% 44%);
+  --status-cancelled: hsl(28 80% 40%);
+  --status-pending: hsl(220 6% 46%);
+  --event-user: hsl(217 80% 44%);
+  --event-assistant: hsl(152 55% 30%);
+  --event-tool: hsl(262 48% 46%);
+  --event-permission: hsl(28 80% 38%);
+  --event-file: hsl(190 70% 30%);
+  --cost-up: hsl(0 72% 44%);
+  --cost-down: hsl(152 55% 30%);
+  --cost-flat: hsl(220 6% 42%);
+  --scrollbar: hsl(240 6% 12% / 0.2);
+  --popover-shadow: 0 16px 40px hsl(240 10% 20% / 0.12), 0 0 0 1px hsl(240 6% 12% / 0.06);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-status-active: var(--status-active);
+  --color-status-completed: var(--status-completed);
+  --color-status-error: var(--status-error);
+  --color-status-cancelled: var(--status-cancelled);
+  --color-status-pending: var(--status-pending);
+  --color-event-user: var(--event-user);
+  --color-event-assistant: var(--event-assistant);
+  --color-event-tool: var(--event-tool);
+  --color-event-permission: var(--event-permission);
+  --color-event-file: var(--event-file);
+  --color-cost-up: var(--cost-up);
+  --color-cost-down: var(--cost-down);
+  --color-cost-flat: var(--cost-flat);
+}
+
 @theme {
-  /* Neutral shell, closer to Linear and OpenCode Desktop than a blue slate.
-     One surface for the window; elevation is a hairline and a slight lift. */
-  --color-background: hsl(240 6% 6.5%);
-  --color-foreground: hsl(240 10% 93%);
-
-  --color-card: hsl(240 5% 9%);
-  --color-card-foreground: hsl(240 10% 93%);
-
-  --color-popover: hsl(240 5% 10%);
-  --color-popover-foreground: hsl(240 10% 93%);
-
-  --color-primary: hsl(222 72% 64%);
-  --color-primary-foreground: hsl(0 0% 100%);
-
-  --color-secondary: hsl(240 4% 13%);
-  --color-secondary-foreground: hsl(240 10% 93%);
-
-  --color-muted: hsl(240 4% 12%);
-  --color-muted-foreground: hsl(240 4% 58%);
-
-  --color-accent: hsl(240 4% 15%);
-  --color-accent-foreground: hsl(240 10% 93%);
-
-  --color-destructive: hsl(0 72% 58%);
-  --color-destructive-foreground: hsl(0 0% 100%);
-
-  --color-border: hsl(0 0% 100% / 0.08);
-  --color-input: hsl(0 0% 100% / 0.1);
-  --color-ring: hsl(222 72% 64%);
-
-  /* --- session status --- */
-  --color-status-active: hsl(152 62% 52%);
-  --color-status-completed: hsl(217 91% 60%);
-  --color-status-error: hsl(0 72% 55%);
-  --color-status-cancelled: hsl(33 90% 55%);
-  --color-status-pending: hsl(218 14% 55%);
-
-  /* --- event types (timeline/replay) --- */
-  --color-event-user: hsl(217 91% 68%);
-  --color-event-assistant: hsl(152 62% 52%);
-  --color-event-tool: hsl(262 66% 65%);
-  --color-event-permission: hsl(33 90% 55%);
-  --color-event-file: hsl(190 80% 55%);
-
-  /* --- cost direction --- */
-  --color-cost-up: hsl(0 72% 55%);
-  --color-cost-down: hsl(152 62% 52%);
-  --color-cost-flat: hsl(218 14% 62%);
-
   /* --- typography --- */
   --font-sans: ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "Cascadia Code", monospace;
@@ -75,9 +139,6 @@
 }
 
 @layer base {
-  :root {
-    color-scheme: dark;
-  }
   html,
   body,
   #root {
@@ -87,11 +148,11 @@
     @apply bg-background text-foreground font-sans antialiased;
   }
   ::selection {
-    background: hsl(222 72% 64% / 0.35);
+    background: color-mix(in srgb, var(--ring) 35%, transparent);
   }
   * {
     scrollbar-width: thin;
-    scrollbar-color: hsl(0 0% 100% / 0.16) transparent;
+    scrollbar-color: var(--scrollbar) transparent;
   }
   /* Top strips are the window chrome. Do not set app-region on html/body:
      WebKit then ignores drag on every descendant, so the window cannot move.
@@ -111,11 +172,36 @@
   }
 }
 
+/* Tailwind's preflight leaves buttons on the arrow cursor. Anything that
+   receives a click should show a pointer, including inside a drag strip,
+   where cursor: default would otherwise inherit. */
+button,
+a,
+summary,
+select,
+label,
+[role="button"],
+[role="menuitem"],
+[role="menuitemcheckbox"],
+[role="menuitemradio"],
+[role="option"],
+[role="tab"],
+[role="radio"],
+[role="checkbox"] {
+  cursor: pointer;
+}
+button:disabled,
+[aria-disabled="true"] {
+  cursor: default;
+}
+input,
+textarea {
+  cursor: text;
+}
+
 @layer components {
   .surface-popover {
-    box-shadow:
-      0 16px 40px hsl(0 0% 0% / 0.45),
-      0 0 0 1px hsl(0 0% 100% / 0.06);
+    box-shadow: var(--popover-shadow);
   }
 }
 

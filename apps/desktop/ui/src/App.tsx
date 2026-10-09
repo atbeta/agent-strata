@@ -18,6 +18,8 @@ import {
 import { SessionDetail } from "./session-detail";
 import { CompareView } from "./compare";
 import { PolicyEditor } from "./policy";
+import { SettingsPage } from "./settings";
+import { applyTheme, readTheme } from "./theme";
 import { Icon } from "./icons";
 import { DragBar } from "./chrome";
 import { inDesktopShell, usesOverlayTrafficLights } from "./shell";
@@ -38,7 +40,8 @@ type Route =
   | { name: "fleet" }
   | { name: "session"; id: string }
   | { name: "compare"; a: string; b: string }
-  | { name: "policy" };
+  | { name: "policy" }
+  | { name: "settings" };
 
 function parseHash(): Route {
   const h = location.hash.slice(1);
@@ -47,6 +50,7 @@ function parseHash(): Route {
   const c = h.match(/^\/compare\/([^/]+)\/(.+)$/);
   if (c) return { name: "compare", a: decodeURIComponent(c[1]!), b: decodeURIComponent(c[2]!) };
   if (h === "/policy") return { name: "policy" };
+  if (h === "/settings") return { name: "settings" };
   return { name: "fleet" };
 }
 
@@ -133,8 +137,11 @@ function SessionListItem(props: {
   const [draft, setDraft] = createSignal(props.title);
   const [armed, setArmed] = createSignal(false);
   const [hot, setHot] = createSignal(false);
+  const [menuOpen, setMenuOpen] = createSignal(false);
   let input: HTMLInputElement | undefined;
-  const showActions = () => props.actions && (hot() || armed() || editing());
+  // Rename, archive, and delete stay behind one hover control. The menu is a
+  // portal, so it has to count as "still on the row" or the control disappears.
+  const reveal = () => props.actions && (hot() || menuOpen());
 
   createEffect(() => {
     if (!editing()) setDraft(props.title);
@@ -155,12 +162,11 @@ function SessionListItem(props: {
         props.active ? "bg-accent text-foreground" : "text-foreground/80 hover:bg-secondary/70"
       }`}
       onMouseEnter={() => setHot(true)}
-      onMouseLeave={() => {
-        setHot(false);
-        setArmed(false);
-      }}
-      onClick={() => {
+      onMouseLeave={() => setHot(false)}
+      onClick={(e) => {
         if (editing()) return;
+        const target = e.target as HTMLElement | null;
+        if (target?.closest?.("[data-session-menu]")) return;
         props.onOpen();
       }}
       onKeyDown={(e) => {
@@ -196,56 +202,51 @@ function SessionListItem(props: {
       <Show when={!editing()}>
         <span
           class={`pointer-events-none absolute right-2 top-1/2 w-[4.5rem] -translate-y-1/2 text-right font-mono text-[10px] text-muted-foreground tabular-nums ${
-            showActions() ? "invisible" : ""
+            reveal() ? "invisible" : ""
           }`}
           title={props.timeTitle}
         >
           {props.time}
         </span>
-        <span
-          class={`absolute right-0.5 top-1/2 flex -translate-y-1/2 items-center ${
-            showActions() ? "" : "invisible pointer-events-none"
-          }`}
+        <DropdownMenu
+          placement="bottom-end"
+          open={menuOpen()}
+          onOpenChange={(open) => {
+            setMenuOpen(open);
+            if (!open) setArmed(false);
+          }}
         >
-          <Tip label="Rename">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="Rename"
-              tabIndex={showActions() ? 0 : -1}
-              onClick={(e) => {
-                e.stopPropagation();
-                setArmed(false);
+          <DropdownMenuTrigger
+            class={`absolute right-1 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground ${
+              reveal() ? "" : "invisible pointer-events-none"
+            }`}
+            aria-label="Session actions"
+            data-session-menu=""
+            tabIndex={reveal() ? 0 : -1}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Icon name="more" class="size-3.5" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent class="min-w-40">
+            <DropdownMenuItem
+              onSelect={() => {
                 setDraft(props.title);
                 setEditing(true);
               }}
             >
-              <Icon name="pencil" class="size-3.5" />
-            </Button>
-          </Tip>
-          <Tip label="Archive">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="Archive"
-              tabIndex={showActions() ? 0 : -1}
-              onClick={(e) => {
-                e.stopPropagation();
-                void props.onArchive();
-              }}
-            >
-              <Icon name="archive" class="size-3.5" />
-            </Button>
-          </Tip>
-          <Tip label={armed() ? "Click again to delete" : "Delete"}>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              class={armed() ? "bg-destructive/20 text-destructive hover:bg-destructive/30" : ""}
-              aria-label={armed() ? "Click again to delete" : "Delete"}
-              tabIndex={showActions() ? 0 : -1}
-              onClick={(e) => {
-                e.stopPropagation();
+              <Icon name="pencil" class="size-3.5 text-muted-foreground" />
+              Rename
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => void props.onArchive()}>
+              <Icon name="archive" class="size-3.5 text-muted-foreground" />
+              Archive
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              class={armed() ? "text-destructive data-[highlighted]:text-destructive" : ""}
+              closeOnSelect={armed()}
+              onSelect={() => {
                 if (!armed()) {
                   setArmed(true);
                   return;
@@ -253,10 +254,11 @@ function SessionListItem(props: {
                 void props.onDelete();
               }}
             >
-              <Icon name="trash" class="size-3.5" />
-            </Button>
-          </Tip>
-        </span>
+              <Icon name="trash" class={`size-3.5 ${armed() ? "" : "text-muted-foreground"}`} />
+              {armed() ? "Click again to delete" : "Delete"}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </Show>
     </div>
   );
@@ -314,6 +316,12 @@ export function App() {
   onMount(() => {
     const onHash = () => setRoute(parseHash());
     window.addEventListener("hashchange", onHash);
+    applyTheme(readTheme());
+    const scheme = window.matchMedia("(prefers-color-scheme: light)");
+    const onScheme = () => {
+      if (readTheme() === "system") applyTheme("system");
+    };
+    scheme.addEventListener("change", onScheme);
     const clockTimer = setInterval(() => setClock(Date.now()), 30_000);
     const es = new EventSource(api("/stream"));
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -364,6 +372,7 @@ export function App() {
     };
     window.addEventListener("keydown", onKey);
     onCleanup(() => {
+      scheme.removeEventListener("change", onScheme);
       window.removeEventListener("hashchange", onHash);
       window.removeEventListener("keydown", onKey);
       clearInterval(clockTimer);
@@ -550,7 +559,22 @@ export function App() {
           </Button>
           </Tip>
         </div>
-        <div class="flex flex-col gap-2 px-3 pb-3">
+        <CommandSearch
+          open={searchOpen()}
+          query={query()}
+          sessions={library()}
+          events={settled(results)}
+          searching={results.loading}
+          onOpenChange={(open) => {
+            setSearchOpen(open);
+            if (!open) setQuery("");
+          }}
+          onQuery={setQuery}
+          onOpenSession={(id) => {
+            location.hash = `/session/${encodeURIComponent(id)}`;
+          }}
+        />
+        <div class="flex flex-col gap-2 px-3 pt-2 pb-3">
           <div>
             <p class="mb-1 px-0.5 text-[11px] font-medium text-muted-foreground">Project</p>
             <DropdownMenu open={wsOpen()} onOpenChange={setWsOpen} gutter={6}>
@@ -764,6 +788,11 @@ export function App() {
                 ···
               </DropdownMenuTrigger>
               <DropdownMenuContent class="min-w-52">
+                <DropdownMenuItem onSelect={() => (location.hash = "/settings")}>
+                  <Icon name="gear" class="size-3.5 text-muted-foreground" />
+                  Settings
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => setConnOpen((v) => !v)}>
                   <Icon name="link" class="size-3.5 text-muted-foreground" />
                   {connOpen() ? "Close connect" : "Connect a backend"}
@@ -778,6 +807,7 @@ export function App() {
                         })
                       }
                     >
+                      <span class="size-3.5 shrink-0" />
                       Disconnect {endpointHost(c.baseUrl)}
                     </DropdownMenuItem>
                   )}
@@ -803,25 +833,10 @@ export function App() {
       </aside>
 
       <main class="relative min-w-0 flex-1">
-        <CommandSearch
-          open={searchOpen()}
-          query={query()}
-          sessions={library()}
-          events={settled(results)}
-          searching={results.loading}
-          onOpenChange={(open) => {
-            setSearchOpen(open);
-            if (!open) setQuery("");
-          }}
-          onQuery={setQuery}
-          onOpenSession={(id) => {
-            location.hash = `/session/${encodeURIComponent(id)}`;
-          }}
-        />
         <Show when={route().name === "fleet"}>
           <div class="flex h-full flex-col">
             <DragBar class="text-[13px] text-muted-foreground">
-              <span class="max-w-[calc(50%-6.5rem)] truncate">
+              <span class="min-w-0 truncate">
                 {sessions().length.toLocaleString()}
                 {currentDir() ? " in this project" : " sessions"} ·{" "}
                 <span class="font-mono tabular-nums text-foreground">
@@ -868,6 +883,22 @@ export function App() {
                 a={(route() as { a: string }).a}
                 b={(route() as { b: string }).b}
               />
+            </div>
+          </div>
+        </Show>
+        <Show when={route().name === "settings"}>
+          <div class="flex h-full min-h-0 flex-col">
+            <DragBar>
+              <button
+                class="text-[13px] text-muted-foreground hover:text-foreground"
+                onClick={() => (location.hash = "/")}
+              >
+                ← fleet
+              </button>
+              <span class="text-[13px] text-foreground">Settings</span>
+            </DragBar>
+            <div class="min-h-0 flex-1 overflow-y-auto">
+              <SettingsPage />
             </div>
           </div>
         </Show>

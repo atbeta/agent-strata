@@ -9,7 +9,7 @@ import { projectSession, aggregate, type SessionView } from "@agent-strata/proje
 import { compareSessions, exportEvents } from "@agent-strata/core";
 import { evaluate, loadPolicy, type Policy } from "@agent-strata/policy";
 import type { Event } from "@agent-strata/schema";
-import type { BackendDriver } from "./driver";
+import type { BackendDriver, ModelChoice } from "./driver";
 import { connectOpencodeDriver } from "./opencode-driver";
 
 export interface ServiceOpts {
@@ -349,7 +349,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
 
       if (path === "/options" && req.method === "GET") {
         // model/agent pickers: merge every connected backend's lists
-        const models: { providerID: string; modelID: string; name: string }[] = [];
+        const models: ModelChoice[] = [];
         const agents: { name: string; mode?: string }[] = [];
         for (const conn of conns.values()) {
           try {

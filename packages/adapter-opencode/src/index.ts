@@ -733,7 +733,7 @@ export async function connectOpencode(opts: {
     },
   ) => Promise<void>;
   listModels: () => Promise<
-    { providerID: string; modelID: string; name: string; variants: string[] }[]
+    { providerID: string; modelID: string; name: string; variants: string[]; context?: number }[]
   >;
   listAgents: () => Promise<{ name: string; mode?: string }[]>;
   listSessions: () => Promise<{ id: string; title: string; directory: string }[]>;
@@ -999,18 +999,22 @@ export async function connectOpencode(opts: {
       // credentials — only those are pickable. Each provider's default model
       // sorts first.
       const connected = r.data?.connected;
-      const out: { providerID: string; modelID: string; name: string; variants: string[] }[] = [];
+      const out: { providerID: string; modelID: string; name: string; variants: string[]; context?: number }[] =
+        [];
       for (const p of r.data?.all ?? []) {
         if (connected && !connected.includes(p.id)) continue;
         const def = r.data?.default?.[p.id];
         const models = Object.entries(p.models ?? {});
         models.sort(([a], [b]) => (a === def ? -1 : b === def ? 1 : 0));
         for (const [modelID, m] of models) {
+          const raw = m as { name?: string; variants?: object; limit?: { context?: number } };
+          const context = raw.limit?.context;
           out.push({
             providerID: p.id,
             modelID,
-            name: (m as { name?: string }).name ?? modelID,
-            variants: Object.keys((m as { variants?: object }).variants ?? {}),
+            name: raw.name ?? modelID,
+            variants: Object.keys(raw.variants ?? {}),
+            ...(typeof context === "number" && context > 0 ? { context } : {}),
           });
         }
       }

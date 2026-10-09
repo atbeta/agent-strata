@@ -4,6 +4,18 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Agent Strata</title>
+    <script>
+      (function () {
+        var stored = "dark";
+        try {
+          stored = localStorage.getItem("strata.theme") || "dark";
+        } catch (e) {}
+        var light =
+          stored === "light" ||
+          (stored === "system" && matchMedia("(prefers-color-scheme: light)").matches);
+        document.documentElement.dataset.theme = light ? "light" : "dark";
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

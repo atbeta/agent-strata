@@ -127,44 +127,45 @@ export function CommandSearch(props: {
   return (
     <>
       <Show when={props.open}>
-        <div class="fixed inset-0 z-30" onMouseDown={() => props.onOpenChange(false)} />
+        <div
+          class="fixed inset-0 z-30"
+          onMouseDown={() => {
+            props.onQuery("");
+            props.onOpenChange(false);
+          }}
+        />
       </Show>
-      <div
-        class={`pointer-events-none absolute inset-x-0 top-0 z-40 flex justify-center ${
-          props.open ? "items-start pt-1.5" : "h-11 items-center"
-        }`}
-      >
-        <div class="pointer-events-auto relative w-[min(28rem,calc(100%-8rem))]">
-          <Show
-            when={props.open}
-            fallback={
-              <button
-                type="button"
-                class="mx-auto flex h-7 items-center gap-2 rounded-md border border-border bg-secondary/50 px-2.5 text-[12px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                aria-label="Search"
-                onClick={() => props.onOpenChange(true)}
-              >
-                <Icon name="search" class="size-3.5" />
-                <span>Search</span>
-                <kbd class="font-mono text-[10px] text-muted-foreground/80">{shortcutLabel()}</kbd>
-              </button>
-            }
-          >
-            <div class="flex h-8 items-center gap-2 rounded-md border border-border bg-popover px-2.5 shadow-lg">
-              <Icon name="search" class="size-3.5 shrink-0 text-muted-foreground" />
-              <input
-                ref={input}
-                class="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
-                placeholder="Sessions and transcripts"
-                value={props.query}
-                aria-label="Search"
-                onInput={(e) => props.onQuery(e.currentTarget.value)}
-                onKeyDown={onKeyDown}
-                onMouseDown={(e) => e.stopPropagation()}
-              />
-              <kbd class="font-mono text-[10px] text-muted-foreground">esc</kbd>
-            </div>
-            <div class="absolute top-[calc(100%+6px)] right-0 left-0 max-h-80 overflow-y-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg">
+      <div class="relative z-40 px-1.5 pt-2">
+        <Show
+          when={props.open}
+          fallback={
+            <button
+              type="button"
+              class="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              aria-label="Search"
+              onClick={() => props.onOpenChange(true)}
+            >
+              <Icon name="search" class="size-3.5 shrink-0" />
+              <span>Search</span>
+              <kbd class="ml-auto font-mono text-[10px] text-muted-foreground/80">{shortcutLabel()}</kbd>
+            </button>
+          }
+        >
+          <div class="flex h-8 items-center gap-2 rounded-md border border-border bg-background px-2">
+            <Icon name="search" class="size-3.5 shrink-0 text-muted-foreground" />
+            <input
+              ref={input}
+              class="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
+              placeholder="Sessions and transcripts"
+              value={props.query}
+              aria-label="Search"
+              onInput={(e) => props.onQuery(e.currentTarget.value)}
+              onKeyDown={onKeyDown}
+              onMouseDown={(e) => e.stopPropagation()}
+            />
+            <kbd class="font-mono text-[10px] text-muted-foreground">esc</kbd>
+          </div>
+          <div class="surface-popover absolute top-[calc(100%+4px)] right-1.5 left-1.5 z-40 max-h-80 overflow-y-auto rounded-md border border-border bg-popover p-1 text-popover-foreground">
               <Show
                 when={props.query.trim()}
                 fallback={<p class="px-2 py-3 text-[12px] text-muted-foreground">Search every session and its transcript.</p>}
@@ -226,9 +227,8 @@ export function CommandSearch(props: {
                   </Show>
                 </Show>
               </Show>
-            </div>
-          </Show>
-        </div>
+          </div>
+        </Show>
       </div>
     </>
   );

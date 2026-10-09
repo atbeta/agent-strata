@@ -122,6 +122,16 @@ export function BlockText(props: { blocks: ContentBlock[]; tight?: boolean; live
   );
 }
 
+function toolIcon(kind: ToolKind): "terminal" | "files" | "pencil" | "search" | "globe" | "list" | "wrench" {
+  if (kind === "shell") return "terminal";
+  if (kind === "read") return "files";
+  if (kind === "edit") return "pencil";
+  if (kind === "search") return "search";
+  if (kind === "web") return "globe";
+  if (kind === "todo") return "list";
+  return "wrench";
+}
+
 function diffLineClass(line: string): string {
   if (line.startsWith("+") && !line.startsWith("+++")) return "text-status-active";
   if (line.startsWith("-") && !line.startsWith("---")) return "text-destructive";
@@ -174,8 +184,8 @@ function ToolCallCard(props: { call: ToolCallView }) {
         onClick={() => setOpen((v) => !v)}
       >
         <Icon
-          name="chevron"
-          class={`size-3 shrink-0 text-muted-foreground transition-transform ${open() ? "" : "-rotate-90"}`}
+          name={toolIcon(headline().kind)}
+          class={`size-3.5 shrink-0 ${denied() ? "text-destructive" : "text-event-tool"}`}
         />
         <span class={`shrink-0 text-[11px] font-medium ${denied() ? "text-destructive" : "text-muted-foreground"}`}>
           {headline().verb}
@@ -212,6 +222,12 @@ function ToolCallCard(props: { call: ToolCallView }) {
             {fmtLatency(props.call.latency_ms)}
           </span>
         </Show>
+        <span
+          class="inline-flex shrink-0 text-muted-foreground transition-transform"
+          style={{ transform: open() ? "none" : "rotate(-90deg)" }}
+        >
+          <Icon name="chevron" class="size-3" />
+        </span>
       </button>
       <Show when={open()}>
         <div class="space-y-2 border-t border-border px-2.5 py-2">

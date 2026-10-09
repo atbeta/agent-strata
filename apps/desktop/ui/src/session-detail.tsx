@@ -20,6 +20,20 @@ import { Tip } from "./tip";
 import { TraceDrawer, TraceStrip, type TraceBlock } from "./trace";
 import { TurnBlock } from "./transcript";
 
+/** An errored Solid resource throws when read, which unmounts the whole window. */
+function settled<T>(resource: { error: unknown; (): T | undefined }): T | undefined {
+  return resource.error ? undefined : resource();
+}
+import {
+  navigateHistory,
+  readDraft,
+  readHistory,
+  rememberPrompt,
+  sessionContext,
+  writeDraft,
+  writeHistory,
+} from "./prompt-memory";
+
 function QuestionCard(props: { q: PendingQuestion; onDone: () => void }) {
   const [picks, setPicks] = createSignal<string[][]>(props.q.questions.map(() => []));
   const [custom, setCustom] = createSignal<string[]>(props.q.questions.map(() => ""));
@@ -155,6 +169,36 @@ function changeWord(change: string): string {
   return "edited";
 }
 
+function ContextRing(props: { percent: number | null }) {
+  const length = 2 * Math.PI * 6;
+  // Read props inside JSX. A const captured on first run stays at 0, because
+  // the context window arrives after the transcript.
+  const tone = () =>
+    props.percent == null
+      ? "text-muted-foreground"
+      : props.percent >= 90
+        ? "text-destructive"
+        : props.percent >= 75
+          ? "text-status-cancelled"
+          : "text-foreground";
+  return (
+    <svg viewBox="0 0 16 16" class={`size-4 ${tone()}`} aria-hidden="true">
+      <circle cx="8" cy="8" r="6" fill="none" class="stroke-border" stroke-width="2" />
+      <circle
+        cx="8"
+        cy="8"
+        r="6"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-dasharray={`${(Math.max(0, Math.min(100, props.percent ?? 0)) / 100) * length} ${length}`}
+        transform="rotate(-90 8 8)"
+      />
+    </svg>
+  );
+}
+
 export function SessionDetail(props: { id: string }) {
   const [replayPos, setReplayPos] = createSignal<number | null>(null);
   const [traceOn, setTraceOn] = createSignal(false);
@@ -195,7 +239,10 @@ export function SessionDetail(props: { id: string }) {
       return r.pending.filter((p) => p.session_id === id);
     },
   );
-  const [draft, setDraft] = createSignal("");
+  const [draft, setDraft] = createSignal(readDraft(props.id));
+  const [queued, setQueued] = createSignal<string[]>([]);
+  const [histIndex, setHistIndex] = createSignal(-1);
+  const [histSaved, setHistSaved] = createSignal("");
   const [sendErr, setSendErr] = createSignal("");
   const [stopping, setStopping] = createSignal(false);
   const [pendingSend, setPendingSend] = createSignal(false);
@@ -210,49 +257,52 @@ export function SessionDetail(props: { id: string }) {
   let pinned = true;
 
   createEffect(() => {
-    const agents = options()?.agents ?? [];
+    const agents = settled(options)?.agents ?? [];
     if (!agentSel() && agents[0]) setAgentSel(agents[0].name);
   });
 
   createEffect(() => {
     if (modelTouched()) return;
-    const inherited = sessionModel(view());
+    const inherited = sessionModel(settled(view));
     if (inherited) {
       setModelSel(inherited);
       return;
     }
-    if (booting() || !view()) return;
-    const models = options()?.models ?? [];
+    if (booting() || !settled(view)) return;
+    const models = settled(options)?.models ?? [];
     if (models[0]) setModelSel(`${models[0].providerID}/${models[0].modelID}`);
   });
 
   const selectedModel = () =>
-    options()?.models.find((m) => `${m.providerID}/${m.modelID}` === modelSel());
+    settled(options)?.models.find((m) => `${m.providerID}/${m.modelID}` === modelSel());
   // empty model means "server default"; still offer that leading model's efforts
   const effortModel = () =>
-    selectedModel() ?? options()?.models.find((m) => (m.variants?.length ?? 0) > 0);
+    selectedModel() ?? settled(options)?.models.find((m) => (m.variants?.length ?? 0) > 0);
   const modelGroups = () => {
     const byProvider = new Map<string, NonNullable<OptionsResponse>["models"]>();
-    for (const m of options()?.models ?? []) {
+    for (const m of settled(options)?.models ?? []) {
       byProvider.set(m.providerID, [...(byProvider.get(m.providerID) ?? []), m]);
     }
     return [...byProvider.entries()];
   };
   const generating = () =>
     pendingSend() ||
-    !!view()?.busy ||
-    !!view()?.turns.some((t) => t.assistant.some((a) => a.partial));
+    !!settled(view)?.busy ||
+    !!settled(view)?.turns.some((t) => t.assistant.some((a) => a.partial));
 
   createEffect(() => {
-    view()?.turns.length;
-    view()?.busy;
+    settled(view)?.turns.length;
+    settled(view)?.busy;
     if (!pinned || !scroller) return;
     queueMicrotask(() => {
       if (scroller) scroller.scrollTop = scroller.scrollHeight;
     });
   });
 
+  createEffect(() => writeDraft(props.id, draft()));
+
   onMount(() => {
+    if (draft()) queueMicrotask(autogrow);
     void importSession(props.id)
       .catch(() => {})
       .finally(() => {
@@ -309,13 +359,11 @@ export function SessionDetail(props: { id: string }) {
     draftEl.style.height = `${Math.min(draftEl.scrollHeight, 220)}px`;
   };
 
-  const send = async () => {
-    const text = draft().trim();
-    if (!text || generating()) return;
-    setDraft("");
+  const deliver = async (text: string) => {
     setSendErr("");
     setPendingSend(true);
-    if (draftEl) draftEl.style.height = "auto";
+    setHistIndex(-1);
+    writeHistory(rememberPrompt(readHistory(), text));
     const picked = selectedModel();
     const implied = !picked && variantSel() ? effortModel() : undefined;
     const source = picked ?? implied;
@@ -346,6 +394,58 @@ export function SessionDetail(props: { id: string }) {
     }
   };
 
+  const send = () => {
+    const text = draft().trim();
+    if (!text) return;
+    if (generating()) {
+      setQueued((q) => [...q, text]);
+      setDraft("");
+      setHistIndex(-1);
+      if (draftEl) draftEl.style.height = "auto";
+      return;
+    }
+    setDraft("");
+    if (draftEl) draftEl.style.height = "auto";
+    void deliver(text);
+  };
+
+  // A follow-up typed while the agent is running waits here, then goes out
+  // on the next idle. deliver() sets pendingSend in the same turn, so this
+  // does not drain the rest of the queue until that turn finishes.
+  createEffect(() => {
+    if (generating() || replayPos() !== null) return;
+    const next = queued()[0];
+    if (!next) return;
+    setQueued((q) => q.slice(1));
+    void deliver(next);
+  });
+
+  const editQueued = (index: number) => {
+    const item = queued()[index];
+    if (!item) return;
+    const current = draft().trim();
+    setQueued((q) => {
+      const rest = q.filter((_, i) => i !== index);
+      return current ? [...rest, current] : rest;
+    });
+    setHistIndex(-1);
+    setDraft(item);
+    queueMicrotask(() => {
+      autogrow();
+      draftEl?.focus();
+    });
+  };
+
+  const context = () => {
+    const id = modelSel();
+    const model = (settled(options)?.models ?? []).find((m) => `${m.providerID}/${m.modelID}` === id);
+    return sessionContext(settled(view)?.turns ?? [], model?.context);
+  };
+  const contextLabel = (total: number, percent: number | null) =>
+    percent == null
+      ? `${total.toLocaleString()} tokens in context`
+      : `${percent}% of context · ${total.toLocaleString()} tokens`;
+
   const stop = async () => {
     if (stopping()) return;
     setSendErr("");
@@ -361,7 +461,7 @@ export function SessionDetail(props: { id: string }) {
   };
 
   const hasWork = () => {
-    const v = view();
+    const v = settled(view);
     return !!v && (v.files_changed.length > 0 || (v.plan?.length ?? 0) > 0);
   };
   const railOn = () => !traceBlock() && (railForced() || (hasWork() && !railDismissed()));
@@ -384,41 +484,46 @@ export function SessionDetail(props: { id: string }) {
     <div class="flex h-full min-h-0">
       <div class="flex min-w-0 flex-1 flex-col">
         <Show
-          when={view()}
+          when={settled(view)}
           fallback={
             <div class="flex h-full min-h-0 flex-col">
               <DragBar />
-              <LoadingTranscript />
+              <Show
+                when={view.error}
+                fallback={<LoadingTranscript />}
+              >
+                <p class="px-8 pt-24 text-sm text-muted-foreground">Can't reach the strata service.</p>
+              </Show>
             </div>
           }
         >
           {(v) => (
             <>
               <header
-                class={`flex h-11 shrink-0 items-center gap-2.5 border-b border-border select-none ${
-                  usesCustomCaption() ? "pl-5" : "px-5"
+                class={`flex h-11 shrink-0 items-center gap-2 border-b border-border select-none ${
+                  usesCustomCaption() ? "pl-5 pr-2" : "px-4"
                 }`}
                 data-tauri-drag-region={inDesktopShell() ? "" : undefined}
               >
-                <div class="flex min-w-0 max-w-[calc(50%-6.5rem)] items-center gap-2.5">
-                <h1 class="truncate text-sm font-medium" title={v().title ?? "untitled session"}>
-                  {v().title ?? "untitled session"}
-                </h1>
-                <Show when={realWorkspace(v().workspace)}>
-                  {(ws) => (
-                    <span
-                      class="hidden max-w-48 truncate font-mono text-[11px] text-muted-foreground sm:inline"
-                      title={ws()}
-                    >
-                      {ws() === "/" || ws() === "\\" ? "Root" : ws().split(/[/\\]/).filter(Boolean).at(-1)}
-                    </span>
-                  )}
-                </Show>
+                <div class="flex min-w-0 flex-1 items-baseline gap-2">
+                  <h1 class="min-w-0 truncate text-[13px] font-medium" title={v().title ?? "untitled session"}>
+                    {v().title ?? "untitled session"}
+                  </h1>
+                  <Show when={realWorkspace(v().workspace)}>
+                    {(ws) => (
+                      <span
+                        class="max-w-40 shrink-0 truncate font-mono text-[11px] text-muted-foreground"
+                        title={ws()}
+                      >
+                        {ws() === "/" || ws() === "\\" ? "Root" : ws().split(/[/\\]/).filter(Boolean).at(-1)}
+                      </span>
+                    )}
+                  </Show>
                 </div>
-                <span class="ml-auto flex max-w-[calc(50%-6.5rem)] items-center gap-0.5">
+                <span class="flex shrink-0 items-center gap-0.5">
                   <Show when={v().totals.cost_usd > 0}>
                     <span
-                      class="mr-1 hidden font-mono text-[11px] text-muted-foreground tabular-nums md:inline"
+                      class="mr-1 font-mono text-[11px] text-muted-foreground tabular-nums"
                       title="Session cost"
                     >
                       {fmtUsd(v().totals.cost_usd)}
@@ -521,7 +626,7 @@ export function SessionDetail(props: { id: string }) {
               <Show when={replayPos() === null}>
                 <div class="shrink-0 bg-gradient-to-t from-background from-70% px-5 pb-4 pt-6">
                   <div class="mx-auto w-full max-w-3xl space-y-2">
-                    <For each={asks() ?? []}>
+                    <For each={settled(asks) ?? []}>
                       {(p) => (
                         <div class="rounded-xl border border-event-permission/40 bg-event-permission/10 p-3">
                           <div class="flex items-center gap-2 text-sm">
@@ -548,7 +653,7 @@ export function SessionDetail(props: { id: string }) {
                         </div>
                       )}
                     </For>
-                    <For each={questions() ?? []}>
+                    <For each={settled(questions) ?? []}>
                       {(q) => (
                         <QuestionCard
                           q={q}
@@ -559,21 +664,78 @@ export function SessionDetail(props: { id: string }) {
                         />
                       )}
                     </For>
-                    <div class="rounded-2xl border border-input bg-card shadow-[0_8px_30px_-18px_rgba(0,0,0,0.7)] transition-colors focus-within:border-ring">
+                    <div>
+                      <Show when={queued().length > 0}>
+                        <div class="rounded-t-2xl border border-b-0 border-input bg-secondary/70 px-3 pb-4 pt-2">
+                          <p class="text-[11px] font-medium text-muted-foreground">
+                            {queued().length === 1 ? "Queued" : `${queued().length} queued`}
+                          </p>
+                          <ul class="mt-1 space-y-1">
+                            <For each={queued()}>
+                              {(text, i) => (
+                                <li class="flex items-center gap-2">
+                                  <span class="min-w-0 flex-1 truncate text-[13px]">{text}</span>
+                                  <button
+                                    type="button"
+                                    class="shrink-0 text-[12px] text-muted-foreground hover:text-foreground"
+                                    onClick={() => editQueued(i())}
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    class="grid h-5 w-5 shrink-0 place-items-center rounded text-muted-foreground hover:bg-background hover:text-foreground"
+                                    aria-label="Remove queued message"
+                                    onClick={() => setQueued((q) => q.filter((_, n) => n !== i()))}
+                                  >
+                                    ×
+                                  </button>
+                                </li>
+                              )}
+                            </For>
+                          </ul>
+                        </div>
+                      </Show>
+                    <div
+                      class={`rounded-2xl border border-input bg-card shadow-[0_8px_30px_-18px_rgba(0,0,0,0.7)] transition-colors focus-within:border-ring ${queued().length > 0 ? "-mt-2" : ""}`}
+                    >
                       <textarea
                         ref={draftEl}
                         class="max-h-56 w-full resize-none bg-transparent px-4 py-3 font-sans text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none"
                         rows={1}
-                        placeholder="Message…"
+                        placeholder={generating() ? "Queue a follow-up…" : "Message…"}
                         value={draft()}
                         onInput={(e) => {
                           setDraft(e.currentTarget.value);
+                          setHistIndex(-1);
                           autogrow();
                         }}
                         onKeyDown={(e) => {
+                          if ((e.key === "ArrowUp" || e.key === "ArrowDown") && !e.shiftKey && !e.isComposing) {
+                            const moved = navigateHistory({
+                              direction: e.key === "ArrowUp" ? "up" : "down",
+                              text: draft(),
+                              cursor: e.currentTarget.selectionStart ?? 0,
+                              index: histIndex(),
+                              entries: readHistory(),
+                              saved: histSaved(),
+                            });
+                            if (moved.handled) {
+                              e.preventDefault();
+                              if (histIndex() < 0) setHistSaved(draft());
+                              setHistIndex(moved.index);
+                              setDraft(moved.text);
+                              queueMicrotask(() => {
+                                autogrow();
+                                const pos = moved.cursor === "start" ? 0 : moved.text.length;
+                                draftEl?.setSelectionRange(pos, pos);
+                              });
+                              return;
+                            }
+                          }
                           if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
                             e.preventDefault();
-                            void send();
+                            send();
                           }
                         }}
                       />
@@ -613,8 +775,22 @@ export function SessionDetail(props: { id: string }) {
                         </div>
                       </div>
                     </div>
-                    <div class="flex items-center justify-end gap-0.5 px-1">
-                      <Show when={(options()?.models.length ?? 0) > 0 && (Boolean(modelSel()) || !booting())}>
+                    </div>
+                    <div class="flex items-center gap-0.5 px-1">
+                      <Show when={context()}>
+                        {(c) => (
+                          <Tip label={contextLabel(c().total, c().percent)} class="mr-auto">
+                            <span
+                              class="grid h-7 w-7 place-items-center"
+                              aria-label={contextLabel(c().total, c().percent)}
+                            >
+                              <ContextRing percent={c().percent} />
+                            </span>
+                          </Tip>
+                        )}
+                      </Show>
+                      <div class={`flex min-w-0 items-center justify-end gap-0.5 ${context() ? "" : "ml-auto"}`}>
+                      <Show when={(settled(options)?.models.length ?? 0) > 0 && (Boolean(modelSel()) || !booting())}>
                         <select
                           class={pickerCls}
                           value={modelSel()}
@@ -629,7 +805,7 @@ export function SessionDetail(props: { id: string }) {
                           <Show
                             when={
                               modelSel() &&
-                              !(options()?.models ?? []).some(
+                              !(settled(options)?.models ?? []).some(
                                 (m) => `${m.providerID}/${m.modelID}` === modelSel(),
                               )
                             }
@@ -663,7 +839,7 @@ export function SessionDetail(props: { id: string }) {
                           </For>
                         </select>
                       </Show>
-                      <Show when={(options()?.agents.length ?? 0) > 0}>
+                      <Show when={(settled(options)?.agents.length ?? 0) > 0}>
                         <select
                           class={`${pickerCls} capitalize`}
                           value={agentSel()}
@@ -671,11 +847,12 @@ export function SessionDetail(props: { id: string }) {
                           aria-label="Agent"
                           onChange={(e) => setAgentSel(e.currentTarget.value)}
                         >
-                          <For each={options()!.agents}>
+                          <For each={settled(options)!.agents}>
                             {(a) => <option value={a.name}>{a.name}</option>}
                           </For>
                         </select>
                       </Show>
+                      </div>
                     </div>
                     <Show when={sendErr()}>
                       <p class="font-mono text-[11px] text-destructive">{sendErr()}</p>
@@ -699,7 +876,7 @@ export function SessionDetail(props: { id: string }) {
           />
         )}
       </Show>
-      <Show when={railOn() && view()}>
+      <Show when={railOn() && settled(view)}>
         {(v) => {
           const files = () => v().files_changed;
           const fileLabel = () => {

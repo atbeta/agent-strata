@@ -56,6 +56,13 @@ export interface Turn {
     msg_id?: string;
     partial?: boolean;
     model?: string;
+    usage?: {
+      input: number;
+      output: number;
+      reasoning?: number;
+      cache_read?: number;
+      cache_write?: number;
+    };
     cost_usd?: number;
     latency_ms?: number;
   }[];
@@ -162,7 +169,13 @@ export interface Connection {
 }
 
 export interface OptionsResponse {
-  models: { providerID: string; modelID: string; name: string; variants?: string[] }[];
+  models: {
+    providerID: string;
+    modelID: string;
+    name: string;
+    variants?: string[];
+    context?: number;
+  }[];
   agents: { name: string; mode?: string }[];
 }
 

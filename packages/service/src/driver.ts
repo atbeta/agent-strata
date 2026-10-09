@@ -7,6 +7,8 @@ export interface ModelChoice {
   modelID: string;
   name: string;
   variants?: string[];
+  /** model context window, when the backend publishes one */
+  context?: number;
 }
 
 export interface PromptOpts {

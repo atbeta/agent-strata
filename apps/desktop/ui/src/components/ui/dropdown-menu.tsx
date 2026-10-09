@@ -52,7 +52,7 @@ function DropdownMenuItem(props: ItemProps) {
   return (
     <DropdownMenuPrimitive.Item
       class={cn(
-        "relative flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-[13px] outline-none transition-colors data-[disabled]:pointer-events-none data-[disabled]:opacity-40 data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground",
+        "relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1.5 text-[13px] outline-none transition-colors data-[disabled]:pointer-events-none data-[disabled]:opacity-40 data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground",
         local.class,
       )}
       {...rest}
@@ -64,7 +64,14 @@ type SeparatorProps = PolymorphicProps<"hr", DropdownMenuSeparatorProps<"hr">> &
 
 function DropdownMenuSeparator(props: SeparatorProps) {
   const [local, rest] = splitProps(props, ["class"]);
-  return <DropdownMenuPrimitive.Separator class={cn("-mx-1 my-1 h-px bg-border", local.class)} {...rest} />;
+  // <hr> keeps a currentColor border from the preflight, which paints a dark
+  // groove over the hairline. border-0 leaves only the inset token line.
+  return (
+    <DropdownMenuPrimitive.Separator
+      class={cn("mx-2 my-1 h-px border-0 bg-border", local.class)}
+      {...rest}
+    />
+  );
 }
 
 export { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator };
