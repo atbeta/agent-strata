@@ -56,7 +56,7 @@ function TurnPairRow(props: { pair: TurnPair; i: number }) {
   );
 }
 
-export function CompareView(props: { a: string; b: string; back: () => void }) {
+export function CompareView(props: { a: string; b: string }) {
   const [cmp] = createResource(
     () => `${props.a}/${props.b}`,
     () => getJson<SessionComparison>(`/compare?a=${props.a}&b=${props.b}`),
@@ -64,16 +64,10 @@ export function CompareView(props: { a: string; b: string; back: () => void }) {
 
   return (
     <main class="mx-auto max-w-5xl p-6">
-      <button
-        class="text-sm text-muted-foreground transition-colors hover:text-foreground"
-        onClick={props.back}
-      >
-        ← fleet
-      </button>
-      <Show when={cmp()} fallback={<p class="mt-6 text-muted-foreground">loading…</p>}>
+      <Show when={cmp()} fallback={<p class="text-muted-foreground">loading…</p>}>
         {(c) => (
           <>
-            <header class="mt-4">
+            <header>
               <h1 class="text-xl font-semibold">compare sessions</h1>
               <p class="mt-1 font-mono text-xs text-muted-foreground">
                 {c().a.session_id} vs {c().b.session_id}

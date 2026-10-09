@@ -14,7 +14,8 @@ import {
   type SessionView,
 } from "./api";
 import { Icon } from "./icons";
-import { inDesktopShell } from "./shell";
+import { CaptionButtons, DragBar } from "./chrome";
+import { inDesktopShell, usesCustomCaption } from "./shell";
 import { TraceDrawer, TraceStrip, type TraceBlock } from "./trace";
 import { TurnBlock } from "./transcript";
 
@@ -347,11 +348,21 @@ export function SessionDetail(props: { id: string }) {
   return (
     <div class="flex h-full min-h-0">
       <div class="flex min-w-0 flex-1 flex-col">
-        <Show when={view()} fallback={<LoadingTranscript />}>
+        <Show
+          when={view()}
+          fallback={
+            <div class="flex h-full min-h-0 flex-col">
+              <DragBar />
+              <LoadingTranscript />
+            </div>
+          }
+        >
           {(v) => (
             <>
               <header
-                class="flex h-11 shrink-0 items-center gap-2.5 border-b border-border px-5"
+                class={`flex h-11 shrink-0 items-center gap-2.5 border-b border-border select-none ${
+                  usesCustomCaption() ? "pl-5" : "px-5"
+                }`}
                 data-tauri-drag-region={inDesktopShell() ? "" : undefined}
               >
                 <Show when={generating()}>
@@ -428,6 +439,7 @@ export function SessionDetail(props: { id: string }) {
                     <Icon name="download" />
                   </a>
                 </span>
+                <CaptionButtons />
               </header>
 
               <Show when={traceOn()}>

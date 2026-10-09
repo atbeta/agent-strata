@@ -323,6 +323,20 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
+            // macOS keeps the overlay title bar and traffic lights. Windows
+            // drops the native caption so the webview's drag strip and caption
+            // buttons own the top edge. The thick frame stays, so the window
+            // can still be resized from the edges.
+            if cfg!(target_os = "windows") {
+                if let Some(window) = app.get_webview_window("main") {
+                    if let Err(err) = window.set_decorations(false) {
+                        eprintln!("agent-strata: could not hide the Windows title bar: {err}");
+                    }
+                    if let Err(err) = window.set_shadow(true) {
+                        eprintln!("agent-strata: could not set the Windows shadow: {err}");
+                    }
+                }
+            }
             app.manage(Sidecars::start(app.handle()));
             Ok(())
         })

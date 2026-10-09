@@ -203,7 +203,7 @@ function RuleCard(props: { index: number; draft: Draft; setDraft: (fn: (d: Draft
   );
 }
 
-export function PolicyEditor(props: { back: () => void }) {
+export function PolicyEditor() {
   const [saved] = createResource(() => getJson<PolicyResponse>("/policy"));
   const [draft, setDraftRaw] = createStore<Draft>({ default: "ask", rules: [] });
   const setDraft = (fn: (d: Draft) => void) => setDraftRaw(produce(fn));
@@ -259,13 +259,7 @@ export function PolicyEditor(props: { back: () => void }) {
 
   return (
     <main class="mx-auto max-w-3xl p-6">
-      <button
-        class="text-sm text-muted-foreground transition-colors hover:text-foreground"
-        onClick={props.back}
-      >
-        ← fleet
-      </button>
-      <header class="mt-4">
+      <header>
         <h1 class="text-xl font-semibold">policy editor</h1>
         <p class="mt-1 text-xs text-muted-foreground">
           advisory permission rules — deny &gt; ask &gt; allow among matching rules,

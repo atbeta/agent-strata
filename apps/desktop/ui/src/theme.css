@@ -93,15 +93,19 @@
     scrollbar-width: thin;
     scrollbar-color: hsl(0 0% 100% / 0.16) transparent;
   }
-  /* The top strip is the window chrome. macOS already overlays traffic lights
-     here; Windows and Linux still use a native title bar until custom
-     window controls ship. Both drag prefixes: unprefixed app-region is not
-     enough on every webview. */
+  /* Top strips are the window chrome. Do not set app-region on html/body:
+     WebKit then ignores drag on every descendant, so the window cannot move.
+     Interactive controls opt out everywhere, so a drag region cannot swallow
+     clicks. macOS keeps overlay traffic lights. Windows is frameless and
+     draws its own caption buttons. */
   [data-tauri-drag-region] {
     -webkit-app-region: drag;
     app-region: drag;
+    cursor: default;
+    user-select: none;
+    -webkit-user-select: none;
   }
-  [data-tauri-drag-region] :is(button, a, input, textarea, select, label) {
+  :is(button, a, input, textarea, select, label, [role="button"]) {
     -webkit-app-region: no-drag;
     app-region: no-drag;
   }

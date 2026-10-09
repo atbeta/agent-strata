@@ -19,7 +19,8 @@ import { SessionDetail } from "./session-detail";
 import { CompareView } from "./compare";
 import { PolicyEditor } from "./policy";
 import { Icon } from "./icons";
-import { inDesktopShell } from "./shell";
+import { DragBar } from "./chrome";
+import { inDesktopShell, usesOverlayTrafficLights } from "./shell";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -82,6 +83,28 @@ const ALL = "__all__";
 function baseName(path: string): string {
   const parts = path.split(/[/\\]/).filter(Boolean);
   return parts.at(-1) ?? path;
+}
+
+function projectName(path: string): string {
+  if (path === "/" || path === "\\") return "Root";
+  return baseName(path);
+}
+
+function projectHint(path: string): string {
+  if (path === "/" || path === "\\") return "filesystem root";
+  const parent = parentPath(path);
+  return parent === path ? path : parent;
+}
+
+/** An errored Solid resource throws when read. Check first so one failed request cannot unmount the menu. */
+function settled<T>(resource: { error: unknown; (): T | undefined }): T | undefined {
+  return resource.error ? undefined : resource();
+}
+
+function explain(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg === "Load failed" || msg === "Failed to fetch") return "Can't reach the strata service";
+  return msg;
 }
 
 function parentPath(path: string): string {
@@ -347,7 +370,7 @@ export function App() {
       refetch();
       window.dispatchEvent(new Event("strata-connections"));
     } catch (e) {
-      setConnErr(e instanceof Error ? e.message : String(e));
+      setConnErr(explain(e));
     } finally {
       setConnecting(false);
     }
@@ -368,7 +391,7 @@ export function App() {
 
   createEffect(() => {
     if (workspace() !== null) return;
-    const row = (data()?.sessions ?? []).find(
+    const row = (settled(data)?.sessions ?? []).find(
       (s) => !s.parent && !s.archived && !s.deleted && realWorkspace(s.workspace ?? s.summary.workspace),
     );
     const ws = realWorkspace(row?.workspace ?? row?.summary.workspace);
@@ -405,7 +428,7 @@ export function App() {
 
   const sessions = () => {
     const q = query().trim().toLowerCase();
-    const rows = (data()?.sessions ?? []).filter((s) => !s.parent && !s.archived && !s.deleted);
+    const rows = (settled(data)?.sessions ?? []).filter((s) => !s.parent && !s.archived && !s.deleted);
     const dir = currentDir();
     const scoped = dir ? rows.filter((s) => sessionWorkspace(s) === dir) : rows;
     if (!q) return scoped;
@@ -419,13 +442,13 @@ export function App() {
   const workspaceOptions = () => {
     const map = new Map<string, string>();
     const cur = currentDir();
-    if (cur) map.set(cur, baseName(cur));
-    for (const w of wsList()?.workspaces ?? []) {
-      if (w.directory) map.set(w.directory, w.name || baseName(w.directory));
+    if (cur) map.set(cur, projectName(cur));
+    for (const w of settled(wsList)?.workspaces ?? []) {
+      if (w.directory) map.set(w.directory, w.name || projectName(w.directory));
     }
-    for (const s of data()?.sessions ?? []) {
+    for (const s of settled(data)?.sessions ?? []) {
       const ws = sessionWorkspace(s);
-      if (ws && !map.has(ws)) map.set(ws, baseName(ws));
+      if (ws && !map.has(ws)) map.set(ws, projectName(ws));
     }
     return [...map.entries()].map(([directory, name]) => ({ directory, name }));
   };
@@ -449,7 +472,7 @@ export function App() {
         })
         .map(([ws, list]) => ({
           key: ws || "none",
-          label: ws ? baseName(ws) : "No project",
+          label: ws ? projectName(ws) : "No project",
           hint: ws || undefined,
           rows: list,
         }));
@@ -483,14 +506,16 @@ export function App() {
     const r = route();
     return r.name === "session" ? r.id : undefined;
   };
-  const connected = () => (conns()?.connections.length ?? 0) > 0;
+  const connected = () => (settled(conns)?.connections.length ?? 0) > 0;
 
   return (
     <div class="flex h-full min-h-0 bg-background">
       <aside class="flex w-[300px] shrink-0 flex-col border-r border-border bg-background">
         <div
-          class={`flex h-11 items-center gap-2 pr-3 ${inDesktopShell() ? "pl-[76px]" : "px-3"}`}
-          data-tauri-drag-region
+          class={`flex h-11 shrink-0 items-center gap-2 border-b border-border pr-3 select-none ${
+            usesOverlayTrafficLights() ? "pl-[76px]" : "px-3"
+          }`}
+          data-tauri-drag-region={inDesktopShell() ? "" : undefined}
         >
           <Button
             variant="ghost"
@@ -531,10 +556,10 @@ export function App() {
                 </span>
                 <span class="min-w-0 flex-1">
                   <span class="block truncate text-[13px] font-medium leading-tight">
-                    {currentDir() ? baseName(currentDir()!) : "All projects"}
+                    {currentDir() ? projectName(currentDir()!) : "All projects"}
                   </span>
                   <span class="block truncate font-mono text-[10px] leading-tight text-muted-foreground">
-                    {currentDir() ? parentPath(currentDir()!) : `${sessions().length} sessions`}
+                    {currentDir() ? projectHint(currentDir()!) : `${sessions().length} sessions`}
                   </span>
                 </span>
                 <Icon
@@ -557,7 +582,7 @@ export function App() {
                       title={w.directory}
                       onSelect={() => chooseWorkspace(w.directory)}
                     >
-                      <span class="w-full truncate">{w.name}</span>
+                      <span class="w-full truncate">{projectName(w.directory)}</span>
                       <span class="w-full truncate font-mono text-[10px] text-muted-foreground">{w.directory}</span>
                     </DropdownMenuItem>
                   )}
@@ -625,9 +650,11 @@ export function App() {
               <p class="px-2 py-8 text-center text-xs text-muted-foreground">
                 {query().trim()
                   ? "No sessions match this search."
-                  : data()
-                    ? "No sessions in this project yet."
-                    : "Connect a backend to see sessions."}
+                  : data.error
+                    ? explain(data.error)
+                    : settled(data)
+                      ? "No sessions in this project yet."
+                      : "Connect a backend to see sessions."}
               </p>
             }
           >
@@ -672,7 +699,7 @@ export function App() {
         </div>
         <div class="border-t border-border p-3">
           <div class="flex flex-wrap items-center gap-1.5">
-            <For each={conns()?.connections ?? []}>
+            <For each={settled(conns)?.connections ?? []}>
               {(c) => (
                 <span class="flex max-w-full items-center gap-1.5 rounded-full bg-secondary px-2 py-0.5 text-[11px]">
                   <span class="h-1.5 w-1.5 rounded-full bg-status-active" />
@@ -786,17 +813,15 @@ export function App() {
       <main class="min-w-0 flex-1">
         <Show when={route().name === "fleet"}>
           <div class="flex h-full flex-col">
-            <div
-              class="flex h-11 items-center border-b border-border px-5 text-[13px] text-muted-foreground"
-              data-tauri-drag-region
-            >
+            <DragBar class="text-[13px] text-muted-foreground">
               <span>
-                {(data()?.sessions.length ?? 0).toLocaleString()} sessions ·{" "}
+                {sessions().length.toLocaleString()}
+                {currentDir() ? " in this project" : " sessions"} ·{" "}
                 <span class="font-mono tabular-nums text-foreground">
-                  {fmtUsd(data()?.aggregate.total.cost_usd ?? 0)}
+                  {fmtUsd(settled(data)?.aggregate.total.cost_usd ?? 0)}
                 </span>
               </span>
-            </div>
+            </DragBar>
             <div class="min-h-0 flex-1 overflow-y-auto">
               <Show
                 when={query().trim()}
@@ -820,10 +845,10 @@ export function App() {
                 }
               >
                 <Show
-                  when={!results.loading && (results()?.length ?? 0) === 0}
+                  when={!results.loading && !results.error && (settled(results)?.length ?? 0) === 0}
                   fallback={
                     <div class="mx-auto max-w-2xl py-4">
-                      <For each={results() ?? []}>
+                      <For each={settled(results) ?? []}>
                     {(e) => (
                       <button
                         class="block w-full px-4 py-2.5 text-left hover:bg-secondary/50"
@@ -858,17 +883,38 @@ export function App() {
           {(id) => <SessionDetail id={id} />}
         </Show>
         <Show when={route().name === "compare"}>
-          <div class="h-full overflow-y-auto">
-            <CompareView
-              a={(route() as { a: string }).a}
-              b={(route() as { b: string }).b}
-              back={() => (location.hash = "/")}
-            />
+          <div class="flex h-full min-h-0 flex-col">
+            <DragBar>
+              <button
+                class="text-[13px] text-muted-foreground hover:text-foreground"
+                onClick={() => (location.hash = "/")}
+              >
+                ← fleet
+              </button>
+              <span class="text-[13px] text-foreground">Compare</span>
+            </DragBar>
+            <div class="min-h-0 flex-1 overflow-y-auto">
+              <CompareView
+                a={(route() as { a: string }).a}
+                b={(route() as { b: string }).b}
+              />
+            </div>
           </div>
         </Show>
         <Show when={route().name === "policy"}>
-          <div class="h-full overflow-y-auto">
-            <PolicyEditor back={() => (location.hash = "/")} />
+          <div class="flex h-full min-h-0 flex-col">
+            <DragBar>
+              <button
+                class="text-[13px] text-muted-foreground hover:text-foreground"
+                onClick={() => (location.hash = "/")}
+              >
+                ← fleet
+              </button>
+              <span class="text-[13px] text-foreground">Policy</span>
+            </DragBar>
+            <div class="min-h-0 flex-1 overflow-y-auto">
+              <PolicyEditor />
+            </div>
           </div>
         </Show>
       </main>
