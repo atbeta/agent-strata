@@ -66,7 +66,7 @@ export class AcpRecorder implements Client {
     private opts: {
       agentName: string;
       sink: Sink;
-      policy?: Policy;
+      policy?: Policy | (() => Policy | undefined);
       onAsk?: OnAsk;
     },
   ) {}
@@ -227,6 +227,8 @@ export class AcpRecorder implements Client {
             path: c.path,
             change: c.oldText == null ? "add" : "modify",
             diff: createPatch(c.path, c.oldText ?? "", c.newText),
+            call_id: u.toolCallId,
+            ...(c.oldText == null ? { whole_file: true } : {}),
           },
           `${u.toolCallId}:file:${c.path}`,
         ),
@@ -324,8 +326,9 @@ export class AcpRecorder implements Client {
     });
     const cancelled: RequestPermissionResponse = { outcome: { outcome: "cancelled" } };
 
-    const d = this.opts.policy
-      ? evaluate(this.opts.policy, { tool: call.tool, input: call.input })
+    const policy = typeof this.opts.policy === "function" ? this.opts.policy() : this.opts.policy;
+    const d = policy
+      ? evaluate(policy, { tool: call.tool, input: call.input })
       : { decision: "ask" as const };
 
     if (d.decision === "allow") {
@@ -384,7 +387,7 @@ export async function connectAcpAgent(opts: {
   cwd?: string;
   agentName: string;
   sink: Sink;
-  policy?: Policy;
+  policy?: Policy | (() => Policy | undefined);
   onAsk?: OnAsk;
   env?: Record<string, string | undefined>;
 }): Promise<{

@@ -135,6 +135,8 @@ describe("adapter-acp integration (real subprocess)", () => {
     expect(old.additions).toBeGreaterThan(0);
     expect(old.unexplained).toBe(false);
     expect(old.edits[0]!.diff).toContain("const b = 2");
+    expect(old.edits[0]!.turn_index).toBe(0);
+    expect(view.files_changed.find((f) => f.path === "new.ts")!.edits[0]!.whole_file).toBe(true);
     store.close();
   });
 

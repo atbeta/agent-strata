@@ -12,6 +12,9 @@ import type { BackendDriver, BackendSink, ModelChoice } from "./driver";
 import { connectOpencodeDriver } from "./opencode-driver";
 import { LiveOverlay } from "./live";
 import { ViewCache } from "./views";
+import type { EventInput } from "@agent-strata/schema";
+import { connectAcpDriver } from "./acp-driver";
+import { agentNameOf, connectionMemory, endpointOf, type ConnectBody } from "./connections";
 
 export interface ServiceOpts {
   db?: string;
@@ -151,81 +154,85 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     return matches.length === 1 ? matches[0] : undefined;
   };
 
+  const onAsk = (req: Extract<EventInput, { type: "permission.requested" }>) => {
+    store.append([req]);
+    const data = req.data;
+    return new Promise<{ decision: "allow" | "deny"; scope?: "once" | "always" }>((resolve) =>
+      pendingAsks.set(data.request_id, {
+        request_id: data.request_id,
+        session_id: req.session_id,
+        tool: data.tool,
+        input: data.input,
+        asked_at: req.ts,
+        resolve,
+      }),
+    );
+  };
+  const onQuestion = (req: Extract<EventInput, { type: "question.asked" }>) => {
+    store.append([req]);
+    const data = req.data;
+    return new Promise<{ decision: "reply" | "reject"; answers?: string[][] }>((resolve) =>
+      pendingQuestions.set(data.request_id, {
+        request_id: data.request_id,
+        session_id: req.session_id,
+        questions: data.questions,
+        asked_at: req.ts,
+        resolve,
+      }),
+    );
+  };
+  const memory = connectionMemory(opts.db);
+
   const inflightConnects = new Map<string, Promise<{ id: string; indexed: number }>>();
-  const connectBackend = (body: {
-    backend?: string;
-    baseUrl: string;
-    name?: string;
-    directory?: string;
-    username?: string;
-    password?: string;
-    policy?: unknown;
-    connectTimeoutMs?: number;
-  }): Promise<{ id: string; indexed: number }> => {
-    const pending = inflightConnects.get(body.baseUrl);
+  const connectBackend = (body: ConnectBody): Promise<{ id: string; indexed: number }> => {
+    const key = endpointOf(body);
+    const pending = inflightConnects.get(key);
     if (pending) return pending;
-    const job = connectOnce(body).finally(() => inflightConnects.delete(body.baseUrl));
-    inflightConnects.set(body.baseUrl, job);
+    const job = connectOnce(body).finally(() => inflightConnects.delete(key));
+    inflightConnects.set(key, job);
     return job;
   };
-  const connectOnce = async (body: {
-    backend?: string;
-    baseUrl: string;
-    name?: string;
-    directory?: string;
-    username?: string;
-    password?: string;
-    policy?: unknown;
-    connectTimeoutMs?: number;
-  }): Promise<{ id: string; indexed: number }> => {
+  const connectOnce = async (body: ConnectBody): Promise<{ id: string; indexed: number }> => {
     const backend = body.backend ?? "opencode";
-    if (backend !== "opencode") throw new Error(`backend ${backend} is not registered`);
-    const already = [...conns.values()].find((c) => c.baseUrl === body.baseUrl);
+    const endpoint = endpointOf(body);
+    const already = [...conns.values()].find((c) => c.baseUrl === endpoint);
     if (already) {
       void syncDriver(already).catch((e) => console.error(`sync ${already.id} failed: ${e}`));
       return { id: already.id, indexed: 0 };
     }
-    const explicit: Policy | undefined = body.policy
-      ? loadPolicy(body.policy)
-      : undefined;
-    const driver = await connectOpencodeDriver({
-      sink,
-      baseUrl: body.baseUrl,
-      name: body.name,
-      directory: body.directory,
-      username: body.username,
-      password: body.password,
-      // per-connect policy wins; otherwise follow the live shared policy
-      policy: explicit ? () => explicit : () => currentPolicy,
-      connectTimeoutMs: body.connectTimeoutMs,
-      onAsk: (req) => {
-        store.append([req]);
-        const data = req.data;
-        return new Promise((resolve) =>
-          pendingAsks.set(data.request_id, {
-            request_id: data.request_id,
-            session_id: req.session_id,
-            tool: data.tool,
-            input: data.input,
-            asked_at: req.ts,
-            resolve,
-          }),
-        );
-      },
-      onQuestion: (req) => {
-        store.append([req]);
-        const data = req.data;
-        return new Promise((resolve) =>
-          pendingQuestions.set(data.request_id, {
-            request_id: data.request_id,
-            session_id: req.session_id,
-            questions: data.questions,
-            asked_at: req.ts,
-            resolve,
-          }),
-        );
-      },
-    });
+    const explicit: Policy | undefined = body.policy ? loadPolicy(body.policy) : undefined;
+    // per-connect policy wins; otherwise follow the live shared policy
+    const policy = explicit ? () => explicit : () => currentPolicy;
+    let driver: BackendDriver;
+    if (backend === "opencode") {
+      if (!body.baseUrl) throw new Error("baseUrl required");
+      driver = await connectOpencodeDriver({
+        sink,
+        baseUrl: body.baseUrl,
+        name: body.name,
+        directory: body.directory,
+        username: body.username,
+        password: body.password,
+        policy,
+        connectTimeoutMs: body.connectTimeoutMs,
+        onAsk,
+        onQuestion,
+      });
+    } else if (backend === "acp") {
+      if (!body.command) throw new Error("command required");
+      driver = await connectAcpDriver({
+        sink,
+        command: body.command,
+        args: body.args,
+        cwd: body.cwd ?? body.directory,
+        agentName: body.agentName ?? agentNameOf(body.command),
+        name: body.name,
+        policy,
+        onAsk,
+      });
+    } else {
+      throw new Error(`backend ${backend} is not registered`);
+    }
     conns.set(driver.id, driver);
     let indexed: string[] = [];
     try {
@@ -238,83 +245,31 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     return { id: driver.id, indexed: indexed.length };
   };
 
-  const connectionFile = (): string | undefined => {
-    if (!opts.db || opts.db === ":memory:") return undefined;
-    return `${dirname(opts.db)}/connection.json`;
-  };
-  const rememberConnection = (body: {
-    baseUrl: string;
-    name?: string;
-    directory?: string;
-    username?: string;
-    password?: string;
-  }) => {
-    const file = connectionFile();
-    if (!file) return;
-    try {
-      mkdirSync(dirname(file), { recursive: true });
-      writeFileSync(file, JSON.stringify(body));
-    } catch (e) {
-      console.error(`could not save connection: ${e}`);
-    }
-  };
-  const forgetConnection = () => {
-    const file = connectionFile();
-    if (!file) return;
-    try {
-      unlinkSync(file);
-    } catch {
-      // already gone
-    }
-  };
-  const savedConnection = ():
-    | {
-        baseUrl: string;
-        name?: string;
-        directory?: string;
-        username?: string;
-        password?: string;
-      }
-    | undefined => {
-    const file = connectionFile();
-    if (!file) return undefined;
-    try {
-      const parsed = JSON.parse(readFileSync(file, "utf8")) as { baseUrl?: string };
-      if (!parsed.baseUrl) return undefined;
-      return parsed as {
-        baseUrl: string;
-        name?: string;
-        directory?: string;
-        username?: string;
-        password?: string;
-      };
-    } catch {
-      return undefined;
-    }
-  };
-
-  // boot auto-connect. An explicit URL wins; otherwise reuse the last
-  // connection so reopening the app is not stuck on the previous snapshot.
-  const bootConnection = opts.autoConnect
-    ? {
-        baseUrl: opts.autoConnect,
-        username: opts.autoConnectUsername,
-        password: opts.autoConnectPassword,
-      }
-    : savedConnection();
-  if (bootConnection?.baseUrl) {
-    const baseUrl = bootConnection.baseUrl;
+  // boot auto-connect. An explicit URL comes first; every remembered
+  // connection follows, so reopening the app is not stuck on old snapshots.
+  const boot: ConnectBody[] = opts.autoConnect
+    ? [
+        {
+          baseUrl: opts.autoConnect,
+          username: opts.autoConnectUsername,
+          password: opts.autoConnectPassword,
+        },
+        ...memory.saved().filter((c) => endpointOf(c) !== opts.autoConnect),
+      ]
+    : memory.saved();
+  for (const body of boot) {
+    const endpoint = endpointOf(body);
     const deadline = Date.now() + (opts.autoConnectTimeoutMs ?? 15_000);
     void (async () => {
       for (;;) {
         try {
-          const { id } = await connectBackend(bootConnection);
-          rememberConnection(bootConnection);
+          const { id } = await connectBackend(body);
+          memory.remember(body);
           console.log(`auto-connected backend ${id}`);
           return;
         } catch (e) {
           if (Date.now() > deadline) {
-            console.error(`auto-connect to ${baseUrl} gave up: ${e}`);
+            console.error(`auto-connect to ${endpoint} gave up: ${e}`);
             return;
           }
           await Bun.sleep(750);
@@ -577,26 +532,11 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       }
 
       if (path === "/connect" && req.method === "POST") {
-        const body = (await req.json().catch(() => null)) as {
-          backend?: string;
-          baseUrl?: string;
-          name?: string;
-          directory?: string;
-          username?: string;
-          password?: string;
-          policy?: unknown;
-          connectTimeoutMs?: number;
-        } | null;
-        if (!body?.baseUrl) return json({ error: "baseUrl required" }, 400);
+        const body = (await req.json().catch(() => null)) as ConnectBody | null;
+        if (!body?.baseUrl && !body?.command) return json({ error: "baseUrl or command required" }, 400);
         try {
-          const connected = await connectBackend({ ...body, baseUrl: body.baseUrl });
-          rememberConnection({
-            baseUrl: body.baseUrl,
-            name: body.name,
-            directory: body.directory,
-            username: body.username,
-            password: body.password,
-          });
+          const connected = await connectBackend(body);
+          memory.remember(body);
           return json(connected);
         } catch (e) {
           return json({ error: String(e) }, 502);
@@ -605,12 +545,11 @@ export function startService(opts: ServiceOpts = {}): RunningService {
 
       if (path === "/sync" && req.method === "POST") {
         if (conns.size === 0) {
-          const saved = savedConnection();
-          if (saved?.baseUrl) {
+          for (const saved of memory.saved()) {
             try {
               await connectBackend({ ...saved, connectTimeoutMs: 2_000 });
             } catch (e) {
-              console.error(`reconnect ${saved.baseUrl} failed: ${e}`);
+              console.error(`reconnect ${endpointOf(saved)} failed: ${e}`);
             }
           }
         }
@@ -731,7 +670,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         if (!conn) return json({ error: "not found" }, 404);
         conn.stop();
         conns.delete(conn.id);
-        if (conns.size === 0) forgetConnection();
+        memory.forget(conn.baseUrl);
         return json({ ok: true });
       }
 

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { fileURLToPath } from "node:url";
 import { startService } from "../src/index";
 import { makeEvent, type EventInput, type Event } from "@agent-strata/schema";
 
@@ -99,6 +100,39 @@ describe("agent-strata service", () => {
     const list = await fetch(`${base}/sessions`).then((r) => r.json());
     expect(list.sessions[0].totals.input).toBe(1);
     expect(list.aggregate.total.input).toBe(1);
+    svc.stop();
+  });
+
+  test("an ACP agent connects as a backend and runs a prompt", async () => {
+    const MOCK = fileURLToPath(new URL("../../adapter-acp/test/fixtures/mock-agent.ts", import.meta.url));
+    const svc = startService({ db: ":memory:", port: 0 });
+    const base = `http://127.0.0.1:${svc.port}`;
+    const post = (p: string, body: unknown) =>
+      fetch(`${base}${p}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+    const connected = await post("/connect", {
+      backend: "acp", command: process.execPath, args: [MOCK], agentName: "mock", cwd: "/tmp",
+    }).then((r) => r.json());
+    expect(connected.id).toStartWith("acp:mock:");
+    const conns = await fetch(`${base}/connections`).then((r) => r.json());
+    expect(conns.connections[0]).toMatchObject({ backend: "acp", capabilities: { prompt: true, models: false } });
+
+    const created = await post("/sessions", { connection_id: connected.id, directory: "/tmp" }).then((r) => r.json());
+    expect(created.id).toStartWith("acp:mock:");
+    expect((await post(`/sessions/${encodeURIComponent(created.id)}/prompt`, { text: "diff" })).status).toBe(200);
+
+    const view = () => fetch(`${base}/sessions/${encodeURIComponent(created.id)}/view`).then((r) => r.json());
+    let v = await view();
+    for (let i = 0; i < 60 && (v.busy || v.files_changed.length === 0); i++) {
+      await Bun.sleep(50);
+      v = await view();
+    }
+    expect(v.backend).toBe("acp");
+    expect(v.busy).toBe(false);
+    expect(v.files_changed.map((f: { path: string }) => f.path).sort()).toEqual(["new.ts", "old.ts"]);
+    expect(v.files_changed.every((f: { unexplained: boolean }) => !f.unexplained)).toBe(true);
+
+    await fetch(`${base}/connections/${encodeURIComponent(connected.id)}`, { method: "DELETE" });
     svc.stop();
   });
 

@@ -80,6 +80,7 @@
       "name": "@agent-strata/service",
       "version": "0.0.0",
       "dependencies": {
+        "@agent-strata/adapter-acp": "workspace:*",
         "@agent-strata/adapter-opencode": "workspace:*",
         "@agent-strata/core": "workspace:*",
         "@agent-strata/policy": "workspace:*",
