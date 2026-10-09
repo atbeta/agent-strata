@@ -17,8 +17,10 @@ export interface ToolCallView {
   output?: string;
   latency_ms?: number;
   permission?: PermissionInfo;
-  /** Declaration order within the turn, when the backend reports it. */
+  /** Declaration order among the calls of this assistant message, starting at 0. */
   order?: number;
+  /** The assistant message this call belongs to, when the backend names one. */
+  msg_id?: string;
 }
 
 export interface Turn {
@@ -302,6 +304,22 @@ export function projectSession(events: Event[]): SessionView {
   // permission.asked first) — index by call_id so a late call still attaches
   const requestsByCall = new Map<string, PermissionInfo>();
   const files = new Map<string, { change: FileChangeKind; records: ChangeRecord[] }>();
+  /**
+   * When each assistant message was last recorded, and when each unattributed
+   * call was. A backend that names the message needs none of this; one that
+   * does not still has an order to read.
+   *
+   * It is the *last* record that matters, not the first. A message streams: it
+   * appears as a partial, the tool calls it declared arrive while it is still
+   * streaming, and it is published again when it completes. So a call belongs
+   * to the first message of its turn that had not finished by the time the
+   * call was made — and a message that had already finished before the call
+   * cannot be the one that declared it. Sessions recorded before `msg_id`
+   * existed have no other way to get their calls back in front of the words
+   * that asked for them.
+   */
+  const messageSeq = new Map<string, { msg_id: string; seq: number }[]>();
+  const callSeq = new Map<string, number>();
   const questions = new Map<string, QuestionPrompt>();
   const orphanResults: { call_id: string; status: string; output?: string; latency_ms?: number }[] = [];
 
@@ -346,6 +364,18 @@ export function projectSession(events: Event[]): SessionView {
       }
       case "turn.assistant": {
         const t = getTurn(e.data.turn_id);
+        if (e.data.msg_id) {
+          let seen = messageSeq.get(t.turn_id);
+          if (!seen) {
+            seen = [];
+            messageSeq.set(t.turn_id, seen);
+          }
+          const known = seen.find((m) => m.msg_id === e.data.msg_id);
+          // The newest record wins: it is the one that says when the message
+          // stopped, and a call made before that belongs to it.
+          if (known) known.seq = e.seq;
+          else seen.push({ msg_id: e.data.msg_id, seq: e.seq });
+        }
         const addUsage = (sign: 1 | -1, u?: Usage, cost?: number) => {
           if (u) {
             view.totals.input += sign * u.input;
@@ -398,7 +428,9 @@ export function projectSession(events: Event[]): SessionView {
           input: e.data.input,
           status: "pending",
           order: e.data.order,
+          msg_id: e.data.msg_id,
         };
+        if (e.data.msg_id === undefined) callSeq.set(e.data.call_id, e.seq);
         t.tool_calls.push(call);
         calls.set(e.data.call_id, call);
         const pendingReq = requestsByCall.get(e.data.call_id);
@@ -472,13 +504,39 @@ export function projectSession(events: Event[]): SessionView {
   // stamped a declaration ordinal, restore that order so a reader sees the
   // sequence the model wrote about. Stable, so calls without an ordinal keep
   // their event order and stay after the ones that have one.
+  //
+  // The ordinal alone is not enough, and sorting on it alone was wrong in a way
+  // that looked fine: it counts within one assistant message, and a turn can
+  // hold several. Three messages declaring two, one and two calls produced
+  // 0,0,1,1,2 across the turn, and sorting on that number interleaved the
+  // messages with each other. So the message is the outer key and the ordinal
+  // the inner one, which is also the grouping the transcript needs to put a
+  // call beside the words that asked for it.
   for (const t of view.turns) {
-    if (t.tool_calls.some((c) => c.order !== undefined)) {
-      t.tool_calls = t.tool_calls
-        .map((c, i) => ({ c, i }))
-        .sort((a, b) => (a.c.order ?? Number.MAX_SAFE_INTEGER) - (b.c.order ?? Number.MAX_SAFE_INTEGER) || a.i - b.i)
-        .map(({ c }) => c);
+    const seen = messageSeq.get(t.turn_id);
+    if (seen && t.tool_calls.some((c) => c.msg_id === undefined && callSeq.has(c.call_id))) {
+      // The first message still unfinished when the call was made is the one
+      // that declared it. This is how sessions recorded before msg_id existed
+      // get their calls back in front of the reply instead of after it.
+      for (const c of t.tool_calls) {
+        if (c.msg_id !== undefined) continue;
+        const seq = callSeq.get(c.call_id);
+        if (seq === undefined) continue;
+        const owner = seen.find((m) => m.seq > seq);
+        if (owner) c.msg_id = owner.msg_id;
+      }
     }
+    if (!t.tool_calls.some((c) => c.order !== undefined)) continue;
+    const messageAt = new Map<string, number>();
+    t.assistant.forEach((a, i) => {
+      if (a.msg_id !== undefined) messageAt.set(a.msg_id, i);
+    });
+    const unknownMessage = t.assistant.length;
+    const key = (c: ToolCallView) => (c.msg_id === undefined ? unknownMessage : (messageAt.get(c.msg_id) ?? unknownMessage));
+    t.tool_calls = t.tool_calls
+      .map((c, i) => ({ c, i }))
+      .sort((a, b) => key(a.c) - key(b.c) || (a.c.order ?? Number.MAX_SAFE_INTEGER) - (b.c.order ?? Number.MAX_SAFE_INTEGER) || a.i - b.i)
+      .map(({ c }) => c);
   }
 
   if (!view.title) {

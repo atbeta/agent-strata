@@ -90,6 +90,73 @@ describe("projector", () => {
     expect(v.turns[0]!.tool_calls.map((c) => c.tool)).toEqual(["read", "bash", "legacy"]);
   });
 
+  test("ordinals that restart per assistant message do not interleave the messages", () => {
+    // The ordinal counts within one assistant message, and a turn can hold
+    // several. Sorting on the number alone put this at 0,0,1,1,2 and wove the
+    // messages through each other; the message is the outer key.
+    const v = projectSession([
+      mk("s", "turn.assistant", { turn_id: "t", msg_id: "m1", content: [] }),
+      mk("s", "tool.call", { turn_id: "t", call_id: "a0", tool: "read", input: {}, order: 0, msg_id: "m1" }),
+      mk("s", "tool.call", { turn_id: "t", call_id: "a1", tool: "edit", input: {}, order: 1, msg_id: "m1" }),
+      mk("s", "turn.assistant", { turn_id: "t", msg_id: "m2", content: [] }),
+      mk("s", "tool.call", { turn_id: "t", call_id: "b0", tool: "bash", input: {}, order: 0, msg_id: "m2" }),
+    ]);
+    expect(v.turns[0]!.tool_calls.map((c) => c.call_id)).toEqual(["a0", "a1", "b0"]);
+  });
+
+  test("a call with no message of its own stays at the end of the turn", () => {
+    const v = projectSession([
+      mk("s", "turn.assistant", { turn_id: "t", msg_id: "m1", content: [] }),
+      mk("s", "tool.call", { turn_id: "t", call_id: "b0", tool: "bash", input: {}, order: 0, msg_id: "m2" }),
+      mk("s", "tool.call", { turn_id: "t", call_id: "a0", tool: "read", input: {}, order: 0, msg_id: "m1" }),
+      mk("s", "tool.call", { turn_id: "t", call_id: "orphan", tool: "legacy", input: {}, order: 0 }),
+    ]);
+    // m2 is not a message of this turn, and the legacy call names none at all;
+    // both are kept, in event order, after the call that does belong
+    expect(v.turns[0]!.tool_calls.map((c) => c.call_id)).toEqual(["a0", "b0", "orphan"]);
+  });
+
+  test("a call recorded before its message existed still finds that message", () => {
+    // Sessions stored before msg_id existed have calls with no message at all,
+    // and re-importing cannot add the field — the store keeps the first body it
+    // saw for an event id. A message streams: partials, then the calls it
+    // declared, then a final record when it completes. So a call belongs to
+    // the first message that had not finished by the time it was made.
+    const v = projectSession([
+      mk("s", "turn.user", { turn_id: "t", content: [] }),
+      mk("s", "turn.assistant", { turn_id: "t", msg_id: "m1", content: [], partial: true }),
+      mk("s", "tool.call", { turn_id: "t", call_id: "c1", tool: "bash", input: {}, order: 0 }),
+      mk("s", "turn.assistant", { turn_id: "t", msg_id: "m1", content: [] }),
+      mk("s", "turn.assistant", { turn_id: "t", msg_id: "m2", content: [], partial: true }),
+      mk("s", "tool.call", { turn_id: "t", call_id: "c2", tool: "read", input: {}, order: 0 }),
+      mk("s", "turn.assistant", { turn_id: "t", msg_id: "m2", content: [] }),
+    ]);
+    expect(v.turns[0]!.tool_calls.map((c) => [c.call_id, c.msg_id])).toEqual([
+      ["c1", "m1"],
+      ["c2", "m2"],
+    ]);
+  });
+
+  test("a call made before any message appeared belongs to the one that finished first", () => {
+    const v = projectSession([
+      mk("s", "turn.user", { turn_id: "t", content: [] }),
+      mk("s", "tool.call", { turn_id: "t", call_id: "c1", tool: "bash", input: {}, order: 0 }),
+      mk("s", "turn.assistant", { turn_id: "t", msg_id: "m1", content: [] }),
+      mk("s", "turn.assistant", { turn_id: "t", msg_id: "m2", content: [] }),
+    ]);
+    expect(v.turns[0]!.tool_calls.map((c) => c.msg_id)).toEqual(["m1"]);
+  });
+
+  test("a message the backend named wins over the sequence guess", () => {
+    const v = projectSession([
+      mk("s", "turn.assistant", { turn_id: "t", msg_id: "m1", content: [] }),
+      mk("s", "turn.assistant", { turn_id: "t", msg_id: "m2", content: [] }),
+      // recorded before m1 and m2 but declared as belonging to m2
+      mk("s", "tool.call", { turn_id: "t", call_id: "c1", tool: "bash", input: {}, order: 0, msg_id: "m2" }),
+    ]);
+    expect(v.turns[0]!.tool_calls.map((c) => c.msg_id)).toEqual(["m2"]);
+  });
+
   test("orphan tool.result", () => {
     const v = projectSession([
       mk("s", "tool.result", { call_id: "ghost", status: "ok", output: "?" }),

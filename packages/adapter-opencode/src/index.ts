@@ -387,6 +387,10 @@ export class OpencodeMapper {
                   tool: part.tool,
                   input: st.input,
                   order: t.order,
+                  // `order` counts only within this message. Naming the message
+                  // too is what lets a reader see a call beside the words that
+                  // asked for it instead of in a pile at the end of the turn.
+                  msg_id: part.messageID,
                 },
                 `opencode:${part.id}:tool.call`,
                 sourceTime(st.time.start || s.updated),

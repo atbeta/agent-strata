@@ -1,4 +1,4 @@
-import { createEffect, createSignal, For, Index, Match, on, Show, Switch } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Index, Match, on, Show, Switch } from "solid-js";
 import type { ContentBlock, ToolCallView, Turn } from "./api";
 import { Icon } from "./icons";
 import { Md } from "./md";
@@ -283,7 +283,44 @@ function ToolCallCard(props: { call: ToolCallView }) {
   );
 }
 
-export function TurnBlock(props: { turn: Turn }) {
+export function TurnBlock(props: { turn: Turn; /** the agent has been asked but has said nothing yet */ awaiting?: () => boolean }) {
+  /**
+   * One stream: the assistant writes, calls a tool, reads the result, writes
+   * again — and the reader should see that, not a wall of prose followed by a
+   * pile of cards. `order` only counts within one assistant message and a turn
+   * can hold several, so a call is placed by the message that made it and then
+   * by its ordinal inside that message. A call the backend never attributed
+   * stays at the end, which is the honest place for one of unknown origin.
+   */
+  const flow = createMemo(() => {
+    const msgs = props.turn.assistant;
+    const at = new Map<string, number>();
+    msgs.forEach((m, i) => {
+      if (m.msg_id !== undefined) at.set(m.msg_id, i);
+    });
+    const calls = new Map<number, ToolCallView[]>();
+    const loose: ToolCallView[] = [];
+    for (const c of props.turn.tool_calls) {
+      const i = c.msg_id === undefined ? undefined : at.get(c.msg_id);
+      if (i === undefined) {
+        loose.push(c);
+        continue;
+      }
+      const list = calls.get(i) ?? [];
+      list.push(c);
+      calls.set(i, list);
+    }
+    type Row = { kind: "message"; message: Turn["assistant"][number] } | { kind: "tools"; calls: ToolCallView[] };
+    const rows: Row[] = [];
+    msgs.forEach((message, i) => {
+      rows.push({ kind: "message", message });
+      const mine = calls.get(i);
+      if (mine?.length) rows.push({ kind: "tools", calls: mine });
+    });
+    if (loose.length) rows.push({ kind: "tools", calls: loose });
+    return rows;
+  });
+
   return (
     <div class="space-y-3">
       <Show when={props.turn.user}>
@@ -295,21 +332,29 @@ export function TurnBlock(props: { turn: Turn }) {
           </div>
         )}
       </Show>
-      <Index each={props.turn.assistant}>
-        {(message) => (
-          <div class="max-w-3xl">
-            <div class="relative">
-              <BlockText blocks={message().content} live={message().partial} />
-              <Show when={message().partial && message().content.some((block) => block.type === "text")}>
-                <span class="ml-0.5 inline-block h-[1em] w-[2px] translate-y-0.5 animate-pulse bg-foreground/70 align-text-bottom" />
-              </Show>
+      <Index each={flow()}>
+        {(row) => {
+          const r = row();
+          return r.kind === "message" ? (
+            <div class="max-w-3xl">
+              <div class="relative">
+                <BlockText blocks={r.message.content} live={r.message.partial} />
+                <Show when={r.message.partial && r.message.content.some((block) => block.type === "text")}>
+                  <span class="ml-0.5 inline-block h-[1em] w-[2px] translate-y-0.5 animate-pulse bg-foreground/70 align-text-bottom" />
+                </Show>
+              </div>
             </div>
-          </div>
-        )}
+          ) : (
+            <div class="max-w-3xl space-y-1.5">
+              <For each={r.calls}>{(call) => <ToolCallCard call={call} />}</For>
+            </div>
+          );
+        }}
       </Index>
-      <Show when={props.turn.tool_calls.length > 0}>
-        <div class="max-w-3xl space-y-1.5">
-          <Index each={props.turn.tool_calls}>{(call) => <ToolCallCard call={call()} />}</Index>
+      <Show when={props.awaiting?.()}>
+        <div class="flex max-w-3xl items-center gap-2 text-sm text-muted-foreground">
+          <Icon name="spark" class="size-3.5 shrink-0 animate-pulse text-event-assistant" />
+          {t("transcript.thinking")}
         </div>
       </Show>
     </div>

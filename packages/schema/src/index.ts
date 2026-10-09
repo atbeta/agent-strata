@@ -99,6 +99,13 @@ const data = {
     // order than they were declared; this lets a reader put them back the way
     // the model wrote them. Absent means "trust the event order".
     order: z.number().int().min(0).optional(),
+    /**
+     * The assistant message the call belongs to. A turn can hold several, and
+     * `order` only counts within one of them — so without this there is no way
+     * to place a call next to the words that led to it, and the transcript can
+     * only put every call after every reply.
+     */
+    msg_id: z.string().optional(),
   }),
   "tool.result": z.object({
     call_id: z.string(),

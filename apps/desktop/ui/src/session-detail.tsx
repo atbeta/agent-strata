@@ -567,6 +567,21 @@ const turnIndexOf = (h: SearchHit): number => {
     !!settled(view)?.busy ||
     !!settled(view)?.turns.some((t) => t.assistant.some((a) => a.partial));
 
+  /**
+   * The prompt has been handed over but the agent has not produced a thing
+   * yet. That gap is a round trip through the backend, and until it closes the
+   * transcript is a column of nothing below the question just asked — which
+   * reads as a hang rather than as work. The turn itself may not exist yet
+   * either, so the answer is "is the newest turn still silent", not a fixed row.
+   */
+  const lastSilentTurn = createMemo(() => {
+    if (!generating()) return undefined;
+    const turns = settled(view)?.turns;
+    const last = turns?.[turns.length - 1];
+    if (last && (last.assistant.length > 0 || last.tool_calls.length > 0)) return undefined;
+    return last;
+  });
+
   createEffect(() => writeDraft(props.id, draft()));
 
   onMount(() => {
@@ -1017,9 +1032,19 @@ const turnIndexOf = (h: SearchHit): number => {
                     <Show
                       when={v().turns.length > 0}
                       fallback={
-                        <p class="pt-16 text-center text-sm text-muted-foreground">
-                          {t("session.empty")}
-                        </p>
+                        <Show
+                          when={!lastSilentTurn()}
+                          fallback={
+                            <div class="flex items-center justify-center gap-2 pt-16 text-sm text-muted-foreground">
+                              <Icon name="spark" class="size-3.5 animate-pulse text-event-assistant" />
+                              {t("transcript.thinking")}
+                            </div>
+                          }
+                        >
+                          <p class="pt-16 text-center text-sm text-muted-foreground">
+                            {t("session.empty")}
+                          </p>
+                        </Show>
                       }
                     >
                     <Virtual
@@ -1032,7 +1057,7 @@ const turnIndexOf = (h: SearchHit): number => {
                       scroller={() => scroller}
                       api={(a) => (list = a)}
                     >
-                      {(t) => <TurnBlock turn={t} />}
+                      {(t) => <TurnBlock turn={t} awaiting={() => lastSilentTurn() === t} />}
                     </Virtual>
                     </Show>
                   </Show>

@@ -66,6 +66,10 @@ export interface ToolCallView {
     rule_id?: string;
     reason?: string;
   };
+  /** Declaration order among the calls of this assistant message, starting at 0. */
+  order?: number;
+  /** The assistant message this call belongs to, when the backend names one. */
+  msg_id?: string;
 }
 
 export interface Turn {

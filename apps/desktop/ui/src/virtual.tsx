@@ -76,8 +76,51 @@ export function Virtual<T>(props: VirtualProps<T>) {
    */
   const [following, setFollowing] = createSignal(true);
   const observed = new Map<Element, string>();
-  let ro: ResizeObserver | undefined;
   let host: HTMLDivElement | undefined;
+
+  /**
+   * Built before the JSX, not in onMount. Element refs run while the returned
+   * markup is being created, so an observer that only existed after mount left
+   * the first rows unwatched — and since Solid reuses those same nodes when the
+   * window moves back over them, their refs never ran again. Every row already
+   * on screen then sat at `estimate` forever: five rows spaced 132px apart
+   * whose real heights were 597, 301, 645, 145 and 72, printed on top of one
+   * another. Scrolling happened to hide it, because rows mounted later were
+   * watched correctly.
+   */
+  const ro = new ResizeObserver((entries) => {
+    const el = props.scroller?.();
+    const next = new Map(measured());
+    const o = offsets();
+    const index = rowIndex();
+    // Read the live offset, not props.scrollTop. The parent mirrors scroll
+    // position into a signal through an onScroll handler, and that mirror can
+    // be a frame behind when the browser reports sizes — trusting it here
+    // writes a stale position back and throws the reader to the wrong place.
+    const top = el?.scrollTop ?? props.scrollTop;
+    let changed = false;
+    let correction = 0;
+    for (const e of entries) {
+      const key = observed.get(e.target);
+      if (key === undefined) continue;
+      const h = e.borderBoxSize?.[0]?.blockSize ?? (e.target as HTMLElement).offsetHeight;
+      if (!h) continue;
+      const prev = next.get(key);
+      if (prev !== undefined && Math.abs(prev - h) < EPS) continue;
+      next.set(key, h);
+      changed = true;
+      const i = index.get(key);
+      // Only rows entirely above the viewport push the content the reader is
+      // looking at. Rows below it are already off-screen and cost nothing.
+      if (prev !== undefined && i !== undefined && o[i] + prev <= top) correction += h - prev;
+    }
+    if (!changed) return;
+    setMeasured(next);
+    // While following, the effect above re-pins using the new extent. The
+    // per-row correction is for a reader who has scrolled away, where the
+    // content they are reading must not move underneath them.
+    if (!following() && correction !== 0 && el) el.scrollTop = top + correction;
+  });
 
   /** Turn id to its row number, so a measurement does not have to search. */
   const rowIndex = createMemo(() => {
@@ -172,39 +215,6 @@ export function Virtual<T>(props: VirtualProps<T>) {
       scrollToIndex,
       indexAtTop: () => rowAt(offsets(), Math.max(0, props.scrollTop)),
     });
-
-    ro = new ResizeObserver((entries) => {
-      const next = new Map(measured());
-      const o = offsets();
-      const index = rowIndex();
-      // Read the live offset, not props.scrollTop. The parent mirrors scroll
-      // position into a signal through an onScroll handler, and that mirror
-      // can be a frame behind when the browser reports sizes — trusting it here
-      // writes a stale position back and throws the reader to the wrong place.
-      const top = el?.scrollTop ?? props.scrollTop;
-      let changed = false;
-      let correction = 0;
-      for (const e of entries) {
-        const key = observed.get(e.target);
-        if (key === undefined) continue;
-        const h = e.borderBoxSize?.[0]?.blockSize ?? (e.target as HTMLElement).offsetHeight;
-        if (!h) continue;
-        const prev = next.get(key);
-        if (prev !== undefined && Math.abs(prev - h) < EPS) continue;
-        next.set(key, h);
-        changed = true;
-        const i = index.get(key);
-        // Only rows entirely above the viewport push the content the reader is
-        // looking at. Rows below it are already off-screen and cost nothing.
-        if (prev !== undefined && i !== undefined && o[i] + prev <= top) correction += h - prev;
-      }
-      if (!changed) return;
-      setMeasured(next);
-      // While following, the effect above re-pins using the new extent. The
-      // per-row correction is for a reader who has scrolled away, where the
-      // content they are reading must not move underneath them.
-      if (!following() && correction !== 0 && el) el.scrollTop = top + correction;
-    });
   });
 
   // Rows come and go as the window moves. ResizeObserver holds a strong
@@ -213,7 +223,6 @@ export function Virtual<T>(props: VirtualProps<T>) {
   createEffect(() => {
     rows();
     queueMicrotask(() => {
-      if (!ro) return;
       for (const el of [...observed.keys()]) {
         if (!el.isConnected) {
           ro.unobserve(el);
@@ -235,7 +244,7 @@ export function Virtual<T>(props: VirtualProps<T>) {
             class="absolute left-0 right-0 top-0"
             ref={(el) => {
               observed.set(el, props.id(props.items[i], i));
-              ro?.observe(el);
+              ro.observe(el);
             }}
             style={{ transform: `translateY(${offsets()[i]}px)` }}
           >
