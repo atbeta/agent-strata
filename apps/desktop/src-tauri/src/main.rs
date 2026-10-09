@@ -1,3 +1,10 @@
+// Release builds are GUI programs. Without this, Windows opens a console
+// beside the window and keeps it until the process exits.
+#![cfg_attr(
+    all(not(debug_assertions), target_os = "windows"),
+    windows_subsystem = "windows"
+)]
+
 // Agent Strata desktop shell.
 //
 // Spawns the strata service next to the webview and kills it when the app
@@ -133,6 +140,11 @@ fn spawn(
         _ => {
             cmd.stdout(Stdio::inherit()).stderr(Stdio::inherit());
         }
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
     }
     match cmd.spawn() {
         Ok(child) => Some(child),
