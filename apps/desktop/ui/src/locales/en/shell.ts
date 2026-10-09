@@ -43,6 +43,10 @@ export default {
   "connect.form.name": "name",
   "connect.form.user": "user",
   "connect.form.password": "password",
+  "connect.kind.opencode": "OpenCode server",
+  "connect.kind.acp": "ACP agent",
+  "connect.form.command": "command, e.g. opencode acp",
+  "sidebar.backend.newTarget": "new sessions",
 
   // Compare
   "sidebar.compare.pick": "Pick {n} more",

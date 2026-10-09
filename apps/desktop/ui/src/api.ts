@@ -370,7 +370,11 @@ export async function syncBackend(): Promise<{ connected: boolean; imported: num
 }
 
 export async function connectBackend(body: {
-  baseUrl: string;
+  backend?: "opencode" | "acp";
+  baseUrl?: string;
+  command?: string;
+  args?: string[];
+  cwd?: string;
   name?: string;
   directory?: string;
   username?: string;

@@ -182,3 +182,12 @@ describe("diff and labels", () => {
     });
   });
 });
+
+describe("ACP tool kinds", () => {
+  test("ACP's kinds read like their OpenCode counterparts", () => {
+    expect(toolKind("execute")).toBe("shell");
+    expect(toolKind("search")).toBe("search");
+    expect(toolKind("delete")).toBe("edit");
+    expect(toolKind("move")).toBe("edit");
+  });
+});

@@ -85,6 +85,7 @@ function dayBucket(iso: string, now: number): (typeof TIME_BUCKETS)[number] {
 }
 
 const WS_KEY = "strata.workspace";
+const NEW_CONN_KEY = "strata.newSessionConnection";
 const ALL = "__all__";
 
 function baseName(path: string): string {
@@ -272,6 +273,7 @@ function backendLabel(backend: string): string {
 }
 
 function endpointHost(url: string): string {
+  if (url.startsWith("acp://")) return url.slice("acp://".length);
   try {
     return new URL(url).host;
   } catch {
@@ -297,6 +299,17 @@ export function App() {
   const [connOpen, setConnOpen] = createSignal(false);
   const [connUrl, setConnUrl] = createSignal("http://127.0.0.1:4096");
   const [connName, setConnName] = createSignal("");
+  const [connKind, setConnKind] = createSignal<"opencode" | "acp">("opencode");
+  const [connCmd, setConnCmd] = createSignal("opencode acp");
+  const [newConn, setNewConn] = createSignal<string | null>(localStorage.getItem(NEW_CONN_KEY));
+  const chooseNewConn = (id: string) => {
+    setNewConn(id);
+    localStorage.setItem(NEW_CONN_KEY, id);
+  };
+  const newSessionConnection = () => {
+    const list = settled(conns)?.connections ?? [];
+    return list.find((c) => c.id === newConn())?.id ?? list[0]?.id;
+  };
   const [connUser, setConnUser] = createSignal("");
   const [connPass, setConnPass] = createSignal("");
   const [connErr, setConnErr] = createSignal("");
@@ -389,12 +402,24 @@ export function App() {
     setConnErr("");
     setConnecting(true);
     try {
-      await connectBackend({
-        baseUrl: connUrl().trim(),
-        name: connName().trim() || undefined,
-        username: connUser() || undefined,
-        password: connPass() || undefined,
-      });
+      const words = connCmd().trim().split(/\s+/).filter(Boolean);
+      const id = await connectBackend(
+        connKind() === "acp"
+          ? {
+              backend: "acp",
+              command: words[0]!,
+              args: words.slice(1),
+              cwd: currentDir(),
+              name: connName().trim() || undefined,
+            }
+          : {
+              baseUrl: connUrl().trim(),
+              name: connName().trim() || undefined,
+              username: connUser() || undefined,
+              password: connPass() || undefined,
+            },
+      );
+      chooseNewConn(id);
       setConnOpen(false);
       refetchConns();
       refetch();
@@ -432,7 +457,7 @@ export function App() {
     const res = await fetch(api("/sessions"), {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ directory: currentDir() }),
+      body: JSON.stringify({ directory: currentDir(), connection_id: newSessionConnection() }),
     });
     const body = (await res.json()) as { id?: string; error?: string };
     if (body.id) {
@@ -712,33 +737,68 @@ export function App() {
         <div class="border-t border-border px-2 py-1.5">
           <Show when={connOpen()}>
             <div class="mb-1.5 space-y-1.5 px-1">
-              <TextField value={connUrl()} onChange={setConnUrl} class="gap-0">
-                <TextFieldInput
-                  class="h-8 bg-background font-mono text-2xs"
-                  placeholder="http://127.0.0.1:4096"
-                />
-              </TextField>
-              <div class="flex gap-1.5">
-                <TextField value={connName()} onChange={setConnName} class="w-1/3 gap-0">
+              <div class="flex gap-1">
+                <Button
+                  size="sm"
+                  variant={connKind() === "opencode" ? "secondary" : "ghost"}
+                  class="h-7 flex-1 text-2xs"
+                  onClick={() => setConnKind("opencode")}
+                >
+                  {t("connect.kind.opencode")}
+                </Button>
+                <Button
+                  size="sm"
+                  variant={connKind() === "acp" ? "secondary" : "ghost"}
+                  class="h-7 flex-1 text-2xs"
+                  onClick={() => setConnKind("acp")}
+                >
+                  {t("connect.kind.acp")}
+                </Button>
+              </div>
+              <Show
+                when={connKind() === "acp"}
+                fallback={
+                  <>
+                    <TextField value={connUrl()} onChange={setConnUrl} class="gap-0">
+                      <TextFieldInput
+                        class="h-8 bg-background font-mono text-2xs"
+                        placeholder="http://127.0.0.1:4096"
+                      />
+                    </TextField>
+                    <div class="flex gap-1.5">
+                      <TextField value={connName()} onChange={setConnName} class="w-1/3 gap-0">
+                        <TextFieldInput class="h-8 bg-background px-2 text-2xs" placeholder={t("connect.form.name")} />
+                      </TextField>
+                      <TextField value={connUser()} onChange={setConnUser} class="w-1/3 gap-0">
+                        <TextFieldInput
+                          class="h-8 bg-background px-2 text-2xs"
+                          placeholder={t("connect.form.user")}
+                        />
+                      </TextField>
+                      <TextField value={connPass()} onChange={setConnPass} class="w-1/3 gap-0">
+                        <TextFieldInput
+                          type="password"
+                          class="h-8 bg-background px-2 text-2xs"
+                          placeholder={t("connect.form.password")}
+                        />
+                      </TextField>
+                    </div>
+                  </>
+                }
+              >
+                <TextField value={connCmd()} onChange={setConnCmd} class="gap-0">
+                  <TextFieldInput
+                    class="h-8 bg-background font-mono text-2xs"
+                    placeholder={t("connect.form.command")}
+                  />
+                </TextField>
+                <TextField value={connName()} onChange={setConnName} class="gap-0">
                   <TextFieldInput class="h-8 bg-background px-2 text-2xs" placeholder={t("connect.form.name")} />
                 </TextField>
-                <TextField value={connUser()} onChange={setConnUser} class="w-1/3 gap-0">
-                  <TextFieldInput
-                    class="h-8 bg-background px-2 text-2xs"
-                    placeholder={t("connect.form.user")}
-                  />
-                </TextField>
-                <TextField value={connPass()} onChange={setConnPass} class="w-1/3 gap-0">
-                  <TextFieldInput
-                    type="password"
-                    class="h-8 bg-background px-2 text-2xs"
-                    placeholder={t("connect.form.password")}
-                  />
-                </TextField>
-              </div>
+              </Show>
               <Button
                 class="h-8 w-full"
-                disabled={connecting() || !connUrl().trim()}
+                disabled={connecting() || !(connKind() === "acp" ? connCmd().trim() : connUrl().trim())}
                 onClick={() => void connect()}
               >
                 {connecting() ? t("action.connecting") : t("action.connect")}
@@ -760,7 +820,12 @@ export function App() {
               >
                 <For each={settled(conns)?.connections ?? []}>
                   {(c) => (
-                    <p class="flex items-center gap-2 truncate px-1.5 py-1 text-xs" title={c.baseUrl}>
+                    <button
+                      type="button"
+                      class="flex w-full items-center gap-2 truncate rounded-md px-1.5 py-1 text-left text-xs hover:bg-secondary"
+                      title={c.baseUrl}
+                      onClick={() => chooseNewConn(c.id)}
+                    >
                       <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-status-active" />
                       <span class="truncate">
                         {backendLabel(c.backend)}
@@ -769,7 +834,12 @@ export function App() {
                           · {endpointHost(c.baseUrl)}
                         </span>
                       </span>
-                    </p>
+                      <Show when={(settled(conns)?.connections.length ?? 0) > 1 && newSessionConnection() === c.id}>
+                        <span class="ml-auto shrink-0 text-2xs text-muted-foreground">
+                          {t("sidebar.backend.newTarget")}
+                        </span>
+                      </Show>
+                    </button>
                   )}
                 </For>
               </Show>

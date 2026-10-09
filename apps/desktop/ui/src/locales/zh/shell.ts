@@ -44,6 +44,10 @@ export default {
   "connect.form.name": "名称",
   "connect.form.user": "用户名",
   "connect.form.password": "密码",
+  "connect.kind.opencode": "OpenCode 服务",
+  "connect.kind.acp": "ACP 代理",
+  "connect.form.command": "启动命令，如 opencode acp",
+  "sidebar.backend.newTarget": "新会话",
 
   // Compare
   "sidebar.compare.pick": "还需选择 {n} 个会话",
