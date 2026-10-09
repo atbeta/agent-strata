@@ -7,6 +7,10 @@
     "jsxImportSource": "solid-js",
     "strict": true,
     "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    },
     "types": ["vite/client"],
     "skipLibCheck": true
   },

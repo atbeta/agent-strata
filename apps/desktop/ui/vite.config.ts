@@ -1,11 +1,17 @@
 import { defineConfig } from "vite";
 import solid from "vite-plugin-solid";
 import tailwindcss from "@tailwindcss/vite";
+import { fileURLToPath, URL } from "node:url";
 
 const service = process.env.STRATA_SERVICE_URL ?? "http://127.0.0.1:7700";
 
 export default defineConfig({
   plugins: [tailwindcss(), solid()],
+  resolve: {
+    alias: {
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
+    },
+  },
   server: {
     port: 5178,
     proxy: {

@@ -20,6 +20,16 @@ import { CompareView } from "./compare";
 import { PolicyEditor } from "./policy";
 import { Icon } from "./icons";
 import { inDesktopShell } from "./shell";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { TextField, TextFieldInput, TextFieldLabel } from "@/components/ui/text-field";
+import { cn } from "@/lib/utils";
 
 type Route =
   | { name: "fleet" }
@@ -169,9 +179,9 @@ function SessionListItem(props: {
             showActions() ? "" : "invisible pointer-events-none"
           }`}
         >
-          <button
-            type="button"
-            class="grid h-6 w-6 place-items-center rounded text-muted-foreground hover:bg-background hover:text-foreground"
+          <Button
+            variant="ghost"
+            size="icon-sm"
             title="Rename"
             aria-label="Rename"
             tabIndex={showActions() ? 0 : -1}
@@ -182,11 +192,11 @@ function SessionListItem(props: {
               setEditing(true);
             }}
           >
-            <Icon name="pencil" class="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            class="grid h-6 w-6 place-items-center rounded text-muted-foreground hover:bg-background hover:text-foreground"
+            <Icon name="pencil" class="size-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
             title="Archive"
             aria-label="Archive"
             tabIndex={showActions() ? 0 : -1}
@@ -195,13 +205,12 @@ function SessionListItem(props: {
               void props.onArchive();
             }}
           >
-            <Icon name="archive" class="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            class={`grid h-6 w-6 place-items-center rounded hover:bg-background ${
-              armed() ? "text-destructive" : "text-muted-foreground hover:text-foreground"
-            }`}
+            <Icon name="archive" class="size-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            class={armed() ? "text-destructive" : ""}
             title={armed() ? "Confirm delete" : "Delete"}
             aria-label={armed() ? "Confirm delete" : "Delete"}
             tabIndex={showActions() ? 0 : -1}
@@ -214,8 +223,8 @@ function SessionListItem(props: {
               void props.onDelete();
             }}
           >
-            <Icon name="trash" class="h-3.5 w-3.5" />
-          </button>
+            <Icon name="trash" class="size-3.5" />
+          </Button>
         </span>
       </Show>
     </div>
@@ -483,14 +492,17 @@ export function App() {
           class={`flex h-11 items-center gap-2 pr-3 ${inDesktopShell() ? "pl-[76px]" : "px-3"}`}
           data-tauri-drag-region
         >
-          <button
-            class="text-sm font-semibold tracking-tight"
+          <Button
+            variant="ghost"
+            class="h-7 px-1.5 text-sm font-semibold tracking-tight hover:bg-transparent"
             onClick={() => (location.hash = "/")}
           >
             strata
-          </button>
-          <button
-            class="ml-auto grid h-7 w-7 place-items-center rounded-md text-lg leading-none text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            class="ml-auto text-lg leading-none text-muted-foreground"
             title={connected() ? "new session" : "connect a backend"}
             onClick={() => {
               if (!connected()) {
@@ -501,94 +513,85 @@ export function App() {
             }}
           >
             +
-          </button>
+          </Button>
         </div>
-        <div class="space-y-2 px-3 pb-3">
-          <div class="relative">
+        <div class="flex flex-col gap-2 px-3 pb-3">
+          <div>
             <p class="mb-1 px-0.5 text-[11px] font-medium text-muted-foreground">Project</p>
-            <button
-              class={`flex w-full items-center gap-2 rounded-md border border-border bg-secondary/40 px-2 py-1.5 text-left transition-colors hover:bg-secondary ${
-                wsOpen() ? "bg-secondary" : ""
-              }`}
-              title={currentDir() ?? "All projects"}
-              aria-expanded={wsOpen()}
-              aria-haspopup="listbox"
-              onClick={() => setWsOpen((v) => !v)}
-            >
-              <span class="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-secondary text-muted-foreground">
-                <Icon name="folder" class="h-3.5 w-3.5" />
-              </span>
-              <span class="min-w-0 flex-1">
-                <span class="block truncate text-[13px] font-medium leading-tight">
-                  {currentDir() ? baseName(currentDir()!) : "All projects"}
+            <DropdownMenu open={wsOpen()} onOpenChange={setWsOpen} gutter={6}>
+              <DropdownMenuTrigger
+                class={cn(
+                  "flex w-full items-center gap-2 rounded-md border border-border bg-secondary/40 px-2 py-1.5 text-left transition-colors hover:bg-secondary",
+                  wsOpen() && "bg-secondary",
+                )}
+                title={currentDir() ?? "All projects"}
+              >
+                <span class="grid size-7 shrink-0 place-items-center rounded-md bg-secondary text-muted-foreground">
+                  <Icon name="folder" class="size-3.5" />
                 </span>
-                <span class="block truncate font-mono text-[10px] leading-tight text-muted-foreground">
-                  {currentDir() ? parentPath(currentDir()!) : `${sessions().length} sessions`}
+                <span class="min-w-0 flex-1">
+                  <span class="block truncate text-[13px] font-medium leading-tight">
+                    {currentDir() ? baseName(currentDir()!) : "All projects"}
+                  </span>
+                  <span class="block truncate font-mono text-[10px] leading-tight text-muted-foreground">
+                    {currentDir() ? parentPath(currentDir()!) : `${sessions().length} sessions`}
+                  </span>
                 </span>
-              </span>
-              <Icon name="chevron" class={`h-3.5 w-3.5 shrink-0 text-muted-foreground ${wsOpen() ? "rotate-180" : ""}`} />
-            </button>
-            <Show when={wsOpen()}>
-              <button
-                class="fixed inset-0 z-10 cursor-default"
-                aria-label="Close"
-                onClick={() => setWsOpen(false)}
-              />
-              <div class="surface-popover absolute left-0 right-0 z-20 mt-1 max-h-80 overflow-y-auto rounded-md border border-border bg-popover p-1">
-                <button
-                  class={`flex w-full flex-col rounded-md px-2 py-1.5 text-left hover:bg-secondary ${
-                    !currentDir() ? "bg-secondary/80" : ""
-                  }`}
-                  onClick={() => chooseWorkspace(ALL)}
+                <Icon
+                  name="chevron"
+                  class={cn("size-3.5 shrink-0 text-muted-foreground", wsOpen() && "rotate-180")}
+                />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent class="max-h-80 w-[276px] overflow-y-auto">
+                <DropdownMenuItem
+                  class={cn("flex-col items-start gap-0", !currentDir() && "bg-accent")}
+                  onSelect={() => chooseWorkspace(ALL)}
                 >
-                  <span class="text-[13px] font-medium">All projects</span>
+                  <span class="font-medium">All projects</span>
                   <span class="text-[10px] text-muted-foreground">Every directory on this connection</span>
-                </button>
+                </DropdownMenuItem>
                 <For each={workspaceOptions()}>
                   {(w) => (
-                    <button
-                      class={`mt-0.5 flex w-full flex-col rounded-md px-2 py-1.5 text-left hover:bg-secondary ${
-                        currentDir() === w.directory ? "bg-secondary/80" : ""
-                      }`}
+                    <DropdownMenuItem
+                      class={cn("flex-col items-start gap-0", currentDir() === w.directory && "bg-accent")}
                       title={w.directory}
-                      onClick={() => chooseWorkspace(w.directory)}
+                      onSelect={() => chooseWorkspace(w.directory)}
                     >
-                      <span class="truncate text-[13px]">{w.name}</span>
-                      <span class="truncate font-mono text-[10px] text-muted-foreground">{w.directory}</span>
-                    </button>
+                      <span class="w-full truncate">{w.name}</span>
+                      <span class="w-full truncate font-mono text-[10px] text-muted-foreground">{w.directory}</span>
+                    </DropdownMenuItem>
                   )}
                 </For>
+                <DropdownMenuSeparator />
                 <form
-                  class="mt-1 border-t border-border px-1 pt-2 pb-1"
+                  class="px-2 py-1.5"
                   onSubmit={(e) => {
                     e.preventDefault();
                     const path = wsDraft().trim();
                     if (path) chooseWorkspace(path);
                   }}
+                  onPointerDown={(e) => e.stopPropagation()}
                 >
-                  <label class="mb-1 block px-1 text-[11px] font-medium text-muted-foreground">
-                    Open directory
-                  </label>
-                  <input
-                    class="w-full rounded-md border border-input bg-background px-2 py-1.5 font-mono text-[11px] focus:border-ring focus:outline-none"
-                    placeholder="/path/to/project"
-                    value={wsDraft()}
-                    onInput={(e) => setWsDraft(e.currentTarget.value)}
-                  />
+                  <TextField value={wsDraft()} onChange={setWsDraft}>
+                    <TextFieldLabel class="text-[11px] font-medium text-muted-foreground">Open directory</TextFieldLabel>
+                    <TextFieldInput
+                      class="h-8 font-mono text-[11px]"
+                      placeholder="/path/to/project"
+                      onKeyDown={(e) => e.stopPropagation()}
+                    />
+                  </TextField>
                 </form>
-              </div>
-            </Show>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
-          <div class="relative">
+          <TextField value={query()} onChange={setQuery} class="relative gap-0">
             <Icon
               name="search"
-              class="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+              class="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
             />
-            <input
-              class="w-full rounded-md border border-border bg-secondary/40 py-1.5 pr-7 pl-8 text-[13px] text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none"
+            <TextFieldInput
+              class="h-8 pr-7 pl-8"
               placeholder="Search sessions"
-              value={query()}
-              onInput={(e) => setQuery(e.currentTarget.value)}
               onKeyDown={(e) => {
                 if (e.key === "Escape") {
                   setQuery("");
@@ -597,17 +600,18 @@ export function App() {
               }}
             />
             <Show when={query().trim()}>
-              <button
-                type="button"
-                class="absolute top-1/2 right-1.5 grid h-5 w-5 -translate-y-1/2 place-items-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground"
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                class="absolute top-1/2 right-0.5 -translate-y-1/2 text-muted-foreground"
                 aria-label="Clear search"
                 title="Clear search"
                 onClick={() => setQuery("")}
               >
                 ×
-              </button>
+              </Button>
             </Show>
-          </div>
+          </TextField>
           <Show when={actionErr()}>
             <p class="truncate font-mono text-[10px] text-destructive" title={actionErr()}>
               {actionErr()}
@@ -673,9 +677,12 @@ export function App() {
                 <span class="flex max-w-full items-center gap-1.5 rounded-full bg-secondary px-2 py-0.5 text-[11px]">
                   <span class="h-1.5 w-1.5 rounded-full bg-status-active" />
                   <span class="truncate">{c.name ?? c.baseUrl}</span>
-                  <button
-                    class="text-muted-foreground hover:text-destructive"
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    class="size-4 text-muted-foreground hover:bg-transparent hover:text-destructive"
                     title="disconnect"
+                    aria-label="Disconnect"
                     onClick={() =>
                       void disconnectBackend(c.id).then(() => {
                         refetchConns();
@@ -684,75 +691,71 @@ export function App() {
                     }
                   >
                     ×
-                  </button>
+                  </Button>
                 </span>
               )}
             </For>
           </div>
           <Show when={connOpen()}>
             <div class="mt-2 space-y-1.5">
-              <input
-                class="w-full rounded-md border border-input bg-background px-2 py-1 font-mono text-[11px] focus:border-ring focus:outline-none"
-                placeholder="http://127.0.0.1:4096"
-                value={connUrl()}
-                onInput={(e) => setConnUrl(e.currentTarget.value)}
-              />
+              <TextField value={connUrl()} onChange={setConnUrl} class="gap-0">
+                <TextFieldInput
+                  class="h-8 bg-background font-mono text-[11px]"
+                  placeholder="http://127.0.0.1:4096"
+                />
+              </TextField>
               <div class="flex gap-1.5">
-                <input
-                  class="w-1/3 rounded-md border border-input bg-background px-2 py-1 text-[11px] focus:border-ring focus:outline-none"
-                  placeholder="name"
-                  value={connName()}
-                  onInput={(e) => setConnName(e.currentTarget.value)}
-                />
-                <input
-                  class="w-1/3 rounded-md border border-input bg-background px-2 py-1 text-[11px] focus:border-ring focus:outline-none"
-                  placeholder="user"
-                  value={connUser()}
-                  onInput={(e) => setConnUser(e.currentTarget.value)}
-                />
-                <input
-                  type="password"
-                  class="w-1/3 rounded-md border border-input bg-background px-2 py-1 text-[11px] focus:border-ring focus:outline-none"
-                  placeholder="password"
-                  value={connPass()}
-                  onInput={(e) => setConnPass(e.currentTarget.value)}
-                />
+                <TextField value={connName()} onChange={setConnName} class="w-1/3 gap-0">
+                  <TextFieldInput class="h-8 bg-background px-2 text-[11px]" placeholder="name" />
+                </TextField>
+                <TextField value={connUser()} onChange={setConnUser} class="w-1/3 gap-0">
+                  <TextFieldInput class="h-8 bg-background px-2 text-[11px]" placeholder="user" />
+                </TextField>
+                <TextField value={connPass()} onChange={setConnPass} class="w-1/3 gap-0">
+                  <TextFieldInput
+                    type="password"
+                    class="h-8 bg-background px-2 text-[11px]"
+                    placeholder="password"
+                  />
+                </TextField>
               </div>
-              <button
-                class="w-full rounded-md bg-primary py-1 text-xs font-medium text-primary-foreground disabled:opacity-50"
+              <Button
+                class="h-8 w-full"
                 disabled={connecting() || !connUrl().trim()}
                 onClick={() => void connect()}
               >
                 {connecting() ? "connecting…" : "connect"}
-              </button>
+              </Button>
             </div>
           </Show>
           <Show when={connErr()}>
             <p class="mt-1.5 font-mono text-[10px] text-destructive">{connErr()}</p>
           </Show>
           <div class="mt-2 flex items-center gap-0.5">
-            <button
-              class={`grid h-7 w-7 place-items-center rounded-md hover:bg-secondary ${
-                connOpen() ? "text-foreground" : "text-muted-foreground hover:text-foreground"
-              }`}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              class={connOpen() ? "text-foreground" : "text-muted-foreground"}
               title={connOpen() ? "Close" : "Connect"}
               aria-label={connOpen() ? "Close" : "Connect"}
               onClick={() => setConnOpen((v) => !v)}
             >
               <Icon name="link" />
-            </button>
-            <button
-              class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              class="text-muted-foreground"
               title="Policy"
               aria-label="Policy"
               onClick={() => (location.hash = "/policy")}
             >
               <Icon name="shield" />
-            </button>
-            <button
-              class={`grid h-7 w-7 place-items-center rounded-md hover:bg-secondary ${
-                compareOn() ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground"
-              }`}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              class={compareOn() ? "bg-secondary text-foreground" : "text-muted-foreground"}
               title="Compare"
               aria-label="Compare"
               onClick={() => {
@@ -761,10 +764,11 @@ export function App() {
               }}
             >
               <Icon name="columns" />
-            </button>
+            </Button>
             <Show when={compareSel().length === 2}>
-              <button
-                class="ml-auto rounded-md bg-primary px-2 py-1 font-medium text-primary-foreground"
+              <Button
+                size="sm"
+                class="ml-auto"
                 onClick={() => {
                   const [a, b] = compareSel();
                   location.hash = `/compare/${encodeURIComponent(a!)}/${encodeURIComponent(b!)}`;
@@ -773,7 +777,7 @@ export function App() {
                 }}
               >
                 open
-              </button>
+              </Button>
             </Show>
           </div>
         </div>
@@ -806,12 +810,12 @@ export function App() {
                         ? "Sessions already on the server show up in the sidebar. New ones start with +."
                         : "Point strata at an opencode serve URL. Existing sessions are indexed as soon as the stream attaches."}
                     </p>
-                    <button
-                      class="mt-5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90"
+                    <Button
+                      class="mt-5"
                       onClick={() => (connected() ? void newSession() : setConnOpen(true))}
                     >
                       {connected() ? "new session" : "connect"}
-                    </button>
+                    </Button>
                   </div>
                 }
               >
