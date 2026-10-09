@@ -107,6 +107,99 @@ describe("OpencodeMapper", () => {
     expect(turn?.ts).toBe(new Date(done).toISOString());
   });
 
+  test("session.updated emits only when title, directory, or archive changes", () => {
+    const m = new OpencodeMapper();
+    const created = Date.parse("2026-10-01T08:00:00.000Z");
+    const renamedAt = Date.parse("2026-10-04T09:00:00.000Z");
+    const archivedAt = Date.parse("2026-10-05T09:00:00.000Z");
+    m.handle({
+      id: "e1",
+      type: "session.created",
+      properties: {
+        sessionID: sid,
+        info: { id: sid, directory: "/repo", title: "T", time: { created, updated: created } },
+      },
+    } as unknown as Event);
+    const costOnly = m.handle({
+      id: "e2",
+      type: "session.updated",
+      properties: {
+        sessionID: sid,
+        info: {
+          id: sid,
+          directory: "/repo",
+          title: "T",
+          time: { created, updated: renamedAt - 1000 },
+        },
+      },
+    } as unknown as Event);
+    expect(costOnly.filter((e) => e.type === "session.updated")).toEqual([]);
+    const renamed = m.handle({
+      id: "e3",
+      type: "session.updated",
+      properties: {
+        sessionID: sid,
+        info: {
+          id: sid,
+          directory: "/repo",
+          title: "Renamed",
+          time: { created, updated: renamedAt },
+        },
+      },
+    } as unknown as Event);
+    const meta = renamed.find((e) => e.type === "session.updated");
+    expect(meta?.data).toMatchObject({ title: "Renamed", workspace: "/repo", archived: false });
+    expect(meta?.ts).toBe(new Date(renamedAt).toISOString());
+    const archived = m.handle({
+      id: "e4",
+      type: "session.updated",
+      properties: {
+        sessionID: sid,
+        info: {
+          id: sid,
+          directory: "/repo",
+          title: "Renamed",
+          time: { created, updated: archivedAt, archived: archivedAt },
+        },
+      },
+    } as unknown as Event);
+    expect(archived.find((e) => e.type === "session.updated")?.data).toMatchObject({ archived: true });
+    const deleted = m.handle({
+      id: "e5",
+      type: "session.deleted",
+      properties: {
+        sessionID: sid,
+        info: {
+          id: sid,
+          directory: "/repo",
+          title: "Renamed",
+          time: { created, updated: archivedAt },
+        },
+      },
+    } as unknown as Event);
+    expect(deleted.some((e) => e.type === "session.deleted")).toBe(true);
+  });
+
+  test("an archived session.created is hidden without waiting for a later update", () => {
+    const m = new OpencodeMapper();
+    const archived = Date.parse("2026-10-02T00:00:00.000Z");
+    const out = m.handle({
+      id: "e1",
+      type: "session.created",
+      properties: {
+        sessionID: sid,
+        info: {
+          id: sid,
+          directory: "/repo",
+          title: "Old",
+          time: { created: archived, updated: archived, archived },
+        },
+      },
+    } as unknown as Event);
+    expect(out.map((e) => e.type)).toEqual(["session.started", "session.updated"]);
+    expect(out[1]?.data).toMatchObject({ archived: true, title: "Old" });
+  });
+
   test("basic turn with reasoning+text+tool", () => {
     const m = new OpencodeMapper();
     const out = basicFixture().flatMap((e) => m.handle(e));

@@ -150,6 +150,22 @@ describe("projector", () => {
     expect(agg.total.cost_usd).toBe(1.5);
   });
 
+  test("rename, archive, and delete stick on the session", () => {
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w", title: "old" }),
+      mk("s", "session.updated", { title: "new", workspace: "/other", archived: true }),
+    ]);
+    expect(v.title).toBe("new");
+    expect(v.workspace).toBe("/other");
+    expect(v.archived).toBe(true);
+    const gone = projectSession([
+      mk("s2", "session.started", { workspace: "/w", title: "keep" }),
+      mk("s2", "session.deleted", {}),
+    ]);
+    expect(gone.deleted).toBe(true);
+    expect(gone.title).toBe("keep");
+  });
+
   test("busy flag and pending questions follow the latest events", () => {
     const v = projectSession([
       mk("s", "session.started", { workspace: "/w" }),

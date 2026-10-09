@@ -45,6 +45,11 @@ interface SessionState {
   updated?: number;
   messages: Map<string, MsgState>;
   pendingUserMsgs: Set<string>;
+  /** last title / directory / archive we emitted, so cost-only session.updated stays quiet */
+  metaSeen?: boolean;
+  title?: string;
+  workspace?: string;
+  archived?: boolean;
 }
 
 export class OpencodeMapper {
@@ -95,6 +100,42 @@ export class OpencodeMapper {
       );
     }
     return { s, out };
+  }
+
+  // session.created records the baseline (and emits only when already archived).
+  // session.updated emits when title, directory, or archive actually changes.
+  private syncMeta(
+    s: SessionState,
+    info: {
+      title?: string;
+      directory?: string;
+      time?: { updated?: number; created?: number; archived?: number };
+    },
+    source: "created" | "updated",
+  ): EventInput | undefined {
+    const title = info.title;
+    const workspace = info.directory;
+    const archived = (info.time?.archived ?? 0) > 0;
+    if (info.time?.updated || info.time?.created) {
+      s.updated = info.time.updated ?? info.time.created ?? s.updated;
+    }
+    const changed =
+      !s.metaSeen || s.title !== title || s.workspace !== workspace || s.archived !== archived;
+    s.metaSeen = true;
+    s.title = title;
+    s.workspace = workspace;
+    s.archived = archived;
+    if (!changed) return;
+    if (source === "created" && !archived) return;
+    const stamp = info.time?.updated ?? info.time?.archived ?? 0;
+    const hash = Bun.hash(`${title ?? ""}\0${workspace ?? ""}\0${archived ? 1 : 0}`).toString(36);
+    return this.ev(
+      s,
+      "session.updated",
+      { title, workspace, archived },
+      `opencode:${s.sessionID}:session.updated:${stamp}:${hash}`,
+      sourceTime(info.time?.updated ?? info.time?.archived),
+    );
   }
 
   private ensureMsg(s: SessionState, messageID: string): MsgState {
@@ -154,6 +195,31 @@ export class OpencodeMapper {
         );
         if (i >= 0) out[i] = started;
         else out.push(started);
+        const meta = this.syncMeta(s, p.info, "created");
+        if (meta) out.push(meta);
+        return out;
+      }
+      case "session.updated": {
+        const p = evt.properties;
+        const { s, out: pre } = this.ensureSession(p.sessionID);
+        out.push(...pre);
+        const meta = this.syncMeta(s, p.info, "updated");
+        if (meta) out.push(meta);
+        return out;
+      }
+      case "session.deleted": {
+        const p = evt.properties;
+        const { s, out: pre } = this.ensureSession(p.sessionID);
+        out.push(...pre);
+        out.push(
+          this.ev(
+            s,
+            "session.deleted",
+            {},
+            `opencode:${p.sessionID}:session.deleted`,
+            sourceTime(p.info?.time?.updated),
+          ),
+        );
         return out;
       }
       case "message.updated": {
@@ -609,8 +675,8 @@ export async function connectOpencode(opts: {
   fetch?: typeof fetch;
 }): Promise<{
   stop: () => void;
-  importSession: (sessionID: string) => Promise<void>;
-  createSession: (opts?: { title?: string }) => Promise<{ id: string }>;
+  importSession: (sessionID: string, directory?: string) => Promise<void>;
+  createSession: (opts?: { title?: string; directory?: string }) => Promise<{ id: string }>;
   prompt: (
     sessionID: string,
     text: string,
@@ -618,6 +684,7 @@ export async function connectOpencode(opts: {
       model?: { providerID: string; modelID: string };
       agent?: string;
       variant?: string;
+      directory?: string;
     },
   ) => Promise<void>;
   listModels: () => Promise<
@@ -625,8 +692,15 @@ export async function connectOpencode(opts: {
   >;
   listAgents: () => Promise<{ name: string; mode?: string }[]>;
   listSessions: () => Promise<{ id: string; title: string; directory: string }[]>;
-  abort: (sessionID: string) => Promise<void>;
+  listWorkspaces: () => Promise<{ id: string; name?: string; directory: string }[]>;
+  abort: (sessionID: string, directory?: string) => Promise<void>;
   indexSessions: () => Promise<string[]>;
+  updateSession: (
+    sessionID: string,
+    patch: { title?: string; archived?: boolean },
+    directory?: string,
+  ) => Promise<void>;
+  deleteSession: (sessionID: string, directory?: string) => Promise<void>;
 }> {
   const abort = new AbortController();
   // The SDK builds the SSE request with its own internal signal and ignores a
@@ -742,15 +816,18 @@ export async function connectOpencode(opts: {
       abort.abort();
       void loop;
     },
-    async createSession(sessOpts?: { title?: string }) {
-      const r = await client.session.create({ title: sessOpts?.title });
+    async createSession(sessOpts?: { title?: string; directory?: string }) {
+      const r = await client.session.create({
+        title: sessOpts?.title,
+        directory: sessOpts?.directory ?? opts.directory,
+      });
       if (!r.data) throw new Error("session.create returned no data");
       return { id: r.data.id };
     },
     async prompt(sessionID: string, text: string, promptOpts?) {
       await client.session.promptAsync({
         sessionID,
-        directory: opts.directory,
+        directory: promptOpts?.directory ?? opts.directory,
         model: promptOpts?.model,
         agent: promptOpts?.agent,
         // server schema accepts `variant` (reasoning effort); SDK types lag
@@ -794,8 +871,50 @@ export async function connectOpencode(opts: {
         .filter((s) => !s.parentID)
         .map((s) => ({ id: s.id, title: s.title, directory: s.directory }));
     },
-    async abort(sessionID: string) {
-      await client.session.abort({ sessionID, directory: opts.directory });
+    async listWorkspaces() {
+      const r = await client.project.list();
+      const out: { id: string; name?: string; directory: string }[] = [];
+      for (const project of r.data ?? []) {
+        out.push({ id: project.id, name: project.name, directory: project.worktree });
+        for (const sandbox of project.sandboxes ?? []) {
+          out.push({ id: project.id, name: project.name, directory: sandbox });
+        }
+      }
+      return out;
+    },
+    async abort(sessionID: string, directory?: string) {
+      await client.session.abort({ sessionID, directory: directory ?? opts.directory });
+    },
+    async updateSession(sessionID: string, patch: { title?: string; archived?: boolean }, directory?: string) {
+      const r = await client.session.update({
+        sessionID,
+        directory: directory ?? opts.directory,
+        title: patch.title,
+        time: patch.archived ? { archived: Date.now() } : undefined,
+      });
+      if (r.data) {
+        ingestor.handle({
+          id: `write:${sessionID}:updated`,
+          type: "session.updated",
+          properties: { sessionID, info: r.data },
+        } as Event);
+      }
+    },
+    async deleteSession(sessionID: string, directory?: string) {
+      await client.session.delete({ sessionID, directory: directory ?? opts.directory });
+      ingestor.handle({
+        id: `write:${sessionID}:deleted`,
+        type: "session.deleted",
+        properties: {
+          sessionID,
+          info: {
+            id: sessionID,
+            directory: directory ?? opts.directory ?? "",
+            title: "",
+            time: { created: Date.now(), updated: Date.now() },
+          },
+        },
+      } as Event);
     },
     async indexSessions() {
       const sessions = await client.session.list({ directory: opts.directory, roots: true, limit: 80 });
@@ -811,14 +930,14 @@ export async function connectOpencode(opts: {
       }
       return ids;
     },
-    async importSession(sessionID: string) {
-      const sess = await client.session.get({ sessionID });
+    async importSession(sessionID: string, directory?: string) {
+      const sess = await client.session.get({ sessionID, directory: directory ?? opts.directory });
       ingestor.handle({
         id: `import:${sessionID}`,
         type: "session.created",
         properties: { sessionID, info: sess.data! },
       } as Event);
-      const msgs = await client.session.messages({ sessionID });
+      const msgs = await client.session.messages({ sessionID, directory: directory ?? opts.directory });
       for (const m of msgs.data ?? []) {
         // parts first: a completed assistant message emits turn.assistant on message.updated
         for (const part of m.parts) {
