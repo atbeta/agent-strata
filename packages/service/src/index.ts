@@ -8,9 +8,9 @@ import { openStore, type Store, type EventQuery } from "@agent-strata/store";
 import { projectSession, aggregate, type SessionView } from "@agent-strata/projector";
 import { compareSessions, exportEvents } from "@agent-strata/core";
 import { evaluate, loadPolicy, type Policy } from "@agent-strata/policy";
-import type { Event } from "@agent-strata/schema";
-import type { BackendDriver, ModelChoice } from "./driver";
+import type { BackendDriver, BackendSink, ModelChoice } from "./driver";
 import { connectOpencodeDriver } from "./opencode-driver";
+import { LiveOverlay } from "./live";
 
 export interface ServiceOpts {
   db?: string;
@@ -51,6 +51,7 @@ interface PendingQuestion {
 export interface RunningService {
   port: number;
   store: Store;
+  sink: BackendSink;
   stop: () => void;
 }
 
@@ -85,10 +86,26 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   };
   const pendingAsks = new Map<string, PendingAsk>();
   const pendingQuestions = new Map<string, PendingQuestion>();
-  const subscribers = new Set<(evt: Event) => void>();
+  const subscribers = new Set<(payload: unknown) => void>();
+  const broadcast = (payload: unknown) => {
+    for (const fn of subscribers) fn(payload);
+  };
+  const live = new LiveOverlay();
   store.subscribe((e) => {
-    for (const fn of subscribers) fn(e);
+    live.settle(e);
+    broadcast(e);
   });
+  const sink: BackendSink = {
+    append: (events) => store.append(events),
+    publish: (events) => {
+      for (const e of events) if (live.put(e)) broadcast(e);
+    },
+    replaceSession: (sessionId, events, replace) => {
+      const n = store.replaceSession(sessionId, events, replace);
+      broadcast({ type: "session.rebuilt", session_id: sessionId });
+      return n;
+    },
+  };
 
   // The packaged desktop UI is served from tauri.localhost and calls this
   // process on 127.0.0.1, so every response has to be readable cross-origin.
@@ -103,8 +120,10 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       headers: { "content-type": "application/json", ...cors },
     });
 
-  const sessionView = (sessionId: string): SessionView =>
-    projectSession(store.read({ session_id: sessionId, limit: 20_000 }));
+  const sessionView = (sessionId: string): SessionView => {
+    const stored = store.read({ session_id: sessionId, limit: 20_000 });
+    return projectSession([...stored, ...live.events(sessionId, stored.at(-1)?.seq ?? 0)]);
+  };
 
   const directoryOf = (casfId: string): string | undefined => {
     try {
@@ -163,7 +182,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       ? loadPolicy(body.policy)
       : undefined;
     const driver = await connectOpencodeDriver({
-      sink: store,
+      sink,
       baseUrl: body.baseUrl,
       name: body.name,
       directory: body.directory,
@@ -703,7 +722,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       }
 
       if (path === "/stream") {
-        let enqueue: ((evt: Event) => void) | undefined;
+        let enqueue: ((payload: unknown) => void) | undefined;
         let heartbeat: ReturnType<typeof setInterval> | undefined;
         const drop = () => {
           if (enqueue) subscribers.delete(enqueue);
@@ -724,7 +743,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
             // comment-frame heartbeat: keeps proxies flushing the stream and
             // surfaces dead connections so stale subscribers get reaped
             heartbeat = setInterval(() => write(`: hb\n\n`), 15_000);
-            enqueue = (evt) => write(`data: ${JSON.stringify(evt)}\n\n`);
+            enqueue = (payload) => write(`data: ${JSON.stringify(payload)}\n\n`);
             subscribers.add(enqueue);
           },
           cancel() {
@@ -749,6 +768,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   return {
     port: server.port ?? (opts.port ?? 0),
     store,
+    sink,
     stop: () => {
       for (const c of conns.values()) c.stop();
       server.stop();

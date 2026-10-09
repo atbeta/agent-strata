@@ -2,6 +2,19 @@
 // to *do* goes through this interface. OpenCode implements the full set.
 // A later backend implements the subset it can, and the UI hides the rest.
 
+import type { EventInput, EventType } from "@agent-strata/schema";
+
+/** Where backends write: the log, the live overlay, and in-place rebuilds. */
+export interface BackendSink {
+  append(events: EventInput[]): unknown;
+  publish(events: EventInput[]): void;
+  replaceSession(
+    sessionId: string,
+    events: EventInput[],
+    opts: { replaceTypes: EventType[]; mapper?: string },
+  ): number;
+}
+
 export interface ModelChoice {
   providerID: string;
   modelID: string;

@@ -43,6 +43,39 @@ const seed = (svc: ReturnType<typeof startService>, sessionId = "opencode:s1") =
 };
 
 describe("agent-strata service", () => {
+  test("a message still being written shows in the view until the finished one lands", async () => {
+    const svc = startService({ db: ":memory:", port: 0 });
+    const base = `http://127.0.0.1:${svc.port}`;
+    const sid = "opencode:live1";
+    seed(svc, sid);
+    const view = () => fetch(`${base}/sessions/${encodeURIComponent(sid)}/view`).then((r) => r.json());
+
+    svc.sink.publish([
+      ev(sid, "turn.assistant", { turn_id: "t2", msg_id: "m2", partial: true, content: [{ type: "text", text: "wri" }] }, "2026-01-01T00:00:05Z"),
+    ]);
+    let v = await view();
+    expect(v.turns.at(-1).assistant[0]).toMatchObject({ msg_id: "m2", partial: true });
+    expect(svc.store.read({ session_id: sid })).toHaveLength(3);
+
+    svc.store.append([
+      ev(sid, "turn.assistant", { turn_id: "t2", msg_id: "m2", content: [{ type: "text", text: "written" }] }, "2026-01-01T00:00:06Z"),
+    ]);
+    v = await view();
+    expect(v.turns.at(-1).assistant).toHaveLength(1);
+    expect(v.turns.at(-1).assistant[0].content[0].text).toBe("written");
+    expect(v.turns.at(-1).assistant[0].partial).toBeUndefined();
+
+    // a message that never finished is dropped once the session goes idle
+    svc.sink.publish([
+      ev(sid, "turn.assistant", { turn_id: "t3", msg_id: "m3", partial: true, content: [{ type: "text", text: "lost" }] }, "2026-01-01T00:00:07Z"),
+    ]);
+    expect((await view()).turns.some((t: { turn_id: string }) => t.turn_id === "t3")).toBe(true);
+    svc.store.append([ev(sid, "session.status", { state: "idle" }, "2026-01-01T00:00:08Z")]);
+    expect((await view()).turns.some((t: { turn_id: string }) => t.turn_id === "t3")).toBe(false);
+
+    svc.stop();
+  });
+
   test("health, sessions, events, view, compare, export", async () => {
     const svc = startService({ db: ":memory:", port: 0 });
     const base = `http://127.0.0.1:${svc.port}`;
