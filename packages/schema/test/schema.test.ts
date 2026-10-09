@@ -21,6 +21,8 @@ const fixtures: Record<string, unknown> = {
   "session.started": { workspace: "/repo", title: "t", model: "m" },
   "session.ended": { reason: "completed" },
   "session.status": { state: "busy" },
+  "session.updated": { title: "renamed", workspace: "/repo", archived: true },
+  "session.deleted": {},
   "turn.user": { turn_id: "t1", content: [{ type: "text", text: "hi" }] },
   "turn.assistant": {
     turn_id: "t1",

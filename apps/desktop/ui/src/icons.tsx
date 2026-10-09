@@ -1,4 +1,15 @@
-type Name = "replay" | "files" | "download" | "link" | "shield" | "columns" | "search";
+type Name =
+  | "replay"
+  | "files"
+  | "download"
+  | "link"
+  | "shield"
+  | "columns"
+  | "search"
+  | "folder"
+  | "pencil"
+  | "archive"
+  | "trash";
 
 export function Icon(props: { name: Name; class?: string }) {
   const cls = props.class ?? "h-4 w-4";
@@ -54,10 +65,38 @@ export function Icon(props: { name: Name; class?: string }) {
         <rect x="9.3" y="3" width="4.2" height="10" rx="1" />
       </svg>
     );
+  if (props.name === "search")
+    return (
+      <svg {...common}>
+        <circle cx="7" cy="7" r="3.2" />
+        <path d="M9.4 9.4 13 13" />
+      </svg>
+    );
+  if (props.name === "folder")
+    return (
+      <svg {...common}>
+        <path d="M2.5 5.2c0-.7.5-1.2 1.2-1.2h2.2l1.2 1.3H12.3c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H3.7c-.7 0-1.2-.5-1.2-1.2z" />
+      </svg>
+    );
+  if (props.name === "pencil")
+    return (
+      <svg {...common}>
+        <path d="M9.2 3.2 12.8 6.8 5.5 14.1 2 14.5 2.4 11z" />
+      </svg>
+    );
+  if (props.name === "archive")
+    return (
+      <svg {...common}>
+        <path d="M2.5 3.5h11v2h-11z" />
+        <path d="M3.5 5.5v7h9v-7" />
+        <path d="M6.5 8.5h3" />
+      </svg>
+    );
   return (
     <svg {...common}>
-      <circle cx="7" cy="7" r="3.2" />
-      <path d="M9.4 9.4 13 13" />
+      <path d="M3.5 4.5h9" />
+      <path d="M6 4.5v-1h4v1" />
+      <path d="M4.5 4.5 5.2 13h5.6l.7-8.5" />
     </svg>
   );
 }

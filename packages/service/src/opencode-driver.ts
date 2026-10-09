@@ -46,6 +46,7 @@ export async function connectOpencodeDriver(opts: {
       models: true,
       agents: true,
       import: true,
+      manage: true,
     },
     stop: () => conn.stop(),
     async createSession(sess) {
@@ -53,18 +54,22 @@ export async function connectOpencodeDriver(opts: {
       return { casfId: `${PREFIX}${created.id}`, nativeId: created.id };
     },
     prompt: (nativeId, text, promptOpts) => conn.prompt(nativeId, text, promptOpts),
-    abort: (nativeId) => conn.abort(nativeId),
+    abort: (nativeId, directory) => conn.abort(nativeId, directory),
     listModels: () => conn.listModels(),
     listAgents: () => conn.listAgents(),
+    listWorkspaces: () => conn.listWorkspaces(),
+    rename: (nativeId, title, directory) => conn.updateSession(nativeId, { title }, directory),
+    archive: (nativeId, directory) => conn.updateSession(nativeId, { archived: true }, directory),
+    deleteSession: (nativeId, directory) => conn.deleteSession(nativeId, directory),
     async indexSessions() {
       const ids = await conn.indexSessions();
       return ids.map((native) => `${PREFIX}${native}`);
     },
-    async importSession(nativeId) {
+    async importSession(nativeId, directory) {
       if (imported.has(nativeId)) return;
       imported.add(nativeId);
       try {
-        await conn.importSession(nativeId);
+        await conn.importSession(nativeId, directory);
       } catch (err) {
         imported.delete(nativeId);
         throw err;

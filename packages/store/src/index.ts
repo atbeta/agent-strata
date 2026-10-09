@@ -161,6 +161,15 @@ export function openStore(path: string | ":memory:"): Store {
                  last_ts=MAX(sessions.last_ts, excluded.last_ts),
                  started_at=MIN(sessions.started_at, excluded.started_at)`,
             ).run(sessionId, event.source.backend, event.ts, seq, event.ts);
+            if (event.type === "session.updated") {
+              const d = event.data;
+              if (d.title !== undefined) {
+                db.query("UPDATE sessions SET title=? WHERE session_id=?").run(d.title, sessionId);
+              }
+              if (d.workspace !== undefined) {
+                db.query("UPDATE sessions SET workspace=? WHERE session_id=?").run(d.workspace, sessionId);
+              }
+            }
           }
           const text = ftsText(event);
           if (text.trim()) {

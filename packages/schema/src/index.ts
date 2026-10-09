@@ -62,6 +62,13 @@ const data = {
   "session.status": z.object({
     state: z.enum(["busy", "idle"]),
   }),
+  // later snapshot of title / directory / archive. Omitted fields stay as they were.
+  "session.updated": z.object({
+    title: z.string().optional(),
+    workspace: z.string().optional(),
+    archived: z.boolean().optional(),
+  }),
+  "session.deleted": z.object({}),
   "turn.user": z.object({
     turn_id: z.string(),
     content: z.array(ContentBlock),

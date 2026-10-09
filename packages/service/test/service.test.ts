@@ -253,4 +253,40 @@ describe("agent-strata service", () => {
 
     svc.stop();
   });
+
+  test("archive and delete flags hide from the view, workspaces come from sessions", async () => {
+    const svc = startService({ db: ":memory:", port: 0 });
+    const base = `http://127.0.0.1:${svc.port}`;
+    seed(svc, "opencode:live");
+    svc.store.append([
+      ev("opencode:live", "session.updated", { title: "renamed" }, "2026-01-01T00:00:03Z"),
+      ev("opencode:boxed", "session.started", { title: "boxed", workspace: "/tmp/box" }, "2026-01-02T00:00:00Z"),
+      ev("opencode:boxed", "session.updated", { archived: true }, "2026-01-02T00:00:01Z"),
+      ev("opencode:gone", "session.started", { title: "gone", workspace: "/tmp/x" }, "2026-01-03T00:00:00Z"),
+      ev("opencode:gone", "session.deleted", {}, "2026-01-03T00:00:01Z"),
+    ]);
+
+    const view = await fetch(`${base}/sessions/${encodeURIComponent("opencode:live")}/view`).then((r) => r.json());
+    expect(view.title).toBe("renamed");
+
+    const sessions = await fetch(`${base}/sessions`).then((r) => r.json());
+    const byId = Object.fromEntries(sessions.sessions.map((s: { summary: { session_id: string } }) => [s.summary.session_id, s]));
+    expect(byId["opencode:live"].archived).toBe(false);
+    expect(byId["opencode:live"].title).toBe("renamed");
+    expect(byId["opencode:boxed"].archived).toBe(true);
+    expect(byId["opencode:gone"].deleted).toBe(true);
+
+    const workspaces = await fetch(`${base}/workspaces`).then((r) => r.json());
+    const dirs = workspaces.workspaces.map((w: { directory: string }) => w.directory).sort();
+    expect(dirs).toEqual(["/tmp/box", "/tmp/x"]);
+
+    const rename = await fetch(`${base}/sessions/${encodeURIComponent("opencode:live")}/rename`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "nope" }),
+    });
+    expect(rename.status).toBe(400);
+
+    svc.stop();
+  });
 });

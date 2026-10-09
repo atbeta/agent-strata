@@ -99,6 +99,16 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   const sessionView = (sessionId: string): SessionView =>
     projectSession(store.read({ session_id: sessionId, limit: 20_000 }));
 
+  const directoryOf = (casfId: string): string | undefined => {
+    try {
+      const ws = sessionView(casfId).workspace;
+      if (ws && ws !== "unknown" && ws !== "no workspace") return ws;
+    } catch {
+      // session has no events yet
+    }
+    return undefined;
+  };
+
   const driverFor = (casfId: string): BackendDriver | undefined => {
     const owned = owners.get(casfId);
     if (owned) return conns.get(owned);
@@ -221,7 +231,10 @@ export function startService(opts: ServiceOpts = {}): RunningService {
             busy: v.busy,
             totals: v.totals,
             title: v.title,
+            workspace: v.workspace,
             parent: v.parent_session_id,
+            archived: v.archived === true,
+            deleted: v.deleted === true,
           };
         });
         return json({ sessions: views, aggregate: aggregate(views.map((v) => sessionView(v.summary.session_id))) });
@@ -271,6 +284,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       if (path === "/sessions" && req.method === "POST") {
         const body = (await req.json().catch(() => ({}))) as {
           title?: string;
+          directory?: string;
           connection_id?: string;
         };
         const conn = body.connection_id
@@ -278,12 +292,12 @@ export function startService(opts: ServiceOpts = {}): RunningService {
           : [...conns.values()][0];
         if (!conn) return json({ error: "no backend connected" }, 400);
         if (!conn.capabilities.prompt) return json({ error: "backend cannot create sessions" }, 400);
-        const created = await conn.createSession({ title: body.title });
+        const created = await conn.createSession({ title: body.title, directory: body.directory });
         owners.set(created.casfId, conn.id);
         return json({ id: created.casfId, native_id: created.nativeId });
       }
 
-      const sessionCmd = path.match(/^\/sessions\/([^/]+)\/(prompt|abort|import)$/);
+      const sessionCmd = path.match(/^\/sessions\/([^/]+)\/(prompt|abort|import|rename|archive)$/);
       if (sessionCmd) {
         const casfId = decodeURIComponent(sessionCmd[1]!);
         const cmd = sessionCmd[2]!;
@@ -292,10 +306,11 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         const native = conn.nativeId(casfId);
         if (!native) return json({ error: "session is not owned by a connected backend" }, 400);
         owners.set(casfId, conn.id);
+        const directory = directoryOf(casfId);
         if (cmd === "import" && req.method === "POST") {
           if (!conn.capabilities.import) return json({ error: "backend cannot import" }, 400);
           try {
-            await conn.importSession(native);
+            await conn.importSession(native, directory);
             return json({ ok: true });
           } catch (e) {
             return json({ error: String(e) }, 502);
@@ -304,7 +319,22 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         if (cmd === "abort" && req.method === "POST") {
           if (!conn.capabilities.abort) return json({ error: "backend cannot abort" }, 400);
           try {
-            await conn.abort(native);
+            await conn.abort(native, directory);
+            return json({ ok: true });
+          } catch (e) {
+            return json({ error: String(e) }, 502);
+          }
+        }
+        if ((cmd === "rename" || cmd === "archive") && req.method === "POST") {
+          if (!conn.capabilities.manage) return json({ error: "backend cannot manage sessions" }, 400);
+          try {
+            if (cmd === "archive") await conn.archive(native, directory);
+            else {
+              const body = (await req.json().catch(() => null)) as { title?: string } | null;
+              const title = body?.title?.trim();
+              if (!title) return json({ error: "title required" }, 400);
+              await conn.rename(native, title, directory);
+            }
             return json({ ok: true });
           } catch (e) {
             return json({ error: String(e) }, 502);
@@ -323,12 +353,51 @@ export function startService(opts: ServiceOpts = {}): RunningService {
               model: body.model,
               agent: body.agent,
               variant: body.variant,
+              directory,
             });
             return json({ ok: true });
           } catch (e) {
             return json({ error: String(e) }, 502);
           }
         }
+      }
+
+      const sessionDelete = path.match(/^\/sessions\/([^/]+)$/);
+      if (sessionDelete && req.method === "DELETE") {
+        const casfId = decodeURIComponent(sessionDelete[1]!);
+        const conn = driverFor(casfId);
+        if (!conn) return json({ error: "no backend connected" }, 400);
+        if (!conn.capabilities.manage) return json({ error: "backend cannot manage sessions" }, 400);
+        const native = conn.nativeId(casfId);
+        if (!native) return json({ error: "session is not owned by a connected backend" }, 400);
+        try {
+          await conn.deleteSession(native, directoryOf(casfId));
+          return json({ ok: true });
+        } catch (e) {
+          return json({ error: String(e) }, 502);
+        }
+      }
+
+      if (path === "/workspaces" && req.method === "GET") {
+        const dirs = new Map<string, { directory: string; name?: string }>();
+        for (const conn of conns.values()) {
+          try {
+            for (const w of await conn.listWorkspaces()) {
+              if (w.directory && !dirs.has(w.directory)) {
+                dirs.set(w.directory, { directory: w.directory, name: w.name });
+              }
+            }
+          } catch {
+            // a backend that cannot list projects still contributes its sessions
+          }
+        }
+        for (const s of store.listSessions({ limit: 500 })) {
+          const ws = s.workspace;
+          if (ws && ws !== "unknown" && ws !== "no workspace" && !dirs.has(ws)) {
+            dirs.set(ws, { directory: ws });
+          }
+        }
+        return json({ workspaces: [...dirs.values()] });
       }
 
       if (path === "/compare" && req.method === "GET") {

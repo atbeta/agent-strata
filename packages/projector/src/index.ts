@@ -67,6 +67,9 @@ export interface SessionView {
   workspace?: string;
   title?: string;
   parent_session_id?: string;
+  /** hidden from the sidebar, same cut as the official desktop */
+  archived?: boolean;
+  deleted?: boolean;
   status: "active" | "completed" | "cancelled" | "error";
   /** backend is mid-generation; last session.status wins */
   busy: boolean;
@@ -145,6 +148,15 @@ export function projectSession(events: Event[]): SessionView {
         break;
       case "session.status":
         view.busy = e.data.state === "busy";
+        break;
+      case "session.updated":
+        if (e.data.title !== undefined) view.title = e.data.title;
+        if (e.data.workspace !== undefined) view.workspace = e.data.workspace;
+        if (e.data.archived !== undefined) view.archived = e.data.archived;
+        break;
+      case "session.deleted":
+        view.deleted = true;
+        view.busy = false;
         break;
       case "turn.user": {
         const t = getTurn(e.data.turn_id);

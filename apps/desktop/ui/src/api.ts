@@ -11,8 +11,11 @@ export interface SessionRow {
   status: string;
   busy?: boolean;
   title?: string;
+  workspace?: string;
   /** set for subagent / child sessions; the sidebar hides these */
   parent?: string;
+  archived?: boolean;
+  deleted?: boolean;
   totals: { input: number; output: number; cost_usd: number; tool_calls: number };
 }
 
@@ -151,6 +154,7 @@ export interface Connection {
     models: boolean;
     agents: boolean;
     import: boolean;
+    manage?: boolean;
   };
 }
 
@@ -204,6 +208,23 @@ export async function importSession(id: string): Promise<void> {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(body.error ?? `service ${res.status}`);
   }
+}
+
+export async function renameSession(id: string, title: string): Promise<void> {
+  const res = await fetch(api(`/sessions/${encodeURIComponent(id)}/rename`), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+  await throwOnError(res);
+}
+
+export async function archiveSession(id: string): Promise<void> {
+  await throwOnError(await fetch(api(`/sessions/${encodeURIComponent(id)}/archive`), { method: "POST" }));
+}
+
+export async function deleteSession(id: string): Promise<void> {
+  await throwOnError(await fetch(api(`/sessions/${encodeURIComponent(id)}`), { method: "DELETE" }));
 }
 
 export async function abortSession(id: string): Promise<void> {
