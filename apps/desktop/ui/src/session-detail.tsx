@@ -33,6 +33,7 @@ import { Tip } from "./tip";
 import { TraceDrawer, TraceStrip, type TraceBlock } from "./trace";
 import { TurnBlock } from "./transcript";
 import { Virtual, type VirtualApi } from "./virtual";
+import { applyStreamingSnapshot, type StreamingSnapshot } from "./live";
 import { Picker } from "@/components/ui/picker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
@@ -369,7 +370,7 @@ export function SessionDetail(props: { id: string }) {
   const [openFile, setOpenFile] = createSignal<string | null>(null);
   const [booting, setBooting] = createSignal(true);
   const [modelTouched, setModelTouched] = createSignal(false);
-  const [view, { refetch }] = createResource(
+  const [view, { refetch, mutate }] = createResource(
     () => ({ id: props.id, pos: replayPos() }),
     ({ id, pos }) =>
       getJson<SessionView>(
@@ -636,8 +637,15 @@ const turnIndexOf = (h: SearchHit): number => {
         const evt = JSON.parse(m.data) as {
           session_id?: string;
           type: string;
-          data?: { state?: string };
+          data?: { state?: string; partial?: boolean };
         };
+        if (evt.session_id === props.id && evt.type === "turn.assistant" && evt.data?.partial === true) {
+          if (replayPos() === null) {
+            const snap = evt.data as unknown as StreamingSnapshot;
+            mutate((v) => (v ? applyStreamingSnapshot(v, snap) : v));
+          }
+          return;
+        }
         if (evt.session_id === props.id && evt.type === "session.status" && evt.data?.state === "idle")
           setPendingSend(false);
         if (evt.session_id === props.id || evt.type === "permission.requested" || evt.type === "question.asked") {

@@ -26,6 +26,7 @@ import { inDesktopShell } from "./shell";
 import { date, num, t, tn } from "./i18n";
 import { Tip } from "./tip";
 import { CommandSearch } from "./search";
+import { isStreamingSnapshotMessage } from "./live";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -337,7 +338,8 @@ export function App() {
     const syncTimer = setInterval(pull, 12_000);
     const onFocus = () => pull();
     window.addEventListener("focus", onFocus);
-    es.onmessage = () => {
+    es.onmessage = (m) => {
+      if (isStreamingSnapshotMessage(m.data)) return;
       clearTimeout(timer);
       timer = setTimeout(() => {
         refetch();
