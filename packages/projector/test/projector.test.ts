@@ -129,6 +129,60 @@ describe("projector", () => {
     ]);
   });
 
+  test("a later partial does not reopen a finished assistant message", () => {
+    const v = projectSession([
+      mk("s", "turn.assistant", {
+        turn_id: "t",
+        msg_id: "m1",
+        content: [
+          { type: "thinking", text: "done" },
+          { type: "text", text: "answer" },
+        ],
+        model: "m1",
+        usage: assistantUsage,
+        cost_usd: 0.5,
+      }),
+      mk("s", "turn.assistant", {
+        turn_id: "t",
+        msg_id: "m1",
+        partial: true,
+        content: [{ type: "thinking", text: "done" }],
+      }),
+    ]);
+    const message = v.turns[0]!.assistant[0]!;
+    expect(v.turns[0]!.assistant).toHaveLength(1);
+    expect(message.partial).toBeUndefined();
+    expect(message.model).toBe("m1");
+    expect(message.content).toEqual([
+      { type: "thinking", text: "done" },
+      { type: "text", text: "answer" },
+    ]);
+    expect(v.totals.cost_usd).toBe(0.5);
+  });
+
+  test("a partial snapshot still resolves into the final message", () => {
+    const v = projectSession([
+      mk("s", "turn.assistant", {
+        turn_id: "t",
+        msg_id: "m1",
+        partial: true,
+        content: [{ type: "thinking", text: "…" }],
+      }),
+      mk("s", "turn.assistant", {
+        turn_id: "t",
+        msg_id: "m1",
+        content: [
+          { type: "thinking", text: "done" },
+          { type: "text", text: "answer" },
+        ],
+        model: "m1",
+      }),
+    ]);
+    expect(v.turns[0]!.assistant).toHaveLength(1);
+    expect(v.turns[0]!.assistant[0]!.partial).toBeUndefined();
+    expect(v.turns[0]!.assistant[0]!.content.at(-1)).toEqual({ type: "text", text: "answer" });
+  });
+
   test("aggregate across 2 backends/models", () => {
     const v1 = projectSession([
       mk("s", "turn.assistant", {

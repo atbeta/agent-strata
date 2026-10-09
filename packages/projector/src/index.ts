@@ -183,6 +183,9 @@ export function projectSession(events: Event[]): SessionView {
           : -1;
         if (idx >= 0) {
           const old = t.assistant[idx]!;
+          // A re-import can append a partial snapshot after the finished
+          // message. Applying it would mark a completed thought as still live.
+          if (e.data.partial && old.partial !== true) break;
           addUsage(-1, old.usage, old.cost_usd);
           t.assistant[idx] = {
             content: e.data.content,

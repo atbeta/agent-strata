@@ -380,6 +380,16 @@ describe("OpencodeMapper", () => {
     store.close();
   });
 
+  test("a finished assistant message ignores later part snapshots", async () => {
+    const m = new OpencodeMapper();
+    for (const e of basicFixture()) m.handle(e);
+    await Bun.sleep(160);
+    const again = m.handle(
+      partUpdated({ id: "pt3", sessionID: sid, messageID: "a1", type: "text", text: "answer again" }),
+    );
+    expect(again.filter((e) => e.type === "turn.assistant")).toEqual([]);
+  });
+
   test("permission.asked -> permission.requested; replied -> resolved with shared id", () => {
     const m = new OpencodeMapper();
     m.handle(sessionCreated());

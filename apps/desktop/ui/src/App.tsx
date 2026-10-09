@@ -21,6 +21,8 @@ import { PolicyEditor } from "./policy";
 import { Icon } from "./icons";
 import { DragBar } from "./chrome";
 import { inDesktopShell, usesOverlayTrafficLights } from "./shell";
+import { Tip } from "./tip";
+import { CommandSearch } from "./search";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -132,7 +134,7 @@ function SessionListItem(props: {
   const [armed, setArmed] = createSignal(false);
   const [hot, setHot] = createSignal(false);
   let input: HTMLInputElement | undefined;
-  const showActions = () => props.actions && (hot() || props.active || armed() || editing());
+  const showActions = () => props.actions && (hot() || armed() || editing());
 
   createEffect(() => {
     if (!editing()) setDraft(props.title);
@@ -153,7 +155,10 @@ function SessionListItem(props: {
         props.active ? "bg-accent text-foreground" : "text-foreground/80 hover:bg-secondary/70"
       }`}
       onMouseEnter={() => setHot(true)}
-      onMouseLeave={() => setHot(false)}
+      onMouseLeave={() => {
+        setHot(false);
+        setArmed(false);
+      }}
       onClick={() => {
         if (editing()) return;
         props.onOpen();
@@ -202,74 +207,73 @@ function SessionListItem(props: {
             showActions() ? "" : "invisible pointer-events-none"
           }`}
         >
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            title="Rename"
-            aria-label="Rename"
-            tabIndex={showActions() ? 0 : -1}
-            onClick={(e) => {
-              e.stopPropagation();
-              setArmed(false);
-              setDraft(props.title);
-              setEditing(true);
-            }}
-          >
-            <Icon name="pencil" class="size-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            title="Archive"
-            aria-label="Archive"
-            tabIndex={showActions() ? 0 : -1}
-            onClick={(e) => {
-              e.stopPropagation();
-              void props.onArchive();
-            }}
-          >
-            <Icon name="archive" class="size-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            class={armed() ? "text-destructive" : ""}
-            title={armed() ? "Confirm delete" : "Delete"}
-            aria-label={armed() ? "Confirm delete" : "Delete"}
-            tabIndex={showActions() ? 0 : -1}
-            onClick={(e) => {
-              e.stopPropagation();
-              if (!armed()) {
-                setArmed(true);
-                return;
-              }
-              void props.onDelete();
-            }}
-          >
-            <Icon name="trash" class="size-3.5" />
-          </Button>
+          <Tip label="Rename">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Rename"
+              tabIndex={showActions() ? 0 : -1}
+              onClick={(e) => {
+                e.stopPropagation();
+                setArmed(false);
+                setDraft(props.title);
+                setEditing(true);
+              }}
+            >
+              <Icon name="pencil" class="size-3.5" />
+            </Button>
+          </Tip>
+          <Tip label="Archive">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Archive"
+              tabIndex={showActions() ? 0 : -1}
+              onClick={(e) => {
+                e.stopPropagation();
+                void props.onArchive();
+              }}
+            >
+              <Icon name="archive" class="size-3.5" />
+            </Button>
+          </Tip>
+          <Tip label={armed() ? "Click again to delete" : "Delete"}>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              class={armed() ? "bg-destructive/20 text-destructive hover:bg-destructive/30" : ""}
+              aria-label={armed() ? "Click again to delete" : "Delete"}
+              tabIndex={showActions() ? 0 : -1}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!armed()) {
+                  setArmed(true);
+                  return;
+                }
+                void props.onDelete();
+              }}
+            >
+              <Icon name="trash" class="size-3.5" />
+            </Button>
+          </Tip>
         </span>
       </Show>
     </div>
   );
 }
 
-function eventPreview(e: StrataEvent): string {
-  const d = e.data;
-  const blocks = (d.content ?? d.output) as unknown;
-  if (Array.isArray(blocks))
-    return blocks
-      .map((b) =>
-        typeof b === "object" && b !== null
-          ? String((b as { text?: string }).text ?? `[${(b as { type?: string }).type}]`)
-          : String(b),
-      )
-      .join(" ")
-      .slice(0, 160);
-  if (typeof blocks === "string") return blocks.slice(0, 160);
-  if (d.tool) return `${String(d.tool)} ${JSON.stringify(d.input ?? "").slice(0, 80)}`;
-  if (d.title) return String(d.title);
-  return JSON.stringify(d).slice(0, 160);
+function backendLabel(backend: string): string {
+  if (backend === "opencode") return "OpenCode";
+  if (backend === "acp") return "ACP";
+  return backend;
+}
+
+function endpointHost(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
 }
 
 export function App() {
@@ -296,6 +300,7 @@ export function App() {
   const [connecting, setConnecting] = createSignal(false);
   const [compareOn, setCompareOn] = createSignal(false);
   const [compareSel, setCompareSel] = createSignal<string[]>([]);
+  const [searchOpen, setSearchOpen] = createSignal(false);
   const [results] = createResource(query, async (q) =>
     q.trim()
       ? (
@@ -332,7 +337,21 @@ export function App() {
       }, 200);
     };
     const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setSearchOpen((open) => {
+          if (open) setQuery("");
+          return !open;
+        });
+        return;
+      }
       if (e.key !== "Escape") return;
+      if (searchOpen()) {
+        setSearchOpen(false);
+        setQuery("");
+        e.preventDefault();
+        return;
+      }
       if (wsOpen()) {
         setWsOpen(false);
         e.preventDefault();
@@ -426,17 +445,13 @@ export function App() {
 
   const sessionWorkspace = (s: SessionRow) => realWorkspace(s.workspace ?? s.summary.workspace);
 
+  const library = () =>
+    (settled(data)?.sessions ?? []).filter((s) => !s.parent && !s.archived && !s.deleted);
+
   const sessions = () => {
-    const q = query().trim().toLowerCase();
-    const rows = (settled(data)?.sessions ?? []).filter((s) => !s.parent && !s.archived && !s.deleted);
+    const rows = library();
     const dir = currentDir();
-    const scoped = dir ? rows.filter((s) => sessionWorkspace(s) === dir) : rows;
-    if (!q) return scoped;
-    return scoped.filter((s) => {
-      const title = (s.title ?? s.summary.title ?? s.summary.session_id).toLowerCase();
-      const ws = (sessionWorkspace(s) ?? "").toLowerCase();
-      return title.includes(q) || ws.includes(q);
-    });
+    return dir ? rows.filter((s) => sessionWorkspace(s) === dir) : rows;
   };
 
   const workspaceOptions = () => {
@@ -517,18 +532,12 @@ export function App() {
           }`}
           data-tauri-drag-region={inDesktopShell() ? "" : undefined}
         >
-          <Button
-            variant="ghost"
-            class="h-7 px-1.5 text-sm font-semibold tracking-tight hover:bg-transparent"
-            onClick={() => (location.hash = "/")}
-          >
-            strata
-          </Button>
+          <Tip class="ml-auto" label={connected() ? "New session" : "Connect a backend"}>
           <Button
             variant="ghost"
             size="icon-sm"
-            class="ml-auto text-lg leading-none text-muted-foreground"
-            title={connected() ? "new session" : "connect a backend"}
+            class="text-lg leading-none text-muted-foreground"
+            aria-label={connected() ? "New session" : "Connect a backend"}
             onClick={() => {
               if (!connected()) {
                 setConnOpen(true);
@@ -539,6 +548,7 @@ export function App() {
           >
             +
           </Button>
+          </Tip>
         </div>
         <div class="flex flex-col gap-2 px-3 pb-3">
           <div>
@@ -609,34 +619,6 @@ export function App() {
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-          <TextField value={query()} onChange={setQuery} class="relative gap-0">
-            <Icon
-              name="search"
-              class="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
-            />
-            <TextFieldInput
-              class="h-8 pr-7 pl-8"
-              placeholder="Search sessions"
-              onKeyDown={(e) => {
-                if (e.key === "Escape") {
-                  setQuery("");
-                  e.currentTarget.blur();
-                }
-              }}
-            />
-            <Show when={query().trim()}>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                class="absolute top-1/2 right-0.5 -translate-y-1/2 text-muted-foreground"
-                aria-label="Clear search"
-                title="Clear search"
-                onClick={() => setQuery("")}
-              >
-                ×
-              </Button>
-            </Show>
-          </TextField>
           <Show when={actionErr()}>
             <p class="truncate font-mono text-[10px] text-destructive" title={actionErr()}>
               {actionErr()}
@@ -648,13 +630,11 @@ export function App() {
             each={groups()}
             fallback={
               <p class="px-2 py-8 text-center text-xs text-muted-foreground">
-                {query().trim()
-                  ? "No sessions match this search."
-                  : data.error
-                    ? explain(data.error)
-                    : settled(data)
-                      ? "No sessions in this project yet."
-                      : "Connect a backend to see sessions."}
+                {data.error
+                  ? explain(data.error)
+                  : settled(data)
+                    ? "No sessions in this project yet."
+                    : "Connect a backend to see sessions."}
               </p>
             }
           >
@@ -697,34 +677,9 @@ export function App() {
             )}
           </For>
         </div>
-        <div class="border-t border-border p-3">
-          <div class="flex flex-wrap items-center gap-1.5">
-            <For each={settled(conns)?.connections ?? []}>
-              {(c) => (
-                <span class="flex max-w-full items-center gap-1.5 rounded-full bg-secondary px-2 py-0.5 text-[11px]">
-                  <span class="h-1.5 w-1.5 rounded-full bg-status-active" />
-                  <span class="truncate">{c.name ?? c.baseUrl}</span>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    class="size-4 text-muted-foreground hover:bg-transparent hover:text-destructive"
-                    title="disconnect"
-                    aria-label="Disconnect"
-                    onClick={() =>
-                      void disconnectBackend(c.id).then(() => {
-                        refetchConns();
-                        window.dispatchEvent(new Event("strata-connections"));
-                      })
-                    }
-                  >
-                    ×
-                  </Button>
-                </span>
-              )}
-            </For>
-          </div>
+        <div class="border-t border-border px-2 py-1.5">
           <Show when={connOpen()}>
-            <div class="mt-2 space-y-1.5">
+            <div class="mb-1.5 space-y-1.5 px-1">
               <TextField value={connUrl()} onChange={setConnUrl} class="gap-0">
                 <TextFieldInput
                   class="h-8 bg-background font-mono text-[11px]"
@@ -756,46 +711,41 @@ export function App() {
             </div>
           </Show>
           <Show when={connErr()}>
-            <p class="mt-1.5 font-mono text-[10px] text-destructive">{connErr()}</p>
+            <p class="mb-1 px-1.5 font-mono text-[10px] text-destructive">{connErr()}</p>
           </Show>
-          <div class="mt-2 flex items-center gap-0.5">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              class={connOpen() ? "text-foreground" : "text-muted-foreground"}
-              title={connOpen() ? "Close" : "Connect"}
-              aria-label={connOpen() ? "Close" : "Connect"}
-              onClick={() => setConnOpen((v) => !v)}
-            >
-              <Icon name="link" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              class="text-muted-foreground"
-              title="Policy"
-              aria-label="Policy"
-              onClick={() => (location.hash = "/policy")}
-            >
-              <Icon name="shield" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              class={compareOn() ? "bg-secondary text-foreground" : "text-muted-foreground"}
-              title="Compare"
-              aria-label="Compare"
-              onClick={() => {
-                setCompareOn((v) => !v);
-                setCompareSel([]);
-              }}
-            >
-              <Icon name="columns" />
-            </Button>
+          <div class="flex items-center gap-1">
+            <div class="min-w-0 flex-1">
+              <Show
+                when={(settled(conns)?.connections.length ?? 0) > 0}
+                fallback={
+                  <p class="truncate px-1.5 py-1 text-[12px] text-muted-foreground">No backend</p>
+                }
+              >
+                <For each={settled(conns)?.connections ?? []}>
+                  {(c) => (
+                    <p class="flex items-center gap-2 truncate px-1.5 py-1 text-[12px]" title={c.baseUrl}>
+                      <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-status-active" />
+                      <span class="truncate">
+                        {backendLabel(c.backend)}
+                        <span class="font-mono text-[11px] text-muted-foreground">
+                          {" "}
+                          · {endpointHost(c.baseUrl)}
+                        </span>
+                      </span>
+                    </p>
+                  )}
+                </For>
+              </Show>
+              <Show when={compareOn() && compareSel().length < 2}>
+                <p class="px-1.5 pb-0.5 text-[11px] text-muted-foreground">
+                  Pick {2 - compareSel().length}
+                </p>
+              </Show>
+            </div>
             <Show when={compareSel().length === 2}>
               <Button
                 size="sm"
-                class="ml-auto"
+                title="Open the comparison"
                 onClick={() => {
                   const [a, b] = compareSel();
                   location.hash = `/compare/${encodeURIComponent(a!)}/${encodeURIComponent(b!)}`;
@@ -806,15 +756,72 @@ export function App() {
                 open
               </Button>
             </Show>
+            <DropdownMenu placement="top-end">
+              <DropdownMenuTrigger
+                class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
+                aria-label="More"
+              >
+                ···
+              </DropdownMenuTrigger>
+              <DropdownMenuContent class="min-w-52">
+                <DropdownMenuItem onSelect={() => setConnOpen((v) => !v)}>
+                  <Icon name="link" class="size-3.5 text-muted-foreground" />
+                  {connOpen() ? "Close connect" : "Connect a backend"}
+                </DropdownMenuItem>
+                <For each={settled(conns)?.connections ?? []}>
+                  {(c) => (
+                    <DropdownMenuItem
+                      onSelect={() =>
+                        void disconnectBackend(c.id).then(() => {
+                          refetchConns();
+                          window.dispatchEvent(new Event("strata-connections"));
+                        })
+                      }
+                    >
+                      Disconnect {endpointHost(c.baseUrl)}
+                    </DropdownMenuItem>
+                  )}
+                </For>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => (location.hash = "/policy")}>
+                  <Icon name="shield" class="size-3.5 text-muted-foreground" />
+                  Permission policy
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => {
+                    setCompareOn((v) => !v);
+                    setCompareSel([]);
+                  }}
+                >
+                  <Icon name="columns" class="size-3.5 text-muted-foreground" />
+                  {compareOn() ? "Cancel compare" : "Compare two sessions"}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </aside>
 
-      <main class="min-w-0 flex-1">
+      <main class="relative min-w-0 flex-1">
+        <CommandSearch
+          open={searchOpen()}
+          query={query()}
+          sessions={library()}
+          events={settled(results)}
+          searching={results.loading}
+          onOpenChange={(open) => {
+            setSearchOpen(open);
+            if (!open) setQuery("");
+          }}
+          onQuery={setQuery}
+          onOpenSession={(id) => {
+            location.hash = `/session/${encodeURIComponent(id)}`;
+          }}
+        />
         <Show when={route().name === "fleet"}>
           <div class="flex h-full flex-col">
             <DragBar class="text-[13px] text-muted-foreground">
-              <span>
+              <span class="max-w-[calc(50%-6.5rem)] truncate">
                 {sessions().length.toLocaleString()}
                 {currentDir() ? " in this project" : " sessions"} ·{" "}
                 <span class="font-mono tabular-nums text-foreground">
@@ -823,59 +830,22 @@ export function App() {
               </span>
             </DragBar>
             <div class="min-h-0 flex-1 overflow-y-auto">
-              <Show
-                when={query().trim()}
-                fallback={
-                  <div class="mx-auto flex max-w-sm flex-col items-start px-8 pt-24">
-                    <p class="text-sm font-medium text-foreground">
-                      {connected() ? "Pick a session" : "Connect OpenCode"}
-                    </p>
-                    <p class="mt-1.5 text-[13px] leading-5 text-muted-foreground">
-                      {connected()
-                        ? "Sessions already on the server show up in the sidebar. New ones start with +."
-                        : "Point strata at an opencode serve URL. Existing sessions are indexed as soon as the stream attaches."}
-                    </p>
-                    <Button
-                      class="mt-5"
-                      onClick={() => (connected() ? void newSession() : setConnOpen(true))}
-                    >
-                      {connected() ? "new session" : "connect"}
-                    </Button>
-                  </div>
-                }
-              >
-                <Show
-                  when={!results.loading && !results.error && (settled(results)?.length ?? 0) === 0}
-                  fallback={
-                    <div class="mx-auto max-w-2xl py-4">
-                      <For each={settled(results) ?? []}>
-                    {(e) => (
-                      <button
-                        class="block w-full px-4 py-2.5 text-left hover:bg-secondary/50"
-                        onClick={() => (location.hash = `/session/${encodeURIComponent(e.session_id)}`)}
-                      >
-                        <div class="flex items-center gap-2 text-[11px]">
-                          <span class="font-mono text-event-tool">{e.type}</span>
-                          <span class="ml-auto font-mono text-muted-foreground tabular-nums">
-                            {e.ts.slice(0, 16).replace("T", " ")}
-                          </span>
-                        </div>
-                        <div class="mt-0.5 truncate text-sm text-foreground/85">{eventPreview(e)}</div>
-                      </button>
-                    )}
-                  </For>
-                    </div>
-                  }
+              <div class="mx-auto flex max-w-sm flex-col items-start px-8 pt-24">
+                <p class="text-sm font-medium text-foreground">
+                  {connected() ? "Pick a session" : "Connect a backend"}
+                </p>
+                <p class="mt-1.5 text-[13px] leading-5 text-muted-foreground">
+                  {connected()
+                    ? "Sessions already on the server show up in the sidebar. New ones start with +."
+                    : "Attach a running agent server. Sessions already on it show up as soon as the stream connects."}
+                </p>
+                <Button
+                  class="mt-5"
+                  onClick={() => (connected() ? void newSession() : setConnOpen(true))}
                 >
-                  <div class="mx-auto flex max-w-md flex-col items-center px-6 pt-28 text-center">
-                    <p class="text-lg font-medium">No matches</p>
-                    <p class="mt-2 text-sm text-muted-foreground">
-                      Nothing in the event log matches{" "}
-                      <span class="font-mono text-foreground">{query().trim()}</span>.
-                    </p>
-                  </div>
-                </Show>
-              </Show>
+                  {connected() ? "new session" : "connect"}
+                </Button>
+              </div>
             </div>
           </div>
         </Show>

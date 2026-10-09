@@ -406,7 +406,7 @@ export class OpencodeMapper {
               ),
             );
           }
-        } else if (m.role === "assistant" && m.parentID) {
+        } else if (m.role === "assistant" && m.parentID && !m.emittedAssistant) {
           const now = Date.now();
           if (now - (m.lastStreamAt ?? 0) >= STREAM_SNAPSHOT_MS) {
             const content = [...m.parts.values()].filter((b) => b.type !== "file_ref");

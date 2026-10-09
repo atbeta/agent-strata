@@ -170,6 +170,7 @@ function ToolCallCard(props: { call: ToolCallView }) {
       <button
         class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left hover:bg-secondary/50"
         aria-expanded={open()}
+        title={open() ? "Hide output" : "Show output"}
         onClick={() => setOpen((v) => !v)}
       >
         <Icon

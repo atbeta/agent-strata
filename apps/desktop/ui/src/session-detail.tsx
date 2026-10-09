@@ -16,6 +16,7 @@ import {
 import { Icon } from "./icons";
 import { CaptionButtons, DragBar } from "./chrome";
 import { inDesktopShell, usesCustomCaption } from "./shell";
+import { Tip } from "./tip";
 import { TraceDrawer, TraceStrip, type TraceBlock } from "./trace";
 import { TurnBlock } from "./transcript";
 
@@ -143,11 +144,23 @@ function LoadingTranscript() {
   );
 }
 
+function fileName(path: string): string {
+  const parts = path.split(/[/\\]/).filter(Boolean);
+  return parts.at(-1) || path;
+}
+
+function changeWord(change: string): string {
+  if (change === "add") return "added";
+  if (change === "delete") return "deleted";
+  return "edited";
+}
+
 export function SessionDetail(props: { id: string }) {
   const [replayPos, setReplayPos] = createSignal<number | null>(null);
   const [traceOn, setTraceOn] = createSignal(false);
   const [traceBlock, setTraceBlock] = createSignal<TraceBlock | null>(null);
-  const [filesOpen, setFilesOpen] = createSignal(false);
+  const [railForced, setRailForced] = createSignal(false);
+  const [railDismissed, setRailDismissed] = createSignal(false);
   const [booting, setBooting] = createSignal(true);
   const [modelTouched, setModelTouched] = createSignal(false);
   const [view, { refetch }] = createResource(
@@ -184,6 +197,7 @@ export function SessionDetail(props: { id: string }) {
   );
   const [draft, setDraft] = createSignal("");
   const [sendErr, setSendErr] = createSignal("");
+  const [stopping, setStopping] = createSignal(false);
   const [pendingSend, setPendingSend] = createSignal(false);
   const [options, { refetch: refetchOptions }] = createResource(() =>
     getJson<OptionsResponse>("/options"),
@@ -333,17 +347,38 @@ export function SessionDetail(props: { id: string }) {
   };
 
   const stop = async () => {
+    if (stopping()) return;
     setSendErr("");
+    setStopping(true);
     try {
       await abortSession(props.id);
       setPendingSend(false);
     } catch (err) {
       setSendErr(err instanceof Error ? err.message : "abort failed");
+    } finally {
+      setStopping(false);
     }
   };
 
+  const hasWork = () => {
+    const v = view();
+    return !!v && (v.files_changed.length > 0 || (v.plan?.length ?? 0) > 0);
+  };
+  const railOn = () => !traceBlock() && (railForced() || (hasWork() && !railDismissed()));
+  const toggleRail = () => {
+    setTraceBlock(null);
+    setReplayPos(null);
+    if (railOn()) {
+      setRailForced(false);
+      setRailDismissed(true);
+      return;
+    }
+    setRailDismissed(false);
+    setRailForced(true);
+  };
+
   const pickerCls =
-    "h-7 max-w-52 cursor-pointer truncate rounded-md bg-transparent px-2 text-[13px] text-foreground/80 transition-colors hover:bg-secondary focus:outline-none";
+    "h-7 max-w-52 cursor-pointer truncate rounded-md bg-transparent px-1.5 text-[12px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus:outline-none";
 
   return (
     <div class="flex h-full min-h-0">
@@ -365,38 +400,38 @@ export function SessionDetail(props: { id: string }) {
                 }`}
                 data-tauri-drag-region={inDesktopShell() ? "" : undefined}
               >
-                <Show when={generating()}>
-                  <span class="h-2 w-2 shrink-0 animate-pulse rounded-full bg-status-active" />
-                </Show>
-                <h1 class="truncate text-sm font-medium">{v().title ?? "untitled session"}</h1>
-                <Show when={sessionModel(v())}>
-                  {(m) => (
-                    <span class="hidden truncate font-mono text-[11px] text-muted-foreground sm:inline">
-                      {m().slice(m().indexOf("/") + 1)}
-                    </span>
-                  )}
-                </Show>
+                <div class="flex min-w-0 max-w-[calc(50%-6.5rem)] items-center gap-2.5">
+                <h1 class="truncate text-sm font-medium" title={v().title ?? "untitled session"}>
+                  {v().title ?? "untitled session"}
+                </h1>
                 <Show when={realWorkspace(v().workspace)}>
                   {(ws) => (
-                    <span class="hidden truncate font-mono text-[11px] text-muted-foreground sm:inline">
-                      {ws()}
+                    <span
+                      class="hidden max-w-48 truncate font-mono text-[11px] text-muted-foreground sm:inline"
+                      title={ws()}
+                    >
+                      {ws() === "/" || ws() === "\\" ? "Root" : ws().split(/[/\\]/).filter(Boolean).at(-1)}
                     </span>
                   )}
                 </Show>
-                <span class="ml-auto flex items-center gap-0.5">
+                </div>
+                <span class="ml-auto flex max-w-[calc(50%-6.5rem)] items-center gap-0.5">
                   <Show when={v().totals.cost_usd > 0}>
-                    <span class="mr-1 hidden font-mono text-[11px] text-muted-foreground tabular-nums md:inline">
+                    <span
+                      class="mr-1 hidden font-mono text-[11px] text-muted-foreground tabular-nums md:inline"
+                      title="Session cost"
+                    >
                       {fmtUsd(v().totals.cost_usd)}
                     </span>
                   </Show>
+                  <Tip label={traceOn() ? "Back to live" : "Replay"}>
                   <button
                     class={`grid h-7 w-7 place-items-center rounded-md transition-colors ${
                       traceOn()
                         ? "bg-secondary text-foreground"
                         : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                     }`}
-                    title={traceOn() ? "Live" : "Replay"}
-                    aria-label={traceOn() ? "Live" : "Replay"}
+                    aria-label={traceOn() ? "Back to live" : "Replay"}
                     onClick={() => {
                       if (traceOn()) {
                         setTraceOn(false);
@@ -404,40 +439,38 @@ export function SessionDetail(props: { id: string }) {
                         setReplayPos(null);
                       } else {
                         setTraceOn(true);
-                        setFilesOpen(false);
                       }
                     }}
                   >
                     <Icon name="replay" />
                   </button>
+                  </Tip>
+                  <Tip label={railOn() ? "Hide files" : "Files and plan"}>
                   <button
                     class={`relative grid h-7 w-7 place-items-center rounded-md transition-colors ${
-                      filesOpen()
+                      railOn()
                         ? "bg-secondary text-foreground"
                         : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                     }`}
-                    title="Files"
-                    aria-label="Files"
-                    onClick={() => {
-                      setFilesOpen((o) => !o);
-                      setTraceBlock(null);
-                      setReplayPos(null);
-                    }}
+                    aria-label={railOn() ? "Hide files" : "Files and plan"}
+                    onClick={toggleRail}
                   >
                     <Icon name="files" />
                     <Show when={v().files_changed.length > 0}>
                       <span class="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-event-file" />
                     </Show>
                   </button>
+                  </Tip>
+                  <Tip label="Export transcript">
                   <a
                     class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                    title="Export"
-                    aria-label="Export"
+                    aria-label="Export transcript"
                     href={`${api("/export")}?session_id=${encodeURIComponent(v().session_id)}`}
                     download=""
                   >
                     <Icon name="download" />
                   </a>
+                  </Tip>
                 </span>
                 <CaptionButtons />
               </header>
@@ -454,7 +487,6 @@ export function SessionDetail(props: { id: string }) {
                     }
                     setTraceBlock(block);
                     setReplayPos(block.seq);
-                    setFilesOpen(false);
                   }}
                 />
               </Show>
@@ -532,7 +564,7 @@ export function SessionDetail(props: { id: string }) {
                         ref={draftEl}
                         class="max-h-56 w-full resize-none bg-transparent px-4 py-3 font-sans text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none"
                         rows={1}
-                        placeholder={generating() ? "working…" : "Message…"}
+                        placeholder="Message…"
                         value={draft()}
                         onInput={(e) => {
                           setDraft(e.currentTarget.value);
@@ -545,90 +577,105 @@ export function SessionDetail(props: { id: string }) {
                           }
                         }}
                       />
-                      <div class="flex items-center gap-1 px-2 pb-2">
-                        <Show when={(options()?.models.length ?? 0) > 0 && (Boolean(modelSel()) || !booting())}>
-                          <select
-                            class={pickerCls}
-                            value={modelSel()}
-                            title="Model"
-                            onChange={(e) => {
-                              setModelTouched(true);
-                              setModelSel(e.currentTarget.value);
-                              setVariantSel("");
-                            }}
-                          >
-                            <Show
-                              when={
-                                modelSel() &&
-                                !(options()?.models ?? []).some(
-                                  (m) => `${m.providerID}/${m.modelID}` === modelSel(),
-                                )
-                              }
-                            >
-                              <option value={modelSel()}>{modelSel().slice(modelSel().indexOf("/") + 1)}</option>
-                            </Show>
-                            <For each={modelGroups()}>
-                              {([pid, models]) => (
-                                <optgroup label={pid}>
-                                  <For each={models}>
-                                    {(m) => (
-                                      <option value={`${m.providerID}/${m.modelID}`}>{m.modelID}</option>
-                                    )}
-                                  </For>
-                                </optgroup>
-                              )}
-                            </For>
-                          </select>
+                      <div class="flex items-center gap-2 px-3 pb-2.5">
+                        <Show when={generating()}>
+                          <span class="text-[12px] text-muted-foreground">Running</span>
                         </Show>
-                        <Show when={(effortModel()?.variants?.length ?? 0) > 0}>
-                          <select
-                            class={`${pickerCls} capitalize`}
-                            value={variantSel()}
-                            title="Thinking effort"
-                            onChange={(e) => setVariantSel(e.currentTarget.value)}
+                        <div class="ml-auto">
+                          <Show
+                            when={!generating()}
+                            fallback={
+                              <Tip label={stopping() ? "Stopping…" : "Stop"}>
+                                <button
+                                  class="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-foreground text-background transition-opacity hover:opacity-80 active:scale-95 disabled:opacity-40"
+                                  disabled={stopping()}
+                                  aria-label={stopping() ? "Stopping" : "Stop"}
+                                  onClick={() => void stop()}
+                                >
+                                  <span class="h-2.5 w-2.5 rounded-[2px] bg-background" />
+                                </button>
+                              </Tip>
+                            }
                           >
-                            <option value="">Default</option>
-                            <For each={effortModel()?.variants ?? []}>
-                              {(name) => <option value={name}>{name}</option>}
-                            </For>
-                          </select>
-                        </Show>
-                        <Show when={(options()?.agents.length ?? 0) > 0}>
-                          <select
-                            class={`${pickerCls} capitalize`}
-                            value={agentSel()}
-                            title="Agent"
-                            onChange={(e) => setAgentSel(e.currentTarget.value)}
-                          >
-                            <For each={options()!.agents}>
-                              {(a) => <option value={a.name}>{a.name}</option>}
-                            </For>
-                          </select>
-                        </Show>
-                        <Show
-                          when={!generating()}
-                          fallback={
-                            <button
-                              class="ml-auto grid h-7 w-7 shrink-0 place-items-center rounded-md bg-foreground text-background hover:opacity-90"
-                              title="stop"
-                              onClick={() => void stop()}
-                            >
-                              <span class="h-2.5 w-2.5 rounded-[2px] bg-background" />
-                            </button>
-                          }
-                        >
-                          <button
-                            class="ml-auto grid h-7 w-7 shrink-0 place-items-center rounded-md bg-primary text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-30"
-                            disabled={!draft().trim()}
-                            title="send"
-                            onClick={() => void send()}
-                          >
-                            <svg viewBox="0 0 16 16" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                              <path d="M8 12.5v-9M3.8 7.3 8 3l4.2 4.3" />
-                            </svg>
-                          </button>
-                        </Show>
+                            <Tip label={draft().trim() ? "Send" : "Type a message"}>
+                              <button
+                                class="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-primary text-primary-foreground transition-opacity hover:opacity-90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-30 disabled:active:scale-100"
+                                disabled={!draft().trim()}
+                                aria-label={draft().trim() ? "Send" : "Type a message"}
+                                onClick={() => void send()}
+                              >
+                                <svg viewBox="0 0 16 16" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                  <path d="M8 12.5v-9M3.8 7.3 8 3l4.2 4.3" />
+                                </svg>
+                              </button>
+                            </Tip>
+                          </Show>
+                        </div>
                       </div>
+                    </div>
+                    <div class="flex items-center justify-end gap-0.5 px-1">
+                      <Show when={(options()?.models.length ?? 0) > 0 && (Boolean(modelSel()) || !booting())}>
+                        <select
+                          class={pickerCls}
+                          value={modelSel()}
+                          title="Model"
+                          aria-label="Model"
+                          onChange={(e) => {
+                            setModelTouched(true);
+                            setModelSel(e.currentTarget.value);
+                            setVariantSel("");
+                          }}
+                        >
+                          <Show
+                            when={
+                              modelSel() &&
+                              !(options()?.models ?? []).some(
+                                (m) => `${m.providerID}/${m.modelID}` === modelSel(),
+                              )
+                            }
+                          >
+                            <option value={modelSel()}>{modelSel().slice(modelSel().indexOf("/") + 1)}</option>
+                          </Show>
+                          <For each={modelGroups()}>
+                            {([pid, models]) => (
+                              <optgroup label={pid}>
+                                <For each={models}>
+                                  {(m) => (
+                                    <option value={`${m.providerID}/${m.modelID}`}>{m.modelID}</option>
+                                  )}
+                                </For>
+                              </optgroup>
+                            )}
+                          </For>
+                        </select>
+                      </Show>
+                      <Show when={(effortModel()?.variants?.length ?? 0) > 0}>
+                        <select
+                          class={`${pickerCls} capitalize`}
+                          value={variantSel()}
+                          title="Thinking effort"
+                          aria-label="Thinking effort"
+                          onChange={(e) => setVariantSel(e.currentTarget.value)}
+                        >
+                          <option value="">Default</option>
+                          <For each={effortModel()?.variants ?? []}>
+                            {(name) => <option value={name}>{name}</option>}
+                          </For>
+                        </select>
+                      </Show>
+                      <Show when={(options()?.agents.length ?? 0) > 0}>
+                        <select
+                          class={`${pickerCls} capitalize`}
+                          value={agentSel()}
+                          title="Agent"
+                          aria-label="Agent"
+                          onChange={(e) => setAgentSel(e.currentTarget.value)}
+                        >
+                          <For each={options()!.agents}>
+                            {(a) => <option value={a.name}>{a.name}</option>}
+                          </For>
+                        </select>
+                      </Show>
                     </div>
                     <Show when={sendErr()}>
                       <p class="font-mono text-[11px] text-destructive">{sendErr()}</p>
@@ -652,61 +699,75 @@ export function SessionDetail(props: { id: string }) {
           />
         )}
       </Show>
-      <Show when={filesOpen() && !traceBlock() && view()}>
-        <aside class="flex w-72 shrink-0 flex-col border-l border-border bg-card/30">
-          <div class="flex h-11 items-center border-b border-border px-4 text-[13px] font-medium text-muted-foreground">
-            session
-          </div>
-          <div class="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 pb-6">
-            <Show when={(view()?.plan?.length ?? 0) > 0}>
-              <section>
-                <h2 class="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                  plan
-                </h2>
-                <ul class="mt-2 space-y-1.5 text-sm">
-                  <For each={view()!.plan}>
-                    {(item) => (
-                      <li class="flex gap-2">
-                        <span
-                          class={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
-                            item.status === "completed"
-                              ? "bg-status-completed"
-                              : item.status === "in_progress"
-                                ? "bg-status-active"
-                                : "bg-status-pending"
-                          }`}
-                        />
-                        <span class={item.status === "completed" ? "text-muted-foreground line-through" : ""}>
-                          {item.content}
-                        </span>
-                      </li>
-                    )}
-                  </For>
-                </ul>
-              </section>
-            </Show>
-            <section>
-              <h2 class="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                files
-              </h2>
-              <Show
-                when={(view()?.files_changed.length ?? 0) > 0}
-                fallback={<p class="mt-2 text-xs text-muted-foreground">no file changes yet</p>}
-              >
-                <ul class="mt-2 space-y-1.5 font-mono text-[11px]">
-                  <For each={view()!.files_changed}>
-                    {(f) => (
-                      <li class="flex gap-2">
-                        <span class="w-12 shrink-0 text-event-file">{f.change}</span>
-                        <span class="break-all text-muted-foreground">{f.path}</span>
-                      </li>
-                    )}
-                  </For>
-                </ul>
-              </Show>
-            </section>
-          </div>
-        </aside>
+      <Show when={railOn() && view()}>
+        {(v) => {
+          const files = () => v().files_changed;
+          const fileLabel = () => {
+            const n = files().length;
+            if (n === 1) return "1 file";
+            if (n > 1) return `${n} files`;
+            return "Plan";
+          };
+          return (
+            <aside class="flex w-72 shrink-0 flex-col border-l border-border">
+              <div class="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3">
+                <span class="shrink-0 text-[13px] font-medium">
+                  {generating() ? "Running" : "Done"}
+                </span>
+                <span class="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">{fileLabel()}</span>
+                <button
+                  class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
+                  aria-label="Hide files"
+                  onClick={toggleRail}
+                >
+                  ×
+                </button>
+              </div>
+              <div class="min-h-0 flex-1 space-y-5 overflow-y-auto px-3 py-3">
+                <Show when={(v().plan?.length ?? 0) > 0}>
+                  <section>
+                    <h2 class="px-1 text-[11px] font-medium text-muted-foreground">Plan</h2>
+                    <ul class="mt-1.5 space-y-1 text-[13px]">
+                      <For each={v().plan}>
+                        {(item) => (
+                          <li class="flex gap-2 px-1">
+                            <span
+                              class={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
+                                item.status === "completed"
+                                  ? "bg-status-completed"
+                                  : item.status === "in_progress"
+                                    ? "bg-status-active"
+                                    : "bg-status-pending"
+                              }`}
+                            />
+                            <span class={item.status === "completed" ? "text-muted-foreground line-through" : ""}>
+                              {item.content}
+                            </span>
+                          </li>
+                        )}
+                      </For>
+                    </ul>
+                  </section>
+                </Show>
+                <Show
+                  when={files().length > 0}
+                  fallback={<p class="px-1 text-[12px] text-muted-foreground">Nothing changed yet.</p>}
+                >
+                  <ul class="space-y-0.5">
+                    <For each={files()}>
+                      {(f) => (
+                        <li class="flex items-baseline gap-2 rounded-md px-1 py-1" title={f.path}>
+                          <span class="min-w-0 flex-1 truncate text-[13px]">{fileName(f.path)}</span>
+                          <span class="shrink-0 text-[10px] text-muted-foreground">{changeWord(f.change)}</span>
+                        </li>
+                      )}
+                    </For>
+                  </ul>
+                </Show>
+              </div>
+            </aside>
+          );
+        }}
       </Show>
     </div>
   );
