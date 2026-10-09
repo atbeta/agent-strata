@@ -66,8 +66,12 @@ export interface BackendDriver {
   listWorkspaces(): Promise<WorkspaceInfo[]>;
   /** emit session metadata for sessions that already exist, without their history */
   indexSessions(): Promise<string[]>;
-  /** pull metadata and transcripts that changed since the last sync */
-  sync(): Promise<number>;
+  /** version of the mapping behind this backend's stored events; absent when they cannot be rebuilt */
+  mapperVersion?: string;
+  /** pull metadata and transcripts that changed since the last sync; stale sessions are rebuilt instead */
+  sync(stale?: (casfId: string) => boolean): Promise<number>;
+  /** replace a session's stored transcript with a fresh read of the backend's own record */
+  rebuild(nativeId: string, directory?: string): Promise<number>;
   importSession(nativeId: string, directory?: string): Promise<void>;
   rename(nativeId: string, title: string, directory?: string): Promise<void>;
   archive(nativeId: string, directory?: string): Promise<void>;

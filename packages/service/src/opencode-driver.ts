@@ -1,5 +1,6 @@
 import {
   connectOpencode,
+  OPENCODE_MAPPER_VERSION,
   type OnAsk,
   type OnQuestion,
   type Sink,
@@ -40,6 +41,7 @@ export async function connectOpencodeDriver(opts: {
     baseUrl: opts.baseUrl,
     name: opts.name,
     directory: opts.directory,
+    mapperVersion: OPENCODE_MAPPER_VERSION,
     capabilities: {
       prompt: true,
       abort: true,
@@ -65,13 +67,14 @@ export async function connectOpencodeDriver(opts: {
       const ids = await conn.indexSessions();
       return ids.map((native) => `${PREFIX}${native}`);
     },
-    sync: () => {
+    sync: (stale) => {
       if (syncing) return syncing;
-      syncing = conn.refreshSessions().finally(() => {
+      syncing = conn.refreshSessions(stale).finally(() => {
         syncing = undefined;
       });
       return syncing;
     },
+    rebuild: (nativeId, directory) => conn.rebuildSession(nativeId, directory),
     async importSession(nativeId, directory) {
       await conn.importSession(nativeId, directory);
     },

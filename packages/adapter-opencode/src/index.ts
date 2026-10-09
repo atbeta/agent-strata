@@ -65,6 +65,60 @@ function sourceTime(ms?: number): string | undefined {
 // fire per-token; the store and SSE fan-out only need periodic snapshots)
 const STREAM_SNAPSHOT_MS = 150;
 
+/** Bump when the mapping changes; stored sessions mapped by an older version are rebuilt. */
+export const OPENCODE_MAPPER_VERSION = "opencode-1";
+
+/** The event types an import reproduces from OpenCode's own record of a session. */
+export const OPENCODE_REBUILT_TYPES: EventType[] = [
+  "session.started",
+  "session.updated",
+  "turn.user",
+  "turn.assistant",
+  "tool.call",
+  "tool.result",
+  "file.changed",
+];
+
+export interface SnapshotMessage {
+  info: { id: string; role: string; time?: { created?: number; completed?: number } };
+  parts: Part[];
+}
+
+/** OpenCode's stored session, replayed as the bus events that would have built it. */
+export function snapshotEvents(sessionID: string, info: unknown, messages: SnapshotMessage[]): Event[] {
+  const part = (p: Part) =>
+    ({
+      id: `import:${p.id}`,
+      type: "message.part.updated",
+      properties: { sessionID, part: p, time: Date.now() },
+    }) as unknown as Event;
+  const out: Event[] = [
+    { id: `import:${sessionID}`, type: "session.created", properties: { sessionID, info } } as unknown as Event,
+  ];
+  for (const m of messages) {
+    const open = m.info.role === "assistant" && m.info.time?.completed === undefined;
+    // parts first: a completed assistant message emits turn.assistant on message.updated
+    for (const p of m.parts) out.push(part(p));
+    out.push({
+      id: `import:${m.info.id}`,
+      type: "message.updated",
+      properties: { sessionID, info: m.info },
+    } as unknown as Event);
+    // role and parent land on message.updated, so an in-progress assistant
+    // only streams once the parts are applied a second time
+    if (open) for (const p of m.parts) out.push(part(p));
+  }
+  return out;
+}
+
+/** Every rebuildable event for one session, mapped from scratch. */
+export function rebuildEvents(events: Event[], directory?: string): EventInput[] {
+  const mapper = new OpencodeMapper({ directory });
+  return events
+    .flatMap((e) => mapper.handle(e))
+    .filter((e) => !isStreamingSnapshot(e) && OPENCODE_REBUILT_TYPES.includes(e.type));
+}
+
 interface MsgState {
   role?: string;
   parentID?: string;
@@ -817,7 +871,8 @@ export async function connectOpencode(opts: {
   listWorkspaces: () => Promise<{ id: string; name?: string; directory: string }[]>;
   abort: (sessionID: string, directory?: string) => Promise<void>;
   indexSessions: () => Promise<string[]>;
-  refreshSessions: () => Promise<number>;
+  refreshSessions: (stale?: (casfId: string) => boolean) => Promise<number>;
+  rebuildSession: (sessionID: string, directory?: string) => Promise<number>;
   updateSession: (
     sessionID: string,
     patch: { title?: string; archived?: boolean },
@@ -952,37 +1007,24 @@ export async function connectOpencode(opts: {
   }
   const importedRevision = new Map<string, number>();
   const importTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  const handlePart = (sessionID: string, part: Part) => {
-    ingestor.handle({
-      id: `import:${part.id}`,
-      type: "message.part.updated",
-      properties: { sessionID, part, time: Date.now() },
-    } as Event);
-  };
-  const importSession = async (sessionID: string, directory?: string) => {
+  const readSession = async (sessionID: string, directory?: string): Promise<Event[]> => {
     const dir = directory ?? opts.directory;
     const sess = await client.session.get({ sessionID, directory: dir });
     if (!sess.data) throw new Error(`session ${sessionID} not found`);
-    ingestor.handle({
-      id: `import:${sessionID}`,
-      type: "session.created",
-      properties: { sessionID, info: sess.data },
-    } as Event);
     const msgs = await client.session.messages({ sessionID, directory: dir });
-    for (const m of msgs.data ?? []) {
-      const openAssistant =
-        m.info.role === "assistant" && m.info.time?.completed === undefined;
-      // parts first: a completed assistant message emits turn.assistant on message.updated
-      for (const part of m.parts) handlePart(sessionID, part);
-      ingestor.handle({
-        id: `import:${m.info.id}`,
-        type: "message.updated",
-        properties: { sessionID, info: m.info },
-      } as Event);
-      // role and parent land on message.updated, so an in-progress assistant
-      // only streams once the parts are applied a second time
-      if (openAssistant) for (const part of m.parts) handlePart(sessionID, part);
-    }
+    return snapshotEvents(sessionID, sess.data, msgs.data ?? []);
+  };
+  const importSession = async (sessionID: string, directory?: string) => {
+    for (const evt of await readSession(sessionID, directory)) ingestor.handle(evt);
+  };
+  const rebuildSession = async (sessionID: string, directory?: string): Promise<number> => {
+    if (!opts.sink.replaceSession) throw new Error("this sink cannot rebuild sessions");
+    const events = rebuildEvents(await readSession(sessionID, directory), opts.directory);
+    await opts.sink.replaceSession(`opencode:${sessionID}`, events, {
+      replaceTypes: OPENCODE_REBUILT_TYPES,
+      mapper: OPENCODE_MAPPER_VERSION,
+    });
+    return events.length;
   };
   const dispatch = (raw: unknown) => {
     const evt = normalizeOpencodeEvent(raw);
@@ -1174,7 +1216,7 @@ export async function connectOpencode(opts: {
      * since the last sync. Safe to call repeatedly: an unchanged session is
      * not imported again.
      */
-    async refreshSessions() {
+    async refreshSessions(stale?: (casfId: string) => boolean) {
       const directories = new Set<string | undefined>([opts.directory]);
       try {
         const projects = await client.project.list();
@@ -1206,7 +1248,9 @@ export async function connectOpencode(opts: {
             } as Event);
             const updated = info.time?.updated ?? info.time?.created ?? 0;
             if (importedRevision.get(info.id) === updated) continue;
-            await importSession(info.id, info.directory || directory);
+            const dir = info.directory || directory;
+            if (stale?.(`opencode:${info.id}`)) await rebuildSession(info.id, dir);
+            else await importSession(info.id, dir);
             importedRevision.set(info.id, updated);
             imported += 1;
           } catch (err) {
@@ -1217,5 +1261,6 @@ export async function connectOpencode(opts: {
       return imported;
     },
     importSession,
+    rebuildSession,
   };
 }

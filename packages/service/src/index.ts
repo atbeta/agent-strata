@@ -106,6 +106,9 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       return n;
     },
   };
+  const staleFor = (driver: BackendDriver) => (casfId: string) =>
+    driver.mapperVersion !== undefined && store.sessionMapper(casfId) !== driver.mapperVersion;
+  const syncDriver = (driver: BackendDriver) => driver.sync(staleFor(driver));
 
   // The packaged desktop UI is served from tauri.localhost and calls this
   // process on 127.0.0.1, so every response has to be readable cross-origin.
@@ -175,7 +178,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     if (backend !== "opencode") throw new Error(`backend ${backend} is not registered`);
     const already = [...conns.values()].find((c) => c.baseUrl === body.baseUrl);
     if (already) {
-      void already.sync().catch((e) => console.error(`sync ${already.id} failed: ${e}`));
+      void syncDriver(already).catch((e) => console.error(`sync ${already.id} failed: ${e}`));
       return { id: already.id, indexed: 0 };
     }
     const explicit: Policy | undefined = body.policy
@@ -227,7 +230,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     } catch (e) {
       console.error(`index sessions on ${driver.id} failed: ${e}`);
     }
-    void driver.sync().catch((e) => console.error(`sync ${driver.id} failed: ${e}`));
+    void syncDriver(driver).catch((e) => console.error(`sync ${driver.id} failed: ${e}`));
     return { id: driver.id, indexed: indexed.length };
   };
 
@@ -441,7 +444,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         return json({ id: created.casfId, native_id: created.nativeId });
       }
 
-      const sessionCmd = path.match(/^\/sessions\/([^/]+)\/(prompt|abort|import|rename|archive)$/);
+      const sessionCmd = path.match(/^\/sessions\/([^/]+)\/(prompt|abort|import|rebuild|rename|archive)$/);
       if (sessionCmd) {
         const casfId = decodeURIComponent(sessionCmd[1]!);
         const cmd = sessionCmd[2]!;
@@ -456,6 +459,15 @@ export function startService(opts: ServiceOpts = {}): RunningService {
           try {
             await conn.importSession(native, directory);
             return json({ ok: true });
+          } catch (e) {
+            return json({ error: String(e) }, 502);
+          }
+        }
+        if (cmd === "rebuild" && req.method === "POST") {
+          if (!conn.capabilities.import) return json({ error: "backend cannot rebuild" }, 400);
+          try {
+            const events = await conn.rebuild(native, directory);
+            return json({ ok: true, events });
           } catch (e) {
             return json({ error: String(e) }, 502);
           }
@@ -604,7 +616,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         let imported = 0;
         for (const conn of conns.values()) {
           try {
-            imported += await conn.sync();
+            imported += await syncDriver(conn);
           } catch (e) {
             console.error(`sync ${conn.id} failed: ${e}`);
           }
