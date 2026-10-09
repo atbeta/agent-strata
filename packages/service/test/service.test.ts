@@ -296,4 +296,81 @@ describe("agent-strata service", () => {
 
     svc.stop();
   });
+
+  test("session search finds text and gives every hit a way back to its turn", async () => {
+    const svc = startService({ db: ":memory:", port: 0 });
+    const base = `http://127.0.0.1:${svc.port}`;
+    const sid = "opencode:findme";
+    svc.store.append([
+      ev(sid, "session.started", { title: "findme", workspace: "/tmp/x" }, "2026-01-01T00:00:00Z"),
+      ev(
+        sid,
+        "turn.assistant",
+        {
+          turn_id: "t1",
+          content: [{ type: "text", text: "the anchor is a scrollTop reader" }],
+          stop_reason: "end_turn",
+        },
+        "2026-01-01T00:00:01Z",
+      ),
+      ev(
+        sid,
+        "tool.call",
+        { turn_id: "t2", call_id: "c1", tool: "bash", input: { command: "echo scrollTop" } },
+        "2026-01-01T00:00:02Z",
+      ),
+      ev(
+        sid,
+        "tool.result",
+        { call_id: "c1", status: "ok", output: "printed scrollTop to stdout" },
+        "2026-01-01T00:00:03Z",
+      ),
+      // Same word, different session: the search must not leak across sessions.
+      ev(
+        "opencode:other",
+        "session.started",
+        { title: "other", workspace: "/tmp/x" },
+        "2026-01-02T00:00:00Z",
+      ),
+      ev(
+        "opencode:other",
+        "turn.user",
+        { turn_id: "t9", content: [{ type: "text", text: "scrollTop lives here too" }] },
+        "2026-01-02T00:00:01Z",
+      ),
+    ]);
+
+    const res = await fetch(
+      `${base}/sessions/${encodeURIComponent(sid)}/search?q=scrollTop`,
+    ).then((r) => r.json());
+    expect(res.more).toBe(false);
+    expect(res.hits.length).toBe(3);
+
+    // A tool result names its call, not its turn — the projector binds the two.
+    // Without the call id reaching the reader those hits are rows that look
+    // jumpable and silently do nothing, which is most of what a search returns.
+    const byType = Object.fromEntries(res.hits.map((h: { type: string }) => [h.type, h]));
+    expect(byType["turn.assistant"].turn_id).toBe("t1");
+    expect(byType["tool.call"].turn_id).toBe("t2");
+    expect(byType["tool.result"].turn_id).toBeNull();
+    expect(byType["tool.result"].call_id).toBe("c1");
+    // Every hit must carry something the transcript can resolve.
+    expect(res.hits.every((h: { turn_id: string | null; call_id: string | null }) => h.turn_id || h.call_id)).toBe(true);
+    // FTS brackets its matches; the reader's snippet splits on those.
+    expect(byType["tool.result"].snippet).toContain("[scrollTop]");
+
+    // Truncation is reported rather than passed off as the whole list.
+    const capped = await fetch(
+      `${base}/sessions/${encodeURIComponent(sid)}/search?q=scrollTop&limit=2`,
+    ).then((r) => r.json());
+    expect(capped.hits.length).toBe(2);
+    expect(capped.more).toBe(true);
+
+    const empty = await fetch(
+      `${base}/sessions/${encodeURIComponent(sid)}/search?q=nothingmatchesthis`,
+    ).then((r) => r.json());
+    expect(empty.hits).toEqual([]);
+
+    svc.stop();
+  });
 });

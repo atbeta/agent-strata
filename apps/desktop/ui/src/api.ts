@@ -33,6 +33,17 @@ export interface SessionsResponse {
   aggregate: { total: { cost_usd: number; input: number; output: number } };
 }
 
+/** One full-text hit inside a session. `snippet` brackets its matches: "…lo[ad]ing…". */
+export interface SearchHit {
+  seq: number;
+  ts: string;
+  type: string;
+  /** Which turn the hit belongs to. Tool results name their call instead. */
+  turn_id: string | null;
+  call_id: string | null;
+  snippet: string;
+}
+
 export type ContentBlock =
   | { type: "text"; text: string }
   | { type: "thinking"; text: string }
@@ -226,6 +237,17 @@ export async function getJson<T>(p: string): Promise<T> {
   const res = await fetch(api(p));
   if (!res.ok) throw new Error(`service ${res.status}`);
   return (await res.json()) as T;
+}
+
+/** Full-text search inside one session. Backed by the store's FTS index. */
+export async function searchSession(
+  id: string,
+  q: string,
+  limit = 300,
+): Promise<{ hits: SearchHit[]; more: boolean }> {
+  return getJson<{ hits: SearchHit[]; more: boolean }>(
+    `/sessions/${encodeURIComponent(id)}/search?q=${encodeURIComponent(q)}&limit=${limit}`,
+  );
 }
 
 export async function importSession(id: string): Promise<void> {

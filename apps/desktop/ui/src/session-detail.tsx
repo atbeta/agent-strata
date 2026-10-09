@@ -1,4 +1,13 @@
-import { createEffect, createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createResource,
+  createSignal,
+  For,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import {
   abortSession,
   api,
@@ -8,9 +17,11 @@ import {
   realWorkspace,
   respondPermission,
   respondQuestion,
+  searchSession,
   type OptionsResponse,
   type PendingAsk,
   type PendingQuestion,
+  type SearchHit,
   type SessionView,
 } from "./api";
 import { Icon } from "./icons";
@@ -19,7 +30,7 @@ import { inDesktopShell } from "./shell";
 import { Tip } from "./tip";
 import { TraceDrawer, TraceStrip, type TraceBlock } from "./trace";
 import { TurnBlock } from "./transcript";
-import { Virtual } from "./virtual";
+import { Virtual, type VirtualApi } from "./virtual";
 import { Picker } from "@/components/ui/picker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
@@ -317,6 +328,29 @@ async function readHead(id: string): Promise<number> {
   return r.events[0]?.seq ?? 0;
 }
 
+/**
+ * A search result's context. FTS brackets the terms it matched, and splitting
+ * on those brackets is what makes a hit findable at a glance — a snippet of
+ * transcript prose with no marker on the word the reader searched for is just
+ * more text to read.
+ */
+function Snippet(props: { text: string }) {
+  const parts = () => props.text.split(/(\[[^\]]*\])/g).filter(Boolean);
+  return (
+    <span class="line-clamp-2 text-xs leading-5 text-foreground/85">
+      <For each={parts()}>
+        {(s) =>
+          s.startsWith("[") && s.endsWith("]") ? (
+            <mark class="rounded-sm bg-primary/20 px-0.5 text-foreground">{s.slice(1, -1)}</mark>
+          ) : (
+            s
+          )
+        }
+      </For>
+    </span>
+  );
+}
+
 export function SessionDetail(props: { id: string }) {
   const [replayPos, setReplayPos] = createSignal<number | null>(null);
   const [traceOn, setTraceOn] = createSignal(false);
@@ -373,6 +407,107 @@ export function SessionDetail(props: { id: string }) {
   // plain flag because the virtual list has to consult it while applying
   // measurements, which happens outside any render pass here.
   const [pinned, setPinned] = createSignal(true);
+
+  // Full-text search inside the open session. This is not a convenience: the
+  // transcript is windowed, so the reader's own Ctrl+F only sees the rows that
+  // happen to be mounted. Searching has to go to the index to reach the rest.
+  const [searchOpen, setSearchOpen] = createSignal(false);
+  const [query, setQuery] = createSignal("");
+  const [hitAt, setHitAt] = createSignal(0);
+  const [probe, setProbe] = createSignal("");
+  let searchEl: HTMLInputElement | undefined;
+  let resultsEl: HTMLUListElement | undefined;
+  let probeTimer: ReturnType<typeof setTimeout> | undefined;
+  let list: VirtualApi | undefined;
+
+  const onQuery = (v: string) => {
+    setQuery(v);
+    clearTimeout(probeTimer);
+    // Every keystroke that reached the index would be a round trip; the index
+    // is fast but the network round trip is not, and the answer only has to be
+    // right by the time the reader stops typing.
+    probeTimer = setTimeout(() => setProbe(v.trim()), 180);
+  };
+
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setQuery("");
+    setProbe("");
+    setHitAt(0);
+  };
+
+  const [result] = createResource(
+    () => (searchOpen() && probe() ? { id: props.id, q: probe() } : null),
+    ({ id, q }) => searchSession(id, q),
+  );
+  const hits = () => result()?.hits;
+
+  /**
+ * Where a hit lives: a tool result carries no turn of its own — the projector
+ * binds it to one through the call that produced it — so a match on tool output
+ * is traced back through that call. The transcript in hand already holds that
+ * mapping, so resolving costs nothing and needs no second request.
+ */
+const turnIndexOf = (h: SearchHit): number => {
+    const turns = settled(view)?.turns;
+    if (!turns) return -1;
+    if (h.turn_id) return turns.findIndex((t) => t.turn_id === h.turn_id);
+    if (h.call_id) return turns.findIndex((t) => t.tool_calls.some((c) => c.call_id === h.call_id));
+    return -1;
+  };
+
+  /**
+   * One jump target per turn, and only turns a hit can actually be walked to.
+   * The index answers in relevance order, which is no order at all to a reader:
+   * the first few turns for one term came back 97, 125, 949, 83, 1087. Stepping
+   * through matches is a walk down a conversation, so they are sorted into it.
+   */
+  const targets = createMemo(() => {
+    const seen = new Set<string>();
+    const out: { hit: SearchHit; at: number }[] = [];
+    for (const h of hits() ?? []) {
+      const at = turnIndexOf(h);
+      if (at < 0) continue;
+      const k = settled(view)?.turns[at]?.turn_id ?? `#${h.seq}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push({ hit: h, at });
+    }
+    return out.sort((a, b) => a.at - b.at).map((x) => x.hit);
+  });
+
+  const goTo = (h: SearchHit | undefined) => {
+    const i = h ? turnIndexOf(h) : -1;
+    if (i >= 0) list?.scrollToIndex(i);
+  };
+
+  /** Turns are addressed by an opaque id, so a result has to say which one it is. */
+  const turnNumber = (h: SearchHit) => {
+    const i = turnIndexOf(h);
+    return i >= 0 ? `#${i + 1}` : "—";
+  };
+
+  const step = (delta: number) => {
+    const all = targets();
+    if (!all.length) return;
+    const next = Math.max(0, Math.min(all.length - 1, hitAt() + delta));
+    setHitAt(next);
+    goTo(all[next]);
+  };
+
+  const openSearch = (keep?: string) => {
+    setSearchOpen(true);
+    if (keep) onQuery(keep);
+    queueMicrotask(() => searchEl?.focus());
+  };
+
+  // Stepping through matches moves the selection much faster than a list this
+  // long scrolls on its own, so the active row is pulled into view. Without
+  // this the counter reads "26/26" above a list still showing the first four.
+  createEffect(() => {
+    const at = hitAt();
+    resultsEl?.querySelector(`[data-hit="${at}"]`)?.scrollIntoView({ block: "nearest" });
+  });
 
   createEffect(() => {
     const agents = settled(options)?.agents ?? [];
@@ -437,6 +572,16 @@ export function SessionDetail(props: { id: string }) {
       });
     const onConns = () => refetchOptions();
     window.addEventListener("strata-connections", onConns);
+    // Ctrl+F is the shortcut every reader already has for "find me this in the
+    // text I am looking at". Windowing the transcript took that away from them,
+    // so it goes to the index instead of to rows that happen to be mounted.
+    const onFindKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "f") return;
+      e.preventDefault();
+      if (searchOpen()) searchEl?.focus();
+      else openSearch();
+    };
+    window.addEventListener("keydown", onFindKey);
     // Seed the virtual window's inputs. Without this the list would start with a
     // zero-height viewport and only learn its size on the first scroll, which
     // for a session that opens pinned to the bottom means one wasted pass.
@@ -491,8 +636,10 @@ export function SessionDetail(props: { id: string }) {
     onCleanup(() => {
       clearInterval(poll);
       clearTimeout(timer);
+      clearTimeout(probeTimer);
       es.close();
       window.removeEventListener("strata-connections", onConns);
+      window.removeEventListener("keydown", onFindKey);
     });
   });
 
@@ -627,7 +774,7 @@ export function SessionDetail(props: { id: string }) {
 
   return (
     <div class="flex h-full min-h-0">
-      <div class="flex min-w-0 flex-1 flex-col">
+      <div class="relative flex min-w-0 flex-1 flex-col">
         <Show
           when={settled(view)}
           fallback={
@@ -671,7 +818,21 @@ export function SessionDetail(props: { id: string }) {
                       </span>
                     </Tip>
                   </Show>
-                  <Tip label={traceOn() ? "Back to live" : "Replay"}>
+                  <Tip label="Search this session — Ctrl+F">
+                  <button
+                    class={`grid h-7 w-7 place-items-center rounded-md transition-colors ${
+                      searchOpen()
+                        ? "bg-secondary text-foreground"
+                        : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                    }`}
+                    aria-label="Search session"
+                    aria-expanded={searchOpen()}
+                    onClick={() => (searchOpen() ? closeSearch() : openSearch())}
+                  >
+                    <Icon name="search" />
+                  </button>
+                </Tip>
+                <Tip label={traceOn() ? "Back to live" : "Replay"}>
                     <button
                       class={`grid h-7 w-7 place-items-center rounded-md transition-colors ${
                         traceOn()
@@ -724,6 +885,91 @@ export function SessionDetail(props: { id: string }) {
                 </span>
               </header>
 
+              <Show when={searchOpen()}>
+                <div class="absolute right-4 top-11 z-30 w-[26rem] max-w-[calc(100%-2rem)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg">
+                  <div class="flex items-center gap-2 border-b border-border px-3 py-2">
+                    <Icon name="search" class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <input
+                      ref={(el) => (searchEl = el)}
+                      class="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                      placeholder="Search this session"
+                      value={query()}
+                      onInput={(e) => onQuery(e.currentTarget.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          step(e.shiftKey ? -1 : 1);
+                        }
+                        if (e.key === "Escape") {
+                          e.preventDefault();
+                          closeSearch();
+                        }
+                      }}
+                    />
+                    <Show when={probe()}>
+                      <span class="shrink-0 font-mono text-2xs tabular-nums text-muted-foreground">
+                        {result.loading
+                          ? "…"
+                          : targets().length
+                            ? `${hitAt() + 1}/${targets().length}${result()?.more ? "+" : ""}`
+                            : "none"}
+                      </span>
+                    </Show>
+                    <button
+                      class="grid h-6 w-6 shrink-0 place-items-center rounded text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
+                      aria-label="Previous match"
+                      disabled={!targets().length}
+                      onClick={() => step(-1)}
+                    >
+                      <Icon name="chevron" class="h-3.5 w-3.5 rotate-180" />
+                    </button>
+                    <button
+                      class="grid h-6 w-6 shrink-0 place-items-center rounded text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
+                      aria-label="Next match"
+                      disabled={!targets().length}
+                      onClick={() => step(1)}
+                    >
+                      <Icon name="chevron" class="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+
+                  <Show
+                    when={targets().length > 0}
+                    fallback={
+                      <Show when={probe() && !result.loading}>
+                        <p class="px-3 py-4 text-center text-xs text-muted-foreground">
+                          Nothing in this session matches.
+                        </p>
+                      </Show>
+                    }
+                  >
+                    <ul ref={(el) => (resultsEl = el)} class="max-h-72 overflow-y-auto py-1">
+                      <For each={targets()}>
+                        {(h, i) => (
+                          <li>
+                            <button
+                              data-hit={i()}
+                              class={`flex w-full flex-col gap-0.5 px-3 py-1.5 text-left transition-colors ${
+                                i() === hitAt() ? "bg-secondary" : "hover:bg-secondary/60"
+                              }`}
+                              onClick={() => {
+                                setHitAt(i());
+                                goTo(h);
+                              }}
+                            >
+                              <Snippet text={h.snippet} />
+                              <span class="font-mono text-2xs text-muted-foreground">
+                                turn {turnNumber(h)}
+                              </span>
+                            </button>
+                          </li>
+                        )}
+                      </For>
+                    </ul>
+                  </Show>
+                </div>
+              </Show>
+
               <Show when={traceOn()}>
                 <TraceStrip
                   sessionId={props.id}
@@ -771,6 +1017,7 @@ export function SessionDetail(props: { id: string }) {
                       scrollTop={scrollTop()}
                       viewport={viewport()}
                       scroller={() => scroller}
+                      api={(a) => (list = a)}
                     >
                       {(t) => <TurnBlock turn={t} />}
                     </Virtual>

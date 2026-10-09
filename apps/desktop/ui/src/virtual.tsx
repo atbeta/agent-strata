@@ -43,7 +43,25 @@ export interface VirtualProps<T> {
   overscan?: number;
   /** The scrolling ancestor, for scrollTop correction when measurements land. */
   scroller?: () => HTMLElement | undefined;
+  /** Receives the imperative handle once the list is mounted. */
+  api?: (a: VirtualApi) => void;
   children: (item: T, index: number) => JSX.Element;
+}
+
+/** What a parent can ask of the list once it is on screen. */
+export interface VirtualApi {
+  /**
+   * Bring a row into view. Centred by default: a reader who jumped here is
+   * looking for something, and the point of the jump is to see it in context
+   * rather than to land on its top edge with nothing above it.
+   *
+   * This deliberately gives up the tail. Following is a promise to stay
+   * pinned, and a jump is the reader saying they want somewhere else — if the
+   * flag survived, the next measurement would pull them straight back.
+   */
+  scrollToIndex: (index: number, align?: "center" | "start") => void;
+  /** Index of the row nearest the top of the viewport. */
+  indexAtTop: () => number;
 }
 
 export function Virtual<T>(props: VirtualProps<T>) {
@@ -59,6 +77,7 @@ export function Virtual<T>(props: VirtualProps<T>) {
   const [following, setFollowing] = createSignal(true);
   const observed = new Map<Element, string>();
   let ro: ResizeObserver | undefined;
+  let host: HTMLDivElement | undefined;
 
   /** Turn id to its row number, so a measurement does not have to search. */
   const rowIndex = createMemo(() => {
@@ -106,6 +125,29 @@ export function Virtual<T>(props: VirtualProps<T>) {
 
   const end = () => offsets()[props.items.length];
 
+  /**
+   * Where this list's box starts inside the scroller's content. The transcript
+   * sits inside a padded container, so row 0 is not at scroll position 0 and
+   * measuring beats hard-coding the padding the caller happens to use today.
+   */
+  const origin = (): number => {
+    const el = props.scroller?.();
+    if (!el || !host) return 0;
+    return host.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop;
+  };
+
+  const scrollToIndex: VirtualApi["scrollToIndex"] = (index, align = "center") => {
+    const el = props.scroller?.();
+    if (!el || !props.items.length) return;
+    const i = Math.max(0, Math.min(props.items.length - 1, Math.round(index)));
+    const top = origin() + offsets()[i];
+    setFollowing(false);
+    el.scrollTop = Math.max(
+      0,
+      align === "start" ? top : top - Math.max(0, (el.clientHeight - props.estimate) / 2),
+    );
+  };
+
   /** Follow the tail: re-pin whenever the content's extent changes under us. */
   createEffect(() => {
     const total = end();
@@ -125,6 +167,11 @@ export function Virtual<T>(props: VirtualProps<T>) {
       },
       { passive: true },
     );
+
+    props.api?.({
+      scrollToIndex,
+      indexAtTop: () => rowAt(offsets(), Math.max(0, props.scrollTop)),
+    });
 
     ro = new ResizeObserver((entries) => {
       const next = new Map(measured());
@@ -177,7 +224,11 @@ export function Virtual<T>(props: VirtualProps<T>) {
   });
 
   return (
-    <div class="relative w-full" style={{ height: `${offsets()[props.items.length]}px` }}>
+    <div
+      ref={(el) => (host = el)}
+      class="relative w-full"
+      style={{ height: `${offsets()[props.items.length]}px` }}
+    >
       <For each={rows()}>
         {(i) => (
           <div

@@ -373,6 +373,39 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         );
       }
 
+      const sessionSearch = path.match(/^\/sessions\/([^/]+)\/search$/);
+      if (sessionSearch && req.method === "GET") {
+        const sid = decodeURIComponent(sessionSearch[1]!);
+        const q = url.searchParams.get("q") ?? "";
+        const limit = Number(url.searchParams.get("limit") ?? 300);
+        // FTS has been sitting in the store the whole time without a route to
+        // reach it. A transcript is too long to scan by eye, and the transcript
+        // view no longer holds every row in the DOM to let Ctrl+F find them, so
+        // this is how a reader locates anything now.
+        //
+        // Ask for one more than we will return. A truncated result set that
+        // reports itself as the whole list is worse than no search at all: the
+        // reader would stop looking at a term that still has matches further
+        // down a 1,500-turn session.
+        const found = store.search(q, { session_id: sid, limit: limit + 1 });
+        const hits = found.slice(0, limit).map(({ event, snippet }) => {
+          const d = event.data as { turn_id?: unknown; call_id?: unknown };
+          return {
+            seq: event.seq,
+            ts: event.ts,
+            type: event.type,
+            turn_id: typeof d.turn_id === "string" ? d.turn_id : null,
+            // A tool result names its call, not its turn — the projector binds
+            // the two. Handing the call id along lets the reader's transcript
+            // resolve it against the tool_calls it already holds, instead of
+            // making this route replay the projection to find out.
+            call_id: typeof d.call_id === "string" ? d.call_id : null,
+            snippet,
+          };
+        });
+        return json({ hits, more: found.length > limit });
+      }
+
       if (path === "/sessions" && req.method === "POST") {
         const body = (await req.json().catch(() => ({}))) as {
           title?: string;
