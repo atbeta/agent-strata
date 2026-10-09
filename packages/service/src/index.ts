@@ -90,10 +90,17 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     for (const fn of subscribers) fn(e);
   });
 
+  // The packaged desktop UI is served from tauri.localhost and calls this
+  // process on 127.0.0.1, so every response has to be readable cross-origin.
+  const cors: Record<string, string> = {
+    "access-control-allow-origin": "*",
+    "access-control-allow-methods": "GET,POST,PUT,DELETE,OPTIONS",
+    "access-control-allow-headers": "content-type",
+  };
   const json = (data: unknown, status = 200) =>
     new Response(JSON.stringify(data), {
       status,
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...cors },
     });
 
   const sessionView = (sessionId: string): SessionView =>
@@ -209,12 +216,15 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   }
 
   const server = Bun.serve({
+    hostname: "127.0.0.1",
     port: opts.port ?? 0,
     // projecting every session can outlast Bun's 10s default
     idleTimeout: 0,
     async fetch(req) {
       const url = new URL(req.url);
       const path = url.pathname;
+
+      if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
 
       if (path === "/health") return json({ ok: true, conns: conns.size });
 
@@ -414,7 +424,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
           redact: url.searchParams.get("redact") !== "false",
         });
         return new Response(body, {
-          headers: { "content-type": "application/x-ndjson" },
+          headers: { ...cors, "content-type": "application/x-ndjson" },
         });
       }
 
@@ -576,6 +586,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         });
         return new Response(stream, {
           headers: {
+            ...cors,
             "content-type": "text/event-stream",
             "cache-control": "no-cache",
             connection: "keep-alive",
@@ -599,11 +610,16 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   };
 }
 
+function userHome(): string {
+  const home = process.env.HOME || process.env.USERPROFILE;
+  return home && home.length > 0 ? home : ".";
+}
+
 if (import.meta.main) {
-  const db = process.env.STRATA_DB ?? `${process.env.HOME}/.agent-strata/events.db`;
+  const home = userHome();
+  const db = process.env.STRATA_DB ?? `${home}/.agent-strata/events.db`;
   const port = Number(process.env.STRATA_PORT ?? 7700);
-  const policyFile =
-    process.env.STRATA_POLICY ?? `${process.env.HOME}/.agent-strata/policy.json`;
+  const policyFile = process.env.STRATA_POLICY ?? `${home}/.agent-strata/policy.json`;
   const svc = startService({
     db,
     port,

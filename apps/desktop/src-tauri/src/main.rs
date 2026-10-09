@@ -1,9 +1,10 @@
 // Agent Strata desktop shell.
 //
 // Spawns the strata service next to the webview and kills it when the app
-// exits. `opencode serve` is started only when STRATA_OPENCODE_EMBED=1;
-// otherwise the service attaches to STRATA_OPENCODE_URL if that is set, or
-// the UI connects later.
+// exits. A release build uses the bundled sidecar. `tauri dev` still runs
+// the TypeScript entry with bun. `opencode serve` is started only when
+// STRATA_OPENCODE_EMBED=1; otherwise the service attaches to
+// STRATA_OPENCODE_URL if that is set, or the UI connects later.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
@@ -13,14 +14,28 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use tauri::Manager;
+use tauri_plugin_shell::process::{CommandChild, CommandEvent};
+use tauri_plugin_shell::ShellExt;
 
-struct Sidecars(Vec<Child>);
+enum Proc {
+    Std(Child),
+    Bundled(CommandChild),
+}
+
+struct Sidecars(Vec<Proc>);
 
 impl Drop for Sidecars {
     fn drop(&mut self) {
-        for mut child in self.0.drain(..) {
-            let _ = child.kill();
-            let _ = child.wait();
+        for proc in self.0.drain(..) {
+            match proc {
+                Proc::Std(mut child) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+                Proc::Bundled(child) => {
+                    let _ = child.kill();
+                }
+            }
         }
     }
 }
@@ -30,32 +45,50 @@ fn repo_root() -> PathBuf {
     fs::canonicalize(manifest.join("../../..")).unwrap_or(manifest.join("../../.."))
 }
 
-fn which(name: &str) -> Option<PathBuf> {
-    if let Some(path) = std::env::var_os("PATH") {
-        for dir in std::env::split_paths(&path) {
-            let candidate = dir.join(name);
-            if candidate.is_file() {
-                return Some(candidate);
+fn home_dir() -> PathBuf {
+    for key in ["HOME", "USERPROFILE"] {
+        if let Ok(value) = std::env::var(key) {
+            if !value.is_empty() {
+                return PathBuf::from(value);
             }
         }
     }
-    let home = std::env::var("HOME").unwrap_or_default();
-    for fallback in [
-        format!("/opt/homebrew/bin/{name}"),
-        format!("/usr/local/bin/{name}"),
-        format!("{home}/.bun/bin/{name}"),
-    ] {
-        let candidate = PathBuf::from(fallback);
-        if candidate.is_file() {
-            return Some(candidate);
+    PathBuf::from(".")
+}
+
+fn which(name: &str) -> Option<PathBuf> {
+    let names: Vec<String> = if cfg!(windows) {
+        vec![name.to_string(), format!("{name}.exe")]
+    } else {
+        vec![name.to_string()]
+    };
+    if let Some(path) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path) {
+            for name in &names {
+                let candidate = dir.join(name);
+                if candidate.is_file() {
+                    return Some(candidate);
+                }
+            }
+        }
+    }
+    let home = home_dir();
+    for name in &names {
+        for fallback in [
+            PathBuf::from(format!("/opt/homebrew/bin/{name}")),
+            PathBuf::from(format!("/usr/local/bin/{name}")),
+            home.join(".bun").join("bin").join(name),
+        ] {
+            if fallback.is_file() {
+                return Some(fallback);
+            }
         }
     }
     None
 }
 
 fn data_dir() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-    let dir = PathBuf::from(home).join(".agent-strata");
+    let dir = home_dir().join(".agent-strata");
     let _ = fs::create_dir_all(&dir);
     dir
 }
@@ -79,11 +112,7 @@ fn wait_port(port: u16, timeout: Duration) -> bool {
 }
 
 fn open_log(path: &Path) -> Option<File> {
-    OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .ok()
+    OpenOptions::new().create(true).append(true).open(path).ok()
 }
 
 fn spawn(
@@ -114,8 +143,57 @@ fn spawn(
     }
 }
 
+fn spawn_bundled(
+    app: &tauri::AppHandle,
+    envs: &[(&str, String)],
+    cwd: &Path,
+    log_path: &Path,
+) -> Option<CommandChild> {
+    let command = match app.shell().sidecar("strata-service") {
+        Ok(command) => command,
+        Err(e) => {
+            eprintln!("agent-strata: bundled service is not available: {e}");
+            return None;
+        }
+    };
+    let (mut rx, child) = match command
+        .current_dir(cwd)
+        .envs(envs.iter().map(|(k, v)| (*k, v.as_str())))
+        .spawn()
+    {
+        Ok(spawned) => spawned,
+        Err(e) => {
+            eprintln!("agent-strata: bundled service failed to start: {e}");
+            return None;
+        }
+    };
+    let log_path = log_path.to_path_buf();
+    tauri::async_runtime::spawn(async move {
+        let mut log = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+            .ok();
+        while let Some(event) = rx.recv().await {
+            let line = match event {
+                CommandEvent::Stdout(bytes) | CommandEvent::Stderr(bytes) => {
+                    String::from_utf8_lossy(&bytes).into_owned()
+                }
+                CommandEvent::Error(err) => format!("sidecar error: {err}\n"),
+                CommandEvent::Terminated(payload) => format!("sidecar exited: {payload:?}\n"),
+                _ => continue,
+            };
+            if let Some(file) = log.as_mut() {
+                let _ = write!(file, "{line}");
+                let _ = file.flush();
+            }
+        }
+    });
+    Some(child)
+}
+
 impl Sidecars {
-    fn start() -> Self {
+    fn start(app: &tauri::AppHandle) -> Self {
         let mut children = Vec::new();
         let data = data_dir();
         let log_path = data.join("service.log");
@@ -136,10 +214,15 @@ impl Sidecars {
             .ok()
             .and_then(|p| p.parse().ok())
             .unwrap_or(7700);
+        let policy = std::env::var("STRATA_POLICY")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| data.join("policy.json").to_string_lossy().into_owned());
 
         let mut envs: Vec<(&str, String)> = vec![
             ("STRATA_DB", db),
             ("STRATA_PORT", port.to_string()),
+            ("STRATA_POLICY", policy),
         ];
         if std::env::var("STRATA_OPENCODE_EMBED").as_deref() == Ok("1") {
             envs.push(("STRATA_OPENCODE_URL", "http://127.0.0.1:4096".into()));
@@ -148,11 +231,7 @@ impl Sidecars {
                 envs.push(("STRATA_OPENCODE_URL", url));
             }
         }
-        for key in [
-            "STRATA_OPENCODE_USERNAME",
-            "STRATA_OPENCODE_PASSWORD",
-            "STRATA_POLICY",
-        ] {
+        for key in ["STRATA_OPENCODE_USERNAME", "STRATA_OPENCODE_PASSWORD"] {
             if let Ok(value) = std::env::var(key) {
                 if !value.is_empty() {
                     envs.push((key, value));
@@ -177,7 +256,7 @@ impl Sidecars {
                     &[],
                     &log,
                 ) {
-                    children.push(child);
+                    children.push(Proc::Std(child));
                 }
             } else {
                 eprintln!("agent-strata: opencode not found on PATH");
@@ -189,8 +268,21 @@ impl Sidecars {
             eprintln!(
                 "agent-strata: port {port} is already open, leaving the existing service in place"
             );
+        } else if !cfg!(debug_assertions) {
+            if let Some(child) = spawn_bundled(app, &envs, &data, &log_path) {
+                children.push(Proc::Bundled(child));
+                if !wait_port(port, Duration::from_secs(8)) {
+                    eprintln!(
+                        "agent-strata: bundled service did not listen on {port}; see {}",
+                        log_path.display()
+                    );
+                }
+            }
         } else if !service.is_file() {
-            eprintln!("agent-strata: service entry not found at {}", service.display());
+            eprintln!(
+                "agent-strata: service entry not found at {}",
+                service.display()
+            );
         } else if let Some(bun) = which("bun") {
             if let Some(child) = spawn(
                 &bun,
@@ -199,7 +291,7 @@ impl Sidecars {
                 &envs,
                 &log,
             ) {
-                children.push(child);
+                children.push(Proc::Std(child));
                 if !wait_port(port, Duration::from_secs(8)) {
                     eprintln!(
                         "agent-strata: service did not listen on {port}; see {}",
@@ -217,8 +309,9 @@ impl Sidecars {
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
         .setup(|app| {
-            app.manage(Sidecars::start());
+            app.manage(Sidecars::start(app.handle()));
             Ok(())
         })
         .run(tauri::generate_context!())

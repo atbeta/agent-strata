@@ -533,7 +533,7 @@ export function SessionDetail(props: { id: string }) {
                     class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                     title="Export"
                     aria-label="Export"
-                    href={`/api/export?session_id=${encodeURIComponent(v().session_id)}`}
+                    href={`${api("/export")}?session_id=${encodeURIComponent(v().session_id)}`}
                     download=""
                   >
                     <Icon name="download" />
