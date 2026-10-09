@@ -1,4 +1,4 @@
-import { createEffect, createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createResource, createSignal, For, Index, onCleanup, onMount, Show } from "solid-js";
 import {
   abortSession,
   api,
@@ -8,132 +8,15 @@ import {
   realWorkspace,
   respondPermission,
   respondQuestion,
-  type ContentBlock,
   type OptionsResponse,
   type PendingAsk,
   type PendingQuestion,
   type SessionView,
-  type ToolCallView,
-  type Turn,
 } from "./api";
-import { Md } from "./md";
 import { Icon } from "./icons";
 import { inDesktopShell } from "./shell";
 import { TraceDrawer, TraceStrip, type TraceBlock } from "./trace";
-
-function BlockText(props: { blocks: ContentBlock[]; tight?: boolean }) {
-  return (
-    <For each={props.blocks}>
-      {(b) => (
-        <Show
-          when={b.type !== "thinking"}
-          fallback={
-            <details class="group my-1.5">
-              <summary class="inline-flex cursor-pointer select-none items-center gap-1.5 text-xs text-muted-foreground [list-style:none] hover:text-foreground">
-                <span class="text-[10px] transition-transform group-open:rotate-90">▸</span>
-                Thought
-              </summary>
-              <Md class="mt-1.5 border-l border-border pl-3 text-[13px] leading-6 text-muted-foreground" text={b.text ?? ""} />
-            </details>
-          }
-        >
-          <Show
-            when={b.type !== "file_ref"}
-            fallback={
-              <p class="my-1 font-mono text-xs text-event-file">
-                {(b as { path?: string }).path}
-              </p>
-            }
-          >
-            <Md class={props.tight ? "md-bubble" : ""} text={b.text ?? `[${b.type}]`} />
-          </Show>
-        </Show>
-      )}
-    </For>
-  );
-}
-
-function ToolCallRow(props: { call: ToolCallView }) {
-  const [open, setOpen] = createSignal(false);
-  const denied = () =>
-    props.call.status === "error" || props.call.permission?.decision === "deny";
-  const preview = () => {
-    const s = JSON.stringify(props.call.input);
-    return s.length > 88 ? s.slice(0, 88) + "…" : s;
-  };
-  return (
-    <div class="overflow-hidden rounded-lg border border-border/80 bg-card/60 font-mono text-xs">
-      <button
-        class="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-secondary/60"
-        onClick={() => setOpen((v) => !v)}
-      >
-        <span class={`text-[10px] text-muted-foreground transition-transform ${open() ? "rotate-90" : ""}`}>
-          ▸
-        </span>
-        <span class={denied() ? "text-status-error" : "text-event-tool"}>{props.call.tool}</span>
-        <span class="min-w-0 truncate text-muted-foreground">{preview()}</span>
-        <span class="ml-auto shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">
-          {props.call.status}
-        </span>
-      </button>
-      <Show when={open()}>
-        <div class="space-y-2 border-t border-border px-3 py-2.5">
-          <Show when={props.call.permission}>
-            {(p) => (
-              <div class="text-event-permission">
-                permission {p().decision ?? "pending"}
-                {p().by ? ` · ${p().by}` : ""}
-                {p().reason ? ` — ${p().reason}` : ""}
-              </div>
-            )}
-          </Show>
-          <pre class="whitespace-pre-wrap break-all text-muted-foreground">
-            {JSON.stringify(props.call.input, null, 2)}
-          </pre>
-          <Show when={props.call.output}>
-            <pre class="max-h-64 overflow-y-auto whitespace-pre-wrap break-all rounded-md bg-background/70 p-2 text-muted-foreground">
-              {props.call.output}
-            </pre>
-          </Show>
-        </div>
-      </Show>
-    </div>
-  );
-}
-
-function TurnBlock(props: { turn: Turn }) {
-  return (
-    <div class="space-y-3">
-      <Show when={props.turn.user}>
-        {(blocks) => (
-          <div class="flex justify-end">
-            <div class="max-w-[min(85%,36rem)] rounded-2xl rounded-br-md bg-secondary px-3.5 py-2 text-secondary-foreground">
-              <BlockText blocks={blocks()} tight />
-            </div>
-          </div>
-        )}
-      </Show>
-      <For each={props.turn.assistant}>
-        {(a) => (
-          <div class="max-w-3xl">
-            <Show when={a.partial}>
-              <div class="mb-1 text-[11px] text-event-assistant">streaming</div>
-            </Show>
-            <div class="relative">
-              <BlockText blocks={a.content} />
-              <Show when={a.partial}>
-                <span class="ml-0.5 inline-block h-[1em] w-[2px] translate-y-0.5 animate-pulse bg-foreground/70 align-text-bottom" />
-              </Show>
-            </div>
-          </div>
-        )}
-      </For>
-      <div class="max-w-3xl space-y-2">
-        <For each={props.turn.tool_calls}>{(c) => <ToolCallRow call={c} />}</For>
-      </div>
-    </div>
-  );
-}
+import { TurnBlock } from "./transcript";
 
 function QuestionCard(props: { q: PendingQuestion; onDone: () => void }) {
   const [picks, setPicks] = createSignal<string[][]>(props.q.questions.map(() => []));
@@ -269,7 +152,9 @@ export function SessionDetail(props: { id: string }) {
   const [view, { refetch }] = createResource(
     () => ({ id: props.id, pos: replayPos() }),
     ({ id, pos }) =>
-      getJson<SessionView>(`/sessions/${id}/view${pos === null ? "" : `?until_seq=${pos}`}`),
+      getJson<SessionView>(
+        `/sessions/${encodeURIComponent(id)}/view${pos === null ? "" : `?until_seq=${pos}`}`,
+      ),
   );
   const [maxSeq, { refetch: refetchSeq }] = createResource(
     () => props.id,
@@ -583,7 +468,7 @@ export function SessionDetail(props: { id: string }) {
                         </p>
                       }
                     >
-                    <For each={v().turns}>{(t) => <TurnBlock turn={t} />}</For>
+                    <Index each={v().turns}>{(t) => <TurnBlock turn={t()} />}</Index>
                     </Show>
                   </Show>
                 </div>

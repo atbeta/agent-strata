@@ -50,5 +50,5 @@ System sans for UI, mono for paths, ids, commands, and money. UI copy is 13px; s
 ## Screens
 
 - **Sidebar** (`App.tsx`): project switcher, search, sessions grouped by day or by project.
-- **Session** (`session-detail.tsx`): transcript, composer, optional files and replay.
+- **Session** (`session-detail.tsx`): transcript, composer, optional files and replay. Thinking is a quiet disclosure (`Thought` / live `Thinking`) with a one-line preview. Tool calls are separate cards: Bash shows the command, Read and Edit show the path, edits add a `+n −n` diff, Search and Fetch show the query or URL, and a plan tool lists its items. File references are chips. Failed and denied calls use the destructive border; a finished call stays collapsed.
 - **Compare** (`compare.tsx`) and **policy** (`policy.tsx`): same tokens, no separate theme.
