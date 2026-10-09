@@ -4,6 +4,5 @@
   "private": true,
   "type": "module",
   "main": "src/index.ts",
-  "dependencies": { "zod": "3.23.8", "ulid": "2.3.0", "@agent-strata/schema": "workspace:*", "diff": "5.2.0" },
-  "devDependencies": { "@types/diff": "5.2.3" }
+  "dependencies": { "zod": "3.23.8", "ulid": "2.3.0", "@agent-strata/schema": "workspace:*" }
 }

@@ -1,5 +1,4 @@
 import type { ContentBlock, Event, Usage } from "@agent-strata/schema";
-import { createPatch } from "diff";
 
 export interface PermissionInfo {
   request_id: string;
@@ -66,31 +65,27 @@ export interface QuestionPrompt {
   }[];
 }
 
-/** One change as the backend recorded it, before the diff is filled in. */
+/** One change as the backend recorded it. */
 interface ChangeRecord {
   change: FileChangeKind;
   diff?: string;
+  call_id?: string;
+  whole_file?: boolean;
 }
 
 type FileChangeKind = "add" | "modify" | "delete";
 
-interface EditableCall {
-  path: string;
-  before: string;
-  after: string;
-  whole_file: boolean;
-  turn_index: number;
-}
-
-/** One recorded change to one file, with the text that changed if we have it. */
+/** One recorded change to one file, with the text that changed if the backend sent it. */
 export interface FileEditView {
   change: FileChangeKind;
   /** lines added and removed, counted out of the unified diff */
   additions: number;
   deletions: number;
-  /** absent when no tool call explains this change — usually a shell command */
+  /** absent when the backend saw the file change but no call explains it — usually a shell command */
   diff?: string;
-  /** index into SessionView.turns, or -1 when the turn is not in this session */
+  /** the tool call that made the change */
+  call_id?: string;
+  /** index into SessionView.turns, or -1 when no call in this session made the change */
   turn_index: number;
   /** the diff covers the whole file rather than a region of it */
   whole_file?: boolean;
@@ -168,112 +163,10 @@ export function countPatchLines(patch: string): { additions: number; deletions: 
   return { additions, deletions };
 }
 
-/** One shape for paths: Windows or POSIX, drive letter case not guaranteed. */
+/** One shape for a path: separators unified, and a Windows drive path compared without case. */
 function pathKey(path: string): string {
-  return path.replace(/\\/g, "/").toLowerCase();
-}
-
-/**
- * The before and after text of a call that changes a file, when the call
- * carries it. These are the shapes agent coding tools use for an in-place edit
- * and for writing a whole file; a call that reports neither is not something we
- * can reconstruct a diff from, so it is left alone.
- */
-function editableText(
-  tool: string,
-  input: unknown,
-): { path: string; before: string; after: string; whole_file: boolean } | undefined {
-  if (!input || typeof input !== "object") return;
-  const i = input as Record<string, unknown>;
-  if (typeof i.filePath !== "string") return;
-  if (tool === "edit" && typeof i.oldString === "string" && typeof i.newString === "string") {
-    return { path: i.filePath, before: i.oldString, after: i.newString, whole_file: false };
-  }
-  if (tool === "write" && typeof i.content === "string") {
-    return { path: i.filePath, before: "", after: i.content, whole_file: true };
-  }
-  return;
-}
-
-/**
- * A change recorded with nothing to show for it, filled in from the tool calls
- * that produced it.
- *
- * A backend's change event is a statement that a file changed. Most of them do
- * not ship the text — OpenCode's patch part is `{ files: string[] }` and nothing
- * more, and asking it for the diff returns nothing at all because it keeps no
- * snapshot to compare against. The text is still in the session: it is in the
- * edit and write calls, one per changed path, recorded alongside. So rather
- * than storing a second copy of the file on disk and diffing it after the fact,
- * the diff is rebuilt from the call that made the change.
- *
- * Reading beats storing here for a second reason: sessions recorded before this
- * existed have no diff to recover, and rebuilding from their tool calls gives
- * them one. Measured at ~13ms for a 425-call session, against an open that
- * already costs hundreds — not worth a second endpoint or a re-import.
- *
- * A change no call accounts for — usually a shell command — keeps its place in
- * the list with no diff, because the backend did see the file change and
- * dropping it would hide something real.
- */
-function fillDiffs(
-  files: Map<string, { change: FileChangeKind; records: ChangeRecord[] }>,
-  turns: Turn[],
-): Map<string, FileChangeView> {
-  const pool = new Map<string, EditableCall[]>();
-  for (const [index, turn] of turns.entries()) {
-    for (const call of turn.tool_calls) {
-      const text = editableText(call.tool, call.input);
-      if (!text) continue;
-      const key = pathKey(text.path);
-      const list = pool.get(key) ?? [];
-      list.push({ ...text, turn_index: index });
-      pool.set(key, list);
-    }
-  }
-
-  const out = new Map<string, FileChangeView>();
-  for (const [path, f] of files) {
-    const available = (pool.get(pathKey(path)) ?? []).slice();
-    const edits: FileEditView[] = [];
-    for (const rec of f.records) {
-      const call = rec.diff ? undefined : available.shift();
-      const diff = rec.diff ?? (call ? createPatch(path, call.before, call.after) : undefined);
-      const lines = diff ? countPatchLines(diff) : { additions: 0, deletions: 0 };
-      edits.push({
-        change: rec.change,
-        additions: lines.additions,
-        deletions: lines.deletions,
-        diff,
-        whole_file: call?.whole_file,
-        turn_index: call?.turn_index ?? -1,
-      });
-    }
-    // A call that changed a file without a matching change event — the patch
-    // never landed — is still a change that happened, so it is not dropped.
-    for (const call of available) {
-      const diff = createPatch(path, call.before, call.after);
-      const lines = countPatchLines(diff);
-      edits.push({
-        change: f.change,
-        additions: lines.additions,
-        deletions: lines.deletions,
-        diff,
-        whole_file: call.whole_file,
-        turn_index: call.turn_index,
-      });
-    }
-    out.set(path, {
-      path,
-      change: f.change,
-      count: edits.length,
-      additions: edits.reduce((n, e) => n + e.additions, 0),
-      deletions: edits.reduce((n, e) => n + e.deletions, 0),
-      edits,
-      unexplained: edits.some((e) => !e.diff),
-    });
-  }
-  return out;
+  const p = path.replace(/\\/g, "/");
+  return /^[A-Za-z]:\//.test(p) ? p.toLowerCase() : p;
 }
 
 export function projectSession(events: Event[]): SessionView {
@@ -303,23 +196,7 @@ export function projectSession(events: Event[]): SessionView {
   // permission.requested can arrive before its tool.call (opencode emits
   // permission.asked first) — index by call_id so a late call still attaches
   const requestsByCall = new Map<string, PermissionInfo>();
-  const files = new Map<string, { change: FileChangeKind; records: ChangeRecord[] }>();
-  /**
-   * When each assistant message was last recorded, and when each unattributed
-   * call was. A backend that names the message needs none of this; one that
-   * does not still has an order to read.
-   *
-   * It is the *last* record that matters, not the first. A message streams: it
-   * appears as a partial, the tool calls it declared arrive while it is still
-   * streaming, and it is published again when it completes. So a call belongs
-   * to the first message of its turn that had not finished by the time the
-   * call was made — and a message that had already finished before the call
-   * cannot be the one that declared it. Sessions recorded before `msg_id`
-   * existed have no other way to get their calls back in front of the words
-   * that asked for them.
-   */
-  const messageSeq = new Map<string, { msg_id: string; seq: number }[]>();
-  const callSeq = new Map<string, number>();
+  const files = new Map<string, { path: string; change: FileChangeKind; records: ChangeRecord[] }>();
   const questions = new Map<string, QuestionPrompt>();
   const orphanResults: { call_id: string; status: string; output?: string; latency_ms?: number }[] = [];
 
@@ -364,18 +241,6 @@ export function projectSession(events: Event[]): SessionView {
       }
       case "turn.assistant": {
         const t = getTurn(e.data.turn_id);
-        if (e.data.msg_id) {
-          let seen = messageSeq.get(t.turn_id);
-          if (!seen) {
-            seen = [];
-            messageSeq.set(t.turn_id, seen);
-          }
-          const known = seen.find((m) => m.msg_id === e.data.msg_id);
-          // The newest record wins: it is the one that says when the message
-          // stopped, and a call made before that belongs to it.
-          if (known) known.seq = e.seq;
-          else seen.push({ msg_id: e.data.msg_id, seq: e.seq });
-        }
         const addUsage = (sign: 1 | -1, u?: Usage, cost?: number) => {
           if (u) {
             view.totals.input += sign * u.input;
@@ -430,7 +295,6 @@ export function projectSession(events: Event[]): SessionView {
           order: e.data.order,
           msg_id: e.data.msg_id,
         };
-        if (e.data.msg_id === undefined) callSeq.set(e.data.call_id, e.seq);
         t.tool_calls.push(call);
         calls.set(e.data.call_id, call);
         const pendingReq = requestsByCall.get(e.data.call_id);
@@ -476,10 +340,16 @@ export function projectSession(events: Event[]): SessionView {
         break;
       }
       case "file.changed": {
-        const f = files.get(e.data.path) ?? { change: e.data.change, records: [] };
+        const key = pathKey(e.data.path);
+        const f = files.get(key) ?? { path: e.data.path, change: e.data.change, records: [] };
         f.change = e.data.change;
-        f.records.push({ change: e.data.change, diff: e.data.diff });
-        files.set(e.data.path, f);
+        f.records.push({
+          change: e.data.change,
+          diff: e.data.diff,
+          call_id: e.data.call_id,
+          whole_file: e.data.whole_file,
+        });
+        files.set(key, f);
         break;
       }
       case "plan.updated":
@@ -513,19 +383,6 @@ export function projectSession(events: Event[]): SessionView {
   // the inner one, which is also the grouping the transcript needs to put a
   // call beside the words that asked for it.
   for (const t of view.turns) {
-    const seen = messageSeq.get(t.turn_id);
-    if (seen && t.tool_calls.some((c) => c.msg_id === undefined && callSeq.has(c.call_id))) {
-      // The first message still unfinished when the call was made is the one
-      // that declared it. This is how sessions recorded before msg_id existed
-      // get their calls back in front of the reply instead of after it.
-      for (const c of t.tool_calls) {
-        if (c.msg_id !== undefined) continue;
-        const seq = callSeq.get(c.call_id);
-        if (seq === undefined) continue;
-        const owner = seen.find((m) => m.seq > seq);
-        if (owner) c.msg_id = owner.msg_id;
-      }
-    }
     if (!t.tool_calls.some((c) => c.order !== undefined)) continue;
     const messageAt = new Map<string, number>();
     t.assistant.forEach((a, i) => {
@@ -566,7 +423,33 @@ export function projectSession(events: Event[]): SessionView {
     });
   }
 
-  view.files_changed = [...fillDiffs(files, view.turns).values()];
+  const turnOfCall = new Map<string, number>();
+  view.turns.forEach((t, i) => {
+    for (const c of t.tool_calls) turnOfCall.set(c.call_id, i);
+  });
+  view.files_changed = [...files.values()].map((f) => {
+    const edits = f.records.map((r): FileEditView => {
+      const lines = r.diff ? countPatchLines(r.diff) : { additions: 0, deletions: 0 };
+      return {
+        change: r.change,
+        additions: lines.additions,
+        deletions: lines.deletions,
+        diff: r.diff,
+        call_id: r.call_id,
+        turn_index: r.call_id === undefined ? -1 : (turnOfCall.get(r.call_id) ?? -1),
+        whole_file: r.whole_file,
+      };
+    });
+    return {
+      path: f.path,
+      change: f.change,
+      count: edits.length,
+      additions: edits.reduce((n, e) => n + e.additions, 0),
+      deletions: edits.reduce((n, e) => n + e.deletions, 0),
+      edits,
+      unexplained: edits.some((e) => !e.diff),
+    };
+  });
   return view;
 }
 

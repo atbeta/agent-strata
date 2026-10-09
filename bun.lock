@@ -64,12 +64,8 @@
       "version": "0.0.0",
       "dependencies": {
         "@agent-strata/schema": "workspace:*",
-        "diff": "5.2.0",
         "ulid": "2.3.0",
         "zod": "3.23.8",
-      },
-      "devDependencies": {
-        "@types/diff": "5.2.3",
       },
     },
     "packages/schema": {

@@ -116,47 +116,6 @@ describe("projector", () => {
     expect(v.turns[0]!.tool_calls.map((c) => c.call_id)).toEqual(["a0", "b0", "orphan"]);
   });
 
-  test("a call recorded before its message existed still finds that message", () => {
-    // Sessions stored before msg_id existed have calls with no message at all,
-    // and re-importing cannot add the field — the store keeps the first body it
-    // saw for an event id. A message streams: partials, then the calls it
-    // declared, then a final record when it completes. So a call belongs to
-    // the first message that had not finished by the time it was made.
-    const v = projectSession([
-      mk("s", "turn.user", { turn_id: "t", content: [] }),
-      mk("s", "turn.assistant", { turn_id: "t", msg_id: "m1", content: [], partial: true }),
-      mk("s", "tool.call", { turn_id: "t", call_id: "c1", tool: "bash", input: {}, order: 0 }),
-      mk("s", "turn.assistant", { turn_id: "t", msg_id: "m1", content: [] }),
-      mk("s", "turn.assistant", { turn_id: "t", msg_id: "m2", content: [], partial: true }),
-      mk("s", "tool.call", { turn_id: "t", call_id: "c2", tool: "read", input: {}, order: 0 }),
-      mk("s", "turn.assistant", { turn_id: "t", msg_id: "m2", content: [] }),
-    ]);
-    expect(v.turns[0]!.tool_calls.map((c) => [c.call_id, c.msg_id])).toEqual([
-      ["c1", "m1"],
-      ["c2", "m2"],
-    ]);
-  });
-
-  test("a call made before any message appeared belongs to the one that finished first", () => {
-    const v = projectSession([
-      mk("s", "turn.user", { turn_id: "t", content: [] }),
-      mk("s", "tool.call", { turn_id: "t", call_id: "c1", tool: "bash", input: {}, order: 0 }),
-      mk("s", "turn.assistant", { turn_id: "t", msg_id: "m1", content: [] }),
-      mk("s", "turn.assistant", { turn_id: "t", msg_id: "m2", content: [] }),
-    ]);
-    expect(v.turns[0]!.tool_calls.map((c) => c.msg_id)).toEqual(["m1"]);
-  });
-
-  test("a message the backend named wins over the sequence guess", () => {
-    const v = projectSession([
-      mk("s", "turn.assistant", { turn_id: "t", msg_id: "m1", content: [] }),
-      mk("s", "turn.assistant", { turn_id: "t", msg_id: "m2", content: [] }),
-      // recorded before m1 and m2 but declared as belonging to m2
-      mk("s", "tool.call", { turn_id: "t", call_id: "c1", tool: "bash", input: {}, order: 0, msg_id: "m2" }),
-    ]);
-    expect(v.turns[0]!.tool_calls.map((c) => c.msg_id)).toEqual(["m2"]);
-  });
-
   test("orphan tool.result", () => {
     const v = projectSession([
       mk("s", "tool.result", { call_id: "ghost", status: "ok", output: "?" }),
@@ -232,59 +191,6 @@ describe("projector", () => {
     expect(v.files_changed[0]!.edits).toHaveLength(2);
   });
 
-  test("a change with no diff is rebuilt from the edit call that made it", () => {
-    const v = projectSession([
-      mk("s", "tool.call", {
-        turn_id: "t1",
-        call_id: "c1",
-        tool: "edit",
-        input: { filePath: "src/x.ts", oldString: "const a = 1", newString: "const a = 2" },
-      }),
-      mk("s", "file.changed", { path: "src/x.ts", change: "modify" }),
-    ]);
-    const f = v.files_changed[0]!;
-    expect(f.unexplained).toBe(false);
-    expect(f.additions).toBe(1);
-    expect(f.deletions).toBe(1);
-    expect(f.edits[0]!.diff).toContain("-const a = 1");
-    expect(f.edits[0]!.diff).toContain("+const a = 2");
-    expect(f.edits[0]!.whole_file).toBe(false);
-    // the reader can walk from the file back to the turn that changed it
-    expect(f.edits[0]!.turn_index).toBe(0);
-  });
-
-  test("a whole-file write is labelled differently from an in-place edit", () => {
-    const v = projectSession([
-      mk("s", "tool.call", {
-        turn_id: "t1",
-        call_id: "c1",
-        tool: "write",
-        input: { filePath: "new.ts", content: "a\nb\n" },
-      }),
-      mk("s", "file.changed", { path: "new.ts", change: "add" }),
-    ]);
-    const edit = v.files_changed[0]!.edits[0]!;
-    expect(edit.whole_file).toBe(true);
-    expect(edit.additions).toBe(2);
-    expect(edit.deletions).toBe(0);
-  });
-
-  test("the two path spellings of one file still match", () => {
-    // OpenCode writes the changed path with forward slashes while the tool
-    // input it sits beside uses the platform's own separators.
-    const v = projectSession([
-      mk("s", "tool.call", {
-        turn_id: "t1",
-        call_id: "c1",
-        tool: "edit",
-        input: { filePath: "D:\\Repo\\src\\x.ts", oldString: "a", newString: "b" },
-      }),
-      mk("s", "file.changed", { path: "D:/repo/src/x.ts", change: "modify" }),
-    ]);
-    expect(v.files_changed[0]!.unexplained).toBe(false);
-    expect(v.files_changed[0]!.edits[0]!.diff).toContain("+b");
-  });
-
   test("a change no call explains keeps its place and says so", () => {
     const v = projectSession([
       mk("s", "tool.call", {
@@ -304,60 +210,69 @@ describe("projector", () => {
     expect(f.additions).toBe(0);
   });
 
-  test("an edit call with no change event is still a change that happened", () => {
+  const PATCH = "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-const a = 1\n+const a = 2\n";
+
+  test("a change carries its own diff and points back to the turn of its call", () => {
     const v = projectSession([
-      mk("s", "tool.call", {
-        turn_id: "t1",
-        call_id: "c1",
-        tool: "edit",
-        input: { filePath: "x.ts", oldString: "a", newString: "b" },
-      }),
-      mk("s", "tool.call", {
-        turn_id: "t1",
-        call_id: "c2",
-        tool: "bash",
-        input: { command: "ls" },
-      }),
-      mk("s", "file.changed", { path: "x.ts", change: "modify" }),
+      mk("s", "turn.user", { turn_id: "t1", content: [] }),
+      mk("s", "tool.call", { turn_id: "t1", call_id: "c1", tool: "edit", input: {} }),
+      mk("s", "file.changed", { path: "src/x.ts", change: "modify", call_id: "c1", diff: PATCH }),
     ]);
-    // only the edit call is consumed by the one recorded change
-    expect(v.files_changed[0]!.edits).toHaveLength(1);
-    expect(v.files_changed[0]!.unexplained).toBe(false);
+    const f = v.files_changed[0]!;
+    expect(f.unexplained).toBe(false);
+    expect([f.additions, f.deletions]).toEqual([1, 1]);
+    expect(f.edits[0]).toMatchObject({ call_id: "c1", turn_index: 0, diff: PATCH });
   });
 
-  test("a diff the backend already sent is used as-is, never rebuilt", () => {
+  test("a whole-file change says so", () => {
     const v = projectSession([
-      mk("s", "tool.call", {
-        turn_id: "t1",
-        call_id: "c1",
-        tool: "edit",
-        input: { filePath: "x.ts", oldString: "a", newString: "b" },
-      }),
-      mk("s", "file.changed", { path: "x.ts", change: "modify", diff: "the backend's own patch" }),
+      mk("s", "file.changed", { path: "new.ts", change: "add", diff: PATCH, whole_file: true, call_id: "c9" }),
     ]);
-    expect(v.files_changed[0]!.edits[0]!.diff).toBe("the backend's own patch");
-    // the leftover edit call is a separate change, not a second reading of this one
-    expect(v.files_changed[0]!.edits).toHaveLength(2);
+    expect(v.files_changed[0]!.edits[0]).toMatchObject({ whole_file: true, turn_index: -1 });
   });
 
-  test("a file changed twice gets both diffs, in order", () => {
+  test("two spellings of one Windows path are one file", () => {
+    const v = projectSession([
+      mk("s", "file.changed", { path: "D:\\Repo\\x.ts", change: "modify", diff: PATCH }),
+      mk("s", "file.changed", { path: "d:/repo/x.ts", change: "modify" }),
+    ]);
+    expect(v.files_changed).toHaveLength(1);
+    expect(v.files_changed[0]!.path).toBe("D:\\Repo\\x.ts");
+    expect(v.files_changed[0]!.count).toBe(2);
+    expect(v.files_changed[0]!.unexplained).toBe(true);
+  });
+
+  test("POSIX paths keep their case", () => {
+    const v = projectSession([
+      mk("s", "file.changed", { path: "/r/A.ts", change: "modify" }),
+      mk("s", "file.changed", { path: "/r/a.ts", change: "modify" }),
+    ]);
+    expect(v.files_changed.map((f) => f.path)).toEqual(["/r/A.ts", "/r/a.ts"]);
+  });
+
+  test("a file changed in two turns lists both, in order", () => {
+    const v = projectSession([
+      mk("s", "tool.call", { turn_id: "t1", call_id: "c1", tool: "edit", input: {} }),
+      mk("s", "file.changed", { path: "x.ts", change: "modify", call_id: "c1", diff: PATCH }),
+      mk("s", "tool.call", { turn_id: "t2", call_id: "c2", tool: "edit", input: {} }),
+      mk("s", "file.changed", { path: "x.ts", change: "modify", call_id: "c2", diff: PATCH }),
+    ]);
+    const f = v.files_changed[0]!;
+    expect(f.count).toBe(2);
+    expect([f.additions, f.deletions]).toEqual([2, 2]);
+    expect(f.edits.map((e) => e.turn_index)).toEqual([0, 1]);
+  });
+
+  test("tool inputs are never read to invent a diff", () => {
     const v = projectSession([
       mk("s", "tool.call", {
         turn_id: "t1", call_id: "c1", tool: "edit",
         input: { filePath: "x.ts", oldString: "a", newString: "b" },
       }),
       mk("s", "file.changed", { path: "x.ts", change: "modify" }),
-      mk("s", "tool.call", {
-        turn_id: "t2", call_id: "c2", tool: "edit",
-        input: { filePath: "x.ts", oldString: "b", newString: "c" },
-      }),
-      mk("s", "file.changed", { path: "x.ts", change: "modify" }),
     ]);
-    const f = v.files_changed[0]!;
-    expect(f.count).toBe(2);
-    expect(f.additions).toBe(2);
-    expect(f.deletions).toBe(2);
-    expect(f.edits.map((e) => e.turn_index)).toEqual([0, 1]);
+    expect(v.files_changed[0]!.edits[0]!.diff).toBeUndefined();
+    expect(v.files_changed[0]!.unexplained).toBe(true);
   });
 
   test("a later partial does not reopen a finished assistant message", () => {
