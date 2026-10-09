@@ -444,6 +444,67 @@ describe("OpencodeMapper", () => {
     ]);
   });
 
+  test("a file change is stamped when it happened, not when we connected", () => {
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    m.handle(msgUpdated({
+      id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
+      time: { created: 1_700_000_000_000, completed: 1_700_000_060_000 },
+      providerID: "anthropic", modelID: "claude", agent: "build", mode: "build",
+      path: { cwd: "/repo", root: "/repo" }, cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    }));
+    const fc = m.handle(partUpdated({
+      id: "pp", sessionID: sid, messageID: "a1", type: "patch", hash: "h", files: ["x.ts"],
+    }));
+    // Without a source clock the store takes the ingest clock, so replaying a
+    // session on every connect moved every file change to the connect moment
+    // and the session list sorted by that.
+    expect(fc[0]!.ts).toBe("2023-11-14T22:14:20.000Z");
+  });
+
+  test("a patch with no message time keeps the ingest clock rather than inventing one", () => {
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    const fc = m.handle(partUpdated({
+      id: "pp", sessionID: sid, messageID: "never-seen", type: "patch", hash: "h", files: ["x.ts"],
+    }));
+    expect(fc[0]!.ts).toBeTruthy();
+    expect(Number.isNaN(Date.parse(fc[0]!.ts as string))).toBe(false);
+    // and it must not be a made-up epoch either
+    expect(Date.parse(fc[0]!.ts as string)).toBeGreaterThan(1_700_000_000_000);
+  });
+
+  test("a session met through a message re-stamps its start once the real time arrives", () => {
+    const store = openStore(":memory:");
+    const m = new OpencodeMapper({ directory: "/repo" });
+    // first sight is a message, so there is nothing yet to put on the clock
+    store.append(m.handle(msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 10 } })));
+    const blind = store.read({ session_id: `opencode:${sid}` }).find((e) => e.type === "session.started")!;
+    const blindTs = blind.ts;
+
+    // the session event carries the backend's own clock
+    store.append(
+      m.handle({
+        id: "sc", type: "session.created",
+        properties: {
+          sessionID: sid,
+          info: {
+            id: sid, directory: "/repo", title: "T",
+            time: { created: 1_700_000_000_000, updated: 1_700_000_060_000 },
+          },
+        },
+      } as unknown as Event),
+    );
+
+    const after = store.read({ session_id: `opencode:${sid}` }).filter((e) => e.type === "session.started");
+    // same event, corrected in place — not a second row
+    expect(after).toHaveLength(1);
+    expect(after[0]!.ts).not.toBe(blindTs);
+    expect(after[0]!.ts).toBe(new Date(1_700_000_060_000).toISOString());
+    store.close();
+  });
+
   test("lazy session.started is corrected when the real session.created arrives", () => {
     const store = openStore(":memory:");
     const m = new OpencodeMapper({ directory: "/lazy" });

@@ -950,7 +950,7 @@ const turnIndexOf = (h: SearchHit): number => {
                       </Show>
                     }
                   >
-                    <ul ref={(el) => (resultsEl = el)} class="max-h-72 overflow-y-auto py-1">
+                    <ul ref={(el) => (resultsEl = el)} class="max-h-72 overflow-x-hidden overflow-y-auto py-1">
                       <For each={targets()}>
                         {(h, i) => (
                           <li>
@@ -995,7 +995,13 @@ const turnIndexOf = (h: SearchHit): number => {
 
               <div
                 ref={scroller}
-                class="min-h-0 flex-1 overflow-y-auto"
+                // overflow-x is stated, not left out. CSS turns a `visible`
+                // overflow-x into `auto` whenever overflow-y is a scroller, so
+                // any one row wider than the column grew a horizontal scrollbar
+                // that shrank the column — and windowing meant that row came and
+                // went while scrolling, so the whole transcript breathed in and
+                // out. Everything inside already scrolls or wraps on its own.
+                class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
                 onScroll={(e) => {
                   const el = e.currentTarget;
                   setScrollTop(el.scrollTop);
@@ -1303,7 +1309,7 @@ const turnIndexOf = (h: SearchHit): number => {
               </div>
               <div class="flex min-h-0 flex-1">
                 <div
-                  class={`min-h-0 space-y-5 overflow-y-auto px-2 py-3 ${
+                  class={`min-h-0 space-y-5 overflow-x-hidden overflow-y-auto px-2 py-3 ${
                     open() ? "w-44 shrink-0 border-r border-border" : "w-full px-3"
                   }`}
                 >

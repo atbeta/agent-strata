@@ -56,6 +56,7 @@ interface MsgState {
   role?: string;
   parentID?: string;
   created?: number;
+  completed?: number;
   parts: Map<string, ContentBlock>;
   toolParts: Map<string, { emittedCall: boolean; emittedResult: boolean; order: number }>;
   emittedAssistant: boolean;
@@ -67,6 +68,12 @@ interface SessionState {
   sessionID: string;
   casfId: string;
   started: boolean;
+  /**
+   * We met this session through one of its messages rather than through a
+   * session.created, so the started event went out with no clock to put on it.
+   * The next session event carries the real one and re-stamps it.
+   */
+  startedBlind?: boolean;
   updated?: number;
   messages: Map<string, MsgState>;
   pendingUserMsgs: Set<string>;
@@ -116,6 +123,7 @@ export class OpencodeMapper {
     }
     if (!s.started) {
       s.started = true;
+      s.startedBlind = true;
       out.push(
         this.ev(
           s,
@@ -124,6 +132,24 @@ export class OpencodeMapper {
           `opencode:${sessionID}:session.started`,
         ),
       );
+    } else if (s.startedBlind && s.updated != null) {
+      // The store rewrites a stored event's clock when it is handed a source
+      // one, so re-sending the same event id with the real time corrects the
+      // timestamp connect already wrote, instead of adding a second row. It
+      // waits for a real clock rather than taking a second wrong one.
+      const at = sourceTime(s.updated);
+      if (at) {
+        s.startedBlind = false;
+        out.push(
+          this.ev(
+            s,
+            "session.started",
+            { workspace: this.opts.directory ?? "unknown" },
+            `opencode:${sessionID}:session.started`,
+            at,
+          ),
+        );
+      }
     }
     return { s, out };
   }
@@ -221,6 +247,11 @@ export class OpencodeMapper {
         // stored session.started under a stable id, so a second started event
         // cannot replace its workspace. Publish the real directory as an update.
         const already = this.sessions.get(p.sessionID)?.started === true;
+        // Seeded before ensureSession so that a session we only knew through a
+        // message can already be re-stamped by it; after, the clock this event
+        // carries would arrive too late for the check that wants it.
+        const known = this.sessions.get(p.sessionID);
+        if (known) known.updated = p.info.time?.updated ?? p.info.time?.created ?? known.updated;
         const { s, out: pre } = this.ensureSession(p.sessionID);
         out.push(...pre);
         s.updated = p.info.time?.updated ?? p.info.time?.created ?? s.updated;
@@ -275,6 +306,10 @@ export class OpencodeMapper {
         const m = this.ensureMsg(s, info.id);
         m.role = info.role;
         if (info.time?.created) m.created = info.time.created;
+        // The SDK types a message's clock as a union — only an assistant
+        // message carries `completed` — so this reads it off one shape.
+        const clock = info.time as { completed?: number } | undefined;
+        if (clock?.completed !== undefined) m.completed = clock.completed;
         if (info.role === "user") {
           s.pendingUserMsgs.add(info.id);
           return out;
@@ -379,6 +414,13 @@ export class OpencodeMapper {
         }
         if (part.type === "patch") {
           const seen = (m.patchSeen ??= new Set());
+          // A patch part carries no clock of its own, and emitting without one
+          // hands the store the ingest clock — so replaying a session on every
+          // connect stamped all of its history with the moment we connected,
+          // and the session list sorted by that instead of by when the agent
+          // last worked. The message this part belongs to does carry one, and
+          // the edits land as it finishes.
+          const at = sourceTime(m.completed ?? m.created ?? s.updated);
           for (const f of part.files) {
             const key = `${part.id}:${f}`;
             if (seen.has(key)) continue;
@@ -389,6 +431,7 @@ export class OpencodeMapper {
                 "file.changed",
                 { path: f, change: "modify" },
                 `opencode:${part.id}:file:${f}`,
+                at,
               ),
             );
           }
@@ -431,6 +474,12 @@ export class OpencodeMapper {
                     content,
                   },
                   `opencode:${part.messageID}:assistant.partial:${Bun.hash(JSON.stringify(content)).toString(36)}`,
+                  // A streaming snapshot has no clock of its own either. Leaving
+                  // it to the ingest clock meant a session replayed on connect
+                  // kept one event stamped with the moment we connected, which
+                  // was then the newest thing in the session and decided where
+                  // the session list put it.
+                  sourceTime(m.created ?? s.updated),
                 ),
               );
             }
