@@ -409,16 +409,24 @@ describe("OpencodeMapper", () => {
     ]);
   });
 
-  test("lazy session.started for unknown session; later real created dedupes", () => {
+  test("lazy session.started is corrected when the real session.created arrives", () => {
     const store = openStore(":memory:");
     const m = new OpencodeMapper({ directory: "/lazy" });
     store.append(m.handle(msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 1 } })));
-    store.append(m.handle(sessionCreated()));
+    const created = sessionCreated();
+    const props = created.properties as { info: { parentID?: string } };
+    props.info.parentID = "ses_parent";
+    store.append(m.handle(created));
     const evs = store.read({ session_id: `opencode:${sid}` });
     expect(evs.filter((e) => e.type === "session.started").length).toBe(1);
-    const started = evs[0]!;
-    // lazy event has same deterministic id -> real one dedupes, lazy wins in store
-    expect((started.data as { workspace: string }).workspace).toBe("/lazy");
+    expect((evs[0]!.data as { workspace: string }).workspace).toBe("/lazy");
+    const view = projectSession(evs);
+    expect(view.workspace).toBe("/repo");
+    expect(view.title).toBe("T");
+    expect(view.parent_session_id).toBe("opencode:ses_parent");
+    const row = store.listSessions().find((s) => s.session_id === `opencode:${sid}`);
+    expect(row?.workspace).toBe("/repo");
+    expect(row?.title).toBe("T");
     store.close();
   });
 

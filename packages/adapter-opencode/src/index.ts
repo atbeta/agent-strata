@@ -50,6 +50,7 @@ interface SessionState {
   title?: string;
   workspace?: string;
   archived?: boolean;
+  parent?: string;
 }
 
 export class OpencodeMapper {
@@ -109,6 +110,7 @@ export class OpencodeMapper {
     info: {
       title?: string;
       directory?: string;
+      parentID?: string;
       time?: { updated?: number; created?: number; archived?: number };
     },
     source: "created" | "updated",
@@ -116,23 +118,36 @@ export class OpencodeMapper {
     const title = info.title;
     const workspace = info.directory;
     const archived = (info.time?.archived ?? 0) > 0;
+    const parent = info.parentID ? `opencode:${info.parentID}` : s.parent;
     if (info.time?.updated || info.time?.created) {
       s.updated = info.time.updated ?? info.time.created ?? s.updated;
     }
     const changed =
-      !s.metaSeen || s.title !== title || s.workspace !== workspace || s.archived !== archived;
+      !s.metaSeen ||
+      s.title !== title ||
+      s.workspace !== workspace ||
+      s.archived !== archived ||
+      (info.parentID !== undefined && s.parent !== parent);
     s.metaSeen = true;
     s.title = title;
     s.workspace = workspace;
     s.archived = archived;
+    if (info.parentID) s.parent = parent;
     if (!changed) return;
     if (source === "created" && !archived) return;
     const stamp = info.time?.updated ?? info.time?.archived ?? 0;
-    const hash = Bun.hash(`${title ?? ""}\0${workspace ?? ""}\0${archived ? 1 : 0}`).toString(36);
+    const hash = Bun.hash(
+      `${title ?? ""}\0${workspace ?? ""}\0${archived ? 1 : 0}${info.parentID ? `\0${info.parentID}` : ""}`,
+    ).toString(36);
     return this.ev(
       s,
       "session.updated",
-      { title, workspace, archived },
+      {
+        title,
+        workspace,
+        archived,
+        ...(parent ? { parent_session_id: parent } : {}),
+      },
       `opencode:${s.sessionID}:session.updated:${stamp}:${hash}`,
       sourceTime(info.time?.updated ?? info.time?.archived),
     );
@@ -177,25 +192,30 @@ export class OpencodeMapper {
     switch (evt.type) {
       case "session.created": {
         const p = evt.properties;
+        // A message can arrive before session.created. That first event already
+        // stored session.started under a stable id, so a second started event
+        // cannot replace its workspace. Publish the real directory as an update.
+        const already = this.sessions.get(p.sessionID)?.started === true;
         const { s, out: pre } = this.ensureSession(p.sessionID);
         out.push(...pre);
         s.updated = p.info.time?.updated ?? p.info.time?.created ?? s.updated;
-        // replace lazy started data with real info
-        const i = out.findIndex((e) => e.type === "session.started");
-        const started = this.ev(
-          s,
-          "session.started",
-          {
-            workspace: p.info.directory,
-            title: p.info.title,
-            parent_session_id: p.info.parentID ? `opencode:${p.info.parentID}` : undefined,
-          },
-          `opencode:${p.sessionID}:session.started`,
-          sourceTime(s.updated),
-        );
-        if (i >= 0) out[i] = started;
-        else out.push(started);
-        const meta = this.syncMeta(s, p.info, "created");
+        if (!already) {
+          const i = out.findIndex((e) => e.type === "session.started");
+          const started = this.ev(
+            s,
+            "session.started",
+            {
+              workspace: p.info.directory,
+              title: p.info.title,
+              parent_session_id: p.info.parentID ? `opencode:${p.info.parentID}` : undefined,
+            },
+            `opencode:${p.sessionID}:session.started`,
+            sourceTime(s.updated),
+          );
+          if (i >= 0) out[i] = started;
+          else out.push(started);
+        }
+        const meta = this.syncMeta(s, p.info, already ? "updated" : "created");
         if (meta) out.push(meta);
         return out;
       }

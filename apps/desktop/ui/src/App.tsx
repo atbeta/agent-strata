@@ -254,8 +254,22 @@ export function App() {
         void refetchWs();
       }, 200);
     };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (wsOpen()) {
+        setWsOpen(false);
+        e.preventDefault();
+        return;
+      }
+      if (connOpen()) {
+        setConnOpen(false);
+        e.preventDefault();
+      }
+    };
+    window.addEventListener("keydown", onKey);
     onCleanup(() => {
       window.removeEventListener("hashchange", onHash);
+      window.removeEventListener("keydown", onKey);
       clearInterval(clockTimer);
       clearTimeout(timer);
       es.close();
@@ -404,8 +418,14 @@ export function App() {
           </button>
           <button
             class="ml-auto grid h-7 w-7 place-items-center rounded-md text-lg leading-none text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-            title="new session"
-            onClick={() => void newSession()}
+            title={connected() ? "new session" : "connect a backend"}
+            onClick={() => {
+              if (!connected()) {
+                setConnOpen(true);
+                return;
+              }
+              void newSession();
+            }}
           >
             +
           </button>
@@ -475,6 +495,12 @@ export function App() {
             placeholder="Search"
             value={query()}
             onInput={(e) => setQuery(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                setQuery("");
+                e.currentTarget.blur();
+              }
+            }}
           />
           <Show when={actionErr()}>
             <p class="mt-1 truncate font-mono text-[10px] text-destructive" title={actionErr()}>
@@ -487,7 +513,11 @@ export function App() {
             each={groups()}
             fallback={
               <p class="px-2 py-6 text-xs text-muted-foreground">
-                {data() ? "no sessions yet" : "connect a backend to see sessions"}
+                {query().trim()
+                  ? "no matching sessions"
+                  : data()
+                    ? "no sessions yet"
+                    : "connect a backend to see sessions"}
               </p>
             }
           >
@@ -649,7 +679,7 @@ export function App() {
             </div>
             <div class="min-h-0 flex-1 overflow-y-auto">
               <Show
-                when={query().trim() && (results()?.length ?? 0) > 0}
+                when={query().trim()}
                 fallback={
                   <div class="mx-auto flex max-w-md flex-col items-center px-6 pt-28 text-center">
                     <p class="text-lg font-medium">
@@ -669,8 +699,11 @@ export function App() {
                   </div>
                 }
               >
-                <div class="mx-auto max-w-2xl py-4">
-                  <For each={results() ?? []}>
+                <Show
+                  when={!results.loading && (results()?.length ?? 0) === 0}
+                  fallback={
+                    <div class="mx-auto max-w-2xl py-4">
+                      <For each={results() ?? []}>
                     {(e) => (
                       <button
                         class="block w-full px-4 py-2.5 text-left hover:bg-secondary/50"
@@ -686,7 +719,17 @@ export function App() {
                       </button>
                     )}
                   </For>
-                </div>
+                    </div>
+                  }
+                >
+                  <div class="mx-auto flex max-w-md flex-col items-center px-6 pt-28 text-center">
+                    <p class="text-lg font-medium">No matches</p>
+                    <p class="mt-2 text-sm text-muted-foreground">
+                      Nothing in the event log matches{" "}
+                      <span class="font-mono text-foreground">{query().trim()}</span>.
+                    </p>
+                  </div>
+                </Show>
               </Show>
             </div>
           </div>
