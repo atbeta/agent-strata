@@ -1,4 +1,4 @@
-import { createEffect, createResource, createSignal, For, Index, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import {
   abortSession,
   api,
@@ -19,6 +19,7 @@ import { inDesktopShell } from "./shell";
 import { Tip } from "./tip";
 import { TraceDrawer, TraceStrip, type TraceBlock } from "./trace";
 import { TurnBlock } from "./transcript";
+import { Virtual } from "./virtual";
 import { Picker } from "@/components/ui/picker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
@@ -308,6 +309,14 @@ function SessionInfo(props: {
   );
 }
 
+/** Newest sequence number for a session, or 0. Covers (session_id, seq), so this is an index probe. */
+async function readHead(id: string): Promise<number> {
+  const r = await getJson<{ events: { seq: number }[] }>(
+    `/events?session_id=${encodeURIComponent(id)}&order=desc&limit=1`,
+  );
+  return r.events[0]?.seq ?? 0;
+}
+
 export function SessionDetail(props: { id: string }) {
   const [replayPos, setReplayPos] = createSignal<number | null>(null);
   const [traceOn, setTraceOn] = createSignal(false);
@@ -323,15 +332,7 @@ export function SessionDetail(props: { id: string }) {
         `/sessions/${encodeURIComponent(id)}/view${pos === null ? "" : `?until_seq=${pos}`}`,
       ),
   );
-  const [maxSeq, { refetch: refetchSeq }] = createResource(
-    () => props.id,
-    async (id) => {
-      const r = await getJson<{ events: { seq: number }[] }>(
-        `/events?session_id=${encodeURIComponent(id)}&order=desc&limit=1`,
-      );
-      return r.events[0]?.seq ?? 0;
-    },
-  );
+  const [maxSeq, { refetch: refetchSeq }] = createResource(() => props.id, readHead);
   const [asks, { refetch: refetchAsks }] = createResource(
     () => props.id,
     async (id) => {
@@ -363,7 +364,15 @@ export function SessionDetail(props: { id: string }) {
   const [variantSel, setVariantSel] = createSignal("");
   let draftEl: HTMLTextAreaElement | undefined;
   let scroller: HTMLDivElement | undefined;
-  let pinned = true;
+  // Virtual needs these every frame it decides what to keep mounted. The
+  // scroller owns the scroll, so the offset is read back out of it rather than
+  // re-derived here.
+  const [scrollTop, setScrollTop] = createSignal(0);
+  const [viewport, setViewport] = createSignal(0);
+  // Whether the reader is following the tail. It is a signal rather than a
+  // plain flag because the virtual list has to consult it while applying
+  // measurements, which happens outside any render pass here.
+  const [pinned, setPinned] = createSignal(true);
 
   createEffect(() => {
     const agents = settled(options)?.agents ?? [];
@@ -416,15 +425,6 @@ export function SessionDetail(props: { id: string }) {
     !!settled(view)?.busy ||
     !!settled(view)?.turns.some((t) => t.assistant.some((a) => a.partial));
 
-  createEffect(() => {
-    settled(view)?.turns.length;
-    settled(view)?.busy;
-    if (!pinned || !scroller) return;
-    queueMicrotask(() => {
-      if (scroller) scroller.scrollTop = scroller.scrollHeight;
-    });
-  });
-
   createEffect(() => writeDraft(props.id, draft()));
 
   onMount(() => {
@@ -437,8 +437,30 @@ export function SessionDetail(props: { id: string }) {
       });
     const onConns = () => refetchOptions();
     window.addEventListener("strata-connections", onConns);
+    // Seed the virtual window's inputs. Without this the list would start with a
+    // zero-height viewport and only learn its size on the first scroll, which
+    // for a session that opens pinned to the bottom means one wasted pass.
+    if (scroller) {
+      setScrollTop(scroller.scrollTop);
+      setViewport(scroller.clientHeight);
+    }
     const poll = setInterval(() => {
-      if (replayPos() === null) refetch();
+      if (replayPos() !== null) return;
+      // This is the fallback for a dropped stream message, not the main path —
+      // that is /stream, which already collapses a burst into one refetch.
+      // Pulling the whole view on a timer meant re-downloading megabytes and
+      // rebuilding tens of thousands of nodes every three seconds to discover
+      // nothing had moved, and the rebuild is what the scroll stutter was:
+      // ~280ms of blocked main thread, three times in any eight seconds of
+      // scrolling. Ask for the head instead — a few hundred bytes, index-only —
+      // and only pay for the view when the session has actually advanced.
+      void readHead(props.id)
+        .then((seq) => {
+          if (seq === maxSeq()) return;
+          void refetch();
+          void refetchSeq();
+        })
+        .catch(() => {});
     }, 3_000);
     const es = new EventSource(api("/stream"));
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -723,10 +745,12 @@ export function SessionDetail(props: { id: string }) {
                 class="min-h-0 flex-1 overflow-y-auto"
                 onScroll={(e) => {
                   const el = e.currentTarget;
-                  pinned = el.scrollHeight - el.scrollTop - el.clientHeight < 96;
+                  setScrollTop(el.scrollTop);
+                  setViewport(el.clientHeight);
+                  setPinned(el.scrollHeight - el.scrollTop - el.clientHeight < 96);
                 }}
               >
-                <div class="mx-auto w-full max-w-3xl space-y-8 px-5 py-4">
+                <div class="mx-auto w-full max-w-3xl px-5 py-4">
                   <Show
                     when={!booting()}
                     fallback={<LoadingTranscript />}
@@ -739,7 +763,17 @@ export function SessionDetail(props: { id: string }) {
                         </p>
                       }
                     >
-                    <Index each={v().turns}>{(t) => <TurnBlock turn={t()} />}</Index>
+                    <Virtual
+                      items={v().turns}
+                      id={(t) => t.turn_id}
+                      estimate={100}
+                      gap={32}
+                      scrollTop={scrollTop()}
+                      viewport={viewport()}
+                      scroller={() => scroller}
+                    >
+                      {(t) => <TurnBlock turn={t} />}
+                    </Virtual>
                     </Show>
                   </Show>
                 </div>
