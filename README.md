@@ -1,6 +1,14 @@
 # agent-strata
 
-Cross-backend agent session/event layer: a canonical event format (CASF v0), an append-only SQLite event store, a pure projector, and a policy engine. All modules are independently testable with no network or LLM access. `packages/` holds the core libraries; `apps/` will hold future UIs (desktop/web).
+Cross-backend agent session layer: one canonical event format (CASF v0) that OpenCode (HTTP/SSE) and any ACP agent (stdio) map into, an event store, a pure projector, and a policy engine. The desktop app is a reader over that layer, not a client for one backend. All modules are independently testable with no network or LLM access. `packages/` holds the core libraries; `apps/` holds the UIs.
+
+## Data model
+
+- **The store is a rebuildable cache for imported sessions.** Events an adapter can reproduce from the backend's own record (session metadata, turns, tool calls and results, file changes) are replaced wholesale when that adapter's mapping version changes (`OPENCODE_MAPPER_VERSION`), or on `POST /sessions/:id/rebuild`.
+- **Facts only strata saw are kept across rebuilds**: permission requests and decisions, questions and answers, status changes.
+- **Streaming snapshots are never stored.** A message still being written lives in the service's memory and reaches readers over `/stream`; the completed message is what the log keeps.
+- **Adapters own their backends' quirks.** Diffs, tool names and argument shapes are mapped in the adapter; the projector reads only CASF.
+- `bun run scripts/check-store.ts` reports whether a store holds these invariants.
 
 ## Packages
 
@@ -13,7 +21,7 @@ Cross-backend agent session/event layer: a canonical event format (CASF v0), an 
 | `@agent-strata/adapter-acp` | ACP (ndjson subprocess) adapter: `AcpRecorder` + `connectAcpAgent` |
 | `@agent-strata/core` | Event-log consumers: `exportEvents` (CASF JSONL + redaction), `compareSessions` (per-turn two-agent diff) |
 | `@agent-strata/adapter-opencode` | opencode v1 event-stream adapter: `OpencodeMapper` + `connectOpencode` |
-| `@agent-strata/service` | Local HTTP/SSE service over the layer: sessions/views/events query, compare, CASF export, live `/stream`, `/connect` adapter lifecycle — the desktop UI's backend |
+| `@agent-strata/service` | Local HTTP/SSE service over the layer: sessions/views/events query, compare, CASF export, live `/stream`, `/connect` for OpenCode (`baseUrl`) and ACP agents (`backend: "acp"`, `command`, `args`) — the desktop UI's backend |
 
 ## Apps
 
@@ -22,6 +30,17 @@ Cross-backend agent session/event layer: a canonical event format (CASF v0), an 
 `connectOpencode` resolves only after the event stream is attached (first `server.connected` event, bounded by `connectTimeoutMs`, default 10s). `onEvent(evt)` is called after each raw event is ingested, for observing lifecycle events like idle.
 
 v0 adapter-opencode limitations: only the v1 `/event` stream is consumed. A message that arrives before `session.created` still records a placeholder `session.started`; the later `session.created` publishes `session.updated` with the real directory, title, and parent. The SDK's SSE client retries dropped connections internally (exponential backoff); `stop()` aborts the in-flight fetch.
+
+## Connecting an ACP agent
+
+Any agent that speaks ACP over stdio can be a backend:
+
+```sh
+curl -X POST http://127.0.0.1:7700/connect -H 'content-type: application/json' \
+  -d '{"backend":"acp","command":"opencode","args":["acp"],"cwd":"/path/to/project"}'
+```
+
+v0 ACP limitations: sessions live as long as the agent process (no `session/load`), so a session from an earlier run is read-only; there are no model or agent pickers; replies appear when each step finishes rather than streaming.
 
 ## Security model
 
