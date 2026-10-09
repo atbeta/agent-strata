@@ -43,6 +43,10 @@
   --cost-up: hsl(0 72% 55%);
   --cost-down: hsl(152 62% 52%);
   --cost-flat: hsl(218 14% 62%);
+  --diff-add-fg: hsl(150 70% 62%);
+  --diff-add-bg: hsl(150 60% 40% / 0.14);
+  --diff-del-fg: hsl(0 76% 68%);
+  --diff-del-bg: hsl(0 72% 50% / 0.14);
   --scrollbar: hsl(0 0% 100% / 0.16);
   --popover-shadow: 0 16px 40px hsl(0 0% 0% / 0.45), 0 0 0 1px hsl(0 0% 100% / 0.06);
 }
@@ -81,6 +85,10 @@ html[data-theme="light"] {
   --cost-up: hsl(0 72% 44%);
   --cost-down: hsl(152 55% 30%);
   --cost-flat: hsl(220 6% 42%);
+  --diff-add-fg: hsl(150 60% 28%);
+  --diff-add-bg: hsl(150 60% 40% / 0.16);
+  --diff-del-fg: hsl(0 70% 40%);
+  --diff-del-bg: hsl(0 72% 50% / 0.13);
   --scrollbar: hsl(240 6% 12% / 0.2);
   --popover-shadow: 0 16px 40px hsl(240 10% 20% / 0.12), 0 0 0 1px hsl(240 6% 12% / 0.06);
 }
@@ -110,6 +118,10 @@ html[data-theme="light"] {
   --color-status-error: var(--status-error);
   --color-status-cancelled: var(--status-cancelled);
   --color-status-pending: var(--status-pending);
+  --color-diff-add-fg: var(--diff-add-fg);
+  --color-diff-add-bg: var(--diff-add-bg);
+  --color-diff-del-fg: var(--diff-del-fg);
+  --color-diff-del-bg: var(--diff-del-bg);
   --color-event-user: var(--event-user);
   --color-event-assistant: var(--event-assistant);
   --color-event-tool: var(--event-tool);

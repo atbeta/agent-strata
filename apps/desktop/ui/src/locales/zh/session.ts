@@ -58,6 +58,19 @@ export default {
   "file.deleted": "删除",
   "file.edited": "修改",
 
+  // Reviewing a change, not just listing that one happened.
+  "file.changes.one": "1 次",
+  "file.changes.other": "{n} 次",
+  "file.whole": "整文件",
+  "file.region": "局部修改",
+  "file.jump": "跳到这处改动",
+  "file.close": "关闭",
+  "file.noDiff": "这处改动没有可显示的内容。多数情况下是 shell 命令改的，我们看不到前后文本。",
+  "file.partial": "有改动无法显示，行数是下限",
+  "file.hidden.one": "另有 1 处改动没有可显示的内容",
+  "file.hidden.other": "另有 {n} 处改动没有可显示的内容",
+  "file.lines": "+{add} −{del}",
+
   // Composer.
   "composer.queued.one": "已排队",
   "composer.queued.other": "{n} 条排队",

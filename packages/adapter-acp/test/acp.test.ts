@@ -122,7 +122,7 @@ describe("adapter-acp integration (real subprocess)", () => {
     await agent.prompt(sid, "diff");
     await agent.close();
     const view = projectSession(store.read({ session_id: sid }));
-    expect(view.files_changed).toEqual([
+    expect(view.files_changed.map((f) => ({ path: f.path, change: f.change, count: f.count }))).toEqual([
       { path: "new.ts", change: "add", count: 1 },
       { path: "old.ts", change: "modify", count: 1 },
     ]);
@@ -130,6 +130,11 @@ describe("adapter-acp integration (real subprocess)", () => {
       (e) => e.type === "file.changed" && (e.data as { path: string }).path === "old.ts",
     )!;
     expect((fc.data as { diff: string }).diff).toContain("const b = 2");
+    // the diff the backend already carried now reaches the reader as numbers
+    const old = view.files_changed.find((f) => f.path === "old.ts")!;
+    expect(old.additions).toBeGreaterThan(0);
+    expect(old.unexplained).toBe(false);
+    expect(old.edits[0]!.diff).toContain("const b = 2");
     store.close();
   });
 

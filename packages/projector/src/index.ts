@@ -1,4 +1,5 @@
 import type { ContentBlock, Event, Usage } from "@agent-strata/schema";
+import { createPatch } from "diff";
 
 export interface PermissionInfo {
   request_id: string;
@@ -63,6 +64,49 @@ export interface QuestionPrompt {
   }[];
 }
 
+/** One change as the backend recorded it, before the diff is filled in. */
+interface ChangeRecord {
+  change: FileChangeKind;
+  diff?: string;
+}
+
+type FileChangeKind = "add" | "modify" | "delete";
+
+interface EditableCall {
+  path: string;
+  before: string;
+  after: string;
+  whole_file: boolean;
+  turn_index: number;
+}
+
+/** One recorded change to one file, with the text that changed if we have it. */
+export interface FileEditView {
+  change: FileChangeKind;
+  /** lines added and removed, counted out of the unified diff */
+  additions: number;
+  deletions: number;
+  /** absent when no tool call explains this change — usually a shell command */
+  diff?: string;
+  /** index into SessionView.turns, or -1 when the turn is not in this session */
+  turn_index: number;
+  /** the diff covers the whole file rather than a region of it */
+  whole_file?: boolean;
+}
+
+export interface FileChangeView {
+  path: string;
+  change: FileChangeKind;
+  /** how many changes to this file the session recorded */
+  count: number;
+  /** summed across every change, so a lower bound when unexplained */
+  additions: number;
+  deletions: number;
+  edits: FileEditView[];
+  /** at least one recorded change has no diff to show */
+  unexplained: boolean;
+}
+
 export interface SessionView {
   session_id: string;
   backend: string;
@@ -80,7 +124,7 @@ export interface SessionView {
   pending_permissions: PermissionInfo[];
   pending_questions: QuestionPrompt[];
   plan?: { content: string; status: "pending" | "in_progress" | "completed" }[];
-  files_changed: { path: string; change: "add" | "modify" | "delete"; count: number }[];
+  files_changed: FileChangeView[];
   totals: Totals;
 }
 
@@ -95,6 +139,140 @@ const zeroTotals = (): Totals => ({
   tool_errors: 0,
   permissions_denied: 0,
 });
+
+/**
+ * Count the added and removed lines in a unified diff. Counting here rather
+ * than in each adapter means every backend that produces a diff gets the
+ * numbers for free, including one we did not write.
+ *
+ * The `+++`/`---` file headers are the reason this cannot just count lines
+ * that start with a sign: they appear before the first hunk, and so does any
+ * header a diff might grow later. Everything up to the first `@@` is metadata.
+ */
+export function countPatchLines(patch: string): { additions: number; deletions: number } {
+  let additions = 0;
+  let deletions = 0;
+  let inHunk = false;
+  for (const line of patch.split("\n")) {
+    if (line.startsWith("@@")) {
+      inHunk = true;
+      continue;
+    }
+    if (!inHunk) continue;
+    if (line.startsWith("+")) additions++;
+    else if (line.startsWith("-")) deletions++;
+    // "\\ No newline at end of file" and context lines count as neither
+  }
+  return { additions, deletions };
+}
+
+/** One shape for paths: Windows or POSIX, drive letter case not guaranteed. */
+function pathKey(path: string): string {
+  return path.replace(/\\/g, "/").toLowerCase();
+}
+
+/**
+ * The before and after text of a call that changes a file, when the call
+ * carries it. These are the shapes agent coding tools use for an in-place edit
+ * and for writing a whole file; a call that reports neither is not something we
+ * can reconstruct a diff from, so it is left alone.
+ */
+function editableText(
+  tool: string,
+  input: unknown,
+): { path: string; before: string; after: string; whole_file: boolean } | undefined {
+  if (!input || typeof input !== "object") return;
+  const i = input as Record<string, unknown>;
+  if (typeof i.filePath !== "string") return;
+  if (tool === "edit" && typeof i.oldString === "string" && typeof i.newString === "string") {
+    return { path: i.filePath, before: i.oldString, after: i.newString, whole_file: false };
+  }
+  if (tool === "write" && typeof i.content === "string") {
+    return { path: i.filePath, before: "", after: i.content, whole_file: true };
+  }
+  return;
+}
+
+/**
+ * A change recorded with nothing to show for it, filled in from the tool calls
+ * that produced it.
+ *
+ * A backend's change event is a statement that a file changed. Most of them do
+ * not ship the text — OpenCode's patch part is `{ files: string[] }` and nothing
+ * more, and asking it for the diff returns nothing at all because it keeps no
+ * snapshot to compare against. The text is still in the session: it is in the
+ * edit and write calls, one per changed path, recorded alongside. So rather
+ * than storing a second copy of the file on disk and diffing it after the fact,
+ * the diff is rebuilt from the call that made the change.
+ *
+ * Reading beats storing here for a second reason: sessions recorded before this
+ * existed have no diff to recover, and rebuilding from their tool calls gives
+ * them one. Measured at ~13ms for a 425-call session, against an open that
+ * already costs hundreds — not worth a second endpoint or a re-import.
+ *
+ * A change no call accounts for — usually a shell command — keeps its place in
+ * the list with no diff, because the backend did see the file change and
+ * dropping it would hide something real.
+ */
+function fillDiffs(
+  files: Map<string, { change: FileChangeKind; records: ChangeRecord[] }>,
+  turns: Turn[],
+): Map<string, FileChangeView> {
+  const pool = new Map<string, EditableCall[]>();
+  for (const [index, turn] of turns.entries()) {
+    for (const call of turn.tool_calls) {
+      const text = editableText(call.tool, call.input);
+      if (!text) continue;
+      const key = pathKey(text.path);
+      const list = pool.get(key) ?? [];
+      list.push({ ...text, turn_index: index });
+      pool.set(key, list);
+    }
+  }
+
+  const out = new Map<string, FileChangeView>();
+  for (const [path, f] of files) {
+    const available = (pool.get(pathKey(path)) ?? []).slice();
+    const edits: FileEditView[] = [];
+    for (const rec of f.records) {
+      const call = rec.diff ? undefined : available.shift();
+      const diff = rec.diff ?? (call ? createPatch(path, call.before, call.after) : undefined);
+      const lines = diff ? countPatchLines(diff) : { additions: 0, deletions: 0 };
+      edits.push({
+        change: rec.change,
+        additions: lines.additions,
+        deletions: lines.deletions,
+        diff,
+        whole_file: call?.whole_file,
+        turn_index: call?.turn_index ?? -1,
+      });
+    }
+    // A call that changed a file without a matching change event — the patch
+    // never landed — is still a change that happened, so it is not dropped.
+    for (const call of available) {
+      const diff = createPatch(path, call.before, call.after);
+      const lines = countPatchLines(diff);
+      edits.push({
+        change: f.change,
+        additions: lines.additions,
+        deletions: lines.deletions,
+        diff,
+        whole_file: call.whole_file,
+        turn_index: call.turn_index,
+      });
+    }
+    out.set(path, {
+      path,
+      change: f.change,
+      count: edits.length,
+      additions: edits.reduce((n, e) => n + e.additions, 0),
+      deletions: edits.reduce((n, e) => n + e.deletions, 0),
+      edits,
+      unexplained: edits.some((e) => !e.diff),
+    });
+  }
+  return out;
+}
 
 export function projectSession(events: Event[]): SessionView {
   const sorted = [...events].sort((a, b) => a.seq - b.seq);
@@ -123,7 +301,7 @@ export function projectSession(events: Event[]): SessionView {
   // permission.requested can arrive before its tool.call (opencode emits
   // permission.asked first) — index by call_id so a late call still attaches
   const requestsByCall = new Map<string, PermissionInfo>();
-  const files = new Map<string, { change: "add" | "modify" | "delete"; count: number }>();
+  const files = new Map<string, { change: FileChangeKind; records: ChangeRecord[] }>();
   const questions = new Map<string, QuestionPrompt>();
   const orphanResults: { call_id: string; status: string; output?: string; latency_ms?: number }[] = [];
 
@@ -266,9 +444,9 @@ export function projectSession(events: Event[]): SessionView {
         break;
       }
       case "file.changed": {
-        const f = files.get(e.data.path) ?? { change: e.data.change, count: 0 };
+        const f = files.get(e.data.path) ?? { change: e.data.change, records: [] };
         f.change = e.data.change;
-        f.count++;
+        f.records.push({ change: e.data.change, diff: e.data.diff });
         files.set(e.data.path, f);
         break;
       }
@@ -330,11 +508,7 @@ export function projectSession(events: Event[]): SessionView {
     });
   }
 
-  view.files_changed = [...files.entries()].map(([path, f]) => ({
-    path,
-    change: f.change,
-    count: f.count,
-  }));
+  view.files_changed = [...fillDiffs(files, view.turns).values()];
   return view;
 }
 

@@ -25,6 +25,7 @@ import {
   type SessionView,
 } from "./api";
 import { Icon } from "./icons";
+import { DiffBlock } from "./diff";
 import { num, t, tn } from "./i18n";
 import { DragBar } from "./chrome";
 import { inDesktopShell, shellPlatform } from "./shell";
@@ -364,6 +365,8 @@ export function SessionDetail(props: { id: string }) {
   const [traceBlock, setTraceBlock] = createSignal<TraceBlock | null>(null);
   const [railForced, setRailForced] = createSignal(false);
   const [railDismissed, setRailDismissed] = createSignal(false);
+  /** which file the reader opened in the rail, null for the plain list */
+  const [openFile, setOpenFile] = createSignal<string | null>(null);
   const [booting, setBooting] = createSignal(true);
   const [modelTouched, setModelTouched] = createSignal(false);
   const [view, { refetch }] = createResource(
@@ -1269,8 +1272,19 @@ const turnIndexOf = (h: SearchHit): number => {
             if (n === 0) return t("rail.plan");
             return tn("rail.files", n);
           };
+          // The list of names is worthless at 288px next to a real diff, so the
+          // rail borrows room only while a reader is actually reading one.
+          const open = () => files().find((f) => f.path === openFile()) ?? null;
+          const toggleFile = (path: string) => setOpenFile(openFile() === path ? null : path);
+          const jumpTo = (turnIndex: number) => {
+            if (turnIndex >= 0) list?.scrollToIndex(turnIndex);
+          };
           return (
-            <aside class="flex w-72 shrink-0 flex-col border-l border-border">
+            <aside
+              class={`flex shrink-0 flex-col border-l border-border ${
+                open() ? "w-[min(600px,48vw)]" : "w-72"
+              }`}
+            >
               <div
                 class="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3 select-none"
                 data-tauri-drag-region={inDesktopShell() ? "" : undefined}
@@ -1287,46 +1301,150 @@ const turnIndexOf = (h: SearchHit): number => {
                   ×
                 </button>
               </div>
-              <div class="min-h-0 flex-1 space-y-5 overflow-y-auto px-3 py-3">
-                <Show when={(v().plan?.length ?? 0) > 0}>
-                  <section>
-                    <h2 class="px-1 text-2xs font-medium text-muted-foreground">{t("rail.plan")}</h2>
-                    <ul class="mt-1.5 space-y-1 text-sm">
-                      <For each={v().plan}>
-                        {(item) => (
-                          <li class="flex gap-2 px-1">
-                            <span
-                              class={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
-                                item.status === "completed"
-                                  ? "bg-status-completed"
-                                  : item.status === "in_progress"
-                                    ? "bg-status-active"
-                                    : "bg-status-pending"
+              <div class="flex min-h-0 flex-1">
+                <div
+                  class={`min-h-0 space-y-5 overflow-y-auto px-2 py-3 ${
+                    open() ? "w-44 shrink-0 border-r border-border" : "w-full px-3"
+                  }`}
+                >
+                  <Show when={(v().plan?.length ?? 0) > 0}>
+                    <section>
+                      <h2 class="px-1 text-2xs font-medium text-muted-foreground">{t("rail.plan")}</h2>
+                      <ul class="mt-1.5 space-y-1 text-sm">
+                        <For each={v().plan}>
+                          {(item) => (
+                            <li class="flex gap-2 px-1">
+                              <span
+                                class={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
+                                  item.status === "completed"
+                                    ? "bg-status-completed"
+                                    : item.status === "in_progress"
+                                      ? "bg-status-active"
+                                      : "bg-status-pending"
+                                }`}
+                              />
+                              <span class={item.status === "completed" ? "text-muted-foreground line-through" : ""}>
+                                {item.content}
+                              </span>
+                            </li>
+                          )}
+                        </For>
+                      </ul>
+                    </section>
+                  </Show>
+                  <Show
+                    when={files().length > 0}
+                    fallback={<p class="px-1 text-xs text-muted-foreground">{t("rail.nothing")}</p>}
+                  >
+                    <ul class="space-y-0.5">
+                      <For each={files()}>
+                        {(f) => (
+                          <li>
+                            <button
+                              type="button"
+                              aria-expanded={openFile() === f.path}
+                              onClick={() => toggleFile(f.path)}
+                              title={f.path}
+                              class={`flex w-full cursor-pointer items-baseline gap-2 rounded-md px-1 py-1 text-left hover:bg-secondary ${
+                                openFile() === f.path ? "bg-secondary" : ""
                               }`}
-                            />
-                            <span class={item.status === "completed" ? "text-muted-foreground line-through" : ""}>
-                              {item.content}
-                            </span>
+                            >
+                              <span
+                                class={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
+                                  f.change === "add"
+                                    ? "bg-status-active"
+                                    : f.change === "delete"
+                                      ? "bg-status-error"
+                                      : "bg-status-completed"
+                                }`}
+                              />
+                              <span class="min-w-0 flex-1">
+                                <span class="block truncate text-sm">{fileName(f.path)}</span>
+                                <Show when={f.count > 1}>
+                                  <span class="block truncate text-2xs text-muted-foreground">
+                                    {/* the dot already says how it changed */}
+                                    {open() ? "" : changeWord(f.change) + " · "}
+                                    {tn("file.changes", f.count)}
+                                  </span>
+                                </Show>
+                              </span>
+                              {/* ≥ because a change nothing explained leaves its lines uncounted */}
+                              <span
+                                class="shrink-0 font-mono text-2xs"
+                                title={f.unexplained ? t("file.partial") : undefined}
+                              >
+                                <span class="text-diff-add-fg">
+                                  {f.unexplained ? "≥+" : "+"}
+                                  {num(f.additions)}
+                                </span>{" "}
+                                <span class="text-diff-del-fg">−{num(f.deletions)}</span>
+                              </span>
+                            </button>
                           </li>
                         )}
                       </For>
                     </ul>
-                  </section>
-                </Show>
-                <Show
-                  when={files().length > 0}
-                  fallback={<p class="px-1 text-xs text-muted-foreground">{t("rail.nothing")}</p>}
-                >
-                  <ul class="space-y-0.5">
-                    <For each={files()}>
-                      {(f) => (
-                        <li class="flex items-baseline gap-2 rounded-md px-1 py-1" title={f.path}>
-                          <span class="min-w-0 flex-1 truncate text-sm">{fileName(f.path)}</span>
-                          <span class="shrink-0 text-2xs text-muted-foreground">{changeWord(f.change)}</span>
-                        </li>
-                      )}
-                    </For>
-                  </ul>
+                  </Show>
+                </div>
+
+                <Show when={open()}>
+                  {(f) => (
+                    <div class="flex min-h-0 min-w-0 flex-1 flex-col">
+                      <div class="flex shrink-0 items-start gap-2 border-b border-border px-3 py-2">
+                        <span class="min-w-0 flex-1 font-mono text-2xs break-all text-muted-foreground">
+                          {f().path}
+                        </span>
+                        <button
+                          type="button"
+                          class="shrink-0 cursor-pointer rounded-md px-1.5 py-0.5 text-2xs text-muted-foreground hover:bg-secondary hover:text-foreground"
+                          onClick={() => setOpenFile(null)}
+                        >
+                          {t("file.close")}
+                        </button>
+                      </div>
+                      <div class="min-h-0 flex-1 overflow-x-auto overflow-y-auto px-3 py-2">
+                        <Show when={f().unexplained}>
+                          <p class="mb-2 rounded-md bg-secondary/60 px-2 py-1.5 text-2xs text-muted-foreground">
+                            {tn("file.hidden", f().edits.filter((e) => !e.diff).length)}
+                          </p>
+                        </Show>
+                        <For each={f().edits}>
+                          {(edit) => (
+                            <section class="mb-3 last:mb-0">
+                              <div class="sticky left-0 mb-1 flex w-max items-center gap-2 bg-background">
+                                <span class="rounded bg-secondary px-1.5 py-0.5 text-2xs text-muted-foreground">
+                                  {edit.whole_file ? t("file.whole") : t("file.region")}
+                                </span>
+                                <span class="font-mono text-2xs">
+                                  <span class="text-diff-add-fg">+{num(edit.additions)}</span>{" "}
+                                  <span class="text-diff-del-fg">−{num(edit.deletions)}</span>
+                                </span>
+                                <Show when={edit.turn_index >= 0}>
+                                  <button
+                                    type="button"
+                                    class="ml-auto shrink-0 cursor-pointer rounded px-1.5 py-0.5 text-2xs text-muted-foreground hover:bg-secondary hover:text-foreground"
+                                    onClick={() => jumpTo(edit.turn_index)}
+                                  >
+                                    {t("file.jump")}
+                                  </button>
+                                </Show>
+                              </div>
+                              <Show
+                                when={edit.diff}
+                                fallback={
+                                  <p class="rounded-md bg-secondary/60 px-2 py-1.5 text-2xs text-muted-foreground">
+                                    {t("file.noDiff")}
+                                  </p>
+                                }
+                              >
+                                <DiffBlock patch={edit.diff!} />
+                              </Show>
+                            </section>
+                          )}
+                        </For>
+                      </div>
+                    </div>
+                  )}
                 </Show>
               </div>
             </aside>

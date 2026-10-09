@@ -113,6 +113,30 @@ export interface PendingQuestion {
   }[];
 }
 
+export interface FileEdit {
+  change: "add" | "modify" | "delete";
+  additions: number;
+  deletions: number;
+  /** absent when no tool call explains this change — usually a shell command */
+  diff?: string;
+  call_id?: string;
+  /** index into SessionView.turns, -1 when the turn is not in this session */
+  turn_index: number;
+  whole_file?: boolean;
+}
+
+export interface FileChange {
+  path: string;
+  change: "add" | "modify" | "delete";
+  count: number;
+  /** summed across every recorded change, so a lower bound when unexplained */
+  additions: number;
+  deletions: number;
+  edits: FileEdit[];
+  /** at least one recorded change has no diff to show */
+  unexplained: boolean;
+}
+
 export interface SessionView {
   session_id: string;
   backend: string;
@@ -124,7 +148,7 @@ export interface SessionView {
   pending_permissions: PendingPermission[];
   pending_questions?: PendingQuestion[];
   plan?: { content: string; status: "pending" | "in_progress" | "completed" }[];
-  files_changed: { path: string; change: "add" | "modify" | "delete"; count: number }[];
+  files_changed: FileChange[];
   totals: SessionRow["totals"] & {
     reasoning: number;
     tool_errors: number;

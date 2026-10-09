@@ -58,6 +58,19 @@ export default {
   "file.deleted": "deleted",
   "file.edited": "edited",
 
+  // Reviewing a change, not just listing that one happened.
+  "file.changes.one": "1 change",
+  "file.changes.other": "{n} changes",
+  "file.whole": "whole file",
+  "file.region": "region",
+  "file.jump": "Jump to this change",
+  "file.close": "Close",
+  "file.noDiff": "This change has no readable text. Usually a shell command, so there is no before and after to show.",
+  "file.partial": "some changes cannot be shown, so the line counts are a lower bound",
+  "file.hidden.one": "1 more change has nothing to show",
+  "file.hidden.other": "{n} more changes have nothing to show",
+  "file.lines": "+{add} −{del}",
+
   // Composer.
   "composer.queued.one": "Queued",
   "composer.queued.other": "{n} queued",
