@@ -6,7 +6,7 @@ on:
   push:
     branches:
       - main
-      - cursor/windows-desktop-package-9641
+      - cursor/windows-hide-console-9641
 
 jobs:
   build:
@@ -41,7 +41,7 @@ jobs:
           if (-not $triple) { throw "rustc did not print a host tuple" }
           $dir = "apps/desktop/src-tauri/binaries"
           New-Item -ItemType Directory -Force -Path $dir | Out-Null
-          bun build --compile ./packages/service/src/index.ts --outfile "$dir/strata-service-$triple.exe"
+          bun build --compile --windows-hide-console ./packages/service/src/index.ts --outfile "$dir/strata-service-$triple.exe"
           Get-Item "$dir/strata-service-$triple.exe" | Format-List FullName, Length
 
       - name: Build the Windows installer
