@@ -57,6 +57,39 @@ describe("projector", () => {
     expect(v.orphans.length).toBe(0);
   });
 
+  test("tool calls sort back into declaration order when the backend stamps it", () => {
+    // Started out of order (c1 declared first but ran last), which is what a
+    // backend running calls concurrently reports.
+    const v = projectSession([
+      mk("s", "tool.call", { turn_id: "t", call_id: "c2", tool: "read", input: {}, order: 1 }),
+      mk("s", "tool.call", { turn_id: "t", call_id: "c3", tool: "grep", input: {}, order: 2 }),
+      mk("s", "tool.call", { turn_id: "t", call_id: "c1", tool: "bash", input: {}, order: 0 }),
+      mk("s", "tool.result", { call_id: "c1", status: "ok", output: "done" }),
+    ]);
+    expect(v.turns[0]!.tool_calls.map((c) => c.tool)).toEqual(["bash", "read", "grep"]);
+    // results still attach to the right call after the shuffle
+    expect(v.turns[0]!.tool_calls[0]!.output).toBe("done");
+    expect(v.totals.tool_errors).toBe(0);
+  });
+
+  test("tool calls keep event order when no declaration order is reported", () => {
+    const v = projectSession([
+      mk("s", "tool.call", { turn_id: "t", call_id: "c1", tool: "bash", input: {} }),
+      mk("s", "tool.call", { turn_id: "t", call_id: "c2", tool: "read", input: {} }),
+      mk("s", "tool.call", { turn_id: "t", call_id: "c3", tool: "grep", input: {} }),
+    ]);
+    expect(v.turns[0]!.tool_calls.map((c) => c.tool)).toEqual(["bash", "read", "grep"]);
+  });
+
+  test("calls without an ordinal sort after the ones that have one", () => {
+    const v = projectSession([
+      mk("s", "tool.call", { turn_id: "t", call_id: "c2", tool: "read", input: {}, order: 0 }),
+      mk("s", "tool.call", { turn_id: "t", call_id: "cX", tool: "legacy", input: {} }),
+      mk("s", "tool.call", { turn_id: "t", call_id: "c1", tool: "bash", input: {}, order: 1 }),
+    ]);
+    expect(v.turns[0]!.tool_calls.map((c) => c.tool)).toEqual(["read", "bash", "legacy"]);
+  });
+
   test("orphan tool.result", () => {
     const v = projectSession([
       mk("s", "tool.result", { call_id: "ghost", status: "ok", output: "?" }),

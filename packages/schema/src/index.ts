@@ -94,6 +94,11 @@ const data = {
     call_id: z.string(),
     tool: z.string(),
     input: z.record(z.unknown()),
+    // Position of the call among the ones the assistant declared, starting at
+    // 0. Backends that run calls concurrently may start them in a different
+    // order than they were declared; this lets a reader put them back the way
+    // the model wrote them. Absent means "trust the event order".
+    order: z.number().int().min(0).optional(),
   }),
   "tool.result": z.object({
     call_id: z.string(),

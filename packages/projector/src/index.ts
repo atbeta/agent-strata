@@ -16,6 +16,8 @@ export interface ToolCallView {
   output?: string;
   latency_ms?: number;
   permission?: PermissionInfo;
+  /** Declaration order within the turn, when the backend reports it. */
+  order?: number;
 }
 
 export interface Turn {
@@ -217,6 +219,7 @@ export function projectSession(events: Event[]): SessionView {
           tool: e.data.tool,
           input: e.data.input,
           status: "pending",
+          order: e.data.order,
         };
         t.tool_calls.push(call);
         calls.set(e.data.call_id, call);
@@ -285,6 +288,21 @@ export function projectSession(events: Event[]): SessionView {
   }
 
   view.pending_questions = [...questions.values()];
+
+  // Events arrive in the order the calls actually started, which for parallel
+  // calls is not the order the assistant declared them. When the backend
+  // stamped a declaration ordinal, restore that order so a reader sees the
+  // sequence the model wrote about. Stable, so calls without an ordinal keep
+  // their event order and stay after the ones that have one.
+  for (const t of view.turns) {
+    if (t.tool_calls.some((c) => c.order !== undefined)) {
+      t.tool_calls = t.tool_calls
+        .map((c, i) => ({ c, i }))
+        .sort((a, b) => (a.c.order ?? Number.MAX_SAFE_INTEGER) - (b.c.order ?? Number.MAX_SAFE_INTEGER) || a.i - b.i)
+        .map(({ c }) => c);
+    }
+  }
+
   if (!view.title) {
     for (const t of view.turns) {
       const block = t.user?.find((b) => b.type === "text" && b.text.trim());

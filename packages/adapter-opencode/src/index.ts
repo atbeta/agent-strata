@@ -57,7 +57,7 @@ interface MsgState {
   parentID?: string;
   created?: number;
   parts: Map<string, ContentBlock>;
-  toolParts: Map<string, { emittedCall: boolean; emittedResult: boolean }>;
+  toolParts: Map<string, { emittedCall: boolean; emittedResult: boolean; order: number }>;
   emittedAssistant: boolean;
   lastStreamAt?: number;
   patchSeen?: Set<string>;
@@ -329,9 +329,16 @@ export class OpencodeMapper {
             part.source && "path" in part.source ? part.source.path : (part.filename ?? part.url);
           m.parts.set(part.id, { type: "file_ref", path });
         } else if (part.type === "tool") {
-          const t =
-            m.toolParts.get(part.id) ?? { emittedCall: false, emittedResult: false };
-          m.toolParts.set(part.id, t);
+          // Parts are created in the order the model declared them, so first
+          // sight is the declaration order. tool.call is not emitted until the
+          // part leaves `pending`, which for parallel calls is the order they
+          // actually started — record the ordinal so readers can restore the
+          // order the model wrote.
+          let t = m.toolParts.get(part.id);
+          if (!t) {
+            t = { emittedCall: false, emittedResult: false, order: m.toolParts.size };
+            m.toolParts.set(part.id, t);
+          }
           const st = part.state;
           if (!t.emittedCall && st.status !== "pending") {
             t.emittedCall = true;
@@ -344,6 +351,7 @@ export class OpencodeMapper {
                   call_id: part.callID,
                   tool: part.tool,
                   input: st.input,
+                  order: t.order,
                 },
                 `opencode:${part.id}:tool.call`,
                 sourceTime(st.time.start || s.updated),
