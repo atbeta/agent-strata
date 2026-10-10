@@ -665,6 +665,32 @@ describe("agent-strata service", () => {
     oc.stop();
     svc.stop();
   });
+
+  test("a child session is kept under its parent", async () => {
+    const root = { id: "root", title: "Parent", directory: "/repo", time: { created: 1, updated: 1 } };
+    const kid = { id: "kid", parentID: "root", title: "Child", directory: "/repo", time: { created: 2, updated: 2 } };
+    const oc = fakeOpencode({
+      "/session": () => Response.json([root]),
+      "/session/root/children": () => Response.json([kid]),
+      "/session/kid/children": () => Response.json([]),
+    });
+    const svc = startService({ db: ":memory:", port: 0 });
+    const base = `http://127.0.0.1:${svc.port}`;
+    const connected = await fetch(`${base}/connect`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ baseUrl: oc.baseUrl, directory: "/repo" }),
+    });
+    expect(connected.status).toBe(200);
+    const list = (await fetch(`${base}/sessions`).then((r) => r.json())) as {
+      sessions: { summary: { session_id: string }; parent?: string; title?: string }[];
+    };
+    const child = list.sessions.find((s) => s.summary.session_id === "opencode:kid");
+    expect(child?.parent).toBe("opencode:root");
+    expect(child?.title).toBe("Child");
+    oc.stop();
+    svc.stop();
+  });
 });
 
 describe("only the desktop shell reaches the service from a browser", () => {

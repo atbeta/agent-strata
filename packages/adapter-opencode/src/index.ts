@@ -4,6 +4,7 @@ import {
   type FilePartInput,
   type OpencodeClient,
   type Part,
+  type Session,
   type TextPartInput,
 } from "@opencode-ai/sdk/v2";
 import {
@@ -1354,6 +1355,32 @@ export async function connectOpencode(opts: {
     }
   })();
 
+  const walkChildren = async (
+    sessionID: string,
+    directory: string | undefined,
+    visit: (info: Session) => Promise<void>,
+  ) => {
+    const pending = [sessionID];
+    const seen = new Set<string>();
+    while (pending.length) {
+      const id = pending.pop()!;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      let kids;
+      try {
+        kids = await client.session.children({ sessionID: id, directory });
+      } catch (err) {
+        console.error(`opencode children failed for ${id}:`, err);
+        continue;
+      }
+      for (const info of kids.data ?? []) {
+        if (!info?.id) continue;
+        await visit(info);
+        pending.push(info.id);
+      }
+    }
+  };
+
   return {
     stop() {
       abort.abort();
@@ -1451,9 +1478,7 @@ export async function connectOpencode(opts: {
     },
     async listSessions() {
       const r = await client.session.list({ directory: opts.directory, roots: true, limit: 80 });
-      return (r.data ?? [])
-        .filter((s) => !s.parentID)
-        .map((s) => ({ id: s.id, title: s.title, directory: s.directory }));
+      return (r.data ?? []).map((s) => ({ id: s.id, title: s.title, directory: s.directory }));
     },
     async listWorkspaces() {
       const r = await client.project.list();
@@ -1503,14 +1528,17 @@ export async function connectOpencode(opts: {
     async indexSessions() {
       const sessions = await client.session.list({ directory: opts.directory, roots: true, limit: 80 });
       const ids: string[] = [];
-      for (const info of sessions.data ?? []) {
-        if (info.parentID) continue;
+      const visit = async (info: Session) => {
         ingestor.handle({
           id: `index:${info.id}`,
           type: "session.updated",
           properties: { sessionID: info.id, info },
         } as Event);
         ids.push(info.id);
+      };
+      for (const info of sessions.data ?? []) {
+        await visit(info);
+        await walkChildren(info.id, info.directory || opts.directory, visit);
       }
       return ids;
     },
@@ -1540,13 +1568,13 @@ export async function connectOpencode(opts: {
           console.error(`opencode session list failed for ${directory ?? "(default)"}:`, err);
           continue;
         }
-        for (const info of sessions.data ?? []) {
-          if (!info?.id || info.parentID || seen.has(info.id)) continue;
+        const visit = async (info: Session) => {
+          if (!info?.id || seen.has(info.id)) return;
           seen.add(info.id);
           // The same session can be driven over another channel at once. Whoever
           // holds it writes it; touching it here would make a second copy of a
           // conversation the user is already watching.
-          if (guard?.taken?.(`opencode:${info.id}`)) continue;
+          if (guard?.taken?.(`opencode:${info.id}`)) return;
           try {
             ingestor.handle({
               id: `sync:${info.id}:${info.time?.updated ?? 0}`,
@@ -1554,7 +1582,7 @@ export async function connectOpencode(opts: {
               properties: { sessionID: info.id, info },
             } as Event);
             const updated = info.time?.updated ?? info.time?.created ?? 0;
-            if (importedRevision.get(info.id) === updated) continue;
+            if (importedRevision.get(info.id) === updated) return;
             const dir = info.directory || directory;
             if (guard?.stale?.(`opencode:${info.id}`)) await rebuildSession(info.id, dir);
             else await importSession(info.id, dir);
@@ -1563,6 +1591,11 @@ export async function connectOpencode(opts: {
           } catch (err) {
             console.error(`sync session ${info.id} failed:`, err);
           }
+        };
+        for (const info of sessions.data ?? []) {
+          if (!info?.id || seen.has(info.id)) continue;
+          await visit(info);
+          await walkChildren(info.id, info.directory || directory, visit);
         }
       }
       return imported;
