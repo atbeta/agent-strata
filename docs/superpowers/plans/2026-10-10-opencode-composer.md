@@ -1417,8 +1417,11 @@ The agent `Picker` label becomes `t("picker.agent.tip")`.
     const command = caps()?.commands ? commandOf(out.text, (commands() ?? []).map((c) => c.name)) : undefined;
     try {
       if (command) {
+        // a command has no text part for a mention to point into
         const files = promptParts("", [], out.attachments).concat(
-          promptParts(out.text, out.picked, []).filter((p) => p.type === "file_ref"),
+          promptParts(out.text, out.picked, []).flatMap((p) =>
+            p.type === "file_ref" ? [{ type: "file_ref" as const, path: p.path }] : [],
+          ),
         );
         await runCommand(props.id, { ...command, parts: files }, choice);
       } else {
