@@ -26,7 +26,6 @@ export function SettingsPage() {
   const [launch] = createResource(readOpencodeLaunch);
   const [mode, setMode] = createSignal<OpencodeLaunchMode>("embed");
   const [hydrated, setHydrated] = createSignal(false);
-  const [applyNote, setApplyNote] = createSignal(false);
   const [saveErr, setSaveErr] = createSignal("");
 
   const launchData = () => (launch.error ? undefined : launch());
@@ -48,14 +47,15 @@ export function SettingsPage() {
   };
 
   const pickMode = async (next: OpencodeLaunchMode) => {
+    if (next === mode()) return;
+    const previous = mode();
     setHydrated(true);
+    setMode(next);
     setSaveErr("");
-    setApplyNote(false);
     try {
       await saveOpencodeMode(next);
-      setMode(next);
-      setApplyNote(true);
     } catch (e) {
+      setMode(previous);
       setSaveErr(e instanceof Error ? e.message : String(e));
     }
   };
@@ -152,12 +152,9 @@ export function SettingsPage() {
             </button>
           ))}
         </div>
-        <Show when={applyNote()}>
-          <p class="mt-3 text-sm text-muted-foreground">{t("settings.opencode.apply")}</p>
-        </Show>
-        <Show when={saveErr()}>
-          <p class="mt-3 text-sm text-destructive">{saveErr()}</p>
-        </Show>
+        <p class={`mt-3 text-sm ${saveErr() ? "text-destructive" : "text-muted-foreground"}`}>
+          {saveErr() || t("settings.opencode.apply")}
+        </p>
         <Show when={launchData()?.state === "missing"}>
           <div>
             <p class="mt-3 text-sm text-muted-foreground">{t("settings.opencode.missing")}</p>
