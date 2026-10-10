@@ -7,6 +7,7 @@ import {
 import { LOCALES, LOCALE_LABEL, locale, setLocale, t, type Locale } from "./i18n";
 import { Icon } from "./icons";
 import { readTheme, saveTheme, type ThemeChoice } from "./theme";
+import { disableNotify, enableNotify, readNotify } from "./notify";
 import {
   CODE_SIZES,
   readFonts,
@@ -55,6 +56,8 @@ export function SettingsPage() {
   const [hydrated, setHydrated] = createSignal(false);
   const [saveErr, setSaveErr] = createSignal("");
   const [fonts, setFonts] = createSignal<FontChoice>(readFonts());
+  const [notifyOn, setNotifyOn] = createSignal(readNotify());
+  const [notifyErr, setNotifyErr] = createSignal("");
 
   const patchFonts = (patch: Partial<FontChoice>) => {
     const next = { ...fonts(), ...patch };
@@ -78,6 +81,19 @@ export function SettingsPage() {
   const pick = (next: ThemeChoice) => {
     setChoice(next);
     saveTheme(next);
+  };
+
+  const toggleNotify = async () => {
+    if (notifyOn()) {
+      disableNotify();
+      setNotifyOn(false);
+      setNotifyErr("");
+      return;
+    }
+    const ok = await enableNotify();
+    setNotifyOn(readNotify() && ok);
+    setNotifyErr(ok ? "" : t("settings.notify.blocked"));
+    if (!ok) disableNotify();
   };
 
   const pickMode = async (next: OpencodeLaunchMode) => {
@@ -131,6 +147,41 @@ export function SettingsPage() {
               <span class="mt-0.5 block text-2xs text-muted-foreground">{item.hint}</span>
             </button>
           ))}
+        </div>
+      </section>
+
+      <section class="mt-8">
+        <h2 class="text-sm font-medium">{t("settings.notify.title")}</h2>
+        <p class={`mt-1 text-sm leading-5 ${notifyErr() ? "text-destructive" : "text-muted-foreground"}`}>
+          {notifyErr() || t("settings.notify.hint")}
+        </p>
+        <div class="mt-3 grid grid-cols-2 gap-2" role="radiogroup" aria-label={t("settings.notify.title")}>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={notifyOn()}
+            class={`rounded-lg border px-3 py-2.5 text-left text-sm transition-colors ${
+              notifyOn() ? "border-ring bg-secondary" : "border-border hover:bg-secondary/60"
+            }`}
+            onClick={() => {
+              if (!notifyOn()) void toggleNotify();
+            }}
+          >
+            {t("settings.notify.on")}
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={!notifyOn()}
+            class={`rounded-lg border px-3 py-2.5 text-left text-sm transition-colors ${
+              !notifyOn() ? "border-ring bg-secondary" : "border-border hover:bg-secondary/60"
+            }`}
+            onClick={() => {
+              if (notifyOn()) void toggleNotify();
+            }}
+          >
+            {t("settings.notify.off")}
+          </button>
         </div>
       </section>
 

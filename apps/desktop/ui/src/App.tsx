@@ -22,6 +22,7 @@ import { PolicyEditor } from "./policy";
 import { SettingsPage } from "./settings";
 import { applyTheme, readTheme } from "./theme";
 import { applyFonts, readFonts } from "./font";
+import { announceFinished, finishedSessions, readNotify, rememberBusy } from "./notify";
 import { Icon } from "./icons";
 import { DragBar, WindowCaptionBar } from "./chrome";
 import { inDesktopShell } from "./shell";
@@ -532,6 +533,27 @@ export function App() {
     const dir = currentDir();
     return dir ? rows.filter((s) => sessionWorkspace(s) === dir) : rows;
   };
+
+  const busySeen = new Map<string, boolean>();
+  let busyReady = false;
+  createEffect(() => {
+    const next = (settled(data)?.sessions ?? [])
+      .filter((s) => !s.archived && !s.deleted)
+      .map((s) => ({
+        id: s.summary.session_id,
+        title: s.title || s.summary.title || t("session.untitled"),
+        busy: s.busy === true,
+      }));
+    if (!busyReady) {
+      rememberBusy(busySeen, next);
+      busyReady = true;
+      return;
+    }
+    if (readNotify()) {
+      for (const row of finishedSessions(busySeen, next)) announceFinished(row.title);
+    }
+    rememberBusy(busySeen, next);
+  });
 
   const workspaceOptions = () => {
     const map = new Map<string, string>();
