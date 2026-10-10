@@ -422,6 +422,12 @@ export function readMcp(sessionId: string): Promise<Record<string, McpServerStat
   return readOpencode<Record<string, McpServerStatus>>(sessionId, "/mcp");
 }
 
+export type LspServer = { id: string; name: string; root: string; status: "connected" | "error" };
+
+export function readLsp(sessionId: string): Promise<LspServer[] | undefined> {
+  return readOpencode<LspServer[]>(sessionId, "/lsp");
+}
+
 export function readSkills(sessionId: string): Promise<SkillInfo[] | undefined> {
   return readOpencode<SkillInfo[]>(sessionId, "/skill");
 }
