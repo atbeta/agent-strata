@@ -238,7 +238,8 @@ const MCP_STATUS: Record<McpServerStatus["status"], MessageKey> = {
 
 function skillDraft(draft: string, name: string): string {
   const insert = `/${name} `;
-  return draft ? `${draft}\n${insert}` : insert;
+  const trimmed = draft.trim();
+  return trimmed ? `${draft.trimEnd()}\n${insert}` : insert;
 }
 
 /** How a file changed. The wire values are `add`/`modify`/`delete`; these are labels. */
@@ -529,6 +530,7 @@ export function SessionDetail(props: {
   const [hitAt, setHitAt] = createSignal(0);
   const [probe, setProbe] = createSignal("");
   const [toolsOpen, setToolsOpen] = createSignal(false);
+  const [toolsReady, setToolsReady] = createSignal(false);
   const [mcpServers, setMcpServers] = createSignal<[string, McpServerStatus][]>([]);
   const [skills, setSkills] = createSignal<SkillInfo[]>([]);
   let searchEl: HTMLInputElement | undefined;
@@ -559,6 +561,8 @@ export function SessionDetail(props: {
       setSkills([...(skill ?? [])].sort((a, b) => a.name.localeCompare(b.name)));
     } catch (err) {
       setSendErr(err instanceof Error ? err.message : t("err.network"));
+    } finally {
+      setToolsReady(true);
     }
   };
 
@@ -567,6 +571,8 @@ export function SessionDetail(props: {
       setToolsOpen(false);
       return;
     }
+    closeSearch();
+    setToolsReady(false);
     setToolsOpen(true);
     void loadTools();
   };
@@ -647,6 +653,7 @@ const turnIndexOf = (h: SearchHit): number => {
   };
 
   const openSearch = (keep?: string) => {
+    setToolsOpen(false);
     setSearchOpen(true);
     if (keep) onQuery(keep);
     queueMicrotask(() => searchEl?.focus());
@@ -1466,10 +1473,10 @@ const turnIndexOf = (h: SearchHit): number => {
                   <div class="max-h-80 overflow-y-auto px-3 py-2">
                     <section>
                       <h2 class="text-2xs font-medium text-muted-foreground">{t("mcp.title")}</h2>
-                      <Show
-                        when={mcpServers().length > 0}
-                        fallback={<p class="mt-1.5 text-xs text-muted-foreground">{t("mcp.empty")}</p>}
-                      >
+                      <Show when={toolsReady() && mcpServers().length === 0}>
+                        <p class="mt-1.5 text-xs text-muted-foreground">{t("mcp.empty")}</p>
+                      </Show>
+                      <Show when={mcpServers().length > 0}>
                         <ul class="mt-1 space-y-0.5">
                           <For each={mcpServers()}>
                             {([name, server]) => (
@@ -1515,10 +1522,10 @@ const turnIndexOf = (h: SearchHit): number => {
                     </section>
                     <section class="mt-3">
                       <h2 class="text-2xs font-medium text-muted-foreground">{t("skill.title")}</h2>
-                      <Show
-                        when={skills().length > 0}
-                        fallback={<p class="mt-1.5 text-xs text-muted-foreground">{t("skill.empty")}</p>}
-                      >
+                      <Show when={toolsReady() && skills().length === 0}>
+                        <p class="mt-1.5 text-xs text-muted-foreground">{t("skill.empty")}</p>
+                      </Show>
+                      <Show when={skills().length > 0}>
                         <ul class="mt-1 space-y-0.5">
                           <For each={skills()}>
                             {(skill) => (
