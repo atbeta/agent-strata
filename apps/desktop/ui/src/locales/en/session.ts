@@ -15,6 +15,8 @@ export default {
   // A permission request sitting above the composer.
   "permission.wants_to_run": "wants to run",
   "permission.allow": "allow",
+  "permission.once": "Once",
+  "permission.always": "Always",
   "permission.deny": "deny",
 
   // Errors that reach the reader from the network layer.

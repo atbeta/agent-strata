@@ -15,6 +15,8 @@ export default {
   // A permission request sitting above the composer.
   "permission.wants_to_run": "请求执行",
   "permission.allow": "允许",
+  "permission.once": "仅此一次",
+  "permission.always": "始终允许",
   "permission.deny": "拒绝",
 
   // Errors that reach the reader from the network layer.

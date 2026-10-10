@@ -22,6 +22,7 @@ export default {
 
   // Session rows
   "common.untitled": "未命名",
+  "sidebar.session.needsInput": "待处理",
   "sidebar.session.actions": "会话操作",
   "sidebar.session.rename": "重命名",
   "sidebar.session.archive": "归档",

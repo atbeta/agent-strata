@@ -23,6 +23,7 @@ import { applyTheme, readTheme } from "./theme";
 import { Icon } from "./icons";
 import { DragBar, WindowCaptionBar } from "./chrome";
 import { inDesktopShell } from "./shell";
+import { windowTitle } from "./permission-card";
 import { date, num, t, tn } from "./i18n";
 import { Tip } from "./tip";
 import { CommandSearch } from "./search";
@@ -127,6 +128,7 @@ function SessionListItem(props: {
   title: string;
   active: boolean;
   busy: boolean;
+  needsInput: boolean;
   time: string;
   actions: boolean;
   onOpen: () => void;
@@ -178,6 +180,11 @@ function SessionListItem(props: {
       <span
         class={`h-1.5 w-1.5 shrink-0 rounded-full ${props.busy ? "bg-status-active" : "bg-transparent"}`}
       />
+      <Show when={props.needsInput}>
+        <span class="shrink-0 rounded bg-event-permission/15 px-1 text-2xs font-medium text-event-permission">
+          {t("sidebar.session.needsInput")}
+        </span>
+      </Show>
       <Show
         when={editing()}
         fallback={<span class="min-w-0 flex-1 truncate pr-[4.75rem] text-sm leading-none">{props.title}</span>}
@@ -285,6 +292,14 @@ export function App() {
   const [route, setRoute] = createSignal<Route>(parseHash());
   const [clock, setClock] = createSignal(Date.now());
   const [data, { refetch }] = createResource(() => getJson<SessionsResponse>("/sessions"));
+  const waiting = () =>
+    (settled(data)?.sessions ?? []).filter((s) => s.needs_input && !s.archived && !s.deleted).length;
+  createEffect(() => {
+    const title = windowTitle(waiting());
+    document.title = title;
+    if (!inDesktopShell()) return;
+    void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().setTitle(title));
+  });
   const [conns, { refetch: refetchConns }] = createResource(() =>
     getJson<{ connections: Connection[] }>("/connections"),
   );
@@ -743,6 +758,7 @@ export function App() {
                         title={s.title ?? s.summary.title ?? t("common.untitled")}
                         active={activeId() === id || compareSel().includes(id)}
                         busy={s.busy === true}
+                        needsInput={s.needs_input === true}
                         time={relTime(s.summary.last_ts, clock())}
                         actions={!compareOn()}
                         onOpen={() => openSession(id)}

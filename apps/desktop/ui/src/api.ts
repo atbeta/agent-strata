@@ -20,6 +20,7 @@ export interface SessionRow {
   parent?: string;
   archived?: boolean;
   deleted?: boolean;
+  needs_input?: boolean;
   totals: {
     input: number;
     output: number;

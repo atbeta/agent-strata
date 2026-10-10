@@ -21,6 +21,7 @@ export default {
 
   // Session rows
   "common.untitled": "untitled",
+  "sidebar.session.needsInput": "Needs you",
   "sidebar.session.actions": "Session actions",
   "sidebar.session.rename": "Rename",
   "sidebar.session.archive": "Archive",

@@ -5,9 +5,11 @@ import {
   createSignal,
   createUniqueId,
   For,
+  Match,
   onCleanup,
   onMount,
   Show,
+  Switch,
 } from "solid-js";
 import {
   abortSession,
@@ -35,6 +37,8 @@ import {
 } from "./api";
 import { Icon } from "./icons";
 import { DiffBlock } from "./diff";
+import { JsonView } from "./json-view";
+import { permissionView } from "./permission-card";
 import { num, t, tn } from "./i18n";
 import { DragBar } from "./chrome";
 import { inDesktopShell, shellPlatform } from "./shell";
@@ -805,8 +809,8 @@ const turnIndexOf = (h: SearchHit): number => {
     });
   });
 
-  const respond = async (requestId: string, decision: "allow" | "deny") => {
-    await respondPermission(requestId, decision);
+  const respond = async (requestId: string, decision: "allow" | "deny", scope?: "once" | "always") => {
+    await respondPermission(requestId, decision, scope);
     refetchAsks();
   };
 
@@ -1357,31 +1361,70 @@ const turnIndexOf = (h: SearchHit): number => {
                 <div class="shrink-0 bg-gradient-to-t from-background from-70% px-5 pb-4 pt-6">
                   <div class="mx-auto w-full max-w-3xl space-y-2">
                     <For each={settled(asks) ?? []}>
-                      {(p) => (
-                        <div class="rounded-xl border border-event-permission/40 bg-event-permission/10 p-3">
-                          <div class="flex items-center gap-2 text-sm">
-                            <span class="font-medium text-event-permission">{p.tool}</span>
-                            <span class="text-xs text-muted-foreground">{t("permission.wants_to_run")}</span>
-                            <span class="ml-auto flex gap-1.5">
-                              <button
-                                class="rounded-md bg-status-active/15 px-2.5 py-1 text-xs font-medium text-status-active hover:bg-status-active/25"
-                                onClick={() => void respond(p.request_id, "allow")}
-                              >
-                                {t("permission.allow")}
-                              </button>
-                              <button
-                                class="rounded-md bg-destructive/15 px-2.5 py-1 text-xs font-medium text-destructive hover:bg-destructive/25"
-                                onClick={() => void respond(p.request_id, "deny")}
-                              >
-                                {t("permission.deny")}
-                              </button>
-                            </span>
+                      {(p) => {
+                        const view = permissionView(p);
+                        return (
+                          <div class="rounded-xl border border-event-permission/40 bg-event-permission/10 p-3">
+                            <div class="flex items-center gap-2 text-sm">
+                              <span class="font-medium text-event-permission">{p.tool}</span>
+                              <span class="text-xs text-muted-foreground">{t("permission.wants_to_run")}</span>
+                              <span class="ml-auto flex gap-1.5">
+                                <button
+                                  class="rounded-md bg-status-active/15 px-2.5 py-1 text-xs font-medium text-status-active hover:bg-status-active/25"
+                                  onClick={() => void respond(p.request_id, "allow", "once")}
+                                >
+                                  {t("permission.once")}
+                                </button>
+                                <button
+                                  class="rounded-md bg-secondary px-2.5 py-1 text-xs font-medium text-foreground hover:bg-secondary/80"
+                                  onClick={() => void respond(p.request_id, "allow", "always")}
+                                >
+                                  {t("permission.always")}
+                                </button>
+                                <button
+                                  class="rounded-md bg-destructive/15 px-2.5 py-1 text-xs font-medium text-destructive hover:bg-destructive/25"
+                                  onClick={() => void respond(p.request_id, "deny")}
+                                >
+                                  {t("permission.deny")}
+                                </button>
+                              </span>
+                            </div>
+                            <Switch>
+                              <Match when={view.kind === "command" ? view : undefined}>
+                                {(v) => (
+                                  <pre class="mt-2 max-h-24 overflow-y-auto whitespace-pre-wrap rounded-md bg-background/50 p-2 font-mono text-2xs">
+                                    {v().command}
+                                  </pre>
+                                )}
+                              </Match>
+                              <Match when={view.kind === "diff" ? view : undefined}>
+                                {(v) => (
+                                  <>
+                                    <Show when={v().path}>
+                                      <div class="mt-2 font-mono text-2xs text-muted-foreground">{v().path}</div>
+                                    </Show>
+                                    <div class="mt-2 max-h-48 overflow-auto rounded-md bg-background/50">
+                                      <DiffBlock patch={v().patch} />
+                                    </div>
+                                  </>
+                                )}
+                              </Match>
+                              <Match when={view.kind === "url" ? view : undefined}>
+                                {(v) => (
+                                  <pre class="mt-2 max-h-24 overflow-y-auto whitespace-pre-wrap rounded-md bg-background/50 p-2 font-mono text-2xs">
+                                    {v().url}
+                                  </pre>
+                                )}
+                              </Match>
+                              <Match when={view.kind === "json"}>
+                                <div class="mt-2 max-h-24 overflow-y-auto rounded-md bg-background/50 p-2">
+                                  <JsonView value={p.input} />
+                                </div>
+                              </Match>
+                            </Switch>
                           </div>
-                          <pre class="mt-2 max-h-24 overflow-y-auto whitespace-pre-wrap rounded-md bg-background/50 p-2 font-mono text-2xs text-muted-foreground">
-                            {JSON.stringify(p.input, null, 2)}
-                          </pre>
-                        </div>
-                      )}
+                        );
+                      }}
                     </For>
                     <For each={settled(questions) ?? []}>
                       {(q) => (
