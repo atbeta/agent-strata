@@ -1,4 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createIngestor, OpencodeMapper, OPENCODE_MAPPER_VERSION } from "@agent-strata/adapter-opencode";
 import { startService } from "../src/index";
@@ -874,5 +877,58 @@ describe("only the desktop shell reaches the service from a browser", () => {
     const stream = await fetch(`${base}/stream`, { headers: { origin: "http://tauri.localhost" } });
     expect(stream.headers.get("access-control-allow-origin")).toBe("http://tauri.localhost");
     await stream.body?.cancel();
+  });
+});
+
+describe("the service exposes the opencode launch mode and status", () => {
+  const withDesktopDir = (run: (desktopDir: string, base: string) => Promise<void>) => {
+    const desktopDir = mkdtempSync(join(tmpdir(), "agent-strata-desktop-"));
+    const svc = startService({ db: ":memory:", port: 0, desktopDir });
+    return run(desktopDir, `http://127.0.0.1:${svc.port}`).finally(() => {
+      svc.stop();
+      rmSync(desktopDir, { recursive: true, force: true });
+    });
+  };
+
+  test("GET /desktop/opencode is unmanaged embed when no files exist", async () => {
+    await withDesktopDir(async (_desktopDir, base) => {
+      const res = await fetch(`${base}/desktop/opencode`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ mode: "embed", state: "unmanaged" });
+    });
+  });
+
+  test("GET /desktop/opencode returns the status file and omits a password", async () => {
+    await withDesktopDir(async (desktopDir, base) => {
+      writeFileSync(
+        join(desktopDir, "opencode-status.json"),
+        JSON.stringify({ mode: "embed", state: "missing", password: "secret" }),
+      );
+      const got = (await fetch(`${base}/desktop/opencode`).then((r) => r.json())) as Record<string, unknown>;
+      expect(got).toEqual({ mode: "embed", state: "missing" });
+      expect(got).not.toHaveProperty("password");
+    });
+  });
+
+  test("PUT /desktop/opencode saves the mode for the next launch", async () => {
+    await withDesktopDir(async (desktopDir, base) => {
+      const res = await fetch(`${base}/desktop/opencode`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mode: "external" }),
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ mode: "external", applied: "next-launch" });
+      expect(JSON.parse(readFileSync(join(desktopDir, "desktop.json"), "utf8"))).toEqual({
+        opencode: "external",
+      });
+
+      const bad = await fetch(`${base}/desktop/opencode`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      expect(bad.status).toBe(400);
+    });
   });
 });

@@ -3,6 +3,7 @@
 // localhost. One store file, many backend connections, SSE fan-out to clients.
 
 import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { openStore, type Store, type EventQuery } from "@agent-strata/store";
 import { projectSession, aggregate, type SessionView } from "@agent-strata/projector";
@@ -32,6 +33,8 @@ export interface ServiceOpts {
   autoConnectUsername?: string;
   autoConnectPassword?: string;
   autoConnectTimeoutMs?: number;
+  // directory holding desktop.json and opencode-status.json; default ~/.agent-strata
+  desktopDir?: string;
 }
 
 interface PendingAsk {
@@ -65,6 +68,7 @@ export interface RunningService {
 }
 
 export function startService(opts: ServiceOpts = {}): RunningService {
+  const desktopDir = opts.desktopDir ?? join(homedir(), ".agent-strata");
   const store = openStore(opts.db ?? ":memory:");
   const conns = new Map<string, BackendDriver>();
   // casf session id -> driver id, filled as sessions are indexed or created
@@ -869,6 +873,19 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       return json({ ok: true });
     }
 
+    if (path === "/desktop/opencode" && req.method === "GET") {
+      return json(readOpencodeStatus(desktopDir));
+    }
+
+    if (path === "/desktop/opencode" && req.method === "PUT") {
+      const body = (await req.json().catch(() => null)) as { mode?: unknown } | null;
+      const mode = body?.mode;
+      if (!isOpencodeMode(mode)) return json({ error: "mode must be embed or external" }, 400);
+      mkdirSync(desktopDir, { recursive: true });
+      writeFileSync(join(desktopDir, "desktop.json"), JSON.stringify({ opencode: mode }));
+      return json({ mode, applied: "next-launch" });
+    }
+
     const extension = await extensionRoute(req, url, {
       connection: (id) => conns.get(id),
       session: (casfId) => {
@@ -980,6 +997,67 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       store.close();
     },
   };
+}
+
+type OpencodeLaunchMode = "embed" | "external";
+type OpencodeLaunchState =
+  | "starting"
+  | "running"
+  | "missing"
+  | "restarting"
+  | "stopped"
+  | "external"
+  | "unmanaged";
+
+function isOpencodeMode(value: unknown): value is OpencodeLaunchMode {
+  return value === "embed" || value === "external";
+}
+
+function isOpencodeState(value: unknown): value is OpencodeLaunchState {
+  return (
+    value === "starting" ||
+    value === "running" ||
+    value === "missing" ||
+    value === "restarting" ||
+    value === "stopped" ||
+    value === "external" ||
+    value === "unmanaged"
+  );
+}
+
+function readDesktopJson(path: string): unknown {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return undefined;
+  }
+}
+
+function readOpencodeMode(dir: string): OpencodeLaunchMode {
+  const parsed = readDesktopJson(join(dir, "desktop.json"));
+  if (parsed && typeof parsed === "object" && parsed !== null) {
+    const mode = (parsed as { opencode?: unknown }).opencode;
+    if (isOpencodeMode(mode)) return mode;
+  }
+  return "embed";
+}
+
+function readOpencodeStatus(dir: string): {
+  mode: OpencodeLaunchMode;
+  state: OpencodeLaunchState;
+  url?: string;
+} {
+  const mode = readOpencodeMode(dir);
+  const parsed = readDesktopJson(join(dir, "opencode-status.json"));
+  if (!parsed || typeof parsed !== "object" || parsed === null) return { mode, state: "unmanaged" };
+  const rec = parsed as { mode?: unknown; state?: unknown; url?: unknown };
+  if (!isOpencodeState(rec.state)) return { mode, state: "unmanaged" };
+  const body: { mode: OpencodeLaunchMode; state: OpencodeLaunchState; url?: string } = {
+    mode: isOpencodeMode(rec.mode) ? rec.mode : mode,
+    state: rec.state,
+  };
+  if (typeof rec.url === "string") body.url = rec.url;
+  return body;
 }
 
 function userHome(): string {
