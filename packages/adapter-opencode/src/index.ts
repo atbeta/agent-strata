@@ -607,11 +607,16 @@ export class OpencodeMapper {
         out.push(...pre);
         const part: Part = evt.properties.part;
         const m = this.ensureMsg(s, part.messageID);
-        // An import read mid-reply carries the part as OpenCode last stored it,
-        // which can be older than the deltas already applied; and deltas still
-        // in flight would land on top of anything newer.
+        // An import read mid-reply carries an open part as OpenCode last stored
+        // it, which can be older than the deltas already applied; and deltas
+        // still in flight would land on top of anything newer. A closed part
+        // carries its final text.
         const stale =
-          evt.id.startsWith("import:") && !m.emittedAssistant && !!m.streamed?.has(part.id);
+          evt.id.startsWith("import:") &&
+          !m.emittedAssistant &&
+          !!m.streamed?.has(part.id) &&
+          (part.type === "text" || part.type === "reasoning") &&
+          part.time?.end === undefined;
         if (stale) {
           // keep the delta-built text
         } else if (part.type === "text") {

@@ -1255,6 +1255,26 @@ describe("text that arrives as deltas", () => {
     ]);
   });
 
+  test("an import of a reply that already finished stores its whole text", () => {
+    let t = 0;
+    const m = streaming(() => t);
+    t = 1000;
+    m.handle(partUpdated({ id: "pa", sessionID: sid, messageID: "a1", type: "text", text: "" }));
+    t = 1100;
+    m.handle(delta("pa", "Hello "));
+    const imported = (e: Event) => ({ ...e, id: `import:${e.id}` }) as Event;
+    m.handle(imported(partUpdated({
+      id: "pa", sessionID: sid, messageID: "a1", type: "text", text: "Hello world", time: { start: 1, end: 2 },
+    })));
+    const done = snaps(m.handle(imported(msgUpdated({
+      id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
+      time: { created: 2, completed: 3 }, providerID: "p", modelID: "m", cost: 0,
+      tokens: { input: 1, output: 1, reasoning: 0, cache: { read: 0, write: 0 } },
+    }))));
+    expect(done.at(-1)!.partial).toBeUndefined();
+    expect(done.at(-1)!.content).toEqual([{ type: "text", text: "Hello world" }]);
+  });
+
   test("the live closing update of a part replaces what the deltas built", () => {
     let t = 0;
     const m = streaming(() => t);
