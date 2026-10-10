@@ -31,7 +31,7 @@ export type PromptPart =
   | {
       type: "file_ref";
       path: string;
-      /** where the `@path` that picked it sits in the text part */
+      /** where the `@path` that picked it sits in the first text part */
       mention?: { start: number; end: number };
     }
   | { type: "attachment"; mime: string; /** a data: URL */ url: string; filename?: string };

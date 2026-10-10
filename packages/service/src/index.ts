@@ -510,7 +510,9 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         const parts = readPromptParts(body);
         if (!Array.isArray(parts)) return json(parts, 400);
         if (!conn.capabilities.attachments && parts.some((p) => p.type !== "text"))
-          return json({ error: "backend cannot take attachments" }, 400);
+          return json({ error: "backend cannot take files or attachments" }, 400);
+        if (parts.some((p) => p.type === "file_ref") && !(directory ?? conn.directory))
+          return json({ error: "session has no workspace to read files from" }, 400);
         try {
           await conn.prompt(native, parts, {
             model: body?.model,

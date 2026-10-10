@@ -1,4 +1,11 @@
-import { createOpencodeClient, type Event, type OpencodeClient, type Part } from "@opencode-ai/sdk/v2";
+import {
+  createOpencodeClient,
+  type Event,
+  type FilePartInput,
+  type OpencodeClient,
+  type Part,
+  type TextPartInput,
+} from "@opencode-ai/sdk/v2";
 import {
   isStreamingSnapshot,
   makeEvent,
@@ -29,6 +36,9 @@ export interface OpencodeSyncGuard {
   /** another channel is driving it now; it is left to that channel untouched */
   taken?: (casfId: string) => boolean;
 }
+
+/** A piece of a prompt as OpenCode's prompt endpoint takes it. */
+export type OpencodePromptPart = TextPartInput | FilePartInput;
 
 export type OnAsk = (
   req: Extract<EventInput, { type: "permission.requested" }>,
@@ -1051,10 +1061,7 @@ export async function connectOpencode(opts: {
   createSession: (opts?: { title?: string; directory?: string }) => Promise<{ id: string }>;
   prompt: (
     sessionID: string,
-    parts: Array<
-      | { type: "text"; text: string }
-      | { type: "file"; mime: string; url: string; filename?: string; source?: object }
-    >,
+    parts: OpencodePromptPart[],
     opts?: {
       model?: { providerID: string; modelID: string };
       agent?: string;
@@ -1309,7 +1316,7 @@ export async function connectOpencode(opts: {
         agent: promptOpts?.agent,
         // server schema accepts `variant` (reasoning effort); SDK types lag
         ...(promptOpts?.variant ? ({ variant: promptOpts.variant } as object) : {}),
-        parts: parts as never,
+        parts,
       });
     },
     async listModels() {

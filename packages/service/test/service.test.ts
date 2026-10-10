@@ -191,7 +191,12 @@ describe("agent-strata service", () => {
       parts: [{ type: "text", text: "x" }, { type: "attachment", mime: "image/png", url: "data:image/png;base64,AA==" }],
     });
     expect(withImage.status).toBe(400);
-    expect(((await withImage.json()) as { error: string }).error).toMatch(/attachments/);
+    expect(((await withImage.json()) as { error: string }).error).toMatch(/files or attachments/);
+    expect(await fetch(`${base}/sessions/${encodeURIComponent(created.id)}/capabilities`).then((r) => r.json())).toMatchObject({
+      connected: true,
+      commands: false,
+      attachments: false,
+    });
 
     const view = () => fetch(`${base}/sessions/${encodeURIComponent(created.id)}/view`).then((r) => r.json());
     let v = await view();

@@ -92,3 +92,32 @@ describe("the composer through strata", () => {
     expect(upstream.seen.length).toBe(before);
   });
 });
+
+describe("a session with no workspace", () => {
+  const upstream = fakeOpencode({
+    "/session/ses_y/prompt_async": () => new Response(null, { status: 204 }),
+  });
+  let svc: ReturnType<typeof startService>;
+  let base = "";
+  const post = (path: string, body: unknown) =>
+    fetch(`${base}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+  beforeAll(async () => {
+    svc = startService({ db: ":memory:", port: 0 });
+    base = `http://127.0.0.1:${svc.port}`;
+    await post("/connect", { baseUrl: upstream.baseUrl });
+  });
+  afterAll(() => {
+    svc.stop();
+    upstream.stop();
+  });
+
+  test("cannot send a workspace file, and says so before OpenCode hears of it", async () => {
+    const res = await post(`/sessions/${encodeURIComponent("opencode:ses_y")}/prompt`, {
+      parts: [{ type: "text", text: "look" }, { type: "file_ref", path: "a.ts" }],
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe("session has no workspace to read files from");
+    expect(upstream.seen.some((s) => s.path === "/session/ses_y/prompt_async")).toBe(false);
+  });
+});

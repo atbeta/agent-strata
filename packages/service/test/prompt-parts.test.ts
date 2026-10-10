@@ -10,8 +10,8 @@ describe("a prompt's parts", () => {
 
   test("text, workspace files and attachments pass as sent", () => {
     const parts = [
-      { type: "text", text: "@a.ts look" },
-      { type: "file_ref", path: "src/a.ts", mention: { start: 0, end: 5 } },
+      { type: "text", text: "@src/a.ts look" },
+      { type: "file_ref", path: "src/a.ts", mention: { start: 0, end: 9 } },
       { type: "attachment", mime: "image/png", url: png, filename: "shot.png" },
     ];
     expect(readPromptParts({ parts })).toEqual(parts as never);
@@ -19,6 +19,33 @@ describe("a prompt's parts", () => {
 
   test("an attachment without words is a prompt", () => {
     expect(readPromptParts({ parts: [{ type: "attachment", mime: "application/pdf", url: "data:application/pdf;base64,JVBERi0=" }] })).toHaveLength(1);
+  });
+
+  test("a workspace path written with backslashes goes out with slashes", () => {
+    expect(
+      readPromptParts({
+        parts: [
+          { type: "text", text: "@src/a.ts look" },
+          { type: "file_ref", path: "src\\a.ts", mention: { start: 0, end: 9 } },
+        ],
+      }),
+    ).toEqual([
+      { type: "text", text: "@src/a.ts look" },
+      { type: "file_ref", path: "src/a.ts", mention: { start: 0, end: 9 } },
+    ]);
+  });
+
+  test("an attachment of exactly the limit passes, one byte more does not", () => {
+    const url = (n: number) => `data:image/png;base64,${Buffer.alloc(n).toString("base64")}`;
+    const one = (n: number) => readPromptParts({ parts: [{ type: "attachment", mime: "image/png", url: url(n) }] });
+    expect(one(MAX_ATTACHMENT_BYTES)).toHaveLength(1);
+    expect((one(MAX_ATTACHMENT_BYTES + 1) as { error: string }).error).toMatch(/5 MB/);
+  });
+
+  test("ten attachments pass, eleven do not", () => {
+    const shots = (n: number) => Array.from({ length: n }, () => ({ type: "attachment", mime: "image/png", url: png }));
+    expect(readPromptParts({ parts: shots(10) })).toHaveLength(10);
+    expect((readPromptParts({ parts: shots(11) }) as { error: string }).error).toMatch(/at most 10 attachments/);
   });
 
   test("nothing to send, or a part it cannot read, is refused with a reason", () => {
@@ -30,15 +57,36 @@ describe("a prompt's parts", () => {
     expect(bad({})).toMatch(/text or parts/);
     expect(bad({ parts: [] })).toMatch(/text or parts/);
     expect(bad({ parts: [{ type: "text", text: "  " }] })).toMatch(/text or parts/);
+    expect(bad({ parts: "hi", text: "hi" })).toMatch(/parts must be an array/);
+    expect(bad({ parts: null, text: "hi" })).toMatch(/parts must be an array/);
     expect(bad({ parts: [{ type: "video" }] })).toMatch(/part 0/);
     expect(bad({ parts: [{ type: "file_ref", path: "C:\\Windows\\win.ini" }] })).toMatch(/workspace/);
     expect(bad({ parts: [{ type: "file_ref", path: "/etc/passwd" }] })).toMatch(/workspace/);
     expect(bad({ parts: [{ type: "file_ref", path: "../outside.txt" }] })).toMatch(/workspace/);
+    expect(bad({ parts: [{ type: "file_ref", path: "\\\\server\\share\\x" }] })).toMatch(/workspace/);
+    expect(bad({ parts: [{ type: "file_ref", path: "//server/share/x" }] })).toMatch(/workspace/);
+    expect(bad({ parts: [{ type: "file_ref", path: "C:foo" }] })).toMatch(/workspace/);
+    expect(bad({ parts: [{ type: "file_ref", path: "src\\..\\..\\x" }] })).toMatch(/workspace/);
+    expect(bad({ parts: [{ type: "file_ref", path: "src/../../x" }] })).toMatch(/workspace/);
     expect(bad({ parts: [{ type: "file_ref", path: "a.ts", mention: { start: 3, end: 1 } }] })).toMatch(/part 0/);
+    expect(bad({ parts: [{ type: "text", text: "@a.ts" }, { type: "file_ref", path: "a.ts", mention: null }] })).toMatch(/part 1: mention/);
     expect(bad({ parts: [{ type: "attachment", mime: "text/html", url: "data:text/html;base64,PGI+" }] })).toMatch(/image or PDF/);
     expect(bad({ parts: [{ type: "attachment", mime: "image/png", url: "https://x/y.png" }] })).toMatch(/data URL/);
     expect(bad({ parts: [{ type: "attachment", mime: "image/png", url: "data:image/jpeg;base64,AA==" }] })).toMatch(/data URL/);
+    expect(bad({ parts: [{ type: "attachment", mime: "image/png", url: "data:image/png;base64,<b>hi</b>" }] })).toMatch(
+      /part 0: attachment url must be base64/,
+    );
     const big = "data:image/png;base64," + "A".repeat(Math.ceil((MAX_ATTACHMENT_BYTES * 4) / 3) + 8);
     expect(bad({ parts: [{ type: "attachment", mime: "image/png", url: big }] })).toMatch(/5 MB/);
+  });
+
+  test("a mention points at its @path in the first text part", () => {
+    const bad = (parts: unknown[]) => (readPromptParts({ parts }) as { error: string }).error;
+    const ref = (path: string, start: number, end: number) => ({ type: "file_ref", path, mention: { start, end } });
+    expect(bad([ref("a.ts", 0, 5)])).toMatch(/part 0: mention/);
+    expect(bad([{ type: "text", text: "@a.ts" }, ref("a.ts", 0, 9)])).toMatch(/part 1: mention/);
+    expect(bad([{ type: "text", text: "@b.ts x" }, ref("a.ts", 0, 5)])).toMatch(/part 1: mention/);
+    expect(bad([{ type: "text", text: "see " }, { type: "text", text: "@a.ts" }, ref("a.ts", 0, 5)])).toMatch(/part 2: mention/);
+    expect(readPromptParts({ parts: [{ type: "text", text: "x @a.ts" }, ref("a.ts", 2, 7)] })).toHaveLength(2);
   });
 });
