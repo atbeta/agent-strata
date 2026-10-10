@@ -48,6 +48,7 @@ export function SettingsPage() {
   };
 
   const pickMode = async (next: OpencodeLaunchMode) => {
+    setHydrated(true);
     setSaveErr("");
     setApplyNote(false);
     try {
