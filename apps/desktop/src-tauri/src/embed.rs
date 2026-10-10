@@ -1,5 +1,7 @@
 use std::net::TcpListener;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -199,12 +201,139 @@ pub fn read_status(path: &Path) -> Option<OpencodeStatus> {
     serde_json::from_str(&text).ok()
 }
 
+pub struct Spawned {
+    pub exited: Arc<AtomicBool>,
+    pub kill: Box<dyn Fn() + Send>,
+}
+
+pub fn supervise<S, H, W>(
+    plan: OpencodePlan,
+    status_path: &Path,
+    spawn: S,
+    healthy: H,
+    wait: W,
+    shutdown: Arc<AtomicBool>,
+) where
+    S: Fn(&OpencodePlan) -> std::io::Result<Spawned>,
+    H: Fn(&OpencodePlan) -> bool,
+    W: Fn(Duration),
+{
+    let mut attempt: u32 = 0;
+    let mut unsuccessful: u32 = 0;
+
+    loop {
+        let _ = write_status(
+            status_path,
+            plan.mode,
+            OpencodeState::Starting,
+            Some(&plan.url),
+        );
+
+        let spawned = match spawn(&plan) {
+            Ok(child) => child,
+            Err(_) => {
+                let _ = write_status(
+                    status_path,
+                    plan.mode,
+                    OpencodeState::Stopped,
+                    Some(&plan.url),
+                );
+                return;
+            }
+        };
+
+        let mut reached_running = false;
+
+        if !spawned.exited.load(Ordering::SeqCst) {
+            for _ in 0..40 {
+                if healthy(&plan) {
+                    let _ = write_status(
+                        status_path,
+                        plan.mode,
+                        OpencodeState::Running,
+                        Some(&plan.url),
+                    );
+                    attempt = 0;
+                    unsuccessful = 0;
+                    reached_running = true;
+                    break;
+                }
+                wait(Duration::from_millis(200));
+                if shutdown.load(Ordering::SeqCst) {
+                    (spawned.kill)();
+                    let _ = write_status(
+                        status_path,
+                        plan.mode,
+                        OpencodeState::Stopped,
+                        Some(&plan.url),
+                    );
+                    return;
+                }
+            }
+
+            if reached_running {
+                let mut unhealthy_streak = 0u32;
+                loop {
+                    wait(Duration::from_secs(5));
+                    if shutdown.load(Ordering::SeqCst) {
+                        (spawned.kill)();
+                        let _ = write_status(
+                            status_path,
+                            plan.mode,
+                            OpencodeState::Stopped,
+                            Some(&plan.url),
+                        );
+                        return;
+                    }
+                    if spawned.exited.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    if healthy(&plan) {
+                        unhealthy_streak = 0;
+                    } else {
+                        unhealthy_streak += 1;
+                        if unhealthy_streak >= 3 {
+                            break;
+                        }
+                    }
+                }
+            } else {
+                (spawned.kill)();
+            }
+        }
+
+        if !reached_running {
+            unsuccessful += 1;
+            if unsuccessful > 8 {
+                let _ = write_status(
+                    status_path,
+                    plan.mode,
+                    OpencodeState::Stopped,
+                    Some(&plan.url),
+                );
+                return;
+            }
+        }
+
+        let _ = write_status(
+            status_path,
+            plan.mode,
+            OpencodeState::Restarting,
+            Some(&plan.url),
+        );
+        attempt += 1;
+        wait(backoff(attempt));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
     use std::net::TcpListener;
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
     fn temp_path(name: &str) -> PathBuf {
@@ -455,5 +584,166 @@ mod tests {
         let missing = temp_path("missing-status.json");
         fs::remove_file(&missing).ok();
         assert!(read_status(&missing).is_none());
+    }
+
+    #[test]
+    fn supervise_healthy_first_poll_writes_running_and_respawns_same_plan() {
+        let plan = sample_plan();
+        let status_path = temp_path("status.json");
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let spawn_plans = Arc::new(Mutex::new(Vec::new()));
+        let saw_running = Arc::new(AtomicBool::new(false));
+        let first_exited = Arc::new(AtomicBool::new(false));
+        let running_waits = Arc::new(AtomicUsize::new(0));
+
+        supervise(
+            plan.clone(),
+            &status_path,
+            {
+                let spawn_plans = spawn_plans.clone();
+                let first_exited = first_exited.clone();
+                move |p| {
+                    spawn_plans.lock().unwrap().push(p.clone());
+                    let is_first = spawn_plans.lock().unwrap().len() == 1;
+                    Ok(Spawned {
+                        exited: if is_first {
+                            first_exited.clone()
+                        } else {
+                            Arc::new(AtomicBool::new(false))
+                        },
+                        kill: Box::new(|| {}),
+                    })
+                }
+            },
+            |_| true,
+            {
+                let shutdown = shutdown.clone();
+                let first_exited = first_exited.clone();
+                let saw_running = saw_running.clone();
+                let running_waits = running_waits.clone();
+                let status_path = status_path.clone();
+                move |d| {
+                    if let Some(status) = read_status(&status_path) {
+                        if status.state == OpencodeState::Running {
+                            saw_running.store(true, Ordering::SeqCst);
+                        }
+                    }
+                    if d == Duration::from_secs(5) {
+                        let n = running_waits.fetch_add(1, Ordering::SeqCst);
+                        if n == 0 {
+                            first_exited.store(true, Ordering::SeqCst);
+                        } else {
+                            shutdown.store(true, Ordering::SeqCst);
+                        }
+                    }
+                }
+            },
+            shutdown.clone(),
+        );
+
+        assert!(
+            saw_running.load(Ordering::SeqCst),
+            "first healthy poll should write running"
+        );
+        let spawned = spawn_plans.lock().unwrap();
+        assert!(
+            spawned.len() >= 2,
+            "expected a second spawn after the first child exited, got {}",
+            spawned.len()
+        );
+        assert_eq!(spawned[1].port, plan.port);
+        assert_eq!(spawned[1].password, plan.password);
+        assert_eq!(spawned[0].port, plan.port);
+        assert_eq!(spawned[0].password, plan.password);
+    }
+
+    #[test]
+    fn supervise_shutdown_during_first_health_wait_stops_without_respawn() {
+        let plan = sample_plan();
+        let status_path = temp_path("status.json");
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let kills = Arc::new(AtomicUsize::new(0));
+        let spawns = Arc::new(AtomicUsize::new(0));
+
+        supervise(
+            plan,
+            &status_path,
+            {
+                let spawns = spawns.clone();
+                let kills = kills.clone();
+                move |_| {
+                    spawns.fetch_add(1, Ordering::SeqCst);
+                    let kills = kills.clone();
+                    Ok(Spawned {
+                        exited: Arc::new(AtomicBool::new(false)),
+                        kill: Box::new(move || {
+                            kills.fetch_add(1, Ordering::SeqCst);
+                        }),
+                    })
+                }
+            },
+            |_| false,
+            {
+                let shutdown = shutdown.clone();
+                move |_| {
+                    shutdown.store(true, Ordering::SeqCst);
+                }
+            },
+            shutdown.clone(),
+        );
+
+        assert_eq!(spawns.load(Ordering::SeqCst), 1);
+        assert_eq!(kills.load(Ordering::SeqCst), 1);
+        let status = read_status(&status_path).expect("status");
+        assert_eq!(status.state, OpencodeState::Stopped);
+    }
+
+    #[test]
+    fn supervise_eight_immediate_exits_stop_with_backoff_schedule() {
+        let plan = sample_plan();
+        let status_path = temp_path("status.json");
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let spawns = Arc::new(AtomicUsize::new(0));
+        let waits = Arc::new(Mutex::new(Vec::new()));
+
+        supervise(
+            plan,
+            &status_path,
+            {
+                let spawns = spawns.clone();
+                move |_| {
+                    spawns.fetch_add(1, Ordering::SeqCst);
+                    Ok(Spawned {
+                        exited: Arc::new(AtomicBool::new(true)),
+                        kill: Box::new(|| {}),
+                    })
+                }
+            },
+            |_| panic!("health should not be polled for an already-exited child"),
+            {
+                let waits = waits.clone();
+                move |d| {
+                    waits.lock().unwrap().push(d);
+                }
+            },
+            shutdown,
+        );
+
+        assert_eq!(spawns.load(Ordering::SeqCst), 9);
+        assert_eq!(
+            *waits.lock().unwrap(),
+            vec![
+                Duration::from_secs(1),
+                Duration::from_secs(2),
+                Duration::from_secs(4),
+                Duration::from_secs(8),
+                Duration::from_secs(30),
+                Duration::from_secs(30),
+                Duration::from_secs(30),
+                Duration::from_secs(30),
+            ]
+        );
+        let status = read_status(&status_path).expect("status");
+        assert_eq!(status.state, OpencodeState::Stopped);
     }
 }
