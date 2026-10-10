@@ -25,7 +25,8 @@ type Name =
   | "copy"
   | "check"
   | "undo"
-  | "compact";
+  | "compact"
+  | "plug";
 
 function Glyph(props: { class?: string; children: JSX.Element }) {
   return (
@@ -232,6 +233,15 @@ export function Icon(props: { name: Name; class?: string }) {
         <path d="M2.8 4h10.4" />
         <path d="M4.4 8h7.2" />
         <path d="M6 12h4" />
+      </Glyph>
+    );
+  if (props.name === "plug")
+    return (
+      <Glyph class={props.class}>
+        <path d="M6 2.6v3.2" />
+        <path d="M10 2.6v3.2" />
+        <path d="M4.2 5.8h7.6v3.6a3.8 3.8 0 0 1-3.8 3.8 3.8 3.8 0 0 1-3.8-3.8z" />
+        <path d="M8 13.2v1.4" />
       </Glyph>
     );
   return (

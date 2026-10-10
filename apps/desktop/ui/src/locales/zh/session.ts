@@ -33,6 +33,18 @@ export default {
   "header.cost.tip": "已花费 {amount} — 打开上下文环查看明细",
   "header.export": "导出会话记录",
   "header.branch.tip": "当前 Git 分支：{branch}",
+  "header.tools": "MCP 与技能",
+  "mcp.title": "MCP",
+  "mcp.empty": "没有 MCP 服务器",
+  "mcp.connect": "连接",
+  "mcp.disconnect": "断开",
+  "mcp.status.connected": "已连接",
+  "mcp.status.disabled": "已停用",
+  "mcp.status.failed": "失败",
+  "mcp.status.needs_auth": "需要登录",
+  "mcp.status.needs_client_registration": "需要注册",
+  "skill.title": "技能",
+  "skill.empty": "没有技能",
 
   // The replay / trace toggle, which is one control with two labels.
   "trace.replay": "回放",

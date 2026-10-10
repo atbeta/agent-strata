@@ -14,6 +14,8 @@ import {
 import {
   abortSession,
   api,
+  connectMcp,
+  disconnectMcp,
   downloadExport,
   findFiles,
   fmtUsd,
@@ -22,6 +24,8 @@ import {
   importSession,
   readCapabilities,
   readCommands,
+  readMcp,
+  readSkills,
   realWorkspace,
   readVcs,
   readViewTail,
@@ -33,17 +37,20 @@ import {
   sendPrompt,
   summarizeSession,
   unrevertSession,
+  type McpServerStatus,
   type OptionsResponse,
   type PendingAsk,
   type PendingQuestion,
   type SearchHit,
   type SessionView,
+  type SkillInfo,
 } from "./api";
 import { Icon } from "./icons";
 import { DiffBlock } from "./diff";
 import { JsonView } from "./json-view";
 import { permissionView } from "./permission-card";
 import { num, t, tn } from "./i18n";
+import type { MessageKey } from "./locales/zh";
 import { DragBar } from "./chrome";
 import { inDesktopShell, shellPlatform } from "./shell";
 import { Tip } from "./tip";
@@ -219,6 +226,19 @@ function fileName(path: string): string {
 /** Ctrl on a PC, ⌘ on a Mac. The tooltip used to say "Ctrl+F" on every platform. */
 function findKey(): string {
   return shellPlatform() === "macos" ? "⌘F" : "Ctrl+F";
+}
+
+const MCP_STATUS: Record<McpServerStatus["status"], MessageKey> = {
+  connected: "mcp.status.connected",
+  disabled: "mcp.status.disabled",
+  failed: "mcp.status.failed",
+  needs_auth: "mcp.status.needs_auth",
+  needs_client_registration: "mcp.status.needs_client_registration",
+};
+
+function skillDraft(draft: string, name: string): string {
+  const insert = `/${name} `;
+  return draft ? `${draft}\n${insert}` : insert;
 }
 
 /** How a file changed. The wire values are `add`/`modify`/`delete`; these are labels. */
@@ -508,6 +528,9 @@ export function SessionDetail(props: {
   const [query, setQuery] = createSignal("");
   const [hitAt, setHitAt] = createSignal(0);
   const [probe, setProbe] = createSignal("");
+  const [toolsOpen, setToolsOpen] = createSignal(false);
+  const [mcpServers, setMcpServers] = createSignal<[string, McpServerStatus][]>([]);
+  const [skills, setSkills] = createSignal<SkillInfo[]>([]);
   let searchEl: HTMLInputElement | undefined;
   let resultsEl: HTMLUListElement | undefined;
   let probeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -527,6 +550,44 @@ export function SessionDetail(props: {
     setQuery("");
     setProbe("");
     setHitAt(0);
+  };
+
+  const loadTools = async () => {
+    try {
+      const [mcp, skill] = await Promise.all([readMcp(props.id), readSkills(props.id)]);
+      setMcpServers(Object.entries(mcp ?? {}).sort(([a], [b]) => a.localeCompare(b)));
+      setSkills([...(skill ?? [])].sort((a, b) => a.name.localeCompare(b.name)));
+    } catch (err) {
+      setSendErr(err instanceof Error ? err.message : t("err.network"));
+    }
+  };
+
+  const toggleTools = () => {
+    if (toolsOpen()) {
+      setToolsOpen(false);
+      return;
+    }
+    setToolsOpen(true);
+    void loadTools();
+  };
+
+  const pickSkill = (name: string) => {
+    setDraft(skillDraft(draft(), name));
+    setToolsOpen(false);
+    queueMicrotask(() => {
+      autogrow();
+      draftEl?.focus();
+    });
+  };
+
+  const toggleMcp = async (name: string, action: "connect" | "disconnect") => {
+    try {
+      if (action === "connect") await connectMcp(props.id, name);
+      else await disconnectMcp(props.id, name);
+      await loadTools();
+    } catch (err) {
+      setSendErr(err instanceof Error ? err.message : t("err.network"));
+    }
   };
 
   const [result] = createResource(
@@ -1265,6 +1326,23 @@ const turnIndexOf = (h: SearchHit): number => {
                       </Show>
                     </button>
                   </Tip>
+                  <Show when={opencode()}>
+                    <Tip label={t("header.tools")}>
+                      <button
+                        type="button"
+                        class={`grid h-7 w-7 place-items-center rounded-md transition-colors ${
+                          toolsOpen()
+                            ? "bg-secondary text-foreground"
+                            : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                        }`}
+                        aria-label={t("header.tools")}
+                        aria-expanded={toolsOpen()}
+                        onClick={toggleTools}
+                      >
+                        <Icon name="plug" />
+                      </button>
+                    </Tip>
+                  </Show>
                   <Show when={caps()?.summarize}>
                     <Tip label={t("message.summarize")}>
                       <button
@@ -1380,6 +1458,90 @@ const turnIndexOf = (h: SearchHit): number => {
                       </For>
                     </ul>
                   </Show>
+                </div>
+              </Show>
+
+              <Show when={toolsOpen()}>
+                <div class="absolute right-4 top-11 z-30 w-80 max-w-[calc(100%-2rem)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg">
+                  <div class="max-h-80 overflow-y-auto px-3 py-2">
+                    <section>
+                      <h2 class="text-2xs font-medium text-muted-foreground">{t("mcp.title")}</h2>
+                      <Show
+                        when={mcpServers().length > 0}
+                        fallback={<p class="mt-1.5 text-xs text-muted-foreground">{t("mcp.empty")}</p>}
+                      >
+                        <ul class="mt-1 space-y-0.5">
+                          <For each={mcpServers()}>
+                            {([name, server]) => (
+                              <li class="flex items-start justify-between gap-2 py-1">
+                                <div class="min-w-0">
+                                  <div class="truncate text-sm">{name}</div>
+                                  <div class="truncate text-2xs text-muted-foreground">
+                                    {t(MCP_STATUS[server.status])}
+                                    <Show
+                                      when={
+                                        (server.status === "failed" ||
+                                          server.status === "needs_client_registration") &&
+                                        server.error
+                                      }
+                                    >
+                                      {` · ${server.error}`}
+                                    </Show>
+                                  </div>
+                                </div>
+                                <Show when={server.status === "connected"}>
+                                  <button
+                                    type="button"
+                                    class="shrink-0 text-2xs text-muted-foreground hover:text-foreground"
+                                    onClick={() => void toggleMcp(name, "disconnect")}
+                                  >
+                                    {t("mcp.disconnect")}
+                                  </button>
+                                </Show>
+                                <Show when={server.status === "disabled" || server.status === "failed"}>
+                                  <button
+                                    type="button"
+                                    class="shrink-0 text-2xs text-muted-foreground hover:text-foreground"
+                                    onClick={() => void toggleMcp(name, "connect")}
+                                  >
+                                    {t("mcp.connect")}
+                                  </button>
+                                </Show>
+                              </li>
+                            )}
+                          </For>
+                        </ul>
+                      </Show>
+                    </section>
+                    <section class="mt-3">
+                      <h2 class="text-2xs font-medium text-muted-foreground">{t("skill.title")}</h2>
+                      <Show
+                        when={skills().length > 0}
+                        fallback={<p class="mt-1.5 text-xs text-muted-foreground">{t("skill.empty")}</p>}
+                      >
+                        <ul class="mt-1 space-y-0.5">
+                          <For each={skills()}>
+                            {(skill) => (
+                              <li>
+                                <button
+                                  type="button"
+                                  class="flex w-full flex-col gap-0.5 rounded-md px-0 py-1 text-left hover:bg-secondary/60"
+                                  onClick={() => pickSkill(skill.name)}
+                                >
+                                  <span class="truncate text-sm">{skill.name}</span>
+                                  <Show when={skill.description}>
+                                    <span class="truncate text-2xs text-muted-foreground">
+                                      {skill.description}
+                                    </span>
+                                  </Show>
+                                </button>
+                              </li>
+                            )}
+                          </For>
+                        </ul>
+                      </Show>
+                    </section>
+                  </div>
                 </div>
               </Show>
 

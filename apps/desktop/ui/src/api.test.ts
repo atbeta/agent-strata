@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { exportFileName, opencodePath, runCommand } from "./api";
+import { connectMcp, disconnectMcp, exportFileName, opencodePath, readMcp, readSkills, runCommand } from "./api";
 
 describe("an exported session", () => {
   test("is saved under a name any file system takes", () => {
@@ -43,5 +43,72 @@ describe("running a backend command", () => {
     const parts = [{ type: "file_ref" as const, path: "a.ts" }];
     await runCommand("opencode:ses_1", { name: "review", args: "be brief", parts }, { agent: "plan" });
     expect(sent[0]!.body).toEqual({ command: "review", arguments: "be brief", parts, agent: "plan" });
+  });
+});
+
+describe("reading MCP servers and skills", () => {
+  const realFetch = globalThis.fetch;
+  let urls: string[] = [];
+  beforeEach(() => {
+    urls = [];
+  });
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  test("reads MCP status through the opencode extension", async () => {
+    globalThis.fetch = (async (url: string) => {
+      urls.push(String(url));
+      return Response.json({ srv: { status: "connected" } });
+    }) as typeof fetch;
+    const mcp = await readMcp("opencode:ses_1");
+    expect(urls).toEqual(["/api/sessions/opencode%3Ases_1/opencode/mcp"]);
+    expect(mcp).toEqual({ srv: { status: "connected" } });
+  });
+
+  test("reads skills through the opencode extension", async () => {
+    const skills = [{ name: "review", location: "project", content: "# review" }];
+    globalThis.fetch = (async (url: string) => {
+      urls.push(String(url));
+      return Response.json(skills);
+    }) as typeof fetch;
+    expect(await readSkills("opencode:ses_1")).toEqual(skills);
+    expect(urls).toEqual(["/api/sessions/opencode%3Ases_1/opencode/skill"]);
+  });
+
+  test("treats a missing extension as undefined", async () => {
+    globalThis.fetch = (async () => new Response("", { status: 404 })) as typeof fetch;
+    expect(await readMcp("acp:1")).toBeUndefined();
+    expect(await readSkills("acp:1")).toBeUndefined();
+  });
+});
+
+describe("connecting and disconnecting an MCP server", () => {
+  const realFetch = globalThis.fetch;
+  let sent: { url: string; method?: string; body?: string }[] = [];
+  beforeEach(() => {
+    sent = [];
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      sent.push({ url: String(url), method: init?.method, body: init?.body as string | undefined });
+      return new Response("{}", { status: 200 });
+    }) as typeof fetch;
+  });
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  test("POSTs the encoded name with no body", async () => {
+    await connectMcp("opencode:ses_1", "my server");
+    await disconnectMcp("opencode:ses_1", "my server");
+    expect(sent).toEqual([
+      { url: "/api/sessions/opencode%3Ases_1/mcp/my%20server/connect", method: "POST", body: undefined },
+      { url: "/api/sessions/opencode%3Ases_1/mcp/my%20server/disconnect", method: "POST", body: undefined },
+    ]);
+  });
+
+  test("surfaces a service error", async () => {
+    globalThis.fetch = (async () => Response.json({ error: "nope" }, { status: 400 })) as typeof fetch;
+    await expect(connectMcp("s", "srv")).rejects.toThrow("nope");
+    await expect(disconnectMcp("s", "srv")).rejects.toThrow("nope");
   });
 });

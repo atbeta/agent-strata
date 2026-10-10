@@ -33,6 +33,18 @@ export default {
   "header.cost.tip": "{amount} so far — open the context ring for the breakdown",
   "header.export": "Export transcript",
   "header.branch.tip": "Current Git branch: {branch}",
+  "header.tools": "MCP and skills",
+  "mcp.title": "MCP",
+  "mcp.empty": "No MCP servers",
+  "mcp.connect": "Connect",
+  "mcp.disconnect": "Disconnect",
+  "mcp.status.connected": "Connected",
+  "mcp.status.disabled": "Disabled",
+  "mcp.status.failed": "Failed",
+  "mcp.status.needs_auth": "Needs sign-in",
+  "mcp.status.needs_client_registration": "Needs registration",
+  "skill.title": "Skills",
+  "skill.empty": "No skills",
 
   // The replay / trace toggle, which is one control with two labels.
   "trace.replay": "Replay",

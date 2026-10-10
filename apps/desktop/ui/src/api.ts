@@ -364,6 +364,36 @@ export function readCommands(sessionId: string): Promise<CommandInfo[] | undefin
   return readOpencode<CommandInfo[]>(sessionId, "/command");
 }
 
+export type McpServerStatus = {
+  status: "connected" | "disabled" | "failed" | "needs_auth" | "needs_client_registration";
+  error?: string;
+};
+export type SkillInfo = { name: string; description?: string; location: string; content: string };
+
+export function readMcp(sessionId: string): Promise<Record<string, McpServerStatus> | undefined> {
+  return readOpencode<Record<string, McpServerStatus>>(sessionId, "/mcp");
+}
+
+export function readSkills(sessionId: string): Promise<SkillInfo[] | undefined> {
+  return readOpencode<SkillInfo[]>(sessionId, "/skill");
+}
+
+export async function connectMcp(sessionId: string, name: string): Promise<void> {
+  await throwOnError(
+    await fetch(api(`/sessions/${encodeURIComponent(sessionId)}/mcp/${encodeURIComponent(name)}/connect`), {
+      method: "POST",
+    }),
+  );
+}
+
+export async function disconnectMcp(sessionId: string, name: string): Promise<void> {
+  await throwOnError(
+    await fetch(api(`/sessions/${encodeURIComponent(sessionId)}/mcp/${encodeURIComponent(name)}/disconnect`), {
+      method: "POST",
+    }),
+  );
+}
+
 export function findFiles(sessionId: string, query: string, signal?: AbortSignal): Promise<string[] | undefined> {
   return readOpencode<string[]>(sessionId, "/find/file", { query, limit: 20, dirs: "false" }, signal);
 }
