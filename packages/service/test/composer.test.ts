@@ -61,6 +61,9 @@ describe("the composer through strata", () => {
       abort: true,
       commands: true,
       attachments: true,
+      revert: true,
+      fork: true,
+      summarize: true,
       extension: "opencode",
     });
     expect(

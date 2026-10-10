@@ -447,6 +447,9 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         abort: c.abort,
         commands: c.commands === true,
         attachments: c.attachments === true,
+        ...(c.revert ? { revert: true } : {}),
+        ...(c.fork ? { fork: true } : {}),
+        ...(c.summarize ? { summarize: true } : {}),
         ...(conn.extension ? { extension: conn.extension.kind } : {}),
       });
     }
@@ -563,6 +566,92 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, e instanceof UnknownCommandError ? 400 : 502);
         }
+      }
+    }
+
+    const sessionRevert = path.match(/^\/sessions\/([^/]+)\/revert$/);
+    if (sessionRevert && req.method === "POST") {
+      const casfId = decodeURIComponent(sessionRevert[1]!);
+      const conn = driverFor(casfId);
+      if (!conn) return json({ error: "no backend connected" }, 400);
+      const native = conn.nativeId(casfId);
+      if (!native) return json({ error: "session is not owned by a connected backend" }, 400);
+      owners.set(casfId, conn.id);
+      if (!conn.capabilities.revert || !conn.revert) return json({ error: "backend cannot revert" }, 400);
+      const body = (await req.json().catch(() => null)) as { message_id?: unknown } | null;
+      const messageId = typeof body?.message_id === "string" ? body.message_id : "";
+      if (!messageId) return json({ error: "message_id required" }, 400);
+      try {
+        await conn.revert(native, messageId, directoryOf(casfId));
+        return json({ ok: true });
+      } catch (e) {
+        return json({ error: String(e) }, 502);
+      }
+    }
+
+    const sessionUnrevert = path.match(/^\/sessions\/([^/]+)\/unrevert$/);
+    if (sessionUnrevert && req.method === "POST") {
+      const casfId = decodeURIComponent(sessionUnrevert[1]!);
+      const conn = driverFor(casfId);
+      if (!conn) return json({ error: "no backend connected" }, 400);
+      const native = conn.nativeId(casfId);
+      if (!native) return json({ error: "session is not owned by a connected backend" }, 400);
+      owners.set(casfId, conn.id);
+      if (!conn.capabilities.revert || !conn.unrevert) return json({ error: "backend cannot revert" }, 400);
+      try {
+        await conn.unrevert(native, directoryOf(casfId));
+        return json({ ok: true });
+      } catch (e) {
+        return json({ error: String(e) }, 502);
+      }
+    }
+
+    const sessionFork = path.match(/^\/sessions\/([^/]+)\/fork$/);
+    if (sessionFork && req.method === "POST") {
+      const casfId = decodeURIComponent(sessionFork[1]!);
+      const conn = driverFor(casfId);
+      if (!conn) return json({ error: "no backend connected" }, 400);
+      const native = conn.nativeId(casfId);
+      if (!native) return json({ error: "session is not owned by a connected backend" }, 400);
+      owners.set(casfId, conn.id);
+      if (!conn.capabilities.fork || !conn.fork) return json({ error: "backend cannot fork" }, 400);
+      const body = (await req.json().catch(() => null)) as { message_id?: unknown } | null;
+      const messageId = typeof body?.message_id === "string" ? body.message_id : "";
+      if (!messageId) return json({ error: "message_id required" }, 400);
+      try {
+        const created = await conn.fork(native, messageId, directoryOf(casfId));
+        owners.set(created.casfId, conn.id);
+        claims.claim(`${conn.agent}:${created.nativeId}`, created.casfId, conn.id);
+        return json({ id: created.casfId });
+      } catch (e) {
+        return json({ error: String(e) }, 502);
+      }
+    }
+
+    const sessionSummarize = path.match(/^\/sessions\/([^/]+)\/summarize$/);
+    if (sessionSummarize && req.method === "POST") {
+      const casfId = decodeURIComponent(sessionSummarize[1]!);
+      const conn = driverFor(casfId);
+      if (!conn) return json({ error: "no backend connected" }, 400);
+      const native = conn.nativeId(casfId);
+      if (!native) return json({ error: "session is not owned by a connected backend" }, 400);
+      owners.set(casfId, conn.id);
+      if (!conn.capabilities.summarize || !conn.summarize) return json({ error: "backend cannot summarize" }, 400);
+      const body = (await req.json().catch(() => null)) as {
+        model?: { providerID?: unknown; modelID?: unknown };
+      } | null;
+      const model =
+        typeof body?.model?.providerID === "string" &&
+        typeof body.model.modelID === "string" &&
+        body.model.providerID &&
+        body.model.modelID
+          ? { providerID: body.model.providerID, modelID: body.model.modelID }
+          : undefined;
+      try {
+        await conn.summarize(native, directoryOf(casfId), model);
+        return json({ ok: true });
+      } catch (e) {
+        return json({ error: String(e) }, 502);
       }
     }
 

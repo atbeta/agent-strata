@@ -201,6 +201,13 @@ describe("agent-strata service", () => {
       commands: false,
       attachments: false,
     });
+    const acpCaps = (await fetch(`${base}/sessions/${encodeURIComponent(created.id)}/capabilities`).then((r) =>
+      r.json(),
+    )) as Record<string, unknown>;
+    expect(acpCaps.revert).toBeUndefined();
+    expect(acpCaps.fork).toBeUndefined();
+    expect(acpCaps.summarize).toBeUndefined();
+    expect((await post(`/sessions/${encodeURIComponent(created.id)}/revert`, { message_id: "m1" })).status).toBe(400);
 
     const view = () => fetch(`${base}/sessions/${encodeURIComponent(created.id)}/view`).then((r) => r.json());
     let v = await view();
@@ -688,6 +695,74 @@ describe("agent-strata service", () => {
     const child = list.sessions.find((s) => s.summary.session_id === "opencode:kid");
     expect(child?.parent).toBe("opencode:root");
     expect(child?.title).toBe("Child");
+    oc.stop();
+    svc.stop();
+  });
+
+  test("an OpenCode session can revert, restore, fork, and summarize", async () => {
+    const oc = fakeOpencode({
+      "/session/ses_x/revert": () =>
+        Response.json({ id: "ses_x", directory: "/repo", title: "x", time: { created: 1, updated: 1 } }),
+      "/session/ses_x/unrevert": () =>
+        Response.json({ id: "ses_x", directory: "/repo", title: "x", time: { created: 1, updated: 1 } }),
+      "/session/ses_x/fork": () =>
+        Response.json({ id: "ses_fork", directory: "/repo", title: "fork", time: { created: 1, updated: 1 } }),
+      "/session/ses_x/summarize": () => Response.json(true),
+    });
+    const svc = startService({ db: ":memory:", port: 0 });
+    const base = `http://127.0.0.1:${svc.port}`;
+    const post = (p: string, body?: unknown) =>
+      fetch(`${base}${p}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    await post("/connect", { baseUrl: oc.baseUrl, directory: "/repo" });
+    svc.store.append([
+      ev("opencode:ses_x", "session.started", { title: "x", workspace: "/repo" }, "2026-01-01T00:00:00Z"),
+    ]);
+    const sid = encodeURIComponent("opencode:ses_x");
+
+    expect(await fetch(`${base}/sessions/${sid}/capabilities`).then((r) => r.json())).toMatchObject({
+      connected: true,
+      revert: true,
+      fork: true,
+      summarize: true,
+    });
+
+    expect((await post(`/sessions/${sid}/revert`, {})).status).toBe(400);
+    expect((await post(`/sessions/${sid}/revert`, { message_id: "" })).status).toBe(400);
+
+    const revert = await post(`/sessions/${sid}/revert`, { message_id: "msg_1" });
+    expect(revert.status).toBe(200);
+    expect(await revert.json()).toEqual({ ok: true });
+    const revertSeen = oc.seen.filter((s) => s.path === "/session/ses_x/revert").at(-1);
+    expect(JSON.parse(revertSeen!.body)).toEqual({ messageID: "msg_1" });
+
+    const unrevert = await post(`/sessions/${sid}/unrevert`);
+    expect(unrevert.status).toBe(200);
+    expect(await unrevert.json()).toEqual({ ok: true });
+    expect(oc.seen.some((s) => s.path === "/session/ses_x/unrevert")).toBe(true);
+
+    expect((await post(`/sessions/${sid}/fork`, {})).status).toBe(400);
+    const fork = await post(`/sessions/${sid}/fork`, { message_id: "msg_1" });
+    expect(fork.status).toBe(200);
+    expect(await fork.json()).toEqual({ id: "opencode:ses_fork" });
+    const forkSeen = oc.seen.filter((s) => s.path === "/session/ses_x/fork").at(-1);
+    expect(JSON.parse(forkSeen!.body)).toEqual({ messageID: "msg_1" });
+
+    const summarize = await post(`/sessions/${sid}/summarize`);
+    expect(summarize.status).toBe(200);
+    expect(await summarize.json()).toEqual({ ok: true });
+    expect(oc.seen.some((s) => s.path === "/session/ses_x/summarize")).toBe(true);
+
+    const modeled = await post(`/sessions/${sid}/summarize`, {
+      model: { providerID: "openai", modelID: "gpt-5" },
+    });
+    expect(modeled.status).toBe(200);
+    const modeledSeen = oc.seen.filter((s) => s.path === "/session/ses_x/summarize").at(-1);
+    expect(JSON.parse(modeledSeen!.body)).toMatchObject({ providerID: "openai", modelID: "gpt-5" });
+
     oc.stop();
     svc.stop();
   });

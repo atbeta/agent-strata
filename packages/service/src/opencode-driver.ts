@@ -54,6 +54,9 @@ export async function connectOpencodeDriver(opts: {
       manage: true,
       commands: true,
       attachments: true,
+      revert: true,
+      fork: true,
+      summarize: true,
     },
     extension: opencodeExtension({
       baseUrl: opts.baseUrl,
@@ -83,6 +86,13 @@ export async function connectOpencodeDriver(opts: {
           : undefined,
       }),
     abort: (nativeId, directory) => conn.abort(nativeId, directory),
+    revert: (nativeId, messageId, directory) => conn.revert(nativeId, messageId, directory),
+    unrevert: (nativeId, directory) => conn.unrevert(nativeId, directory),
+    async fork(nativeId, messageId, directory) {
+      const created = await conn.fork(nativeId, messageId, directory);
+      return { casfId: `${PREFIX}${created.id}`, nativeId: created.id };
+    },
+    summarize: (nativeId, directory, model) => conn.summarize(nativeId, directory, model),
     listModels: () => conn.listModels(),
     listAgents: () => conn.listAgents(),
     listWorkspaces: () => conn.listWorkspaces(),

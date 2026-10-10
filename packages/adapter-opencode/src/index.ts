@@ -1173,6 +1173,14 @@ export async function connectOpencode(opts: {
   listSessions: () => Promise<{ id: string; title: string; directory: string }[]>;
   listWorkspaces: () => Promise<{ id: string; name?: string; directory: string }[]>;
   abort: (sessionID: string, directory?: string) => Promise<void>;
+  revert: (sessionID: string, messageID: string, directory?: string) => Promise<void>;
+  unrevert: (sessionID: string, directory?: string) => Promise<void>;
+  fork: (sessionID: string, messageID: string, directory?: string) => Promise<{ id: string }>;
+  summarize: (
+    sessionID: string,
+    directory?: string,
+    model?: { providerID: string; modelID: string },
+  ) => Promise<void>;
   indexSessions: () => Promise<string[]>;
   refreshSessions: (guard?: OpencodeSyncGuard) => Promise<number>;
   rebuildSession: (sessionID: string, directory?: string) => Promise<number>;
@@ -1528,6 +1536,28 @@ export async function connectOpencode(opts: {
     },
     async abort(sessionID: string, directory?: string) {
       await client.session.abort({ sessionID, directory: directory ?? opts.directory });
+    },
+    async revert(sessionID: string, messageID: string, directory?: string) {
+      await client.session.revert({ sessionID, messageID, directory: directory ?? opts.directory });
+    },
+    async unrevert(sessionID: string, directory?: string) {
+      await client.session.unrevert({ sessionID, directory: directory ?? opts.directory });
+    },
+    async fork(sessionID: string, messageID: string, directory?: string) {
+      const r = await client.session.fork({ sessionID, messageID, directory: directory ?? opts.directory });
+      if (!r.data) throw new Error("session.fork returned no data");
+      return { id: r.data.id };
+    },
+    async summarize(
+      sessionID: string,
+      directory?: string,
+      model?: { providerID: string; modelID: string },
+    ) {
+      await client.session.summarize({
+        sessionID,
+        directory: directory ?? opts.directory,
+        ...(model ? { providerID: model.providerID, modelID: model.modelID } : {}),
+      });
     },
     async updateSession(sessionID: string, patch: { title?: string; archived?: boolean }, directory?: string) {
       const r = await client.session.update({
