@@ -86,6 +86,13 @@ strata 的读路径（CASF 事件 → store → projector → view）只承载**
 - 复制消息；编辑后重发（等于撤回到该消息再发送新文本，与官方行为一致）。
 - 验收：撤回最后一轮后文件改动回滚、轮次灰显；恢复后复原。
 
+### 6b. MCP 与技能 —— 已写详细计划
+
+- 计划：`2026-10-11-opencode-mcp-skills.md`
+- 提到第 7 项之前做。斜杠菜单里来自 MCP 或技能的命令已经能执行；缺的是服务器状态、连接/断开，以及技能目录。
+- `GET /mcp`、`GET /skill` 继续走扩展平面。连接和断开是命令平面的 POST。添加服务器和 OAuth 不在这一项里。
+- 验收：会话页能看到 MCP 状态并连接一台已停用的服务器；点一个技能会把 `/name` 放进输入框。
+
 ### 7. 内嵌 opencode 生命周期
 
 - Tauri shell 默认启动内嵌 `opencode serve`：挑一个空闲端口，生成随机 `OPENCODE_SERVER_PASSWORD`，通过 `STRATA_OPENCODE_URL/USERNAME/PASSWORD` 交给 service；工作目录用用户主目录。
