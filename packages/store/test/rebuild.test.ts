@@ -74,4 +74,16 @@ describe("store: durable facts and rebuilds", () => {
     expect(s.sessionMapper("nope")).toBeNull();
     s.close();
   });
+
+  test("markMapper records a mapping only where none is recorded", () => {
+    const s = openStore(":memory:");
+    s.append([e("s1", "session.started", { workspace: "/w" })]);
+    s.markMapper("s1", "test-1");
+    expect(s.sessionMapper("s1")).toBe("test-1");
+    s.markMapper("s1", "test-2");
+    expect(s.sessionMapper("s1")).toBe("test-1");
+    s.markMapper("nope", "test-1");
+    expect(s.sessionMapper("nope")).toBeNull();
+    s.close();
+  });
 });

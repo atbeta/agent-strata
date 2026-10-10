@@ -118,6 +118,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       broadcast({ type: "session.rebuilt", session_id: sessionId });
       return n;
     },
+    markMapped: (sessionId, mapper) => store.markMapper(sessionId, mapper),
   };
   const syncDriver = (driver: BackendDriver) =>
     driver.sync({

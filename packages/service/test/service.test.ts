@@ -44,6 +44,17 @@ const seed = (svc: ReturnType<typeof startService>, sessionId = "opencode:s1") =
 };
 
 describe("agent-strata service", () => {
+  test("a session marked by its mapping is not stale to the next sync", () => {
+    const svc = startService({ db: ":memory:", port: 0 });
+    seed(svc, "opencode:born");
+    expect(svc.store.sessionMapper("opencode:born")).toBeNull();
+    svc.sink.markMapped("opencode:born", "opencode-3");
+    expect(svc.store.sessionMapper("opencode:born")).toBe("opencode-3");
+    svc.sink.markMapped("opencode:born", "opencode-2");
+    expect(svc.store.sessionMapper("opencode:born")).toBe("opencode-3");
+    svc.stop();
+  });
+
   test("a message still being written shows in the view until the finished one lands", async () => {
     const svc = startService({ db: ":memory:", port: 0 });
     const base = `http://127.0.0.1:${svc.port}`;

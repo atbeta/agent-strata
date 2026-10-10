@@ -52,6 +52,8 @@ export interface Store {
   query(q: EventQuery): Event[];
   listSessions(opts?: { limit?: number; backend?: string }): SessionSummary[];
   sessionMapper(session_id: string): string | null;
+  /** record the mapping behind a session that has none yet; a recorded one is kept */
+  markMapper(session_id: string, mapper: string): void;
   lastSeq(session_id: string): number;
   search(
     query: string,
@@ -352,6 +354,10 @@ export function openStore(path: string | ":memory:"): Store {
         | { mapper: string | null }
         | null;
       return row?.mapper ?? null;
+    },
+
+    markMapper(session_id, mapper) {
+      db.query("UPDATE sessions SET mapper=? WHERE session_id=? AND mapper IS NULL").run(mapper, session_id);
     },
 
     lastSeq(session_id) {

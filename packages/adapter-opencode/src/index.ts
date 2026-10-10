@@ -18,6 +18,8 @@ export interface Sink {
     events: EventInput[],
     opts: { replaceTypes: EventType[]; mapper?: string },
   ): unknown;
+  /** record which mapping wrote a session strata watched from its creation */
+  markMapped?(sessionId: string, mapper: string): void;
 }
 
 /** What the caller knows about a session before this adapter re-reads it. */
@@ -929,6 +931,11 @@ export function createIngestor(opts: {
   return {
     handle(evt: Event) {
       emit(mapper.handle(evt));
+      // Unmarked, a session watched from its creation reads as stale to every
+      // later sync, which then rebuilds it in the middle of a reply.
+      if (evt.type === "session.created" && !evt.id.startsWith("import:")) {
+        sink.markMapped?.(`opencode:${evt.properties.sessionID}`, OPENCODE_MAPPER_VERSION);
+      }
       if (evt.type === "permission.asked") {
         void handlePermission(evt).catch((err) =>
           console.error("opencode permission handling error:", err),

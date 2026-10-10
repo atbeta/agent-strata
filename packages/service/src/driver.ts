@@ -13,6 +13,7 @@ export interface BackendSink {
     events: EventInput[],
     opts: { replaceTypes: EventType[]; mapper?: string },
   ): number;
+  markMapped(sessionId: string, mapper: string): void;
 }
 
 export interface ModelChoice {

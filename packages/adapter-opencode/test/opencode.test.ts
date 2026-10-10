@@ -682,6 +682,28 @@ describe("createIngestor seam", () => {
     expect(published.map((e) => e.type)).toEqual(["turn.assistant"]);
     expect(published[0]!.data).toMatchObject({ partial: true, msg_id: "a1" });
   });
+
+  test("a session seen from its creation records the mapping that wrote it", () => {
+    const marked: [string, string][] = [];
+    const ing = createIngestor({
+      mapper: new OpencodeMapper(),
+      sink: { append: () => {}, markMapped: (id, version) => marked.push([id, version]) },
+      reply: async () => {},
+    });
+    ing.handle(sessionCreated());
+    expect(marked).toEqual([[`opencode:${sid}`, OPENCODE_MAPPER_VERSION]]);
+  });
+
+  test("an imported session does not record a mapping on its own", () => {
+    const marked: [string, string][] = [];
+    const ing = createIngestor({
+      mapper: new OpencodeMapper(),
+      sink: { append: () => {}, markMapped: (id, version) => marked.push([id, version]) },
+      reply: async () => {},
+    });
+    for (const e of snapshotFixture()) ing.handle(e);
+    expect(marked).toEqual([]);
+  });
 });
 
 // offline replay of a recorded real-server event stream
