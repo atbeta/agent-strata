@@ -626,6 +626,52 @@ describe("createIngestor seam", () => {
     store.close();
   });
 
+  test("a user's always allow is replied always", async () => {
+    const replies: { requestID: string; reply: string }[] = [];
+    const store = openStore(":memory:");
+    const ing = createIngestor({
+      mapper: new OpencodeMapper(),
+      sink: store,
+      onAsk: async () => ({ decision: "allow", scope: "always" }),
+      reply: async (requestID, reply) => {
+        replies.push({ requestID, reply });
+      },
+    });
+    ing.handle(sessionCreated());
+    ing.handle(asked("bash", ["ls"], "permA"));
+    await Bun.sleep(20);
+    expect(replies).toEqual([{ requestID: "permA", reply: "always" }]);
+    const resolved = store.read({ session_id: `opencode:${sid}` }).find((e) => e.type === "permission.resolved");
+    expect(resolved?.data).toMatchObject({ decision: "allow", by: "user", scope: "always" });
+    store.close();
+  });
+
+  test("a user's once allow, and a deny, are not replied always", async () => {
+    const replies: string[] = [];
+    const once = createIngestor({
+      mapper: new OpencodeMapper(),
+      sink: { append() {} },
+      onAsk: async () => ({ decision: "allow" }),
+      reply: async (_id, reply) => {
+        replies.push(reply);
+      },
+    });
+    once.handle(sessionCreated());
+    once.handle(asked("bash", ["ls"], "permOnce"));
+    const deny = createIngestor({
+      mapper: new OpencodeMapper(),
+      sink: { append() {} },
+      onAsk: async () => ({ decision: "deny", scope: "always" }),
+      reply: async (_id, reply) => {
+        replies.push(reply);
+      },
+    });
+    deny.handle(sessionCreated());
+    deny.handle(asked("bash", ["rm x"], "permDeny"));
+    await Bun.sleep(20);
+    expect(replies).toEqual(["once", "reject"]);
+  });
+
   test("(a) pending onAsk does not block later events", async () => {
     const store = openStore(":memory:");
     const ing = createIngestor({

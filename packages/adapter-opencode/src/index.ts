@@ -917,7 +917,7 @@ export function createIngestor(opts: {
   policy?: Policy | (() => Policy | undefined);
   onAsk?: OnAsk;
   onQuestion?: OnQuestion;
-  reply: (requestID: string, reply: "once" | "reject", message?: string) => Promise<unknown>;
+  reply: (requestID: string, reply: "once" | "always" | "reject", message?: string) => Promise<unknown>;
   replyQuestion?: (requestID: string, answers: string[][]) => Promise<unknown>;
   rejectQuestion?: (requestID: string) => Promise<unknown>;
 }): { handle: (evt: Event) => void; stop: () => void } {
@@ -992,9 +992,10 @@ export function createIngestor(opts: {
     ) as Extract<EventInput, { type: "permission.requested" }>;
     const ans = await opts.onAsk(req);
     if (ans.decision === "allow") {
-      await opts.reply(p.id, "once");
+      const scope = ans.scope === "always" ? "always" : "once";
+      await opts.reply(p.id, scope);
       emitResolved(p.sessionID, {
-        request_id: p.id, decision: "allow", by: "user", scope: ans.scope ?? "once",
+        request_id: p.id, decision: "allow", by: "user", scope,
       });
       return;
     }
