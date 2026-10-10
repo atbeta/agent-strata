@@ -3,15 +3,33 @@ export function fakeOpencode(
   routes: Record<string, (url: URL, req: Request) => Response | Promise<Response>> = {},
 ) {
   const seen: { path: string; query: URLSearchParams; method: string; body: string }[] = [];
-  const stream = (frame: unknown) =>
-    new Response(
+  const enc = new TextEncoder();
+  const listeners = new Set<(frame: unknown) => void>();
+  // cancel and push share `send`; a closed controller must not be enqueued on.
+  const stream = (first: unknown) => {
+    let remove: () => void = () => {};
+    return new Response(
       new ReadableStream({
         start(ctrl) {
-          ctrl.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(frame)}\n\n`));
+          let open = true;
+          const send = (frame: unknown) => {
+            if (!open) return;
+            ctrl.enqueue(enc.encode(`data: ${JSON.stringify(frame)}\n\n`));
+          };
+          send(first);
+          listeners.add(send);
+          remove = () => {
+            open = false;
+            listeners.delete(send);
+          };
+        },
+        cancel() {
+          remove();
         },
       }),
       { headers: { "content-type": "text/event-stream" } },
     );
+  };
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
@@ -28,5 +46,12 @@ export function fakeOpencode(
       return Response.json({ error: "not found" }, { status: 404 });
     },
   });
-  return { baseUrl: `http://127.0.0.1:${server.port}`, seen, stop: () => server.stop(true) };
+  return {
+    baseUrl: `http://127.0.0.1:${server.port}`,
+    seen,
+    push(frame: unknown) {
+      for (const send of listeners) send(frame);
+    },
+    stop: () => server.stop(true),
+  };
 }

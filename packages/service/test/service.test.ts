@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { createIngestor, OpencodeMapper, OPENCODE_MAPPER_VERSION } from "@agent-strata/adapter-opencode";
 import { startService } from "../src/index";
 import { makeEvent, type EventInput, type Event } from "@agent-strata/schema";
+import { fakeOpencode } from "./fake-opencode";
 
 const ev = (
   sessionId: string,
@@ -609,6 +610,59 @@ describe("agent-strata service", () => {
     ).then((r) => r.json());
     expect(empty.hits).toEqual([]);
 
+    svc.stop();
+  });
+
+  test("a session waiting on the user is marked, and always is what OpenCode is told", async () => {
+    const oc = fakeOpencode({
+      "/permission/perm1/reply": async (_url, req) => {
+        await req.json();
+        return Response.json(true);
+      },
+    });
+    const svc = startService({ db: ":memory:", port: 0 });
+    const base = `http://127.0.0.1:${svc.port}`;
+    const post = (p: string, body: unknown) =>
+      fetch(`${base}${p}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    await post("/connect", { baseUrl: oc.baseUrl, directory: "/repo" });
+
+    const before = await fetch(`${base}/sessions`).then((r) => r.json());
+    expect(before.sessions.every((s: { needs_input?: boolean }) => s.needs_input === false)).toBe(true);
+
+    oc.push({
+      directory: "/repo",
+      payload: {
+        type: "permission.asked",
+        properties: {
+          id: "perm1", sessionID: "ses_wait", permission: "bash",
+          patterns: ["ls"], metadata: {}, always: ["ls"],
+        },
+      },
+    });
+    let marked = false;
+    for (let i = 0; i < 20 && !marked; i++) {
+      await Bun.sleep(50);
+      const list = (await fetch(`${base}/sessions`).then((r) => r.json())) as {
+        sessions: { summary: { session_id: string }; needs_input?: boolean }[];
+      };
+      marked = list.sessions.some((s) => s.summary.session_id === "opencode:ses_wait" && s.needs_input === true);
+    }
+    expect(marked).toBe(true);
+
+    expect((await post("/permissions/perm1/respond", { decision: "allow", scope: "always" })).status).toBe(200);
+    // The 200 is sent before the adapter's reply fetch is recorded on the fake.
+    let reply: (typeof oc.seen)[number] | undefined;
+    for (let i = 0; i < 20 && !reply; i++) {
+      reply = oc.seen.find((s) => s.path === "/permission/perm1/reply");
+      if (!reply) await Bun.sleep(50);
+    }
+    expect(JSON.parse(reply!.body).reply).toBe("always");
+
+    const after = (await fetch(`${base}/sessions`).then((r) => r.json())) as {
+      sessions: { summary: { session_id: string }; needs_input?: boolean }[];
+    };
+    expect(after.sessions.find((s) => s.summary.session_id === "opencode:ses_wait")?.needs_input).toBe(false);
+    oc.stop();
     svc.stop();
   });
 });

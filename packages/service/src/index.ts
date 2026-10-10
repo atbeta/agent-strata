@@ -303,6 +303,8 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         backend: url.searchParams.get("backend") ?? undefined,
         limit: Number(url.searchParams.get("limit") ?? 200),
       });
+      const askSessions = new Set([...pendingAsks.values()].map((p) => p.session_id));
+      const questionSessions = new Set([...pendingQuestions.values()].map((p) => p.session_id));
       const rows = summaries.map((summary) => ({ summary, view: sessionView(summary.session_id) }));
       const sessions = rows.map(({ summary, view: v }) => ({
         summary,
@@ -314,6 +316,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         parent: v.parent_session_id,
         archived: v.archived === true,
         deleted: v.deleted === true,
+        needs_input: askSessions.has(summary.session_id) || questionSessions.has(summary.session_id),
       }));
       return json({ sessions, aggregate: aggregate(rows.map((r) => r.view)) });
     }
