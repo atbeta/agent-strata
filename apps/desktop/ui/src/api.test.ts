@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { opencodePath } from "./api";
+import { exportFileName, opencodePath } from "./api";
+
+describe("an exported session", () => {
+  test("is saved under a name any file system takes", () => {
+    expect(exportFileName("opencode:ses_1")).toBe("strata-opencode_ses_1.ndjson");
+    expect(exportFileName("acp:claude-code:a/b")).toBe("strata-acp_claude-code_a_b.ndjson");
+  });
+});
 
 describe("a read of a session's opencode backend", () => {
   test("names the session and the path", () => {

@@ -777,7 +777,13 @@ export function startService(opts: ServiceOpts = {}): RunningService {
             "access-control-allow-headers": "content-type",
           },
         });
-      const res = await route(req);
+      let res: Response;
+      try {
+        res = await route(req);
+      } catch (e) {
+        // Bun's own error page has no CORS, so the shell would only see a network error
+        res = json({ error: String(e) }, 500);
+      }
       for (const [k, v] of Object.entries(allow)) res.headers.set(k, v);
       return res;
     },

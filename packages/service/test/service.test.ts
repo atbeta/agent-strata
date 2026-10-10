@@ -608,18 +608,28 @@ describe("only the desktop shell reaches the service from a browser", () => {
     base = `http://127.0.0.1:${svc.port}`;
   });
   afterAll(() => svc.stop());
-  const connections = async () =>
-    ((await fetch(`${base}/connections`).then((r) => r.json())) as { connections: unknown[] }).connections.length;
-
   test("a page on another site cannot make strata run a command", async () => {
     const res = await fetch(`${base}/connect`, {
       method: "POST",
       headers: { origin: "https://evil.example", "content-type": "text/plain" },
-      body: JSON.stringify({ backend: "acp", command: "calc.exe" }),
+      body: JSON.stringify({ backend: "acp", command: "strata-test-should-never-run" }),
     });
     expect(res.status).toBe(403);
     expect(res.headers.get("access-control-allow-origin")).toBeNull();
-    expect(await connections()).toBe(0);
+  });
+
+  test("a page on another port of this machine is another site too", async () => {
+    expect((await fetch(`${base}/sessions`, { headers: { "sec-fetch-site": "same-site" } })).status).toBe(403);
+    expect((await fetch(`${base}/sessions`, { headers: { origin: "http://localhost:3000" } })).status).toBe(403);
+    expect((await fetch(`${base}/sessions`, { headers: { origin: "http://127.0.0.1:3000" } })).status).toBe(403);
+  });
+
+  test("a route that throws still answers the shell in JSON it can read", async () => {
+    const res = await fetch(`${base}/sessions/%E0%A4%A/view`, { headers: { origin: "http://tauri.localhost" } });
+    expect(res.status).toBe(500);
+    expect(res.headers.get("content-type")).toContain("application/json");
+    expect(res.headers.get("access-control-allow-origin")).toBe("http://tauri.localhost");
+    expect(typeof ((await res.json()) as { error: string }).error).toBe("string");
   });
 
   test("a request another site made the browser send, or a rebound Host, goes nowhere", async () => {

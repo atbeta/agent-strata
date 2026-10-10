@@ -1,7 +1,8 @@
 // The service drives agents and reads files on this machine, so it is not
 // reachable from any page the user happens to visit: only the desktop shell's
-// origins get CORS. The last two are `tauri dev`, whose page comes from the
-// Vite port in apps/desktop/src-tauri/tauri.conf.json.
+// origins get CORS. The last two are the Vite port in
+// apps/desktop/src-tauri/tauri.conf.json: the page under `tauri dev`, and the
+// origin a browser on the dev server sends through its `/api` proxy.
 const SHELL_ORIGINS: ReadonlySet<string> = new Set([
   "http://tauri.localhost",
   "https://tauri.localhost",

@@ -11,6 +11,7 @@ import {
 import {
   abortSession,
   api,
+  downloadExport,
   fmtUsd,
   getJson,
   importSession,
@@ -992,14 +993,18 @@ const turnIndexOf = (h: SearchHit): number => {
                     </button>
                   </Tip>
                   <Tip label={t("header.export")}>
-                    <a
+                    <button
+                      type="button"
                       class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                       aria-label={t("header.export")}
-                      href={`${api("/export")}?session_id=${encodeURIComponent(v().session_id)}`}
-                      download=""
+                      onClick={() =>
+                        void downloadExport(v().session_id).catch((err) =>
+                          setSendErr(err instanceof Error ? err.message : t("err.network")),
+                        )
+                      }
                     >
                       <Icon name="download" />
-                    </a>
+                    </button>
                   </Tip>
                 </span>
               </header>

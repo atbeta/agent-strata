@@ -310,6 +310,26 @@ export function readVcs(sessionId: string): Promise<VcsInfo | undefined> {
   return readOpencode<VcsInfo>(sessionId, "/vcs");
 }
 
+export function exportFileName(sessionId: string): string {
+  return `strata-${sessionId.replace(/[^\w.-]+/g, "_")}.ndjson`;
+}
+
+/**
+ * The shell's page and the service are different origins, so a link to the
+ * export would be a cross-site navigation the service refuses. Fetch it and
+ * save it from this page instead.
+ */
+export async function downloadExport(sessionId: string): Promise<void> {
+  const res = await fetch(api(`/export?session_id=${encodeURIComponent(sessionId)}`));
+  await throwOnError(res);
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = exportFileName(sessionId);
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
 export async function readViewTail(id: string, turns: number, filesKey?: string): Promise<ViewTail> {
   const q = new URLSearchParams({ tail: String(turns) });
   if (filesKey) q.set("files_key", filesKey);
