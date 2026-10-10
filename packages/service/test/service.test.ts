@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { fileURLToPath } from "node:url";
+import { createIngestor, OpencodeMapper, OPENCODE_MAPPER_VERSION } from "@agent-strata/adapter-opencode";
 import { startService } from "../src/index";
 import { makeEvent, type EventInput, type Event } from "@agent-strata/schema";
 
@@ -44,7 +45,27 @@ const seed = (svc: ReturnType<typeof startService>, sessionId = "opencode:s1") =
 };
 
 describe("agent-strata service", () => {
-  test("a session marked by its mapping is not stale to the next sync", () => {
+  test("a session the ingestor watched being created carries the mapper version", () => {
+    const svc = startService({ db: ":memory:", port: 0 });
+    const ing = createIngestor({ mapper: new OpencodeMapper(), sink: svc.sink, reply: async () => {} });
+    const created = (id: string, sessionID: string) =>
+      ({
+        id,
+        type: "session.created",
+        properties: {
+          sessionID,
+          info: { id: sessionID, directory: "/repo", title: "T", time: { created: 1, updated: 1 } },
+        },
+      }) as unknown as Parameters<typeof ing.handle>[0];
+    ing.handle(created("evt_1", "ses_live"));
+    ing.handle(created("import:ses_old", "ses_old"));
+    expect(svc.store.sessionMapper("opencode:ses_live")).toBe(OPENCODE_MAPPER_VERSION);
+    expect(svc.store.sessionMapper("opencode:ses_old")).toBeNull();
+    ing.stop();
+    svc.stop();
+  });
+
+  test("markMapped records the first mapper and leaves it", () => {
     const svc = startService({ db: ":memory:", port: 0 });
     seed(svc, "opencode:born");
     expect(svc.store.sessionMapper("opencode:born")).toBeNull();

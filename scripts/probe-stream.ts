@@ -1,6 +1,8 @@
 // Streams one short reply through OpenCode and strata at once and reports
 // whether a reader saw it being written. It creates a real session, spends a
 // few hundred tokens on the server's default model, then deletes the session.
+// Mid-reply it asks strata to sync, as the sidebar does on a timer and on
+// focus, which must neither rebuild the session nor set its text back.
 //
 //   bun run scripts/probe-stream.ts
 //
@@ -50,7 +52,8 @@ let sid = "";
 let deltas = 0;
 let rebuilt = 0;
 let finalAt: number | undefined;
-const snapshots: { t: number; len: number }[] = [];
+let synced: Promise<unknown> | undefined;
+const snapshots: { t: number; text: string; thinking: string }[] = [];
 let idle!: () => void;
 const done = new Promise<void>((resolve) => (idle = resolve));
 
@@ -72,9 +75,18 @@ void sse(
     if (e.type === "session.rebuilt") rebuilt++;
     if (e.type !== "turn.assistant") return;
     const blocks: { type: string; text?: string }[] = e.data?.content ?? [];
-    const len = blocks.filter((b) => b.type === "text").reduce((n, b) => n + (b.text?.length ?? 0), 0);
-    if (e.data?.partial) snapshots.push({ t: ms(), len });
-    else finalAt = ms();
+    const join = (type: string) =>
+      blocks
+        .filter((b) => b.type === type)
+        .map((b) => b.text ?? "")
+        .join("\n");
+    if (!e.data?.partial) {
+      finalAt = ms();
+      return;
+    }
+    const snap = { t: ms(), text: join("text"), thinking: join("thinking") };
+    snapshots.push(snap);
+    if (!synced && snap.text) synced = fetch(`${ST}/sync`, { method: "POST" }).catch(() => {});
   },
   abort.signal,
 );
@@ -102,19 +114,29 @@ await fetch(`${OC}/session/${sid}/prompt_async?${q}`, {
 });
 await Promise.race([done, Bun.sleep(90_000)]);
 await Bun.sleep(1500);
+await synced;
 abort.abort();
 await fetch(`${OC}/session/${sid}?${q}`, { method: "DELETE" });
 
-const monotonic = snapshots.every((s, i) => i === 0 || s.len >= snapshots[i - 1]!.len);
+// each frame must extend the one before it; a length check would miss text
+// that was set back and then caught up
+const monotonic = snapshots.every((s, i) => {
+  const prev = snapshots[i - 1];
+  return !prev || (s.text.startsWith(prev.text) && s.thinking.startsWith(prev.thinking));
+});
+const textFrames = snapshots.filter((s) => s.text).length;
 const report = {
   session: sid,
   opencode_deltas: deltas,
   strata_snapshots: snapshots.length,
+  text_frames: textFrames,
+  synced_mid_reply: synced !== undefined,
   monotonic,
   rebuilt_during_run: rebuilt,
   final_landed: finalAt !== undefined,
-  lengths: snapshots.map((s) => s.len),
+  text_lengths: snapshots.filter((s) => s.text).map((s) => s.text.length),
 };
 console.log(JSON.stringify(report, null, 2));
-const ok = snapshots.length >= 10 && monotonic && rebuilt === 0 && finalAt !== undefined;
+const ok =
+  textFrames >= 10 && synced !== undefined && monotonic && rebuilt === 0 && finalAt !== undefined;
 process.exit(ok ? 0 : 1);
