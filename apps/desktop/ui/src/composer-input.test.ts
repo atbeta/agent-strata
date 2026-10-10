@@ -59,6 +59,25 @@ describe("taking a suggestion", () => {
       caret: 11,
     });
   });
+
+  test("leaves closing punctuation after the caret where it was", () => {
+    expect(insertPick("(@sr)", { kind: "file", query: "sr", start: 1, end: 4 }, "src/a.ts")).toEqual({
+      text: "(@src/a.ts)",
+      caret: 10,
+    });
+    expect(insertPick("看@sr，然后", { kind: "file", query: "sr", start: 1, end: 4 }, "src/a.ts")).toEqual({
+      text: "看@src/a.ts，然后",
+      caret: 10,
+    });
+    expect(insertPick("@sr.ts x", { kind: "file", query: "sr", start: 0, end: 3 }, "src/a.ts")).toEqual({
+      text: "@src/a.ts x",
+      caret: 10,
+    });
+    expect(insertPick("@sr x", { kind: "file", query: "sr", start: 0, end: 3 }, "src/a.ts")).toEqual({
+      text: "@src/a.ts x",
+      caret: 10,
+    });
+  });
 });
 
 describe("what goes out", () => {

@@ -27,11 +27,21 @@ export function triggerAt(text: string, caret: number): Trigger | undefined {
   return undefined;
 }
 
-/** The rest of the word under the caret goes too, so editing a mention mid-word replaces all of it. */
+/** `.` and `:` are left out: they occur inside paths. */
+const CLOSERS = String.raw`,;!?)\]}'"，。；：！？）】」、`;
+const CLOSING = new RegExp(`^[${CLOSERS}]`);
+const WORD_REST = new RegExp(String.raw`^[^\s${CLOSERS}]*`);
+
+/**
+ * The rest of the word under the caret goes too, so editing a mention mid-word
+ * replaces all of it — up to closing punctuation, which stays put.
+ */
 export function insertPick(text: string, t: Trigger, pick: string): { text: string; caret: number } {
   const token = `${t.kind === "file" ? "@" : "/"}${pick}`;
-  const after = text.slice(t.end).replace(/^\S*/, "").replace(/^ /, "");
-  return { text: `${text.slice(0, t.start)}${token} ${after}`, caret: t.start + token.length + 1 };
+  const rest = text.slice(t.end).replace(WORD_REST, "");
+  const closed = CLOSING.test(rest);
+  const tail = closed ? rest : ` ${rest.replace(/^ /, "")}`;
+  return { text: `${text.slice(0, t.start)}${token}${tail}`, caret: t.start + token.length + (closed ? 0 : 1) };
 }
 
 function mentions(text: string, picked: readonly string[]): { path: string; start: number; end: number }[] {
