@@ -29,7 +29,7 @@ Cross-backend agent session layer: one canonical event format (CASF v0) that Ope
 
 `connectOpencode` resolves only after the event stream is attached (first `server.connected` event, bounded by `connectTimeoutMs`, default 10s). `onEvent(evt)` is called after each raw event is ingested, for observing lifecycle events like idle.
 
-v0 adapter-opencode limitations: only the v1 `/event` stream is consumed. A message that arrives before `session.created` still records a placeholder `session.started`; the later `session.created` publishes `session.updated` with the real directory, title, and parent. The SDK's SSE client retries dropped connections internally (exponential backoff); `stop()` aborts the in-flight fetch.
+v0 adapter-opencode limitations: only the v1 `/event` stream is consumed. Text and reasoning arrive as `message.part.delta`; readers get a snapshot of the message at most every 50ms, and the last one is sent even when the deltas stop. `bun run scripts/probe-stream.ts` checks this end to end against a running OpenCode and strata. A message that arrives before `session.created` still records a placeholder `session.started`; the later `session.created` publishes `session.updated` with the real directory, title, and parent. The SDK's SSE client retries dropped connections internally (exponential backoff); `stop()` aborts the in-flight fetch.
 
 ## Connecting an ACP agent
 
