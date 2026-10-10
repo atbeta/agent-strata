@@ -47,6 +47,7 @@ import {
 } from "./api";
 import { Icon } from "./icons";
 import { DiffBlock } from "./diff";
+import { FileBrowser } from "./files";
 import { ReviewPane } from "./review";
 import { JsonView } from "./json-view";
 import { permissionView } from "./permission-card";
@@ -438,6 +439,7 @@ export function SessionDetail(props: {
   const [railDismissed, setRailDismissed] = createSignal(false);
   /** which file the reader opened in the rail, null for the plain list */
   const [openFile, setOpenFile] = createSignal<string | null>(null);
+  const [browserOn, setBrowserOn] = createSignal(false);
   const [reviewSource, setReviewSource] = createSignal<"record" | "session" | "turn" | "git" | "branch">("record");
   const [reviewLayout, setReviewLayout] = createSignal<"unified" | "split">("unified");
   const [booting, setBooting] = createSignal(true);
@@ -1197,6 +1199,12 @@ const turnIndexOf = (h: SearchHit): number => {
   const toggleRail = () => {
     setTraceBlock(null);
     setReplayPos(null);
+    if (browserOn()) {
+      setBrowserOn(false);
+      setRailDismissed(false);
+      setRailForced(true);
+      return;
+    }
     if (railOn()) {
       setRailForced(false);
       setRailDismissed(true);
@@ -1346,6 +1354,24 @@ const turnIndexOf = (h: SearchHit): number => {
                       }}
                     >
                       <Icon name="replay" />
+                    </button>
+                  </Tip>
+                  <Tip label={browserOn() ? t("files.hide") : t("files.show")}>
+                    <button
+                      class={`grid h-7 w-7 place-items-center rounded-md transition-colors ${
+                        browserOn()
+                          ? "bg-secondary text-foreground"
+                          : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                      }`}
+                      aria-label={browserOn() ? t("files.hide") : t("files.show")}
+                      aria-pressed={browserOn()}
+                      onClick={() => {
+                        setTraceBlock(null);
+                        setReplayPos(null);
+                        setBrowserOn((on) => !on);
+                      }}
+                    >
+                      <Icon name="folder" />
                     </button>
                   </Tip>
                   <Tip label={railOn() ? t("rail.hide") : t("rail.show")}>
@@ -2063,7 +2089,7 @@ const turnIndexOf = (h: SearchHit): number => {
           />
         )}
       </Show>
-      <Show when={railOn() && settled(view)}>
+      <Show when={(browserOn() || railOn()) && settled(view)}>
         {(v) => {
           const files = () => v().files_changed;
           const fileLabel = () => {
@@ -2079,6 +2105,27 @@ const turnIndexOf = (h: SearchHit): number => {
             if (turnIndex >= 0) list?.scrollToIndex(turnIndex);
           };
           return (
+            <>
+              <Show when={browserOn()}>
+              <aside class="flex w-[min(720px,56vw)] shrink-0 flex-col border-l border-border">
+                <div
+                  class="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3 select-none"
+                  data-tauri-drag-region={inDesktopShell() ? "" : undefined}
+                >
+                  <span class="min-w-0 flex-1 truncate text-sm font-medium">{t("files.title")}</span>
+                  <button
+                    type="button"
+                    class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
+                    aria-label={t("files.hide")}
+                    onClick={() => setBrowserOn(false)}
+                  >
+                    ×
+                  </button>
+                </div>
+                <FileBrowser sessionId={props.id} />
+              </aside>
+              </Show>
+              <Show when={!browserOn()}>
             <aside
               class={`flex shrink-0 flex-col border-l border-border ${
                 open() || reviewSource() !== "record" ? "w-[min(600px,48vw)]" : "w-72"
@@ -2322,6 +2369,8 @@ const turnIndexOf = (h: SearchHit): number => {
                 </Show>
               </div>
             </aside>
+              </Show>
+            </>
           );
         }}
       </Show>

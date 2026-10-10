@@ -19,6 +19,7 @@ import { connectAcpDriver } from "./acp-driver";
 import { agentNameOf, connectionMemory, endpointOf, type ConnectBody } from "./connections";
 import { extensionRoute } from "./extension-route";
 import { readPromptParts } from "./prompt-parts";
+import { editorLaunch } from "./editor";
 import { refused, shellCors } from "./shell-origin";
 import { SessionClaims } from "./identity";
 
@@ -870,6 +871,20 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         decision: body.decision === "reject" ? "reject" : "reply",
         answers: body.answers,
       });
+      return json({ ok: true });
+    }
+
+    if (path === "/desktop/editor" && req.method === "POST") {
+      const body = (await req.json().catch(() => null)) as { editor?: unknown; path?: unknown } | null;
+      const target = editorLaunch(body?.editor, body?.path);
+      if ("error" in target) return json({ error: target.error }, 400);
+      const bin = Bun.which(target.bin);
+      if (!bin) return json({ error: "editor is not installed" }, 400);
+      try {
+        Bun.spawn({ cmd: [bin, target.file], stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+      } catch (e) {
+        return json({ error: String(e) }, 500);
+      }
       return json({ ok: true });
     }
 

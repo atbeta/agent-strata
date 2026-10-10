@@ -374,6 +374,36 @@ export function readVcsDiff(sessionId: string, mode: "git" | "branch"): Promise<
   return readOpencode<ReviewDiff[]>(sessionId, "/vcs/diff", { mode });
 }
 
+export type FileNode = {
+  name: string;
+  path: string;
+  absolute: string;
+  type: "file" | "directory";
+  ignored: boolean;
+};
+
+export type FileBody = {
+  type: "text" | "binary";
+  content: string;
+};
+
+export function listFiles(sessionId: string, path: string): Promise<FileNode[] | undefined> {
+  return readOpencode<FileNode[]>(sessionId, "/file", { path });
+}
+
+export function readFileBody(sessionId: string, path: string): Promise<FileBody | undefined> {
+  return readOpencode<FileBody>(sessionId, "/file/content", { path });
+}
+
+export async function openInEditor(editor: "cursor" | "vscode", path: string): Promise<void> {
+  const res = await fetch(api("/desktop/editor"), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ editor, path }),
+  });
+  await throwOnError(res);
+}
+
 export function readCapabilities(sessionId: string): Promise<SessionCapabilities> {
   return getJson<SessionCapabilities>(`/sessions/${encodeURIComponent(sessionId)}/capabilities`);
 }
