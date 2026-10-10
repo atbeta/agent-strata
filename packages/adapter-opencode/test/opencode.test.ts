@@ -267,6 +267,72 @@ describe("OpencodeMapper", () => {
     expect(out[1]?.data).toMatchObject({ archived: true, title: "Old" });
   });
 
+  test("session.updated records a revert point and clears it", () => {
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    const set = m.handle({
+      id: "e2",
+      type: "session.updated",
+      properties: {
+        sessionID: sid,
+        info: {
+          id: sid,
+          directory: "/repo",
+          title: "T",
+          time: { created: 1, updated: 2 },
+          revert: { messageID: "u1" },
+        },
+      },
+    } as unknown as Event);
+    expect(set.find((e) => e.type === "session.updated")?.data).toMatchObject({
+      revert: { turn_id: "u1" },
+    });
+    const cleared = m.handle({
+      id: "e3",
+      type: "session.updated",
+      properties: {
+        sessionID: sid,
+        info: {
+          id: sid,
+          directory: "/repo",
+          title: "T",
+          time: { created: 1, updated: 3 },
+        },
+      },
+    } as unknown as Event);
+    expect(cleared.find((e) => e.type === "session.updated")?.data).toMatchObject({
+      revert: null,
+    });
+    const later = m.handle({
+      id: "e4",
+      type: "session.updated",
+      properties: {
+        sessionID: sid,
+        info: {
+          id: sid,
+          directory: "/repo",
+          title: "Renamed",
+          time: { created: 1, updated: 4 },
+        },
+      },
+    } as unknown as Event);
+    expect(later.find((e) => e.type === "session.updated")?.data).not.toHaveProperty("revert");
+  });
+
+  test("a compaction part emits one session.compacted", () => {
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    const part = { id: "pc1", sessionID: sid, messageID: "a1", type: "compaction", auto: true };
+    const first = m.handle(partUpdated(part));
+    const evs = first.filter((e) => e.type === "session.compacted");
+    expect(evs).toHaveLength(1);
+    expect(evs[0]!.id).toBe("opencode:pc1:compaction");
+    expect(evs[0]!.data).toEqual({ message_id: "a1", auto: true });
+    const second = m.handle(partUpdated(part));
+    expect(second.filter((e) => e.type === "session.compacted")).toEqual([]);
+    expect(OPENCODE_REBUILT_TYPES).toContain("session.compacted");
+  });
+
   test("basic turn with reasoning+text+tool", () => {
     const m = new OpencodeMapper();
     const out = basicFixture().flatMap((e) => m.handle(e));
@@ -1668,7 +1734,7 @@ describe("what the user sent", () => {
   });
 
   test("the mapping version moved, so stored sessions are rebuilt", () => {
-    expect(OPENCODE_MAPPER_VERSION).toBe("opencode-5");
+    expect(OPENCODE_MAPPER_VERSION).toBe("opencode-6");
   });
 });
 

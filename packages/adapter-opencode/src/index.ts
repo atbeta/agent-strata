@@ -159,12 +159,13 @@ function errorMessage(e: unknown): string {
 }
 
 /** Bump when the mapping changes; stored sessions mapped by an older version are rebuilt. */
-export const OPENCODE_MAPPER_VERSION = "opencode-5";
+export const OPENCODE_MAPPER_VERSION = "opencode-6";
 
 /** The event types an import reproduces from OpenCode's own record of a session. */
 export const OPENCODE_REBUILT_TYPES: EventType[] = [
   "session.started",
   "session.updated",
+  "session.compacted",
   "turn.user",
   "turn.assistant",
   "tool.call",
@@ -249,6 +250,8 @@ interface MsgState {
   patchSeen?: Set<string>;
   /** files a successful edit or write in this message already reported, by pathKey */
   editedPaths?: Set<string>;
+  /** compaction parts this message already emitted, by part.id */
+  compactionSeen?: Set<string>;
 }
 
 interface SessionState {
@@ -270,6 +273,8 @@ interface SessionState {
   workspace?: string;
   archived?: boolean;
   parent?: string;
+  /** last revert message id we emitted; cleared after revert: null */
+  revertMessageID?: string;
 }
 
 export class OpencodeMapper {
@@ -388,7 +393,7 @@ export class OpencodeMapper {
   }
 
   // session.created records the baseline (and emits only when already archived).
-  // session.updated emits when title, directory, or archive actually changes.
+  // session.updated emits when title, directory, archive, or revert actually changes.
   private syncMeta(
     s: SessionState,
     info: {
@@ -396,6 +401,7 @@ export class OpencodeMapper {
       directory?: string;
       parentID?: string;
       time?: { updated?: number; created?: number; archived?: number };
+      revert?: { messageID: string };
     },
     source: "created" | "updated",
   ): EventInput | undefined {
@@ -403,6 +409,7 @@ export class OpencodeMapper {
     const workspace = info.directory;
     const archived = (info.time?.archived ?? 0) > 0;
     const parent = info.parentID ? `opencode:${info.parentID}` : s.parent;
+    const revertID = info.revert?.messageID || undefined;
     if (info.time?.updated || info.time?.created) {
       s.updated = info.time.updated ?? info.time.created ?? s.updated;
     }
@@ -411,7 +418,8 @@ export class OpencodeMapper {
       s.title !== title ||
       s.workspace !== workspace ||
       s.archived !== archived ||
-      (info.parentID !== undefined && s.parent !== parent);
+      (info.parentID !== undefined && s.parent !== parent) ||
+      revertID !== s.revertMessageID;
     s.metaSeen = true;
     s.title = title;
     s.workspace = workspace;
@@ -421,8 +429,17 @@ export class OpencodeMapper {
     if (source === "created" && !archived) return;
     const stamp = info.time?.updated ?? info.time?.archived ?? 0;
     const hash = Bun.hash(
-      `${title ?? ""}\0${workspace ?? ""}\0${archived ? 1 : 0}${info.parentID ? `\0${info.parentID}` : ""}`,
+      `${title ?? ""}\0${workspace ?? ""}\0${archived ? 1 : 0}${info.parentID ? `\0${info.parentID}` : ""}${revertID ? `\0${revertID}` : ""}`,
     ).toString(36);
+    // { turn_id } while set; null only on the clear; omit if this session never had one.
+    let revert: { turn_id: string } | null | undefined;
+    if (revertID) {
+      revert = { turn_id: revertID };
+      s.revertMessageID = revertID;
+    } else if (s.revertMessageID !== undefined) {
+      revert = null;
+      s.revertMessageID = undefined;
+    }
     return this.ev(
       s,
       "session.updated",
@@ -431,6 +448,7 @@ export class OpencodeMapper {
         workspace,
         archived,
         ...(parent ? { parent_session_id: parent } : {}),
+        ...(revert !== undefined ? { revert } : {}),
       },
       `opencode:${s.sessionID}:session.updated:${stamp}:${hash}`,
       sourceTime(info.time?.updated ?? info.time?.archived),
@@ -705,6 +723,20 @@ export class OpencodeMapper {
             return out;
           }
           out.push(...this.toolEvents(s, m, part, t));
+          return out;
+        }
+        if (part.type === "compaction") {
+          const seen = (m.compactionSeen ??= new Set());
+          if (seen.has(part.id)) return out;
+          seen.add(part.id);
+          out.push(
+            this.ev(
+              s,
+              "session.compacted",
+              { message_id: part.messageID, auto: part.auto },
+              `opencode:${part.id}:compaction`,
+            ),
+          );
           return out;
         }
         if (part.type === "patch") {
