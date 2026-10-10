@@ -257,6 +257,20 @@ export class OpencodeMapper {
     );
   }
 
+  hasHeldStreams(): boolean {
+    return this.held.size > 0;
+  }
+
+  /** Frames the window held back, for the ones whose window has passed. */
+  flushStreaming(): EventInput[] {
+    const out: EventInput[] = [];
+    for (const messageID of [...this.held.keys()]) {
+      const snap = this.streamSnapshot(messageID);
+      if (snap) out.push(snap);
+    }
+    return out;
+  }
+
   ev(
     s: SessionState,
     kind: EventInput["type"],
@@ -513,6 +527,7 @@ export class OpencodeMapper {
         const p = evt.properties;
         const { s, out: pre } = this.ensureSession(p.sessionID);
         out.push(...pre);
+        for (const [msgID, held] of this.held) if (held.s === s) this.held.delete(msgID);
         out.push(
           this.ev(
             s,
@@ -843,7 +858,7 @@ export function createIngestor(opts: {
   reply: (requestID: string, reply: "once" | "reject", message?: string) => Promise<unknown>;
   replyQuestion?: (requestID: string, answers: string[][]) => Promise<unknown>;
   rejectQuestion?: (requestID: string) => Promise<unknown>;
-}): { handle: (evt: Event) => void } {
+}): { handle: (evt: Event) => void; stop: () => void } {
   const { mapper, sink } = opts;
 
   const emit = (evts: EventInput[]) => {
@@ -851,6 +866,18 @@ export function createIngestor(opts: {
     const durable = live.length ? evts.filter((e) => !isStreamingSnapshot(e)) : evts;
     if (durable.length) sink.append(durable);
     if (live.length) sink.publish?.(live);
+  };
+
+  let flushTimer: ReturnType<typeof setTimeout> | undefined;
+  // Deltas pause between steps and stop at the end of a part; the text that
+  // arrived inside the last window would otherwise wait for the next event.
+  const scheduleFlush = () => {
+    if (flushTimer || !mapper.hasHeldStreams()) return;
+    flushTimer = setTimeout(() => {
+      flushTimer = undefined;
+      emit(mapper.flushStreaming());
+      scheduleFlush();
+    }, STREAM_SNAPSHOT_MS);
   };
 
   const emitResolved = (sessionID: string, data: Record<string, unknown>) => {
@@ -967,6 +994,7 @@ export function createIngestor(opts: {
       if (evt.type === "session.created" && !evt.id.startsWith("import:")) {
         sink.markMapped?.(`opencode:${evt.properties.sessionID}`, OPENCODE_MAPPER_VERSION);
       }
+      scheduleFlush();
       if (evt.type === "permission.asked") {
         void handlePermission(evt).catch((err) =>
           console.error("opencode permission handling error:", err),
@@ -977,6 +1005,10 @@ export function createIngestor(opts: {
           console.error("opencode question handling error:", err),
         );
       }
+    },
+    stop() {
+      clearTimeout(flushTimer);
+      flushTimer = undefined;
     },
   };
 }
@@ -1234,6 +1266,7 @@ export async function connectOpencode(opts: {
   return {
     stop() {
       abort.abort();
+      ingestor.stop();
       for (const timer of importTimers.values()) clearTimeout(timer);
       importTimers.clear();
       void loop;

@@ -1251,4 +1251,94 @@ describe("text that arrives as deltas", () => {
     expect(done[0]!.partial).toBeUndefined();
     expect(done[0]!.content).toEqual([{ type: "text", text: "done" }]);
   });
+
+  test("a frame held by the window goes out once the window passes", () => {
+    let t = 0;
+    const m = streaming(() => t);
+    t = 1000;
+    m.handle(partUpdated({ id: "pa", sessionID: sid, messageID: "a1", type: "text", text: "" }));
+    t = 1010;
+    expect(snaps(m.handle(delta("pa", "tail")))).toHaveLength(0);
+    expect(m.hasHeldStreams()).toBe(true);
+    t = 1020;
+    expect(m.flushStreaming()).toEqual([]);
+    t = 1060;
+    expect(snaps(m.flushStreaming())[0]!.content).toEqual([{ type: "text", text: "tail" }]);
+    expect(m.hasHeldStreams()).toBe(false);
+  });
+
+  test("nothing is held once the message finishes or the session goes idle", () => {
+    let t = 0;
+    const m = streaming(() => t);
+    t = 1000;
+    m.handle(partUpdated({ id: "pa", sessionID: sid, messageID: "a1", type: "text", text: "" }));
+    t = 1010;
+    m.handle(delta("pa", "x"));
+    expect(m.hasHeldStreams()).toBe(true);
+    m.handle({ id: "idle", type: "session.idle", properties: { sessionID: sid } } as unknown as Event);
+    expect(m.hasHeldStreams()).toBe(false);
+  });
+
+  test("a finished message holds nothing and ignores late deltas", () => {
+    let t = 0;
+    const m = streaming(() => t);
+    t = 1000;
+    m.handle(partUpdated({ id: "pa", sessionID: sid, messageID: "a1", type: "text", text: "" }));
+    t = 1010;
+    m.handle(delta("pa", "x"));
+    expect(m.hasHeldStreams()).toBe(true);
+    m.handle(msgUpdated({
+      id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
+      time: { created: 2, completed: 3 }, providerID: "p", modelID: "m", cost: 0,
+      tokens: { input: 1, output: 1, reasoning: 0, cache: { read: 0, write: 0 } },
+    }));
+    expect(m.hasHeldStreams()).toBe(false);
+    t = 2000;
+    expect(snaps(m.handle(delta("pa", "late")))).toHaveLength(0);
+    expect(m.hasHeldStreams()).toBe(false);
+    expect(m.flushStreaming()).toEqual([]);
+  });
+
+  test("a deleted session holds nothing", () => {
+    let t = 0;
+    const m = streaming(() => t);
+    t = 1000;
+    m.handle(partUpdated({ id: "pa", sessionID: sid, messageID: "a1", type: "text", text: "" }));
+    t = 1010;
+    m.handle(delta("pa", "x"));
+    expect(m.hasHeldStreams()).toBe(true);
+    m.handle({
+      id: "del",
+      type: "session.deleted",
+      properties: {
+        sessionID: sid,
+        info: { id: sid, directory: "/repo", title: "T", time: { created: 1, updated: 2 } },
+      },
+    } as unknown as Event);
+    expect(m.hasHeldStreams()).toBe(false);
+    t = 2000;
+    expect(m.flushStreaming()).toEqual([]);
+  });
+
+  test("the ingestor sends the held frame without waiting for another event", async () => {
+    const published: { data: unknown }[] = [];
+    const ing = createIngestor({
+      mapper: new OpencodeMapper(),
+      sink: { append: () => {}, publish: (e) => published.push(...e) },
+      reply: async () => {},
+    });
+    ing.handle(sessionCreated());
+    ing.handle(msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 1 } }));
+    ing.handle(partUpdated({ id: "pu", sessionID: sid, messageID: "u1", type: "text", text: "hi" }));
+    ing.handle(msgUpdated({
+      id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
+      time: { created: 2 }, providerID: "p", modelID: "m",
+    }));
+    ing.handle(partUpdated({ id: "pa", sessionID: sid, messageID: "a1", type: "text", text: "" }));
+    ing.handle(delta("pa", "last words"));
+    await Bun.sleep(STREAM_SNAPSHOT_MS * 3);
+    const last = published.at(-1)!.data as { content: unknown };
+    expect(last.content).toEqual([{ type: "text", text: "last words" }]);
+    ing.stop();
+  });
 });
