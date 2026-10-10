@@ -95,6 +95,9 @@ export interface Turn {
     error?: string;
   }[];
   tool_calls: ToolCallView[];
+  reverted?: boolean;
+  /** a divider after this turn */
+  compaction?: boolean;
 }
 
 export interface PendingPermission {
@@ -154,6 +157,7 @@ export interface SessionView {
   parent_session_id?: string;
   status: string;
   busy?: boolean;
+  revert_turn_id?: string;
   turns: Turn[];
   pending_permissions: PendingPermission[];
   pending_questions?: PendingQuestion[];

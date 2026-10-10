@@ -38,6 +38,10 @@ export interface Turn {
     error?: string;
   }[];
   tool_calls: ToolCallView[];
+  /** this turn sits on the revert boundary, or after it */
+  reverted?: boolean;
+  /** a divider after this turn */
+  compaction?: boolean;
 }
 
 export interface Totals {
@@ -119,6 +123,8 @@ export interface SessionView {
   status: "active" | "completed" | "cancelled" | "error";
   /** backend is mid-generation; last session.status wins */
   busy: boolean;
+  /** the message the revert boundary names; absent when there is none */
+  revert_turn_id?: string;
   turns: Turn[];
   orphans: ToolCallView[];
   pending_permissions: PermissionInfo[];
@@ -199,9 +205,10 @@ export function projectSession(events: Event[]): SessionView {
   // permission.requested can arrive before its tool.call (opencode emits
   // permission.asked first) — index by call_id so a late call still attaches
   const requestsByCall = new Map<string, PermissionInfo>();
-  const files = new Map<string, { path: string; change: FileChangeKind; records: ChangeRecord[] }>();
+  const files = new Map<string, { path: string; records: ChangeRecord[] }>();
   const questions = new Map<string, QuestionPrompt>();
   const orphanResults: { call_id: string; status: string; output?: string; latency_ms?: number }[] = [];
+  const compacted: string[] = [];
 
   const getTurn = (id: string): Turn => {
     let t = turns.get(id);
@@ -232,6 +239,14 @@ export function projectSession(events: Event[]): SessionView {
         if (e.data.workspace !== undefined) view.workspace = e.data.workspace;
         if (e.data.archived !== undefined) view.archived = e.data.archived;
         if (e.data.parent_session_id) view.parent_session_id = e.data.parent_session_id;
+        // Absent revert leaves the boundary; null clears it.
+        if (e.data.revert !== undefined) {
+          if (e.data.revert === null) delete view.revert_turn_id;
+          else view.revert_turn_id = e.data.revert.turn_id;
+        }
+        break;
+      case "session.compacted":
+        compacted.push(e.data.message_id);
         break;
       case "session.deleted":
         view.deleted = true;
@@ -348,8 +363,7 @@ export function projectSession(events: Event[]): SessionView {
       }
       case "file.changed": {
         const key = pathKey(e.data.path);
-        const f = files.get(key) ?? { path: e.data.path, change: e.data.change, records: [] };
-        f.change = e.data.change;
+        const f = files.get(key) ?? { path: e.data.path, records: [] };
         f.records.push({
           change: e.data.change,
           diff: e.data.diff,
@@ -430,32 +444,55 @@ export function projectSession(events: Event[]): SessionView {
     });
   }
 
+  // A message id is the user turn_id, or an assistant msg_id when it names the reply.
+  const messageTurn = (id: string): number => {
+    const byTurn = view.turns.findIndex((t) => t.turn_id === id);
+    if (byTurn >= 0) return byTurn;
+    return view.turns.findIndex((t) => t.assistant.some((a) => a.msg_id === id));
+  };
+  if (view.revert_turn_id !== undefined) {
+    const start = messageTurn(view.revert_turn_id);
+    if (start >= 0) {
+      for (let i = start; i < view.turns.length; i++) view.turns[i]!.reverted = true;
+    }
+  }
+  for (const id of compacted) {
+    const i = messageTurn(id);
+    if (i >= 0) view.turns[i]!.compaction = true;
+  }
+
   const turnOfCall = new Map<string, number>();
   view.turns.forEach((t, i) => {
     for (const c of t.tool_calls) turnOfCall.set(c.call_id, i);
   });
-  view.files_changed = [...files.values()].map((f) => {
-    const edits = f.records.map((r): FileEditView => {
-      const lines = r.diff ? countPatchLines(r.diff) : { additions: 0, deletions: 0 };
-      return {
-        change: r.change,
-        additions: lines.additions,
-        deletions: lines.deletions,
-        diff: r.diff,
-        call_id: r.call_id,
-        turn_index: r.call_id === undefined ? -1 : (turnOfCall.get(r.call_id) ?? -1),
-        whole_file: r.whole_file,
-      };
-    });
-    return {
-      path: f.path,
-      change: f.change,
-      count: edits.length,
-      additions: edits.reduce((n, e) => n + e.additions, 0),
-      deletions: edits.reduce((n, e) => n + e.deletions, 0),
-      edits,
-      unexplained: edits.some((e) => !e.diff),
-    };
+  view.files_changed = [...files.values()].flatMap((f) => {
+    const edits = f.records
+      .map((r): FileEditView => {
+        const lines = r.diff ? countPatchLines(r.diff) : { additions: 0, deletions: 0 };
+        return {
+          change: r.change,
+          additions: lines.additions,
+          deletions: lines.deletions,
+          diff: r.diff,
+          call_id: r.call_id,
+          turn_index: r.call_id === undefined ? -1 : (turnOfCall.get(r.call_id) ?? -1),
+          whole_file: r.whole_file,
+        };
+      })
+      .filter((e) => e.turn_index === -1 || !view.turns[e.turn_index]?.reverted);
+    if (edits.length === 0) return [];
+    const latest = edits.at(-1)!;
+    return [
+      {
+        path: f.path,
+        change: latest.change,
+        count: edits.length,
+        additions: edits.reduce((n, e) => n + e.additions, 0),
+        deletions: edits.reduce((n, e) => n + e.deletions, 0),
+        edits,
+        unexplained: edits.some((e) => !e.diff),
+      },
+    ];
   });
   return view;
 }

@@ -435,4 +435,87 @@ describe("projector", () => {
       ]),
     ).toThrow();
   });
+
+  test("a revert on t1 greys t1 and every turn after it", () => {
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      mk("s", "turn.user", { turn_id: "t0", content: [{ type: "text", text: "before" }] }),
+      mk("s", "turn.user", { turn_id: "t1", content: [{ type: "text", text: "here" }] }),
+      mk("s", "turn.user", { turn_id: "t2", content: [{ type: "text", text: "after" }] }),
+      mk("s", "session.updated", { revert: { turn_id: "t1" } }),
+    ]);
+    expect(v.revert_turn_id).toBe("t1");
+    expect(v.turns.map((t) => t.reverted)).toEqual([undefined, true, true]);
+  });
+
+  test("a later title update keeps the revert", () => {
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w", title: "old" }),
+      mk("s", "turn.user", { turn_id: "t1", content: [{ type: "text", text: "hi" }] }),
+      mk("s", "session.updated", { revert: { turn_id: "t1" } }),
+      mk("s", "session.updated", { title: "new" }),
+    ]);
+    expect(v.title).toBe("new");
+    expect(v.revert_turn_id).toBe("t1");
+    expect(v.turns[0]!.reverted).toBe(true);
+  });
+
+  test("revert null clears the boundary", () => {
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      mk("s", "turn.user", { turn_id: "t1", content: [{ type: "text", text: "hi" }] }),
+      mk("s", "session.updated", { revert: { turn_id: "t1" } }),
+      mk("s", "session.updated", { revert: null }),
+    ]);
+    expect(v.revert_turn_id).toBeUndefined();
+    expect(v.turns[0]!.reverted).toBeUndefined();
+  });
+
+  test("an assistant message id greys that turn and the ones after it", () => {
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      mk("s", "turn.user", { turn_id: "t0", content: [{ type: "text", text: "before" }] }),
+      mk("s", "turn.assistant", {
+        turn_id: "t1",
+        msg_id: "msg_a",
+        content: [{ type: "text", text: "yo" }],
+      }),
+      mk("s", "turn.user", { turn_id: "t2", content: [{ type: "text", text: "after" }] }),
+      mk("s", "session.updated", { revert: { turn_id: "msg_a" } }),
+    ]);
+    expect(v.turns.map((t) => t.reverted)).toEqual([undefined, true, true]);
+  });
+
+  test("edits on a reverted turn leave files_changed", () => {
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      mk("s", "turn.user", { turn_id: "t0", content: [] }),
+      mk("s", "tool.call", { turn_id: "t0", call_id: "c0", tool: "edit", input: {} }),
+      mk("s", "file.changed", { path: "keep.ts", change: "modify", call_id: "c0" }),
+      mk("s", "turn.user", { turn_id: "t1", content: [] }),
+      mk("s", "tool.call", { turn_id: "t1", call_id: "c1", tool: "edit", input: {} }),
+      mk("s", "file.changed", { path: "gone.ts", change: "add", call_id: "c1" }),
+      mk("s", "file.changed", { path: "keep.ts", change: "delete", call_id: "c1" }),
+      // no call, so turn_index is -1 and the edit stays even after the boundary
+      mk("s", "file.changed", { path: "shell.ts", change: "modify" }),
+      mk("s", "session.updated", { revert: { turn_id: "t1" } }),
+    ]);
+    expect(v.files_changed.map((f) => f.path)).toEqual(["keep.ts", "shell.ts"]);
+    const keep = v.files_changed[0]!;
+    expect(keep.edits.map((e) => e.turn_index)).toEqual([0]);
+    expect(keep.change).toBe("modify");
+    expect(keep.count).toBe(1);
+    expect(v.files_changed[1]!.edits[0]!.turn_index).toBe(-1);
+  });
+
+  test("session.compacted marks that turn", () => {
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      mk("s", "turn.user", { turn_id: "t1", content: [{ type: "text", text: "hi" }] }),
+      mk("s", "turn.user", { turn_id: "t2", content: [{ type: "text", text: "later" }] }),
+      mk("s", "session.compacted", { message_id: "t1", auto: true }),
+    ]);
+    expect(v.turns[0]!.compaction).toBe(true);
+    expect(v.turns[1]!.compaction).toBeUndefined();
+  });
 });

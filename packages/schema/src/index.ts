@@ -68,8 +68,14 @@ const data = {
     workspace: z.string().optional(),
     archived: z.boolean().optional(),
     parent_session_id: z.string().optional(),
+    // null clears a boundary; omitting the field leaves the previous one
+    revert: z.object({ turn_id: z.string().min(1) }).nullable().optional(),
   }),
   "session.deleted": z.object({}),
+  "session.compacted": z.object({
+    message_id: z.string().min(1),
+    auto: z.boolean().optional(),
+  }),
   "turn.user": z.object({
     turn_id: z.string(),
     content: z.array(ContentBlock),
