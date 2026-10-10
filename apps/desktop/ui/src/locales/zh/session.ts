@@ -28,6 +28,7 @@ export default {
   "session.empty": "空会话。写一条消息开始。",
   "header.cost.tip": "已花费 {amount} — 打开上下文环查看明细",
   "header.export": "导出会话记录",
+  "header.branch.tip": "当前 Git 分支",
 
   // The replay / trace toggle, which is one control with two labels.
   "trace.replay": "回放",

@@ -15,6 +15,7 @@ import {
   getJson,
   importSession,
   realWorkspace,
+  readVcs,
   readViewTail,
   respondPermission,
   respondQuestion,
@@ -382,6 +383,13 @@ export function SessionDetail(props: { id: string }) {
       ),
   );
   const [maxSeq, { refetch: refetchSeq }] = createResource(() => props.id, readHead);
+  // Live machine state, not part of the record: it shows only while the
+  // session's OpenCode backend is connected, and follows a checkout made
+  // outside strata once the window comes back.
+  const [vcs, { refetch: refetchVcs }] = createResource(
+    () => props.id,
+    (id) => readVcs(id).catch(() => undefined),
+  );
   const [asks, { refetch: refetchAsks }] = createResource(
     () => props.id,
     async (id) => {
@@ -655,8 +663,13 @@ const turnIndexOf = (h: SearchHit): number => {
         void refreshView(true).finally(() => setBooting(false));
         void refetchSeq();
       });
-    const onConns = () => refetchOptions();
+    const onConns = () => {
+      refetchOptions();
+      refetchVcs();
+    };
     window.addEventListener("strata-connections", onConns);
+    const onFocus = () => refetchVcs();
+    window.addEventListener("focus", onFocus);
     // Ctrl+F is the shortcut every reader already has for "find me this in the
     // text I am looking at". Windowing the transcript took that away from them,
     // so it goes to the index instead of to rows that happen to be mounted.
@@ -734,6 +747,7 @@ const turnIndexOf = (h: SearchHit): number => {
       clearTimeout(probeTimer);
       es.close();
       window.removeEventListener("strata-connections", onConns);
+      window.removeEventListener("focus", onFocus);
       window.removeEventListener("keydown", onFindKey);
     });
   });
@@ -902,6 +916,16 @@ const turnIndexOf = (h: SearchHit): number => {
                       >
                         {ws() === "/" || ws() === "\\" ? t("path.root") : ws().split(/[/\\]/).filter(Boolean).at(-1)}
                       </span>
+                    )}
+                  </Show>
+                  <Show when={settled(vcs)?.branch}>
+                    {(branch) => (
+                      <Tip label={t("header.branch.tip")}>
+                        <span class="flex max-w-32 shrink-0 items-center gap-1 font-mono text-2xs text-muted-foreground">
+                          <Icon name="branch" class="h-3 w-3 shrink-0" />
+                          <span class="truncate">{branch()}</span>
+                        </span>
+                      </Tip>
                     )}
                   </Show>
                 </div>

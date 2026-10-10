@@ -19,7 +19,8 @@ type Name =
   | "terminal"
   | "globe"
   | "list"
-  | "wrench";
+  | "wrench"
+  | "branch";
 
 function Glyph(props: { class?: string; children: JSX.Element }) {
   return (
@@ -182,6 +183,16 @@ export function Icon(props: { name: Name; class?: string }) {
     return (
       <Glyph class={props.class}>
         <path d="M9.6 2.6a2.3 2.3 0 0 0-2.4 3.2L3.2 9.8 6.2 12.8l4-4a2.3 2.3 0 0 0 3.2-2.4L11.2 6.6 9.4 4.8z" />
+      </Glyph>
+    );
+  if (props.name === "branch")
+    return (
+      <Glyph class={props.class}>
+        <circle cx="5" cy="3.8" r="1.4" />
+        <circle cx="5" cy="12.2" r="1.4" />
+        <circle cx="11" cy="5.8" r="1.4" />
+        <path d="M5 5.2v5.6" />
+        <path d="M11 7.2c0 2.4-2.2 3-6 3.6" />
       </Glyph>
     );
   return (

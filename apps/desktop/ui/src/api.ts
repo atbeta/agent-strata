@@ -224,7 +224,15 @@ export interface Connection {
     agents: boolean;
     import: boolean;
     manage?: boolean;
+    /** live workspace state this backend can be read for; absent for a backend with none */
+    extension?: "opencode";
   };
+}
+
+export interface VcsInfo {
+  /** null outside a git repository */
+  branch?: string | null;
+  default_branch?: string | null;
 }
 
 export interface OptionsResponse {
@@ -278,6 +286,28 @@ export async function getJson<T>(p: string): Promise<T> {
   const res = await fetch(api(p));
   if (!res.ok) throw new Error(t("api.err.service", { status: res.status }));
   return (await res.json()) as T;
+}
+
+/** A read of the session's OpenCode backend beyond its record: files, commands, VCS. */
+export function opencodePath(sessionId: string, path: string, query?: Record<string, string | number>): string {
+  const q = query ? new URLSearchParams(Object.entries(query).map(([k, v]) => [k, String(v)])).toString() : "";
+  return `/sessions/${encodeURIComponent(sessionId)}/opencode${path}${q ? `?${q}` : ""}`;
+}
+
+/** Undefined when the session's backend has no OpenCode extension: another backend, or not connected. */
+export async function readOpencode<T>(
+  sessionId: string,
+  path: string,
+  query?: Record<string, string | number>,
+): Promise<T | undefined> {
+  const res = await fetch(api(opencodePath(sessionId, path, query)));
+  if (res.status === 404) return undefined;
+  await throwOnError(res);
+  return (await res.json()) as T;
+}
+
+export function readVcs(sessionId: string): Promise<VcsInfo | undefined> {
+  return readOpencode<VcsInfo>(sessionId, "/vcs");
 }
 
 export async function readViewTail(id: string, turns: number, filesKey?: string): Promise<ViewTail> {

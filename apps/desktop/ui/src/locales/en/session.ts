@@ -28,6 +28,7 @@ export default {
   "session.empty": "Empty session. Write a prompt to start.",
   "header.cost.tip": "{amount} so far — open the context ring for the breakdown",
   "header.export": "Export transcript",
+  "header.branch.tip": "Current Git branch",
 
   // The replay / trace toggle, which is one control with two labels.
   "trace.replay": "Replay",
