@@ -76,6 +76,28 @@ export function promptParts(draft: string, picked: readonly string[], attachment
   return parts;
 }
 
+/** One message on its way out: what the draft held when it was sent. */
+export interface Outgoing {
+  text: string;
+  picked: string[];
+  attachments: Attachment[];
+}
+
+/** A send that failed goes back in front of whatever was typed since, so neither is lost. */
+export function restoreFailed(failed: Outgoing, current: Outgoing): { draft: Outgoing; dropped: number } {
+  const typed = current.text.trim() ? current.text : "";
+  const text = failed.text && typed ? `${failed.text}\n${typed}` : failed.text || typed;
+  const attachments = [...failed.attachments, ...current.attachments];
+  return {
+    draft: {
+      text,
+      picked: [...new Set([...failed.picked, ...current.picked])],
+      attachments: attachments.slice(0, MAX_ATTACHMENTS),
+    },
+    dropped: Math.max(0, attachments.length - MAX_ATTACHMENTS),
+  };
+}
+
 /** A command takes its words as arguments, so there is no text part for a mention to point into. */
 export function commandParts(draft: string, picked: readonly string[], attachments: readonly Attachment[]): CommandPart[] {
   return promptParts(draft, picked, attachments).flatMap((p): CommandPart[] =>

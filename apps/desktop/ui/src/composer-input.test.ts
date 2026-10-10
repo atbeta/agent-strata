@@ -8,6 +8,7 @@ import {
   matchCommands,
   nextAgent,
   promptParts,
+  restoreFailed,
   toAttachment,
   triggerAt,
 } from "./composer-input";
@@ -128,6 +129,35 @@ describe("what goes out", () => {
     const list = [{ name: "review" }, { name: "init" }, { name: "mcp-search:web" }, { name: "customize-opencode" }];
     expect(matchCommands(list, "i").map((c) => c.name)).toEqual(["init", "review", "customize-opencode"]);
     expect(matchCommands(list, "").map((c) => c.name)).toEqual(["review", "init", "mcp-search:web", "customize-opencode"]);
+  });
+});
+
+describe("a send that failed", () => {
+  const shot = (i: number) => ({ id: String(i), name: `s${i}.png`, mime: "image/png", url: "data:image/png;base64,AA==" });
+  const out = (text: string, picked: string[] = [], attachments: ReturnType<typeof shot>[] = []) => ({ text, picked, attachments });
+
+  test("comes back as the draft when nothing was typed since", () => {
+    expect(restoreFailed(out("@a.ts fix", ["a.ts"], [shot(1)]), out(""))).toEqual({
+      draft: out("@a.ts fix", ["a.ts"], [shot(1)]),
+      dropped: 0,
+    });
+    expect(restoreFailed(out("lost"), out("  \n "))).toEqual({ draft: out("lost"), dropped: 0 });
+  });
+
+  test("goes in front of what was typed since, keeping both", () => {
+    expect(restoreFailed(out("first @a.ts", ["a.ts", "b.ts"], [shot(1)]), out("then @b.ts", ["b.ts"], [shot(2)]))).toEqual({
+      draft: out("first @a.ts\nthen @b.ts", ["a.ts", "b.ts"], [shot(1), shot(2)]),
+      dropped: 0,
+    });
+    expect(restoreFailed(out("", [], [shot(1)]), out("typed")).draft.text).toBe("typed");
+  });
+
+  test("keeps no more attachments than a prompt can carry", () => {
+    const failed = Array.from({ length: 7 }, (_, i) => shot(i));
+    const typed = Array.from({ length: 5 }, (_, i) => shot(10 + i));
+    const r = restoreFailed(out("x", [], failed), out("y", [], typed));
+    expect(r.draft.attachments).toEqual([...failed, ...typed.slice(0, 3)]);
+    expect(r.dropped).toBe(2);
   });
 });
 

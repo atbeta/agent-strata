@@ -398,10 +398,21 @@ export function App() {
       }
     };
     window.addEventListener("keydown", onKey);
+    // The shell leaves file drops to the page, and a page that does not take one
+    // navigates the whole window to the file.
+    const onFileDrag = (e: DragEvent) => {
+      if (e.defaultPrevented || !e.dataTransfer?.types.includes("Files")) return;
+      e.preventDefault();
+      if (e.type === "dragover") e.dataTransfer.dropEffect = "none";
+    };
+    window.addEventListener("dragover", onFileDrag);
+    window.addEventListener("drop", onFileDrag);
     onCleanup(() => {
       scheme.removeEventListener("change", onScheme);
       window.removeEventListener("hashchange", onHash);
       window.removeEventListener("keydown", onKey);
+      window.removeEventListener("dragover", onFileDrag);
+      window.removeEventListener("drop", onFileDrag);
       clearInterval(clockTimer);
       clearInterval(syncTimer);
       clearTimeout(timer);

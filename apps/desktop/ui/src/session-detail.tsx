@@ -3,6 +3,7 @@ import {
   createMemo,
   createResource,
   createSignal,
+  createUniqueId,
   For,
   onCleanup,
   onMount,
@@ -54,9 +55,11 @@ import {
   MAX_ATTACHMENTS,
   nextAgent,
   promptParts,
+  restoreFailed,
   toAttachment,
   triggerAt,
   type Attachment,
+  type Outgoing,
   type Trigger,
 } from "./composer-input";
 import { AttachmentStrip, ComposerMenu, type MenuItem } from "./composer-menu";
@@ -387,12 +390,6 @@ function Snippet(props: { text: string }) {
   );
 }
 
-interface Outgoing {
-  text: string;
-  picked: string[];
-  attachments: Attachment[];
-}
-
 export function SessionDetail(props: { id: string }) {
   const [replayPos, setReplayPos] = createSignal<number | null>(null);
   const [traceOn, setTraceOn] = createSignal(false);
@@ -452,7 +449,7 @@ export function SessionDetail(props: { id: string }) {
     (id) => readCapabilities(id).catch(() => undefined),
   );
   const opencode = () => caps()?.extension === "opencode";
-  const [commands] = createResource(
+  const [commands, { refetch: refetchCommands }] = createResource(
     () => (caps()?.commands && opencode() ? props.id : undefined),
     (id) => readCommands(id).catch(() => undefined),
   );
@@ -461,10 +458,17 @@ export function SessionDetail(props: { id: string }) {
   const [trigger, setTrigger] = createSignal<Trigger>();
   /** the trigger start the user closed with Escape; it stays closed until they type elsewhere */
   const [dismissedAt, setDismissedAt] = createSignal<number>();
-  /** tagged with the kind they were found for, so a list never shows under the other trigger */
-  const [menuList, setMenuList] = createSignal<{ kind: Trigger["kind"]; items: MenuItem[] }>({ kind: "file", items: [] });
+  /** tagged with what they were found for, so a list never shows under the other trigger */
+  const [menuList, setMenuList] = createSignal<{ kind: Trigger["kind"]; query: string; items: MenuItem[] }>({
+    kind: "file",
+    query: "",
+    items: [],
+  });
   const [menuActive, setMenuActive] = createSignal(0);
   const [attachErr, setAttachErr] = createSignal("");
+  /** set when a send fails, so queued follow-ups wait for the reader instead of going out without it */
+  const [queuePaused, setQueuePaused] = createSignal(false);
+  const menuId = createUniqueId();
   let draftEl: HTMLTextAreaElement | undefined;
   let fileInput: HTMLInputElement | undefined;
   let scroller: HTMLDivElement | undefined;
@@ -714,6 +718,7 @@ const turnIndexOf = (h: SearchHit): number => {
       refetchOptions();
       refetchVcs();
       refetchCaps();
+      refetchCommands();
     };
     window.addEventListener("strata-connections", onConns);
     const onFocus = () => refetchVcs();
@@ -812,6 +817,13 @@ const turnIndexOf = (h: SearchHit): number => {
   };
 
   const menuItems = () => (menuList().kind === trigger()?.kind ? menuList().items : []);
+  /** a search still on its way, or not started, is not "no matches" */
+  const menuHint = () => {
+    const tr = trigger();
+    const list = menuList();
+    const stale = !tr || list.kind !== tr.kind || list.query !== tr.query;
+    return tr?.kind === "file" && (!tr.query || stale) ? t("composer.menu.search_files") : undefined;
+  };
   const menuOpen = () => {
     const tr = trigger();
     if (!tr || tr.start === dismissedAt()) return false;
@@ -824,6 +836,7 @@ const turnIndexOf = (h: SearchHit): number => {
     const list = matchCommands(commands() ?? [], tr.query).slice(0, 50);
     setMenuList({
       kind: "command",
+      query: tr.query,
       items: list.map((c) => ({
         key: c.name,
         value: c.name,
@@ -848,7 +861,7 @@ const turnIndexOf = (h: SearchHit): number => {
     fileSearch?.abort();
     if (!tr || tr.kind !== "file" || !opencode()) return;
     if (!tr.query) {
-      setMenuList({ kind: "file", items: [] });
+      setMenuList({ kind: "file", query: "", items: [] });
       return;
     }
     fileTimer = setTimeout(() => {
@@ -858,6 +871,7 @@ const turnIndexOf = (h: SearchHit): number => {
           if (ctl.signal.aborted) return;
           setMenuList({
             kind: "file",
+            query: tr.query,
             items: (paths ?? []).map((p) => {
               const cut = p.lastIndexOf("/");
               return { key: p, value: p, label: p.slice(cut + 1), detail: cut > 0 ? p.slice(0, cut) : undefined };
@@ -916,18 +930,17 @@ const turnIndexOf = (h: SearchHit): number => {
         );
         continue;
       }
-      if (file.type.startsWith("image/")) {
-        // OpenCode drops an undecodable image without a reply or an idle
-        const ok = await createImageBitmap(file).then(
-          (b) => (b.close(), true),
-          () => false,
-        );
-        if (!ok) {
-          setAttachErr(t("composer.attach.unreadable", { name: file.name || "image" }));
-          continue;
+      let a: Attachment;
+      try {
+        if (file.type.startsWith("image/") && typeof createImageBitmap === "function") {
+          // OpenCode drops an undecodable image without a reply or an idle
+          (await createImageBitmap(file)).close();
         }
+        a = await toAttachment(file, String(++attachSeq));
+      } catch {
+        setAttachErr(t("composer.attach.unreadable", { name: file.name || "file" }));
+        continue;
       }
-      const a = await toAttachment(file, String(++attachSeq));
       if (full()) return;
       setAttachments((list) => [...list, a]);
     }
@@ -955,16 +968,21 @@ const turnIndexOf = (h: SearchHit): number => {
       }
     } catch (err) {
       setSendErr(err instanceof Error ? err.message : t("err.network"));
-      setDraft(out.text);
-      setPicked(out.picked);
-      setAttachments(out.attachments);
+      const back = restoreFailed(out, { text: draft(), picked: picked(), attachments: attachments() });
+      setDraft(back.draft.text);
+      setPicked(back.draft.picked);
+      setAttachments(back.draft.attachments);
+      if (back.dropped) setAttachErr(t("composer.attach.too_many", { n: MAX_ATTACHMENTS }));
+      setQueuePaused(true);
       setPendingSend(false);
+      queueMicrotask(autogrow);
     }
   };
 
   const send = () => {
     const out: Outgoing = { text: draft().trim(), picked: picked(), attachments: attachments() };
     if (!out.text && out.attachments.length === 0) return;
+    setQueuePaused(false);
     setDraft("");
     setPicked([]);
     setAttachments([]);
@@ -984,7 +1002,7 @@ const turnIndexOf = (h: SearchHit): number => {
   // on the next idle. deliver() sets pendingSend in the same turn, so this
   // does not drain the rest of the queue until that turn finishes.
   createEffect(() => {
-    if (generating() || replayPos() !== null) return;
+    if (generating() || replayPos() !== null || queuePaused()) return;
     const next = queued()[0];
     if (!next) return;
     setQueued((q) => q.slice(1));
@@ -1379,10 +1397,11 @@ const turnIndexOf = (h: SearchHit): number => {
                     <div class="relative">
                       <Show when={menuOpen()}>
                         <ComposerMenu
+                          id={menuId}
                           kind={trigger()?.kind ?? "file"}
                           items={menuItems()}
                           active={menuActive()}
-                          hint={trigger()?.kind === "file" && !trigger()?.query ? t("composer.menu.search_files") : undefined}
+                          hint={menuHint()}
                           onPick={pick}
                           onHover={setMenuActive}
                         />
@@ -1428,7 +1447,9 @@ const turnIndexOf = (h: SearchHit): number => {
                     <div
                       class={`rounded-2xl border border-input bg-card shadow-[0_8px_30px_-18px_rgba(0,0,0,0.7)] transition-colors focus-within:border-ring ${queued().length > 0 ? "-mt-2" : ""}`}
                       onDragOver={(e) => {
-                        if (canAttach() && e.dataTransfer?.types.includes("Files")) e.preventDefault();
+                        if (!canAttach() || !e.dataTransfer?.types.includes("Files")) return;
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = "copy";
                       }}
                       onDrop={(e) => {
                         if (!canAttach() || !e.dataTransfer?.files.length) return;
@@ -1439,7 +1460,10 @@ const turnIndexOf = (h: SearchHit): number => {
                       <Show when={attachments().length}>
                         <AttachmentStrip
                           items={attachments()}
-                          onRemove={(id) => setAttachments((l) => l.filter((a) => a.id !== id))}
+                          onRemove={(id) => {
+                            setAttachErr("");
+                            setAttachments((l) => l.filter((a) => a.id !== id));
+                          }}
                         />
                       </Show>
                       <textarea
@@ -1448,24 +1472,33 @@ const turnIndexOf = (h: SearchHit): number => {
                         rows={1}
                         placeholder={generating() ? t("composer.placeholder.queue") : t("composer.placeholder.message")}
                         value={draft()}
+                        aria-autocomplete="list"
+                        aria-controls={menuOpen() && menuItems().length ? menuId : undefined}
+                        aria-activedescendant={
+                          menuOpen() && menuItems().length ? `${menuId}-${menuActive()}` : undefined
+                        }
                         onInput={(e) => {
                           setDraft(e.currentTarget.value);
                           setHistIndex(-1);
                           autogrow();
-                          track();
+                          if (!e.isComposing) track();
                         }}
+                        onCompositionEnd={track}
                         onClick={track}
+                        onBlur={() => setTrigger(undefined)}
                         onKeyUp={(e) => {
                           if (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "Home" || e.key === "End") track();
                         }}
                         onPaste={(e) => {
-                          if (canAttach() && e.clipboardData?.files.length) {
+                          // Office copies a selection as text plus a picture of it
+                          if (canAttach() && e.clipboardData?.files.length && !e.clipboardData.getData("text/plain")) {
                             e.preventDefault();
                             void addFiles(e.clipboardData.files);
                           }
                         }}
                         onKeyDown={(e) => {
-                          if (e.isComposing) return;
+                          // 229: the key went to the IME, which some webviews report without isComposing
+                          if (e.isComposing || e.keyCode === 229) return;
                           if (menuOpen()) {
                             const n = menuItems().length;
                             if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -1473,9 +1506,16 @@ const turnIndexOf = (h: SearchHit): number => {
                               if (n) setMenuActive((a) => (a + (e.key === "ArrowDown" ? 1 : n - 1)) % n);
                               return;
                             }
-                            if ((e.key === "Enter" || e.key === "Tab") && !e.shiftKey && n) {
+                            if (e.key === "Enter" && !e.shiftKey && n) {
                               e.preventDefault();
-                              pick(menuActive());
+                              const tr = trigger();
+                              if (tr?.kind === "command" && menuItems()[menuActive()]?.value === tr.query) send();
+                              else pick(menuActive());
+                              return;
+                            }
+                            if (e.key === "Tab") {
+                              e.preventDefault();
+                              if (n && !e.shiftKey) pick(menuActive());
                               return;
                             }
                             if (e.key === "Escape") {

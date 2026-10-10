@@ -14,6 +14,8 @@ export interface MenuItem {
 
 /** Suggestions above the composer. Focus stays in the textarea; rows are picked with the mouse or the keys it forwards. */
 export function ComposerMenu(props: {
+  /** the listbox's id; rows are `${id}-${index}` */
+  id: string;
   kind: "file" | "command";
   items: MenuItem[];
   active: number;
@@ -22,16 +24,19 @@ export function ComposerMenu(props: {
   onPick: (index: number) => void;
   onHover: (index: number) => void;
 }) {
+  const title = () => (props.kind === "file" ? t("composer.menu.files") : t("composer.menu.commands"));
   return (
-    <div class="absolute inset-x-0 bottom-full z-20 mb-2 overflow-hidden rounded-lg border border-border bg-popover shadow-lg">
-      <p class="px-3 pb-1 pt-2 text-2xs font-medium text-muted-foreground">
-        {props.kind === "file" ? t("composer.menu.files") : t("composer.menu.commands")}
-      </p>
+    <div
+      class="surface-popover absolute inset-x-0 bottom-full z-20 mb-2 overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground"
+      // a press anywhere in the menu, scrollbar included, must not take focus from the textarea
+      onMouseDown={(e) => e.preventDefault()}
+    >
+      <p class="px-2 py-1 text-2xs font-medium text-muted-foreground">{title()}</p>
       <Show
         when={props.items.length > 0}
-        fallback={<p class="px-3 pb-2.5 text-sm text-muted-foreground">{props.hint ?? t("composer.menu.no_match")}</p>}
+        fallback={<p class="px-2 pb-1.5 text-sm text-muted-foreground">{props.hint ?? t("composer.menu.no_match")}</p>}
       >
-        <ul role="listbox" class="max-h-64 overflow-y-auto px-1 pb-1">
+        <ul id={props.id} role="listbox" aria-label={title()} class="max-h-64 overflow-y-auto">
           <For each={props.items}>
             {(item, i) => {
               let row: HTMLLIElement | undefined;
@@ -42,13 +47,11 @@ export function ComposerMenu(props: {
               return (
                 <li
                   ref={row}
+                  id={`${props.id}-${i()}`}
                   role="option"
                   aria-selected={i() === props.active}
-                  class={`flex cursor-default items-baseline gap-2 rounded-md px-2 py-1.5 text-sm ${i() === props.active ? "bg-secondary text-foreground" : "text-foreground/90"}`}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    props.onPick(i());
-                  }}
+                  class={`flex cursor-default items-baseline gap-2 rounded-md px-2 py-1.5 text-sm ${i() === props.active ? "bg-accent text-accent-foreground" : "hover:bg-secondary"}`}
+                  onMouseDown={() => props.onPick(i())}
                   onMouseMove={() => props.onHover(i())}
                 >
                   <Show when={props.kind === "file"}>
@@ -56,7 +59,11 @@ export function ComposerMenu(props: {
                   </Show>
                   <span class={`shrink-0 ${props.kind === "command" ? "font-mono text-xs" : "truncate"}`}>{item.label}</span>
                   <Show when={item.detail}>
-                    <span class="min-w-0 truncate text-xs text-muted-foreground">{item.detail}</span>
+                    <span
+                      class={`min-w-0 truncate text-muted-foreground ${props.kind === "file" ? "font-mono text-2xs" : "text-xs"}`}
+                    >
+                      {item.detail}
+                    </span>
                   </Show>
                   <Show when={item.badge}>
                     <span class="ml-auto shrink-0 rounded bg-secondary px-1.5 text-2xs text-muted-foreground">{item.badge}</span>
