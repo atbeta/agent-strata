@@ -25,7 +25,6 @@ import {
   readCapabilities,
   readCommands,
   readMcp,
-  readSkills,
   realWorkspace,
   readVcs,
   readViewTail,
@@ -43,7 +42,6 @@ import {
   type PendingQuestion,
   type SearchHit,
   type SessionView,
-  type SkillInfo,
 } from "./api";
 import { Icon } from "./icons";
 import { DiffBlock } from "./diff";
@@ -236,10 +234,11 @@ const MCP_STATUS: Record<McpServerStatus["status"], MessageKey> = {
   needs_client_registration: "mcp.status.needs_client_registration",
 };
 
-function skillDraft(draft: string, name: string): string {
-  const insert = `/${name} `;
-  const trimmed = draft.trim();
-  return trimmed ? `${draft.trimEnd()}\n${insert}` : insert;
+function mcpDot(status: McpServerStatus["status"]): string {
+  if (status === "connected") return "bg-status-active";
+  if (status === "failed" || status === "needs_client_registration") return "bg-status-error";
+  if (status === "needs_auth") return "bg-status-pending";
+  return "bg-muted-foreground/40";
 }
 
 /** How a file changed. The wire values are `add`/`modify`/`delete`; these are labels. */
@@ -532,7 +531,8 @@ export function SessionDetail(props: {
   const [toolsOpen, setToolsOpen] = createSignal(false);
   const [toolsReady, setToolsReady] = createSignal(false);
   const [mcpServers, setMcpServers] = createSignal<[string, McpServerStatus][]>([]);
-  const [skills, setSkills] = createSignal<SkillInfo[]>([]);
+  const [mcpBusy, setMcpBusy] = createSignal<string>();
+  const [mcpNote, setMcpNote] = createSignal<{ name: string; text: string }>();
   let searchEl: HTMLInputElement | undefined;
   let resultsEl: HTMLUListElement | undefined;
   let probeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -556,9 +556,8 @@ export function SessionDetail(props: {
 
   const loadTools = async () => {
     try {
-      const [mcp, skill] = await Promise.all([readMcp(props.id), readSkills(props.id)]);
+      const mcp = await readMcp(props.id);
       setMcpServers(Object.entries(mcp ?? {}).sort(([a], [b]) => a.localeCompare(b)));
-      setSkills([...(skill ?? [])].sort((a, b) => a.name.localeCompare(b.name)));
     } catch (err) {
       setSendErr(err instanceof Error ? err.message : t("err.network"));
     } finally {
@@ -572,27 +571,26 @@ export function SessionDetail(props: {
       return;
     }
     closeSearch();
+    setMcpNote(undefined);
     setToolsReady(false);
     setToolsOpen(true);
     void loadTools();
   };
 
-  const pickSkill = (name: string) => {
-    setDraft(skillDraft(draft(), name));
-    setToolsOpen(false);
-    queueMicrotask(() => {
-      autogrow();
-      draftEl?.focus();
-    });
-  };
-
   const toggleMcp = async (name: string, action: "connect" | "disconnect") => {
+    const before = mcpServers().find(([n]) => n === name)?.[1].status;
+    setMcpBusy(name);
+    setMcpNote(undefined);
     try {
       if (action === "connect") await connectMcp(props.id, name);
       else await disconnectMcp(props.id, name);
       await loadTools();
+      const after = mcpServers().find(([n]) => n === name)?.[1].status;
+      if (after === before) setMcpNote({ name, text: t("mcp.unchanged") });
     } catch (err) {
-      setSendErr(err instanceof Error ? err.message : t("err.network"));
+      setMcpNote({ name, text: err instanceof Error ? err.message : t("err.network") });
+    } finally {
+      setMcpBusy(undefined);
     }
   };
 
@@ -1469,24 +1467,42 @@ const turnIndexOf = (h: SearchHit): number => {
               </Show>
 
               <Show when={toolsOpen()}>
-                <div class="absolute right-4 top-11 z-30 w-80 max-w-[calc(100%-2rem)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg">
-                  <div class="max-h-80 overflow-y-auto px-3 py-2">
-                    <section>
-                      <h2 class="text-2xs font-medium text-muted-foreground">{t("mcp.title")}</h2>
-                      <Show when={toolsReady() && mcpServers().length === 0}>
-                        <p class="mt-1.5 text-xs text-muted-foreground">{t("mcp.empty")}</p>
-                      </Show>
-                      <Show when={mcpServers().length > 0}>
-                        <ul class="mt-1 space-y-0.5">
-                          <For each={mcpServers()}>
-                            {([name, server]) => (
-                              <li class="flex items-start justify-between gap-2 py-1">
-                                <div class="min-w-0">
+                <div class="absolute right-4 top-11 z-30 w-72 max-w-[calc(100%-2rem)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg">
+                  <div class="max-h-80 overflow-y-auto px-2 py-2">
+                    <h2 class="px-1.5 text-2xs font-medium text-muted-foreground">{t("mcp.title")}</h2>
+                    <Show when={toolsReady() && mcpServers().length === 0}>
+                      <p class="mt-1.5 px-1.5 text-xs text-muted-foreground">{t("mcp.empty")}</p>
+                    </Show>
+                    <Show when={mcpServers().length > 0}>
+                      <ul class="mt-1">
+                        <For each={mcpServers()}>
+                          {([name, server]) => {
+                            const busy = () => mcpBusy() === name;
+                            const note = () => (mcpNote()?.name === name ? mcpNote()?.text : undefined);
+                            const canDisconnect = () => server.status === "connected";
+                            const canConnect = () => server.status === "disabled" || server.status === "failed";
+                            return (
+                              <li class="flex items-center gap-2 rounded-md px-1.5 py-1.5">
+                                <span
+                                  class={`size-1.5 shrink-0 rounded-full ${mcpDot(server.status)} ${busy() ? "animate-pulse" : ""}`}
+                                />
+                                <div class="min-w-0 flex-1">
                                   <div class="truncate text-sm">{name}</div>
-                                  <div class="truncate text-2xs text-muted-foreground">
-                                    {t(MCP_STATUS[server.status])}
+                                  <div
+                                    class={`truncate text-2xs ${
+                                      server.status === "connected"
+                                        ? "text-status-active"
+                                        : server.status === "failed"
+                                          ? "text-status-error"
+                                          : "text-muted-foreground"
+                                    }`}
+                                  >
+                                    {busy()
+                                      ? t(canDisconnect() ? "mcp.disconnecting" : "mcp.connecting")
+                                      : t(MCP_STATUS[server.status])}
                                     <Show
                                       when={
+                                        !busy() &&
                                         (server.status === "failed" ||
                                           server.status === "needs_client_registration") &&
                                         server.error
@@ -1495,59 +1511,28 @@ const turnIndexOf = (h: SearchHit): number => {
                                       {` · ${server.error}`}
                                     </Show>
                                   </div>
-                                </div>
-                                <Show when={server.status === "connected"}>
-                                  <button
-                                    type="button"
-                                    class="shrink-0 text-2xs text-muted-foreground hover:text-foreground"
-                                    onClick={() => void toggleMcp(name, "disconnect")}
-                                  >
-                                    {t("mcp.disconnect")}
-                                  </button>
-                                </Show>
-                                <Show when={server.status === "disabled" || server.status === "failed"}>
-                                  <button
-                                    type="button"
-                                    class="shrink-0 text-2xs text-muted-foreground hover:text-foreground"
-                                    onClick={() => void toggleMcp(name, "connect")}
-                                  >
-                                    {t("mcp.connect")}
-                                  </button>
-                                </Show>
-                              </li>
-                            )}
-                          </For>
-                        </ul>
-                      </Show>
-                    </section>
-                    <section class="mt-3">
-                      <h2 class="text-2xs font-medium text-muted-foreground">{t("skill.title")}</h2>
-                      <Show when={toolsReady() && skills().length === 0}>
-                        <p class="mt-1.5 text-xs text-muted-foreground">{t("skill.empty")}</p>
-                      </Show>
-                      <Show when={skills().length > 0}>
-                        <ul class="mt-1 space-y-0.5">
-                          <For each={skills()}>
-                            {(skill) => (
-                              <li>
-                                <button
-                                  type="button"
-                                  class="flex w-full flex-col gap-0.5 rounded-md px-0 py-1 text-left hover:bg-secondary/60"
-                                  onClick={() => pickSkill(skill.name)}
-                                >
-                                  <span class="truncate text-sm">{skill.name}</span>
-                                  <Show when={skill.description}>
-                                    <span class="truncate text-2xs text-muted-foreground">
-                                      {skill.description}
-                                    </span>
+                                  <Show when={note()}>
+                                    <div class="truncate text-2xs text-muted-foreground">{note()}</div>
                                   </Show>
-                                </button>
+                                </div>
+                                <Show when={canDisconnect() || canConnect()}>
+                                  <button
+                                    type="button"
+                                    class="h-6 shrink-0 rounded-md px-2 text-2xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
+                                    disabled={busy()}
+                                    onClick={() => void toggleMcp(name, canDisconnect() ? "disconnect" : "connect")}
+                                  >
+                                    {busy()
+                                      ? t(canDisconnect() ? "mcp.disconnecting" : "mcp.connecting")
+                                      : t(canDisconnect() ? "mcp.disconnect" : "mcp.connect")}
+                                  </button>
+                                </Show>
                               </li>
-                            )}
-                          </For>
-                        </ul>
-                      </Show>
-                    </section>
+                            );
+                          }}
+                        </For>
+                      </ul>
+                    </Show>
                   </div>
                 </div>
               </Show>
