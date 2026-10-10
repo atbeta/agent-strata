@@ -57,6 +57,34 @@ describe("projector", () => {
     expect(v.orphans.length).toBe(0);
   });
 
+  test("a tool result names the child session on the call it completes", () => {
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      mk("s", "tool.call", { turn_id: "t", call_id: "c1", tool: "task", input: {} }),
+      mk("s", "tool.result", {
+        call_id: "c1",
+        status: "ok",
+        child_session_id: "opencode:ses_kid",
+      }),
+    ]);
+    expect(v.turns[0]!.tool_calls[0]!.child_session_id).toBe("opencode:ses_kid");
+  });
+
+  test("a child session named on the tool call stays when the result omits it", () => {
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      mk("s", "tool.call", {
+        turn_id: "t",
+        call_id: "c1",
+        tool: "task",
+        input: {},
+        child_session_id: "opencode:ses_kid",
+      }),
+      mk("s", "tool.result", { call_id: "c1", status: "ok" }),
+    ]);
+    expect(v.turns[0]!.tool_calls[0]!.child_session_id).toBe("opencode:ses_kid");
+  });
+
   test("tool calls sort back into declaration order when the backend stamps it", () => {
     // Started out of order (c1 declared first but ran last), which is what a
     // backend running calls concurrently reports.

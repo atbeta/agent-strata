@@ -20,6 +20,7 @@ export interface ToolCallView {
   order?: number;
   /** The assistant message this call belongs to, when the backend names one. */
   msg_id?: string;
+  child_session_id?: string;
 }
 
 export interface Turn {
@@ -298,6 +299,7 @@ export function projectSession(events: Event[]): SessionView {
           status: "pending",
           order: e.data.order,
           msg_id: e.data.msg_id,
+          child_session_id: e.data.child_session_id,
         };
         t.tool_calls.push(call);
         calls.set(e.data.call_id, call);
@@ -318,6 +320,7 @@ export function projectSession(events: Event[]): SessionView {
         call.status = e.data.status;
         call.output = e.data.output;
         call.latency_ms = e.data.latency_ms;
+        if (e.data.child_session_id) call.child_session_id = e.data.child_session_id;
         if (e.data.status === "error" || e.data.status === "interrupted")
           view.totals.tool_errors++;
         break;

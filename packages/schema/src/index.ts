@@ -108,12 +108,14 @@ const data = {
      * only put every call after every reply.
      */
     msg_id: z.string().optional(),
+    child_session_id: z.string().min(1).optional(),
   }),
   "tool.result": z.object({
     call_id: z.string(),
     status: z.enum(["ok", "error", "interrupted"]),
     output: z.string().optional(),
     latency_ms: z.number().int().min(0).optional(),
+    child_session_id: z.string().min(1).optional(),
   }),
   "permission.requested": z.object({
     request_id: z.string(),
