@@ -21,7 +21,11 @@ type Name =
   | "list"
   | "wrench"
   | "branch"
-  | "attach";
+  | "attach"
+  | "copy"
+  | "check"
+  | "undo"
+  | "compact";
 
 function Glyph(props: { class?: string; children: JSX.Element }) {
   return (
@@ -200,6 +204,34 @@ export function Icon(props: { name: Name; class?: string }) {
     return (
       <Glyph class={props.class}>
         <path d="M10.5 4.5 5.6 9.4a1.6 1.6 0 0 0 2.3 2.3l5-5a3 3 0 0 0-4.3-4.3l-5 5a4.4 4.4 0 0 0 6.2 6.2l4.2-4.2" />
+      </Glyph>
+    );
+  if (props.name === "copy")
+    return (
+      <Glyph class={props.class}>
+        <rect x="6" y="6" width="6.6" height="6.6" rx="1.2" />
+        <path d="M4.2 10.2V4.2c0-.6.5-1.1 1.1-1.1H10" />
+      </Glyph>
+    );
+  if (props.name === "check")
+    return (
+      <Glyph class={props.class}>
+        <path d="M3.4 8.3 6.5 11.4 12.6 4.8" />
+      </Glyph>
+    );
+  if (props.name === "undo")
+    return (
+      <Glyph class={props.class}>
+        <path d="M6.2 4.2 3.4 7l2.8 2.8" />
+        <path d="M3.8 7h6.4a2.8 2.8 0 0 1 0 5.6H7.5" />
+      </Glyph>
+    );
+  if (props.name === "compact")
+    return (
+      <Glyph class={props.class}>
+        <path d="M2.8 4h10.4" />
+        <path d="M4.4 8h7.2" />
+        <path d="M6 12h4" />
       </Glyph>
     );
   return (

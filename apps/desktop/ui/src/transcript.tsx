@@ -399,49 +399,59 @@ export function TurnBlock(props: {
             <Show when={props.turn.reverted}>
               <p class="text-2xs text-muted-foreground">{t("message.reverted")}</p>
             </Show>
-            <div class="group relative">
-              <div class="flex justify-end">
-                <div class="max-w-[min(85%,36rem)] rounded-2xl rounded-br-md bg-secondary px-3.5 py-2 text-secondary-foreground">
-                  <BlockText blocks={blocks()} tight />
-                </div>
-              </div>
-              <div class="pointer-events-none absolute right-0 top-full z-10 flex justify-end gap-2 pt-1 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100">
-                <button
-                  type="button"
-                  class="text-2xs text-muted-foreground hover:text-foreground"
-                  onClick={copyUser}
-                >
-                  {copied() ? t("message.copied") : t("message.copy")}
-                </button>
-                <button
-                  type="button"
-                  class="text-2xs text-muted-foreground hover:text-foreground"
-                  onClick={() => props.onEdit?.(props.turn.turn_id, joinedUserText(blocks()))}
-                >
-                  {t("message.edit")}
-                </button>
+            <div class="group flex max-w-full items-center justify-end gap-1">
+              <div class="flex shrink-0 items-center opacity-0 pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+                <Tip label={copied() ? t("message.copied") : t("message.copy")}>
+                  <button
+                    type="button"
+                    class="grid h-6 w-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                    aria-label={copied() ? t("message.copied") : t("message.copy")}
+                    onClick={copyUser}
+                  >
+                    <Icon name={copied() ? "check" : "copy"} class="h-3.5 w-3.5" />
+                  </button>
+                </Tip>
+                <Tip label={t("message.edit")}>
+                  <button
+                    type="button"
+                    class="grid h-6 w-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                    aria-label={t("message.edit")}
+                    onClick={() => props.onEdit?.(props.turn.turn_id, joinedUserText(blocks()))}
+                  >
+                    <Icon name="pencil" class="h-3.5 w-3.5" />
+                  </button>
+                </Tip>
                 <Show when={props.onRevert}>
                   {(revert) => (
-                    <button
-                      type="button"
-                      class="text-2xs text-muted-foreground hover:text-foreground"
-                      onClick={() => revert()(props.turn.turn_id)}
-                    >
-                      {t("message.revert")}
-                    </button>
+                    <Tip label={t("message.revert")}>
+                      <button
+                        type="button"
+                        class="grid h-6 w-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                        aria-label={t("message.revert")}
+                        onClick={() => revert()(props.turn.turn_id)}
+                      >
+                        <Icon name="undo" class="h-3.5 w-3.5" />
+                      </button>
+                    </Tip>
                   )}
                 </Show>
                 <Show when={props.onFork}>
                   {(fork) => (
-                    <button
-                      type="button"
-                      class="text-2xs text-muted-foreground hover:text-foreground"
-                      onClick={() => fork()(props.turn.turn_id)}
-                    >
-                      {t("message.fork")}
-                    </button>
+                    <Tip label={t("message.fork")}>
+                      <button
+                        type="button"
+                        class="grid h-6 w-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                        aria-label={t("message.fork")}
+                        onClick={() => fork()(props.turn.turn_id)}
+                      >
+                        <Icon name="branch" class="h-3.5 w-3.5" />
+                      </button>
+                    </Tip>
                   )}
                 </Show>
+              </div>
+              <div class="max-w-[min(85%,36rem)] rounded-2xl rounded-br-md bg-secondary px-3.5 py-2 text-secondary-foreground">
+                <BlockText blocks={blocks()} tight />
               </div>
             </div>
           </div>

@@ -1266,17 +1266,20 @@ const turnIndexOf = (h: SearchHit): number => {
                     </button>
                   </Tip>
                   <Show when={caps()?.summarize}>
-                    <button
-                      type="button"
-                      class="h-7 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                      onClick={() =>
-                        void summarizeSession(props.id).catch((err) =>
-                          setSendErr(err instanceof Error ? err.message : t("err.network")),
-                        )
-                      }
-                    >
-                      {t("message.summarize")}
-                    </button>
+                    <Tip label={t("message.summarize")}>
+                      <button
+                        type="button"
+                        class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                        aria-label={t("message.summarize")}
+                        onClick={() =>
+                          void summarizeSession(props.id).catch((err) =>
+                            setSendErr(err instanceof Error ? err.message : t("err.network")),
+                          )
+                        }
+                      >
+                        <Icon name="compact" />
+                      </button>
+                    </Tip>
                   </Show>
                   <Tip label={t("header.export")}>
                     <button
