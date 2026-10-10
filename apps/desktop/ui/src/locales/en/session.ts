@@ -26,6 +26,8 @@ export default {
 
   // Header.
   "session.untitled": "untitled session",
+  "session.child.open": "Open child session",
+  "session.child.back": "Back to parent",
   "session.service_unreachable": "Can't reach the strata service.",
   "session.empty": "Empty session. Write a prompt to start.",
   "header.cost.tip": "{amount} so far — open the context ring for the breakdown",

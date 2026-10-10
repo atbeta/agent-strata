@@ -11,6 +11,7 @@ export default {
   "tool.verb.search": "Search",
   "tool.verb.fetch": "Fetch",
   "tool.verb.plan": "计划",
+  "tool.verb.task": "子会话",
 
   "tool.search.in": "在 {path} 中",
   "plan.items.one": "{n} 项",

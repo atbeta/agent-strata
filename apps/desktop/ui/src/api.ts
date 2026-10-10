@@ -71,6 +71,8 @@ export interface ToolCallView {
   order?: number;
   /** The assistant message this call belongs to, when the backend names one. */
   msg_id?: string;
+  /** CASF id of the child session a task tool opened. */
+  child_session_id?: string;
 }
 
 export interface Turn {
@@ -148,6 +150,8 @@ export interface SessionView {
   backend: string;
   workspace?: string;
   title?: string;
+  /** set when this session was opened by a parent; the header links back */
+  parent_session_id?: string;
   status: string;
   busy?: boolean;
   turns: Turn[];

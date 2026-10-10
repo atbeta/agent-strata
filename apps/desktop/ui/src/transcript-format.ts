@@ -1,7 +1,7 @@
 import type { ToolCallView } from "./api";
 import { t, tn } from "./i18n";
 
-export type ToolKind = "shell" | "read" | "edit" | "search" | "web" | "todo" | "generic";
+export type ToolKind = "shell" | "read" | "edit" | "search" | "web" | "todo" | "task" | "generic";
 
 const KINDS: Record<string, ToolKind> = {
   bash: "shell",
@@ -25,6 +25,7 @@ const KINDS: Record<string, ToolKind> = {
   fetch: "web",
   todowrite: "todo",
   todoread: "todo",
+  task: "task",
 };
 
 export function toolKind(name: string): ToolKind {
@@ -85,6 +86,13 @@ export function toolHeadline(call: Pick<ToolCallView, "tool" | "input">): ToolHe
         : undefined;
     const count = Array.isArray(todos) ? todos.length : 0;
     return { kind, verb: t("tool.verb.plan"), title: first ?? tn("plan.items", count) };
+  }
+  if (kind === "task") {
+    return {
+      kind,
+      verb: t("tool.verb.task"),
+      title: field(input, ["description", "subagent_type", "agent"]) ?? call.tool,
+    };
   }
   const description = field(input, ["description", "prompt", "title"]);
   return { kind, verb: call.tool, title: description ?? path ?? command ?? pattern ?? "" };

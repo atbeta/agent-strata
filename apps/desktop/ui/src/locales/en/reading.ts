@@ -12,6 +12,7 @@ export default {
   "tool.verb.search": "Search",
   "tool.verb.fetch": "Fetch",
   "tool.verb.plan": "Plan",
+  "tool.verb.task": "Subagent",
 
   "tool.search.in": "in {path}",
   "plan.items.one": "{n} item",

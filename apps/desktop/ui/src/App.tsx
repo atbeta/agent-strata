@@ -990,7 +990,7 @@ export function App() {
           </div>
         </Show>
         <Show when={route().name === "session" ? (route() as { id: string }).id : undefined} keyed>
-          {(id) => <SessionDetail id={id} />}
+          {(id) => <SessionDetail id={id} sessions={settled(data)?.sessions ?? []} />}
         </Show>
         <Show when={route().name === "compare"}>
           <div class="flex h-full min-h-0 flex-col">

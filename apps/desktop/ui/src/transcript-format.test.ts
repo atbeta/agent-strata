@@ -89,6 +89,35 @@ describe("tool headlines", () => {
     });
   });
 
+  test("a task tool is its own kind and names the child", () => {
+    expect(toolKind("task")).toBe("task");
+    expect(toolKind("Task")).toBe("task");
+    withLocale("en", () => {
+      expect(
+        toolHeadline({
+          tool: "task",
+          input: { description: "look up the plan", subagent_type: "explore", agent: "general" },
+        }),
+      ).toEqual({
+        kind: "task",
+        verb: "Subagent",
+        title: "look up the plan",
+      });
+      expect(toolHeadline({ tool: "task", input: { subagent_type: "explore", agent: "general" } }).title).toBe(
+        "explore",
+      );
+      expect(toolHeadline({ tool: "Task", input: { agent: "general" } }).title).toBe("general");
+      expect(toolHeadline({ tool: "task", input: {} }).title).toBe("task");
+    });
+    withLocale("zh", () => {
+      expect(toolHeadline({ tool: "task", input: { description: "查计划" } })).toEqual({
+        kind: "task",
+        verb: "子会话",
+        title: "查计划",
+      });
+    });
+  });
+
   test("an unrecognised tool keeps its raw name in both languages", () => {
     // The fallback is the backend's identifier, not a word we chose to write.
     withLocale("en", () => {

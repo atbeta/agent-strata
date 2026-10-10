@@ -168,8 +168,21 @@ function OutputWell(props: { text: string; kind: ToolKind }) {
   );
 }
 
-function ToolCallCard(props: { call: ToolCallView }) {
+type ChildSession = { title: string; status: string; busy?: boolean };
+
+function ToolCallCard(props: {
+  call: ToolCallView;
+  childOf?: (id: string) => ChildSession | undefined;
+  onOpenChild?: (id: string) => void;
+}) {
   const headline = () => toolHeadline(props.call);
+  const child = () => {
+    const id = props.call.child_session_id;
+    return id ? props.childOf?.(id) : undefined;
+  };
+  const title = () => child()?.title || headline().title;
+  const childBusy = () => child()?.busy === true;
+  const childError = () => child()?.status === "error";
   const stat = () => (props.call.output ? diffStat(props.call.output) : undefined);
   const denied = () => props.call.permission?.decision === "deny" || props.call.status === "error";
   const [open, setOpen] = createSignal(props.call.status === "pending" || props.call.status === "error");
@@ -191,10 +204,18 @@ function ToolCallCard(props: { call: ToolCallView }) {
   return (
     <div class={`overflow-hidden rounded-lg border bg-card ${denied() ? "border-destructive/35" : "border-border"}`}>
       <Tip label={open() ? t("tool.output.hide") : t("tool.output.show")} class="w-full">
-        <button
+        <div
           class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left hover:bg-secondary/50"
+          role="button"
+          tabIndex={0}
           aria-expanded={open()}
           onClick={() => setOpen((v) => !v)}
+          onKeyDown={(e) => {
+            if (e.target !== e.currentTarget) return;
+            if (e.key !== "Enter" && e.key !== " ") return;
+            e.preventDefault();
+            setOpen((v) => !v);
+          }}
         >
           <Icon
             name={toolIcon(headline().kind)}
@@ -203,8 +224,8 @@ function ToolCallCard(props: { call: ToolCallView }) {
           <span class={`shrink-0 text-2xs font-medium ${denied() ? "text-destructive" : "text-muted-foreground"}`}>
             {headline().verb}
           </span>
-          <span class="min-w-0 flex-1 truncate font-mono text-xs text-foreground/90" title={headline().title}>
-            {headline().title}
+          <span class="min-w-0 flex-1 truncate font-mono text-xs text-foreground/90" title={title()}>
+            {title()}
           </span>
           <Show when={stat()}>
             {(s) => (
@@ -214,17 +235,17 @@ function ToolCallCard(props: { call: ToolCallView }) {
               </span>
             )}
           </Show>
-          <Show when={label()}>
+          <Show when={label() || childBusy() || childError()}>
             <span
               class={`shrink-0 text-2xs ${
-                props.call.status === "pending"
-                  ? "text-status-active"
-                  : denied()
-                    ? "text-destructive"
+                childError() || denied()
+                  ? "text-destructive"
+                  : props.call.status === "pending" || childBusy()
+                    ? "text-status-active"
                     : "text-muted-foreground"
               }`}
             >
-              <Show when={props.call.status === "pending"}>
+              <Show when={props.call.status === "pending" || childBusy()}>
                 <span class="mr-1 inline-block size-1.5 animate-pulse rounded-full bg-status-active align-middle" />
               </Show>
               {label()}
@@ -235,13 +256,28 @@ function ToolCallCard(props: { call: ToolCallView }) {
               {fmtLatency(props.call.latency_ms)}
             </span>
           </Show>
+          <Show when={props.call.child_session_id}>
+            {(id) => (
+              <button
+                type="button"
+                class="shrink-0 text-sm text-muted-foreground hover:text-foreground"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  props.onOpenChild?.(id());
+                }}
+                onKeyDown={(e) => e.stopPropagation()}
+              >
+                {t("session.child.open")}
+              </button>
+            )}
+          </Show>
           <span
             class="inline-flex shrink-0 text-muted-foreground transition-transform"
             style={{ transform: open() ? "none" : "rotate(-90deg)" }}
           >
             <Icon name="chevron" class="size-3" />
           </span>
-        </button>
+        </div>
       </Tip>
       <Show when={open()}>
         <div class="space-y-2 border-t border-border px-2.5 py-2">
@@ -283,7 +319,13 @@ function ToolCallCard(props: { call: ToolCallView }) {
   );
 }
 
-export function TurnBlock(props: { turn: Turn; /** the agent has been asked but has said nothing yet */ awaiting?: () => boolean }) {
+export function TurnBlock(props: {
+  turn: Turn;
+  /** the agent has been asked but has said nothing yet */
+  awaiting?: () => boolean;
+  childOf?: (id: string) => ChildSession | undefined;
+  onOpenChild?: (id: string) => void;
+}) {
   /**
    * One stream: the assistant writes, calls a tool, reads the result, writes
    * again — and the reader should see that, not a wall of prose followed by a
@@ -349,7 +391,11 @@ export function TurnBlock(props: { turn: Turn; /** the agent has been asked but 
             </div>
           ) : (
             <div class="max-w-3xl space-y-1.5">
-              <For each={r.calls}>{(call) => <ToolCallCard call={call} />}</For>
+              <For each={r.calls}>
+                {(call) => (
+                  <ToolCallCard call={call} childOf={props.childOf} onOpenChild={props.onOpenChild} />
+                )}
+              </For>
             </div>
           );
         }}

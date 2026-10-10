@@ -394,7 +394,16 @@ function Snippet(props: { text: string }) {
   );
 }
 
-export function SessionDetail(props: { id: string }) {
+export function SessionDetail(props: {
+  id: string;
+  sessions: {
+    summary: { session_id: string };
+    title?: string;
+    parent?: string;
+    status: string;
+    busy?: boolean;
+  }[];
+}) {
   const [replayPos, setReplayPos] = createSignal<number | null>(null);
   const [traceOn, setTraceOn] = createSignal(false);
   const [traceBlock, setTraceBlock] = createSignal<TraceBlock | null>(null);
@@ -1073,6 +1082,15 @@ const turnIndexOf = (h: SearchHit): number => {
     setRailForced(true);
   };
 
+  const childOf = (id: string) => {
+    const row = props.sessions.find((s) => s.summary.session_id === id);
+    if (!row) return undefined;
+    return { title: row.title ?? "", status: row.status, busy: row.busy };
+  };
+  const openChild = (id: string) => {
+    location.hash = `/session/${encodeURIComponent(id)}`;
+  };
+
   return (
     <div class="flex h-full min-h-0">
       <div class="relative flex min-w-0 flex-1 flex-col">
@@ -1097,6 +1115,22 @@ const turnIndexOf = (h: SearchHit): number => {
                 data-tauri-drag-region={inDesktopShell() ? "" : undefined}
               >
                 <div class="flex min-w-0 flex-1 items-baseline gap-2">
+                  <Show when={v().parent_session_id}>
+                    {(parentId) => {
+                      const parent = () => props.sessions.find((s) => s.summary.session_id === parentId());
+                      return (
+                        <button
+                          type="button"
+                          class="max-w-48 shrink-0 truncate text-sm text-muted-foreground hover:text-foreground"
+                          onClick={() => {
+                            location.hash = `/session/${encodeURIComponent(parentId())}`;
+                          }}
+                        >
+                          {parent()?.title || t("session.child.back")}
+                        </button>
+                      );
+                    }}
+                  </Show>
                   <h1 class="min-w-0 truncate text-sm font-medium" title={v().title ?? t("session.untitled")}>
                     {v().title ?? t("session.untitled")}
                   </h1>
@@ -1350,7 +1384,14 @@ const turnIndexOf = (h: SearchHit): number => {
                       scroller={() => scroller}
                       api={(a) => (list = a)}
                     >
-                      {(t) => <TurnBlock turn={t} awaiting={() => lastSilentTurn() === t} />}
+                      {(turn) => (
+                        <TurnBlock
+                          turn={turn}
+                          awaiting={() => lastSilentTurn() === turn}
+                          childOf={childOf}
+                          onOpenChild={openChild}
+                        />
+                      )}
                     </Virtual>
                     </Show>
                   </Show>
