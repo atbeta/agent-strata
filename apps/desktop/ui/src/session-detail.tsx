@@ -980,10 +980,14 @@ const turnIndexOf = (h: SearchHit): number => {
     const choice = { model, agent: agentSel() || undefined, variant: variantSel() || undefined };
     const command = caps()?.commands ? commandOf(out.text, (commands() ?? []).map((c) => c.name)) : undefined;
     try {
-      const revertId = editTurnId();
-      if (revertId) {
-        await revertSession(props.id, revertId);
-        setEditTurnId(undefined);
+      if (out.revertTurnId) {
+        try {
+          await revertSession(props.id, out.revertTurnId);
+        } catch (err) {
+          // A later edit owns the signal now; don't overwrite it with this failure.
+          if (editTurnId() === undefined) setEditTurnId(out.revertTurnId);
+          throw err;
+        }
       }
       if (command) {
         await runCommand(props.id, { ...command, parts: commandParts(out.text, out.picked, out.attachments) }, choice);
@@ -1004,7 +1008,14 @@ const turnIndexOf = (h: SearchHit): number => {
   };
 
   const send = () => {
-    const out: Outgoing = { text: draft().trim(), picked: picked(), attachments: attachments() };
+    const revertTurnId = editTurnId();
+    if (revertTurnId) setEditTurnId(undefined);
+    const out: Outgoing = {
+      text: draft().trim(),
+      picked: picked(),
+      attachments: attachments(),
+      ...(revertTurnId ? { revertTurnId } : {}),
+    };
     if (!out.text && out.attachments.length === 0) return;
     setQueuePaused(false);
     setDraft("");
@@ -1104,6 +1115,9 @@ const turnIndexOf = (h: SearchHit): number => {
 
   const editTurn = (turnId: string, text: string) => {
     setDraft(text);
+    setPicked([]);
+    setAttachments([]);
+    setAttachErr("");
     setEditTurnId(turnId);
     queueMicrotask(() => {
       autogrow();

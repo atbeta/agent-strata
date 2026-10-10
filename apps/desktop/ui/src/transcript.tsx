@@ -399,13 +399,13 @@ export function TurnBlock(props: {
             <Show when={props.turn.reverted}>
               <p class="text-2xs text-muted-foreground">{t("message.reverted")}</p>
             </Show>
-            <div class="group">
+            <div class="group relative">
               <div class="flex justify-end">
                 <div class="max-w-[min(85%,36rem)] rounded-2xl rounded-br-md bg-secondary px-3.5 py-2 text-secondary-foreground">
                   <BlockText blocks={blocks()} tight />
                 </div>
               </div>
-              <div class="flex justify-end gap-2 pt-1 opacity-0 group-hover:opacity-100">
+              <div class="pointer-events-none absolute right-0 top-full z-10 flex justify-end gap-2 pt-1 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100">
                 <button
                   type="button"
                   class="text-2xs text-muted-foreground hover:text-foreground"

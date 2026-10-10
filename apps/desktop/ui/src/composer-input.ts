@@ -81,6 +81,8 @@ export interface Outgoing {
   text: string;
   picked: string[];
   attachments: Attachment[];
+  /** user turn to revert before this send; set by edit-and-resend */
+  revertTurnId?: string;
 }
 
 /** A send that failed goes back in front of whatever was typed since, so neither is lost. */
