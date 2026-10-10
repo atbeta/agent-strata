@@ -7,6 +7,7 @@ Cross-backend agent session layer: one canonical event format (CASF v0) that Ope
 - **The store is a rebuildable cache for imported sessions.** Events an adapter can reproduce from the backend's own record (session metadata, turns, tool calls and results, file changes) are replaced wholesale when that adapter's mapping version changes (`OPENCODE_MAPPER_VERSION`), or on `POST /sessions/:id/rebuild`.
 - **Facts only strata saw are kept across rebuilds**: permission requests and decisions, questions and answers, status changes.
 - **Streaming snapshots are never stored.** A message still being written lives in the service's memory and reaches readers over `/stream`; the completed message is what the log keeps.
+- **Live workspace state is not part of the record.** `GET /sessions/:id/opencode/<path>` and `GET /connections/:id/opencode/<path>` read through to an allow-listed set of OpenCode endpoints (files, find, commands, agents, skills, VCS, LSP/MCP/formatter status, paths); the session form uses the session's workspace as the directory. Nothing read this way is stored.
 - **Adapters own their backends' quirks.** Diffs, tool names and argument shapes are mapped in the adapter; the projector reads only CASF.
 - `bun run scripts/check-store.ts` reports whether a store holds these invariants.
 
@@ -44,7 +45,7 @@ v0 ACP limitations: sessions live as long as the agent process (no `session/load
 
 ## Security model
 
-The policy engine performs advisory static analysis of commands — it is not a sandbox. Constructs it cannot analyze safely are downgraded to `ask`; real enforcement requires a sandboxed execution layer (future work).
+The policy engine performs advisory static analysis of commands — it is not a sandbox. Constructs it cannot analyze safely are downgraded to `ask`; real enforcement requires a sandboxed execution layer (future work). Extension reads (`/…/opencode/<path>`) reach files on this machine, so they are GET-only, allow-listed, refused for a Host other than the loopback address or when another site's page made the browser send them, and readable cross-origin only by the desktop shell.
 
 ## Run
 
