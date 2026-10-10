@@ -920,9 +920,9 @@ const turnIndexOf = (h: SearchHit): number => {
                   </Show>
                   <Show when={settled(vcs)?.branch}>
                     {(branch) => (
-                      <Tip label={t("header.branch.tip")}>
-                        <span class="flex max-w-32 shrink-0 items-center gap-1 font-mono text-2xs text-muted-foreground">
-                          <Icon name="branch" class="h-3 w-3 shrink-0" />
+                      <Tip label={t("header.branch.tip", { branch: branch() })}>
+                        <span class="flex max-w-32 shrink-0 items-baseline gap-1 font-mono text-2xs text-muted-foreground">
+                          <Icon name="branch" class="h-3 w-3 shrink-0 self-center" />
                           <span class="truncate">{branch()}</span>
                         </span>
                       </Tip>
