@@ -7,6 +7,13 @@ import {
 import { LOCALES, LOCALE_LABEL, locale, setLocale, t, type Locale } from "./i18n";
 import { Icon } from "./icons";
 import { readTheme, saveTheme, type ThemeChoice } from "./theme";
+import {
+  CODE_SIZES,
+  readFonts,
+  saveFonts,
+  type CodeSize,
+  type FontChoice,
+} from "./font";
 
 /** A function, not a const: the labels are translated, so they have to be read
  *  during render for a language switch to reach them. */
@@ -14,6 +21,26 @@ const OPENCODE_MODES = (): { id: OpencodeLaunchMode; label: string; hint: string
   { id: "embed", label: t("settings.opencode.embed"), hint: t("settings.opencode.embedHint") },
   { id: "external", label: t("settings.opencode.external"), hint: t("settings.opencode.externalHint") },
 ];
+
+const CODE_PRESETS = [
+  "Cascadia Code",
+  "Cascadia Mono",
+  "Consolas",
+  "JetBrains Mono",
+  "Sarasa Gothic SC",
+  "Maple Mono",
+];
+
+const PREVIEW = `const greeting = "你好";
+function width(ch: string) {
+  return ch.codePointAt(0)! > 255 ? 2 : 1;
+}`;
+
+function pill(on: boolean): string {
+  return `rounded-md border px-2.5 py-1 text-xs transition-colors ${
+    on ? "border-ring bg-secondary text-foreground" : "border-border text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+  }`;
+}
 
 const CHOICES = (): { id: ThemeChoice; label: string; hint: string }[] => [
   { id: "dark", label: t("settings.theme.dark"), hint: t("settings.theme.darkHint") },
@@ -27,6 +54,13 @@ export function SettingsPage() {
   const [mode, setMode] = createSignal<OpencodeLaunchMode>("embed");
   const [hydrated, setHydrated] = createSignal(false);
   const [saveErr, setSaveErr] = createSignal("");
+  const [fonts, setFonts] = createSignal<FontChoice>(readFonts());
+
+  const patchFonts = (patch: Partial<FontChoice>) => {
+    const next = { ...fonts(), ...patch };
+    setFonts(next);
+    saveFonts(next);
+  };
 
   const launchData = () => (launch.error ? undefined : launch());
 
@@ -126,6 +160,137 @@ export function SettingsPage() {
             </button>
           ))}
         </div>
+      </section>
+
+      <section class="mt-8">
+        <h2 class="text-sm font-medium">{t("settings.font.title")}</h2>
+        <p class="mt-1 text-sm leading-5 text-muted-foreground">{t("settings.font.hint")}</p>
+
+        <label class="mt-4 block">
+          <span class="text-xs text-muted-foreground">{t("settings.font.ui")}</span>
+          <input
+            class="mt-1.5 h-8 w-full rounded-md border border-border bg-transparent px-2.5 text-sm outline-none focus:border-ring"
+            placeholder={t("settings.font.placeholder")}
+            aria-label={t("settings.font.ui")}
+            value={fonts().ui}
+            onInput={(e) => patchFonts({ ui: e.currentTarget.value })}
+          />
+        </label>
+
+        <div class="mt-4">
+          <span class="text-xs text-muted-foreground">{t("settings.font.code")}</span>
+          <div class="mt-1.5 flex flex-wrap gap-1.5" role="group" aria-label={t("settings.font.code")}>
+            <button type="button" class={pill(fonts().code === "")} onClick={() => patchFonts({ code: "" })}>
+              {t("settings.font.default")}
+            </button>
+            {CODE_PRESETS.map((name) => (
+              <button type="button" class={pill(fonts().code === name)} onClick={() => patchFonts({ code: name })}>
+                {name}
+              </button>
+            ))}
+          </div>
+          <input
+            class="mt-2 h-8 w-full rounded-md border border-border bg-transparent px-2.5 text-sm outline-none focus:border-ring"
+            placeholder={t("settings.font.placeholder")}
+            aria-label={t("settings.font.family")}
+            value={fonts().code}
+            onInput={(e) => patchFonts({ code: e.currentTarget.value })}
+          />
+        </div>
+
+        <div class="mt-4">
+          <span class="text-xs text-muted-foreground">{t("settings.font.size")}</span>
+          <div class="mt-1.5 flex flex-wrap gap-1.5" role="radiogroup" aria-label={t("settings.font.size")}>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={fonts().size === ""}
+              class={pill(fonts().size === "")}
+              onClick={() => patchFonts({ size: "" })}
+            >
+              {t("settings.font.default")}
+            </button>
+            {CODE_SIZES.map((size: CodeSize) => (
+              <button
+                type="button"
+                role="radio"
+                aria-checked={fonts().size === size}
+                class={pill(fonts().size === size)}
+                onClick={() => patchFonts({ size })}
+              >
+                {size}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div class="mt-4">
+          <span class="text-xs text-muted-foreground">{t("settings.font.leading")}</span>
+          <div class="mt-1.5 flex flex-wrap gap-1.5" role="radiogroup" aria-label={t("settings.font.leading")}>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={fonts().leading === ""}
+              class={pill(fonts().leading === "")}
+              onClick={() => patchFonts({ leading: "" })}
+            >
+              {t("settings.font.default")}
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={fonts().leading === "compact"}
+              class={pill(fonts().leading === "compact")}
+              onClick={() => patchFonts({ leading: "compact" })}
+            >
+              {t("settings.font.leading.compact")}
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={fonts().leading === "normal"}
+              class={pill(fonts().leading === "normal")}
+              onClick={() => patchFonts({ leading: "normal" })}
+            >
+              {t("settings.font.leading.normal")}
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={fonts().leading === "relaxed"}
+              class={pill(fonts().leading === "relaxed")}
+              onClick={() => patchFonts({ leading: "relaxed" })}
+            >
+              {t("settings.font.leading.relaxed")}
+            </button>
+          </div>
+        </div>
+
+        <div class="mt-4">
+          <span class="text-xs text-muted-foreground">{t("settings.font.ligatures")}</span>
+          <div class="mt-1.5 flex gap-1.5" role="radiogroup" aria-label={t("settings.font.ligatures")}>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={fonts().ligatures}
+              class={pill(fonts().ligatures)}
+              onClick={() => patchFonts({ ligatures: true })}
+            >
+              {t("settings.font.ligatures.on")}
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={!fonts().ligatures}
+              class={pill(!fonts().ligatures)}
+              onClick={() => patchFonts({ ligatures: false })}
+            >
+              {t("settings.font.ligatures.off")}
+            </button>
+          </div>
+        </div>
+
+        <pre class="mt-4 overflow-x-auto rounded-lg border border-border bg-secondary/40 px-3 py-2 font-mono text-xs whitespace-pre">{PREVIEW}</pre>
       </section>
 
       <section class="mt-8">

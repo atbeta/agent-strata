@@ -297,3 +297,15 @@ textarea {
   .md th { @apply bg-secondary font-medium; }
   .md img { @apply max-w-full rounded-lg; }
 }
+
+/* A chosen code face overrides the per-element size utilities. Unlayered so it
+   beats Tailwind's `.text-xs` / `.text-2xs` on the same node. */
+html[data-code-size] .font-mono {
+  font-size: var(--code-size);
+}
+html[data-code-leading] .font-mono {
+  line-height: var(--code-leading);
+}
+html[data-code-ligatures="off"] .font-mono {
+  font-variant-ligatures: none;
+}

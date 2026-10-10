@@ -21,6 +21,7 @@ import { CompareView } from "./compare";
 import { PolicyEditor } from "./policy";
 import { SettingsPage } from "./settings";
 import { applyTheme, readTheme } from "./theme";
+import { applyFonts, readFonts } from "./font";
 import { Icon } from "./icons";
 import { DragBar, WindowCaptionBar } from "./chrome";
 import { inDesktopShell } from "./shell";
@@ -349,6 +350,7 @@ export function App() {
     const onHash = () => setRoute(parseHash());
     window.addEventListener("hashchange", onHash);
     applyTheme(readTheme());
+    applyFonts(readFonts());
     const scheme = window.matchMedia("(prefers-color-scheme: light)");
     const onScheme = () => {
       if (readTheme() === "system") applyTheme("system");
