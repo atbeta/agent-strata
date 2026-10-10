@@ -194,6 +194,8 @@ interface MsgState {
   toolParts: Map<string, ToolTrack>;
   emittedAssistant: boolean;
   lastStreamAt?: number;
+  /** parts a live delta has extended */
+  streamed?: Set<string>;
   patchSeen?: Set<string>;
   /** files a successful edit or write in this message already reported, by pathKey */
   editedPaths?: Set<string>;
@@ -605,7 +607,14 @@ export class OpencodeMapper {
         out.push(...pre);
         const part: Part = evt.properties.part;
         const m = this.ensureMsg(s, part.messageID);
-        if (part.type === "text") {
+        // An import read mid-reply carries the part as OpenCode last stored it,
+        // which can be older than the deltas already applied; and deltas still
+        // in flight would land on top of anything newer.
+        const stale =
+          evt.id.startsWith("import:") && !m.emittedAssistant && !!m.streamed?.has(part.id);
+        if (stale) {
+          // keep the delta-built text
+        } else if (part.type === "text") {
           m.parts.set(part.id, { type: "text", text: part.text });
         } else if (part.type === "reasoning") {
           m.parts.set(part.id, { type: "thinking", text: part.text });
@@ -701,6 +710,7 @@ export class OpencodeMapper {
         // stream joined mid-message) waits for that part's next full update.
         if (!s || !m || !block || (block.type !== "text" && block.type !== "thinking")) return out;
         m.parts.set(p.partID, { ...block, text: block.text + p.delta });
+        (m.streamed ??= new Set()).add(p.partID);
         if (m.role === "assistant" && m.parentID && !m.emittedAssistant) {
           this.held.set(p.messageID, { s, m });
           const snap = this.streamSnapshot(p.messageID);

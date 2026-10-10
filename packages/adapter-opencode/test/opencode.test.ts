@@ -1234,6 +1234,39 @@ describe("text that arrives as deltas", () => {
     expect(m.handle(delta("pa", "x", "metadata"))).toEqual([]);
   });
 
+  test("an import of an open message keeps the text its deltas built", () => {
+    let t = 0;
+    const m = streaming(() => t);
+    t = 1000;
+    m.handle(partUpdated({ id: "pa", sessionID: sid, messageID: "a1", type: "text", text: "" }));
+    m.handle(partUpdated({ id: "pr", sessionID: sid, messageID: "a1", type: "reasoning", text: "" }));
+    t = 1100;
+    m.handle(delta("pr", "think"));
+    m.handle(delta("pa", "Hello "));
+    t = 1200;
+    const stale = (part: object): Event =>
+      ({ ...partUpdated(part), id: `import:p-${(part as { id: string }).id}` }) as Event;
+    m.handle(stale({ id: "pa", sessionID: sid, messageID: "a1", type: "text", text: "" }));
+    m.handle(stale({ id: "pr", sessionID: sid, messageID: "a1", type: "reasoning", text: "th" }));
+    t = 1300;
+    expect(snaps(m.handle(delta("pa", "world")))[0]!.content).toEqual([
+      { type: "text", text: "Hello world" },
+      { type: "thinking", text: "think" },
+    ]);
+  });
+
+  test("the live closing update of a part replaces what the deltas built", () => {
+    let t = 0;
+    const m = streaming(() => t);
+    t = 1000;
+    m.handle(partUpdated({ id: "pa", sessionID: sid, messageID: "a1", type: "text", text: "" }));
+    t = 1100;
+    m.handle(delta("pa", "draft"));
+    t = 1200;
+    const out = snaps(m.handle(partUpdated({ id: "pa", sessionID: sid, messageID: "a1", type: "text", text: "final" })));
+    expect(out[0]!.content).toEqual([{ type: "text", text: "final" }]);
+  });
+
   test("the finished message carries the text the deltas built", () => {
     let t = 0;
     const m = streaming(() => t);
