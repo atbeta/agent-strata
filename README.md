@@ -97,6 +97,14 @@ bun x tauri dev --config apps/desktop/src-tauri/tauri.conf.json
 (`beforeDevCommand`), so the second command is only needed if you want the UI in
 a plain browser tab. Linux additionally needs the system `webkit2gtk` packages.
 
-To ship a bundle, run `bun run sidecar` first and then `bun x tauri build` from
-the same config path; Tauri picks up the host-triple binary for the current
-build and cross-compiled ones from `--target`.
+## Releasing
+
+Pushing a `v*` tag is the release. GitHub Actions builds the Windows NSIS
+installer and attaches it to that tag's GitHub release. The tag has to name the
+version in `apps/desktop/src-tauri/tauri.conf.json` (`v0.1.0` for `0.1.0`).
+Nothing else runs this build. Other platforms are not built yet.
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```

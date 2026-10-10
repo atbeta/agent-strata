@@ -1,8 +1,14 @@
 name: Desktop Windows
 
-# Run by hand from the Actions tab when a Windows installer is needed.
+# A version tag is a release. Pushing v0.1.0 builds the Windows NSIS
+# installer and attaches it to that GitHub release. Other platforms later.
 on:
-  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -30,6 +36,13 @@ jobs:
         working-directory: apps/desktop/ui
         run: bun install --frozen-lockfile
 
+      - name: The tag must name the app version
+        shell: pwsh
+        run: |
+          $conf = (Get-Content apps/desktop/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $tag = $env:GITHUB_REF_NAME
+          if ($tag -ne "v$conf") { throw "tag $tag does not match tauri.conf.json version $conf" }
+
       - name: Compile the service sidecar
         shell: pwsh
         run: |
@@ -40,7 +53,7 @@ jobs:
           bun build --compile --windows-hide-console ./packages/service/src/index.ts --outfile "$dir/strata-service-$triple.exe"
           Get-Item "$dir/strata-service-$triple.exe" | Format-List FullName, Length
 
-      - name: Build the Windows installer
+      - name: Build the Windows installer and publish the release
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -48,5 +61,6 @@ jobs:
           projectPath: apps/desktop/src-tauri
           tauriScript: bunx --bun @tauri-apps/cli@2
           args: --bundles nsis
-          uploadWorkflowArtifacts: true
-          workflowArtifactNamePattern: agent-strata-windows-[bundle]
+          releaseName: Agent Strata v__VERSION__
+          releaseBody: Windows installer for Agent Strata v__VERSION__.
+          uploadUpdaterJson: false
