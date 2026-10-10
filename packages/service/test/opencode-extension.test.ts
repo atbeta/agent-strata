@@ -35,7 +35,12 @@ describe("opencode extension", () => {
   test("without a session directory the connection's own is used, and none at all is fine", async () => {
     await opencodeExtension({ baseUrl, directory: "/conn" }).get("/vcs", new URLSearchParams());
     expect(new URLSearchParams(seen.at(-1)!.query).get("directory")).toBe("/conn");
-    await opencodeExtension({ baseUrl: `${baseUrl}/` }).get("/vcs", new URLSearchParams({ directory: "/sneaky" }));
+    await opencodeExtension({ baseUrl, directory: "/conn" }).get("/vcs", new URLSearchParams(), "");
+    expect(new URLSearchParams(seen.at(-1)!.query).get("directory")).toBe("/conn");
+    await opencodeExtension({ baseUrl: `${baseUrl}/` }).get(
+      "/vcs",
+      new URLSearchParams({ directory: "/sneaky", workspace: "wrk_other" }),
+    );
     expect(seen.at(-1)).toMatchObject({ path: "/vcs", query: "" });
   });
 

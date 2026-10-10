@@ -40,10 +40,11 @@ export function opencodeExtension(opts: {
     get(path, query, directory) {
       if (!OPENCODE_EXTENSION_PATHS.has(path)) return Promise.resolve(new Response(null, { status: 404 }));
       const q = new URLSearchParams(query);
-      // The directory is strata's to choose (the session's, else the
-      // connection's), never the caller's.
+      // Where the read happens is strata's to choose (the session's directory,
+      // else the connection's), never the caller's.
       q.delete("directory");
-      const dir = directory ?? opts.directory;
+      q.delete("workspace");
+      const dir = directory || opts.directory;
       if (dir) q.set("directory", dir);
       const qs = q.toString();
       return doFetch(`${base}${path}${qs ? `?${qs}` : ""}`, {
