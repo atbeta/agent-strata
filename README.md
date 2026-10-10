@@ -26,7 +26,7 @@ Cross-backend agent session layer: one canonical event format (CASF v0) that Ope
 
 ## Apps
 
-`apps/desktop` — Tauri shell (v2 scaffold): spawns the strata service as a sidecar (and optionally an embedded `opencode serve` when `STRATA_OPENCODE_EMBED=1`), renders `ui/` (Vite + Solid): live fleet dashboard with FTS search, session detail timeline + replay scrubber, compare view, and a policy editor backed by `GET/PUT/DELETE /policy` + `POST /policy/test`. See [Desktop app](#desktop-app) for the sidecar build step the shell requires.
+`apps/desktop` — Tauri shell (v2 scaffold): spawns the strata service as a sidecar (and optionally an embedded `opencode serve` when `STRATA_OPENCODE_EMBED=1`), renders `ui/` (Vite + Solid): live fleet dashboard with FTS search, session detail timeline + replay scrubber, compare view, and a policy editor backed by `GET/PUT/DELETE /policy` + `POST /policy/test`. In an OpenCode session the composer completes workspace files with `@`, runs the backend's commands with `/`, takes pasted, dropped or picked images and PDFs (up to 5 MB each, 10 per prompt), and Tab switches the primary agent; ACP sessions send text. `bun run scripts/probe-composer.ts` sends the same parts through a running strata and OpenCode. See [Desktop app](#desktop-app) for the sidecar build step the shell requires.
 
 `connectOpencode` resolves only after the event stream is attached (first `server.connected` event, bounded by `connectTimeoutMs`, default 10s). `onEvent(evt)` is called after each raw event is ingested, for observing lifecycle events like idle.
 
