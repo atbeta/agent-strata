@@ -61,15 +61,17 @@ strata 的读路径（CASF 事件 → store → projector → view）只承载**
   - `/init` 等内置命令能执行
   - 粘贴截图后用户气泡里显示缩略图
 
-### 4. 权限与提问
+### 4. 权限与提问 —— 已写详细计划
 
+- 计划：`2026-10-11-opencode-permissions.md`
 - 三档回复：一次、始终（OpenCode `reply: "always"`）、拒绝；strata 策略仍然先于用户询问执行。
 - 按工具渲染权限卡片：bash 显示命令；edit/write 显示 diff（权限 metadata 里带）；webfetch 显示 URL；其余回退到 `JsonView`。
 - `/sessions` 增加 `needs_input`（有待处理的权限或提问），侧栏用明显的标记显示，窗口标题带计数。
 - 验收：一个需要批准的 bash 调用在侧栏可见；点"始终"后同类调用不再询问。
 
-### 5. 子会话
+### 5. 子会话 —— 已写详细计划
 
+- 计划：`2026-10-11-opencode-child-sessions.md`
 - adapter 不再丢弃有 `parentID` 的会话；侧栏默认只列根会话。
 - `task` 工具卡片显示子会话标题与状态，点击进入；子会话页头显示面包屑，可以返回父会话。
 - 会话记录：从 task 工具的 `state.metadata.sessionId` 取子会话 id，写进 `tool.call`/`tool.result`（schema 增加可选字段 `child_session_id`），并提升 `OPENCODE_MAPPER_VERSION`。
