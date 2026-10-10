@@ -86,12 +86,27 @@ export default {
   "composer.send": "发送",
   "composer.type": "输入消息",
   "composer.details": "会话详情",
+  "composer.menu.files": "文件",
+  "composer.menu.commands": "命令",
+  "composer.menu.search_files": "输入文件名搜索",
+  "composer.menu.no_match": "没有匹配项",
+  "composer.menu.source.mcp": "MCP",
+  "composer.menu.source.skill": "技能",
+  "composer.attach": "添加图片或 PDF",
+  "composer.attach.remove": "移除 {name}",
+  "composer.attach.bad_type": "{name}：只支持图片和 PDF",
+  "composer.attach.too_big": "{name} 超过 5 MB",
+  "composer.attach.unreadable": "{name} 无法作为图片读取",
+  "composer.attach.too_many": "最多 {n} 个附件",
+  "composer.attachments.one": "1 个附件",
+  "composer.attachments.other": "{n} 个附件",
 
   // Pickers above the composer.
   "picker.model": "模型",
   "picker.effort": "思考强度",
   "picker.default": "默认",
   "picker.agent": "智能体",
+  "picker.agent.tip": "智能体（Tab 切换）",
 
   // The context popover.
   "info.session": "会话",

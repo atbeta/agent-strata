@@ -3,6 +3,7 @@ import {
   ATTACHMENT_ACCEPT,
   MAX_ATTACHMENT_BYTES as UI_MAX_ATTACHMENT_BYTES,
   MAX_ATTACHMENTS as UI_MAX_ATTACHMENTS,
+  commandParts,
   promptParts,
   type Attachment,
 } from "./composer-input";
@@ -33,6 +34,12 @@ describe("what the composer sends, the service takes", () => {
       expect(readPromptParts({ parts })).toEqual(parts);
     });
   }
+
+  test("a command's files", () => {
+    const parts = commandParts("/review @a.ts, then @b.ts", ["a.ts", "b.ts"], [shot(0)]);
+    expect(parts.some((p) => p.type === "file_ref")).toBe(true);
+    expect(readPromptParts({ parts })).toEqual(parts);
+  });
 
   test("as many attachments as allowed", () => {
     const parts = promptParts("look", [], Array.from({ length: UI_MAX_ATTACHMENTS }, (_, i) => shot(i)));

@@ -86,12 +86,27 @@ export default {
   "composer.send": "Send",
   "composer.type": "Type a message",
   "composer.details": "Session details",
+  "composer.menu.files": "Files",
+  "composer.menu.commands": "Commands",
+  "composer.menu.search_files": "Type to search files",
+  "composer.menu.no_match": "No matches",
+  "composer.menu.source.mcp": "MCP",
+  "composer.menu.source.skill": "Skill",
+  "composer.attach": "Attach images or PDFs",
+  "composer.attach.remove": "Remove {name}",
+  "composer.attach.bad_type": "{name}: only images and PDFs",
+  "composer.attach.too_big": "{name} is over 5 MB",
+  "composer.attach.unreadable": "{name} could not be read as an image",
+  "composer.attach.too_many": "At most {n} attachments",
+  "composer.attachments.one": "1 attachment",
+  "composer.attachments.other": "{n} attachments",
 
   // Pickers above the composer.
   "picker.model": "Model",
   "picker.effort": "Thinking effort",
   "picker.default": "Default",
   "picker.agent": "Agent",
+  "picker.agent.tip": "Agent (Tab to switch)",
 
   // The context popover.
   "info.session": "Session",

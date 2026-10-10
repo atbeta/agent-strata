@@ -1,4 +1,4 @@
-import type { PromptPart } from "./api";
+import type { CommandPart, PromptPart } from "./api";
 
 /** An `@file` mention or a leading `/command` the caret is in the middle of typing. */
 export interface Trigger {
@@ -74,6 +74,13 @@ export function promptParts(draft: string, picked: readonly string[], attachment
   for (const m of mentions(text, picked)) parts.push({ type: "file_ref", path: m.path, mention: { start: m.start, end: m.end } });
   for (const a of attachments) parts.push({ type: "attachment", mime: a.mime, url: a.url, filename: a.name });
   return parts;
+}
+
+/** A command takes its words as arguments, so there is no text part for a mention to point into. */
+export function commandParts(draft: string, picked: readonly string[], attachments: readonly Attachment[]): CommandPart[] {
+  return promptParts(draft, picked, attachments).flatMap((p): CommandPart[] =>
+    p.type === "file_ref" ? [{ type: "file_ref", path: p.path }] : p.type === "attachment" ? [p] : [],
+  );
 }
 
 export function commandOf(draft: string, names: readonly string[]): { name: string; args: string } | undefined {

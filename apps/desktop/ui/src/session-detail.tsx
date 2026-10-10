@@ -12,15 +12,20 @@ import {
   abortSession,
   api,
   downloadExport,
+  findFiles,
   fmtUsd,
   getJson,
   importSession,
+  readCapabilities,
+  readCommands,
   realWorkspace,
   readVcs,
   readViewTail,
   respondPermission,
   respondQuestion,
+  runCommand,
   searchSession,
+  sendPrompt,
   type OptionsResponse,
   type PendingAsk,
   type PendingQuestion,
@@ -39,6 +44,22 @@ import { Virtual, type VirtualApi } from "./virtual";
 import { applyStreamingSnapshot, mergeViewTail, type StreamingSnapshot } from "./live";
 import { Picker } from "@/components/ui/picker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  ATTACHMENT_ACCEPT,
+  attachmentProblem,
+  commandOf,
+  commandParts,
+  insertPick,
+  matchCommands,
+  MAX_ATTACHMENTS,
+  nextAgent,
+  promptParts,
+  toAttachment,
+  triggerAt,
+  type Attachment,
+  type Trigger,
+} from "./composer-input";
+import { AttachmentStrip, ComposerMenu, type MenuItem } from "./composer-menu";
 
 /** An errored Solid resource throws when read, which unmounts the whole window. */
 function settled<T>(resource: { error: unknown; (): T | undefined }): T | undefined {
@@ -366,6 +387,12 @@ function Snippet(props: { text: string }) {
   );
 }
 
+interface Outgoing {
+  text: string;
+  picked: string[];
+  attachments: Attachment[];
+}
+
 export function SessionDetail(props: { id: string }) {
   const [replayPos, setReplayPos] = createSignal<number | null>(null);
   const [traceOn, setTraceOn] = createSignal(false);
@@ -408,7 +435,7 @@ export function SessionDetail(props: { id: string }) {
     },
   );
   const [draft, setDraft] = createSignal(readDraft(props.id));
-  const [queued, setQueued] = createSignal<string[]>([]);
+  const [queued, setQueued] = createSignal<Outgoing[]>([]);
   const [histIndex, setHistIndex] = createSignal(-1);
   const [histSaved, setHistSaved] = createSignal("");
   const [sendErr, setSendErr] = createSignal("");
@@ -420,7 +447,26 @@ export function SessionDetail(props: { id: string }) {
   const [modelSel, setModelSel] = createSignal("");
   const [agentSel, setAgentSel] = createSignal("");
   const [variantSel, setVariantSel] = createSignal("");
+  const [caps, { refetch: refetchCaps }] = createResource(
+    () => props.id,
+    (id) => readCapabilities(id).catch(() => undefined),
+  );
+  const opencode = () => caps()?.extension === "opencode";
+  const [commands] = createResource(
+    () => (caps()?.commands && opencode() ? props.id : undefined),
+    (id) => readCommands(id).catch(() => undefined),
+  );
+  const [picked, setPicked] = createSignal<string[]>([]);
+  const [attachments, setAttachments] = createSignal<Attachment[]>([]);
+  const [trigger, setTrigger] = createSignal<Trigger>();
+  /** the trigger start the user closed with Escape; it stays closed until they type elsewhere */
+  const [dismissedAt, setDismissedAt] = createSignal<number>();
+  /** tagged with the kind they were found for, so a list never shows under the other trigger */
+  const [menuList, setMenuList] = createSignal<{ kind: Trigger["kind"]; items: MenuItem[] }>({ kind: "file", items: [] });
+  const [menuActive, setMenuActive] = createSignal(0);
+  const [attachErr, setAttachErr] = createSignal("");
   let draftEl: HTMLTextAreaElement | undefined;
+  let fileInput: HTMLInputElement | undefined;
   let scroller: HTMLDivElement | undefined;
   // Virtual needs these every frame it decides what to keep mounted. The
   // scroller owns the scroll, so the offset is read back out of it rather than
@@ -667,6 +713,7 @@ const turnIndexOf = (h: SearchHit): number => {
     const onConns = () => {
       refetchOptions();
       refetchVcs();
+      refetchCaps();
     };
     window.addEventListener("strata-connections", onConns);
     const onFocus = () => refetchVcs();
@@ -764,55 +811,174 @@ const turnIndexOf = (h: SearchHit): number => {
     draftEl.style.height = `${Math.min(draftEl.scrollHeight, 220)}px`;
   };
 
-  const deliver = async (text: string) => {
+  const menuItems = () => (menuList().kind === trigger()?.kind ? menuList().items : []);
+  const menuOpen = () => {
+    const tr = trigger();
+    if (!tr || tr.start === dismissedAt()) return false;
+    return tr.kind === "file" ? opencode() : Array.isArray(commands());
+  };
+
+  createEffect(() => {
+    const tr = trigger();
+    if (!tr || tr.kind !== "command") return;
+    const list = matchCommands(commands() ?? [], tr.query).slice(0, 50);
+    setMenuList({
+      kind: "command",
+      items: list.map((c) => ({
+        key: c.name,
+        value: c.name,
+        label: `/${c.name}`,
+        detail: c.description,
+        badge:
+          c.source === "mcp"
+            ? t("composer.menu.source.mcp")
+            : c.source === "skill"
+              ? t("composer.menu.source.skill")
+              : undefined,
+      })),
+    });
+    setMenuActive(0);
+  });
+
+  let fileSearch: AbortController | undefined;
+  let fileTimer: ReturnType<typeof setTimeout> | undefined;
+  createEffect(() => {
+    const tr = trigger();
+    clearTimeout(fileTimer);
+    fileSearch?.abort();
+    if (!tr || tr.kind !== "file" || !opencode()) return;
+    if (!tr.query) {
+      setMenuList({ kind: "file", items: [] });
+      return;
+    }
+    fileTimer = setTimeout(() => {
+      const ctl = (fileSearch = new AbortController());
+      void findFiles(props.id, tr.query, ctl.signal)
+        .then((paths) => {
+          if (ctl.signal.aborted) return;
+          setMenuList({
+            kind: "file",
+            items: (paths ?? []).map((p) => {
+              const cut = p.lastIndexOf("/");
+              return { key: p, value: p, label: p.slice(cut + 1), detail: cut > 0 ? p.slice(0, cut) : undefined };
+            }),
+          });
+          setMenuActive(0);
+        })
+        .catch(() => {});
+    }, 120);
+  });
+  onCleanup(() => {
+    clearTimeout(fileTimer);
+    fileSearch?.abort();
+  });
+
+  const track = () => {
+    const tr = draftEl ? triggerAt(draft(), draftEl.selectionStart ?? 0) : undefined;
+    if (tr?.start !== dismissedAt()) setDismissedAt(undefined);
+    const cur = trigger();
+    // a click or caret key that lands on the same trigger must not reset the active row
+    if (cur && tr && cur.kind === tr.kind && cur.start === tr.start && cur.end === tr.end && cur.query === tr.query) return;
+    setTrigger(tr);
+  };
+
+  const pick = (i: number) => {
+    const tr = trigger();
+    const item = menuItems()[i];
+    if (!tr || !item || !draftEl) return;
+    const next = insertPick(draft(), tr, item.value);
+    if (tr.kind === "file") setPicked((p) => (p.includes(item.value) ? p : [...p, item.value]));
+    setDraft(next.text);
+    setTrigger(undefined);
+    queueMicrotask(() => {
+      autogrow();
+      draftEl?.setSelectionRange(next.caret, next.caret);
+      draftEl?.focus();
+    });
+  };
+
+  let attachSeq = 0;
+  const addFiles = async (from: ArrayLike<File>) => {
+    // a FileList empties once its input is reset or its event is over
+    const files = Array.from(from);
+    setAttachErr("");
+    const full = () => {
+      if (attachments().length < MAX_ATTACHMENTS) return false;
+      setAttachErr(t("composer.attach.too_many", { n: MAX_ATTACHMENTS }));
+      return true;
+    };
+    for (const file of files) {
+      if (full()) return;
+      const problem = attachmentProblem(file);
+      if (problem) {
+        setAttachErr(
+          t(problem === "type" ? "composer.attach.bad_type" : "composer.attach.too_big", { name: file.name || "file" }),
+        );
+        continue;
+      }
+      if (file.type.startsWith("image/")) {
+        // OpenCode drops an undecodable image without a reply or an idle
+        const ok = await createImageBitmap(file).then(
+          (b) => (b.close(), true),
+          () => false,
+        );
+        if (!ok) {
+          setAttachErr(t("composer.attach.unreadable", { name: file.name || "image" }));
+          continue;
+        }
+      }
+      const a = await toAttachment(file, String(++attachSeq));
+      if (full()) return;
+      setAttachments((list) => [...list, a]);
+    }
+  };
+  const canAttach = () => caps()?.attachments === true;
+
+  const deliver = async (out: Outgoing) => {
     setSendErr("");
     setPendingSend(true);
     setHistIndex(-1);
-    writeHistory(rememberPrompt(readHistory(), text));
-    const picked = selectedModel();
-    const implied = !picked && variantSel() ? effortModel() : undefined;
-    const source = picked ?? implied;
+    if (out.text) writeHistory(rememberPrompt(readHistory(), out.text));
+    const chosen = selectedModel();
+    const implied = !chosen && variantSel() ? effortModel() : undefined;
+    const source = chosen ?? implied;
     const model = source
       ? { providerID: source.providerID, modelID: source.modelID }
       : splitModel(modelSel());
+    const choice = { model, agent: agentSel() || undefined, variant: variantSel() || undefined };
+    const command = caps()?.commands ? commandOf(out.text, (commands() ?? []).map((c) => c.name)) : undefined;
     try {
-      const res = await fetch(api(`/sessions/${encodeURIComponent(props.id)}/prompt`), {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          text,
-          model,
-          agent: agentSel() || undefined,
-          variant: variantSel() || undefined,
-        }),
-      });
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        setSendErr(body.error ?? t("err.service", { status: res.status }));
-        setDraft(text);
-        setPendingSend(false);
+      if (command) {
+        await runCommand(props.id, { ...command, parts: commandParts(out.text, out.picked, out.attachments) }, choice);
+      } else {
+        await sendPrompt(props.id, promptParts(out.text, out.picked, out.attachments), choice);
       }
     } catch (err) {
       setSendErr(err instanceof Error ? err.message : t("err.network"));
-      setDraft(text);
+      setDraft(out.text);
+      setPicked(out.picked);
+      setAttachments(out.attachments);
       setPendingSend(false);
     }
   };
 
   const send = () => {
-    const text = draft().trim();
-    if (!text) return;
+    const out: Outgoing = { text: draft().trim(), picked: picked(), attachments: attachments() };
+    if (!out.text && out.attachments.length === 0) return;
+    setDraft("");
+    setPicked([]);
+    setAttachments([]);
+    setAttachErr("");
+    setTrigger(undefined);
+    if (draftEl) draftEl.style.height = "auto";
     if (generating()) {
-      setQueued((q) => [...q, text]);
-      setDraft("");
+      setQueued((q) => [...q, out]);
       setHistIndex(-1);
-      if (draftEl) draftEl.style.height = "auto";
       return;
     }
-    setDraft("");
-    if (draftEl) draftEl.style.height = "auto";
-    void deliver(text);
+    void deliver(out);
   };
+  const canSend = () => Boolean(draft().trim()) || attachments().length > 0;
 
   // A follow-up typed while the agent is running waits here, then goes out
   // on the next idle. deliver() sets pendingSend in the same turn, so this
@@ -828,13 +994,16 @@ const turnIndexOf = (h: SearchHit): number => {
   const editQueued = (index: number) => {
     const item = queued()[index];
     if (!item) return;
-    const current = draft().trim();
+    const current: Outgoing = { text: draft().trim(), picked: picked(), attachments: attachments() };
     setQueued((q) => {
       const rest = q.filter((_, i) => i !== index);
-      return current ? [...rest, current] : rest;
+      return current.text || current.attachments.length ? [...rest, current] : rest;
     });
     setHistIndex(-1);
-    setDraft(item);
+    setDraft(item.text);
+    setPicked(item.picked);
+    setAttachments(item.attachments);
+    setTrigger(undefined);
     queueMicrotask(() => {
       autogrow();
       draftEl?.focus();
@@ -1207,7 +1376,17 @@ const turnIndexOf = (h: SearchHit): number => {
                         />
                       )}
                     </For>
-                    <div>
+                    <div class="relative">
+                      <Show when={menuOpen()}>
+                        <ComposerMenu
+                          kind={trigger()?.kind ?? "file"}
+                          items={menuItems()}
+                          active={menuActive()}
+                          hint={trigger()?.kind === "file" && !trigger()?.query ? t("composer.menu.search_files") : undefined}
+                          onPick={pick}
+                          onHover={setMenuActive}
+                        />
+                      </Show>
                       <Show when={queued().length > 0}>
                         <div class="rounded-t-2xl border border-b-0 border-input bg-secondary/70 px-3 pb-4 pt-2">
                           <p class="text-2xs font-medium text-muted-foreground">
@@ -1215,9 +1394,16 @@ const turnIndexOf = (h: SearchHit): number => {
                           </p>
                           <ul class="mt-1 space-y-1">
                             <For each={queued()}>
-                              {(text, i) => (
+                              {(item, i) => (
                                 <li class="flex items-center gap-2">
-                                  <span class="min-w-0 flex-1 truncate text-sm">{text}</span>
+                                  <span class="flex min-w-0 flex-1 items-baseline gap-1.5">
+                                    <span class="min-w-0 truncate text-sm">{item.text}</span>
+                                    <Show when={item.attachments.length}>
+                                      <span class="shrink-0 text-2xs text-muted-foreground">
+                                        {tn("composer.attachments", item.attachments.length)}
+                                      </span>
+                                    </Show>
+                                  </span>
                                   <button
                                     type="button"
                                     class="shrink-0 text-xs text-muted-foreground hover:text-foreground"
@@ -1241,7 +1427,21 @@ const turnIndexOf = (h: SearchHit): number => {
                       </Show>
                     <div
                       class={`rounded-2xl border border-input bg-card shadow-[0_8px_30px_-18px_rgba(0,0,0,0.7)] transition-colors focus-within:border-ring ${queued().length > 0 ? "-mt-2" : ""}`}
+                      onDragOver={(e) => {
+                        if (canAttach() && e.dataTransfer?.types.includes("Files")) e.preventDefault();
+                      }}
+                      onDrop={(e) => {
+                        if (!canAttach() || !e.dataTransfer?.files.length) return;
+                        e.preventDefault();
+                        void addFiles(e.dataTransfer.files);
+                      }}
                     >
+                      <Show when={attachments().length}>
+                        <AttachmentStrip
+                          items={attachments()}
+                          onRemove={(id) => setAttachments((l) => l.filter((a) => a.id !== id))}
+                        />
+                      </Show>
                       <textarea
                         ref={draftEl}
                         class="max-h-56 w-full resize-none bg-transparent px-4 py-3 font-sans text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none"
@@ -1252,8 +1452,49 @@ const turnIndexOf = (h: SearchHit): number => {
                           setDraft(e.currentTarget.value);
                           setHistIndex(-1);
                           autogrow();
+                          track();
+                        }}
+                        onClick={track}
+                        onKeyUp={(e) => {
+                          if (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "Home" || e.key === "End") track();
+                        }}
+                        onPaste={(e) => {
+                          if (canAttach() && e.clipboardData?.files.length) {
+                            e.preventDefault();
+                            void addFiles(e.clipboardData.files);
+                          }
                         }}
                         onKeyDown={(e) => {
+                          if (e.isComposing) return;
+                          if (menuOpen()) {
+                            const n = menuItems().length;
+                            if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                              e.preventDefault();
+                              if (n) setMenuActive((a) => (a + (e.key === "ArrowDown" ? 1 : n - 1)) % n);
+                              return;
+                            }
+                            if ((e.key === "Enter" || e.key === "Tab") && !e.shiftKey && n) {
+                              e.preventDefault();
+                              pick(menuActive());
+                              return;
+                            }
+                            if (e.key === "Escape") {
+                              e.preventDefault();
+                              // App listens for Escape on window to close its own overlays
+                              e.stopPropagation();
+                              setDismissedAt(trigger()!.start);
+                              return;
+                            }
+                          }
+                          if (e.key === "Tab" && opencode() && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                            const names = (settled(options)?.agents ?? []).map((a) => a.name);
+                            const next = nextAgent(names, agentSel(), e.shiftKey ? -1 : 1);
+                            if (next && names.length > 1) {
+                              e.preventDefault();
+                              setAgentSel(next);
+                              return;
+                            }
+                          }
                           if ((e.key === "ArrowUp" || e.key === "ArrowDown") && !e.shiftKey && !e.isComposing) {
                             const moved = navigateHistory({
                               direction: e.key === "ArrowUp" ? "up" : "down",
@@ -1268,6 +1509,7 @@ const turnIndexOf = (h: SearchHit): number => {
                               if (histIndex() < 0) setHistSaved(draft());
                               setHistIndex(moved.index);
                               setDraft(moved.text);
+                              setTrigger(undefined);
                               queueMicrotask(() => {
                                 autogrow();
                                 const pos = moved.cursor === "start" ? 0 : moved.text.length;
@@ -1283,6 +1525,30 @@ const turnIndexOf = (h: SearchHit): number => {
                         }}
                       />
                       <div class="flex items-center gap-2 px-3 pb-2.5">
+                        <Show when={canAttach()}>
+                          <input
+                            ref={fileInput}
+                            type="file"
+                            multiple
+                            accept={ATTACHMENT_ACCEPT}
+                            class="hidden"
+                            onChange={(e) => {
+                              const input = e.currentTarget;
+                              if (input.files) void addFiles(input.files);
+                              input.value = "";
+                            }}
+                          />
+                          <Tip label={t("composer.attach")}>
+                            <button
+                              type="button"
+                              class="grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                              aria-label={t("composer.attach")}
+                              onClick={() => fileInput?.click()}
+                            >
+                              <Icon name="attach" class="h-4 w-4" />
+                            </button>
+                          </Tip>
+                        </Show>
                         <Show when={generating()}>
                           <span class="text-xs text-muted-foreground">{t("composer.running")}</span>
                         </Show>
@@ -1302,11 +1568,11 @@ const turnIndexOf = (h: SearchHit): number => {
                               </Tip>
                             }
                           >
-                            <Tip label={draft().trim() ? t("composer.send") : t("composer.type")}>
+                            <Tip label={canSend() ? t("composer.send") : t("composer.type")}>
                               <button
                                 class="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-primary text-primary-foreground transition-opacity hover:opacity-90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-30 disabled:active:scale-100"
-                                disabled={!draft().trim()}
-                                aria-label={draft().trim() ? t("composer.send") : t("composer.type")}
+                                disabled={!canSend()}
+                                aria-label={canSend() ? t("composer.send") : t("composer.type")}
                                 onClick={() => void send()}
                               >
                                 <svg viewBox="0 0 16 16" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1366,7 +1632,7 @@ const turnIndexOf = (h: SearchHit): number => {
                       </Show>
                       <Show when={(settled(options)?.agents.length ?? 0) > 0}>
                         <Picker
-                          label={t("picker.agent")}
+                          label={opencode() ? t("picker.agent.tip") : t("picker.agent")}
                           capitalize
                           value={agentSel()}
                           options={(settled(options)!.agents ?? []).map((a) => ({ value: a.name, label: a.name }))}
@@ -1377,6 +1643,9 @@ const turnIndexOf = (h: SearchHit): number => {
                     </div>
                     <Show when={sendErr()}>
                       <p class="font-mono text-2xs text-destructive">{sendErr()}</p>
+                    </Show>
+                    <Show when={attachErr()}>
+                      <p class="font-mono text-2xs text-destructive">{attachErr()}</p>
                     </Show>
                   </div>
                 </div>

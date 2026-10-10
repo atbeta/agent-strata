@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   attachmentProblem,
   commandOf,
+  commandParts,
   insertPick,
   MAX_ATTACHMENTS,
   matchCommands,
@@ -112,6 +113,15 @@ describe("what goes out", () => {
     expect(commandOf("/init", ["init"])).toEqual({ name: "init", args: "" });
     expect(commandOf("/nope x", ["init"])).toBeUndefined();
     expect(commandOf("say /init", ["init"])).toBeUndefined();
+  });
+
+  test("a command takes the files the draft still mentions, without mentions, and the attachments", () => {
+    const shot = { id: "1", name: "s.png", mime: "image/png", url: "data:image/png;base64,AA==" };
+    expect(commandParts("/review @a.ts and @b.ts", ["a.ts", "gone.ts"], [shot])).toEqual([
+      { type: "file_ref", path: "a.ts" },
+      { type: "attachment", mime: "image/png", url: "data:image/png;base64,AA==", filename: "s.png" },
+    ]);
+    expect(commandParts("/init", [], [])).toEqual([]);
   });
 
   test("commands that start with the query come first", () => {
