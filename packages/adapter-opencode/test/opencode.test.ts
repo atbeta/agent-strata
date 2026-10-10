@@ -1453,13 +1453,95 @@ describe("what the user sent", () => {
       m.handle(partUpdated({ id: "f1", sessionID: sid, messageID: "u1", type: "file", mime: "image/png", filename: "red.png", url })),
       m.handle(partUpdated({ id: "f2", sessionID: sid, messageID: "u1", type: "file", mime: "image/png", filename: "r.png", url: "https://x/r.png" })),
       m.handle(partUpdated({ id: "f3", sessionID: sid, messageID: "u1", type: "file", mime: "application/pdf", filename: "spec.pdf", url: "data:application/pdf;base64,JVBERi0=" })),
+      m.handle(partUpdated({ id: "f4", sessionID: sid, messageID: "u1", type: "file", mime: "image/svg+xml", url: "data:image/svg+xml;utf8,<svg/>" })),
+      m.handle({ id: "i", type: "session.idle", properties: { sessionID: sid } } as unknown as Event),
     ].flat();
     expect(userTurn(out)!.content).toEqual([
       { type: "text", text: "what colour" },
       { type: "image", mime: "image/png", data: "iVBORw0KGgo=" },
-      { type: "image", mime: "image/png", uri: "https://x/r.png" },
+      // the desktop only shows images from data: and blob: URLs
+      { type: "file_ref", path: "r.png" },
       { type: "file_ref", path: "spec.pdf" },
+      { type: "file_ref", path: "image/svg+xml" },
     ]);
+  });
+
+  test("text OpenCode marks ignored stays out too", () => {
+    const m = new OpencodeMapper();
+    const out = [
+      m.handle(sessionCreated()),
+      m.handle(msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 1 } })),
+      m.handle(partUpdated({ id: "t1", sessionID: sid, messageID: "u1", type: "text", text: "hi" })),
+      m.handle(partUpdated({ id: "t2", sessionID: sid, messageID: "u1", type: "text", ignored: true, text: "skip me" })),
+    ].flat();
+    expect(userTurn(out)!.content).toEqual([{ type: "text", text: "hi" }]);
+  });
+
+  test("an image in an assistant message is an image in its reply", () => {
+    const m = new OpencodeMapper();
+    const assistant = (time: object) =>
+      msgUpdated({
+        id: "a1", sessionID: sid, role: "assistant", parentID: "u1", time,
+        providerID: "p", modelID: "m", cost: 0, finish: "stop",
+        tokens: { input: 1, output: 1, reasoning: 0, cache: { read: 0, write: 0 } },
+      });
+    const out = [
+      m.handle(sessionCreated()),
+      m.handle(msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 1 } })),
+      m.handle(partUpdated({ id: "t1", sessionID: sid, messageID: "u1", type: "text", text: "draw" })),
+      m.handle(assistant({ created: 2 })),
+      m.handle(partUpdated({ id: "f1", sessionID: sid, messageID: "a1", type: "file", mime: "image/png", url: "data:image/png;base64,AA==" })),
+      m.handle(assistant({ created: 2, completed: 3 })),
+    ].flat();
+    const reply = out.filter((e) => e.type === "turn.assistant" && !(e.data as { partial?: boolean }).partial).at(-1)!;
+    expect((reply.data as { content: object[] }).content).toEqual([{ type: "image", mime: "image/png", data: "AA==" }]);
+  });
+
+  test("a message with images is stored once, whole, live and after a restart", () => {
+    const store = openStore(":memory:");
+    const big = (c: string) => `data:image/png;base64,${c.repeat(4096)}`;
+    const userInfo = { id: "u1", sessionID: sid, role: "user", time: { created: 10 } };
+    const userParts = [
+      { id: "t1", sessionID: sid, messageID: "u1", type: "text", text: "compare" },
+      { id: "f1", sessionID: sid, messageID: "u1", type: "file", mime: "image/png", filename: "a.png", url: big("A") },
+      { id: "f2", sessionID: sid, messageID: "u1", type: "file", mime: "image/png", filename: "b.png", url: big("B") },
+    ];
+    const tokens = { input: 1, output: 1, reasoning: 0, cache: { read: 0, write: 0 } };
+    const assistantInfo = {
+      id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
+      time: { created: 20 }, providerID: "p", modelID: "m", cost: 0, tokens,
+    };
+    const withImages = (evs: { type: string; data: unknown }[]) =>
+      evs.filter(
+        (e) => e.type === "turn.user" && (e.data as { content: { type: string }[] }).content.some((b) => b.type === "image"),
+      );
+
+    const live = new OpencodeMapper();
+    const liveOut = [
+      sessionCreated(),
+      msgUpdated(userInfo),
+      ...userParts.map(partUpdated),
+      msgUpdated(assistantInfo),
+      { id: "i", type: "session.idle", properties: { sessionID: sid } } as unknown as Event,
+    ].flatMap((e) => live.handle(e));
+    const liveImages = withImages(liveOut);
+    expect(liveImages).toHaveLength(1);
+    expect(
+      (liveImages[0]!.data as { content: { type: string }[] }).content.filter((b) => b.type === "image"),
+    ).toHaveLength(2);
+    store.append(liveOut);
+
+    const restarted = new OpencodeMapper();
+    const imported = snapshotEvents(sid, { id: sid, directory: "/repo", title: "T", time: { created: 1, updated: 2 } }, [
+      { info: userInfo, parts: userParts },
+      {
+        info: { ...assistantInfo, time: { created: 20, completed: 30 }, finish: "stop" },
+        parts: [{ id: "a1t", sessionID: sid, messageID: "a1", type: "text", text: "same" }],
+      },
+    ] as never).flatMap((e) => restarted.handle(e));
+    store.append(imported);
+    expect(withImages(store.read({ session_id: `opencode:${sid}` }))).toHaveLength(1);
+    store.close();
   });
 
   test("a user message that is only OpenCode's own text leaves no bubble, and its reply still lands", () => {

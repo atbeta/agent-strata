@@ -205,15 +205,17 @@ export function rebuildEvents(events: Event[], directory?: string): EventInput[]
 
 type ToolPart = Extract<Part, { type: "tool" }>;
 
+// The desktop renders images only from data: and blob: URLs (img-src CSP),
+// so a remote image stays a file reference.
 function fileBlock(part: Extract<Part, { type: "file" }>): ContentBlock {
-  if (part.mime.startsWith("image/")) {
+  const inline = part.url.startsWith("data:");
+  if (inline && part.mime.startsWith("image/")) {
     const comma = part.url.indexOf(",");
-    if (part.url.startsWith("data:") && part.url.slice(0, comma).endsWith(";base64"))
+    if (comma > 0 && part.url.slice(0, comma).endsWith(";base64"))
       return { type: "image", mime: part.mime, data: part.url.slice(comma + 1) };
-    if (/^https?:/.test(part.url)) return { type: "image", mime: part.mime, uri: part.url };
   }
-  const path = part.source && "path" in part.source ? part.source.path : (part.filename ?? part.url);
-  return { type: "file_ref", path };
+  if (part.source && "path" in part.source) return { type: "file_ref", path: part.source.path };
+  return { type: "file_ref", path: part.filename ?? (inline ? part.mime : part.url) };
 }
 
 interface ToolTrack {
@@ -659,8 +661,9 @@ export class OpencodeMapper {
         if (stale) {
           // keep the delta-built text
         } else if (part.type === "text") {
-          // OpenCode's own words in the user's message (a read file's contents,
-          // "continue" nudges) are not what the user said
+          // Text OpenCode writes itself (a read file's contents, "continue"
+          // nudges). An import replays parts before their message, so the role
+          // is unknown here and the rule applies to every message.
           if (part.synthetic || part.ignored) m.parts.delete(part.id);
           else m.parts.set(part.id, { type: "text", text: part.text });
         } else if (part.type === "reasoning") {
@@ -721,12 +724,16 @@ export class OpencodeMapper {
         // shared tail for content parts (text/reasoning/file):
         // — user messages emit turn.user as soon as text lands so the prompt
         //   echoes instantly (id is a content hash: a later, fuller part
-        //   snapshot re-emits and the projector overwrites it)
+        //   snapshot re-emits and the projector overwrites it). The store
+        //   keeps every version, so content with images waits for flushUser
+        //   and goes out once, whole, under the message's stable id.
         // — assistant messages emit throttled partial turn.assistant
         //   snapshots so the UI streams during generation
         if (m.role === "user") {
           const content = [...m.parts.values()].filter((b) => b.type !== "thinking");
-          if (content.length) {
+          if (content.some((b) => b.type === "image")) {
+            s.pendingUserMsgs.add(part.messageID);
+          } else if (content.length) {
             s.pendingUserMsgs.delete(part.messageID);
             out.push(
               this.ev(
