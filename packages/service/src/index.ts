@@ -15,6 +15,7 @@ import { filesKeyOf, ViewCache } from "./views";
 import type { EventInput } from "@agent-strata/schema";
 import { connectAcpDriver } from "./acp-driver";
 import { agentNameOf, connectionMemory, endpointOf, type ConnectBody } from "./connections";
+import { extensionRoute } from "./extension-route";
 import { SessionClaims } from "./identity";
 
 export interface ServiceOpts {
@@ -609,7 +610,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
             baseUrl: c.baseUrl,
             name: c.name,
             directory: c.directory,
-            capabilities: c.capabilities,
+            capabilities: { ...c.capabilities, extension: c.extension?.kind },
           })),
         });
       }
@@ -699,6 +700,17 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         });
         return json({ ok: true });
       }
+
+      const extension = await extensionRoute(req, url, {
+        connection: (id) => conns.get(id),
+        session: (casfId) => {
+          const driver = driverFor(casfId);
+          // driverFor falls back to the only connection; the session must be one of its own
+          if (!driver?.nativeId(casfId)) return undefined;
+          return { driver, directory: directoryOf(casfId) };
+        },
+      });
+      if (extension) return extension;
 
       const discMatch = path.match(/^\/connections\/([^/]+)$/);
       if (discMatch && req.method === "DELETE") {
