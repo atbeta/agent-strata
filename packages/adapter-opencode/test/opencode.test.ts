@@ -1668,6 +1668,67 @@ describe("what the user sent", () => {
   });
 
   test("the mapping version moved, so stored sessions are rebuilt", () => {
-    expect(OPENCODE_MAPPER_VERSION).toBe("opencode-4");
+    expect(OPENCODE_MAPPER_VERSION).toBe("opencode-5");
+  });
+});
+
+describe("a task tool names the child session it opened", () => {
+  const assistant = () =>
+    msgUpdated({
+      id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
+      time: { created: 20 }, providerID: "p", modelID: "m", cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    });
+
+  const toolPart = (
+    id: string,
+    callID: string,
+    tool: string,
+    state: object,
+  ) =>
+    partUpdated({
+      id, sessionID: sid, messageID: "a1", type: "tool", callID, tool, state,
+    });
+
+  test("copies sessionId onto the call and the result, and leaves other tools alone", () => {
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    m.handle(assistant());
+    const meta = { sessionId: "ses_kid" };
+    const running = m.handle(toolPart("ptask", "c-task", "task", {
+      status: "running",
+      input: { prompt: "go" },
+      metadata: meta,
+      time: { start: 21 },
+    }));
+    const completed = m.handle(toolPart("ptask", "c-task", "task", {
+      status: "completed",
+      input: { prompt: "go" },
+      output: "done",
+      title: "task",
+      metadata: meta,
+      time: { start: 21, end: 31 },
+    }));
+    const call = running.find((e) => e.type === "tool.call")!;
+    const result = completed.find((e) => e.type === "tool.result")!;
+    expect(call.data).toMatchObject({ child_session_id: "opencode:ses_kid" });
+    expect(result.data).toMatchObject({ child_session_id: "opencode:ses_kid" });
+
+    const bashRunning = m.handle(toolPart("pbash", "c-bash", "bash", {
+      status: "running",
+      input: { command: "ls" },
+      metadata: meta,
+      time: { start: 21 },
+    }));
+    const bashDone = m.handle(toolPart("pbash", "c-bash", "bash", {
+      status: "completed",
+      input: { command: "ls" },
+      output: "files",
+      title: "ls",
+      metadata: meta,
+      time: { start: 21, end: 31 },
+    }));
+    expect(bashRunning.find((e) => e.type === "tool.call")!.data).not.toHaveProperty("child_session_id");
+    expect(bashDone.find((e) => e.type === "tool.result")!.data).not.toHaveProperty("child_session_id");
   });
 });

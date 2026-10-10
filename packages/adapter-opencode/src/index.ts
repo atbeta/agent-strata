@@ -119,6 +119,14 @@ function fileChangeOf(
   return undefined;
 }
 
+/** The child session a task tool opened. Only that tool's metadata.sessionId names one. */
+function taskChild(tool: string, metadata: Record<string, unknown> | undefined): string | undefined {
+  if (tool !== "task" || !metadata) return undefined;
+  const id = metadata.sessionId;
+  if (typeof id !== "string" || !id) return undefined;
+  return id.startsWith("opencode:") ? id : `opencode:${id}`;
+}
+
 /** The sentence a failed assistant message carries. OpenCode puts it on the message, not in a part. */
 function assistantFailure(error: unknown): string | undefined {
   if (!error || typeof error !== "object") return undefined;
@@ -150,7 +158,7 @@ function errorMessage(e: unknown): string {
 }
 
 /** Bump when the mapping changes; stored sessions mapped by an older version are rebuilt. */
-export const OPENCODE_MAPPER_VERSION = "opencode-4";
+export const OPENCODE_MAPPER_VERSION = "opencode-5";
 
 /** The event types an import reproduces from OpenCode's own record of a session. */
 export const OPENCODE_REBUILT_TYPES: EventType[] = [
@@ -461,6 +469,7 @@ export class OpencodeMapper {
   private toolEvents(s: SessionState, m: MsgState, part: ToolPart, t: ToolTrack): EventInput[] {
     const out: EventInput[] = [];
     const st = part.state;
+    const child = taskChild(part.tool, st.status === "pending" ? undefined : st.metadata);
     if (!t.emittedCall && st.status !== "pending") {
       t.emittedCall = true;
       out.push(
@@ -477,6 +486,7 @@ export class OpencodeMapper {
             // too is what lets a reader see a call beside the words that
             // asked for it instead of in a pile at the end of the turn.
             msg_id: part.messageID,
+            ...(child ? { child_session_id: child } : {}),
           },
           `opencode:${part.id}:tool.call`,
           sourceTime(st.time.start || s.updated),
@@ -494,6 +504,7 @@ export class OpencodeMapper {
             status: st.status === "completed" ? "ok" : "error",
             output: st.status === "completed" ? st.output : st.error,
             latency_ms: Math.max(0, Math.round(st.time.end - st.time.start)),
+            ...(child ? { child_session_id: child } : {}),
           },
           `opencode:${part.id}:tool.result`,
           sourceTime(st.time.end || s.updated),
