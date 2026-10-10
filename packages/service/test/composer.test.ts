@@ -140,8 +140,43 @@ describe("the composer through strata", () => {
     const broken = await post(`${session}/command`, { command: "broken", arguments: "" });
     expect(broken.status).toBe(502);
     expect(((await broken.json()) as { error: string }).error).toMatch(/boom/);
-    expect((await post(`${session}/command`, { arguments: "x" })).status).toBe(400);
-    expect((await post(`${session}/command`, { command: "init", parts: [{ type: "text", text: "x" }] })).status).toBe(400);
+    const refused = async (body: unknown) => {
+      const res = await post(`${session}/command`, body);
+      expect(res.status).toBe(400);
+      return ((await res.json()) as { error: string }).error;
+    };
+    expect(await refused({ arguments: "x" })).toMatch(/command required/);
+    expect(await refused({ command: "init", parts: [{ type: "text", text: "x" }] })).toMatch(/as arguments/);
+    expect(
+      await refused({ command: "init", parts: [{ type: "file_ref", path: "a.ts", mention: { start: 0, end: 5 } }] }),
+    ).toMatch(/mention/);
+  });
+});
+
+describe("a backend whose command list fails", () => {
+  const upstream = fakeOpencode({
+    "/command": () => Response.json({}, { status: 500 }),
+  });
+  let svc: ReturnType<typeof startService>;
+  let base = "";
+  const post = (path: string, body: unknown) =>
+    fetch(`${base}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+  beforeAll(async () => {
+    svc = startService({ db: ":memory:", port: 0 });
+    base = `http://127.0.0.1:${svc.port}`;
+    await post("/connect", { baseUrl: upstream.baseUrl, directory: "/conn" });
+  });
+  afterAll(() => {
+    svc.stop();
+    upstream.stop();
+  });
+
+  test("is an upstream error, not an unknown command", async () => {
+    const res = await post(`/sessions/${encodeURIComponent("opencode:ses_z")}/command`, { command: "init" });
+    expect(res.status).toBe(502);
+    expect(((await res.json()) as { error: string }).error).toBe("opencode server error");
+    expect(upstream.seen.some((s) => s.path === "/session/ses_z/command")).toBe(false);
   });
 });
 

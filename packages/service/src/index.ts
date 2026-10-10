@@ -542,6 +542,8 @@ export function startService(opts: ServiceOpts = {}): RunningService {
           const read = readPromptParts({ parts: body.parts });
           if (!Array.isArray(read)) return json(read, 400);
           if (read.some((p) => p.type === "text")) return json({ error: "a command takes its words as arguments" }, 400);
+          if (!conn.capabilities.attachments && read.some((p) => p.type !== "text"))
+            return json({ error: "backend cannot take files or attachments" }, 400);
           if (read.some((p) => p.type === "file_ref") && !(directory ?? conn.directory))
             return json({ error: "session has no workspace to read files from" }, 400);
           parts = read;

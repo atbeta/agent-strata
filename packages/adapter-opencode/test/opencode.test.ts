@@ -984,6 +984,30 @@ describe("connectOpencode lifecycle", () => {
     store.close();
   });
 
+  test("a request that stays quiet for minutes is not cut by Bun's idle timeout", async () => {
+    const { connectOpencode } = await import("../src/index");
+    let fetchInit: RequestInit | undefined;
+    const fakeFetch = async (_input: Request | URL | string, init?: RequestInit) => {
+      fetchInit = init;
+      const body = new ReadableStream<Uint8Array>({
+        start(ctrl) {
+          ctrl.enqueue(new TextEncoder().encode('data: {"type":"server.connected","properties":{}}\n\n'));
+        },
+      });
+      return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+    };
+    const store = openStore(":memory:");
+    const conn = await connectOpencode({
+      baseUrl: "http://fake",
+      sink: store,
+      fetch: fakeFetch as typeof fetch,
+      connectTimeoutMs: 5_000,
+    });
+    expect((fetchInit as { timeout?: unknown } | undefined)?.timeout).toBe(false);
+    conn.stop();
+    store.close();
+  });
+
   test("connect timeout aborts the fetch and rejects", async () => {
     const { connectOpencode } = await import("../src/index");
     let fetchSignal: AbortSignal | undefined;

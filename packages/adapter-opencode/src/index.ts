@@ -137,13 +137,16 @@ export const COMMAND_START_MS = 1_500;
 export class UnknownCommandError extends Error {
   constructor(name: string) {
     super(`unknown command: /${name}`);
+    this.name = "UnknownCommandError";
   }
 }
 
 function errorMessage(e: unknown): string {
+  if (e instanceof Error && e.message) return e.message;
   const data = (e as { data?: { message?: unknown } })?.data;
-  if (data && typeof data.message === "string") return data.message;
-  return typeof e === "string" ? e : JSON.stringify(e);
+  if (data && typeof data.message === "string" && data.message) return data.message;
+  const text = typeof e === "string" ? e : JSON.stringify(e);
+  return !text || text === "{}" ? "opencode server error" : text;
 }
 
 /** Bump when the mapping changes; stored sessions mapped by an older version are rebuilt. */
@@ -1123,7 +1126,8 @@ export async function connectOpencode(opts: {
   let openReader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   const abortingFetch = async (request: Request): Promise<Response> => {
     if (abort.signal.aborted) return new Promise<Response>(() => {});
-    const res = await rawFetch(new Request(request, { signal: abort.signal }));
+    // Bun cuts a request quiet for 5 minutes, and a command answers only when its run is done
+    const res = await rawFetch(new Request(request, { signal: abort.signal }), { timeout: false } as RequestInit);
     if (!res.body) return res;
     const real = res.body.getReader();
     openReader = real;
@@ -1349,6 +1353,7 @@ export async function connectOpencode(opts: {
     async command(sessionID, c) {
       const directory = c.directory ?? opts.directory;
       const listed = await client.command.list({ directory });
+      if (listed.error) throw new Error(errorMessage(listed.error));
       if (!(listed.data ?? []).some((x) => x.name === c.command)) throw new UnknownCommandError(c.command);
       const run = client.session.command({
         sessionID,
