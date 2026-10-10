@@ -392,7 +392,8 @@ export class OpencodeMapper {
     return { s, out };
   }
 
-  // session.created records the baseline (and emits only when already archived).
+  // session.created records the baseline. It emits when already archived, or
+  // when the created payload already carries a revert (import / rebuild).
   // session.updated emits when title, directory, archive, or revert actually changes.
   private syncMeta(
     s: SessionState,
@@ -426,11 +427,8 @@ export class OpencodeMapper {
     s.archived = archived;
     if (info.parentID) s.parent = parent;
     if (!changed) return;
-    if (source === "created" && !archived) return;
+    if (source === "created" && !archived && !revertID) return;
     const stamp = info.time?.updated ?? info.time?.archived ?? 0;
-    const hash = Bun.hash(
-      `${title ?? ""}\0${workspace ?? ""}\0${archived ? 1 : 0}${info.parentID ? `\0${info.parentID}` : ""}${revertID ? `\0${revertID}` : ""}`,
-    ).toString(36);
     // { turn_id } while set; null only on the clear; omit if this session never had one.
     let revert: { turn_id: string } | null | undefined;
     if (revertID) {
@@ -440,6 +438,11 @@ export class OpencodeMapper {
       revert = null;
       s.revertMessageID = undefined;
     }
+    // A clear must not hash like a session that never had a revert: the store
+    // keeps the first body for a given id, so a colliding clear would be dropped.
+    const hash = Bun.hash(
+      `${title ?? ""}\0${workspace ?? ""}\0${archived ? 1 : 0}${info.parentID ? `\0${info.parentID}` : ""}${revertID ? `\0${revertID}` : revert === null ? "\0" : ""}`,
+    ).toString(36);
     return this.ev(
       s,
       "session.updated",

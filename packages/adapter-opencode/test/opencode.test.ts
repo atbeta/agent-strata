@@ -319,6 +319,51 @@ describe("OpencodeMapper", () => {
     expect(later.find((e) => e.type === "session.updated")?.data).not.toHaveProperty("revert");
   });
 
+  test("a revert clear does not reuse the never-reverted event id", () => {
+    const m = new OpencodeMapper();
+    const updated = (revert?: { messageID: string }): Event =>
+      ({
+        id: "e",
+        type: "session.updated",
+        properties: {
+          sessionID: sid,
+          info: {
+            id: sid,
+            directory: "/repo",
+            title: "T",
+            time: { created: 1, updated: 2 },
+            ...(revert ? { revert } : {}),
+          },
+        },
+      }) as unknown as Event;
+    const first = m.handle(updated()).find((e) => e.type === "session.updated");
+    m.handle(updated({ messageID: "u1" }));
+    const third = m.handle(updated()).find((e) => e.type === "session.updated");
+    expect(third?.data).toMatchObject({ revert: null });
+    expect(third?.id).not.toBe(first?.id);
+  });
+
+  test("session.created that already has a revert records it", () => {
+    const m = new OpencodeMapper();
+    const out = m.handle({
+      id: "e1",
+      type: "session.created",
+      properties: {
+        sessionID: sid,
+        info: {
+          id: sid,
+          directory: "/repo",
+          title: "T",
+          time: { created: 1, updated: 1 },
+          revert: { messageID: "u1" },
+        },
+      },
+    } as unknown as Event);
+    expect(out.find((e) => e.type === "session.updated")?.data).toMatchObject({
+      revert: { turn_id: "u1" },
+    });
+  });
+
   test("a compaction part emits one session.compacted", () => {
     const m = new OpencodeMapper();
     m.handle(sessionCreated());
