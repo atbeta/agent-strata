@@ -77,8 +77,9 @@ strata 的读路径（CASF 事件 → store → projector → view）只承载**
 - 会话记录：从 task 工具的 `state.metadata.sessionId` 取子会话 id，写进 `tool.call`/`tool.result`（schema 增加可选字段 `child_session_id`），并提升 `OPENCODE_MAPPER_VERSION`。
 - 验收：一个调用了子代理的会话，能从父会话点进子会话，再回来。
 
-### 6. 消息操作
+### 6. 消息操作 —— 已写详细计划
 
+- 计划：`2026-10-11-opencode-message-actions.md`
 - 撤回/恢复（`session.revert`/`unrevert`）：会话记录里 `session.updated` 增加 `revert?: { turn_id: string } | null`，projector 标记撤回点之后的轮次，UI 灰显并提供"恢复"。
 - 从某条消息分叉（`session.fork`），完成后跳到新会话。
 - 压缩（`session.summarize`）：CompactionPart 映射为转录里的分隔标记。
