@@ -36,6 +36,7 @@ export default {
 
   // Backends
   "sidebar.backend.none": "No backend",
+  "sidebar.backend.missing": "opencode was not found",
   "action.newSession": "New session",
   "action.connectBackend": "Connect a backend",
   "action.connect": "Connect",
@@ -107,6 +108,14 @@ export default {
   "settings.theme.lightHint": "A paper surface",
   "settings.theme.system": "System",
   "settings.theme.systemHint": "Follow this computer",
+  "settings.opencode.title": "OpenCode",
+  "settings.opencode.embed": "Built in",
+  "settings.opencode.embedHint": "Start opencode when the app opens",
+  "settings.opencode.external": "External",
+  "settings.opencode.externalHint": "Connect to a server that is already running",
+  "settings.opencode.apply": "Takes effect the next time the app starts.",
+  "settings.opencode.missing": "opencode was not found. Install it, then open the app again.",
+  "settings.opencode.install": "Install instructions",
   "settings.permission.title": "Permission policy",
   "settings.permission.hint": "Rules that allow, ask, or deny a tool call before it runs.",
   "settings.permission.open": "Open policy",

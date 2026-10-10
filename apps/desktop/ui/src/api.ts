@@ -558,6 +558,30 @@ async function throwOnError(res: Response): Promise<void> {
   throw new Error(body.error ?? t("api.err.service", { status: res.status }));
 }
 
+export type OpencodeLaunchMode = "embed" | "external";
+
+export type OpencodeLaunch = {
+  mode: OpencodeLaunchMode;
+  state: "starting" | "running" | "missing" | "restarting" | "stopped" | "external" | "unmanaged";
+  url?: string;
+};
+
+export function readOpencodeLaunch(): Promise<OpencodeLaunch> {
+  return getJson<OpencodeLaunch>("/desktop/opencode");
+}
+
+export async function saveOpencodeMode(
+  mode: OpencodeLaunchMode,
+): Promise<{ mode: OpencodeLaunchMode; applied: "next-launch" }> {
+  const res = await fetch(api("/desktop/opencode"), {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ mode }),
+  });
+  await throwOnError(res);
+  return (await res.json()) as { mode: OpencodeLaunchMode; applied: "next-launch" };
+}
+
 export async function savePolicy(policy: Policy): Promise<void> {
   const res = await fetch(api("/policy"), {
     method: "PUT",

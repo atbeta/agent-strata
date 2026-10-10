@@ -37,6 +37,7 @@ export default {
 
   // Backends
   "sidebar.backend.none": "未连接后端",
+  "sidebar.backend.missing": "没有找到 opencode",
   "action.newSession": "新建会话",
   "action.connectBackend": "连接后端",
   "action.connect": "连接",
@@ -107,6 +108,14 @@ export default {
   "settings.theme.lightHint": "纸质界面",
   "settings.theme.system": "跟随系统",
   "settings.theme.systemHint": "跟随本机设置",
+  "settings.opencode.title": "OpenCode",
+  "settings.opencode.embed": "内嵌",
+  "settings.opencode.embedHint": "打开应用时启动 opencode",
+  "settings.opencode.external": "外部",
+  "settings.opencode.externalHint": "连接已经在运行的服务",
+  "settings.opencode.apply": "下次启动应用时生效。",
+  "settings.opencode.missing": "没有找到 opencode。安装后再打开。",
+  "settings.opencode.install": "安装说明",
   "settings.permission.title": "权限策略",
   "settings.permission.hint": "在工具调用运行前，允许、询问或拒绝它的规则。",
   "settings.permission.open": "打开策略",

@@ -7,6 +7,7 @@ import {
   disconnectBackend,
   fmtUsd,
   getJson,
+  readOpencodeLaunch,
   realWorkspace,
   renameSession,
   syncBackend,
@@ -303,6 +304,8 @@ export function App() {
   const [conns, { refetch: refetchConns }] = createResource(() =>
     getJson<{ connections: Connection[] }>("/connections"),
   );
+  const [opencodeLaunch] = createResource(readOpencodeLaunch);
+  const backendMissing = () => settled(opencodeLaunch)?.state === "missing";
   const [query, setQuery] = createSignal("");
   const [workspace, setWorkspace] = createSignal<string | null>(localStorage.getItem(WS_KEY));
   const [wsOpen, setWsOpen] = createSignal(false);
@@ -852,9 +855,21 @@ export function App() {
               <Show
                 when={(settled(conns)?.connections.length ?? 0) > 0}
                 fallback={
-                  <p class="truncate px-1.5 py-1 text-xs text-muted-foreground">
-                    {t("sidebar.backend.none")}
-                  </p>
+                  <div class="min-w-0 px-1.5 py-1">
+                    <p class="truncate text-xs text-muted-foreground">
+                      {backendMissing() ? t("sidebar.backend.missing") : t("sidebar.backend.none")}
+                    </p>
+                    <Show when={backendMissing()}>
+                      <a
+                        href="https://opencode.ai"
+                        target="_blank"
+                        rel="noreferrer"
+                        class="mt-0.5 block text-2xs text-muted-foreground hover:text-foreground"
+                      >
+                        {t("settings.opencode.install")}
+                      </a>
+                    </Show>
+                  </div>
                 }
               >
                 <For each={settled(conns)?.connections ?? []}>

@@ -1,10 +1,20 @@
-import { createSignal } from "solid-js";
+import { createEffect, createResource, createSignal, Show } from "solid-js";
+import {
+  readOpencodeLaunch,
+  saveOpencodeMode,
+  type OpencodeLaunchMode,
+} from "./api";
 import { LOCALES, LOCALE_LABEL, locale, setLocale, t, type Locale } from "./i18n";
 import { Icon } from "./icons";
 import { readTheme, saveTheme, type ThemeChoice } from "./theme";
 
 /** A function, not a const: the labels are translated, so they have to be read
  *  during render for a language switch to reach them. */
+const OPENCODE_MODES = (): { id: OpencodeLaunchMode; label: string; hint: string }[] => [
+  { id: "embed", label: t("settings.opencode.embed"), hint: t("settings.opencode.embedHint") },
+  { id: "external", label: t("settings.opencode.external"), hint: t("settings.opencode.externalHint") },
+];
+
 const CHOICES = (): { id: ThemeChoice; label: string; hint: string }[] => [
   { id: "dark", label: t("settings.theme.dark"), hint: t("settings.theme.darkHint") },
   { id: "light", label: t("settings.theme.light"), hint: t("settings.theme.lightHint") },
@@ -13,10 +23,40 @@ const CHOICES = (): { id: ThemeChoice; label: string; hint: string }[] => [
 
 export function SettingsPage() {
   const [choice, setChoice] = createSignal<ThemeChoice>(readTheme());
+  const [launch] = createResource(readOpencodeLaunch);
+  const [mode, setMode] = createSignal<OpencodeLaunchMode>("embed");
+  const [hydrated, setHydrated] = createSignal(false);
+  const [applyNote, setApplyNote] = createSignal(false);
+  const [saveErr, setSaveErr] = createSignal("");
+
+  const launchData = () => (launch.error ? undefined : launch());
+
+  createEffect(() => {
+    if (hydrated()) return;
+    const data = launchData();
+    if (data) {
+      setMode(data.mode);
+      setHydrated(true);
+    } else if (launch.error) {
+      setHydrated(true);
+    }
+  });
 
   const pick = (next: ThemeChoice) => {
     setChoice(next);
     saveTheme(next);
+  };
+
+  const pickMode = async (next: OpencodeLaunchMode) => {
+    setSaveErr("");
+    setApplyNote(false);
+    try {
+      await saveOpencodeMode(next);
+      setMode(next);
+      setApplyNote(true);
+    } catch (e) {
+      setSaveErr(e instanceof Error ? e.message : String(e));
+    }
   };
 
   return (
@@ -85,6 +125,51 @@ export function SettingsPage() {
             </button>
           ))}
         </div>
+      </section>
+
+      <section class="mt-8">
+        <h2 class="text-sm font-medium">{t("settings.opencode.title")}</h2>
+        <div
+          class="mt-3 grid grid-cols-2 gap-2"
+          role="radiogroup"
+          aria-label={t("settings.opencode.title")}
+        >
+          {OPENCODE_MODES().map((item) => (
+            <button
+              type="button"
+              role="radio"
+              aria-checked={mode() === item.id}
+              class={`rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                mode() === item.id
+                  ? "border-ring bg-secondary"
+                  : "border-border hover:bg-secondary/60"
+              }`}
+              onClick={() => void pickMode(item.id)}
+            >
+              <span class="block text-sm font-medium">{item.label}</span>
+              <span class="mt-0.5 block text-2xs text-muted-foreground">{item.hint}</span>
+            </button>
+          ))}
+        </div>
+        <Show when={applyNote()}>
+          <p class="mt-3 text-sm text-muted-foreground">{t("settings.opencode.apply")}</p>
+        </Show>
+        <Show when={saveErr()}>
+          <p class="mt-3 text-sm text-destructive">{saveErr()}</p>
+        </Show>
+        <Show when={launchData()?.state === "missing"}>
+          <div>
+            <p class="mt-3 text-sm text-muted-foreground">{t("settings.opencode.missing")}</p>
+            <a
+              href="https://opencode.ai"
+              target="_blank"
+              rel="noreferrer"
+              class="mt-1 inline-block text-sm text-muted-foreground hover:text-foreground"
+            >
+              {t("settings.opencode.install")}
+            </a>
+          </div>
+        </Show>
       </section>
 
       <section class="mt-8 border-t border-border pt-6">
