@@ -875,7 +875,11 @@ export function createIngestor(opts: {
     if (flushTimer || !mapper.hasHeldStreams()) return;
     flushTimer = setTimeout(() => {
       flushTimer = undefined;
-      emit(mapper.flushStreaming());
+      try {
+        emit(mapper.flushStreaming());
+      } catch (err) {
+        console.error("opencode stream flush error:", err);
+      }
       scheduleFlush();
     }, STREAM_SNAPSHOT_MS);
   };
