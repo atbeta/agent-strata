@@ -50,6 +50,17 @@ export interface BackendCapabilities {
   manage: boolean;
 }
 
+/**
+ * Live state a backend holds outside any session's record: files, commands,
+ * VCS. Read through on demand and never written to the log.
+ */
+export interface BackendExtension {
+  kind: "opencode";
+  /** the backend API paths a client may read */
+  paths: ReadonlySet<string>;
+  get(path: string, query: URLSearchParams, directory?: string): Promise<Response>;
+}
+
 export interface SyncGuard {
   /** the session's stored events were written by an older version of this mapping */
   stale?: (casfId: string) => boolean;
@@ -70,6 +81,8 @@ export interface BackendDriver {
   name?: string;
   directory?: string;
   capabilities: BackendCapabilities;
+  /** absent for a backend with nothing beyond the command plane */
+  extension?: BackendExtension;
   stop(): void;
   createSession(opts?: { title?: string; directory?: string }): Promise<{ casfId: string; nativeId: string }>;
   prompt(nativeId: string, text: string, opts?: PromptOpts): Promise<void>;

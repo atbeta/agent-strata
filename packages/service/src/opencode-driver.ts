@@ -7,6 +7,7 @@ import {
 } from "@agent-strata/adapter-opencode";
 import type { Policy } from "@agent-strata/policy";
 import type { BackendDriver } from "./driver";
+import { opencodeExtension } from "./opencode-extension";
 
 const PREFIX = "opencode:";
 
@@ -51,6 +52,12 @@ export async function connectOpencodeDriver(opts: {
       import: true,
       manage: true,
     },
+    extension: opencodeExtension({
+      baseUrl: opts.baseUrl,
+      directory: opts.directory,
+      username: opts.username,
+      password: opts.password,
+    }),
     stop: () => conn.stop(),
     async createSession(sess) {
       const created = await conn.createSession(sess);
