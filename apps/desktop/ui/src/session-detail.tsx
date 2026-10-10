@@ -594,15 +594,19 @@ const turnIndexOf = (h: SearchHit): number => {
   // view landing after a newer tail would roll the transcript back and leave
   // the files list behind the key the server thinks we hold.
   let filesKey: string | undefined;
-  let refreshing = false;
+  let running: Promise<void> | undefined;
   let nextRefresh: "tail" | "full" | undefined;
-  const refreshView = async (full = false): Promise<void> => {
-    if (replayPos() !== null) return;
-    if (refreshing) {
+  /** settles once the view reflects this request, queued behind a running one or not */
+  const refreshView = (full = false): Promise<void> => {
+    if (replayPos() !== null) return Promise.resolve();
+    if (running) {
       if (full || !nextRefresh) nextRefresh = full ? "full" : "tail";
-      return;
+      return running;
     }
-    refreshing = true;
+    running = loadView(full);
+    return running;
+  };
+  const loadView = async (full: boolean): Promise<void> => {
     let wantFull = full;
     try {
       for (;;) {
@@ -632,7 +636,7 @@ const turnIndexOf = (h: SearchHit): number => {
     } catch {
       // the next event or the head poll asks again
     } finally {
-      refreshing = false;
+      running = undefined;
       if (nextRefresh) {
         const again = nextRefresh === "full";
         nextRefresh = undefined;
