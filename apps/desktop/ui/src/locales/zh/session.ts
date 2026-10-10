@@ -132,4 +132,15 @@ export default {
   // Context label on the ring trigger.
   "context.none": "上下文中 {n} tokens",
   "context.percent": "上下文 {percent}% · {n} tokens",
+
+  // Actions on a user message, and the restore / compaction chrome around them.
+  "message.copy": "复制",
+  "message.copied": "已复制",
+  "message.edit": "编辑",
+  "message.revert": "撤回",
+  "message.fork": "分叉",
+  "message.restore": "恢复",
+  "message.reverted": "已撤回",
+  "message.summarize": "压缩",
+  "message.compacted": "对话已压缩",
 } as const;

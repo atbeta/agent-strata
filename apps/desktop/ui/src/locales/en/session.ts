@@ -132,4 +132,15 @@ export default {
   // Context label on the ring trigger.
   "context.none": "{n} tokens in context",
   "context.percent": "{percent}% of context · {n} tokens",
+
+  // Actions on a user message, and the restore / compaction chrome around them.
+  "message.copy": "Copy",
+  "message.copied": "Copied",
+  "message.edit": "Edit",
+  "message.revert": "Revert",
+  "message.fork": "Fork",
+  "message.restore": "Restore",
+  "message.reverted": "Reverted",
+  "message.summarize": "Summarize",
+  "message.compacted": "Conversation compacted",
 } as const;

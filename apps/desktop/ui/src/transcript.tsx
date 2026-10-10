@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, Index, Match, on, Show, Switch } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Index, Match, on, onCleanup, Show, Switch } from "solid-js";
 import type { ContentBlock, ToolCallView, Turn } from "./api";
 import { Icon } from "./icons";
 import { Md } from "./md";
@@ -319,12 +319,22 @@ function ToolCallCard(props: {
   );
 }
 
+function joinedUserText(blocks: ContentBlock[]): string {
+  return blocks
+    .filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text")
+    .map((b) => b.text)
+    .join("\n");
+}
+
 export function TurnBlock(props: {
   turn: Turn;
   /** the agent has been asked but has said nothing yet */
   awaiting?: () => boolean;
   childOf?: (id: string) => ChildSession | undefined;
   onOpenChild?: (id: string) => void;
+  onEdit?: (turnId: string, text: string) => void;
+  onRevert?: (turnId: string) => void;
+  onFork?: (turnId: string) => void;
 }) {
   /**
    * One stream: the assistant writes, calls a tool, reads the result, writes
@@ -363,13 +373,76 @@ export function TurnBlock(props: {
     return rows;
   });
 
+  const [copied, setCopied] = createSignal(false);
+  let copiedTimer: ReturnType<typeof setTimeout> | undefined;
+  onCleanup(() => clearTimeout(copiedTimer));
+
+  const copyUser = () => {
+    const text = joinedUserText(props.turn.user ?? []);
+    void navigator.clipboard.writeText(text).then(
+      () => {
+        setCopied(true);
+        clearTimeout(copiedTimer);
+        copiedTimer = setTimeout(() => setCopied(false), 2000);
+      },
+      () => {
+        // Clipboard rejection leaves the copy label in place.
+      },
+    );
+  };
+
   return (
-    <div class="space-y-3">
+    <div class={`space-y-3 ${props.turn.reverted ? "opacity-50" : ""}`}>
       <Show when={props.turn.user}>
         {(blocks) => (
-          <div class="flex justify-end">
-            <div class="max-w-[min(85%,36rem)] rounded-2xl rounded-br-md bg-secondary px-3.5 py-2 text-secondary-foreground">
-              <BlockText blocks={blocks()} tight />
+          <div class="flex flex-col items-end">
+            <Show when={props.turn.reverted}>
+              <p class="text-2xs text-muted-foreground">{t("message.reverted")}</p>
+            </Show>
+            <div class="group">
+              <div class="flex justify-end">
+                <div class="max-w-[min(85%,36rem)] rounded-2xl rounded-br-md bg-secondary px-3.5 py-2 text-secondary-foreground">
+                  <BlockText blocks={blocks()} tight />
+                </div>
+              </div>
+              <div class="flex justify-end gap-2 pt-1 opacity-0 group-hover:opacity-100">
+                <button
+                  type="button"
+                  class="text-2xs text-muted-foreground hover:text-foreground"
+                  onClick={copyUser}
+                >
+                  {copied() ? t("message.copied") : t("message.copy")}
+                </button>
+                <button
+                  type="button"
+                  class="text-2xs text-muted-foreground hover:text-foreground"
+                  onClick={() => props.onEdit?.(props.turn.turn_id, joinedUserText(blocks()))}
+                >
+                  {t("message.edit")}
+                </button>
+                <Show when={props.onRevert}>
+                  {(revert) => (
+                    <button
+                      type="button"
+                      class="text-2xs text-muted-foreground hover:text-foreground"
+                      onClick={() => revert()(props.turn.turn_id)}
+                    >
+                      {t("message.revert")}
+                    </button>
+                  )}
+                </Show>
+                <Show when={props.onFork}>
+                  {(fork) => (
+                    <button
+                      type="button"
+                      class="text-2xs text-muted-foreground hover:text-foreground"
+                      onClick={() => fork()(props.turn.turn_id)}
+                    >
+                      {t("message.fork")}
+                    </button>
+                  )}
+                </Show>
+              </div>
             </div>
           </div>
         )}
@@ -404,6 +477,11 @@ export function TurnBlock(props: {
         <div class="flex max-w-3xl items-center gap-2 text-sm text-muted-foreground">
           <Icon name="spark" class="size-3.5 shrink-0 animate-pulse text-event-assistant" />
           {t("transcript.thinking")}
+        </div>
+      </Show>
+      <Show when={props.turn.compaction}>
+        <div class="border-t border-border pt-3 text-center text-2xs text-muted-foreground">
+          {t("message.compacted")}
         </div>
       </Show>
     </div>

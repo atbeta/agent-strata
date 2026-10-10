@@ -272,6 +272,9 @@ export interface SessionCapabilities {
   abort?: boolean;
   commands?: boolean;
   attachments?: boolean;
+  revert?: boolean;
+  fork?: boolean;
+  summarize?: boolean;
   extension?: "opencode";
 }
 
@@ -462,6 +465,35 @@ export async function abortSession(id: string): Promise<void> {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(body.error ?? t("api.err.service", { status: res.status }));
   }
+}
+
+export async function revertSession(id: string, messageId: string): Promise<void> {
+  await throwOnError(
+    await fetch(api(`/sessions/${encodeURIComponent(id)}/revert`), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message_id: messageId }),
+    }),
+  );
+}
+
+export async function unrevertSession(id: string): Promise<void> {
+  await throwOnError(await fetch(api(`/sessions/${encodeURIComponent(id)}/unrevert`), { method: "POST" }));
+}
+
+export async function forkSession(id: string, messageId: string): Promise<string> {
+  const res = await fetch(api(`/sessions/${encodeURIComponent(id)}/fork`), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ message_id: messageId }),
+  });
+  await throwOnError(res);
+  const data = (await res.json()) as { id: string };
+  return data.id;
+}
+
+export async function summarizeSession(id: string): Promise<void> {
+  await throwOnError(await fetch(api(`/sessions/${encodeURIComponent(id)}/summarize`), { method: "POST" }));
 }
 
 export async function respondQuestion(

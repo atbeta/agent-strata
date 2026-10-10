@@ -17,6 +17,7 @@ import {
   downloadExport,
   findFiles,
   fmtUsd,
+  forkSession,
   getJson,
   importSession,
   readCapabilities,
@@ -26,9 +27,12 @@ import {
   readViewTail,
   respondPermission,
   respondQuestion,
+  revertSession,
   runCommand,
   searchSession,
   sendPrompt,
+  summarizeSession,
+  unrevertSession,
   type OptionsResponse,
   type PendingAsk,
   type PendingQuestion,
@@ -481,6 +485,8 @@ export function SessionDetail(props: {
   const [attachErr, setAttachErr] = createSignal("");
   /** set when a send fails, so queued follow-ups wait for the reader instead of going out without it */
   const [queuePaused, setQueuePaused] = createSignal(false);
+  /** turn the next send should revert first, set when the reader edits a message */
+  const [editTurnId, setEditTurnId] = createSignal<string>();
   const menuId = createUniqueId();
   let draftEl: HTMLTextAreaElement | undefined;
   let fileInput: HTMLInputElement | undefined;
@@ -974,6 +980,11 @@ const turnIndexOf = (h: SearchHit): number => {
     const choice = { model, agent: agentSel() || undefined, variant: variantSel() || undefined };
     const command = caps()?.commands ? commandOf(out.text, (commands() ?? []).map((c) => c.name)) : undefined;
     try {
+      const revertId = editTurnId();
+      if (revertId) {
+        await revertSession(props.id, revertId);
+        setEditTurnId(undefined);
+      }
       if (command) {
         await runCommand(props.id, { ...command, parts: commandParts(out.text, out.picked, out.attachments) }, choice);
       } else {
@@ -1089,6 +1100,29 @@ const turnIndexOf = (h: SearchHit): number => {
   };
   const openChild = (id: string) => {
     location.hash = `/session/${encodeURIComponent(id)}`;
+  };
+
+  const editTurn = (turnId: string, text: string) => {
+    setDraft(text);
+    setEditTurnId(turnId);
+    queueMicrotask(() => {
+      autogrow();
+      draftEl?.focus();
+    });
+  };
+
+  const revertTurn = (turnId: string) => {
+    void revertSession(props.id, turnId).catch((err) =>
+      setSendErr(err instanceof Error ? err.message : t("err.network")),
+    );
+  };
+
+  const forkTurn = (turnId: string) => {
+    void forkSession(props.id, turnId)
+      .then((id) => {
+        location.hash = `/session/${encodeURIComponent(id)}`;
+      })
+      .catch((err) => setSendErr(err instanceof Error ? err.message : t("err.network")));
   };
 
   return (
@@ -1217,6 +1251,19 @@ const turnIndexOf = (h: SearchHit): number => {
                       </Show>
                     </button>
                   </Tip>
+                  <Show when={caps()?.summarize}>
+                    <button
+                      type="button"
+                      class="h-7 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                      onClick={() =>
+                        void summarizeSession(props.id).catch((err) =>
+                          setSendErr(err instanceof Error ? err.message : t("err.network")),
+                        )
+                      }
+                    >
+                      {t("message.summarize")}
+                    </button>
+                  </Show>
                   <Tip label={t("header.export")}>
                     <button
                       type="button"
@@ -1390,6 +1437,9 @@ const turnIndexOf = (h: SearchHit): number => {
                           awaiting={() => lastSilentTurn() === turn}
                           childOf={childOf}
                           onOpenChild={openChild}
+                          onEdit={editTurn}
+                          onRevert={caps()?.revert ? revertTurn : undefined}
+                          onFork={caps()?.fork ? forkTurn : undefined}
                         />
                       )}
                     </Virtual>
@@ -1478,6 +1528,22 @@ const turnIndexOf = (h: SearchHit): number => {
                         />
                       )}
                     </For>
+                    <Show when={v().revert_turn_id}>
+                      <div class="flex items-center justify-between gap-2 px-1">
+                        <span class="text-2xs text-muted-foreground">{t("message.reverted")}</span>
+                        <button
+                          type="button"
+                          class="text-2xs text-muted-foreground hover:text-foreground"
+                          onClick={() =>
+                            void unrevertSession(props.id).catch((err) =>
+                              setSendErr(err instanceof Error ? err.message : t("err.network")),
+                            )
+                          }
+                        >
+                          {t("message.restore")}
+                        </button>
+                      </div>
+                    </Show>
                     <div class="relative">
                       <Show when={menuOpen()}>
                         <ComposerMenu
