@@ -569,6 +569,31 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       }
     }
 
+    const sessionMcp = path.match(/^\/sessions\/([^/]+)\/mcp\/([^/]+)\/(connect|disconnect)$/);
+    if (sessionMcp && req.method === "POST") {
+      const casfId = decodeURIComponent(sessionMcp[1]!);
+      const conn = driverFor(casfId);
+      if (!conn) return json({ error: "no backend connected" }, 400);
+      const native = conn.nativeId(casfId);
+      if (!native) return json({ error: "session is not owned by a connected backend" }, 400);
+      owners.set(casfId, conn.id);
+      let name: string;
+      try {
+        name = decodeURIComponent(sessionMcp[2]!);
+      } catch {
+        return json({ error: "invalid name" }, 400);
+      }
+      if (!name || name.includes("/")) return json({ error: "invalid name" }, 400);
+      const fn = sessionMcp[3] === "connect" ? conn.mcpConnect : conn.mcpDisconnect;
+      if (conn.backend !== "opencode" || !fn) return json({ error: "backend cannot manage mcp" }, 400);
+      try {
+        await fn(name, directoryOf(casfId));
+        return json({ ok: true });
+      } catch (e) {
+        return json({ error: String(e) }, 502);
+      }
+    }
+
     const sessionRevert = path.match(/^\/sessions\/([^/]+)\/revert$/);
     if (sessionRevert && req.method === "POST") {
       const casfId = decodeURIComponent(sessionRevert[1]!);

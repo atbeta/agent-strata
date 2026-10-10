@@ -1173,6 +1173,8 @@ export async function connectOpencode(opts: {
   listSessions: () => Promise<{ id: string; title: string; directory: string }[]>;
   listWorkspaces: () => Promise<{ id: string; name?: string; directory: string }[]>;
   abort: (sessionID: string, directory?: string) => Promise<void>;
+  mcpConnect: (name: string, directory?: string) => Promise<void>;
+  mcpDisconnect: (name: string, directory?: string) => Promise<void>;
   revert: (sessionID: string, messageID: string, directory?: string) => Promise<void>;
   unrevert: (sessionID: string, directory?: string) => Promise<void>;
   fork: (sessionID: string, messageID: string, directory?: string) => Promise<{ id: string }>;
@@ -1536,6 +1538,12 @@ export async function connectOpencode(opts: {
     },
     async abort(sessionID: string, directory?: string) {
       await client.session.abort({ sessionID, directory: directory ?? opts.directory });
+    },
+    async mcpConnect(name: string, directory?: string) {
+      await client.mcp.connect({ name, directory: directory ?? opts.directory });
+    },
+    async mcpDisconnect(name: string, directory?: string) {
+      await client.mcp.disconnect({ name, directory: directory ?? opts.directory });
     },
     async revert(sessionID: string, messageID: string, directory?: string) {
       await client.session.revert({ sessionID, messageID, directory: directory ?? opts.directory });

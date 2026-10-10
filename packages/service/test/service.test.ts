@@ -208,6 +208,9 @@ describe("agent-strata service", () => {
     expect(acpCaps.fork).toBeUndefined();
     expect(acpCaps.summarize).toBeUndefined();
     expect((await post(`/sessions/${encodeURIComponent(created.id)}/revert`, { message_id: "m1" })).status).toBe(400);
+    expect(
+      (await post(`/sessions/${encodeURIComponent(created.id)}/mcp/${encodeURIComponent("srv")}/disconnect`, {})).status,
+    ).toBe(400);
 
     const view = () => fetch(`${base}/sessions/${encodeURIComponent(created.id)}/view`).then((r) => r.json());
     let v = await view();
@@ -762,6 +765,40 @@ describe("agent-strata service", () => {
     expect(modeled.status).toBe(200);
     const modeledSeen = oc.seen.filter((s) => s.path === "/session/ses_x/summarize").at(-1);
     expect(JSON.parse(modeledSeen!.body)).toMatchObject({ providerID: "openai", modelID: "gpt-5" });
+
+    oc.stop();
+    svc.stop();
+  });
+
+  test("an OpenCode session can connect and disconnect an MCP server", async () => {
+    const oc = fakeOpencode({
+      "/mcp/srv/connect": () => Response.json({ status: "connected" }),
+      "/mcp/srv/disconnect": () => Response.json({ status: "connected" }),
+    });
+    const svc = startService({ db: ":memory:", port: 0 });
+    const base = `http://127.0.0.1:${svc.port}`;
+    const post = (p: string, body?: unknown) =>
+      fetch(`${base}${p}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    await post("/connect", { baseUrl: oc.baseUrl, directory: "/repo" });
+    svc.store.append([
+      ev("opencode:ses_x", "session.started", { title: "x", workspace: "/repo" }, "2026-01-01T00:00:00Z"),
+    ]);
+    const sid = encodeURIComponent("opencode:ses_x");
+    const name = encodeURIComponent("srv");
+
+    const connect = await post(`/sessions/${sid}/mcp/${name}/connect`);
+    expect(connect.status).toBe(200);
+    expect(await connect.json()).toEqual({ ok: true });
+    expect(oc.seen.some((s) => s.method === "POST" && s.path === "/mcp/srv/connect")).toBe(true);
+
+    const disconnect = await post(`/sessions/${sid}/mcp/${name}/disconnect`);
+    expect(disconnect.status).toBe(200);
+    expect(await disconnect.json()).toEqual({ ok: true });
+    expect(oc.seen.some((s) => s.method === "POST" && s.path === "/mcp/srv/disconnect")).toBe(true);
 
     oc.stop();
     svc.stop();

@@ -112,6 +112,8 @@ export interface BackendDriver {
   /** run one of the backend's commands; resolves once it has started */
   command?(nativeId: string, name: string, args: string, opts?: CommandOpts): Promise<void>;
   abort(nativeId: string, directory?: string): Promise<void>;
+  mcpConnect?(name: string, directory?: string): Promise<void>;
+  mcpDisconnect?(name: string, directory?: string): Promise<void>;
   revert?(nativeId: string, messageId: string, directory?: string): Promise<void>;
   unrevert?(nativeId: string, directory?: string): Promise<void>;
   fork?(nativeId: string, messageId: string, directory?: string): Promise<{ casfId: string; nativeId: string }>;
