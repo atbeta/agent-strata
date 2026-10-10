@@ -7,6 +7,7 @@ import {
   rebuildEvents,
   OPENCODE_REBUILT_TYPES,
   OPENCODE_MAPPER_VERSION,
+  STREAM_SNAPSHOT_MS,
 } from "../src/index";
 import { loadPolicy } from "@agent-strata/policy";
 import type { Event } from "@opencode-ai/sdk/v2";
@@ -1148,5 +1149,106 @@ describe("a failed assistant message", () => {
       stop_reason: "error",
       error: "Model exo-free has been deprecated.",
     });
+  });
+});
+
+describe("text that arrives as deltas", () => {
+  const streaming = (now: () => number) => {
+    const m = new OpencodeMapper({ now });
+    m.handle(sessionCreated());
+    m.handle(msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 1 } }));
+    m.handle(partUpdated({ id: "pu", sessionID: sid, messageID: "u1", type: "text", text: "hi" }));
+    m.handle(msgUpdated({
+      id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
+      time: { created: 2 }, providerID: "p", modelID: "m",
+    }));
+    return m;
+  };
+  const delta = (partID: string, text: string, field = "text"): Event =>
+    ({
+      id: `d-${partID}-${text}`,
+      type: "message.part.delta",
+      properties: { sessionID: sid, messageID: "a1", partID, field, delta: text },
+    }) as unknown as Event;
+  const snaps = (evs: { type: string; data: unknown }[]) =>
+    evs
+      .filter((e) => e.type === "turn.assistant")
+      .map((e) => e.data as { partial?: boolean; content: { type: string; text?: string }[] });
+
+  test("the window is 50ms", () => {
+    expect(STREAM_SNAPSHOT_MS).toBe(50);
+  });
+
+  test("each delta extends the text part it names", () => {
+    let t = 0;
+    const m = streaming(() => t);
+    t = 1000;
+    m.handle(partUpdated({ id: "pa", sessionID: sid, messageID: "a1", type: "text", text: "" }));
+    t = 1100;
+    const first = snaps(m.handle(delta("pa", "Hel")));
+    t = 1200;
+    const second = snaps(m.handle(delta("pa", "lo")));
+    expect(first[0]).toMatchObject({ partial: true, content: [{ type: "text", text: "Hel" }] });
+    expect(second[0]!.content).toEqual([{ type: "text", text: "Hello" }]);
+  });
+
+  test("reasoning deltas extend the thinking block", () => {
+    let t = 0;
+    const m = streaming(() => t);
+    t = 1000;
+    m.handle(partUpdated({ id: "pr", sessionID: sid, messageID: "a1", type: "reasoning", text: "" }));
+    t = 1100;
+    const out = snaps(m.handle(delta("pr", "mull")));
+    expect(out[0]!.content).toEqual([{ type: "thinking", text: "mull" }]);
+  });
+
+  test("deltas inside the window are kept for the next frame", () => {
+    let t = 0;
+    const m = streaming(() => t);
+    t = 1000;
+    m.handle(partUpdated({ id: "pa", sessionID: sid, messageID: "a1", type: "text", text: "" }));
+    t = 1010;
+    expect(snaps(m.handle(delta("pa", "a")))).toHaveLength(0);
+    t = 1020;
+    expect(snaps(m.handle(delta("pa", "b")))).toHaveLength(0);
+    t = 1060;
+    expect(snaps(m.handle(delta("pa", "c")))[0]!.content).toEqual([{ type: "text", text: "abc" }]);
+  });
+
+  test("a delta for a part never seen waits for that part's full update", () => {
+    let t = 0;
+    const m = streaming(() => t);
+    t = 1000;
+    expect(m.handle(delta("ghost", "x"))).toEqual([]);
+    t = 1100;
+    const out = snaps(m.handle(partUpdated({ id: "ghost", sessionID: sid, messageID: "a1", type: "text", text: "whole" })));
+    expect(out[0]!.content).toEqual([{ type: "text", text: "whole" }]);
+  });
+
+  test("a delta on another field is ignored", () => {
+    let t = 0;
+    const m = streaming(() => t);
+    t = 1000;
+    m.handle(partUpdated({ id: "pa", sessionID: sid, messageID: "a1", type: "text", text: "kept" }));
+    t = 1100;
+    expect(m.handle(delta("pa", "x", "metadata"))).toEqual([]);
+  });
+
+  test("the finished message carries the text the deltas built", () => {
+    let t = 0;
+    const m = streaming(() => t);
+    t = 1000;
+    m.handle(partUpdated({ id: "pa", sessionID: sid, messageID: "a1", type: "text", text: "" }));
+    t = 1100;
+    m.handle(delta("pa", "done"));
+    const final = m.handle(msgUpdated({
+      id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
+      time: { created: 2, completed: 3 }, providerID: "p", modelID: "m", cost: 0,
+      tokens: { input: 1, output: 1, reasoning: 0, cache: { read: 0, write: 0 } },
+    }));
+    const done = snaps(final);
+    expect(done).toHaveLength(1);
+    expect(done[0]!.partial).toBeUndefined();
+    expect(done[0]!.content).toEqual([{ type: "text", text: "done" }]);
   });
 });

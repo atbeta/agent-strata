@@ -118,9 +118,8 @@ function assistantFailure(error: unknown): string | undefined {
   return typeof name === "string" && name ? name : undefined;
 }
 
-// how often a mid-generation assistant snapshot is emitted (part updates can
-// fire per-token; the store and SSE fan-out only need periodic snapshots)
-const STREAM_SNAPSHOT_MS = 150;
+// Deltas arrive per token; a reader needs about twenty frames a second.
+export const STREAM_SNAPSHOT_MS = 50;
 
 /** Bump when the mapping changes; stored sessions mapped by an older version are rebuilt. */
 export const OPENCODE_MAPPER_VERSION = "opencode-3";
@@ -223,8 +222,40 @@ interface SessionState {
 
 export class OpencodeMapper {
   sessions = new Map<string, SessionState>();
+  /** assistant messages with text no snapshot has carried yet, by message id */
+  private held = new Map<string, { s: SessionState; m: MsgState }>();
 
-  constructor(private opts: { directory?: string } = {}) {}
+  constructor(private opts: { directory?: string; now?: () => number } = {}) {}
+
+  private now(): number {
+    return this.opts.now?.() ?? Date.now();
+  }
+
+  /** A snapshot of a held message, unless the last one went out inside the window. */
+  private streamSnapshot(messageID: string): EventInput | undefined {
+    const held = this.held.get(messageID);
+    if (!held) return undefined;
+    const { s, m } = held;
+    if (m.emittedAssistant || !m.parentID) {
+      this.held.delete(messageID);
+      return undefined;
+    }
+    const now = this.now();
+    if (now - (m.lastStreamAt ?? 0) < STREAM_SNAPSHOT_MS) return undefined;
+    this.held.delete(messageID);
+    const content = [...m.parts.values()].filter((b) => b.type !== "file_ref");
+    if (!content.length) return undefined;
+    m.lastStreamAt = now;
+    return this.ev(
+      s,
+      "turn.assistant",
+      { turn_id: m.parentID, msg_id: messageID, partial: true, content },
+      `opencode:${messageID}:assistant.partial:${Bun.hash(JSON.stringify(content)).toString(36)}`,
+      // A snapshot has no clock of its own; the ingest clock would make it the
+      // newest thing in a replayed session and reorder the session list.
+      sourceTime(m.created ?? s.updated),
+    );
+  }
 
   ev(
     s: SessionState,
@@ -520,6 +551,7 @@ export class OpencodeMapper {
           }
           if (info.time.completed !== undefined && !m.emittedAssistant) {
             m.emittedAssistant = true;
+            this.held.delete(info.id);
             const content = [...m.parts.values()].filter((b) => b.type !== "file_ref");
             const failure = assistantFailure(info.error);
             const u = info.tokens;
@@ -638,32 +670,26 @@ export class OpencodeMapper {
             );
           }
         } else if (m.role === "assistant" && m.parentID && !m.emittedAssistant) {
-          const now = Date.now();
-          if (now - (m.lastStreamAt ?? 0) >= STREAM_SNAPSHOT_MS) {
-            const content = [...m.parts.values()].filter((b) => b.type !== "file_ref");
-            if (content.length) {
-              m.lastStreamAt = now;
-              out.push(
-                this.ev(
-                  s,
-                  "turn.assistant",
-                  {
-                    turn_id: m.parentID,
-                    msg_id: part.messageID,
-                    partial: true,
-                    content,
-                  },
-                  `opencode:${part.messageID}:assistant.partial:${Bun.hash(JSON.stringify(content)).toString(36)}`,
-                  // A streaming snapshot has no clock of its own either. Leaving
-                  // it to the ingest clock meant a session replayed on connect
-                  // kept one event stamped with the moment we connected, which
-                  // was then the newest thing in the session and decided where
-                  // the session list put it.
-                  sourceTime(m.created ?? s.updated),
-                ),
-              );
-            }
-          }
+          this.held.set(part.messageID, { s, m });
+          const snap = this.streamSnapshot(part.messageID);
+          if (snap) out.push(snap);
+        }
+        return out;
+      }
+      case "message.part.delta": {
+        const p = evt.properties;
+        if (p.field !== "text") return out;
+        const s = this.sessions.get(p.sessionID);
+        const m = s?.messages.get(p.messageID);
+        const block = m?.parts.get(p.partID);
+        // A delta extends a part already held. One for a part never seen (the
+        // stream joined mid-message) waits for that part's next full update.
+        if (!s || !m || !block || (block.type !== "text" && block.type !== "thinking")) return out;
+        m.parts.set(p.partID, { ...block, text: block.text + p.delta });
+        if (m.role === "assistant" && m.parentID && !m.emittedAssistant) {
+          this.held.set(p.messageID, { s, m });
+          const snap = this.streamSnapshot(p.messageID);
+          if (snap) out.push(snap);
         }
         return out;
       }
@@ -674,7 +700,12 @@ export class OpencodeMapper {
         out.push(...pre);
         const idle =
           evt.type === "session.idle" || evt.properties.status.type === "idle";
-        if (idle) for (const msgID of [...s.pendingUserMsgs]) this.flushUser(s, out, msgID);
+        if (idle) {
+          for (const msgID of [...s.pendingUserMsgs]) this.flushUser(s, out, msgID);
+          // a message that never finished is retired by the overlay at idle; a
+          // late frame for it would bring it back
+          for (const [msgID, held] of this.held) if (held.s === s) this.held.delete(msgID);
+        }
         out.push(
           this.ev(
             s,
