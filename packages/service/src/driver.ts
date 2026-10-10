@@ -44,6 +44,11 @@ export interface PromptOpts {
   directory?: string;
 }
 
+export interface CommandOpts extends PromptOpts {
+  /** files and attachments that go along; commands take no text parts */
+  parts?: PromptPart[];
+}
+
 export interface WorkspaceInfo {
   id?: string;
   name?: string;
@@ -101,6 +106,8 @@ export interface BackendDriver {
   stop(): void;
   createSession(opts?: { title?: string; directory?: string }): Promise<{ casfId: string; nativeId: string }>;
   prompt(nativeId: string, parts: PromptPart[], opts?: PromptOpts): Promise<void>;
+  /** run one of the backend's commands; resolves once it has started */
+  command?(nativeId: string, name: string, args: string, opts?: CommandOpts): Promise<void>;
   abort(nativeId: string, directory?: string): Promise<void>;
   listModels(): Promise<ModelChoice[]>;
   listAgents(): Promise<{ name: string; mode?: string }[]>;

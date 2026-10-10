@@ -131,6 +131,21 @@ function assistantFailure(error: unknown): string | undefined {
 // Deltas arrive per token; a reader needs about twenty frames a second.
 export const STREAM_SNAPSHOT_MS = 50;
 
+/** How long a command may take to fail before it counts as started. */
+export const COMMAND_START_MS = 1_500;
+
+export class UnknownCommandError extends Error {
+  constructor(name: string) {
+    super(`unknown command: /${name}`);
+  }
+}
+
+function errorMessage(e: unknown): string {
+  const data = (e as { data?: { message?: unknown } })?.data;
+  if (data && typeof data.message === "string") return data.message;
+  return typeof e === "string" ? e : JSON.stringify(e);
+}
+
 /** Bump when the mapping changes; stored sessions mapped by an older version are rebuilt. */
 export const OPENCODE_MAPPER_VERSION = "opencode-3";
 
@@ -1069,6 +1084,18 @@ export async function connectOpencode(opts: {
       directory?: string;
     },
   ) => Promise<void>;
+  command: (
+    sessionID: string,
+    c: {
+      command: string;
+      arguments: string;
+      agent?: string;
+      model?: { providerID: string; modelID: string };
+      variant?: string;
+      directory?: string;
+      parts?: FilePartInput[];
+    },
+  ) => Promise<void>;
   listModels: () => Promise<
     { providerID: string; modelID: string; name: string; variants: string[]; context?: number }[]
   >;
@@ -1318,6 +1345,39 @@ export async function connectOpencode(opts: {
         ...(promptOpts?.variant ? ({ variant: promptOpts.variant } as object) : {}),
         parts,
       });
+    },
+    async command(sessionID, c) {
+      const directory = c.directory ?? opts.directory;
+      const listed = await client.command.list({ directory });
+      if (!(listed.data ?? []).some((x) => x.name === c.command)) throw new UnknownCommandError(c.command);
+      const run = client.session.command({
+        sessionID,
+        directory,
+        command: c.command,
+        arguments: c.arguments,
+        agent: c.agent,
+        model: c.model ? `${c.model.providerID}/${c.model.modelID}` : undefined,
+        variant: c.variant,
+        parts: c.parts,
+      });
+      // OpenCode answers when the whole run is done, and the run goes on if
+      // nobody waits; a command that fails to start fails at once.
+      const early = await Promise.race([
+        run.then(
+          (r) => ({ r }),
+          (thrown: unknown) => ({ thrown }),
+        ),
+        Bun.sleep(COMMAND_START_MS).then(() => undefined),
+      ]);
+      if (early === undefined) {
+        const report = (err: unknown) => {
+          if (!abort.signal.aborted) console.error(`opencode command /${c.command} failed:`, err);
+        };
+        void run.then((r) => r.error && report(r.error), report);
+        return;
+      }
+      if ("thrown" in early) throw early.thrown;
+      if (early.r.error) throw new Error(errorMessage(early.r.error));
     },
     async listModels() {
       const r = await client.provider.list();

@@ -10,6 +10,19 @@ const png = "data:image/png;base64,iVBORw0KGgo=";
 describe("the composer through strata", () => {
   const upstream = fakeOpencode({
     "/session/ses_x/prompt_async": () => new Response(null, { status: 204 }),
+    "/command": () =>
+      Response.json([
+        { name: "init", template: "x", hints: [] },
+        { name: "slow", template: "x", hints: [] },
+        { name: "broken", template: "x", hints: [] },
+      ]),
+    "/session/ses_x/command": async (_url, req) => {
+      const { command } = (await req.json()) as { command: string };
+      if (command === "broken") return Response.json({ name: "UnknownError", data: { message: "boom" } }, { status: 500 });
+      // a command answers when the whole run is done
+      if (command === "slow") await Bun.sleep(60_000);
+      return Response.json({ info: { id: "msg_1", role: "assistant" }, parts: [] });
+    },
   });
   let svc: ReturnType<typeof startService>;
   let base = "";
@@ -91,6 +104,45 @@ describe("the composer through strata", () => {
     expect(((await res.json()) as { error: string }).error).toMatch(/workspace/);
     expect(upstream.seen.length).toBe(before);
   });
+
+  test("a command runs with its arguments, agent, model and files", async () => {
+    const res = await post(`${session}/command`, {
+      command: "init",
+      arguments: "be brief",
+      agent: "build",
+      model: { providerID: "anthropic", modelID: "claude" },
+      parts: [{ type: "file_ref", path: "README.md" }],
+    });
+    expect(res.status).toBe(200);
+    const body = JSON.parse(upstream.seen.filter((s) => s.path === "/session/ses_x/command").at(-1)!.body);
+    expect(body).toMatchObject({
+      command: "init",
+      arguments: "be brief",
+      agent: "build",
+      model: "anthropic/claude",
+      parts: [{ type: "file", filename: "README.md", url: pathToFileURL(resolve("/repo/x", "README.md")).href }],
+    });
+  });
+
+  test("a long command is handed over without waiting for the reply", async () => {
+    const t0 = Date.now();
+    const res = await post(`${session}/command`, { command: "slow", arguments: "" });
+    expect(res.status).toBe(200);
+    expect(Date.now() - t0).toBeLessThan(5_000);
+  });
+
+  test("an unknown command is refused before OpenCode, a failing one reports why", async () => {
+    const before = upstream.seen.filter((s) => s.path === "/session/ses_x/command").length;
+    const unknown = await post(`${session}/command`, { command: "nope", arguments: "" });
+    expect(unknown.status).toBe(400);
+    expect(((await unknown.json()) as { error: string }).error).toMatch(/unknown command: \/nope/);
+    expect(upstream.seen.filter((s) => s.path === "/session/ses_x/command").length).toBe(before);
+    const broken = await post(`${session}/command`, { command: "broken", arguments: "" });
+    expect(broken.status).toBe(502);
+    expect(((await broken.json()) as { error: string }).error).toMatch(/boom/);
+    expect((await post(`${session}/command`, { arguments: "x" })).status).toBe(400);
+    expect((await post(`${session}/command`, { command: "init", parts: [{ type: "text", text: "x" }] })).status).toBe(400);
+  });
 });
 
 describe("a session with no workspace", () => {
@@ -119,5 +171,15 @@ describe("a session with no workspace", () => {
     expect(res.status).toBe(400);
     expect(((await res.json()) as { error: string }).error).toBe("session has no workspace to read files from");
     expect(upstream.seen.some((s) => s.path === "/session/ses_y/prompt_async")).toBe(false);
+  });
+
+  test("cannot send a workspace file with a command either", async () => {
+    const res = await post(`/sessions/${encodeURIComponent("opencode:ses_y")}/command`, {
+      command: "init",
+      parts: [{ type: "file_ref", path: "a.ts" }],
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe("session has no workspace to read files from");
+    expect(upstream.seen.some((s) => s.path === "/command" || s.path === "/session/ses_y/command")).toBe(false);
   });
 });

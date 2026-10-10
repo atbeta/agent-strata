@@ -192,6 +192,9 @@ describe("agent-strata service", () => {
     });
     expect(withImage.status).toBe(400);
     expect(((await withImage.json()) as { error: string }).error).toMatch(/files or attachments/);
+    const command = await post(`/sessions/${encodeURIComponent(created.id)}/command`, { command: "init" });
+    expect(command.status).toBe(400);
+    expect(((await command.json()) as { error: string }).error).toMatch(/cannot run commands/);
     expect(await fetch(`${base}/sessions/${encodeURIComponent(created.id)}/capabilities`).then((r) => r.json())).toMatchObject({
       connected: true,
       commands: false,

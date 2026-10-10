@@ -8,7 +8,8 @@ import { openStore, type Store, type EventQuery } from "@agent-strata/store";
 import { projectSession, aggregate, type SessionView } from "@agent-strata/projector";
 import { compareSessions, exportEvents } from "@agent-strata/core";
 import { evaluate, loadPolicy, type Policy } from "@agent-strata/policy";
-import type { BackendDriver, BackendSink, ModelChoice } from "./driver";
+import { UnknownCommandError } from "@agent-strata/adapter-opencode";
+import type { BackendDriver, BackendSink, ModelChoice, PromptPart } from "./driver";
 import { connectOpencodeDriver } from "./opencode-driver";
 import { LiveOverlay } from "./live";
 import { filesKeyOf, ViewCache } from "./views";
@@ -447,7 +448,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       });
     }
 
-    const sessionCmd = path.match(/^\/sessions\/([^/]+)\/(prompt|abort|import|rebuild|rename|archive)$/);
+    const sessionCmd = path.match(/^\/sessions\/([^/]+)\/(prompt|command|abort|import|rebuild|rename|archive)$/);
     if (sessionCmd) {
       const casfId = decodeURIComponent(sessionCmd[1]!);
       const cmd = sessionCmd[2]!;
@@ -523,6 +524,39 @@ export function startService(opts: ServiceOpts = {}): RunningService {
           return json({ ok: true });
         } catch (e) {
           return json({ error: String(e) }, 502);
+        }
+      }
+      if (cmd === "command" && req.method === "POST") {
+        if (!conn.capabilities.commands || !conn.command) return json({ error: "backend cannot run commands" }, 400);
+        const body = (await req.json().catch(() => null)) as {
+          command?: unknown;
+          arguments?: unknown;
+          parts?: unknown;
+          model?: { providerID: string; modelID: string };
+          agent?: string;
+          variant?: string;
+        } | null;
+        if (typeof body?.command !== "string" || !body.command) return json({ error: "command required" }, 400);
+        let parts: PromptPart[] | undefined;
+        if (body.parts !== undefined) {
+          const read = readPromptParts({ parts: body.parts });
+          if (!Array.isArray(read)) return json(read, 400);
+          if (read.some((p) => p.type === "text")) return json({ error: "a command takes its words as arguments" }, 400);
+          if (read.some((p) => p.type === "file_ref") && !(directory ?? conn.directory))
+            return json({ error: "session has no workspace to read files from" }, 400);
+          parts = read;
+        }
+        try {
+          await conn.command(native, body.command, typeof body.arguments === "string" ? body.arguments : "", {
+            parts,
+            model: body.model,
+            agent: body.agent,
+            variant: body.variant,
+            directory,
+          });
+          return json({ ok: true });
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, e instanceof UnknownCommandError ? 400 : 502);
         }
       }
     }

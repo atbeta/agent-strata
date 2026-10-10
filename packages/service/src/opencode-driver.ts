@@ -8,7 +8,7 @@ import {
 import type { Policy } from "@agent-strata/policy";
 import type { BackendDriver } from "./driver";
 import { opencodeExtension } from "./opencode-extension";
-import { toOpencodeParts } from "./opencode-parts";
+import { toOpencodeParts, type OpencodeFilePart } from "./opencode-parts";
 
 const PREFIX = "opencode:";
 
@@ -68,6 +68,20 @@ export async function connectOpencodeDriver(opts: {
     },
     prompt: (nativeId, parts, promptOpts) =>
       conn.prompt(nativeId, toOpencodeParts(parts, promptOpts?.directory ?? opts.directory), promptOpts),
+    command: (nativeId, name, args, c) =>
+      conn.command(nativeId, {
+        command: name,
+        arguments: args,
+        agent: c?.agent,
+        model: c?.model,
+        variant: c?.variant,
+        directory: c?.directory ?? opts.directory,
+        parts: c?.parts
+          ? toOpencodeParts(c.parts, c.directory ?? opts.directory).filter(
+              (p): p is OpencodeFilePart => p.type === "file",
+            )
+          : undefined,
+      }),
     abort: (nativeId, directory) => conn.abort(nativeId, directory),
     listModels: () => conn.listModels(),
     listAgents: () => conn.listAgents(),
