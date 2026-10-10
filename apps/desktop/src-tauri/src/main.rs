@@ -9,9 +9,10 @@
 //
 // Spawns the strata service next to the webview and kills it when the app
 // exits. A release build uses the bundled sidecar. `tauri dev` still runs
-// the TypeScript entry with bun. `opencode serve` is started only when
-// STRATA_OPENCODE_EMBED=1; otherwise the service attaches to
-// STRATA_OPENCODE_URL if that is set, or the UI connects later.
+// the TypeScript entry with bun. Embedded `opencode serve` is supervised
+// only when this shell owns the service and the mode is embed; otherwise
+// the service attaches to a pre-set STRATA_OPENCODE_URL, or the UI
+// connects later.
 
 mod embed;
 
@@ -20,7 +21,14 @@ use std::io::Write;
 use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+
+use embed::{
+    child_env, health_ok, plan, read_mode, resolve_mode, serve_args, service_env, supervise,
+    write_status, OpencodeMode, OpencodeState, Spawned,
+};
 
 use tauri::Manager;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
@@ -31,11 +39,22 @@ enum Proc {
     Bundled(CommandChild),
 }
 
-struct Sidecars(Vec<Proc>);
+struct Sidecars {
+    children: Vec<Proc>,
+    shutdown: Arc<AtomicBool>,
+    opencode: Arc<Mutex<Option<Child>>>,
+}
 
 impl Drop for Sidecars {
     fn drop(&mut self) {
-        for proc in self.0.drain(..) {
+        self.shutdown.store(true, Ordering::SeqCst);
+        if let Ok(mut slot) = self.opencode.lock() {
+            if let Some(mut child) = slot.take() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+        for proc in self.children.drain(..) {
             match proc {
                 Proc::Std(mut child) => {
                     let _ = child.kill();
@@ -208,12 +227,18 @@ fn spawn_bundled(
 
 impl Sidecars {
     fn start(app: &tauri::AppHandle) -> Self {
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let opencode = Arc::new(Mutex::new(None));
         let mut children = Vec::new();
         let data = data_dir();
         let log_path = data.join("service.log");
         let Some(log) = open_log(&log_path) else {
             eprintln!("agent-strata: could not open {}", log_path.display());
-            return Sidecars(children);
+            return Sidecars {
+                children,
+                shutdown,
+                opencode,
+            };
         };
         if let Ok(mut stamp) = log.try_clone() {
             let _ = writeln!(stamp, "\n--- agent-strata shell starting ---");
@@ -233,56 +258,182 @@ impl Sidecars {
             .filter(|v| !v.is_empty())
             .unwrap_or_else(|| data.join("policy.json").to_string_lossy().into_owned());
 
+        let env_embed = std::env::var("STRATA_OPENCODE_EMBED").ok();
+        let file_mode = match read_mode(&data.join("desktop.json")) {
+            OpencodeMode::External => "external",
+            OpencodeMode::Embed => "embed",
+        };
+        let mode = resolve_mode(env_embed.as_deref(), Some(file_mode));
+
+        let mut extras: Vec<(String, String)> = Vec::new();
+
+        if port_open(port) {
+            eprintln!(
+                "agent-strata: port {port} is already open, leaving the existing service in place"
+            );
+            return Sidecars {
+                children,
+                shutdown,
+                opencode,
+            };
+        }
+
+        let status_path = data.join("opencode-status.json");
+        match mode {
+            OpencodeMode::External => {
+                let _ = write_status(&status_path, mode, OpencodeState::External, None);
+                for key in [
+                    "STRATA_OPENCODE_URL",
+                    "STRATA_OPENCODE_USERNAME",
+                    "STRATA_OPENCODE_PASSWORD",
+                ] {
+                    if let Ok(value) = std::env::var(key) {
+                        if !value.is_empty() {
+                            extras.push((key.to_string(), value));
+                        }
+                    }
+                }
+            }
+            OpencodeMode::Embed => {
+                if let Some(bin) = which("opencode") {
+                    match plan(OpencodeMode::Embed) {
+                        Ok(planned) => {
+                            let supervise_log =
+                                log.try_clone().ok().or_else(|| open_log(&log_path));
+                            if let Some(supervise_log) = supervise_log {
+                                extras.extend(service_env(&planned));
+                                let home = home_dir();
+                                let shutdown_flag = shutdown.clone();
+                                let opencode_slot = opencode.clone();
+                                let exited = Arc::new(AtomicBool::new(false));
+                                std::thread::spawn(move || {
+                                    let wait_shutdown = shutdown_flag.clone();
+                                    let wait_slot = opencode_slot.clone();
+                                    let wait_exited = exited.clone();
+                                    supervise(
+                                        planned,
+                                        &status_path,
+                                        {
+                                            let shutdown_flag = shutdown_flag.clone();
+                                            let opencode_slot = opencode_slot.clone();
+                                            let exited = exited.clone();
+                                            move |p| {
+                                                if shutdown_flag.load(Ordering::SeqCst) {
+                                                    return Err(std::io::Error::new(
+                                                        std::io::ErrorKind::Interrupted,
+                                                        "shutdown",
+                                                    ));
+                                                }
+                                                let args = serve_args(p.port);
+                                                let owned = child_env(p);
+                                                let env_refs: Vec<(&str, String)> = owned
+                                                    .iter()
+                                                    .map(|(k, v)| (k.as_str(), v.clone()))
+                                                    .collect();
+                                                let mut child = spawn(
+                                                    &bin,
+                                                    &args,
+                                                    &home,
+                                                    &env_refs,
+                                                    &supervise_log,
+                                                )
+                                                .ok_or_else(|| {
+                                                    std::io::Error::new(
+                                                        std::io::ErrorKind::Other,
+                                                        "spawn opencode failed",
+                                                    )
+                                                })?;
+                                                let mut slot = opencode_slot.lock().map_err(|_| {
+                                                    std::io::Error::new(
+                                                        std::io::ErrorKind::Other,
+                                                        "opencode mutex poisoned",
+                                                    )
+                                                })?;
+                                                if shutdown_flag.load(Ordering::SeqCst) {
+                                                    let _ = child.kill();
+                                                    let _ = child.wait();
+                                                    return Err(std::io::Error::new(
+                                                        std::io::ErrorKind::Interrupted,
+                                                        "shutdown",
+                                                    ));
+                                                }
+                                                if let Some(mut prev) = slot.take() {
+                                                    let _ = prev.kill();
+                                                    let _ = prev.wait();
+                                                }
+                                                *slot = Some(child);
+                                                drop(slot);
+                                                exited.store(false, Ordering::SeqCst);
+                                                let kill_slot = opencode_slot.clone();
+                                                Ok(Spawned {
+                                                    exited: exited.clone(),
+                                                    kill: Box::new(move || {
+                                                        if let Ok(mut slot) = kill_slot.lock() {
+                                                            if let Some(mut child) = slot.take() {
+                                                                let _ = child.kill();
+                                                                let _ = child.wait();
+                                                            }
+                                                        }
+                                                    }),
+                                                })
+                                            }
+                                        },
+                                        |p| health_ok(&p.url, &p.username, &p.password),
+                                        move |d| {
+                                            let start = Instant::now();
+                                            while start.elapsed() < d {
+                                                if wait_shutdown.load(Ordering::SeqCst) {
+                                                    return;
+                                                }
+                                                if let Ok(mut guard) = wait_slot.lock() {
+                                                    if let Some(child) = guard.as_mut() {
+                                                        if let Ok(Some(_)) = child.try_wait() {
+                                                            wait_exited
+                                                                .store(true, Ordering::SeqCst);
+                                                        }
+                                                    }
+                                                }
+                                                let remaining = d.saturating_sub(start.elapsed());
+                                                if remaining.is_zero() {
+                                                    break;
+                                                }
+                                                std::thread::sleep(
+                                                    remaining.min(Duration::from_millis(50)),
+                                                );
+                                            }
+                                        },
+                                        shutdown_flag,
+                                    );
+                                });
+                            } else {
+                                eprintln!(
+                                    "agent-strata: could not open opencode log at {}",
+                                    log_path.display()
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("agent-strata: could not plan embedded opencode: {e}");
+                        }
+                    }
+                } else {
+                    let _ = write_status(&status_path, mode, OpencodeState::Missing, None);
+                }
+            }
+        }
+
         let mut envs: Vec<(&str, String)> = vec![
             ("STRATA_DB", db),
             ("STRATA_PORT", port.to_string()),
             ("STRATA_POLICY", policy),
         ];
-        if std::env::var("STRATA_OPENCODE_EMBED").as_deref() == Ok("1") {
-            envs.push(("STRATA_OPENCODE_URL", "http://127.0.0.1:4096".into()));
-        } else if let Ok(url) = std::env::var("STRATA_OPENCODE_URL") {
-            if !url.is_empty() {
-                envs.push(("STRATA_OPENCODE_URL", url));
-            }
-        }
-        for key in ["STRATA_OPENCODE_USERNAME", "STRATA_OPENCODE_PASSWORD"] {
-            if let Ok(value) = std::env::var(key) {
-                if !value.is_empty() {
-                    envs.push((key, value));
-                }
-            }
+        for (key, value) in &extras {
+            envs.push((key.as_str(), value.clone()));
         }
 
         let root = repo_root();
-        let embed = std::env::var("STRATA_OPENCODE_EMBED").as_deref() == Ok("1");
-        if embed && !port_open(4096) {
-            if let Some(opencode) = which("opencode") {
-                if let Some(child) = spawn(
-                    &opencode,
-                    &[
-                        "serve".into(),
-                        "--hostname".into(),
-                        "127.0.0.1".into(),
-                        "--port".into(),
-                        "4096".into(),
-                    ],
-                    &root,
-                    &[],
-                    &log,
-                ) {
-                    children.push(Proc::Std(child));
-                }
-            } else {
-                eprintln!("agent-strata: opencode not found on PATH");
-            }
-        }
-
         let service = root.join("packages/service/src/index.ts");
-        if port_open(port) {
-            eprintln!(
-                "agent-strata: port {port} is already open, leaving the existing service in place"
-            );
-        } else if !cfg!(debug_assertions) {
+        if !cfg!(debug_assertions) {
             if let Some(child) = spawn_bundled(app, &envs, &data, &log_path) {
                 children.push(Proc::Bundled(child));
                 if !wait_port(port, Duration::from_secs(8)) {
@@ -317,7 +468,11 @@ impl Sidecars {
             eprintln!("agent-strata: bun not found on PATH");
         }
 
-        Sidecars(children)
+        Sidecars {
+            children,
+            shutdown,
+            opencode,
+        }
     }
 }
 
