@@ -16,6 +16,7 @@ import type { EventInput } from "@agent-strata/schema";
 import { connectAcpDriver } from "./acp-driver";
 import { agentNameOf, connectionMemory, endpointOf, type ConnectBody } from "./connections";
 import { extensionRoute } from "./extension-route";
+import { readPromptParts } from "./prompt-parts";
 import { refused, shellCors } from "./shell-origin";
 import { SessionClaims } from "./identity";
 
@@ -425,6 +426,27 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       return json({ id: created.casfId, native_id: created.nativeId });
     }
 
+    const capsMatch = path.match(/^\/sessions\/([^/]+)\/capabilities$/);
+    if (capsMatch && req.method === "GET") {
+      let casfId: string;
+      try {
+        casfId = decodeURIComponent(capsMatch[1]!);
+      } catch {
+        return json({ error: "not found" }, 404);
+      }
+      const conn = driverFor(casfId);
+      if (!conn?.nativeId(casfId)) return json({ connected: false });
+      const c = conn.capabilities;
+      return json({
+        connected: true,
+        prompt: c.prompt,
+        abort: c.abort,
+        commands: c.commands === true,
+        attachments: c.attachments === true,
+        ...(conn.extension ? { extension: conn.extension.kind } : {}),
+      });
+    }
+
     const sessionCmd = path.match(/^\/sessions\/([^/]+)\/(prompt|abort|import|rebuild|rename|archive)$/);
     if (sessionCmd) {
       const casfId = decodeURIComponent(sessionCmd[1]!);
@@ -479,17 +501,21 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       }
       if (cmd === "prompt" && req.method === "POST") {
         const body = (await req.json().catch(() => null)) as {
-          text?: string;
+          parts?: unknown;
+          text?: unknown;
           model?: { providerID: string; modelID: string };
           agent?: string;
           variant?: string;
         } | null;
-        if (!body?.text) return json({ error: "text required" }, 400);
+        const parts = readPromptParts(body);
+        if (!Array.isArray(parts)) return json(parts, 400);
+        if (!conn.capabilities.attachments && parts.some((p) => p.type !== "text"))
+          return json({ error: "backend cannot take attachments" }, 400);
         try {
-          await conn.prompt(native, body.text, {
-            model: body.model,
-            agent: body.agent,
-            variant: body.variant,
+          await conn.prompt(native, parts, {
+            model: body?.model,
+            agent: body?.agent,
+            variant: body?.variant,
             directory,
           });
           return json({ ok: true });

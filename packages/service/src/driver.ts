@@ -25,6 +25,17 @@ export interface ModelChoice {
   context?: number;
 }
 
+/** One piece of a prompt. Paths are relative to the session's workspace. */
+export type PromptPart =
+  | { type: "text"; text: string }
+  | {
+      type: "file_ref";
+      path: string;
+      /** where the `@path` that picked it sits in the text part */
+      mention?: { start: number; end: number };
+    }
+  | { type: "attachment"; mime: string; /** a data: URL */ url: string; filename?: string };
+
 export interface PromptOpts {
   model?: { providerID: string; modelID: string };
   agent?: string;
@@ -48,6 +59,10 @@ export interface BackendCapabilities {
   import: boolean;
   /** rename, archive, delete */
   manage: boolean;
+  /** run the backend's own commands (`/init`, …) */
+  commands?: boolean;
+  /** file and attachment parts in a prompt; without it only text goes through */
+  attachments?: boolean;
 }
 
 /**
@@ -85,7 +100,7 @@ export interface BackendDriver {
   extension?: BackendExtension;
   stop(): void;
   createSession(opts?: { title?: string; directory?: string }): Promise<{ casfId: string; nativeId: string }>;
-  prompt(nativeId: string, text: string, opts?: PromptOpts): Promise<void>;
+  prompt(nativeId: string, parts: PromptPart[], opts?: PromptOpts): Promise<void>;
   abort(nativeId: string, directory?: string): Promise<void>;
   listModels(): Promise<ModelChoice[]>;
   listAgents(): Promise<{ name: string; mode?: string }[]>;

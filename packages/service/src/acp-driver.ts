@@ -51,7 +51,8 @@ export async function connectAcpDriver(opts: {
       const casfId = await agent.newSession(sess?.directory ?? opts.cwd ?? process.cwd());
       return { casfId, nativeId: casfId.slice(prefix.length) };
     },
-    async prompt(nativeId, text) {
+    async prompt(nativeId, parts) {
+      const text = parts.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("\n\n");
       const casfId = prefix + nativeId;
       if (!agent.recorder.sessionByCasf(casfId)) {
         throw new Error("this ACP session belongs to an earlier run of the agent and cannot be continued");

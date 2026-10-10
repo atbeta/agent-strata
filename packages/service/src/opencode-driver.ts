@@ -8,6 +8,7 @@ import {
 import type { Policy } from "@agent-strata/policy";
 import type { BackendDriver } from "./driver";
 import { opencodeExtension } from "./opencode-extension";
+import { toOpencodeParts } from "./opencode-parts";
 
 const PREFIX = "opencode:";
 
@@ -51,6 +52,8 @@ export async function connectOpencodeDriver(opts: {
       agents: true,
       import: true,
       manage: true,
+      commands: true,
+      attachments: true,
     },
     extension: opencodeExtension({
       baseUrl: opts.baseUrl,
@@ -63,7 +66,8 @@ export async function connectOpencodeDriver(opts: {
       const created = await conn.createSession(sess);
       return { casfId: `${PREFIX}${created.id}`, nativeId: created.id };
     },
-    prompt: (nativeId, text, promptOpts) => conn.prompt(nativeId, text, promptOpts),
+    prompt: (nativeId, parts, promptOpts) =>
+      conn.prompt(nativeId, toOpencodeParts(parts, promptOpts?.directory ?? opts.directory), promptOpts),
     abort: (nativeId, directory) => conn.abort(nativeId, directory),
     listModels: () => conn.listModels(),
     listAgents: () => conn.listAgents(),

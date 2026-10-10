@@ -187,6 +187,11 @@ describe("agent-strata service", () => {
     const created = await post("/sessions", { connection_id: connected.id, directory: "/tmp" }).then((r) => r.json());
     expect(created.id).toStartWith("acp:mock:");
     expect((await post(`/sessions/${encodeURIComponent(created.id)}/prompt`, { text: "diff" })).status).toBe(200);
+    const withImage = await post(`/sessions/${encodeURIComponent(created.id)}/prompt`, {
+      parts: [{ type: "text", text: "x" }, { type: "attachment", mime: "image/png", url: "data:image/png;base64,AA==" }],
+    });
+    expect(withImage.status).toBe(400);
+    expect(((await withImage.json()) as { error: string }).error).toMatch(/attachments/);
 
     const view = () => fetch(`${base}/sessions/${encodeURIComponent(created.id)}/view`).then((r) => r.json());
     let v = await view();

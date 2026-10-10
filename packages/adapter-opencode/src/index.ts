@@ -1051,7 +1051,10 @@ export async function connectOpencode(opts: {
   createSession: (opts?: { title?: string; directory?: string }) => Promise<{ id: string }>;
   prompt: (
     sessionID: string,
-    text: string,
+    parts: Array<
+      | { type: "text"; text: string }
+      | { type: "file"; mime: string; url: string; filename?: string; source?: object }
+    >,
     opts?: {
       model?: { providerID: string; modelID: string };
       agent?: string;
@@ -1298,7 +1301,7 @@ export async function connectOpencode(opts: {
       if (!r.data) throw new Error("session.create returned no data");
       return { id: r.data.id };
     },
-    async prompt(sessionID: string, text: string, promptOpts?) {
+    async prompt(sessionID, parts, promptOpts?) {
       await client.session.promptAsync({
         sessionID,
         directory: promptOpts?.directory ?? opts.directory,
@@ -1306,7 +1309,7 @@ export async function connectOpencode(opts: {
         agent: promptOpts?.agent,
         // server schema accepts `variant` (reasoning effort); SDK types lag
         ...(promptOpts?.variant ? ({ variant: promptOpts.variant } as object) : {}),
-        parts: [{ type: "text", text }],
+        parts: parts as never,
       });
     },
     async listModels() {
