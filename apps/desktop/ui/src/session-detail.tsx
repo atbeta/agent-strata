@@ -589,40 +589,55 @@ const turnIndexOf = (h: SearchHit): number => {
 
   // A durable event during a reply only moves the last turns, and the whole
   // view of a long session is megabytes. A rebuild, a replay, or a tail that no
-  // longer lines up goes back to the full view.
+  // longer lines up goes back to the full view. Every view load goes through
+  // here one at a time: mutate() does not cancel a load in flight, so a full
+  // view landing after a newer tail would roll the transcript back and leave
+  // the files list behind the key the server thinks we hold.
   let filesKey: string | undefined;
-  let tailing = false;
-  let tailAgain = false;
-  const refreshTail = async () => {
+  let refreshing = false;
+  let nextRefresh: "tail" | "full" | undefined;
+  const refreshView = async (full = false): Promise<void> => {
     if (replayPos() !== null) return;
-    if (tailing) {
-      tailAgain = true;
+    if (refreshing) {
+      if (full || !nextRefresh) nextRefresh = full ? "full" : "tail";
       return;
     }
-    tailing = true;
+    refreshing = true;
+    let wantFull = full;
     try {
-      do {
-        tailAgain = false;
-        const current = settled(view);
-        if (!current) {
-          await refetch();
-          continue;
-        }
-        const tail = await readViewTail(props.id, TAIL_TURNS, filesKey);
-        if (replayPos() !== null) return;
-        const merged = mergeViewTail(settled(view) ?? current, tail);
-        if (!merged) {
+      for (;;) {
+        const current = view.loading ? undefined : settled(view);
+        if (wantFull || !current) {
           filesKey = undefined;
           await refetch();
-          continue;
+        } else {
+          const tail = await readViewTail(props.id, TAIL_TURNS, filesKey);
+          if (replayPos() !== null) return;
+          const merged = view.loading ? undefined : mergeViewTail(settled(view) ?? current, tail);
+          if (!merged) {
+            filesKey = undefined;
+            if (!view.loading) {
+              wantFull = true;
+              continue;
+            }
+          } else {
+            filesKey = tail.files_key;
+            mutate(merged);
+          }
         }
-        filesKey = tail.files_key;
-        mutate(merged);
-      } while (tailAgain);
+        if (!nextRefresh) break;
+        wantFull = nextRefresh === "full";
+        nextRefresh = undefined;
+      }
     } catch {
       // the next event or the head poll asks again
     } finally {
-      tailing = false;
+      refreshing = false;
+      if (nextRefresh) {
+        const again = nextRefresh === "full";
+        nextRefresh = undefined;
+        queueMicrotask(() => void refreshView(again));
+      }
     }
   };
 
@@ -633,7 +648,7 @@ const turnIndexOf = (h: SearchHit): number => {
     void importSession(props.id)
       .catch(() => {})
       .finally(() => {
-        void Promise.resolve(refetch()).finally(() => setBooting(false));
+        void refreshView(true).finally(() => setBooting(false));
         void refetchSeq();
       });
     const onConns = () => refetchOptions();
@@ -668,7 +683,7 @@ const turnIndexOf = (h: SearchHit): number => {
       void readHead(props.id)
         .then((seq) => {
           if (seq === maxSeq()) return;
-          void refreshTail();
+          void refreshView();
           void refetchSeq();
         })
         .catch(() => {});
@@ -697,10 +712,8 @@ const turnIndexOf = (h: SearchHit): number => {
             if (evt.session_id === props.id && evt.type === "session.rebuilt") rebuilt = true;
             clearTimeout(timer);
             timer = setTimeout(() => {
-              if (rebuilt) {
-                rebuilt = false;
-                refetch();
-              } else void refreshTail();
+              void refreshView(rebuilt);
+              rebuilt = false;
               refetchAsks();
               refetchQuestions();
               refetchSeq();
@@ -1156,7 +1169,7 @@ const turnIndexOf = (h: SearchHit): number => {
                           q={q}
                           onDone={() => {
                             refetchQuestions();
-                            refetch();
+                            void refreshView();
                           }}
                         />
                       )}

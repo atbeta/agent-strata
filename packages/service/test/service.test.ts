@@ -79,6 +79,8 @@ describe("agent-strata service", () => {
     const again = await view(`?tail=1&files_key=${encodeURIComponent(tail.files_key)}`);
     expect(again.files_changed).toBeUndefined();
     expect(again.turns.map((t: { turn_id: string }) => t.turn_id)).toEqual(["t2"]);
+    expect((await view("?tail=1&files_key=0:0")).files_changed).toEqual(full.files_changed);
+    expect((await view("?tail=0")).turns).toHaveLength(1);
 
     const all = await view("?tail=10");
     expect(all.turn_offset).toBe(0);
