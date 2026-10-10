@@ -252,6 +252,11 @@ export type PromptPart =
   | { type: "file_ref"; path: string; mention?: { start: number; end: number } }
   | { type: "attachment"; mime: string; url: string; filename?: string };
 
+/** A command takes its words as arguments, so its files cannot point into any text. */
+export type CommandPart =
+  | Extract<PromptPart, { type: "attachment" }>
+  | { type: "file_ref"; path: string; mention?: never };
+
 export interface SessionCapabilities {
   connected: boolean;
   prompt?: boolean;
@@ -363,7 +368,7 @@ export async function sendPrompt(sessionId: string, parts: PromptPart[], choice:
 
 export async function runCommand(
   sessionId: string,
-  command: { name: string; args: string; parts?: PromptPart[] },
+  command: { name: string; args: string; parts?: CommandPart[] },
   choice: PromptChoice,
 ): Promise<void> {
   await throwOnError(

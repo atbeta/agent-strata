@@ -3,6 +3,7 @@ import {
   attachmentProblem,
   commandOf,
   insertPick,
+  MAX_ATTACHMENTS,
   matchCommands,
   nextAgent,
   promptParts,
@@ -16,6 +17,13 @@ describe("what the caret is typing", () => {
     expect(triggerAt("@", 1)).toEqual({ kind: "file", query: "", start: 0, end: 1 });
     expect(triggerAt("mail me@x.com", 13)).toBeUndefined();
     expect(triggerAt("@a b", 4)).toBeUndefined();
+  });
+
+  test("an @ after punctuation, CJK or a line break opens files too", () => {
+    expect(triggerAt("(@sr", 4)).toEqual({ kind: "file", query: "sr", start: 1, end: 4 });
+    expect(triggerAt("请看@sr", 5)).toEqual({ kind: "file", query: "sr", start: 2, end: 5 });
+    expect(triggerAt("line\n@sr", 8)).toEqual({ kind: "file", query: "sr", start: 5, end: 8 });
+    expect(triggerAt("@node_modules/@ty", 17)).toEqual({ kind: "file", query: "node_modules/@ty", start: 0, end: 17 });
   });
 
   test("a / opens commands only as the draft's first word", () => {
@@ -40,6 +48,17 @@ describe("taking a suggestion", () => {
       caret: 6,
     });
   });
+
+  test("keeps a line break or wide space after the word", () => {
+    expect(insertPick("@RE\nnext line", { kind: "file", query: "RE", start: 0, end: 3 }, "README.md")).toEqual({
+      text: "@README.md \nnext line",
+      caret: 11,
+    });
+    expect(insertPick("@RE\u3000x", { kind: "file", query: "RE", start: 0, end: 3 }, "README.md")).toEqual({
+      text: "@README.md \u3000x",
+      caret: 11,
+    });
+  });
 });
 
 describe("what goes out", () => {
@@ -52,7 +71,21 @@ describe("what goes out", () => {
       { type: "attachment", mime: "image/png", url: "data:image/png;base64,AA==", filename: "s.png" },
     ]);
     expect(promptParts("@a.tsx", ["a.ts"], [])).toEqual([{ type: "text", text: "@a.tsx" }]);
-    expect(promptParts("", [], [shot])).toHaveLength(1);
+    expect(promptParts("", [], [shot])).toEqual([
+      { type: "attachment", mime: "image/png", url: "data:image/png;base64,AA==", filename: "s.png" },
+    ]);
+  });
+
+  test("a mention ends at punctuation or CJK and starts after anything but an address", () => {
+    const ref = (draft: string) => promptParts(draft, ["a.ts"], []).filter((p) => p.type === "file_ref");
+    expect(ref("look at @a.ts, ok")).toEqual([{ type: "file_ref", path: "a.ts", mention: { start: 8, end: 13 } }]);
+    expect(ref("check @a.ts.")).toEqual([{ type: "file_ref", path: "a.ts", mention: { start: 6, end: 11 } }]);
+    expect(ref("(@a.ts)")).toEqual([{ type: "file_ref", path: "a.ts", mention: { start: 1, end: 6 } }]);
+    expect(ref("@a.ts的内容")).toEqual([{ type: "file_ref", path: "a.ts", mention: { start: 0, end: 5 } }]);
+    expect(ref("请看@a.ts")).toEqual([{ type: "file_ref", path: "a.ts", mention: { start: 2, end: 7 } }]);
+    expect(ref("see @a.ts。")).toEqual([{ type: "file_ref", path: "a.ts", mention: { start: 4, end: 9 } }]);
+    expect(ref("@a.ts.bak")).toEqual([]);
+    expect(ref("x@a.ts")).toEqual([]);
   });
 
   test("a draft naming a listed command runs it with the rest as arguments", () => {
@@ -85,11 +118,23 @@ describe("attachments", () => {
     expect(attachmentProblem({ type: "image/png", size: 10 })).toBeUndefined();
     expect(attachmentProblem({ type: "application/pdf", size: 10 })).toBeUndefined();
     expect(attachmentProblem({ type: "text/plain", size: 10 })).toBe("type");
+    expect(attachmentProblem({ type: "image/png", size: 5 * 1024 * 1024 })).toBeUndefined();
     expect(attachmentProblem({ type: "image/png", size: 5 * 1024 * 1024 + 1 })).toBe("size");
+    expect(MAX_ATTACHMENTS).toBe(10);
   });
 
   test("a file becomes a data URL of its own type", async () => {
     const a = await toAttachment(new File([new Uint8Array([1, 2, 3])], "x.png", { type: "image/png" }), "k");
     expect(a).toEqual({ id: "k", name: "x.png", mime: "image/png", url: "data:image/png;base64,AQID" });
+  });
+
+  test("a file larger than one chunk encodes whole", async () => {
+    const bytes = new Uint8Array(0x8000 + 1).map((_, i) => (i * 7) % 256);
+    const a = await toAttachment(new File([bytes], "big.pdf", { type: "application/pdf" }), "k");
+    expect(a.url).toBe(`data:application/pdf;base64,${Buffer.from(bytes).toString("base64")}`);
+  });
+
+  test("a file without a type is refused", async () => {
+    await expect(toAttachment(new File([new Uint8Array([1])], "x"), "k")).rejects.toThrow();
   });
 });

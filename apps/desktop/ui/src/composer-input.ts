@@ -8,19 +8,29 @@ export interface Trigger {
   end: number;
 }
 
+/** An `@` right after one of these is part of an email address, not a mention. */
+const ADDRESS_CHAR = /[A-Za-z0-9._%+-]/;
+const CJK = String.raw`\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}`;
+/** Trailing punctuation is left out of a mention as long as a word boundary follows it. */
+const MENTION_END = new RegExp(String.raw`^[,.;:!?)\]}'"，。；：！？）】」、]*(?:$|\s|[${CJK}])`, "u");
+
+const opensMention = (text: string, at: number) => at === 0 || !ADDRESS_CHAR.test(text[at - 1]!);
+
 export function triggerAt(text: string, caret: number): Trigger | undefined {
   const before = text.slice(0, caret);
   const slash = /^\/(\S*)$/.exec(before);
   if (slash) return { kind: "command", query: slash[1]!, start: 0, end: caret };
-  const at = /(?:^|\s)@(\S*)$/.exec(before);
-  if (at) return { kind: "file", query: at[1]!, start: caret - at[1]!.length - 1, end: caret };
+  const wordStart = caret - /\S*$/.exec(before)![0].length;
+  for (let i = before.indexOf("@", wordStart); i >= 0; i = before.indexOf("@", i + 1)) {
+    if (opensMention(before, i)) return { kind: "file", query: before.slice(i + 1), start: i, end: caret };
+  }
   return undefined;
 }
 
 /** The rest of the word under the caret goes too, so editing a mention mid-word replaces all of it. */
 export function insertPick(text: string, t: Trigger, pick: string): { text: string; caret: number } {
   const token = `${t.kind === "file" ? "@" : "/"}${pick}`;
-  const after = text.slice(t.end).replace(/^\S*/, "").replace(/^\s/, "");
+  const after = text.slice(t.end).replace(/^\S*/, "").replace(/^ /, "");
   return { text: `${text.slice(0, t.start)}${token} ${after}`, caret: t.start + token.length + 1 };
 }
 
@@ -30,7 +40,7 @@ function mentions(text: string, picked: readonly string[]): { path: string; star
     const token = `@${path}`;
     for (let i = text.indexOf(token); i >= 0; i = text.indexOf(token, i + 1)) {
       const end = i + token.length;
-      if ((i === 0 || /\s/.test(text[i - 1]!)) && (end === text.length || /\s/.test(text[end]!))) {
+      if (opensMention(text, i) && MENTION_END.test(text.slice(end))) {
         out.push({ path, start: i, end });
         break;
       }
@@ -78,6 +88,7 @@ export function nextAgent(agents: readonly string[], current: string, step: 1 | 
 export const ATTACHMENT_ACCEPT = "image/png,image/jpeg,image/gif,image/webp,application/pdf";
 const ATTACHMENT_MIMES = new Set(ATTACHMENT_ACCEPT.split(","));
 export const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+export const MAX_ATTACHMENTS = 10;
 
 export function attachmentProblem(file: { type: string; size: number }): "type" | "size" | undefined {
   if (!ATTACHMENT_MIMES.has(file.type)) return "type";
@@ -86,6 +97,7 @@ export function attachmentProblem(file: { type: string; size: number }): "type" 
 }
 
 export async function toAttachment(file: File, id: string): Promise<Attachment> {
+  if (!file.type) throw new Error(`${file.name} has no type`);
   const bytes = new Uint8Array(await file.arrayBuffer());
   let binary = "";
   for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
