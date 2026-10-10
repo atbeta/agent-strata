@@ -15,6 +15,7 @@ import {
   getJson,
   importSession,
   realWorkspace,
+  readViewTail,
   respondPermission,
   respondQuestion,
   searchSession,
@@ -33,7 +34,7 @@ import { Tip } from "./tip";
 import { TraceDrawer, TraceStrip, type TraceBlock } from "./trace";
 import { TurnBlock } from "./transcript";
 import { Virtual, type VirtualApi } from "./virtual";
-import { applyStreamingSnapshot, type StreamingSnapshot } from "./live";
+import { applyStreamingSnapshot, mergeViewTail, type StreamingSnapshot } from "./live";
 import { Picker } from "@/components/ui/picker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
@@ -329,6 +330,9 @@ function SessionInfo(props: {
   );
 }
 
+/** turns a live refresh asks for; a durable event during a reply lands in the last one or two */
+const TAIL_TURNS = 3;
+
 /** Newest sequence number for a session, or 0. Covers (session_id, seq), so this is an index probe. */
 async function readHead(id: string): Promise<number> {
   const r = await getJson<{ events: { seq: number }[] }>(
@@ -583,6 +587,45 @@ const turnIndexOf = (h: SearchHit): number => {
     return last;
   });
 
+  // A durable event during a reply only moves the last turns, and the whole
+  // view of a long session is megabytes. A rebuild, a replay, or a tail that no
+  // longer lines up goes back to the full view.
+  let filesKey: string | undefined;
+  let tailing = false;
+  let tailAgain = false;
+  const refreshTail = async () => {
+    if (replayPos() !== null) return;
+    if (tailing) {
+      tailAgain = true;
+      return;
+    }
+    tailing = true;
+    try {
+      do {
+        tailAgain = false;
+        const current = settled(view);
+        if (!current) {
+          await refetch();
+          continue;
+        }
+        const tail = await readViewTail(props.id, TAIL_TURNS, filesKey);
+        if (replayPos() !== null) return;
+        const merged = mergeViewTail(settled(view) ?? current, tail);
+        if (!merged) {
+          filesKey = undefined;
+          await refetch();
+          continue;
+        }
+        filesKey = tail.files_key;
+        mutate(merged);
+      } while (tailAgain);
+    } catch {
+      // the next event or the head poll asks again
+    } finally {
+      tailing = false;
+    }
+  };
+
   createEffect(() => writeDraft(props.id, draft()));
 
   onMount(() => {
@@ -625,13 +668,14 @@ const turnIndexOf = (h: SearchHit): number => {
       void readHead(props.id)
         .then((seq) => {
           if (seq === maxSeq()) return;
-          void refetch();
+          void refreshTail();
           void refetchSeq();
         })
         .catch(() => {});
     }, 3_000);
     const es = new EventSource(api("/stream"));
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let rebuilt = false;
     es.onmessage = (m) => {
       try {
         const evt = JSON.parse(m.data) as {
@@ -650,9 +694,13 @@ const turnIndexOf = (h: SearchHit): number => {
           setPendingSend(false);
         if (evt.session_id === props.id || evt.type === "permission.requested" || evt.type === "question.asked") {
           if (replayPos() === null) {
+            if (evt.session_id === props.id && evt.type === "session.rebuilt") rebuilt = true;
             clearTimeout(timer);
             timer = setTimeout(() => {
-              refetch();
+              if (rebuilt) {
+                rebuilt = false;
+                refetch();
+              } else void refreshTail();
               refetchAsks();
               refetchQuestions();
               refetchSeq();

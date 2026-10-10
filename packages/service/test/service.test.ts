@@ -55,6 +55,39 @@ describe("agent-strata service", () => {
     svc.stop();
   });
 
+  test("a tail view carries the last turns and leaves out files the reader already has", async () => {
+    const svc = startService({ db: ":memory:", port: 0 });
+    const base = `http://127.0.0.1:${svc.port}`;
+    const sid = "opencode:tail";
+    seed(svc, sid);
+    svc.store.append([
+      ev(sid, "turn.user", { turn_id: "t2", content: [{ type: "text", text: "second" }] }, "2026-01-01T00:00:03Z"),
+      ev(sid, "tool.call", { turn_id: "t2", call_id: "c1", tool: "edit", input: { filePath: "/tmp/x/a.ts" } }, "2026-01-01T00:00:04Z"),
+      ev(sid, "file.changed", { path: "/tmp/x/a.ts", change: "modify", diff: "@@ -1 +1 @@\n-a\n+b\n", call_id: "c1" }, "2026-01-01T00:00:05Z"),
+    ]);
+    const view = (q: string) => fetch(`${base}/sessions/${encodeURIComponent(sid)}/view${q}`).then((r) => r.json());
+
+    const full = await view("");
+    const tail = await view("?tail=1");
+    expect(tail.turns.map((t: { turn_id: string }) => t.turn_id)).toEqual(["t2"]);
+    expect(tail.turn_offset).toBe(1);
+    expect(tail.prev_turn_id).toBe("t1");
+    expect(tail.totals).toEqual(full.totals);
+    expect(tail.files_changed).toEqual(full.files_changed);
+    expect(typeof tail.files_key).toBe("string");
+
+    const again = await view(`?tail=1&files_key=${encodeURIComponent(tail.files_key)}`);
+    expect(again.files_changed).toBeUndefined();
+    expect(again.turns.map((t: { turn_id: string }) => t.turn_id)).toEqual(["t2"]);
+
+    const all = await view("?tail=10");
+    expect(all.turn_offset).toBe(0);
+    expect(all.prev_turn_id).toBeNull();
+    expect(all.turns).toHaveLength(2);
+
+    svc.stop();
+  });
+
   test("a message still being written shows in the view until the finished one lands", async () => {
     const svc = startService({ db: ":memory:", port: 0 });
     const base = `http://127.0.0.1:${svc.port}`;

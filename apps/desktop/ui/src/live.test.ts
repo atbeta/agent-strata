@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { applyStreamingSnapshot, isStreamingSnapshotMessage } from "./live";
-import type { SessionView } from "./api";
+import { applyStreamingSnapshot, isStreamingSnapshotMessage, mergeViewTail } from "./live";
+import type { SessionView, ViewTail } from "./api";
 
 const base = (): SessionView => ({
   session_id: "s",
@@ -50,5 +50,66 @@ describe("streaming snapshots in the reader's view", () => {
     expect(isStreamingSnapshotMessage(JSON.stringify({ type: "turn.assistant", data: { partial: true } }))).toBe(true);
     expect(isStreamingSnapshotMessage(JSON.stringify({ type: "turn.assistant", data: {} }))).toBe(false);
     expect(isStreamingSnapshotMessage("not json")).toBe(false);
+  });
+});
+
+describe("a view's tail laid over the one the reader holds", () => {
+  const held = (): SessionView => {
+    const v = base();
+    v.turns.push({ turn_id: "u2", user: [{ type: "text", text: "next" }], assistant: [], tool_calls: [] });
+    v.files_changed = [
+      { path: "/a", change: "modify", count: 1, additions: 1, deletions: 0, edits: [], unexplained: false },
+    ] as unknown as SessionView["files_changed"];
+    return v;
+  };
+  const tail = (over: Partial<ViewTail> = {}): ViewTail => {
+    const { files_changed: _files, ...rest } = base();
+    return {
+      ...rest,
+      turns: [
+        {
+          turn_id: "u2",
+          user: [{ type: "text", text: "next" }],
+          assistant: [{ content: [{ type: "text", text: "on it" }], msg_id: "a2" }],
+          tool_calls: [],
+        },
+      ],
+      turn_offset: 1,
+      prev_turn_id: "u1",
+      files_key: "1:1",
+      ...over,
+    };
+  };
+
+  test("turns from the offset on are replaced and the ones before are kept", () => {
+    const v = held();
+    const merged = mergeViewTail(v, tail())!;
+    expect(merged.turns.map((t) => t.turn_id)).toEqual(["u1", "u2"]);
+    expect(merged.turns[0]).toBe(v.turns[0]);
+    expect(merged.turns[1]!.assistant[0]!.msg_id).toBe("a2");
+  });
+
+  test("a tail without files keeps the reader's files", () => {
+    const v = held();
+    expect(mergeViewTail(v, tail())!.files_changed).toBe(v.files_changed);
+  });
+
+  test("a tail with files replaces them", () => {
+    expect(mergeViewTail(held(), tail({ files_changed: [] }))!.files_changed).toEqual([]);
+  });
+
+  test("a tail that starts past what the reader holds asks for the full view", () => {
+    expect(mergeViewTail(held(), tail({ turn_offset: 5, prev_turn_id: "u9" }))).toBeUndefined();
+  });
+
+  test("a tail after a turn the reader does not have asks for the full view", () => {
+    expect(mergeViewTail(held(), tail({ prev_turn_id: "other" }))).toBeUndefined();
+  });
+
+  test("the merged view carries none of the tail's bookkeeping", () => {
+    const merged = mergeViewTail(held(), tail()) as unknown as Record<string, unknown>;
+    expect(merged.turn_offset).toBeUndefined();
+    expect(merged.prev_turn_id).toBeUndefined();
+    expect(merged.files_key).toBeUndefined();
   });
 });

@@ -161,6 +161,16 @@ export interface SessionView {
   };
 }
 
+/** The last turns of a session's view, and where they sit in the whole. */
+export interface ViewTail extends Omit<SessionView, "files_changed"> {
+  turn_offset: number;
+  /** the turn just before the tail, so a reader can tell the two still line up */
+  prev_turn_id: string | null;
+  /** names the files list; sending it back leaves an unchanged list out */
+  files_key: string;
+  files_changed?: SessionView["files_changed"];
+}
+
 export interface TurnPair {
   a_turn: { turn_id: string; first_user_text: string | null } | null;
   b_turn: { turn_id: string; first_user_text: string | null } | null;
@@ -268,6 +278,12 @@ export async function getJson<T>(p: string): Promise<T> {
   const res = await fetch(api(p));
   if (!res.ok) throw new Error(t("api.err.service", { status: res.status }));
   return (await res.json()) as T;
+}
+
+export async function readViewTail(id: string, turns: number, filesKey?: string): Promise<ViewTail> {
+  const q = new URLSearchParams({ tail: String(turns) });
+  if (filesKey) q.set("files_key", filesKey);
+  return getJson<ViewTail>(`/sessions/${encodeURIComponent(id)}/view?${q}`);
 }
 
 /** Full-text search inside one session. Backed by the store's FTS index. */

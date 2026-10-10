@@ -53,3 +53,8 @@ export class ViewCache {
     this.entries.delete(sessionId);
   }
 }
+
+/** File changes only ever add records, so the record count names a files list. */
+export function filesKeyOf(view: SessionView): string {
+  return `${view.files_changed.length}:${view.files_changed.reduce((n, f) => n + f.count, 0)}`;
+}

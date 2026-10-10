@@ -1,4 +1,4 @@
-import type { ContentBlock, SessionView } from "./api";
+import type { ContentBlock, SessionView, ViewTail } from "./api";
 
 export interface StreamingSnapshot {
   turn_id: string;
@@ -22,6 +22,18 @@ export function applyStreamingSnapshot(view: SessionView, snap: StreamingSnapsho
   const turns = view.turns.slice();
   turns[ti] = { ...turn, assistant };
   return { ...view, turns };
+}
+
+/** Lay a view's last turns over the one the reader holds; undefined when the two no longer line up. */
+export function mergeViewTail(view: SessionView, tail: ViewTail): SessionView | undefined {
+  const { turn_offset, prev_turn_id, files_key: _key, files_changed, ...rest } = tail;
+  if (turn_offset > view.turns.length) return undefined;
+  if ((view.turns[turn_offset - 1]?.turn_id ?? null) !== prev_turn_id) return undefined;
+  return {
+    ...rest,
+    turns: view.turns.slice(0, turn_offset).concat(tail.turns),
+    files_changed: files_changed ?? view.files_changed,
+  };
 }
 
 export function isStreamingSnapshotMessage(raw: string): boolean {

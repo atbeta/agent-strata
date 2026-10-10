@@ -351,12 +351,24 @@ export function App() {
     const syncTimer = setInterval(pull, 12_000);
     const onFocus = () => pull();
     window.addEventListener("focus", onFocus);
+    let wsStale = false;
     es.onmessage = (m) => {
       if (isStreamingSnapshotMessage(m.data)) return;
+      // The project list costs a round trip to every backend, and only a
+      // session appearing, moving or going away can change it.
+      try {
+        const type = (JSON.parse(m.data) as { type?: string }).type;
+        if (type === "session.started" || type === "session.updated" || type === "session.deleted") wsStale = true;
+      } catch {
+        // heartbeats
+      }
       clearTimeout(timer);
       timer = setTimeout(() => {
         refetch();
-        void refetchWs();
+        if (wsStale) {
+          wsStale = false;
+          void refetchWs();
+        }
       }, 200);
     };
     const onKey = (e: KeyboardEvent) => {

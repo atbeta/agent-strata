@@ -11,7 +11,7 @@ import { evaluate, loadPolicy, type Policy } from "@agent-strata/policy";
 import type { BackendDriver, BackendSink, ModelChoice } from "./driver";
 import { connectOpencodeDriver } from "./opencode-driver";
 import { LiveOverlay } from "./live";
-import { ViewCache } from "./views";
+import { filesKeyOf, ViewCache } from "./views";
 import type { EventInput } from "@agent-strata/schema";
 import { connectAcpDriver } from "./acp-driver";
 import { agentNameOf, connectionMemory, endpointOf, type ConnectBody } from "./connections";
@@ -361,6 +361,22 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       const sessionMatch = path.match(/^\/sessions\/([^/]+)\/view$/);
       if (sessionMatch && req.method === "GET") {
         const sid = decodeURIComponent(sessionMatch[1]!);
+        const tail = url.searchParams.get("tail");
+        if (tail !== null) {
+          const v = sessionView(sid);
+          const n = Math.max(1, Math.floor(Number(tail)) || 1);
+          const offset = Math.max(0, v.turns.length - n);
+          const key = filesKeyOf(v);
+          const { files_changed, ...rest } = v;
+          return json({
+            ...rest,
+            turns: v.turns.slice(offset),
+            turn_offset: offset,
+            prev_turn_id: offset > 0 ? v.turns[offset - 1]!.turn_id : null,
+            files_key: key,
+            ...(url.searchParams.get("files_key") === key ? {} : { files_changed }),
+          });
+        }
         const untilSeq = url.searchParams.get("until_seq");
         if (untilSeq === null) return json(sessionView(sid));
         const n = Number(untilSeq);
