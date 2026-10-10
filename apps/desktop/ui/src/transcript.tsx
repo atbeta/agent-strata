@@ -339,6 +339,9 @@ export function TurnBlock(props: { turn: Turn; /** the agent has been asked but 
             <div class="max-w-3xl">
               <div class="relative">
                 <BlockText blocks={r.message.content} live={r.message.partial} />
+                <Show when={r.message.error}>
+                  <p class="mt-1 text-sm text-destructive">{r.message.error}</p>
+                </Show>
                 <Show when={r.message.partial && r.message.content.some((block) => block.type === "text")}>
                   <span class="ml-0.5 inline-block h-[1em] w-[2px] translate-y-0.5 animate-pulse bg-foreground/70 align-text-bottom" />
                 </Show>

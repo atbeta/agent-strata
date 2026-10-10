@@ -89,6 +89,7 @@ export interface Turn {
     };
     cost_usd?: number;
     latency_ms?: number;
+    error?: string;
   }[];
   tool_calls: ToolCallView[];
 }

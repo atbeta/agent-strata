@@ -1107,3 +1107,24 @@ describe("file changes come from the call that made them", () => {
     expect(out.some((e) => e.type === "file.changed")).toBe(false);
   });
 });
+
+describe("a failed assistant message", () => {
+  test("keeps the backend's error when the message has no parts", () => {
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    const out = m.handle(msgUpdated({
+      id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
+      time: { created: 20, completed: 50 }, providerID: "p", modelID: "m", cost: 0,
+      tokens: { input: 1, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      error: {
+        name: "APIError",
+        data: { message: "Model exo-free has been deprecated.", statusCode: 410, isRetryable: false },
+      },
+    }));
+    expect(out.find((e) => e.type === "turn.assistant")!.data).toMatchObject({
+      content: [],
+      stop_reason: "error",
+      error: "Model exo-free has been deprecated.",
+    });
+  });
+});

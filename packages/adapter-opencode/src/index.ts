@@ -99,12 +99,21 @@ function fileChangeOf(
   return undefined;
 }
 
+/** The sentence a failed assistant message carries. OpenCode puts it on the message, not in a part. */
+function assistantFailure(error: unknown): string | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const data = (error as { data?: { message?: unknown } }).data;
+  if (data && typeof data.message === "string" && data.message.trim()) return data.message;
+  const name = (error as { name?: unknown }).name;
+  return typeof name === "string" && name ? name : undefined;
+}
+
 // how often a mid-generation assistant snapshot is emitted (part updates can
 // fire per-token; the store and SSE fan-out only need periodic snapshots)
 const STREAM_SNAPSHOT_MS = 150;
 
 /** Bump when the mapping changes; stored sessions mapped by an older version are rebuilt. */
-export const OPENCODE_MAPPER_VERSION = "opencode-2";
+export const OPENCODE_MAPPER_VERSION = "opencode-3";
 
 /** The event types an import reproduces from OpenCode's own record of a session. */
 export const OPENCODE_REBUILT_TYPES: EventType[] = [
@@ -502,6 +511,7 @@ export class OpencodeMapper {
           if (info.time.completed !== undefined && !m.emittedAssistant) {
             m.emittedAssistant = true;
             const content = [...m.parts.values()].filter((b) => b.type !== "file_ref");
+            const failure = assistantFailure(info.error);
             const u = info.tokens;
             out.push(
               this.ev(
@@ -521,7 +531,8 @@ export class OpencodeMapper {
                   },
                   cost_usd: info.cost,
                   latency_ms: Math.max(0, Math.round(info.time.completed - info.time.created)),
-                  stop_reason: info.finish ?? (info.error ? "error" : undefined),
+                  stop_reason: info.finish ?? (failure ? "error" : undefined),
+                  ...(failure ? { error: failure } : {}),
                 },
                 `opencode:${info.id}:turn.assistant`,
                 sourceTime(info.time.completed ?? info.time.created ?? s.updated),

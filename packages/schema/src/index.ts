@@ -88,6 +88,8 @@ const data = {
     cost_usd: z.number().min(0).optional(),
     latency_ms: z.number().int().min(0).optional(),
     stop_reason: z.string().optional(),
+    /** why this message has nothing to show, when the backend reported a failure */
+    error: z.string().optional(),
   }),
   "tool.call": z.object({
     turn_id: z.string(),

@@ -33,6 +33,8 @@ export interface Turn {
     usage?: Usage;
     cost_usd?: number;
     latency_ms?: number;
+    /** set when the backend finished the message by failing, and there may be no text */
+    error?: string;
   }[];
   tool_calls: ToolCallView[];
 }
@@ -270,6 +272,7 @@ export function projectSession(events: Event[]): SessionView {
             usage: e.data.usage,
             cost_usd: e.data.cost_usd,
             latency_ms: e.data.latency_ms,
+            error: e.data.error,
           };
         } else {
           t.assistant.push({
@@ -280,6 +283,7 @@ export function projectSession(events: Event[]): SessionView {
             usage: e.data.usage,
             cost_usd: e.data.cost_usd,
             latency_ms: e.data.latency_ms,
+            error: e.data.error,
           });
         }
         addUsage(1, e.data.usage, e.data.cost_usd);
