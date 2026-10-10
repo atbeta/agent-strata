@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { makeEvent, type EventInput } from "@agent-strata/schema";
-import { isLoopbackHost, shellCors } from "../src/extension-route";
+import type { BackendDriver } from "../src/driver";
+import { extensionRoute, fromAnotherSite, isLoopbackHost, shellCors } from "../src/extension-route";
 import { startService } from "../src/index";
 import { fakeOpencode } from "./fake-opencode";
 
@@ -91,6 +92,54 @@ describe("the opencode extension through strata", () => {
     expect(shellCors("tauri://localhost")).toEqual({ "access-control-allow-origin": "tauri://localhost", vary: "origin" });
     expect(shellCors("http://localhost:5178")["access-control-allow-origin"]).toBe("http://localhost:5178");
     expect(shellCors(null)).toEqual({});
+  });
+
+  test("a session strata has no workspace for, or never heard of, goes nowhere", async () => {
+    const vcs = hits("/vcs");
+    svc.store.append([
+      makeEvent({
+        session_id: "opencode:ses_nowhere",
+        type: "session.started",
+        ts: "2026-01-01T00:00:00Z",
+        source: { backend: "opencode" },
+        data: { title: "x", workspace: "unknown" },
+      } as EventInput),
+    ]);
+    expect((await fetch(`${base}/sessions/${encodeURIComponent("opencode:ses_nowhere")}/opencode/vcs`)).status).toBe(404);
+    expect((await fetch(`${base}/sessions/${encodeURIComponent("opencode:ses_ghost")}/opencode/vcs`)).status).toBe(404);
+    expect((await fetch(`${base}/sessions/%E0%A4%A/opencode/vcs`)).status).toBe(404);
+    expect(hits("/vcs")).toBe(vcs);
+  });
+
+  test("a request another site made the browser send never reaches the backend", async () => {
+    const commands = hits("/command");
+    const res = await fetch(conn("/command"), { headers: { "sec-fetch-site": "cross-site" } });
+    expect(res.status).toBe(403);
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect((await fetch(conn("/command"), { headers: { origin: "https://evil.example" } })).status).toBe(403);
+    expect((await fetch(conn("/command"), { headers: { origin: "null" } })).status).toBe(403);
+    expect(hits("/command")).toBe(commands);
+    expect(fromAnotherSite("http://tauri.localhost", "cross-site")).toBe(false);
+    expect(fromAnotherSite(null, "same-origin")).toBe(false);
+    expect(fromAnotherSite(null, "none")).toBe(false);
+    expect(fromAnotherSite(null, null)).toBe(false);
+  });
+
+  test("a backend that fails to answer is a bad gateway", async () => {
+    const driver = {
+      nativeId: () => "x",
+      extension: {
+        kind: "opencode" as const,
+        paths: new Set(["/vcs"]),
+        get: () => Promise.reject(new TypeError("connection refused")),
+      },
+    } as unknown as BackendDriver;
+    const res = await extensionRoute(
+      new Request("http://127.0.0.1:7700/connections/c/opencode/vcs", { headers: { host: "127.0.0.1:7700" } }),
+      new URL("http://127.0.0.1:7700/connections/c/opencode/vcs"),
+      { connection: () => driver, session: () => undefined },
+    );
+    expect(res!.status).toBe(502);
   });
 
   test("a request that names any host but this machine's loopback is refused", () => {

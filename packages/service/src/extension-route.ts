@@ -23,22 +23,43 @@ export function shellCors(origin: string | null): Record<string, string> {
     : {};
 }
 
+/**
+ * A page on another site can make the browser send a request it cannot read
+ * (an image, a no-cors fetch). It still should not reach the backend.
+ */
+export function fromAnotherSite(origin: string | null, fetchSite: string | null): boolean {
+  if (origin !== null && SHELL_ORIGINS.has(origin)) return false;
+  return origin !== null || (fetchSite !== null && fetchSite !== "same-origin" && fetchSite !== "none");
+}
+
 /** GET /connections/:id/<kind>/<path> and /sessions/:id/<kind>/<path>; undefined for anything else. */
 export async function extensionRoute(
   req: Request,
   url: URL,
   resolve: {
     connection(id: string): BackendDriver | undefined;
-    session(casfId: string): { driver: BackendDriver; directory?: string } | undefined;
+    /** undefined unless the session belongs to a connected driver and has a workspace */
+    session(casfId: string): { driver: BackendDriver; directory: string } | undefined;
   },
 ): Promise<Response | undefined> {
   const m = url.pathname.match(/^\/(connections|sessions)\/([^/]+)\/([a-z]+)(\/.+)$/);
   if (!m) return undefined;
-  const headers = shellCors(req.headers.get("origin"));
+  const origin = req.headers.get("origin");
+  const headers: Record<string, string> = {
+    vary: "origin",
+    "x-content-type-options": "nosniff",
+    ...shellCors(origin),
+  };
   const fail = (status: number, error: string) => Response.json({ error }, { status, headers });
   if (req.method !== "GET") return fail(405, "method not allowed");
-  if (!isLoopbackHost(req.headers.get("host"))) return fail(403, "forbidden");
-  const id = decodeURIComponent(m[2]!);
+  if (!isLoopbackHost(req.headers.get("host")) || fromAnotherSite(origin, req.headers.get("sec-fetch-site")))
+    return fail(403, "forbidden");
+  let id: string;
+  try {
+    id = decodeURIComponent(m[2]!);
+  } catch {
+    return fail(404, "not found");
+  }
   const kind = m[3]!;
   const path = m[4]!;
   let driver: BackendDriver | undefined;

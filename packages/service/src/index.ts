@@ -707,7 +707,8 @@ export function startService(opts: ServiceOpts = {}): RunningService {
           const driver = driverFor(casfId);
           // driverFor falls back to the only connection; the session must be one of its own
           if (!driver?.nativeId(casfId)) return undefined;
-          return { driver, directory: directoryOf(casfId) };
+          const directory = directoryOf(casfId);
+          return directory ? { driver, directory } : undefined;
         },
       });
       if (extension) return extension;
