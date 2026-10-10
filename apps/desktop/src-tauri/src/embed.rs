@@ -293,6 +293,7 @@ pub fn supervise<S, H, W>(
                     } else {
                         unhealthy_streak += 1;
                         if unhealthy_streak >= 3 {
+                            (spawned.kill)();
                             break;
                         }
                     }
@@ -696,6 +697,54 @@ mod tests {
         assert_eq!(kills.load(Ordering::SeqCst), 1);
         let status = read_status(&status_path).expect("status");
         assert_eq!(status.state, OpencodeState::Stopped);
+    }
+
+    #[test]
+    fn supervise_unhealthy_streak_kills_before_restart() {
+        let plan = sample_plan();
+        let status_path = temp_path("status.json");
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let spawns = Arc::new(AtomicUsize::new(0));
+        let first_kills = Arc::new(AtomicUsize::new(0));
+        let health_calls = Arc::new(AtomicUsize::new(0));
+
+        supervise(
+            plan,
+            &status_path,
+            {
+                let spawns = spawns.clone();
+                let first_kills = first_kills.clone();
+                move |_| {
+                    let n = spawns.fetch_add(1, Ordering::SeqCst);
+                    let first_kills = first_kills.clone();
+                    Ok(Spawned {
+                        exited: Arc::new(AtomicBool::new(false)),
+                        kill: Box::new(move || {
+                            if n == 0 {
+                                first_kills.fetch_add(1, Ordering::SeqCst);
+                            }
+                        }),
+                    })
+                }
+            },
+            {
+                let health_calls = health_calls.clone();
+                move |_| health_calls.fetch_add(1, Ordering::SeqCst) == 0
+            },
+            {
+                let shutdown = shutdown.clone();
+                let spawns = spawns.clone();
+                move |_| {
+                    if spawns.load(Ordering::SeqCst) >= 2 {
+                        shutdown.store(true, Ordering::SeqCst);
+                    }
+                }
+            },
+            shutdown,
+        );
+
+        assert_eq!(first_kills.load(Ordering::SeqCst), 1);
+        assert!(spawns.load(Ordering::SeqCst) >= 2);
     }
 
     #[test]
