@@ -910,6 +910,22 @@ describe("the service exposes the opencode launch mode and status", () => {
     });
   });
 
+  test("GET /desktop/opencode prefers the saved mode over the running status", async () => {
+    await withDesktopDir(async (desktopDir, base) => {
+      writeFileSync(join(desktopDir, "desktop.json"), JSON.stringify({ opencode: "external" }));
+      writeFileSync(
+        join(desktopDir, "opencode-status.json"),
+        JSON.stringify({ mode: "embed", state: "running", url: "http://127.0.0.1:9" }),
+      );
+      const got = await fetch(`${base}/desktop/opencode`).then((r) => r.json());
+      expect(got).toEqual({
+        mode: "external",
+        state: "running",
+        url: "http://127.0.0.1:9",
+      });
+    });
+  });
+
   test("PUT /desktop/opencode saves the mode for the next launch", async () => {
     await withDesktopDir(async (desktopDir, base) => {
       const res = await fetch(`${base}/desktop/opencode`, {

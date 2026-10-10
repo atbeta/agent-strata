@@ -1050,10 +1050,10 @@ function readOpencodeStatus(dir: string): {
   const mode = readOpencodeMode(dir);
   const parsed = readDesktopJson(join(dir, "opencode-status.json"));
   if (!parsed || typeof parsed !== "object" || parsed === null) return { mode, state: "unmanaged" };
-  const rec = parsed as { mode?: unknown; state?: unknown; url?: unknown };
+  const rec = parsed as { state?: unknown; url?: unknown };
   if (!isOpencodeState(rec.state)) return { mode, state: "unmanaged" };
   const body: { mode: OpencodeLaunchMode; state: OpencodeLaunchState; url?: string } = {
-    mode: isOpencodeMode(rec.mode) ? rec.mode : mode,
+    mode,
     state: rec.state,
   };
   if (typeof rec.url === "string") body.url = rec.url;
