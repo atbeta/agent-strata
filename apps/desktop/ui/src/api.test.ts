@@ -18,4 +18,10 @@ describe("a read of a session's opencode backend", () => {
       "/sessions/opencode%3Ases_1/opencode/find/file?query=a+b&limit=5",
     );
   });
+
+  test("a file search carries its query and limit", () => {
+    expect(opencodePath("opencode:ses_1", "/find/file", { query: "a", limit: 20, dirs: "false" })).toBe(
+      "/sessions/opencode%3Ases_1/opencode/find/file?query=a&limit=20&dirs=false",
+    );
+  });
 });

@@ -246,6 +246,34 @@ export interface OptionsResponse {
   agents: { name: string; mode?: string }[];
 }
 
+/** One piece of a prompt; paths are relative to the session's workspace. */
+export type PromptPart =
+  | { type: "text"; text: string }
+  | { type: "file_ref"; path: string; mention?: { start: number; end: number } }
+  | { type: "attachment"; mime: string; url: string; filename?: string };
+
+export interface SessionCapabilities {
+  connected: boolean;
+  prompt?: boolean;
+  abort?: boolean;
+  commands?: boolean;
+  attachments?: boolean;
+  extension?: "opencode";
+}
+
+export interface CommandInfo {
+  name: string;
+  description?: string;
+  source?: "command" | "mcp" | "skill";
+  hints?: string[];
+}
+
+export interface PromptChoice {
+  model?: { providerID: string; modelID: string };
+  agent?: string;
+  variant?: string;
+}
+
 export interface PolicyCondition {
   matches?: string;
   equals?: string | number | boolean;
@@ -299,8 +327,9 @@ export async function readOpencode<T>(
   sessionId: string,
   path: string,
   query?: Record<string, string | number>,
+  signal?: AbortSignal,
 ): Promise<T | undefined> {
-  const res = await fetch(api(opencodePath(sessionId, path, query)));
+  const res = await fetch(api(opencodePath(sessionId, path, query)), { signal });
   if (res.status === 404) return undefined;
   await throwOnError(res);
   return (await res.json()) as T;
@@ -308,6 +337,47 @@ export async function readOpencode<T>(
 
 export function readVcs(sessionId: string): Promise<VcsInfo | undefined> {
   return readOpencode<VcsInfo>(sessionId, "/vcs");
+}
+
+export function readCapabilities(sessionId: string): Promise<SessionCapabilities> {
+  return getJson<SessionCapabilities>(`/sessions/${encodeURIComponent(sessionId)}/capabilities`);
+}
+
+export function readCommands(sessionId: string): Promise<CommandInfo[] | undefined> {
+  return readOpencode<CommandInfo[]>(sessionId, "/command");
+}
+
+export function findFiles(sessionId: string, query: string, signal?: AbortSignal): Promise<string[] | undefined> {
+  return readOpencode<string[]>(sessionId, "/find/file", { query, limit: 20, dirs: "false" }, signal);
+}
+
+export async function sendPrompt(sessionId: string, parts: PromptPart[], choice: PromptChoice): Promise<void> {
+  await throwOnError(
+    await fetch(api(`/sessions/${encodeURIComponent(sessionId)}/prompt`), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ parts, ...choice }),
+    }),
+  );
+}
+
+export async function runCommand(
+  sessionId: string,
+  command: { name: string; args: string; parts?: PromptPart[] },
+  choice: PromptChoice,
+): Promise<void> {
+  await throwOnError(
+    await fetch(api(`/sessions/${encodeURIComponent(sessionId)}/command`), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        command: command.name,
+        arguments: command.args,
+        ...(command.parts?.length ? { parts: command.parts } : {}),
+        ...choice,
+      }),
+    }),
+  );
 }
 
 export function exportFileName(sessionId: string): string {
