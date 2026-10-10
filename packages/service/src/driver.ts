@@ -58,7 +58,7 @@ export interface BackendExtension {
   kind: "opencode";
   /** the backend API paths a client may read */
   paths: ReadonlySet<string>;
-  get(path: string, query: URLSearchParams, directory?: string): Promise<Response>;
+  get(path: string, query: URLSearchParams, directory?: string, signal?: AbortSignal): Promise<Response>;
 }
 
 export interface SyncGuard {

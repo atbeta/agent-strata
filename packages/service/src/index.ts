@@ -135,7 +135,8 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     });
 
   // The packaged desktop UI is served from tauri.localhost and calls this
-  // process on 127.0.0.1, so every response has to be readable cross-origin.
+  // process on 127.0.0.1, so responses have to be readable cross-origin.
+  // Extension reads are the exception: see extension-route.ts.
   const cors: Record<string, string> = {
     "access-control-allow-origin": "*",
     "access-control-allow-methods": "GET,POST,PUT,DELETE,OPTIONS",
@@ -705,7 +706,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         connection: (id) => conns.get(id),
         session: (casfId) => {
           const driver = driverFor(casfId);
-          // driverFor falls back to the only connection; the session must be one of its own
+          // the same ownership a prompt needs: a driver that maps this session id
           if (!driver?.nativeId(casfId)) return undefined;
           const directory = directoryOf(casfId);
           return directory ? { driver, directory } : undefined;

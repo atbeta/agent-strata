@@ -11,6 +11,8 @@ describe("opencode extension", () => {
       seen.push({ path: url.pathname, query: url.search, auth: req.headers.get("authorization") });
       if (url.pathname === "/find/file" && !url.searchParams.get("query"))
         return Response.json({ error: "query required" }, { status: 400 });
+      if (url.pathname === "/lsp") return Response.redirect(new URL("/path", req.url).href, 302);
+      if (url.pathname === "/mcp") return new Promise<Response>(() => {});
       return Response.json({ path: url.pathname, directory: url.searchParams.get("directory") });
     },
   });
@@ -54,6 +56,18 @@ describe("opencode extension", () => {
   test("the server's own error status comes back as is", async () => {
     const res = await opencodeExtension({ baseUrl }).get("/find/file", new URLSearchParams());
     expect(res.status).toBe(400);
+  });
+
+  test("a redirect is not followed with the server's credentials", async () => {
+    const ext = opencodeExtension({ baseUrl, username: "opencode", password: "pw" });
+    await expect(ext.get("/lsp", new URLSearchParams())).rejects.toThrow();
+  });
+
+  test("a caller that goes away cancels the read", async () => {
+    const gone = new AbortController();
+    const read = opencodeExtension({ baseUrl }).get("/mcp", new URLSearchParams(), undefined, gone.signal);
+    gone.abort();
+    await expect(read).rejects.toThrow();
   });
 
   test("a path off the list never leaves strata", async () => {

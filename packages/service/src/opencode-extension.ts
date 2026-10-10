@@ -37,7 +37,7 @@ export function opencodeExtension(opts: {
   return {
     kind: "opencode",
     paths: OPENCODE_EXTENSION_PATHS,
-    get(path, query, directory) {
+    get(path, query, directory, signal) {
       if (!OPENCODE_EXTENSION_PATHS.has(path)) return Promise.resolve(new Response(null, { status: 404 }));
       const q = new URLSearchParams(query);
       // Where the read happens is strata's to choose (the session's directory,
@@ -49,7 +49,9 @@ export function opencodeExtension(opts: {
       const qs = q.toString();
       return doFetch(`${base}${path}${qs ? `?${qs}` : ""}`, {
         headers,
-        signal: AbortSignal.timeout(TIMEOUT_MS),
+        // the credentials are for this server only
+        redirect: "error",
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(TIMEOUT_MS)]) : AbortSignal.timeout(TIMEOUT_MS),
       });
     },
   };

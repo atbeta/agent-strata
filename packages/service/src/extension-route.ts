@@ -48,6 +48,8 @@ export async function extensionRoute(
   const headers: Record<string, string> = {
     vary: "origin",
     "x-content-type-options": "nosniff",
+    // whatever the backend answers with must never run as this origin's page
+    "content-security-policy": "sandbox",
     ...shellCors(origin),
   };
   const fail = (status: number, error: string) => Response.json({ error }, { status, headers });
@@ -69,13 +71,14 @@ export async function extensionRoute(
     driver = owned?.driver;
     directory = owned?.directory;
   } else {
+    // a directory named by the caller could make the backend open, and load the
+    // config of, any folder on this machine
     driver = resolve.connection(id);
-    directory = url.searchParams.get("directory") ?? undefined;
   }
   const ext = driver?.extension;
   if (!ext || ext.kind !== kind || !ext.paths.has(path)) return fail(404, "not found");
   try {
-    const res = await ext.get(path, url.searchParams, directory);
+    const res = await ext.get(path, url.searchParams, directory, req.signal);
     return new Response(res.body, {
       status: res.status,
       headers: { ...headers, "content-type": res.headers.get("content-type") ?? "application/json" },

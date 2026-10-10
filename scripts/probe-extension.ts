@@ -9,7 +9,8 @@
 // directory: a session in it is preferred).
 
 const ST = process.env.STRATA_URL ?? "http://127.0.0.1:7700";
-const dir = (process.env.PROBE_DIR ?? process.cwd()).toLowerCase();
+const norm = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+const dir = norm(process.env.PROBE_DIR ?? process.cwd());
 const get = (p: string) => fetch(`${ST}${p}`);
 
 const { connections } = (await get("/connections").then((r) => r.json())) as {
@@ -20,14 +21,18 @@ const { sessions } = (await get("/sessions?backend=opencode&limit=200").then((r)
   sessions: { summary: { session_id: string }; workspace?: string }[];
 };
 const real = sessions.filter((s) => s.workspace && s.workspace !== "unknown" && s.workspace !== "no workspace");
-const session = real.find((s) => s.workspace!.toLowerCase() === dir) ?? real[0];
+const session = real.find((s) => norm(s.workspace!) === dir) ?? real[0];
 const at = (p: string) => `/sessions/${encodeURIComponent(session!.summary.session_id)}/opencode${p}`;
 
-const commands = session ? ((await get(at("/command")).then((r) => r.json())) as { name: string }[]) : [];
+const listed = session ? ((await get(at("/command")).then((r) => r.json())) as unknown) : [];
+const commands = Array.isArray(listed) ? (listed as { name: string }[]) : [];
 const files = session ? ((await get(at("/find/file?query=package.json&limit=5")).then((r) => r.json())) as unknown) : null;
 const vcs = session ? ((await get(at("/vcs")).then((r) => r.json())) as { branch?: string | null }) : {};
 const offList = session ? (await get(at("/config"))).status : 0;
 const viaConnection = conn ? (await get(`/connections/${encodeURIComponent(conn.id)}/opencode/path`)).status : 0;
+const crossSite = session
+  ? (await fetch(`${ST}${at("/vcs")}`, { headers: { origin: "https://evil.example" } })).status
+  : 0;
 
 const report = {
   connection: conn?.id ?? null,
@@ -38,6 +43,7 @@ const report = {
   branch: vcs.branch ?? null,
   off_list_status: offList,
   connection_read_status: viaConnection,
+  cross_site_status: crossSite,
 };
 console.log(JSON.stringify(report, null, 2));
 const ok =
@@ -46,5 +52,6 @@ const ok =
   commands.some((c) => c.name === "init") &&
   Array.isArray(files) &&
   offList === 404 &&
-  viaConnection === 200;
+  viaConnection === 200 &&
+  crossSite === 403;
 process.exit(ok ? 0 : 1);

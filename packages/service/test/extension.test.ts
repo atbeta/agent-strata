@@ -42,13 +42,13 @@ describe("the opencode extension through strata", () => {
     expect(connections[0]!.capabilities.extension).toBe("opencode");
   });
 
-  test("a connection read passes through with the asked directory, else the connection's", async () => {
-    expect(await fetch(conn("/command")).then((r) => r.json())).toEqual([{ name: "init", template: "x", hints: [] }]);
-    expect(await fetch(conn("/vcs?directory=%2Frepo%2Fb")).then((r) => r.json())).toEqual({
-      branch: "main",
-      directory: "/repo/b",
-    });
-    expect(((await fetch(conn("/vcs")).then((r) => r.json())) as { directory: string }).directory).toBe("/conn");
+  test("a connection read passes through in the connection's directory, not the caller's", async () => {
+    const res = await fetch(conn("/command"));
+    expect(await res.json()).toEqual([{ name: "init", template: "x", hints: [] }]);
+    expect(res.headers.get("content-security-policy")).toBe("sandbox");
+    expect(((await fetch(conn("/vcs?directory=%2Frepo%2Fb")).then((r) => r.json())) as { directory: string }).directory).toBe(
+      "/conn",
+    );
   });
 
   test("the server's own error comes back with its status", async () => {
@@ -142,7 +142,22 @@ describe("the opencode extension through strata", () => {
     expect(res!.status).toBe(502);
   });
 
-  test("a request that names any host but this machine's loopback is refused", () => {
+  test("a request that names any host but this machine's loopback is refused", async () => {
+    let reads = 0;
+    const driver = {
+      extension: {
+        kind: "opencode" as const,
+        paths: new Set(["/vcs"]),
+        get: () => (reads++, Promise.resolve(Response.json({}))),
+      },
+    } as unknown as BackendDriver;
+    const res = await extensionRoute(
+      new Request("http://evil.example:7700/connections/c/opencode/vcs", { headers: { host: "evil.example:7700" } }),
+      new URL("http://evil.example:7700/connections/c/opencode/vcs"),
+      { connection: () => driver, session: () => undefined },
+    );
+    expect(res!.status).toBe(403);
+    expect(reads).toBe(0);
     expect(isLoopbackHost("127.0.0.1:7700")).toBe(true);
     expect(isLoopbackHost("localhost:5178")).toBe(true);
     expect(isLoopbackHost("localhost")).toBe(true);

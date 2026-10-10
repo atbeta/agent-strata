@@ -45,7 +45,7 @@ v0 ACP limitations: sessions live as long as the agent process (no `session/load
 
 ## Security model
 
-The policy engine performs advisory static analysis of commands — it is not a sandbox. Constructs it cannot analyze safely are downgraded to `ask`; real enforcement requires a sandboxed execution layer (future work). Extension reads (`/…/opencode/<path>`) reach files on this machine, so they are GET-only, allow-listed, refused for a Host other than the loopback address or when another site's page made the browser send them, and readable cross-origin only by the desktop shell.
+The policy engine performs advisory static analysis of commands — it is not a sandbox. Constructs it cannot analyze safely are downgraded to `ask`; real enforcement requires a sandboxed execution layer (future work). Extension reads (`/…/opencode/<path>`) reach files on this machine, so they are GET-only, allow-listed, refused for a Host other than the loopback address or when another site's page made the browser send them, and readable cross-origin only by the desktop shell. The rest of the HTTP API does not have these checks yet.
 
 ## Run
 
