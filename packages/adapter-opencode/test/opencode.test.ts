@@ -1419,3 +1419,127 @@ describe("text that arrives as deltas", () => {
     ing.stop();
   });
 });
+
+describe("what the user sent", () => {
+  const userTurn = (out: { type: string; data: unknown }[]) =>
+    out.filter((e) => e.type === "turn.user").at(-1)?.data as { content: object[] } | undefined;
+
+  test("the text OpenCode adds when it reads an attached file stays out of the user's words", () => {
+    const m = new OpencodeMapper();
+    const out = [
+      m.handle(sessionCreated()),
+      m.handle(msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 1 } })),
+      m.handle(partUpdated({ id: "t1", sessionID: sid, messageID: "u1", type: "text", text: "@a.ts explain" })),
+      m.handle(partUpdated({ id: "t2", sessionID: sid, messageID: "u1", type: "text", synthetic: true, text: "Called the Read tool with the following input: {}" })),
+      m.handle(partUpdated({ id: "t3", sessionID: sid, messageID: "u1", type: "text", synthetic: true, text: "<path>a.ts</path><content>secret</content>" })),
+      m.handle(partUpdated({
+        id: "f1", sessionID: sid, messageID: "u1", type: "file", mime: "text/plain", filename: "a.ts",
+        url: "file:///repo/a.ts", source: { type: "file", path: "a.ts", text: { value: "@a.ts", start: 0, end: 5 } },
+      })),
+    ].flat();
+    expect(userTurn(out)!.content).toEqual([
+      { type: "text", text: "@a.ts explain" },
+      { type: "file_ref", path: "a.ts" },
+    ]);
+  });
+
+  test("an image the user attached is an image, not a file name", () => {
+    const m = new OpencodeMapper();
+    const url = "data:image/png;base64,iVBORw0KGgo=";
+    const out = [
+      m.handle(sessionCreated()),
+      m.handle(msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 1 } })),
+      m.handle(partUpdated({ id: "t1", sessionID: sid, messageID: "u1", type: "text", text: "what colour" })),
+      m.handle(partUpdated({ id: "f1", sessionID: sid, messageID: "u1", type: "file", mime: "image/png", filename: "red.png", url })),
+      m.handle(partUpdated({ id: "f2", sessionID: sid, messageID: "u1", type: "file", mime: "image/png", filename: "r.png", url: "https://x/r.png" })),
+      m.handle(partUpdated({ id: "f3", sessionID: sid, messageID: "u1", type: "file", mime: "application/pdf", filename: "spec.pdf", url: "data:application/pdf;base64,JVBERi0=" })),
+    ].flat();
+    expect(userTurn(out)!.content).toEqual([
+      { type: "text", text: "what colour" },
+      { type: "image", mime: "image/png", data: "iVBORw0KGgo=" },
+      { type: "image", mime: "image/png", uri: "https://x/r.png" },
+      { type: "file_ref", path: "spec.pdf" },
+    ]);
+  });
+
+  test("a user message that is only OpenCode's own text leaves no bubble, and its reply still lands", () => {
+    const store = openStore(":memory:");
+    const m = new OpencodeMapper();
+    const assistant = (time: object) =>
+      msgUpdated({
+        id: "a1", sessionID: sid, role: "assistant", parentID: "u1", time,
+        providerID: "p", modelID: "m", agent: "build", mode: "build", path: { cwd: "/repo", root: "/repo" }, cost: 0, finish: "stop",
+        tokens: { input: 1, output: 1, reasoning: 0, cache: { read: 0, write: 0 } },
+      });
+    const evs = [
+      sessionCreated(),
+      msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 1 } }),
+      partUpdated({ id: "t1", sessionID: sid, messageID: "u1", type: "text", synthetic: true, text: "Continue if you have next steps" }),
+      assistant({ created: 2 }),
+      partUpdated({ id: "t2", sessionID: sid, messageID: "a1", type: "text", text: "done", time: { start: 2, end: 3 } }),
+      assistant({ created: 2, completed: 3 }),
+      { id: "i", type: "session.idle", properties: { sessionID: sid } } as unknown as Event,
+    ];
+    for (const e of evs) {
+      const out = m.handle(e);
+      expect(out.filter((x) => x.type === "turn.user")).toEqual([]);
+      if (out.length) store.append(out);
+    }
+    const view = projectSession(store.read({ session_id: `opencode:${sid}` }));
+    expect(view.turns.some((t) => t.user && t.user.length > 0)).toBe(false);
+    expect(JSON.stringify(view.turns)).toContain("done");
+    store.close();
+  });
+
+  test("an imported or rebuilt session leaves out the same text and keeps the image", () => {
+    const info = { id: sid, directory: "/repo", title: "T", time: { created: 1, updated: 2 } };
+    const tokens = { input: 1, output: 1, reasoning: 0, cache: { read: 0, write: 0 } };
+    const reply = (id: string, parentID: string) => ({
+      info: {
+        id, sessionID: sid, role: "assistant", parentID,
+        time: { created: 20, completed: 30 }, providerID: "p", modelID: "m", cost: 0, tokens, finish: "stop",
+      },
+      parts: [{ id: `${id}t`, sessionID: sid, messageID: id, type: "text", text: "ok" }],
+    });
+    const evs = rebuildEvents(
+      snapshotEvents(sid, info, [
+        {
+          info: { id: "u1", sessionID: sid, role: "user", time: { created: 10 } },
+          parts: [
+            { id: "t1", sessionID: sid, messageID: "u1", type: "text", text: "@a.ts and this" },
+            { id: "t2", sessionID: sid, messageID: "u1", type: "text", synthetic: true, text: "Called the Read tool with the following input: {}" },
+            { id: "t3", sessionID: sid, messageID: "u1", type: "text", synthetic: true, text: "<path>a.ts</path><content>secret</content>" },
+            {
+              id: "f1", sessionID: sid, messageID: "u1", type: "file", mime: "text/plain", filename: "a.ts",
+              url: "file:///repo/a.ts", source: { type: "file", path: "a.ts", text: { value: "@a.ts", start: 0, end: 5 } },
+            },
+            { id: "f2", sessionID: sid, messageID: "u1", type: "file", mime: "image/png", filename: "red.png", url: "data:image/png;base64,iVBORw0KGgo=" },
+          ],
+        },
+        reply("a1", "u1"),
+        {
+          info: { id: "u2", sessionID: sid, role: "user", time: { created: 40 } },
+          parts: [{ id: "t4", sessionID: sid, messageID: "u2", type: "text", synthetic: true, text: "Continue if you have next steps" }],
+        },
+        reply("a2", "u2"),
+      ] as never),
+      "/repo",
+    );
+    const users = evs.filter((e) => e.type === "turn.user").map((e) => e.data as { turn_id: string; content: object[] });
+    expect(users).toEqual([
+      {
+        turn_id: "u1",
+        content: [
+          { type: "text", text: "@a.ts and this" },
+          { type: "file_ref", path: "a.ts" },
+          { type: "image", mime: "image/png", data: "iVBORw0KGgo=" },
+        ],
+      },
+    ]);
+    expect(evs.filter((e) => e.type === "turn.assistant").map((e) => (e.data as { turn_id: string }).turn_id)).toEqual(["u1", "u2"]);
+  });
+
+  test("the mapping version moved, so stored sessions are rebuilt", () => {
+    expect(OPENCODE_MAPPER_VERSION).toBe("opencode-4");
+  });
+});

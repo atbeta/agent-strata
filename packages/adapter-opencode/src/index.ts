@@ -150,7 +150,7 @@ function errorMessage(e: unknown): string {
 }
 
 /** Bump when the mapping changes; stored sessions mapped by an older version are rebuilt. */
-export const OPENCODE_MAPPER_VERSION = "opencode-3";
+export const OPENCODE_MAPPER_VERSION = "opencode-4";
 
 /** The event types an import reproduces from OpenCode's own record of a session. */
 export const OPENCODE_REBUILT_TYPES: EventType[] = [
@@ -204,6 +204,17 @@ export function rebuildEvents(events: Event[], directory?: string): EventInput[]
 }
 
 type ToolPart = Extract<Part, { type: "tool" }>;
+
+function fileBlock(part: Extract<Part, { type: "file" }>): ContentBlock {
+  if (part.mime.startsWith("image/")) {
+    const comma = part.url.indexOf(",");
+    if (part.url.startsWith("data:") && part.url.slice(0, comma).endsWith(";base64"))
+      return { type: "image", mime: part.mime, data: part.url.slice(comma + 1) };
+    if (/^https?:/.test(part.url)) return { type: "image", mime: part.mime, uri: part.url };
+  }
+  const path = part.source && "path" in part.source ? part.source.path : (part.filename ?? part.url);
+  return { type: "file_ref", path };
+}
 
 interface ToolTrack {
   emittedCall: boolean;
@@ -648,13 +659,14 @@ export class OpencodeMapper {
         if (stale) {
           // keep the delta-built text
         } else if (part.type === "text") {
-          m.parts.set(part.id, { type: "text", text: part.text });
+          // OpenCode's own words in the user's message (a read file's contents,
+          // "continue" nudges) are not what the user said
+          if (part.synthetic || part.ignored) m.parts.delete(part.id);
+          else m.parts.set(part.id, { type: "text", text: part.text });
         } else if (part.type === "reasoning") {
           m.parts.set(part.id, { type: "thinking", text: part.text });
         } else if (part.type === "file") {
-          const path =
-            part.source && "path" in part.source ? part.source.path : (part.filename ?? part.url);
-          m.parts.set(part.id, { type: "file_ref", path });
+          m.parts.set(part.id, fileBlock(part));
         } else if (part.type === "tool") {
           // Parts are created in the order the model declared them, so first
           // sight is the declaration order. tool.call is not emitted until the
