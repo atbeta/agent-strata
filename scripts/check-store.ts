@@ -36,6 +36,18 @@ console.log(
       file_changes_with_call: count(
         `SELECT COUNT(*) n FROM events WHERE type='file.changed' AND json_extract(body,'$.data.call_id') IS NOT NULL`,
       ),
+      // One agent session reaches the layer over one session id, whichever
+      // channel carried it. Two ids for one identity is the same conversation
+      // stored twice, which is what a second channel used to import.
+      duplicate_native_ids: count(
+        `SELECT COUNT(*) n FROM (
+           SELECT 1 FROM events
+           WHERE json_extract(body,'$.source.native_id') IS NOT NULL
+           GROUP BY coalesce(json_extract(body,'$.source.agent'),
+                             json_extract(body,'$.source.backend')),
+                    json_extract(body,'$.source.native_id')
+           HAVING COUNT(DISTINCT session_id) > 1)`,
+      ),
     },
     null,
     2,

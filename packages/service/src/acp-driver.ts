@@ -39,6 +39,7 @@ export async function connectAcpDriver(opts: {
   return {
     id: `${prefix}${endpoint}`,
     backend: "acp",
+    agent: opts.agentName,
     baseUrl: endpoint,
     name: opts.name ?? opts.agentName,
     directory: opts.cwd,

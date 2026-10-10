@@ -227,6 +227,23 @@ export function isStreamingSnapshot(e: { type: string; data: unknown }): boolean
   return e.type === "turn.assistant" && (e.data as { partial?: unknown }).partial === true;
 }
 
+/**
+ * The agent that holds a session, plus the id it has there — the same key from
+ * every channel. An ACP agent names itself in `agent`; a backend that is itself
+ * the agent only has `backend`. `opencode acp` over stdio and `opencode serve`
+ * over HTTP therefore agree on one session, which is what lets the layer treat
+ * them as one instead of importing it twice.
+ */
+export function sessionIdentity(source: {
+  backend: string;
+  agent?: string;
+  native_id?: string;
+}): string | undefined {
+  const native = source.native_id;
+  if (!native) return undefined;
+  return `${source.agent ?? source.backend}:${native}`;
+}
+
 export const DEFAULT_SECRET_PATTERNS: RegExp[] = [
   /AKIA[0-9A-Z]{16}/g,
   /sk-[A-Za-z0-9_-]{20,}/g,

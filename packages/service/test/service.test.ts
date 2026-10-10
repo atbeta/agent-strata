@@ -136,6 +136,71 @@ describe("agent-strata service", () => {
     svc.stop();
   });
 
+  test("one session driven over two channels is stored once, and released when its owner goes", async () => {
+    const MOCK = fileURLToPath(new URL("../../adapter-acp/test/fixtures/mock-agent.ts", import.meta.url));
+    const svc = startService({ db: ":memory:", port: 0 });
+    const base = `http://127.0.0.1:${svc.port}`;
+    const post = (p: string, body: unknown) =>
+      fetch(`${base}${p}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+    // `opencode acp` names itself opencode, so its sessions are the same ones
+    // `opencode serve` lists over HTTP — the case that used to show up twice.
+    const connected = await post("/connect", {
+      backend: "acp", command: process.execPath, args: [MOCK], agentName: "opencode", cwd: "/tmp",
+    }).then((r) => r.json());
+    const created = await post("/sessions", { connection_id: connected.id, directory: "/tmp" }).then((r) => r.json());
+    const native = created.native_id;
+    const shadow = `opencode:${native}`;
+    expect(created.id).toBe(`acp:opencode:${native}`);
+
+    const sessionIds = async () =>
+      (await fetch(`${base}/sessions`).then((r) => r.json())).sessions
+        .map((s: { summary: { session_id: string } }) => s.summary.session_id)
+        .sort();
+
+    // the HTTP channel replays the same session through the shared sink
+    const httpSays = makeEvent({
+      session_id: shadow,
+      source: { backend: "opencode", native_id: native },
+      type: "session.started",
+      data: { workspace: "/tmp" },
+    } as EventInput);
+    svc.sink.append([httpSays]);
+    svc.sink.append([
+      makeEvent({
+        session_id: shadow,
+        source: { backend: "opencode", native_id: native },
+        type: "turn.user",
+        data: { turn_id: "t1", content: [{ type: "text", text: "from the other channel" }] },
+      } as EventInput),
+    ]);
+    expect(await sessionIds()).toEqual([created.id]);
+    expect(svc.store.read({ session_id: shadow })).toEqual([]);
+
+    // a rebuild must not sneak the same session in under the other id
+    expect(
+      svc.sink.replaceSession(shadow, [httpSays], { replaceTypes: ["session.started"] }),
+    ).toBe(0);
+
+    // a different agent that happens to reuse the id is a different session
+    svc.sink.append([
+      makeEvent({
+        session_id: `acp:claude-code:${native}`,
+        source: { backend: "acp", agent: "claude-code", native_id: native },
+        type: "session.started",
+        data: { workspace: "/tmp" },
+      } as EventInput),
+    ]);
+    expect(await sessionIds()).toEqual([`acp:claude-code:${native}`, created.id].sort());
+
+    // once the owning connection is gone the layer may import the session again
+    await fetch(`${base}/connections/${encodeURIComponent(connected.id)}`, { method: "DELETE" });
+    svc.sink.append([httpSays]);
+    expect(await sessionIds()).toEqual([`acp:claude-code:${native}`, created.id, shadow].sort());
+
+    svc.stop();
+  });
+
   test("health, sessions, events, view, compare, export", async () => {
     const svc = startService({ db: ":memory:", port: 0 });
     const base = `http://127.0.0.1:${svc.port}`;

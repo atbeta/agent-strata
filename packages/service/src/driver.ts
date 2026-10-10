@@ -49,9 +49,22 @@ export interface BackendCapabilities {
   manage: boolean;
 }
 
+export interface SyncGuard {
+  /** the session's stored events were written by an older version of this mapping */
+  stale?: (casfId: string) => boolean;
+  /** another channel is driving this session right now, and it owns it */
+  taken?: (casfId: string) => boolean;
+}
+
 export interface BackendDriver {
   id: string;
   backend: string;
+  /**
+   * The agent that holds this driver's sessions. Two channels onto one agent
+   * (an ACP stdio agent and that agent's own HTTP server) share it, which is
+   * what makes their session ids line up as one identity.
+   */
+  agent: string;
   baseUrl: string;
   name?: string;
   directory?: string;
@@ -69,7 +82,7 @@ export interface BackendDriver {
   /** version of the mapping behind this backend's stored events; absent when they cannot be rebuilt */
   mapperVersion?: string;
   /** pull metadata and transcripts that changed since the last sync; stale sessions are rebuilt instead */
-  sync(stale?: (casfId: string) => boolean): Promise<number>;
+  sync(guard?: SyncGuard): Promise<number>;
   /** replace a session's stored transcript with a fresh read of the backend's own record */
   rebuild(nativeId: string, directory?: string): Promise<number>;
   importSession(nativeId: string, directory?: string): Promise<void>;

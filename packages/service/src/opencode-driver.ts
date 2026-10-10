@@ -38,6 +38,7 @@ export async function connectOpencodeDriver(opts: {
   return {
     id,
     backend: "opencode",
+    agent: "opencode",
     baseUrl: opts.baseUrl,
     name: opts.name,
     directory: opts.directory,
@@ -67,9 +68,9 @@ export async function connectOpencodeDriver(opts: {
       const ids = await conn.indexSessions();
       return ids.map((native) => `${PREFIX}${native}`);
     },
-    sync: (stale) => {
+    sync: (guard) => {
       if (syncing) return syncing;
-      syncing = conn.refreshSessions(stale).finally(() => {
+      syncing = conn.refreshSessions(guard).finally(() => {
         syncing = undefined;
       });
       return syncing;

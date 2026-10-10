@@ -6,6 +6,7 @@ import {
   parseEvent,
   safeParseEvent,
   redact,
+  sessionIdentity,
   type Event,
 } from "../src/index";
 
@@ -193,5 +194,32 @@ describe("schema", () => {
     const before = JSON.stringify(e);
     redact(e, { patterns: DEFAULT_SECRET_PATTERNS, paths: ["output"] });
     expect(JSON.stringify(e)).toBe(before);
+  });
+});
+
+describe("sessionIdentity", () => {
+  test("an ACP session and an HTTP session of the same agent share one identity", () => {
+    // `opencode acp` drives OpenCode over stdio while `opencode serve` is
+    // connected over HTTP; both name the same session, so both must resolve to
+    // the identity that says they are one session.
+    expect(sessionIdentity({ backend: "acp", agent: "opencode", native_id: "ses_x" })).toBe(
+      "opencode:ses_x",
+    );
+    expect(sessionIdentity({ backend: "opencode", native_id: "ses_x" })).toBe("opencode:ses_x");
+  });
+
+  test("agents that merely share a session id stay apart", () => {
+    expect(sessionIdentity({ backend: "acp", agent: "claude-code", native_id: "ses_x" })).toBe(
+      "claude-code:ses_x",
+    );
+    expect(sessionIdentity({ backend: "opencode", native_id: "ses_x" })).not.toBe(
+      sessionIdentity({ backend: "acp", agent: "claude-code", native_id: "ses_x" }),
+    );
+  });
+
+  test("a source without a native id has no identity to share", () => {
+    expect(sessionIdentity({ backend: "opencode" })).toBeUndefined();
+    expect(sessionIdentity({ backend: "acp", agent: "opencode" })).toBeUndefined();
+    expect(sessionIdentity({ backend: "opencode", native_id: "" })).toBeUndefined();
   });
 });

@@ -15,6 +15,7 @@ import { ViewCache } from "./views";
 import type { EventInput } from "@agent-strata/schema";
 import { connectAcpDriver } from "./acp-driver";
 import { agentNameOf, connectionMemory, endpointOf, type ConnectBody } from "./connections";
+import { SessionClaims } from "./identity";
 
 export interface ServiceOpts {
   db?: string;
@@ -100,21 +101,36 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     live.settle(e);
     broadcast(e);
   });
+  const claims = new SessionClaims();
+  // Every channel a backend writes through ends here, so this is the one place
+  // that can tell a second copy of a session from the session itself.
+  const unshadowed = (events: EventInput[]) =>
+    events.filter((e) => !claims.shadowed(e.source, e.session_id));
   const sink: BackendSink = {
-    append: (events) => store.append(events),
+    append: (events) => store.append(unshadowed(events)),
     publish: (events) => {
-      for (const e of events) if (live.put(e)) broadcast(e);
+      for (const e of unshadowed(events)) if (live.put(e)) broadcast(e);
     },
     replaceSession: (sessionId, events, replace) => {
+      if (events.some((e) => claims.shadowed(e.source, sessionId))) return 0;
       const n = store.replaceSession(sessionId, events, replace);
       views.drop(sessionId);
       broadcast({ type: "session.rebuilt", session_id: sessionId });
       return n;
     },
   };
-  const staleFor = (driver: BackendDriver) => (casfId: string) =>
-    driver.mapperVersion !== undefined && store.sessionMapper(casfId) !== driver.mapperVersion;
-  const syncDriver = (driver: BackendDriver) => driver.sync(staleFor(driver));
+  const syncDriver = (driver: BackendDriver) =>
+    driver.sync({
+      stale: (casfId) =>
+        driver.mapperVersion !== undefined && store.sessionMapper(casfId) !== driver.mapperVersion,
+      taken: (casfId) => {
+        const native = driver.nativeId(casfId);
+        return (
+          native !== undefined &&
+          claims.shadowed({ backend: driver.agent, native_id: native }, casfId)
+        );
+      },
+    });
 
   // The packaged desktop UI is served from tauri.localhost and calls this
   // process on 127.0.0.1, so every response has to be readable cross-origin.
@@ -398,6 +414,9 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         if (!conn.capabilities.prompt) return json({ error: "backend cannot create sessions" }, 400);
         const created = await conn.createSession({ title: body.title, directory: body.directory });
         owners.set(created.casfId, conn.id);
+        // The channel that hands the user a session is the one that owns it, so
+        // another channel onto the same agent leaves this session alone.
+        claims.claim(`${conn.agent}:${created.nativeId}`, created.casfId, conn.id);
         return json({ id: created.casfId, native_id: created.nativeId });
       }
 
@@ -670,6 +689,8 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         if (!conn) return json({ error: "not found" }, 404);
         conn.stop();
         conns.delete(conn.id);
+        // Its sessions go back to the layer, so another channel may import them.
+        claims.release(conn.id);
         memory.forget(conn.baseUrl);
         return json({ ok: true });
       }

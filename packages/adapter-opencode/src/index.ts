@@ -20,6 +20,14 @@ export interface Sink {
   ): unknown;
 }
 
+/** What the caller knows about a session before this adapter re-reads it. */
+export interface OpencodeSyncGuard {
+  /** its stored events were written by an older mapping, so rebuild rather than append */
+  stale?: (casfId: string) => boolean;
+  /** another channel is driving it now; it is left to that channel untouched */
+  taken?: (casfId: string) => boolean;
+}
+
 export type OnAsk = (
   req: Extract<EventInput, { type: "permission.requested" }>,
 ) => Promise<{ decision: "allow" | "deny"; scope?: "once" | "always" }>;
@@ -970,7 +978,7 @@ export async function connectOpencode(opts: {
   listWorkspaces: () => Promise<{ id: string; name?: string; directory: string }[]>;
   abort: (sessionID: string, directory?: string) => Promise<void>;
   indexSessions: () => Promise<string[]>;
-  refreshSessions: (stale?: (casfId: string) => boolean) => Promise<number>;
+  refreshSessions: (guard?: OpencodeSyncGuard) => Promise<number>;
   rebuildSession: (sessionID: string, directory?: string) => Promise<number>;
   updateSession: (
     sessionID: string,
@@ -1315,7 +1323,7 @@ export async function connectOpencode(opts: {
      * since the last sync. Safe to call repeatedly: an unchanged session is
      * not imported again.
      */
-    async refreshSessions(stale?: (casfId: string) => boolean) {
+    async refreshSessions(guard?: OpencodeSyncGuard) {
       const directories = new Set<string | undefined>([opts.directory]);
       try {
         const projects = await client.project.list();
@@ -1339,6 +1347,10 @@ export async function connectOpencode(opts: {
         for (const info of sessions.data ?? []) {
           if (!info?.id || info.parentID || seen.has(info.id)) continue;
           seen.add(info.id);
+          // The same session can be driven over another channel at once. Whoever
+          // holds it writes it; touching it here would make a second copy of a
+          // conversation the user is already watching.
+          if (guard?.taken?.(`opencode:${info.id}`)) continue;
           try {
             ingestor.handle({
               id: `sync:${info.id}:${info.time?.updated ?? 0}`,
@@ -1348,7 +1360,7 @@ export async function connectOpencode(opts: {
             const updated = info.time?.updated ?? info.time?.created ?? 0;
             if (importedRevision.get(info.id) === updated) continue;
             const dir = info.directory || directory;
-            if (stale?.(`opencode:${info.id}`)) await rebuildSession(info.id, dir);
+            if (guard?.stale?.(`opencode:${info.id}`)) await rebuildSession(info.id, dir);
             else await importSession(info.id, dir);
             importedRevision.set(info.id, updated);
             imported += 1;
