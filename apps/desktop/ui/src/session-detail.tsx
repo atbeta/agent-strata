@@ -27,6 +27,8 @@ import {
   readMcp,
   realWorkspace,
   readVcs,
+  readSessionDiff,
+  readVcsDiff,
   readViewTail,
   respondPermission,
   respondQuestion,
@@ -45,6 +47,7 @@ import {
 } from "./api";
 import { Icon } from "./icons";
 import { DiffBlock } from "./diff";
+import { ReviewPane } from "./review";
 import { JsonView } from "./json-view";
 import { permissionView } from "./permission-card";
 import { num, t, tn } from "./i18n";
@@ -435,6 +438,8 @@ export function SessionDetail(props: {
   const [railDismissed, setRailDismissed] = createSignal(false);
   /** which file the reader opened in the rail, null for the plain list */
   const [openFile, setOpenFile] = createSignal<string | null>(null);
+  const [reviewSource, setReviewSource] = createSignal<"record" | "session" | "turn" | "git" | "branch">("record");
+  const [reviewLayout, setReviewLayout] = createSignal<"unified" | "split">("unified");
   const [booting, setBooting] = createSignal(true);
   const [modelTouched, setModelTouched] = createSignal(false);
   const [view, { refetch, mutate }] = createResource(
@@ -486,6 +491,33 @@ export function SessionDetail(props: {
     (id) => readCapabilities(id).catch(() => undefined),
   );
   const opencode = () => caps()?.extension === "opencode";
+  const lastAssistantId = () => {
+    const turns = settled(view)?.turns ?? [];
+    for (let i = turns.length - 1; i >= 0; i--) {
+      const msgs = turns[i]!.assistant;
+      for (let j = msgs.length - 1; j >= 0; j--) {
+        const id = msgs[j]?.msg_id;
+        if (id) return id;
+      }
+    }
+    return undefined;
+  };
+  const reviewKey = () => {
+    if (!opencode()) return false as const;
+    const source = reviewSource();
+    if (source === "record") return false as const;
+    if (source === "turn") {
+      const messageID = lastAssistantId();
+      if (!messageID) return false as const;
+      return { id: props.id, source, messageID };
+    }
+    return { id: props.id, source };
+  };
+  const [reviewDiff] = createResource(reviewKey, (key) =>
+    key.source === "git" || key.source === "branch"
+      ? readVcsDiff(key.id, key.source)
+      : readSessionDiff(key.id, "messageID" in key ? key.messageID : undefined),
+  );
   const [commands, { refetch: refetchCommands }] = createResource(
     () => (caps()?.commands && opencode() ? props.id : undefined),
     (id) => readCommands(id).catch(() => undefined),
@@ -509,6 +541,10 @@ export function SessionDetail(props: {
   const [editTurnId, setEditTurnId] = createSignal<string>();
   const menuId = createUniqueId();
   let draftEl: HTMLTextAreaElement | undefined;
+  const citeLine = (note: string) => {
+    setDraft((cur) => (cur && !cur.endsWith("\n") ? `${cur}\n${note}` : `${cur}${note}`));
+    draftEl?.focus();
+  };
   let fileInput: HTMLInputElement | undefined;
   let scroller: HTMLDivElement | undefined;
   // Virtual needs these every frame it decides what to keep mounted. The
@@ -2045,7 +2081,7 @@ const turnIndexOf = (h: SearchHit): number => {
           return (
             <aside
               class={`flex shrink-0 flex-col border-l border-border ${
-                open() ? "w-[min(600px,48vw)]" : "w-72"
+                open() || reviewSource() !== "record" ? "w-[min(600px,48vw)]" : "w-72"
               }`}
             >
               <div
@@ -2064,7 +2100,53 @@ const turnIndexOf = (h: SearchHit): number => {
                   ×
                 </button>
               </div>
+              <Show when={opencode()}>
+                <div class="flex shrink-0 flex-wrap items-center gap-1 border-b border-border px-2 py-1.5">
+                  {(
+                    [
+                      ["record", "review.record"],
+                      ["session", "review.session"],
+                      ["turn", "review.turn"],
+                      ["git", "review.git"],
+                      ["branch", "review.branch"],
+                    ] as const
+                  ).map(([id, key]) => (
+                    <button
+                      type="button"
+                      class={`rounded-md px-1.5 py-0.5 text-2xs ${
+                        reviewSource() === id
+                          ? "bg-secondary text-foreground"
+                          : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+                      }`}
+                      onClick={() => setReviewSource(id)}
+                    >
+                      {t(key)}
+                    </button>
+                  ))}
+                  <Show when={reviewSource() !== "record"}>
+                    <button
+                      type="button"
+                      class={`ml-auto rounded-md px-1.5 py-0.5 text-2xs ${
+                        reviewLayout() === "unified" ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground"
+                      }`}
+                      onClick={() => setReviewLayout("unified")}
+                    >
+                      {t("review.unified")}
+                    </button>
+                    <button
+                      type="button"
+                      class={`rounded-md px-1.5 py-0.5 text-2xs ${
+                        reviewLayout() === "split" ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground"
+                      }`}
+                      onClick={() => setReviewLayout("split")}
+                    >
+                      {t("review.split")}
+                    </button>
+                  </Show>
+                </div>
+              </Show>
               <div class="flex min-h-0 flex-1">
+                <Show when={reviewSource() === "record"}>
                 <div
                   class={`min-h-0 space-y-5 overflow-x-hidden overflow-y-auto px-2 py-3 ${
                     open() ? "w-44 shrink-0 border-r border-border" : "w-full px-3"
@@ -2208,6 +2290,35 @@ const turnIndexOf = (h: SearchHit): number => {
                       </div>
                     </div>
                   )}
+                </Show>
+                </Show>
+                <Show when={reviewSource() !== "record"}>
+                  <div class="flex min-h-0 min-w-0 flex-1 flex-col">
+                    <Show
+                      when={reviewSource() !== "turn" || lastAssistantId()}
+                      fallback={<p class="px-3 py-3 text-xs text-muted-foreground">{t("review.turnNone")}</p>}
+                    >
+                      <Show
+                        when={!reviewDiff.loading && !reviewDiff.error}
+                        fallback={
+                          <p class={`px-3 py-3 text-xs ${reviewDiff.error ? "text-destructive" : "text-muted-foreground"}`}>
+                            {reviewDiff.error
+                              ? reviewDiff.error instanceof Error
+                                ? reviewDiff.error.message
+                                : String(reviewDiff.error)
+                              : t("review.loading")}
+                          </p>
+                        }
+                      >
+                        <Show
+                          when={(reviewDiff() ?? []).some((f) => f.file)}
+                          fallback={<p class="px-3 py-3 text-xs text-muted-foreground">{t("review.empty")}</p>}
+                        >
+                          <ReviewPane files={reviewDiff() ?? []} layout={reviewLayout()} onComment={citeLine} />
+                        </Show>
+                      </Show>
+                    </Show>
+                  </div>
                 </Show>
               </div>
             </aside>

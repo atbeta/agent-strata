@@ -46,8 +46,14 @@ export async function extensionRoute(
   }
   const ext = driver?.extension;
   if (!ext || ext.kind !== kind || !ext.paths.has(path)) return fail(404, "not found");
+  const query = new URLSearchParams(url.searchParams);
+  if (path === "/session/diff") {
+    query.delete("session");
+    const native = m[1] === "sessions" ? driver?.nativeId(id) : undefined;
+    if (native && /^[\w.-]+$/.test(native)) query.set("session", native);
+  }
   try {
-    const res = await ext.get(path, url.searchParams, directory, req.signal);
+    const res = await ext.get(path, query, directory, req.signal);
     return new Response(res.body, {
       status: res.status,
       headers: { ...headers, "content-type": res.headers.get("content-type") ?? "application/json" },

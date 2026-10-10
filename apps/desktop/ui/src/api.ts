@@ -356,6 +356,24 @@ export function readVcs(sessionId: string): Promise<VcsInfo | undefined> {
   return readOpencode<VcsInfo>(sessionId, "/vcs");
 }
 
+export type ReviewDiff = {
+  file?: string;
+  patch?: string;
+  additions: number;
+  deletions: number;
+  status?: "added" | "deleted" | "modified";
+};
+
+/** The session's current file changes. `messageID` limits them to one reply. */
+export function readSessionDiff(sessionId: string, messageID?: string): Promise<ReviewDiff[] | undefined> {
+  return readOpencode<ReviewDiff[]>(sessionId, "/session/diff", messageID ? { messageID } : undefined);
+}
+
+/** `git` is the worktree. `branch` is the worktree against the default branch. */
+export function readVcsDiff(sessionId: string, mode: "git" | "branch"): Promise<ReviewDiff[] | undefined> {
+  return readOpencode<ReviewDiff[]>(sessionId, "/vcs/diff", { mode });
+}
+
 export function readCapabilities(sessionId: string): Promise<SessionCapabilities> {
   return getJson<SessionCapabilities>(`/sessions/${encodeURIComponent(sessionId)}/capabilities`);
 }

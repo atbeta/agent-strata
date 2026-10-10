@@ -13,6 +13,7 @@ export const OPENCODE_EXTENSION_PATHS: ReadonlySet<string> = new Set([
   "/skill",
   "/vcs",
   "/vcs/diff",
+  "/session/diff",
   "/lsp",
   "/mcp",
   "/formatter",
@@ -44,10 +45,19 @@ export function opencodeExtension(opts: {
       // else the connection's), never the caller's.
       q.delete("directory");
       q.delete("workspace");
+      let upstream = path;
+      if (path === "/session/diff") {
+        const session = q.get("session");
+        q.delete("session");
+        // The id is placed in the path. Anything else would let a query pick a
+        // different session, or walk out of this one.
+        if (!session || !/^[\w.-]+$/.test(session)) return Promise.resolve(new Response(null, { status: 404 }));
+        upstream = `/session/${encodeURIComponent(session)}/diff`;
+      }
       const dir = directory || opts.directory;
       if (dir) q.set("directory", dir);
       const qs = q.toString();
-      return doFetch(`${base}${path}${qs ? `?${qs}` : ""}`, {
+      return doFetch(`${base}${upstream}${qs ? `?${qs}` : ""}`, {
         headers,
         // the credentials are for this server only
         redirect: "error",
