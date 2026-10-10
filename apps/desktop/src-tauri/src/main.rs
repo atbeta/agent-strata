@@ -13,6 +13,8 @@
 // STRATA_OPENCODE_EMBED=1; otherwise the service attaches to
 // STRATA_OPENCODE_URL if that is set, or the UI connects later.
 
+mod embed;
+
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::net::{SocketAddr, TcpStream};

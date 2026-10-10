@@ -1,0 +1,459 @@
+use std::net::TcpListener;
+use std::path::Path;
+use std::time::Duration;
+
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OpencodeMode {
+    Embed,
+    External,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OpencodeState {
+    Starting,
+    Running,
+    Missing,
+    Restarting,
+    Stopped,
+    External,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpencodePlan {
+    pub mode: OpencodeMode,
+    pub port: u16,
+    pub username: String,
+    pub password: String,
+    pub url: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpencodeStatus {
+    pub mode: OpencodeMode,
+    pub state: OpencodeState,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ModeFile {
+    opencode: OpencodeMode,
+}
+
+pub fn resolve_mode(env_embed: Option<&str>, file_mode: Option<&str>) -> OpencodeMode {
+    match env_embed {
+        Some("0") => OpencodeMode::External,
+        Some("1") => OpencodeMode::Embed,
+        _ => match file_mode {
+            Some("external") => OpencodeMode::External,
+            Some("embed") => OpencodeMode::Embed,
+            _ => OpencodeMode::Embed,
+        },
+    }
+}
+
+pub fn free_port() -> std::io::Result<u16> {
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let port = listener.local_addr()?.port();
+    drop(listener);
+    Ok(port)
+}
+
+pub fn random_password() -> String {
+    let mut bytes = [0u8; 32];
+    getrandom::getrandom(&mut bytes).expect("CSPRNG should provide 32 bytes");
+    encode_base64url_nopad(&bytes)
+}
+
+fn encode_base64url_nopad(bytes: &[u8]) -> String {
+    const TABLE: &[u8; 64] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let mut out = String::with_capacity((bytes.len() * 4 + 2) / 3);
+    let mut chunks = bytes.chunks_exact(3);
+    for chunk in chunks.by_ref() {
+        let n = ((chunk[0] as u32) << 16) | ((chunk[1] as u32) << 8) | (chunk[2] as u32);
+        out.push(TABLE[((n >> 18) & 63) as usize] as char);
+        out.push(TABLE[((n >> 12) & 63) as usize] as char);
+        out.push(TABLE[((n >> 6) & 63) as usize] as char);
+        out.push(TABLE[(n & 63) as usize] as char);
+    }
+    let rem = chunks.remainder();
+    if rem.len() == 1 {
+        let n = (rem[0] as u32) << 16;
+        out.push(TABLE[((n >> 18) & 63) as usize] as char);
+        out.push(TABLE[((n >> 12) & 63) as usize] as char);
+    } else if rem.len() == 2 {
+        let n = ((rem[0] as u32) << 16) | ((rem[1] as u32) << 8);
+        out.push(TABLE[((n >> 18) & 63) as usize] as char);
+        out.push(TABLE[((n >> 12) & 63) as usize] as char);
+        out.push(TABLE[((n >> 6) & 63) as usize] as char);
+    }
+    out
+}
+
+pub fn plan(mode: OpencodeMode) -> std::io::Result<OpencodePlan> {
+    match mode {
+        OpencodeMode::External => Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "plan() only supports embed mode",
+        )),
+        OpencodeMode::Embed => {
+            let port = free_port()?;
+            let password = random_password();
+            Ok(OpencodePlan {
+                mode,
+                port,
+                username: "opencode".into(),
+                password,
+                url: format!("http://127.0.0.1:{port}"),
+            })
+        }
+    }
+}
+
+pub fn serve_args(port: u16) -> Vec<String> {
+    vec![
+        "serve".into(),
+        "--hostname".into(),
+        "127.0.0.1".into(),
+        "--port".into(),
+        port.to_string(),
+    ]
+}
+
+pub fn child_env(plan: &OpencodePlan) -> Vec<(String, String)> {
+    vec![
+        (
+            "OPENCODE_SERVER_USERNAME".into(),
+            plan.username.clone(),
+        ),
+        (
+            "OPENCODE_SERVER_PASSWORD".into(),
+            plan.password.clone(),
+        ),
+    ]
+}
+
+pub fn service_env(plan: &OpencodePlan) -> Vec<(String, String)> {
+    vec![
+        ("STRATA_OPENCODE_URL".into(), plan.url.clone()),
+        (
+            "STRATA_OPENCODE_USERNAME".into(),
+            plan.username.clone(),
+        ),
+        (
+            "STRATA_OPENCODE_PASSWORD".into(),
+            plan.password.clone(),
+        ),
+    ]
+}
+
+pub fn backoff(attempt: u32) -> Duration {
+    match attempt {
+        1 => Duration::from_secs(1),
+        2 => Duration::from_secs(2),
+        3 => Duration::from_secs(4),
+        4 => Duration::from_secs(8),
+        _ => Duration::from_secs(30),
+    }
+}
+
+pub fn read_mode(path: &Path) -> OpencodeMode {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return OpencodeMode::Embed;
+    };
+    match serde_json::from_str::<ModeFile>(&text) {
+        Ok(file) => file.opencode,
+        Err(_) => OpencodeMode::Embed,
+    }
+}
+
+pub fn write_mode(path: &Path, mode: OpencodeMode) -> std::io::Result<()> {
+    let json = serde_json::to_string(&ModeFile { opencode: mode })
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    std::fs::write(path, json)
+}
+
+pub fn write_status(
+    path: &Path,
+    mode: OpencodeMode,
+    state: OpencodeState,
+    url: Option<&str>,
+) -> std::io::Result<()> {
+    let status = OpencodeStatus {
+        mode,
+        state,
+        url: url.map(str::to_string),
+    };
+    let json = serde_json::to_string(&status)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    std::fs::write(path, json)
+}
+
+pub fn read_status(path: &Path) -> Option<OpencodeStatus> {
+    let text = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::net::TcpListener;
+    use std::path::PathBuf;
+    use std::time::Duration;
+
+    fn temp_path(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "strata-embed-{}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+            name
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        dir.join(name)
+    }
+
+    fn sample_plan() -> OpencodePlan {
+        OpencodePlan {
+            mode: OpencodeMode::Embed,
+            port: 43123,
+            username: "opencode".into(),
+            password: "unit-test-password-value".into(),
+            url: "http://127.0.0.1:43123".into(),
+        }
+    }
+
+    #[test]
+    fn resolve_mode_unset_defaults_to_embed() {
+        assert_eq!(resolve_mode(None, None), OpencodeMode::Embed);
+    }
+
+    #[test]
+    fn resolve_mode_env_zero_is_external() {
+        assert_eq!(resolve_mode(Some("0"), None), OpencodeMode::External);
+        assert_eq!(
+            resolve_mode(Some("0"), Some("embed")),
+            OpencodeMode::External
+        );
+    }
+
+    #[test]
+    fn resolve_mode_env_one_is_embed() {
+        assert_eq!(resolve_mode(Some("1"), None), OpencodeMode::Embed);
+        assert_eq!(
+            resolve_mode(Some("1"), Some("external")),
+            OpencodeMode::Embed
+        );
+    }
+
+    #[test]
+    fn resolve_mode_uses_file_when_env_absent() {
+        assert_eq!(resolve_mode(None, Some("embed")), OpencodeMode::Embed);
+        assert_eq!(resolve_mode(None, Some("external")), OpencodeMode::External);
+    }
+
+    #[test]
+    fn resolve_mode_garbage_falls_back_to_file_then_embed() {
+        assert_eq!(
+            resolve_mode(Some("garbage"), Some("external")),
+            OpencodeMode::External
+        );
+        assert_eq!(
+            resolve_mode(Some("garbage"), Some("embed")),
+            OpencodeMode::Embed
+        );
+        assert_eq!(resolve_mode(Some("garbage"), None), OpencodeMode::Embed);
+        assert_eq!(resolve_mode(None, Some("garbage")), OpencodeMode::Embed);
+    }
+
+    #[test]
+    fn serve_args_include_loopback_and_port() {
+        assert_eq!(
+            serve_args(43123),
+            vec!["serve", "--hostname", "127.0.0.1", "--port", "43123"]
+        );
+    }
+
+    #[test]
+    fn child_env_sets_opencode_server_credentials() {
+        let plan = sample_plan();
+        let env = child_env(&plan);
+        assert_eq!(
+            env,
+            vec![
+                (
+                    "OPENCODE_SERVER_USERNAME".to_string(),
+                    "opencode".to_string()
+                ),
+                (
+                    "OPENCODE_SERVER_PASSWORD".to_string(),
+                    "unit-test-password-value".to_string()
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn service_env_sets_strata_opencode_variables() {
+        let plan = sample_plan();
+        let env = service_env(&plan);
+        assert_eq!(
+            env,
+            vec![
+                (
+                    "STRATA_OPENCODE_URL".to_string(),
+                    "http://127.0.0.1:43123".to_string()
+                ),
+                (
+                    "STRATA_OPENCODE_USERNAME".to_string(),
+                    "opencode".to_string()
+                ),
+                (
+                    "STRATA_OPENCODE_PASSWORD".to_string(),
+                    "unit-test-password-value".to_string()
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn backoff_doubles_then_caps_at_thirty_seconds() {
+        assert_eq!(backoff(1), Duration::from_secs(1));
+        assert_eq!(backoff(2), Duration::from_secs(2));
+        assert_eq!(backoff(3), Duration::from_secs(4));
+        assert_eq!(backoff(4), Duration::from_secs(8));
+        assert_eq!(backoff(5), Duration::from_secs(30));
+        assert_eq!(backoff(6), Duration::from_secs(30));
+    }
+
+    #[test]
+    fn free_port_returns_a_port_that_accepts_a_bind() {
+        let port = free_port().expect("free port");
+        let listener = TcpListener::bind(("127.0.0.1", port));
+        assert!(
+            listener.is_ok(),
+            "free_port {port} should accept a bind on 127.0.0.1"
+        );
+    }
+
+    #[test]
+    fn random_password_is_url_safe_base64_without_padding() {
+        let password = random_password();
+        assert_eq!(password.len(), 43);
+        assert!(
+            password
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'),
+            "password {password} should match [A-Za-z0-9_-]+"
+        );
+    }
+
+    #[test]
+    fn plan_embed_fills_loopback_url_and_username() {
+        let planned = plan(OpencodeMode::Embed).expect("embed plan");
+        assert_eq!(planned.mode, OpencodeMode::Embed);
+        assert_eq!(planned.username, "opencode");
+        assert_eq!(planned.url, format!("http://127.0.0.1:{}", planned.port));
+        assert_eq!(planned.password.len(), 43);
+    }
+
+    #[test]
+    fn plan_external_is_invalid_input() {
+        let err = plan(OpencodeMode::External).expect_err("external plan");
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn mode_and_status_files_round_trip_in_temp_dir() {
+        let mode_path = temp_path("mode.json");
+        write_mode(&mode_path, OpencodeMode::External).expect("write external mode");
+        assert_eq!(read_mode(&mode_path), OpencodeMode::External);
+        let mode_text = fs::read_to_string(&mode_path).unwrap();
+        let mode_json: serde_json::Value = serde_json::from_str(&mode_text).unwrap();
+        assert_eq!(mode_json["opencode"], "external");
+
+        write_mode(&mode_path, OpencodeMode::Embed).expect("write embed mode");
+        assert_eq!(read_mode(&mode_path), OpencodeMode::Embed);
+
+        let status_path = temp_path("status.json");
+        write_status(
+            &status_path,
+            OpencodeMode::Embed,
+            OpencodeState::Running,
+            Some("http://127.0.0.1:43123"),
+        )
+        .expect("write running status");
+        let status = read_status(&status_path).expect("read status");
+        assert_eq!(status.mode, OpencodeMode::Embed);
+        assert_eq!(status.state, OpencodeState::Running);
+        assert_eq!(status.url.as_deref(), Some("http://127.0.0.1:43123"));
+        let status_text = fs::read_to_string(&status_path).unwrap();
+        let status_json: serde_json::Value = serde_json::from_str(&status_text).unwrap();
+        assert_eq!(status_json["mode"], "embed");
+        assert_eq!(status_json["state"], "running");
+        assert_eq!(status_json["url"], "http://127.0.0.1:43123");
+
+        write_status(
+            &status_path,
+            OpencodeMode::External,
+            OpencodeState::Stopped,
+            None,
+        )
+        .expect("write stopped status");
+        let stopped = read_status(&status_path).expect("read stopped status");
+        assert_eq!(stopped.mode, OpencodeMode::External);
+        assert_eq!(stopped.state, OpencodeState::Stopped);
+        assert_eq!(stopped.url, None);
+        let stopped_text = fs::read_to_string(&status_path).unwrap();
+        let stopped_json: serde_json::Value = serde_json::from_str(&stopped_text).unwrap();
+        assert!(stopped_json.get("url").is_none());
+    }
+
+    #[test]
+    fn status_json_does_not_contain_the_password() {
+        let plan = sample_plan();
+        let path = temp_path("status.json");
+        write_status(
+            &path,
+            plan.mode,
+            OpencodeState::Starting,
+            Some(&plan.url),
+        )
+        .expect("write status");
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(
+            !text.contains(&plan.password),
+            "status JSON must not contain the password: {text}"
+        );
+    }
+
+    #[test]
+    fn read_mode_defaults_to_embed_for_missing_unreadable_or_invalid() {
+        let missing = temp_path("missing.json");
+        fs::remove_file(&missing).ok();
+        assert_eq!(read_mode(&missing), OpencodeMode::Embed);
+
+        let garbage = temp_path("garbage.json");
+        fs::write(&garbage, r#"{"opencode":"wat"}"#).unwrap();
+        assert_eq!(read_mode(&garbage), OpencodeMode::Embed);
+
+        let not_json = temp_path("plain.txt");
+        fs::write(&not_json, "external").unwrap();
+        assert_eq!(read_mode(&not_json), OpencodeMode::Embed);
+    }
+
+    #[test]
+    fn read_status_returns_none_when_missing() {
+        let missing = temp_path("missing-status.json");
+        fs::remove_file(&missing).ok();
+        assert!(read_status(&missing).is_none());
+    }
+}
