@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { fileURLToPath } from "node:url";
 import { createIngestor, OpencodeMapper, OPENCODE_MAPPER_VERSION } from "@agent-strata/adapter-opencode";
 import { startService } from "../src/index";
@@ -273,7 +273,7 @@ describe("agent-strata service", () => {
     const base = `http://127.0.0.1:${svc.port}`;
 
     const healthRes = await fetch(`${base}/health`);
-    expect(healthRes.headers.get("access-control-allow-origin")).toBe("*");
+    expect(healthRes.headers.get("access-control-allow-origin")).toBeNull();
     const health = await healthRes.json();
     expect(health.ok).toBe(true);
     const preflight = await fetch(`${base}/connect`, { method: "OPTIONS" });
@@ -597,5 +597,67 @@ describe("agent-strata service", () => {
     expect(empty.hits).toEqual([]);
 
     svc.stop();
+  });
+});
+
+describe("only the desktop shell reaches the service from a browser", () => {
+  let svc: ReturnType<typeof startService>;
+  let base = "";
+  beforeAll(() => {
+    svc = startService({ db: ":memory:", port: 0 });
+    base = `http://127.0.0.1:${svc.port}`;
+  });
+  afterAll(() => svc.stop());
+  const connections = async () =>
+    ((await fetch(`${base}/connections`).then((r) => r.json())) as { connections: unknown[] }).connections.length;
+
+  test("a page on another site cannot make strata run a command", async () => {
+    const res = await fetch(`${base}/connect`, {
+      method: "POST",
+      headers: { origin: "https://evil.example", "content-type": "text/plain" },
+      body: JSON.stringify({ backend: "acp", command: "calc.exe" }),
+    });
+    expect(res.status).toBe(403);
+    expect(res.headers.get("access-control-allow-origin")).toBeNull();
+    expect(await connections()).toBe(0);
+  });
+
+  test("a request another site made the browser send, or a rebound Host, goes nowhere", async () => {
+    expect((await fetch(`${base}/sync`, { method: "POST", headers: { "sec-fetch-site": "cross-site" } })).status).toBe(403);
+    expect((await fetch(`${base}/sessions`, { headers: { origin: "null" } })).status).toBe(403);
+    expect((await fetch(`${base}/stream`, { headers: { origin: "https://evil.example" } })).status).toBe(403);
+    expect((await fetch(`${base}/health`, { headers: { host: "evil.example" } })).status).toBe(403);
+  });
+
+  test("a preflight is granted to the shell and nobody else", async () => {
+    const ask = (origin: string) =>
+      fetch(`${base}/connect`, {
+        method: "OPTIONS",
+        headers: { origin, "access-control-request-method": "POST", "access-control-request-headers": "content-type" },
+      });
+    const shell = await ask("http://tauri.localhost");
+    expect(shell.status).toBe(204);
+    expect(shell.headers.get("access-control-allow-origin")).toBe("http://tauri.localhost");
+    expect(shell.headers.get("access-control-allow-methods")).toContain("POST");
+    expect(shell.headers.get("access-control-allow-headers")).toBe("content-type");
+    expect((await ask("https://evil.example")).status).toBe(403);
+  });
+
+  test("the shell reads every route cross-origin, the dev proxy reads it same-origin", async () => {
+    for (const origin of ["http://tauri.localhost", "tauri://localhost", "http://localhost:5178"]) {
+      const res = await fetch(`${base}/health`, { headers: { origin, "sec-fetch-site": "cross-site" } });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("access-control-allow-origin")).toBe(origin);
+      expect(res.headers.get("vary")).toContain("origin");
+      expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    }
+    const proxied = await fetch(`${base}/sync`, {
+      method: "POST",
+      headers: { host: "localhost:5178", origin: "http://localhost:5178", "sec-fetch-site": "same-origin" },
+    });
+    expect(proxied.status).toBe(200);
+    const stream = await fetch(`${base}/stream`, { headers: { origin: "http://tauri.localhost" } });
+    expect(stream.headers.get("access-control-allow-origin")).toBe("http://tauri.localhost");
+    await stream.body?.cancel();
   });
 });

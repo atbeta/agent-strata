@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { makeEvent, type EventInput } from "@agent-strata/schema";
 import type { BackendDriver } from "../src/driver";
-import { extensionRoute, fromAnotherSite, isLoopbackHost, shellCors } from "../src/extension-route";
+import { extensionRoute } from "../src/extension-route";
+import { fromAnotherSite, isLoopbackHost, shellCors } from "../src/shell-origin";
 import { startService } from "../src/index";
 import { fakeOpencode } from "./fake-opencode";
 
