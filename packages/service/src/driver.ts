@@ -98,6 +98,15 @@ export interface SyncGuard {
   stale?: (casfId: string) => boolean;
   /** another channel is driving this session right now, and it owns it */
   taken?: (casfId: string) => boolean;
+  /**
+   * This driver just read the session, so it owns it.
+   *
+   * Without this, a session that arrived through a sync is in the store with no
+   * recorded owner — and the moment a second backend of the same kind connects,
+   * "exactly one candidate" stops being true and the session becomes
+   * unroutable, along with everything the user could do to it.
+   */
+  claimed?: (casfId: string) => void;
 }
 
 export interface BackendDriver {

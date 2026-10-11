@@ -218,6 +218,11 @@ function SessionListItem(props: {
   onDelete: () => Promise<void>;
   /** Start a comparison with this session already picked. */
   onCompare: () => void;
+  /**
+   * Which server this session lives on, set only while one backend kind has
+   * more than one instance connected.
+   */
+  instance?: { short: string; tip: string };
 }) {
   const [editing, setEditing] = createSignal(false);
   const [draft, setDraft] = createSignal(props.title);
@@ -266,6 +271,21 @@ function SessionListItem(props: {
       <Show when={props.needsInput}>
         <span class="shrink-0 rounded bg-event-permission/15 px-1 text-2xs font-medium text-event-permission">
           {t("sidebar.session.needsInput")}
+        </span>
+      </Show>
+      {/* Before the title, not after it: the title reserves its right padding
+          for the timestamp, which is absolutely positioned over the end of the
+          row, and a badge placed after the title lands on top of it. Left of
+          the title it also reads as what it is — row metadata, like the status
+          dot, rather than part of the session's name.
+          A native title on its own span: the session title is pointer-events-none
+          by design so the row's own hover label is the one that shows. */}
+      <Show when={props.instance && !editing()}>
+        <span
+          class="shrink-0 rounded bg-secondary/70 px-1 font-mono text-2xs leading-none text-muted-foreground"
+          title={props.instance!.tip}
+        >
+          {props.instance!.short}
         </span>
       </Show>
       <Show
@@ -377,6 +397,24 @@ function endpointHost(url: string): string {
   } catch {
     return url;
   }
+}
+
+/**
+ * The shortest form of an address that still tells two instances apart.
+ *
+ * Local backends are nearly all loopback, and every one of them reads
+ * `127.0.0.1:<port>` — the host is the part that never varies and the port is
+ * the whole identity, so a row that shows the host too has spent its width on
+ * nothing. A remote address keeps its host, because there it is the part that
+ * repeats.
+ */
+function endpointShort(url: string): string {
+  const host = endpointHost(url);
+  const loopback = /^127\./.test(host) || /^localhost(:|$)/i.test(host) || /^\[::1\]:/.test(host);
+  if (!loopback) return host;
+  const colon = host.lastIndexOf(":");
+  const port = colon === -1 ? "" : host.slice(colon + 1);
+  return /^\d+$/.test(port) ? port : host;
 }
 
 export function App() {
@@ -644,6 +682,34 @@ export function App() {
   };
 
   const sessionWorkspace = (s: SessionRow) => realWorkspace(s.workspace ?? s.summary.workspace);
+
+  /**
+   * The connection ids the sidebar's sessions are actually spread across.
+   *
+   * A session carries a `backend`, but that names the kind and never the
+   * server, so nothing on the row says which instance produced it. Naming it
+   * is only worth the row width when the list is genuinely split: two
+   * OpenCodes over one agent's session store hold the same sessions, and which
+   * of them owns a given one is arbitrary, so the badge would repeat a single
+   * answer down the whole list. A session no connected backend owns counts as
+   * its own bucket, because that is the other case where the rows are not
+   * interchangeable.
+   */
+  const splitInstances = () => {
+    const ids = new Set<string>();
+    for (const g of groups()) for (const s of g.rows) ids.add(s.connection_id ?? "");
+    return ids;
+  };
+
+  const instanceOf = (s: SessionRow) => {
+    if (!s.connection_id || splitInstances().size < 2) return undefined;
+    const c = (settled(conns)?.connections ?? []).find((x) => x.id === s.connection_id);
+    if (!c) return undefined;
+    return {
+      short: endpointShort(c.baseUrl),
+      tip: `${backendLabel(c.backend)} · ${endpointHost(c.baseUrl)}`,
+    };
+  };
 
   const library = () =>
     (settled(data)?.sessions ?? []).filter((s) => !s.parent && !s.archived && !s.deleted);
@@ -1076,6 +1142,7 @@ export function App() {
                         onArchive={() => runAction(id, () => archiveSession(id), true)}
                         onDelete={() => runAction(id, () => deleteSession(id), true)}
                         onCompare={() => startCompare(id)}
+                        instance={instanceOf(s)}
                       />
                     );
                   }}

@@ -21,6 +21,13 @@ export interface SessionRow {
   archived?: boolean;
   deleted?: boolean;
   needs_input?: boolean;
+  /**
+   * The connection this session belongs to, when a connected backend claims
+   * it. Two instances of the same backend kind are otherwise
+   * indistinguishable in the list — `backend` only says which kind, never
+   * which server.
+   */
+  connection_id?: string;
   totals: {
     input: number;
     output: number;

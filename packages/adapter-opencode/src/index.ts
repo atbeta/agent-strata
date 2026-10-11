@@ -36,6 +36,8 @@ export interface OpencodeSyncGuard {
   stale?: (casfId: string) => boolean;
   /** another channel is driving it now; it is left to that channel untouched */
   taken?: (casfId: string) => boolean;
+  /** this server just answered for it, so it owns the session */
+  claimed?: (casfId: string) => void;
 }
 
 /** A piece of a prompt as OpenCode's prompt endpoint takes it. */
@@ -1784,6 +1786,10 @@ export async function connectOpencode(opts: {
           // holds it writes it; touching it here would make a second copy of a
           // conversation the user is already watching.
           if (guard?.taken?.(`opencode:${info.id}`)) return;
+          // Sync walks every project the server knows while indexSessions walks
+          // one, so most sessions arrive by this road. Claiming here is what
+          // keeps a second OpenCode from making all of them unroutable.
+          guard?.claimed?.(`opencode:${info.id}`);
           try {
             ingestor.handle({
               id: `sync:${info.id}:${info.time?.updated ?? 0}`,

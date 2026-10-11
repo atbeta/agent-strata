@@ -146,6 +146,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
           claims.shadowed({ backend: driver.agent, native_id: native }, casfId)
         );
       },
+      claimed: (casfId) => owners.set(casfId, driver.id),
     });
 
   const json = (data: unknown, status = 200) =>
@@ -331,6 +332,10 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         archived: v.archived === true,
         deleted: v.deleted === true,
         needs_input: askSessions.has(summary.session_id) || questionSessions.has(summary.session_id),
+        // Which connection owns it, resolved the same way the per-session
+        // commands resolve it, so a label in the UI cannot disagree with where
+        // the prompt actually goes. Absent when no connected backend claims it.
+        connection_id: driverFor(summary.session_id)?.id,
       }));
       return json({ sessions, aggregate: aggregate(rows.map((r) => r.view)) });
     }
