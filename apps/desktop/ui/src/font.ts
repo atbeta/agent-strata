@@ -51,6 +51,44 @@ export function fontStack(family: string, fallback: string): string {
   return name ? `"${name}", ${fallback}` : fallback;
 }
 
+/**
+ * Unrelated families to compare against. One is not enough: a family can
+ * happen to measure the same as `monospace` while still being installed, and
+ * the browser substitutes silently either way, so every answer has to survive
+ * more than one baseline.
+ */
+const BASELINES = ["monospace", "serif", "sans-serif"] as const;
+
+/**
+ * Whether the browser resolves `family` to something of its own. Rendering it
+ * at a size where the fallback's advance width is decisive, and comparing
+ * against each baseline, is the only way to ask without a font enumeration API.
+ *
+ * Kept pure so it can be tested without a DOM; `measure` supplies the widths.
+ */
+export function fontIsAvailable(measure: (stack: string) => number, family: string): boolean {
+  const name = sanitizeFamily(family);
+  if (!name) return false;
+  return BASELINES.some((base) => Math.abs(measure(`"${name}", ${base}`) - measure(base)) > 0.5);
+}
+
+let measured: CanvasRenderingContext2D | null | undefined;
+
+/** `true` when the answer cannot be known, so callers do not warn about a font that may be there. */
+export function isInstalled(family: string): boolean {
+  if (typeof document === "undefined") return true;
+  if (measured === undefined) {
+    measured = document.createElement("canvas").getContext("2d");
+  }
+  if (!measured) return true;
+  const ctx = measured;
+  const SAMPLE = "mmmmmmmmmmlli WWW中文0Oo";
+  return fontIsAvailable((stack) => {
+    ctx.font = `72px ${stack}`;
+    return ctx.measureText(SAMPLE).width;
+  }, family);
+}
+
 function isSize(value: unknown): value is CodeSize {
   return typeof value === "string" && (CODE_SIZES as readonly string[]).includes(value);
 }

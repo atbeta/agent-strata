@@ -1,5 +1,44 @@
 import { describe, expect, test } from "bun:test";
-import { fontStack, parseFonts, sanitizeFamily } from "./font";
+import { fontIsAvailable, fontStack, parseFonts, sanitizeFamily } from "./font";
+
+describe("detecting a font the machine actually has", () => {
+  // The browser substitutes a family it cannot resolve, so a missing font is
+  // one that renders exactly like the fallback it was asked to sit next to.
+  // `sizes` holds the widths of the families that exist, keyed by name.
+  const measureFor = (sizes: Record<string, number>) => (stack: string) => {
+    const asked = /^"([^"]+)",\s*(.+)$/.exec(stack);
+    if (!asked) return sizes[stack]!;
+    const [, family, base] = asked;
+    return sizes[family] ?? sizes[base]!;
+  };
+
+  test("a family the browser resolves lands on its own width", () => {
+    const measure = measureFor({ Consolas: 812, monospace: 800, serif: 640, "sans-serif": 700 });
+    expect(fontIsAvailable(measure, "Consolas")).toBe(true);
+  });
+
+  test("a family it has to substitute measures as the fallback does", () => {
+    const measure = measureFor({ monospace: 800, serif: 640, "sans-serif": 700 });
+    expect(fontIsAvailable(measure, "Satoshi")).toBe(false);
+  });
+
+  test("agreeing with one baseline still counts as installed", () => {
+    // A family that measures like `monospace` but not like `serif` is real;
+    // deciding from a single comparison would call it missing.
+    const measure = measureFor({ LXGW: 700, monospace: 700, serif: 640, "sans-serif": 700 });
+    expect(fontIsAvailable(measure, "LXGW")).toBe(true);
+  });
+
+  test("only a family indistinguishable from every fallback reads as missing", () => {
+    const measure = measureFor({ Ghost: 800, monospace: 800, serif: 800, "sans-serif": 800 });
+    expect(fontIsAvailable(measure, "Ghost")).toBe(false);
+  });
+
+  test("an unusable name is never available", () => {
+    expect(fontIsAvailable(() => 100, "")).toBe(false);
+    expect(fontIsAvailable(() => 100, '";{}')).toBe(false);
+  });
+});
 
 describe("a font family name", () => {
   test("keeps a normal family and a CJK name", () => {

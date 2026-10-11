@@ -1,6 +1,7 @@
 import { createEffect, createResource, createSignal, For, Show } from "solid-js";
 import { getJson, readConfig, saveConfig, type Connection } from "./api";
 import { t } from "./i18n";
+import { Group } from "./settings-blocks";
 
 function explain(message: string, draft: string): string {
   if (message === "invalid config") return t("settings.config.invalid");
@@ -119,15 +120,14 @@ export function ConfigSettings() {
   const opencode = () => (conns()?.connections ?? []).filter((conn) => conn.backend === "opencode");
 
   return (
-    <section class="mt-8 border-t border-border pt-6">
-      <h2 class="text-sm font-medium">{t("settings.config.title")}</h2>
-      <p class="mt-1 text-sm leading-5 text-muted-foreground">{t("settings.config.hint")}</p>
+    <Group label={t("settings.config.title")}>
+      <p class="text-2xs leading-4 text-muted-foreground">{t("settings.config.hint")}</p>
       <Show when={!conns.loading && opencode().length === 0}>
         <p class="mt-3 text-sm text-muted-foreground">{t("settings.config.offline")}</p>
       </Show>
       <For each={opencode()}>
         {(conn) => <ConfigEditor connection={conn} workspaces={spaces()?.workspaces ?? []} />}
       </For>
-    </section>
+    </Group>
   );
 }

@@ -28,6 +28,8 @@ export interface PickerProps {
   placeholder?: string;
   /** Shown above the list, disabled, so the current pick is always visible. */
   emptyOption?: string;
+  /** Keep that blank entry selectable, for a field whose value can be cleared. */
+  allowEmpty?: boolean;
   capitalize?: boolean;
   class?: string;
 }
@@ -95,7 +97,7 @@ export function Picker(props: PickerProps) {
       <DropdownMenuContent class="max-h-80 max-w-64 overflow-y-auto">
         <Show when={props.emptyOption}>
           <DropdownMenuItem
-            disabled={props.value === ""}
+            disabled={!props.allowEmpty && props.value === ""}
             onSelect={() => pick("")}
             class="capitalize"
           >

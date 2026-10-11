@@ -1,4 +1,4 @@
-import { createEffect, createResource, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createResource, createSignal, For, Show } from "solid-js";
 import {
   readOpencodeLaunch,
   saveOpencodeMode,
@@ -10,11 +10,21 @@ import { readTheme, saveTheme, type ThemeChoice } from "./theme";
 import { disableNotify, enableNotify, readNotify } from "./notify";
 import {
   CODE_SIZES,
+  isInstalled,
   readFonts,
   saveFonts,
   type CodeSize,
   type FontChoice,
 } from "./font";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Switch } from "@/components/ui/switch";
+import { Group, Row, Segmented, pill } from "./settings-blocks";
 import { ProviderSettings } from "./providers";
 import { ConfigSettings } from "./config";
 import { SETTINGS_SECTIONS, settingsSection } from "./settings-sections";
@@ -35,21 +45,89 @@ const CODE_PRESETS = [
   "Maple Mono",
 ];
 
-const PREVIEW = `const greeting = "你好";
+const UI_PRESETS = [
+  "Segoe UI",
+  "Microsoft YaHei",
+  "PingFang SC",
+  "Inter",
+  "Noto Sans",
+  "Source Han Sans SC",
+];
+
+const PREVIEW_UI = "Agent Strata 会话与设置";
+const PREVIEW_CODE = `const greeting = "你好";
 function width(ch: string) {
   return ch.codePointAt(0)! > 255 ? 2 : 1;
 }`;
 
-function pill(on: boolean): string {
-  return `rounded-md border px-2.5 py-1 text-xs transition-colors ${
-    on ? "border-ring bg-secondary text-foreground" : "border-border text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
-  }`;
+/**
+ * A font picker that shows what is chosen. The dropdown carries the families
+ * this computer actually has, and anything else is reached through one text
+ * field — so the control always reads back what the app is using, instead of
+ * leaving a free-text box that no longer agrees with the row above it.
+ */
+function FontPicker(props: {
+  label: string;
+  value: string;
+  presets: string[];
+  onChange: (family: string) => void;
+}) {
+  const [editing, setEditing] = createSignal(false);
+  // Availability cannot change while the window is open, so it is asked once.
+  const available = createMemo(() => props.presets.filter((name) => isInstalled(name)));
+  const chosen = () => (props.value === "" ? t("settings.font.system") : props.value);
+  const missing = () => props.value !== "" && !isInstalled(props.value);
+
+  return (
+    <div class="w-full">
+      <DropdownMenu>
+        <DropdownMenuTrigger class="h-8 w-full justify-between gap-3 border border-border px-2.5 text-sm hover:bg-secondary/60">
+          <span class={`truncate ${missing() ? "text-destructive" : ""}`}>{chosen()}</span>
+          <Icon name="chevron" class="size-3 shrink-0 text-muted-foreground" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent>
+          <DropdownMenuItem onSelect={() => props.onChange("")}>
+            {t("settings.font.system")}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <For each={available()}>
+            {(name) => (
+              <DropdownMenuItem
+                class="font-mono text-xs"
+                onSelect={() => props.onChange(name)}
+              >
+                {name}
+              </DropdownMenuItem>
+            )}
+          </For>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => setEditing(true)}>
+            {t("settings.font.custom")}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <Show when={editing() || missing()}>
+        <input
+          class="mt-2 h-8 w-full rounded-md border border-border bg-transparent px-2.5 text-sm outline-none focus:border-ring"
+          placeholder={t("settings.font.placeholder")}
+          aria-label={props.label}
+          value={props.value}
+          onInput={(e) => props.onChange(e.currentTarget.value)}
+          onBlur={() => setEditing(false)}
+        />
+      </Show>
+      <Show when={missing()}>
+        <p class="mt-1.5 text-2xs leading-4 text-destructive">{t("settings.font.missing")}</p>
+      </Show>
+    </div>
+  );
 }
 
-const CHOICES = (): { id: ThemeChoice; label: string; hint: string }[] => [
-  { id: "dark", label: t("settings.theme.dark"), hint: t("settings.theme.darkHint") },
-  { id: "light", label: t("settings.theme.light"), hint: t("settings.theme.lightHint") },
-  { id: "system", label: t("settings.theme.system"), hint: t("settings.theme.systemHint") },
+const CHOICES = (): { id: ThemeChoice; label: string }[] => [
+  { id: "dark", label: t("settings.theme.dark") },
+  { id: "light", label: t("settings.theme.light") },
+  { id: "system", label: t("settings.theme.system") },
 ];
 
 export function SettingsPage(props: { section?: string }) {
@@ -115,11 +193,11 @@ export function SettingsPage(props: { section?: string }) {
   };
 
   return (
-    <div class="mx-auto w-full max-w-lg px-8 py-10">
-      <h1 class="text-xl font-medium">{t("settings.title")}</h1>
-      <p class="mt-1 text-sm text-muted-foreground">{t("settings.savedHere")}</p>
-
-      <div class="mt-6 flex flex-wrap gap-1" role="tablist" aria-label={t("settings.title")}>
+    // Anchored to the left edge rather than centred: a settings page is a
+    // document, and a fixed measure floating in the middle of a wide window
+    // reads as unfinished. The rail takes the space the measure used to waste.
+    <div class="flex w-full items-start gap-10 px-8 py-10">
+      <nav class="sticky top-0 w-44 shrink-0" role="tablist" aria-label={t("settings.title")}>
         <For each={SETTINGS_SECTIONS}>
           {(item) => (
             <button
@@ -128,7 +206,7 @@ export function SettingsPage(props: { section?: string }) {
               id={`settings-tab-${item.id}`}
               aria-selected={section() === item.id}
               aria-controls="settings-panel"
-              class={`rounded-md px-2.5 py-1 text-sm transition-colors ${
+              class={`block w-full rounded-md px-2.5 py-1.5 text-left text-sm transition-colors ${
                 section() === item.id
                   ? "bg-secondary text-foreground"
                   : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
@@ -141,31 +219,25 @@ export function SettingsPage(props: { section?: string }) {
             </button>
           )}
         </For>
-      </div>
+      </nav>
+
+      <div class="min-w-0 max-w-2xl flex-1">
+        <h1 class="text-xl font-medium">{t("settings.title")}</h1>
+        <p class="mt-1 text-sm text-muted-foreground">{t("settings.savedHere")}</p>
 
       <div role="tabpanel" id="settings-panel" aria-labelledby={`settings-tab-${section()}`}>
       <Show when={section() === "interface"}>
-      <section class="mt-8">
-        <h2 class="text-sm font-medium">{t("settings.appearance")}</h2>
-        <div
-          class="mt-3 grid grid-cols-3 gap-2"
-          role="radiogroup"
-          aria-label={t("settings.theme")}
-        >
-          {CHOICES().map((item) => (
-            <button
-              type="button"
-              role="radio"
-              aria-checked={choice() === item.id}
-              class={`rounded-lg border px-3 py-3 text-left transition-colors ${
-                choice() === item.id
-                  ? "border-ring bg-secondary"
-                  : "border-border hover:bg-secondary/60"
-              }`}
-              onClick={() => pick(item.id)}
-            >
+      <Group label={t("settings.appearance")}>
+        <Segmented
+          label={t("settings.theme")}
+          value={choice()}
+          onChange={(id) => pick(id as ThemeChoice)}
+          options={CHOICES().map((item) => ({
+            id: item.id,
+            label: item.label,
+            swatch: (
               <span
-                class={`mb-2 block h-8 rounded-md border border-border ${
+                class={`h-3.5 w-6 shrink-0 rounded-sm border border-border ${
                   item.id === "light"
                     ? "bg-white"
                     : item.id === "system"
@@ -173,211 +245,153 @@ export function SettingsPage(props: { section?: string }) {
                       : "bg-[#17171a]"
                 }`}
               />
-              <span class="block text-sm font-medium">{item.label}</span>
-              <span class="mt-0.5 block text-2xs text-muted-foreground">{item.hint}</span>
-            </button>
-          ))}
-        </div>
-      </section>
+            ),
+          }))}
+        />
+      </Group>
 
-      <section class="mt-8">
-        <h2 class="text-sm font-medium">{t("settings.notify.title")}</h2>
-        <p class={`mt-1 text-sm leading-5 ${notifyErr() ? "text-destructive" : "text-muted-foreground"}`}>
-          {notifyErr() || t("settings.notify.hint")}
-        </p>
-        <div class="mt-3 grid grid-cols-2 gap-2" role="radiogroup" aria-label={t("settings.notify.title")}>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={notifyOn()}
-            class={`rounded-lg border px-3 py-2.5 text-left text-sm transition-colors ${
-              notifyOn() ? "border-ring bg-secondary" : "border-border hover:bg-secondary/60"
-            }`}
-            onClick={() => {
-              if (!notifyOn()) void toggleNotify();
-            }}
-          >
-            {t("settings.notify.on")}
-          </button>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={!notifyOn()}
-            class={`rounded-lg border px-3 py-2.5 text-left text-sm transition-colors ${
-              !notifyOn() ? "border-ring bg-secondary" : "border-border hover:bg-secondary/60"
-            }`}
-            onClick={() => {
-              if (notifyOn()) void toggleNotify();
-            }}
-          >
-            {t("settings.notify.off")}
-          </button>
-        </div>
-      </section>
-
-      <section class="mt-8">
-        <h2 class="text-sm font-medium">{t("settings.language")}</h2>
-        <p class="mt-1 text-sm leading-5 text-muted-foreground">{t("settings.language.hint")}</p>
-        <div
-          class="mt-3 grid grid-cols-2 gap-2"
-          role="radiogroup"
-          aria-label={t("settings.language")}
-        >
-          {LOCALES.map((id: Locale) => (
-            <button
-              type="button"
-              role="radio"
-              aria-checked={locale() === id}
-              class={`rounded-lg border px-3 py-2.5 text-left transition-colors ${
-                locale() === id
-                  ? "border-ring bg-secondary"
-                  : "border-border hover:bg-secondary/60"
-              }`}
-              onClick={() => setLocale(id)}
-            >
-              {/* Each language in its own name. "English" is not a translation of
-                  "英文" to someone who cannot read the one they are looking at. */}
-              <span class="block text-sm font-medium">{LOCALE_LABEL[id]}</span>
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section class="mt-8">
-        <h2 class="text-sm font-medium">{t("settings.font.title")}</h2>
-        <p class="mt-1 text-sm leading-5 text-muted-foreground">{t("settings.font.hint")}</p>
-
-        <label class="mt-4 block">
-          <span class="text-xs text-muted-foreground">{t("settings.font.ui")}</span>
-          <input
-            class="mt-1.5 h-8 w-full rounded-md border border-border bg-transparent px-2.5 text-sm outline-none focus:border-ring"
-            placeholder={t("settings.font.placeholder")}
-            aria-label={t("settings.font.ui")}
-            value={fonts().ui}
-            onInput={(e) => patchFonts({ ui: e.currentTarget.value })}
+      {/* Language and notification are preferences, not a category each: they
+          share one list so the page reads as a page instead of a stack of
+          equally loud blocks. */}
+      <Group label={t("settings.general")}>
+      <section class="divide-y divide-border">
+        <Row label={t("settings.language")} hint={t("settings.language.hint")}>
+          {/* Each language in its own name. "English" is not a translation of
+              "英文" to someone who cannot read the one they are looking at. */}
+          <Segmented
+            label={t("settings.language")}
+            value={locale()}
+            onChange={(id) => setLocale(id as Locale)}
+            options={LOCALES.map((id) => ({ id, label: LOCALE_LABEL[id] }))}
           />
-        </label>
+        </Row>
 
-        <div class="mt-4">
-          <span class="text-xs text-muted-foreground">{t("settings.font.code")}</span>
-          <div class="mt-1.5 flex flex-wrap gap-1.5" role="group" aria-label={t("settings.font.code")}>
-            <button type="button" class={pill(fonts().code === "")} onClick={() => patchFonts({ code: "" })}>
-              {t("settings.font.default")}
-            </button>
-            {CODE_PRESETS.map((name) => (
-              <button type="button" class={pill(fonts().code === name)} onClick={() => patchFonts({ code: name })}>
-                {name}
-              </button>
-            ))}
+        <Row label={t("settings.notify.title")} hint={t("settings.notify.hint")}>
+          <Switch
+            checked={notifyOn()}
+            aria-label={t("settings.notify.title")}
+            onChange={() => void toggleNotify()}
+          />
+        </Row>
+      </section>
+      <Show when={notifyErr()}>
+        <p class="mt-2 text-2xs text-destructive">{notifyErr()}</p>
+      </Show>
+      </Group>
+
+      <Group label={t("settings.font.title")}>
+        <p class="text-2xs leading-4 text-muted-foreground">{t("settings.font.hint")}</p>
+
+        {/* Both families have to appear here. A preview that only shows the code
+            font leaves the interface-font row looking like it did nothing, which
+            is the same doubt the picker itself has to answer. */}
+        <div class="sticky top-0 z-10 -mx-2 mt-3 bg-background px-2 py-2">
+          <div class="overflow-hidden rounded-lg border border-border bg-secondary/30">
+            <div class="flex items-baseline gap-3 border-b border-border px-3 py-2">
+              <span class="w-14 shrink-0 text-2xs text-muted-foreground">
+                {t("settings.font.ui")}
+              </span>
+              <span class="truncate text-sm">{PREVIEW_UI}</span>
+            </div>
+            <div class="flex items-baseline gap-3 px-3 py-2">
+              <span class="w-14 shrink-0 text-2xs text-muted-foreground">
+                {t("settings.font.code")}
+              </span>
+              <pre class="min-w-0 overflow-x-auto font-mono text-xs whitespace-pre">{PREVIEW_CODE}</pre>
+            </div>
           </div>
-          <input
-            class="mt-2 h-8 w-full rounded-md border border-border bg-transparent px-2.5 text-sm outline-none focus:border-ring"
-            placeholder={t("settings.font.placeholder")}
-            aria-label={t("settings.font.family")}
-            value={fonts().code}
-            onInput={(e) => patchFonts({ code: e.currentTarget.value })}
-          />
         </div>
 
-        <div class="mt-4">
-          <span class="text-xs text-muted-foreground">{t("settings.font.size")}</span>
-          <div class="mt-1.5 flex flex-wrap gap-1.5" role="radiogroup" aria-label={t("settings.font.size")}>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={fonts().size === ""}
-              class={pill(fonts().size === "")}
-              onClick={() => patchFonts({ size: "" })}
-            >
-              {t("settings.font.default")}
-            </button>
-            {CODE_SIZES.map((size: CodeSize) => (
+        <div class="divide-y divide-border">
+          <Row label={t("settings.font.ui")}>
+            <FontPicker
+              label={t("settings.font.ui")}
+              value={fonts().ui}
+              presets={UI_PRESETS}
+              onChange={(ui) => patchFonts({ ui })}
+            />
+          </Row>
+
+          <Row label={t("settings.font.code")}>
+            <FontPicker
+              label={t("settings.font.code")}
+              value={fonts().code}
+              presets={CODE_PRESETS}
+              onChange={(code) => patchFonts({ code })}
+            />
+          </Row>
+
+          <Row label={t("settings.font.size")}>
+            <div class="flex flex-wrap justify-end gap-1.5" role="radiogroup" aria-label={t("settings.font.size")}>
               <button
                 type="button"
                 role="radio"
-                aria-checked={fonts().size === size}
-                class={pill(fonts().size === size)}
-                onClick={() => patchFonts({ size })}
+                aria-checked={fonts().size === ""}
+                class={pill(fonts().size === "")}
+                onClick={() => patchFonts({ size: "" })}
               >
-                {size}
+                {t("settings.font.system")}
               </button>
-            ))}
-          </div>
-        </div>
+              {CODE_SIZES.map((size: CodeSize) => (
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={fonts().size === size}
+                  class={pill(fonts().size === size)}
+                  onClick={() => patchFonts({ size })}
+                >
+                  {size}
+                </button>
+              ))}
+            </div>
+          </Row>
 
-        <div class="mt-4">
-          <span class="text-xs text-muted-foreground">{t("settings.font.leading")}</span>
-          <div class="mt-1.5 flex flex-wrap gap-1.5" role="radiogroup" aria-label={t("settings.font.leading")}>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={fonts().leading === ""}
-              class={pill(fonts().leading === "")}
-              onClick={() => patchFonts({ leading: "" })}
-            >
-              {t("settings.font.default")}
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={fonts().leading === "compact"}
-              class={pill(fonts().leading === "compact")}
-              onClick={() => patchFonts({ leading: "compact" })}
-            >
-              {t("settings.font.leading.compact")}
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={fonts().leading === "normal"}
-              class={pill(fonts().leading === "normal")}
-              onClick={() => patchFonts({ leading: "normal" })}
-            >
-              {t("settings.font.leading.normal")}
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={fonts().leading === "relaxed"}
-              class={pill(fonts().leading === "relaxed")}
-              onClick={() => patchFonts({ leading: "relaxed" })}
-            >
-              {t("settings.font.leading.relaxed")}
-            </button>
-          </div>
-        </div>
+          <Row label={t("settings.font.leading")}>
+            <div class="flex gap-1.5" role="radiogroup" aria-label={t("settings.font.leading")}>
+              {(["", "compact", "normal", "relaxed"] as const).map((option) => (
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={fonts().leading === option}
+                  class={pill(fonts().leading === option)}
+                  onClick={() => patchFonts({ leading: option })}
+                >
+                  {option === ""
+                    ? t("settings.font.system")
+                    : t(`settings.font.leading.${option}`)}
+                </button>
+              ))}
+            </div>
+          </Row>
 
-        <div class="mt-4">
-          <span class="text-xs text-muted-foreground">{t("settings.font.ligatures")}</span>
-          <div class="mt-1.5 flex gap-1.5" role="radiogroup" aria-label={t("settings.font.ligatures")}>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={fonts().ligatures}
-              class={pill(fonts().ligatures)}
-              onClick={() => patchFonts({ ligatures: true })}
-            >
-              {t("settings.font.ligatures.on")}
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={!fonts().ligatures}
-              class={pill(!fonts().ligatures)}
-              onClick={() => patchFonts({ ligatures: false })}
-            >
-              {t("settings.font.ligatures.off")}
-            </button>
-          </div>
+          <Row label={t("settings.font.ligatures")}>
+            <div class="flex gap-1.5" role="radiogroup" aria-label={t("settings.font.ligatures")}>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={fonts().ligatures}
+                class={pill(fonts().ligatures)}
+                onClick={() => patchFonts({ ligatures: true })}
+              >
+                {t("settings.font.ligatures.on")}
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={!fonts().ligatures}
+                class={pill(!fonts().ligatures)}
+                onClick={() => patchFonts({ ligatures: false })}
+              >
+                {t("settings.font.ligatures.off")}
+              </button>
+            </div>
+          </Row>
         </div>
-
-        <pre class="mt-4 overflow-x-auto rounded-lg border border-border bg-secondary/40 px-3 py-2 font-mono text-xs whitespace-pre">{PREVIEW}</pre>
-      </section>
+      </Group>
       </Show>
 
       <Show when={section() === "opencode"}>
-      <section class="mt-8">
-        <h2 class="text-sm font-medium">{t("settings.opencode.title")}</h2>
+      <Group label={t("settings.opencode.title")}>
         <div
           class="mt-3 grid grid-cols-2 gap-2"
           role="radiogroup"
@@ -416,7 +430,7 @@ export function SettingsPage(props: { section?: string }) {
             </a>
           </div>
         </Show>
-      </section>
+      </Group>
 
       <ProviderSettings />
 
@@ -424,9 +438,8 @@ export function SettingsPage(props: { section?: string }) {
       </Show>
 
       <Show when={section() === "permission"}>
-      <section class="mt-8">
-        <h2 class="text-sm font-medium">{t("settings.permission.title")}</h2>
-        <p class="mt-1 text-sm leading-5 text-muted-foreground">
+      <Group label={t("settings.permission.title")}>
+        <p class="text-2xs leading-4 text-muted-foreground">
           {t("settings.permission.hint")}
         </p>
         <button
@@ -437,8 +450,9 @@ export function SettingsPage(props: { section?: string }) {
           <Icon name="shield" class="size-3.5 text-muted-foreground" />
           {t("settings.permission.open")}
         </button>
-      </section>
+      </Group>
       </Show>
+      </div>
       </div>
     </div>
   );
