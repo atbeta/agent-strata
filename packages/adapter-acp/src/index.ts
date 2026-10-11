@@ -103,13 +103,15 @@ export class AcpRecorder implements Client {
   }
 
   private flush(s: SessionState, final?: { stop_reason?: string; usage?: Usage; cost_usd?: number }) {
+    const count = (n: number | undefined) =>
+      n === undefined ? undefined : Math.max(0, Math.round(n));
     const usage = final?.usage
       ? {
-          input: final.usage.inputTokens,
-          output: final.usage.outputTokens,
-          reasoning: final.usage.thoughtTokens ?? undefined,
-          cache_read: final.usage.cachedReadTokens ?? undefined,
-          cache_write: final.usage.cachedWriteTokens ?? undefined,
+          input: count(final.usage.inputTokens) ?? 0,
+          output: count(final.usage.outputTokens) ?? 0,
+          reasoning: count(final.usage.thoughtTokens ?? undefined),
+          cache_read: count(final.usage.cachedReadTokens ?? undefined),
+          cache_write: count(final.usage.cachedWriteTokens ?? undefined),
         }
       : undefined;
     if (s.buffer.length === 0 && !final) return;

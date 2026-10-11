@@ -413,6 +413,24 @@ describe("OpencodeMapper", () => {
     expect((tr.data as { latency_ms: number }).latency_ms).toBe(10);
   });
 
+  test("a negative token count clamps to zero instead of failing schema", () => {
+    const m = new OpencodeMapper();
+    const out = [
+      sessionCreated(),
+      msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 10 } }),
+      msgUpdated({
+        id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
+        time: { created: 20, completed: 50 }, providerID: "p", modelID: "m",
+        agent: "build", mode: "build", path: { cwd: "/repo", root: "/repo" },
+        cost: 0, finish: "stop",
+        tokens: { input: 100, output: -7, reasoning: -1, cache: { read: -2, write: 0 } },
+      }),
+    ].flatMap((e) => m.handle(e));
+    const ta = out.find((e) => e.type === "turn.assistant")!;
+    const d = ta.data as { usage: { input: number; output: number; reasoning?: number; cache_read?: number } };
+    expect(d.usage).toMatchObject({ input: 100, output: 0, reasoning: 0, cache_read: 0 });
+  });
+
   test("repeated part snapshots don't duplicate; deterministic ids dedupe in store", () => {
     const store = openStore(":memory:");
     const mapper = new OpencodeMapper();

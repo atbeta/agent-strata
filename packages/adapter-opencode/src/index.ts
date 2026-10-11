@@ -668,6 +668,11 @@ export class OpencodeMapper {
             const content = [...m.parts.values()].filter((b) => b.type !== "file_ref");
             const failure = assistantFailure(info.error);
             const u = info.tokens;
+            // Providers occasionally report a negative count (usually output);
+            // CASF keeps usage non-negative, and clamping here beats dropping
+            // the whole turn on a schema rejection.
+            const count = (n: number | undefined) =>
+              n === undefined ? undefined : Math.max(0, Math.round(n));
             out.push(
               this.ev(
                 s,
@@ -678,11 +683,11 @@ export class OpencodeMapper {
                   content,
                   model: `${info.providerID}/${info.modelID}`,
                   usage: {
-                    input: u.input,
-                    output: u.output,
-                    reasoning: u.reasoning,
-                    cache_read: u.cache.read,
-                    cache_write: u.cache.write,
+                    input: count(u.input) ?? 0,
+                    output: count(u.output) ?? 0,
+                    reasoning: count(u.reasoning),
+                    cache_read: count(u.cache.read),
+                    cache_write: count(u.cache.write),
                   },
                   cost_usd: info.cost,
                   latency_ms: Math.max(0, Math.round(info.time.completed - info.time.created)),
