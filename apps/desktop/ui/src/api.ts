@@ -445,6 +445,37 @@ export async function addMcp(
   );
 }
 
+export async function beginMcpLogin(
+  sessionId: string,
+  name: string,
+  signal?: AbortSignal,
+): Promise<{ url: string } | { ok: true }> {
+  const res = await fetch(api(`/sessions/${encodeURIComponent(sessionId)}/mcp/${encodeURIComponent(name)}/auth`), {
+    method: "POST",
+    signal,
+  });
+  await throwOnError(res);
+  return (await res.json()) as { url: string } | { ok: true };
+}
+
+export async function finishMcpLogin(
+  sessionId: string,
+  name: string,
+  code: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(
+    api(`/sessions/${encodeURIComponent(sessionId)}/mcp/${encodeURIComponent(name)}/auth/callback`),
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code }),
+      signal,
+    },
+  );
+  await throwOnError(res);
+}
+
 export async function connectMcp(sessionId: string, name: string): Promise<void> {
   await throwOnError(
     await fetch(api(`/sessions/${encodeURIComponent(sessionId)}/mcp/${encodeURIComponent(name)}/connect`), {

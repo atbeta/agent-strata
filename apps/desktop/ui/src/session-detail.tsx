@@ -15,8 +15,10 @@ import {
   abortSession,
   api,
   addMcp,
+  beginMcpLogin,
   connectMcp,
   disconnectMcp,
+  finishMcpLogin,
   downloadExport,
   findFiles,
   fmtUsd,
@@ -668,6 +670,61 @@ export function SessionDetail(props: {
       setMcpAddErr(value.length >= 8 && text.includes(value) ? t("mcp.add.failed") : text);
     } finally {
       setMcpAdding(false);
+    }
+  };
+
+  const [mcpAuth, setMcpAuth] = createSignal<{ name: string; url: string }>();
+  const [mcpCode, setMcpCode] = createSignal("");
+  let mcpAuthWait: AbortController | undefined;
+  onCleanup(() => mcpAuthWait?.abort());
+
+  const cancelMcpAuth = () => {
+    mcpAuthWait?.abort();
+    mcpAuthWait = undefined;
+    setMcpAuth(undefined);
+    setMcpCode("");
+  };
+
+  const beginMcpAuth = async (name: string) => {
+    if (mcpBusy()) return;
+    cancelMcpAuth();
+    mcpAuthWait = new AbortController();
+    setMcpBusy(name);
+    setMcpNote(undefined);
+    try {
+      const started = await beginMcpLogin(props.id, name, mcpAuthWait.signal);
+      if ("url" in started && (started.url.startsWith("https://") || started.url.startsWith("http://"))) {
+        setMcpAuth({ name, url: started.url });
+      } else {
+        await loadTools();
+      }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      const text = err instanceof Error ? err.message : t("mcp.auth.failed");
+      setMcpNote({ name, text: text || t("mcp.auth.failed") });
+    } finally {
+      setMcpBusy(undefined);
+    }
+  };
+
+  const finishMcpAuth = async (name: string) => {
+    const code = mcpCode().trim();
+    if (!code || mcpBusy()) return;
+    mcpAuthWait?.abort();
+    mcpAuthWait = new AbortController();
+    setMcpBusy(name);
+    setMcpNote(undefined);
+    try {
+      await finishMcpLogin(props.id, name, code, mcpAuthWait.signal);
+      setMcpCode("");
+      setMcpAuth(undefined);
+      await loadTools();
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      const text = err instanceof Error ? err.message : t("mcp.auth.failed");
+      setMcpNote({ name, text: code.length >= 8 && text.includes(code) ? t("mcp.auth.failed") : text || t("mcp.auth.failed") });
+    } finally {
+      setMcpBusy(undefined);
     }
   };
 
@@ -1629,8 +1686,10 @@ const turnIndexOf = (h: SearchHit): number => {
                             const note = () => (mcpNote()?.name === name ? mcpNote()?.text : undefined);
                             const canDisconnect = () => server.status === "connected";
                             const canConnect = () => server.status === "disabled" || server.status === "failed";
+                            const canAuth = () => server.status === "needs_auth" && mcpAuth()?.name !== name;
                             return (
-                              <li class="flex items-center gap-2 rounded-md px-1.5 py-1.5">
+                              <li class="rounded-md px-1.5 py-1.5">
+                                <div class="flex items-center gap-2">
                                 <span
                                   class={`size-1.5 shrink-0 rounded-full ${mcpDot(server.status)} ${busy() ? "animate-pulse" : ""}`}
                                 />
@@ -1646,7 +1705,13 @@ const turnIndexOf = (h: SearchHit): number => {
                                     }`}
                                   >
                                     {busy()
-                                      ? t(canDisconnect() ? "mcp.disconnecting" : "mcp.connecting")
+                                      ? t(
+                                          canDisconnect()
+                                            ? "mcp.disconnecting"
+                                            : canAuth()
+                                              ? "mcp.auth"
+                                              : "mcp.connecting",
+                                        )
                                       : t(MCP_STATUS[server.status])}
                                     <Show
                                       when={
@@ -1663,17 +1728,67 @@ const turnIndexOf = (h: SearchHit): number => {
                                     <div class="truncate text-2xs text-muted-foreground">{note()}</div>
                                   </Show>
                                 </div>
-                                <Show when={canDisconnect() || canConnect()}>
+                                <Show when={canDisconnect() || canConnect() || canAuth()}>
                                   <button
                                     type="button"
                                     class="h-6 shrink-0 rounded-md px-2 text-2xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
                                     disabled={busy()}
-                                    onClick={() => void toggleMcp(name, canDisconnect() ? "disconnect" : "connect")}
+                                    onClick={() => {
+                                      if (canAuth()) void beginMcpAuth(name);
+                                      else void toggleMcp(name, canDisconnect() ? "disconnect" : "connect");
+                                    }}
                                   >
                                     {busy()
-                                      ? t(canDisconnect() ? "mcp.disconnecting" : "mcp.connecting")
-                                      : t(canDisconnect() ? "mcp.disconnect" : "mcp.connect")}
+                                      ? t(canDisconnect() ? "mcp.disconnecting" : canAuth() ? "mcp.auth" : "mcp.connecting")
+                                      : t(canDisconnect() ? "mcp.disconnect" : canAuth() ? "mcp.auth" : "mcp.connect")}
                                   </button>
+                                </Show>
+                                </div>
+                                <Show when={mcpAuth()?.name === name ? mcpAuth() : undefined}>
+                                  {(auth) => (
+                                    <div class="mt-1.5 pl-3.5">
+                                      <a
+                                        class="text-xs text-foreground underline"
+                                        href={auth().url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                      >
+                                        {t("mcp.auth.open")}
+                                      </a>
+                                      <p class="mt-1 text-2xs text-muted-foreground">{t("mcp.auth.hint")}</p>
+                                      <form
+                                        class="mt-1.5 flex gap-1"
+                                        onSubmit={(e) => {
+                                          e.preventDefault();
+                                          void finishMcpAuth(name);
+                                        }}
+                                      >
+                                        <input
+                                          class="h-7 min-w-0 flex-1 rounded-md border border-border bg-secondary/40 px-2 text-xs text-foreground outline-none"
+                                          aria-label={t("mcp.auth.code")}
+                                          placeholder={t("mcp.auth.code")}
+                                          autocomplete="off"
+                                          spellcheck={false}
+                                          value={mcpCode()}
+                                          onInput={(e) => setMcpCode(e.currentTarget.value)}
+                                        />
+                                        <button
+                                          type="submit"
+                                          class="h-7 shrink-0 rounded-md border border-border px-2 text-2xs hover:bg-secondary disabled:opacity-40"
+                                          disabled={busy() || !mcpCode().trim()}
+                                        >
+                                          {t("mcp.auth.confirm")}
+                                        </button>
+                                      </form>
+                                      <button
+                                        type="button"
+                                        class="mt-1.5 h-6 rounded-md px-2 text-2xs text-muted-foreground hover:bg-secondary hover:text-foreground"
+                                        onClick={cancelMcpAuth}
+                                      >
+                                        {t("mcp.auth.cancel")}
+                                      </button>
+                                    </div>
+                                  )}
                                 </Show>
                               </li>
                             );

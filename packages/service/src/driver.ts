@@ -126,6 +126,12 @@ export interface BackendDriver {
     config: { type: "local"; command: string[] } | { type: "remote"; url: string },
     directory?: string,
   ): Promise<void>;
+  mcpAuthStart?(
+    name: string,
+    directory: string | undefined,
+    signal: AbortSignal,
+  ): Promise<{ authorizationUrl?: string; oauthState?: string }>;
+  mcpAuthFinish?(name: string, code: string, directory: string | undefined, signal: AbortSignal): Promise<void>;
   revert?(nativeId: string, messageId: string, directory?: string): Promise<void>;
   unrevert?(nativeId: string, directory?: string): Promise<void>;
   fork?(nativeId: string, messageId: string, directory?: string): Promise<{ casfId: string; nativeId: string }>;

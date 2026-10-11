@@ -56,6 +56,13 @@ export default {
   "mcp.add.adding": "Adding",
   "mcp.add.hint": "It shows up for this OpenCode process.",
   "mcp.add.failed": "Could not add this server",
+  "mcp.auth": "Sign in",
+  "mcp.auth.open": "Open the sign-in page",
+  "mcp.auth.hint": "Open the link, finish signing in, then paste the code.",
+  "mcp.auth.code": "Authorization code",
+  "mcp.auth.confirm": "Confirm",
+  "mcp.auth.cancel": "Cancel",
+  "mcp.auth.failed": "Sign-in did not finish",
 
   // The replay / trace toggle, which is one control with two labels.
   "trace.replay": "Replay",

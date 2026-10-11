@@ -873,6 +873,56 @@ describe("agent-strata service", () => {
     oc.stop();
     svc.stop();
   });
+
+  test("MCP OAuth returns a login URL and keeps the state and code out of the response", async () => {
+    const state = "state-secret-value";
+    const code = "paste-this-code-value";
+    const oc = fakeOpencode({
+      "/mcp/docs/auth": () => Response.json({ authorizationUrl: "https://idp.example/authorize", oauthState: state }),
+      "/mcp/docs/auth/callback": () => Response.json({ message: `refused ${code}` }, { status: 400 }),
+      "/mcp/bad/auth": () => Response.json({ authorizationUrl: "javascript:alert(1)", oauthState: state }),
+      "/mcp/ready/auth": () => Response.json({ authorizationUrl: "", oauthState: state }),
+    });
+    const svc = startService({ db: ":memory:", port: 0 });
+    const base = `http://127.0.0.1:${svc.port}`;
+    const post = (p: string, body?: unknown) =>
+      fetch(`${base}${p}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    await post("/connect", { baseUrl: oc.baseUrl, directory: "/repo" });
+    svc.store.append([
+      ev("opencode:ses_x", "session.started", { title: "x", workspace: "/repo" }, "2026-01-01T00:00:00Z"),
+    ]);
+    const sid = encodeURIComponent("opencode:ses_x");
+
+    const started = await post(`/sessions/${sid}/mcp/docs/auth`);
+    expect(started.status).toBe(200);
+    const startedText = await started.text();
+    expect(startedText).not.toContain(state);
+    expect(JSON.parse(startedText)).toEqual({ url: "https://idp.example/authorize" });
+    expect(oc.seen.find((s) => s.path === "/mcp/docs/auth")?.query.get("directory")).toBe("/repo");
+
+    const missing = await post(`/sessions/${sid}/mcp/docs/auth/callback`, {});
+    expect(missing.status).toBe(400);
+
+    const finished = await post(`/sessions/${sid}/mcp/docs/auth/callback`, { code });
+    expect(finished.status).toBe(502);
+    const finishedText = await finished.text();
+    expect(finishedText).not.toContain(code);
+    expect(JSON.parse(finishedText)).toEqual({ error: "mcp auth failed" });
+    expect(JSON.parse(oc.seen.find((s) => s.path === "/mcp/docs/auth/callback")!.body)).toEqual({ code });
+
+    const script = await post(`/sessions/${sid}/mcp/bad/auth`);
+    expect(script.status).toBe(502);
+    expect(await script.text()).not.toContain("javascript");
+    const ready = await post(`/sessions/${sid}/mcp/ready/auth`);
+    expect(await ready.json()).toEqual({ ok: true });
+
+    oc.stop();
+    svc.stop();
+  });
 });
 
 describe("only the desktop shell reaches the service from a browser", () => {

@@ -150,6 +150,12 @@ export class UnknownCommandError extends Error {
   }
 }
 
+function mcpAuthFailure(text: string, secret = ""): string {
+  const trimmed = text.trim();
+  if (!trimmed || trimmed.length > 200 || (secret.length >= 8 && trimmed.includes(secret))) return "mcp auth failed";
+  return trimmed;
+}
+
 function errorMessage(e: unknown): string {
   if (e instanceof Error && e.message) return e.message;
   const data = (e as { data?: { message?: unknown } })?.data;
@@ -1180,6 +1186,12 @@ export async function connectOpencode(opts: {
     config: { type: "local"; command: string[] } | { type: "remote"; url: string },
     directory?: string,
   ) => Promise<void>;
+  mcpAuthStart: (
+    name: string,
+    directory: string | undefined,
+    signal: AbortSignal,
+  ) => Promise<{ authorizationUrl?: string; oauthState?: string }>;
+  mcpAuthFinish: (name: string, code: string, directory: string | undefined, signal: AbortSignal) => Promise<void>;
   revert: (sessionID: string, messageID: string, directory?: string) => Promise<void>;
   unrevert: (sessionID: string, directory?: string) => Promise<void>;
   fork: (sessionID: string, messageID: string, directory?: string) => Promise<{ id: string }>;
@@ -1431,6 +1443,27 @@ export async function connectOpencode(opts: {
     }
   };
 
+  const mcpAuthFetch = (path: string, directory: string | undefined, signal: AbortSignal, body?: unknown) => {
+    const q = new URLSearchParams();
+    const dir = directory ?? opts.directory;
+    if (dir) q.set("directory", dir);
+    const timeout = AbortSignal.timeout(300_000);
+    return rawFetch(
+      new Request(`${opts.baseUrl.replace(/\/+$/, "")}${path}?${q}`, {
+        method: "POST",
+        headers: {
+          ...(opts.username !== undefined || opts.password !== undefined
+            ? { authorization: `Basic ${btoa(`${opts.username ?? ""}:${opts.password ?? ""}`)}` }
+            : {}),
+          ...(body !== undefined ? { "content-type": "application/json" } : {}),
+        },
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.any([signal, timeout, abort.signal]),
+      }),
+      { timeout: false } as RequestInit,
+    );
+  };
+
   return {
     stop() {
       abort.abort();
@@ -1553,6 +1586,30 @@ export async function connectOpencode(opts: {
     async mcpAdd(name, config, directory) {
       const added = await client.mcp.add({ name, config, directory: directory ?? opts.directory });
       if (added.error) throw new Error(errorMessage(added.error));
+    },
+    async mcpAuthStart(name, directory, signal) {
+      const res = await mcpAuthFetch(`/mcp/${encodeURIComponent(name)}/auth`, directory, signal);
+      const text = await res.text();
+      if (!res.ok) throw new Error(mcpAuthFailure(text));
+      try {
+        return JSON.parse(text) as { authorizationUrl?: string; oauthState?: string };
+      } catch {
+        throw new Error("mcp auth failed");
+      }
+    },
+    async mcpAuthFinish(name, code, directory, signal) {
+      const res = await mcpAuthFetch(`/mcp/${encodeURIComponent(name)}/auth/callback`, directory, signal, { code });
+      const text = await res.text();
+      if (!res.ok) throw new Error(mcpAuthFailure(text, code));
+      let status: { status?: unknown; error?: unknown } | undefined;
+      try {
+        status = JSON.parse(text) as { status?: unknown; error?: unknown };
+      } catch {
+        status = undefined;
+      }
+      if (status?.status === "failed") {
+        throw new Error(mcpAuthFailure(typeof status.error === "string" ? status.error : "", code));
+      }
     },
     async revert(sessionID: string, messageID: string, directory?: string) {
       await client.session.revert({ sessionID, messageID, directory: directory ?? opts.directory });

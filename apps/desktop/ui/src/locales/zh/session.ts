@@ -56,6 +56,13 @@ export default {
   "mcp.add.adding": "正在添加",
   "mcp.add.hint": "添加后会出现在这次 OpenCode 的运行里。",
   "mcp.add.failed": "没能添加这台服务器",
+  "mcp.auth": "登录",
+  "mcp.auth.open": "打开登录页",
+  "mcp.auth.hint": "打开链接完成登录，再把授权码粘贴回来。",
+  "mcp.auth.code": "授权码",
+  "mcp.auth.confirm": "确认",
+  "mcp.auth.cancel": "取消",
+  "mcp.auth.failed": "登录没有完成",
 
   // The replay / trace toggle, which is one control with two labels.
   "trace.replay": "回放",

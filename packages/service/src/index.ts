@@ -19,6 +19,7 @@ import { connectAcpDriver } from "./acp-driver";
 import { agentNameOf, connectionMemory, endpointOf, type ConnectBody } from "./connections";
 import { extensionRoute } from "./extension-route";
 import { mcpAddRequest, safeMcpError } from "./mcp-add";
+import { mcpAuthCode, mcpAuthStartView } from "./mcp-auth";
 import { providerRoute } from "./provider-auth";
 import { readPromptParts } from "./prompt-parts";
 import { editorLaunch } from "./editor";
@@ -595,6 +596,40 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         const secret =
           parsed.config.type === "remote" ? { url: parsed.config.url } : { command: parsed.config.command };
         return json({ error: safeMcpError(e, secret) }, 502);
+      }
+    }
+
+    const sessionMcpAuth = path.match(/^\/sessions\/([^/]+)\/mcp\/([^/]+)\/auth(\/callback)?$/);
+    if (sessionMcpAuth && req.method === "POST") {
+      const casfId = decodeURIComponent(sessionMcpAuth[1]!);
+      const conn = driverFor(casfId);
+      if (!conn) return json({ error: "no backend connected" }, 400);
+      const native = conn.nativeId(casfId);
+      if (!native) return json({ error: "session is not owned by a connected backend" }, 400);
+      owners.set(casfId, conn.id);
+      if (conn.backend !== "opencode" || !conn.mcpAuthStart || !conn.mcpAuthFinish) {
+        return json({ error: "backend cannot manage mcp" }, 400);
+      }
+      let name: string;
+      try {
+        name = decodeURIComponent(sessionMcpAuth[2]!);
+      } catch {
+        return json({ error: "invalid name" }, 400);
+      }
+      if (!name || name.includes("/") || name.includes("..")) return json({ error: "invalid name" }, 400);
+      const callback = sessionMcpAuth[3] === "/callback";
+      const body = callback ? ((await req.json().catch(() => null)) as { code?: unknown } | null) : null;
+      const code = callback ? mcpAuthCode(body?.code) : undefined;
+      if (callback && !code) return json({ error: "code required" }, 400);
+      try {
+        if (!callback) {
+          const started = await conn.mcpAuthStart(name, directoryOf(casfId), req.signal);
+          return json(mcpAuthStartView(started));
+        }
+        await conn.mcpAuthFinish(name, code!, directoryOf(casfId), req.signal);
+        return json({ ok: true });
+      } catch (e) {
+        return json({ error: safeMcpError(e, { command: code ? [code] : [] }) }, 502);
       }
     }
 
