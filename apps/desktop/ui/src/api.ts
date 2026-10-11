@@ -612,6 +612,33 @@ async function throwOnError(res: Response): Promise<void> {
   throw new Error(body.error ?? t("api.err.service", { status: res.status }));
 }
 
+export interface ApiProvider {
+  id: string;
+  name: string;
+  connected: boolean;
+  label: string;
+}
+
+export function listProviders(connectionId: string): Promise<{ providers: ApiProvider[] }> {
+  return getJson(`/connections/${encodeURIComponent(connectionId)}/providers`);
+}
+
+export async function saveProviderKey(connectionId: string, providerId: string, key: string): Promise<void> {
+  const res = await fetch(api(`/connections/${encodeURIComponent(connectionId)}/providers/${encodeURIComponent(providerId)}`), {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ key }),
+  });
+  await throwOnError(res);
+}
+
+export async function removeProviderKey(connectionId: string, providerId: string): Promise<void> {
+  const res = await fetch(api(`/connections/${encodeURIComponent(connectionId)}/providers/${encodeURIComponent(providerId)}`), {
+    method: "DELETE",
+  });
+  await throwOnError(res);
+}
+
 export type OpencodeLaunchMode = "embed" | "external";
 
 export type OpencodeLaunch = {

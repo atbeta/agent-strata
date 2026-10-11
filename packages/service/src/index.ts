@@ -18,6 +18,7 @@ import type { EventInput } from "@agent-strata/schema";
 import { connectAcpDriver } from "./acp-driver";
 import { agentNameOf, connectionMemory, endpointOf, type ConnectBody } from "./connections";
 import { extensionRoute } from "./extension-route";
+import { providerRoute } from "./provider-auth";
 import { readPromptParts } from "./prompt-parts";
 import { editorLaunch } from "./editor";
 import { refused, shellCors } from "./shell-origin";
@@ -904,6 +905,9 @@ export function startService(opts: ServiceOpts = {}): RunningService {
 
     const terminal = await terminalRoute(req, url, ownedTerminal);
     if (terminal) return terminal;
+
+    const providers = await providerRoute(req, path, (id) => conns.get(id)?.extension?.providers);
+    if (providers) return providers;
 
     const extension = await extensionRoute(req, url, {
       connection: (id) => conns.get(id),

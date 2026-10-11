@@ -1,4 +1,5 @@
 import type { BackendExtension } from "./driver";
+import { apiCredential, apiProviders, providerId, ProviderAuthError, safeProviderError } from "./provider-auth";
 import { PTY_ID, TerminalError, ptyInfo, ptyShells, type PtyInfo } from "./terminal";
 
 /** Read-only OpenCode endpoints the desktop may reach through strata. */
@@ -57,6 +58,13 @@ export function opencodeExtension(opts: {
     if (!res.ok) throw new TerminalError("terminal failed", res.status === 404 ? 404 : 502);
     return res.json().catch(() => undefined);
   };
+  const readJson = async (res: Response, secret = ""): Promise<unknown> => {
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new ProviderAuthError(safeProviderError(text, secret), res.status === 404 ? 404 : 502);
+    }
+    return res.json().catch(() => undefined);
+  };
   const one = async (res: Response): Promise<PtyInfo> => {
     const info = ptyInfo(await read(res));
     if (!info) throw new TerminalError("terminal failed", 502);
@@ -101,6 +109,26 @@ export function opencodeExtension(opts: {
         url.searchParams.set("directory", directory);
         url.searchParams.set("ticket", minted.ticket);
         return { url: url.toString(), headers: { ...headers } };
+      },
+    },
+    providers: {
+      async list() {
+        const [listed, methods] = await Promise.all([
+          send("GET", "/provider", opts.directory).then((res) => readJson(res)),
+          send("GET", "/provider/auth", opts.directory).then((res) => readJson(res)),
+        ]);
+        return apiProviders(listed, methods);
+      },
+      async setKey(id, key) {
+        const provider = providerId(id);
+        const credential = apiCredential(key);
+        if (!provider || !credential) throw new ProviderAuthError("key required", 400);
+        await readJson(await send("PUT", `/auth/${encodeURIComponent(provider)}`, opts.directory, credential), credential.key);
+      },
+      async remove(id) {
+        const provider = providerId(id);
+        if (!provider) throw new ProviderAuthError("not found", 404);
+        await readJson(await send("DELETE", `/auth/${encodeURIComponent(provider)}`, opts.directory));
       },
     },
     get(path, query, directory, signal) {

@@ -15,6 +15,7 @@ import {
   type CodeSize,
   type FontChoice,
 } from "./font";
+import { ProviderSettings } from "./providers";
 
 /** A function, not a const: the labels are translated, so they have to be read
  *  during render for a language switch to reach them. */
@@ -385,6 +386,8 @@ export function SettingsPage() {
           </div>
         </Show>
       </section>
+
+      <ProviderSettings />
 
       <section class="mt-8 border-t border-border pt-6">
         <h2 class="text-sm font-medium">{t("settings.permission.title")}</h2>
