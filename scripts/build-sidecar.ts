@@ -11,8 +11,8 @@
  * The target triple defaults to the host's, and can be overridden with
  * `--target` (or STRATA_SIDECAR_TARGET) for cross-compiling.
  */
-import { existsSync, mkdirSync, statSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 import { $ } from "bun";
 
 const root = resolve(import.meta.dir, "..");
@@ -48,16 +48,66 @@ async function targetTripleFromRustc(): Promise<string> {
 
 mkdirSync(outDir, { recursive: true });
 
+const SKIP_DIRS = new Set(["node_modules", "dist", "target", ".git"]);
+
+/**
+ * The newest thing that can change the binary, and when.
+ *
+ * Everything the compile reads lives under `packages/` — the service entry
+ * reaches its siblings through `@agent-strata/*`, so there is no import that
+ * escapes the workspace. Walking the whole set rather than the transitive
+ * imports of the entry is deliberate: a resolved graph would be narrower and
+ * faster, but it has to be right about aliases and dynamic imports, and the
+ * failure mode when it is wrong is the exact one this function exists to
+ * prevent — a stale binary that looks current.
+ *
+ * This compares timestamps, not content, so it answers "could this edit have
+ * reached the binary". That errs towards rebuilding: a checkout that rewrites
+ * files without changing them costs one compile and nothing else.
+ */
+function newestInput(): { path: string; mtime: number } {
+  // The script is a seed rather than a root: it is a file, so it cannot be
+  // walked, and changing a build flag here has to force a rebuild like any
+  // other input.
+  let newest = { path: import.meta.path, mtime: statSync(import.meta.path).mtimeMs };
+  const stack = [join(root, "packages")];
+
+  while (stack.length) {
+    const path = stack.pop()!;
+    for (const entry of readdirSync(path, { withFileTypes: true })) {
+      const child = join(path, entry.name);
+      if (entry.isDirectory()) {
+        if (!SKIP_DIRS.has(entry.name)) stack.push(child);
+        continue;
+      }
+      if (!/\.(ts|tsx|json)$/.test(entry.name)) continue;
+      const { mtimeMs } = statSync(child);
+      if (mtimeMs > newest.mtime) newest = { path: child, mtime: mtimeMs };
+    }
+  }
+  return { path: relative(root, newest.path), mtime: newest.mtime };
+}
+
 // Rebuilding a ~95MB binary takes long enough that a no-op check is worth the
-// extra stat. --force is there for when a stale binary is more annoying than the
-// wait.
+// extra stat -- but only if the check actually knows what it is comparing. It
+// used to ask only whether the binary existed and had bytes in it, which any
+// checkout satisfied: edit a handler, run this, get "sidecar up to date" and
+// an hour of testing against the code you replaced an hour ago. --force is
+// there for when a rebuild is wanted anyway.
 const force = argv.includes("--force");
 if (!force && existsSync(outfile)) {
   const bytes = statSync(outfile).size;
-  if (bytes > 0) {
+  const newest = newestInput();
+  const built = statSync(outfile).mtimeMs;
+  if (bytes > 0 && built >= newest.mtime) {
     console.log(`sidecar up to date: ${outfile} (${(bytes / 1e6).toFixed(1)} MB)`);
     console.log("pass --force to rebuild anyway.");
     process.exit(0);
+  }
+  if (bytes > 0) {
+    // Name the input, because "it is stale" on a 69-file package tree is not
+    // something anyone can act on.
+    console.log(`rebuilding: ${newest.path} is newer than the binary`);
   }
 }
 
