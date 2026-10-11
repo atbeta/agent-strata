@@ -164,6 +164,23 @@ export function opencodeExtension(opts: {
         );
       },
     },
+    config: {
+      async read(directory) {
+        const res = await send("GET", "/config", directory);
+        const text = await res.text();
+        if (!res.ok) throw new Error(text.slice(0, 400));
+        try {
+          return JSON.parse(text) as unknown;
+        } catch {
+          throw new Error("config update failed");
+        }
+      },
+      async write(directory, patch) {
+        const res = await send("PATCH", "/config", directory, patch, AbortSignal.timeout(30_000));
+        const text = await res.text();
+        if (!res.ok) throw new Error(text.slice(0, 400));
+      },
+    },
     get(path, query, directory, signal) {
       if (!OPENCODE_EXTENSION_PATHS.has(path)) return Promise.resolve(new Response(null, { status: 404 }));
       const q = new URLSearchParams(query);

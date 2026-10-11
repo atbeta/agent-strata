@@ -689,6 +689,21 @@ export function listProviders(connectionId: string): Promise<{ providers: ApiPro
   return getJson(`/connections/${encodeURIComponent(connectionId)}/providers`);
 }
 
+export function readConfig(connectionId: string, directory: string): Promise<{ config: unknown }> {
+  const q = new URLSearchParams({ directory });
+  return getJson(`/connections/${encodeURIComponent(connectionId)}/config?${q}`);
+}
+
+export async function saveConfig(connectionId: string, directory: string, text: string): Promise<void> {
+  const q = new URLSearchParams({ directory });
+  const res = await fetch(api(`/connections/${encodeURIComponent(connectionId)}/config?${q}`), {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+  await throwOnError(res);
+}
+
 export async function saveProviderKey(connectionId: string, providerId: string, key: string): Promise<void> {
   const res = await fetch(api(`/connections/${encodeURIComponent(connectionId)}/providers/${encodeURIComponent(providerId)}`), {
     method: "PUT",
