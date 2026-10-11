@@ -17,9 +17,27 @@ describe("provider api keys", () => {
       }),
     "/provider/auth": () =>
       Response.json({
-        anthropic: [{ type: "api", label: "API key" }],
+        anthropic: [
+          { type: "api", label: "API key" },
+          { type: "oauth", label: "Claude Max" },
+        ],
         copilot: [{ type: "oauth", label: "Sign in" }],
       }),
+    "/provider/anthropic/oauth/authorize": async (_url, req) => {
+      const body = (await req.json()) as { method?: number };
+      if (body.method !== 1) return Response.json({ message: "not oauth" }, { status: 400 });
+      return Response.json({
+        url: "https://auth.example/start?ticket=secret-ticket",
+        method: "code",
+        instructions: "paste the code",
+        access_token: secret,
+      });
+    },
+    "/provider/anthropic/oauth/callback": async (_url, req) => {
+      const body = (await req.json()) as { code?: string };
+      if (body.code === "nope") return Response.json({ message: `rejected ${body.code}` }, { status: 400 });
+      return Response.json(true);
+    },
     "/auth/anthropic": async (url, req) => {
       if (req.method === "PUT") {
         const body = (await req.json()) as { key?: string };
@@ -57,7 +75,23 @@ describe("provider api keys", () => {
     expect(res.status).toBe(200);
     expect(text.includes(secret)).toBe(false);
     expect(JSON.parse(text)).toEqual({
-      providers: [{ id: "anthropic", name: "Anthropic", connected: true, label: "API key" }],
+      providers: [
+        {
+          id: "anthropic",
+          name: "Anthropic",
+          connected: true,
+          methods: [
+            { index: 0, type: "api", label: "API key" },
+            { index: 1, type: "oauth", label: "Claude Max" },
+          ],
+        },
+        {
+          id: "copilot",
+          name: "GitHub Copilot",
+          connected: false,
+          methods: [{ index: 0, type: "oauth", label: "Sign in" }],
+        },
+      ],
     });
     expect((await fetch(`${base}/connections/${encodeURIComponent(connId)}/opencode/provider`)).status).toBe(404);
   });
@@ -109,5 +143,43 @@ describe("provider api keys", () => {
       body: JSON.stringify({ key: secret }),
     });
     expect(res.status).toBe(403);
+  });
+
+  test("oauth returns the address without the token OpenCode added", async () => {
+    const res = await fetch(`${root()}/anthropic/oauth`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ method: 1 }),
+    });
+    const text = await res.text();
+    expect(res.status).toBe(200);
+    expect(text.includes(secret)).toBe(false);
+    expect(JSON.parse(text)).toEqual({
+      url: "https://auth.example/start?ticket=secret-ticket",
+      method: "code",
+      instructions: "paste the code",
+    });
+  });
+
+  test("an api method cannot start oauth", async () => {
+    const before = upstream.seen.length;
+    const res = await fetch(`${root()}/anthropic/oauth`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ method: 0 }),
+    });
+    expect(res.status).toBe(400);
+    expect(upstream.seen.slice(before).some((hit) => hit.path.endsWith("/oauth/authorize"))).toBe(false);
+  });
+
+  test("a callback code is not quoted back", async () => {
+    const res = await fetch(`${root()}/anthropic/oauth/callback`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ method: 1, code: "nope" }),
+    });
+    const text = await res.text();
+    expect(res.status).toBe(502);
+    expect(text.includes("nope")).toBe(false);
   });
 });

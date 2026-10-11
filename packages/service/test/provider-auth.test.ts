@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { apiCredential, apiProviders, providerId, safeProviderError } from "../src/provider-auth";
+import { apiCredential, apiProviders, oauthStart, providerId, safeProviderError } from "../src/provider-auth";
 
 const secret = "sk-live-secret";
 
@@ -19,13 +19,31 @@ describe("api providers", () => {
         "other/nope": [{ type: "api", label: "API key" }],
       },
     );
-    expect(rows).toEqual([{ id: "anthropic", name: "Anthropic", connected: true, label: "API key" }]);
+    expect(rows).toEqual([
+      {
+        id: "anthropic",
+        name: "Anthropic",
+        connected: true,
+        methods: [
+          { index: 0, type: "api", label: "API key" },
+          { index: 1, type: "oauth", label: "Claude Max" },
+        ],
+      },
+      {
+        id: "copilot",
+        name: "GitHub Copilot",
+        connected: false,
+        methods: [{ index: 0, type: "oauth", label: "Sign in" }],
+      },
+    ]);
     expect(JSON.stringify(rows).includes(secret)).toBe(false);
   });
 
   test("a provider known only by its auth method still appears", () => {
     const rows = apiProviders({}, { groq: [{ type: "api", label: "API key" }] });
-    expect(rows).toEqual([{ id: "groq", name: "groq", connected: false, label: "API key" }]);
+    expect(rows).toEqual([
+      { id: "groq", name: "groq", connected: false, methods: [{ index: 0, type: "api", label: "API key" }] },
+    ]);
   });
 
   test("a key is the api credential, and a blank one is refused", () => {
@@ -43,5 +61,21 @@ describe("api providers", () => {
   test("an upstream error that repeats the key is not shown", () => {
     expect(safeProviderError(JSON.stringify({ message: `bad ${secret}` }), secret)).toBe("provider auth failed");
     expect(safeProviderError(JSON.stringify({ message: "invalid key" }), secret)).toBe("invalid key");
+  });
+
+  test("an oauth start keeps the address and drops everything else", () => {
+    expect(
+      oauthStart({
+        url: "https://auth.example/start?ticket=secret-ticket",
+        method: "code",
+        instructions: "paste the code",
+        access_token: secret,
+      }),
+    ).toEqual({
+      url: "https://auth.example/start?ticket=secret-ticket",
+      method: "code",
+      instructions: "paste the code",
+    });
+    expect(oauthStart({ url: "javascript:alert(1)", method: "auto", instructions: "go" })).toBeUndefined();
   });
 });

@@ -1,5 +1,5 @@
 import type { BackendExtension } from "./driver";
-import { apiCredential, apiProviders, providerId, ProviderAuthError, safeProviderError } from "./provider-auth";
+import { apiCredential, apiProviders, oauthStart, providerId, ProviderAuthError, safeProviderError } from "./provider-auth";
 import { PTY_ID, TerminalError, ptyInfo, ptyShells, type PtyInfo } from "./terminal";
 
 /** Read-only OpenCode endpoints the desktop may reach through strata. */
@@ -37,10 +37,11 @@ export function opencodeExtension(opts: {
       ? { authorization: `Basic ${btoa(`${opts.username ?? ""}:${opts.password ?? ""}`)}` }
       : {};
   const doFetch = opts.fetch ?? fetch;
-  const send = (method: string, path: string, directory: string | undefined, body?: unknown) => {
+  const send = (method: string, path: string, directory: string | undefined, body?: unknown, signal?: AbortSignal) => {
     const q = new URLSearchParams();
     if (directory) q.set("directory", directory);
     const ticket = path.endsWith("/connect-token");
+    const timeout = AbortSignal.timeout(signal ? 300_000 : TIMEOUT_MS);
     return doFetch(`${base}${path}?${q}`, {
       method,
       headers: {
@@ -51,7 +52,7 @@ export function opencodeExtension(opts: {
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
       redirect: "error",
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     });
   };
   const read = async (res: Response): Promise<unknown> => {
@@ -129,6 +130,38 @@ export function opencodeExtension(opts: {
         const provider = providerId(id);
         if (!provider) throw new ProviderAuthError("not found", 404);
         await readJson(await send("DELETE", `/auth/${encodeURIComponent(provider)}`, opts.directory));
+      },
+      async authorize(id, method, inputs, signal) {
+        const provider = providerId(id);
+        if (!provider) throw new ProviderAuthError("not found", 404);
+        const table = await readJson(await send("GET", "/provider/auth", opts.directory));
+        const rows =
+          table && typeof table === "object" && !Array.isArray(table)
+            ? (table as Record<string, unknown>)[provider]
+            : undefined;
+        const chosen = Array.isArray(rows) ? rows[method] : undefined;
+        if (!chosen || typeof chosen !== "object" || (chosen as { type?: unknown }).type !== "oauth") {
+          throw new ProviderAuthError("method required", 400);
+        }
+        const body: { method: number; inputs?: Record<string, string> } = { method };
+        if (inputs) body.inputs = inputs;
+        const started = oauthStart(
+          await readJson(
+            await send("POST", `/provider/${encodeURIComponent(provider)}/oauth/authorize`, opts.directory, body, signal),
+          ),
+        );
+        if (!started) throw new ProviderAuthError("provider auth failed", 502);
+        return started;
+      },
+      async callback(id, method, code, signal) {
+        const provider = providerId(id);
+        if (!provider) throw new ProviderAuthError("not found", 404);
+        const body: { method: number; code?: string } = { method };
+        if (code) body.code = code;
+        await readJson(
+          await send("POST", `/provider/${encodeURIComponent(provider)}/oauth/callback`, opts.directory, body, signal),
+          code ?? "",
+        );
       },
     },
     get(path, query, directory, signal) {

@@ -612,11 +612,33 @@ async function throwOnError(res: Response): Promise<void> {
   throw new Error(body.error ?? t("api.err.service", { status: res.status }));
 }
 
+export interface ProviderPrompt {
+  type: "text" | "select";
+  key: string;
+  message: string;
+  placeholder?: string;
+  options?: { label: string; value: string }[];
+  when?: { key: string; op: "eq" | "neq"; value: string };
+}
+
+export interface ProviderMethod {
+  index: number;
+  type: "api" | "oauth";
+  label: string;
+  prompts?: ProviderPrompt[];
+}
+
 export interface ApiProvider {
   id: string;
   name: string;
   connected: boolean;
-  label: string;
+  methods: ProviderMethod[];
+}
+
+export interface OAuthStart {
+  url: string;
+  method: "auto" | "code";
+  instructions: string;
 }
 
 export function listProviders(connectionId: string): Promise<{ providers: ApiProvider[] }> {
@@ -636,6 +658,40 @@ export async function removeProviderKey(connectionId: string, providerId: string
   const res = await fetch(api(`/connections/${encodeURIComponent(connectionId)}/providers/${encodeURIComponent(providerId)}`), {
     method: "DELETE",
   });
+  await throwOnError(res);
+}
+
+export async function beginProviderLogin(
+  connectionId: string,
+  providerId: string,
+  method: number,
+  inputs?: Record<string, string>,
+): Promise<OAuthStart> {
+  const res = await fetch(api(`/connections/${encodeURIComponent(connectionId)}/providers/${encodeURIComponent(providerId)}/oauth`), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ method, ...(inputs ? { inputs } : {}) }),
+  });
+  await throwOnError(res);
+  return (await res.json()) as OAuthStart;
+}
+
+export async function finishProviderLogin(
+  connectionId: string,
+  providerId: string,
+  method: number,
+  code: string | undefined,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(
+    api(`/connections/${encodeURIComponent(connectionId)}/providers/${encodeURIComponent(providerId)}/oauth/callback`),
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ method, ...(code ? { code } : {}) }),
+      signal,
+    },
+  );
   await throwOnError(res);
 }
 
