@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" role="img" aria-label="Agent Strata">
+  <title>Agent Strata — terrace</title>
+  <!-- A canyon wall in section: a single solid mass cut into benches. One
+       bench face is the live edge — the layer still taking work. -->
+  <polygon points="4,21 20,21 20,16.6 15.2,16.6 15.2,12.6 10.8,12.6 10.8,8.6 7.2,8.6 7.2,4.8 4,4.8" fill="#8B8B93"/>
+  <polygon points="10.8,12.6 15.2,12.6 15.2,16.6 10.8,16.6" fill="#6189E5"/>
+</svg>

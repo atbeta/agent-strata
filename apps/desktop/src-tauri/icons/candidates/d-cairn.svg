@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" role="img" aria-label="Agent Strata">
+  <title>Agent Strata — cairn</title>
+  <!-- What a session leaves behind: three stones, each a run of work, none of
+       them the same shape. The topmost is still warm. -->
+  <g fill="#8B8B93">
+    <ellipse cx="12.4" cy="19" rx="8.4" ry="3.1"/>
+    <ellipse cx="11" cy="13.6" rx="6.6" ry="2.7" transform="rotate(-4 11 13.6)"/>
+  </g>
+  <ellipse cx="13.4" cy="8.3" rx="4.9" ry="2.4" fill="#6189E5" transform="rotate(6 13.4 8.3)"/>
+</svg>

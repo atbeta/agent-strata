@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Agent Strata — 第二批候选</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 40px;
+    font: 13px/1.5 ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+    background: hsl(240 6% 6.5%); color: hsl(240 10% 93%);
+  }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .sub { color: hsl(240 4% 58%); margin: 0 0 32px; max-width: 70ch; }
+  .card {
+    border: 1px solid hsl(240 4% 18%); border-radius: 10px;
+    background: hsl(240 5% 9%); padding: 20px; margin: 0 0 16px;
+  }
+  .card.light { background: hsl(0 0% 100%); border-color: hsl(240 8% 88%); color: hsl(240 10% 12%); }
+  .name { font-size: 13px; font-weight: 600; }
+  .idea { font-size: 12px; color: hsl(240 4% 58%); margin: 2px 0 16px; }
+  .card.light .idea { color: hsl(240 4% 40%); }
+  .row { display: flex; align-items: flex-end; gap: 24px; flex-wrap: wrap; }
+  .cell { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .cell .cap { font-size: 10px; color: hsl(240 4% 45%); font-family: ui-monospace, monospace; }
+  .cell img { display: block; }
+  .glyph { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .glyph .cap { font-size: 10px; color: hsl(240 4% 45%); font-family: ui-monospace, monospace; }
+</style>
+</head>
+<body>
+
+<h1>Agent Strata — 第二批候选（面/体块）</h1>
+<p class="sub">第一批三稿都建立在横竖线条上。这一批换成实面：断层体块、剖切岩芯、叠石、阶地。前两行是放在深色圆角底上的 app 图标形态，后面是 glyph 本体。</p>
+
+<h2 style="font-size:12px;font-weight:500;color:hsl(240 4% 58%)">App 图标（深色圆角底）</h2>
+<div class="card">
+  <div class="row">
+    <div class="cell"><img src="png/d-fault-block-256.png" width="192" height="192"><span class="cap">D 断层块</span></div>
+    <div class="cell"><img src="png/d-agate-256.png" width="192" height="192"><span class="cap">E 岩芯环</span></div>
+    <div class="cell"><img src="png/d-cairn-256.png" width="192" height="192"><span class="cap">F 叠石</span></div>
+    <div class="cell"><img src="png/d-terrace-256.png" width="192" height="192"><span class="cap">G 阶地</span></div>
+  </div>
+</div>
+<div class="card">
+  <div class="row">
+    <div class="cell"><img src="png/d-fault-block-64.png" width="64" height="64"><span class="cap">64</span></div>
+    <div class="cell"><img src="png/d-agate-64.png" width="64" height="64"><span class="cap">64</span></div>
+    <div class="cell"><img src="png/d-cairn-64.png" width="64" height="64"><span class="cap">64</span></div>
+    <div class="cell"><img src="png/d-terrace-64.png" width="64" height="64"><span class="cap">64</span></div>
+    <div class="cell"><img src="png/d-fault-block-32.png" width="32" height="32"><span class="cap">32</span></div>
+    <div class="cell"><img src="png/d-agate-32.png" width="32" height="32"><span class="cap">32</span></div>
+    <div class="cell"><img src="png/d-cairn-32.png" width="32" height="32"><span class="cap">32</span></div>
+    <div class="cell"><img src="png/d-terrace-32.png" width="32" height="32"><span class="cap">32</span></div>
+    <div class="cell"><img src="png/d-fault-block-16.png" width="16" height="16"><span class="cap">16</span></div>
+    <div class="cell"><img src="png/d-agate-16.png" width="16" height="16"><span class="cap">16</span></div>
+    <div class="cell"><img src="png/d-cairn-16.png" width="16" height="16"><span class="cap">16</span></div>
+    <div class="cell"><img src="png/d-terrace-16.png" width="16" height="16"><span class="cap">16</span></div>
+  </div>
+</div>
+
+<h2 style="font-size:12px;font-weight:500;color:hsl(240 4% 58%)">Glyph（透明底）</h2>
+<div class="card">
+  <div class="name">D — 断层块</div>
+  <div class="idea">一整块历史被剪开一次。缝就是断层：上面已经沉定，下面还在动；蓝色那条贴着断口，是「现在」。剪影最强，16px 也读得出。</div>
+  <div class="row"><div class="glyph"><img src="../logo-fault.svg" style="display:none"><img src="png/d-fault-block-mark.png" width="128" height="128"><span class="cap">128</span></div></div>
+</div>
+<div class="card">
+  <div class="name">E — 岩芯环</div>
+  <div class="idea">把记录剖开打磨：偏心的生长环，和真实取芯一样不正圆心。最小的蓝环是你正在看的那层。最干净，但叙事最弱，小尺寸像镜头/靶心。</div>
+  <div class="row"><div class="glyph"><img src="png/d-agate-mark.png" width="128" height="128"><span class="cap">128</span></div></div>
+</div>
+<div class="card">
+  <div class="name">F — 叠石</div>
+  <div class="idea">一场会话留下的东西：三块石头，各不相同，顶上那块还热着。方向最不一样，但气质偏「禅意」，离开发工具远。</div>
+  <div class="row"><div class="glyph"><img src="png/d-cairn-mark.png" width="128" height="128"><span class="cap">128</span></div></div>
+</div>
+<div class="card">
+  <div class="name">G — 阶地</div>
+  <div class="idea">峡谷剖面：一整块切削出台阶，一个台面是活的施工面。小尺寸下剪影有点像图表。</div>
+  <div class="row"><div class="glyph"><img src="png/d-terrace-mark.png" width="128" height="128"><span class="cap">128</span></div></div>
+</div>
+
+</body>
+</html>

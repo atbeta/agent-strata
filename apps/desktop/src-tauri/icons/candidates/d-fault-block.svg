@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" role="img" aria-label="Agent Strata">
+  <title>Agent Strata — fault block</title>
+  <!-- One slab of history, sheared once. The gap is the fault: above it is
+       settled, below it is still moving. The blue band sits on the moving
+       side, tight against the break — that is the present. -->
+  <g fill="#8B8B93">
+    <polygon points="2.8,3 18.8,3 18.8,9 2.8,12"/>
+  </g>
+  <g>
+    <polygon points="5.2,12.8 21.2,9.8 21.2,13.3 5.2,16.3" fill="#6189E5"/>
+    <polygon points="5.2,16.3 21.2,13.3 21.2,21 5.2,21" fill="#8B8B93"/>
+  </g>
+</svg>
