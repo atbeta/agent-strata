@@ -49,6 +49,7 @@ import {
 import { Icon } from "./icons";
 import { DiffBlock } from "./diff";
 import { FileBrowser } from "./files";
+import { TerminalPane } from "./terminal";
 import { ReviewPane } from "./review";
 import { JsonView } from "./json-view";
 import { permissionView } from "./permission-card";
@@ -441,6 +442,7 @@ export function SessionDetail(props: {
   /** which file the reader opened in the rail, null for the plain list */
   const [openFile, setOpenFile] = createSignal<string | null>(null);
   const [browserOn, setBrowserOn] = createSignal(false);
+  const [terminalOn, setTerminalOn] = createSignal(false);
   const [reviewSource, setReviewSource] = createSignal<"record" | "session" | "turn" | "git" | "branch">("record");
   const [reviewLayout, setReviewLayout] = createSignal<"unified" | "split">("unified");
   const [booting, setBooting] = createSignal(true);
@@ -865,6 +867,12 @@ const turnIndexOf = (h: SearchHit): number => {
       else openSearch();
     };
     window.addEventListener("keydown", onFindKey);
+    const onTerminalKey = (e: KeyboardEvent) => {
+      if (e.code !== "Backquote" || !(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || !opencode()) return;
+      e.preventDefault();
+      setTerminalOn((on) => !on);
+    };
+    window.addEventListener("keydown", onTerminalKey);
     // Seed the virtual window's inputs. Without this the list would start with a
     // zero-height viewport and only learn its size on the first scroll, which
     // for a session that opens pinned to the bottom means one wasted pass.
@@ -934,6 +942,7 @@ const turnIndexOf = (h: SearchHit): number => {
       window.removeEventListener("strata-connections", onConns);
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("keydown", onFindKey);
+      window.removeEventListener("keydown", onTerminalKey);
     });
   });
 
@@ -1365,6 +1374,22 @@ const turnIndexOf = (h: SearchHit): number => {
                       <Icon name="replay" />
                     </button>
                   </Tip>
+                  <Show when={opencode()}>
+                    <Tip label={terminalOn() ? t("terminal.hide") : t("terminal.show")}>
+                      <button
+                        class={`grid h-7 w-7 place-items-center rounded-md transition-colors ${
+                          terminalOn()
+                            ? "bg-secondary text-foreground"
+                            : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                        }`}
+                        aria-label={terminalOn() ? t("terminal.hide") : t("terminal.show")}
+                        aria-pressed={terminalOn()}
+                        onClick={() => setTerminalOn((on) => !on)}
+                      >
+                        <Icon name="terminal" />
+                      </button>
+                    </Tip>
+                  </Show>
                   <Tip label={browserOn() ? t("files.hide") : t("files.show")}>
                     <button
                       class={`grid h-7 w-7 place-items-center rounded-md transition-colors ${
@@ -2084,6 +2109,9 @@ const turnIndexOf = (h: SearchHit): number => {
               </Show>
             </>
           )}
+        </Show>
+        <Show when={terminalOn() && opencode()}>
+          <TerminalPane sessionId={props.id} />
         </Show>
         <Show when={opencode()}>
           <footer class="flex h-7 shrink-0 items-center gap-3 border-t border-border px-4 text-2xs text-muted-foreground">

@@ -1,4 +1,5 @@
 import type { BackendExtension } from "./driver";
+import { PTY_ID, TerminalError, ptyInfo, ptyShells, type PtyInfo } from "./terminal";
 
 /** Read-only OpenCode endpoints the desktop may reach through strata. */
 export const OPENCODE_EXTENSION_PATHS: ReadonlySet<string> = new Set([
@@ -35,9 +36,73 @@ export function opencodeExtension(opts: {
       ? { authorization: `Basic ${btoa(`${opts.username ?? ""}:${opts.password ?? ""}`)}` }
       : {};
   const doFetch = opts.fetch ?? fetch;
+  const send = (method: string, path: string, directory: string | undefined, body?: unknown) => {
+    const q = new URLSearchParams();
+    if (directory) q.set("directory", directory);
+    const ticket = path.endsWith("/connect-token");
+    return doFetch(`${base}${path}?${q}`, {
+      method,
+      headers: {
+        ...headers,
+        ...(body !== undefined ? { "content-type": "application/json" } : {}),
+        // tells OpenCode this is a connect-ticket mint, not a browser CSRF
+        ...(ticket ? { "x-opencode-ticket": "1" } : {}),
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      redirect: "error",
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+  };
+  const read = async (res: Response): Promise<unknown> => {
+    if (!res.ok) throw new TerminalError("terminal failed", res.status === 404 ? 404 : 502);
+    return res.json().catch(() => undefined);
+  };
+  const one = async (res: Response): Promise<PtyInfo> => {
+    const info = ptyInfo(await read(res));
+    if (!info) throw new TerminalError("terminal failed", 502);
+    return info;
+  };
   return {
     kind: "opencode",
     paths: OPENCODE_EXTENSION_PATHS,
+    terminal: {
+      shells: async (directory) => ptyShells(await read(await send("GET", "/pty/shells", directory))),
+      list: async (directory) => {
+        const rows = await read(await send("GET", "/pty", directory));
+        if (!Array.isArray(rows)) return [];
+        return rows.flatMap((row) => {
+          const info = ptyInfo(row);
+          return info && info.status === "running" ? [info] : [];
+        });
+      },
+      create: async (directory, command, title) => {
+        const body: { cwd: string; command?: string; title?: string } = { cwd: directory };
+        if (command) body.command = command;
+        if (title) body.title = title;
+        return one(await send("POST", "/pty", directory, body));
+      },
+      remove: async (directory, id) => {
+        if (!PTY_ID.test(id)) throw new TerminalError("not found", 404);
+        await read(await send("DELETE", `/pty/${encodeURIComponent(id)}`, directory));
+      },
+      resize: async (directory, id, size) => {
+        if (!PTY_ID.test(id)) throw new TerminalError("not found", 404);
+        await read(await send("PUT", `/pty/${encodeURIComponent(id)}`, directory, { size }));
+      },
+      open: async (directory, id) => {
+        if (!PTY_ID.test(id)) throw new TerminalError("not found", 404);
+        const minted = (await read(await send("POST", `/pty/${encodeURIComponent(id)}/connect-token`, directory))) as {
+          ticket?: unknown;
+        };
+        if (!minted || typeof minted.ticket !== "string" || minted.ticket.length === 0)
+          throw new TerminalError("terminal failed", 502);
+        const url = new URL(`${base}/pty/${encodeURIComponent(id)}/connect`);
+        url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+        url.searchParams.set("directory", directory);
+        url.searchParams.set("ticket", minted.ticket);
+        return { url: url.toString(), headers: { ...headers } };
+      },
+    },
     get(path, query, directory, signal) {
       if (!OPENCODE_EXTENSION_PATHS.has(path)) return Promise.resolve(new Response(null, { status: 404 }));
       const q = new URLSearchParams(query);

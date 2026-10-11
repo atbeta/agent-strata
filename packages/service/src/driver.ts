@@ -3,6 +3,7 @@
 // A later backend implements the subset it can, and the UI hides the rest.
 
 import type { EventInput, EventType } from "@agent-strata/schema";
+import type { TerminalApi } from "./terminal";
 
 /** Where backends write: the log, the live overlay, and in-place rebuilds. */
 export interface BackendSink {
@@ -82,6 +83,8 @@ export interface BackendExtension {
   /** the backend API paths a client may read */
   paths: ReadonlySet<string>;
   get(path: string, query: URLSearchParams, directory?: string, signal?: AbortSignal): Promise<Response>;
+  /** a shell in the session workspace; absent when this backend has no terminal */
+  terminal?: TerminalApi;
 }
 
 export interface SyncGuard {

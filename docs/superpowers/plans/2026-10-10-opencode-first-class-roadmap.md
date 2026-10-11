@@ -114,7 +114,7 @@ strata 的读路径（CASF 事件 → store → projector → view）只承载**
 - **工作台：**
   - Review 面板：会话级和上一轮改动（`session.diff`），git 和分支改动（`vcs.diff`）；并排/统一视图；行内评论回填输入框。已实现。
   - 文件树与查看器，"在 VS Code / Cursor 中打开"。已实现。
-  - 集成终端：`pty` + websocket，xterm.js，多标签
+  - 集成终端：`pty` + websocket，xterm.js，多标签。已实现。面板在输入框下方，标签可增删；页面只连接 strata，OpenCode 的口令和一次性票据留在服务进程里，工作目录锁在当前会话。
   - 状态栏：git 分支、LSP/MCP 状态。已实现。
 - **应用：**
   - 系统通知与提示音。已实现。会话在后台结束时响一声并弹出系统通知，设置里可以关掉。

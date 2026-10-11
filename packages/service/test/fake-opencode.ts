@@ -1,6 +1,9 @@
 /** Just enough of `opencode serve` for a driver to connect, plus whatever a test adds. */
 export function fakeOpencode(
   routes: Record<string, (url: URL, req: Request) => Response | Promise<Response>> = {},
+  sockets?: {
+    message(ws: { send(data: string | Uint8Array): void }, message: string | Uint8Array): void;
+  },
 ) {
   const seen: { path: string; query: URLSearchParams; method: string; body: string }[] = [];
   const enc = new TextEncoder();
@@ -33,8 +36,19 @@ export function fakeOpencode(
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
-    async fetch(req) {
+    websocket: {
+      message(ws, message) {
+        if (!sockets) return;
+        sockets.message(ws, typeof message === "string" ? message : new Uint8Array(message));
+      },
+    },
+    async fetch(req, server) {
       const url = new URL(req.url);
+      if (sockets && url.pathname.endsWith("/connect")) {
+        seen.push({ path: url.pathname, query: url.searchParams, method: req.method, body: "" });
+        if (server.upgrade(req)) return undefined;
+        return new Response("upgrade failed", { status: 400 });
+      }
       const body = req.method === "GET" ? "" : await req.clone().text();
       seen.push({ path: url.pathname, query: url.searchParams, method: req.method, body });
       if (url.pathname === "/global/event")

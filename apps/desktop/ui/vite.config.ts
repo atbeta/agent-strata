@@ -17,6 +17,7 @@ export default defineConfig({
     proxy: {
       "/api": {
         target: service,
+        ws: true,
         rewrite: (p) => p.replace(/^\/api/, ""),
       },
     },

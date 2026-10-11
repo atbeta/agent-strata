@@ -21,6 +21,7 @@ import { extensionRoute } from "./extension-route";
 import { readPromptParts } from "./prompt-parts";
 import { editorLaunch } from "./editor";
 import { refused, shellCors } from "./shell-origin";
+import { terminalClose, terminalMessage, terminalOpen, terminalRoute, terminalUpgrade } from "./terminal";
 import { SessionClaims } from "./identity";
 
 export interface ServiceOpts {
@@ -901,6 +902,9 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       return json({ mode, applied: "next-launch" });
     }
 
+    const terminal = await terminalRoute(req, url, ownedTerminal);
+    if (terminal) return terminal;
+
     const extension = await extensionRoute(req, url, {
       connection: (id) => conns.get(id),
       session: (casfId) => {
@@ -967,12 +971,25 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     return json({ error: "not found" }, 404);
   }
 
+  const ownedTerminal = (casfId: string) => {
+    const driver = driverFor(casfId);
+    const terminal = driver?.extension?.terminal;
+    if (!driver?.nativeId(casfId) || !terminal) return undefined;
+    const directory = directoryOf(casfId);
+    return directory ? { directory, terminal } : undefined;
+  };
+
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: opts.port ?? 0,
     // projecting every session can outlast Bun's 10s default
     idleTimeout: 0,
-    async fetch(req) {
+    websocket: {
+      open: terminalOpen,
+      message: terminalMessage,
+      close: terminalClose,
+    },
+    async fetch(req, server) {
       // The desktop UI calls this process from the shell's origin (packaged:
       // tauri.localhost; dev: the Vite port); no other page may drive it.
       const allow = {
@@ -990,9 +1007,11 @@ export function startService(opts: ServiceOpts = {}): RunningService {
             "access-control-allow-headers": "content-type",
           },
         });
+      const upgraded = terminalUpgrade(req, new URL(req.url), server, ownedTerminal);
+      if (upgraded === "upgraded") return undefined;
       let res: Response;
       try {
-        res = await route(req);
+        res = upgraded ?? (await route(req));
       } catch (e) {
         // Bun's own error page has no CORS, so the shell would only see a network error
         res = json({ error: String(e) }, 500);

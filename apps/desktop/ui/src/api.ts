@@ -700,6 +700,55 @@ export async function testPolicy(body: {
   return data;
 }
 
+export interface PtySession {
+  id: string;
+  title: string;
+  command: string;
+  cwd: string;
+  status: "running" | "exited";
+}
+
+export function listTerminals(sessionId: string): Promise<{ sessions: PtySession[] }> {
+  return getJson(`/sessions/${encodeURIComponent(sessionId)}/terminal`);
+}
+
+export async function openTerminal(sessionId: string): Promise<PtySession> {
+  const res = await fetch(api(`/sessions/${encodeURIComponent(sessionId)}/terminal`), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}",
+  });
+  const data = (await res.json().catch(() => ({}))) as PtySession & { error?: string };
+  if (!res.ok) throw new Error(data.error ?? t("api.err.service", { status: res.status }));
+  return data;
+}
+
+export async function closeTerminal(sessionId: string, ptyId: string): Promise<void> {
+  await throwOnError(
+    await fetch(api(`/sessions/${encodeURIComponent(sessionId)}/terminal/${encodeURIComponent(ptyId)}`), {
+      method: "DELETE",
+    }),
+  );
+}
+
+export async function resizeTerminal(sessionId: string, ptyId: string, rows: number, cols: number): Promise<void> {
+  await throwOnError(
+    await fetch(api(`/sessions/${encodeURIComponent(sessionId)}/terminal/${encodeURIComponent(ptyId)}/size`), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ rows, cols }),
+    }),
+  );
+}
+
+/** The page socket. Strata dials OpenCode; this URL has neither the password nor the ticket. */
+export function terminalSocket(sessionId: string, ptyId: string): string {
+  const path = `/sessions/${encodeURIComponent(sessionId)}/terminal/${encodeURIComponent(ptyId)}/connect`;
+  if (inDesktopShell()) return `ws://127.0.0.1:7700${path}`;
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  return `${proto}//${location.host}/api${path}`;
+}
+
 export function fmtUsd(n: number) {
   return `$${n.toFixed(4)}`;
 }
