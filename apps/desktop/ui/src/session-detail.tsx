@@ -2085,24 +2085,23 @@ const turnIndexOf = (h: SearchHit): number => {
             </>
           )}
         </Show>
+        <Show when={opencode()}>
+          <footer class="flex h-7 shrink-0 items-center gap-3 border-t border-border px-4 text-2xs text-muted-foreground">
+            <span class="truncate">{settled(vcs)?.branch ? t("status.branch", { branch: settled(vcs)!.branch! }) : t("status.noBranch")}</span>
+            <span class={lspServers()?.some((s) => s.status === "error") ? "text-destructive" : ""}>
+              {lspServers()?.some((s) => s.status === "error")
+                ? t("status.lspErr", { n: lspServers()!.filter((s) => s.status === "error").length })
+                : t("status.lsp", { n: lspServers()?.length ?? 0 })}
+            </span>
+            <span>
+              {t("status.mcp", {
+                on: mcpServers().filter(([, s]) => s.status === "connected").length,
+                n: mcpServers().length,
+              })}
+            </span>
+          </footer>
+        </Show>
       </div>
-
-      <Show when={opencode()}>
-        <footer class="flex h-7 shrink-0 items-center gap-3 border-t border-border px-3 text-2xs text-muted-foreground">
-          <span class="truncate">{settled(vcs)?.branch ? t("status.branch", { branch: settled(vcs)!.branch! }) : t("status.noBranch")}</span>
-          <span class={lspServers()?.some((s) => s.status === "error") ? "text-destructive" : ""}>
-            {lspServers()?.some((s) => s.status === "error")
-              ? t("status.lspErr", { n: lspServers()!.filter((s) => s.status === "error").length })
-              : t("status.lsp", { n: lspServers()?.length ?? 0 })}
-          </span>
-          <span>
-            {t("status.mcp", {
-              on: mcpServers().filter(([, s]) => s.status === "connected").length,
-              n: mcpServers().length,
-            })}
-          </span>
-        </footer>
-      </Show>
 
       <Show when={traceBlock()}>
         {(block) => (
