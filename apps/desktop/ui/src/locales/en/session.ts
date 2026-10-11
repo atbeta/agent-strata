@@ -46,6 +46,16 @@ export default {
   "mcp.status.failed": "Failed",
   "mcp.status.needs_auth": "Needs sign-in",
   "mcp.status.needs_client_registration": "Needs registration",
+  "mcp.add": "Add a server",
+  "mcp.add.name": "Name",
+  "mcp.add.command": "Local command",
+  "mcp.add.url": "Remote URL",
+  "mcp.add.command.placeholder": "npx -y package",
+  "mcp.add.url.placeholder": "https://",
+  "mcp.add.submit": "Add",
+  "mcp.add.adding": "Adding",
+  "mcp.add.hint": "It shows up for this OpenCode process.",
+  "mcp.add.failed": "Could not add this server",
 
   // The replay / trace toggle, which is one control with two labels.
   "trace.replay": "Replay",

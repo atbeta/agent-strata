@@ -18,6 +18,7 @@ import type { EventInput } from "@agent-strata/schema";
 import { connectAcpDriver } from "./acp-driver";
 import { agentNameOf, connectionMemory, endpointOf, type ConnectBody } from "./connections";
 import { extensionRoute } from "./extension-route";
+import { mcpAddRequest, safeMcpError } from "./mcp-add";
 import { providerRoute } from "./provider-auth";
 import { readPromptParts } from "./prompt-parts";
 import { editorLaunch } from "./editor";
@@ -573,6 +574,27 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, e instanceof UnknownCommandError ? 400 : 502);
         }
+      }
+    }
+
+    const sessionMcpAdd = path.match(/^\/sessions\/([^/]+)\/mcp$/);
+    if (sessionMcpAdd && req.method === "POST") {
+      const casfId = decodeURIComponent(sessionMcpAdd[1]!);
+      const conn = driverFor(casfId);
+      if (!conn) return json({ error: "no backend connected" }, 400);
+      const native = conn.nativeId(casfId);
+      if (!native) return json({ error: "session is not owned by a connected backend" }, 400);
+      owners.set(casfId, conn.id);
+      if (conn.backend !== "opencode" || !conn.mcpAdd) return json({ error: "backend cannot manage mcp" }, 400);
+      const parsed = mcpAddRequest(await req.json().catch(() => null));
+      if ("error" in parsed) return json(parsed, 400);
+      try {
+        await conn.mcpAdd(parsed.name, parsed.config, directoryOf(casfId));
+        return json({ ok: true });
+      } catch (e) {
+        const secret =
+          parsed.config.type === "remote" ? { url: parsed.config.url } : { command: parsed.config.command };
+        return json({ error: safeMcpError(e, secret) }, 502);
       }
     }
 

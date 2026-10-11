@@ -14,6 +14,7 @@ import {
 import {
   abortSession,
   api,
+  addMcp,
   connectMcp,
   disconnectMcp,
   downloadExport,
@@ -641,6 +642,32 @@ export function SessionDetail(props: {
       setMcpNote({ name, text: err instanceof Error ? err.message : t("err.network") });
     } finally {
       setMcpBusy(undefined);
+    }
+  };
+
+  const [mcpKind, setMcpKind] = createSignal<"command" | "url">("url");
+  const [mcpName, setMcpName] = createSignal("");
+  const [mcpValue, setMcpValue] = createSignal("");
+  const [mcpAdding, setMcpAdding] = createSignal(false);
+  const [mcpAddErr, setMcpAddErr] = createSignal("");
+
+  const submitMcp = async (e: Event) => {
+    e.preventDefault();
+    const name = mcpName().trim();
+    const value = mcpValue().trim();
+    if (!name || !value || mcpAdding()) return;
+    setMcpAdding(true);
+    setMcpAddErr("");
+    try {
+      await addMcp(props.id, mcpKind() === "command" ? { name, command: value } : { name, url: value });
+      setMcpName("");
+      setMcpValue("");
+      await loadTools();
+    } catch (err) {
+      const text = err instanceof Error ? err.message : t("err.network");
+      setMcpAddErr(value.length >= 8 && text.includes(value) ? t("mcp.add.failed") : text);
+    } finally {
+      setMcpAdding(false);
     }
   };
 
@@ -1588,7 +1615,7 @@ const turnIndexOf = (h: SearchHit): number => {
               </Show>
 
               <Show when={toolsOpen()}>
-                <div class="absolute right-4 top-11 z-30 w-72 max-w-[calc(100%-2rem)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg">
+                <div class="absolute right-4 top-11 z-30 w-80 max-w-[calc(100%-2rem)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg">
                   <div class="max-h-80 overflow-y-auto px-2 py-2">
                     <h2 class="px-1.5 text-2xs font-medium text-muted-foreground">{t("mcp.title")}</h2>
                     <Show when={toolsReady() && mcpServers().length === 0}>
@@ -1653,6 +1680,56 @@ const turnIndexOf = (h: SearchHit): number => {
                           }}
                         </For>
                       </ul>
+                    </Show>
+                    <Show when={toolsReady()}>
+                      <form class="mt-2 border-t border-border px-1.5 pt-2" onSubmit={(e) => void submitMcp(e)}>
+                        <div class="text-2xs font-medium text-muted-foreground">{t("mcp.add")}</div>
+                        <input
+                          value={mcpName()}
+                          placeholder={t("mcp.add.name")}
+                          class="mt-1.5 h-7 w-full rounded-md border border-border bg-secondary/40 px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground"
+                          onInput={(e) => setMcpName(e.currentTarget.value)}
+                        />
+                        <div class="mt-1.5 flex gap-1">
+                          <button
+                            type="button"
+                            class={`h-6 rounded-md px-2 text-2xs ${
+                              mcpKind() === "url" ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-secondary/60"
+                            }`}
+                            onClick={() => setMcpKind("url")}
+                          >
+                            {t("mcp.add.url")}
+                          </button>
+                          <button
+                            type="button"
+                            class={`h-6 rounded-md px-2 text-2xs ${
+                              mcpKind() === "command"
+                                ? "bg-secondary text-foreground"
+                                : "text-muted-foreground hover:bg-secondary/60"
+                            }`}
+                            onClick={() => setMcpKind("command")}
+                          >
+                            {t("mcp.add.command")}
+                          </button>
+                        </div>
+                        <input
+                          value={mcpValue()}
+                          placeholder={t(mcpKind() === "command" ? "mcp.add.command.placeholder" : "mcp.add.url.placeholder")}
+                          class="mt-1.5 h-7 w-full rounded-md border border-border bg-secondary/40 px-2 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground"
+                          onInput={(e) => setMcpValue(e.currentTarget.value)}
+                        />
+                        <p class="mt-1.5 text-2xs text-muted-foreground">{t("mcp.add.hint")}</p>
+                        <Show when={mcpAddErr()}>
+                          <p class="mt-1 text-2xs text-status-error">{mcpAddErr()}</p>
+                        </Show>
+                        <button
+                          type="submit"
+                          class="mt-1.5 h-6 rounded-md border border-border px-2 text-2xs hover:bg-secondary disabled:opacity-40"
+                          disabled={mcpAdding() || !mcpName().trim() || !mcpValue().trim()}
+                        >
+                          {t(mcpAdding() ? "mcp.add.adding" : "mcp.add.submit")}
+                        </button>
+                      </form>
                     </Show>
                   </div>
                 </div>

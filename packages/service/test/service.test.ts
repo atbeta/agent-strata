@@ -806,6 +806,73 @@ describe("agent-strata service", () => {
     oc.stop();
     svc.stop();
   });
+
+  test("an OpenCode session can add an MCP server without receiving its config back", async () => {
+    const oc = fakeOpencode({
+      "/mcp": () => Response.json({ leaked: "https://mcp.example/secret-token" }),
+    });
+    const svc = startService({ db: ":memory:", port: 0 });
+    const base = `http://127.0.0.1:${svc.port}`;
+    const post = (p: string, body?: unknown) =>
+      fetch(`${base}${p}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    await post("/connect", { baseUrl: oc.baseUrl, directory: "/repo" });
+    svc.store.append([
+      ev("opencode:ses_x", "session.started", { title: "x", workspace: "/repo" }, "2026-01-01T00:00:00Z"),
+    ]);
+    const sid = encodeURIComponent("opencode:ses_x");
+
+    const added = await post(`/sessions/${sid}/mcp`, { name: "docs", url: "https://mcp.example/rpc" });
+    expect(added.status).toBe(200);
+    expect(await added.json()).toEqual({ ok: true });
+    const seen = oc.seen.find((s) => s.method === "POST" && s.path === "/mcp");
+    expect(JSON.parse(seen!.body)).toEqual({
+      name: "docs",
+      config: { type: "remote", url: "https://mcp.example/rpc" },
+    });
+    expect(seen!.query.get("directory")).toBe("/repo");
+
+    const refused = await post(`/sessions/${sid}/mcp`, {
+      name: "docs",
+      config: { type: "local", command: ["echo", "secret-token-value"] },
+    });
+    expect(refused.status).toBe(400);
+    expect(oc.seen.filter((s) => s.method === "POST" && s.path === "/mcp")).toHaveLength(1);
+
+    oc.stop();
+    svc.stop();
+  });
+
+  test("an MCP add error that repeats the address is not returned", async () => {
+    const url = "https://mcp.example/secret-token";
+    const oc = fakeOpencode({
+      "/mcp": () => Response.json({ message: `refused ${url}` }, { status: 400 }),
+    });
+    const svc = startService({ db: ":memory:", port: 0 });
+    const base = `http://127.0.0.1:${svc.port}`;
+    await fetch(`${base}/connect`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ baseUrl: oc.baseUrl, directory: "/repo" }),
+    });
+    svc.store.append([
+      ev("opencode:ses_x", "session.started", { title: "x", workspace: "/repo" }, "2026-01-01T00:00:00Z"),
+    ]);
+    const added = await fetch(`${base}/sessions/${encodeURIComponent("opencode:ses_x")}/mcp`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "docs", url }),
+    });
+    expect(added.status).toBe(502);
+    const body = await added.text();
+    expect(body).not.toContain("secret-token");
+    expect(JSON.parse(body)).toEqual({ error: "mcp add failed" });
+    oc.stop();
+    svc.stop();
+  });
 });
 
 describe("only the desktop shell reaches the service from a browser", () => {

@@ -88,6 +88,7 @@ export async function connectOpencodeDriver(opts: {
     abort: (nativeId, directory) => conn.abort(nativeId, directory),
     mcpConnect: (name, directory) => conn.mcpConnect(name, directory),
     mcpDisconnect: (name, directory) => conn.mcpDisconnect(name, directory),
+    mcpAdd: (name, config, directory) => conn.mcpAdd(name, config, directory),
     revert: (nativeId, messageId, directory) => conn.revert(nativeId, messageId, directory),
     unrevert: (nativeId, directory) => conn.unrevert(nativeId, directory),
     async fork(nativeId, messageId, directory) {

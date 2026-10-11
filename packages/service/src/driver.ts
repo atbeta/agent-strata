@@ -120,6 +120,12 @@ export interface BackendDriver {
   abort(nativeId: string, directory?: string): Promise<void>;
   mcpConnect?(name: string, directory?: string): Promise<void>;
   mcpDisconnect?(name: string, directory?: string): Promise<void>;
+  /** OpenCode keeps this server until that process stops. */
+  mcpAdd?(
+    name: string,
+    config: { type: "local"; command: string[] } | { type: "remote"; url: string },
+    directory?: string,
+  ): Promise<void>;
   revert?(nativeId: string, messageId: string, directory?: string): Promise<void>;
   unrevert?(nativeId: string, directory?: string): Promise<void>;
   fork?(nativeId: string, messageId: string, directory?: string): Promise<{ casfId: string; nativeId: string }>;

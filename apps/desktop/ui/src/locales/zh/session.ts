@@ -46,6 +46,16 @@ export default {
   "mcp.status.failed": "失败",
   "mcp.status.needs_auth": "需要登录",
   "mcp.status.needs_client_registration": "需要注册",
+  "mcp.add": "添加服务器",
+  "mcp.add.name": "名称",
+  "mcp.add.command": "本地命令",
+  "mcp.add.url": "远程地址",
+  "mcp.add.command.placeholder": "npx -y 包名",
+  "mcp.add.url.placeholder": "https://",
+  "mcp.add.submit": "添加",
+  "mcp.add.adding": "正在添加",
+  "mcp.add.hint": "添加后会出现在这次 OpenCode 的运行里。",
+  "mcp.add.failed": "没能添加这台服务器",
 
   // The replay / trace toggle, which is one control with two labels.
   "trace.replay": "回放",

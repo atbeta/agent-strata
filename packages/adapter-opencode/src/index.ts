@@ -1175,6 +1175,11 @@ export async function connectOpencode(opts: {
   abort: (sessionID: string, directory?: string) => Promise<void>;
   mcpConnect: (name: string, directory?: string) => Promise<void>;
   mcpDisconnect: (name: string, directory?: string) => Promise<void>;
+  mcpAdd: (
+    name: string,
+    config: { type: "local"; command: string[] } | { type: "remote"; url: string },
+    directory?: string,
+  ) => Promise<void>;
   revert: (sessionID: string, messageID: string, directory?: string) => Promise<void>;
   unrevert: (sessionID: string, directory?: string) => Promise<void>;
   fork: (sessionID: string, messageID: string, directory?: string) => Promise<{ id: string }>;
@@ -1544,6 +1549,10 @@ export async function connectOpencode(opts: {
     },
     async mcpDisconnect(name: string, directory?: string) {
       await client.mcp.disconnect({ name, directory: directory ?? opts.directory });
+    },
+    async mcpAdd(name, config, directory) {
+      const added = await client.mcp.add({ name, config, directory: directory ?? opts.directory });
+      if (added.error) throw new Error(errorMessage(added.error));
     },
     async revert(sessionID: string, messageID: string, directory?: string) {
       await client.session.revert({ sessionID, messageID, directory: directory ?? opts.directory });

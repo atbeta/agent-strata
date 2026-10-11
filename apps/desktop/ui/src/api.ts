@@ -432,6 +432,19 @@ export function readSkills(sessionId: string): Promise<SkillInfo[] | undefined> 
   return readOpencode<SkillInfo[]>(sessionId, "/skill");
 }
 
+export async function addMcp(
+  sessionId: string,
+  server: { name: string; command?: string; url?: string },
+): Promise<void> {
+  await throwOnError(
+    await fetch(api(`/sessions/${encodeURIComponent(sessionId)}/mcp`), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(server),
+    }),
+  );
+}
+
 export async function connectMcp(sessionId: string, name: string): Promise<void> {
   await throwOnError(
     await fetch(api(`/sessions/${encodeURIComponent(sessionId)}/mcp/${encodeURIComponent(name)}/connect`), {
