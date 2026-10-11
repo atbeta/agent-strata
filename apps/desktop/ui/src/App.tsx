@@ -499,6 +499,13 @@ export function App() {
     const syncTimer = setInterval(pull, 12_000);
     const onFocus = () => pull();
     window.addEventListener("focus", onFocus);
+    // A hidden window is not a window. `pull` asks every backend for its whole
+    // project list and rereads all four resources, and none of it reaches an
+    // eye until the window comes back — which is when it runs again anyway.
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") pull();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
     let wsStale = false;
     es.onmessage = (m) => {
       if (isStreamingSnapshotMessage(m.data)) return;
@@ -588,6 +595,7 @@ export function App() {
       clearInterval(syncTimer);
       clearTimeout(timer);
       window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
       es.close();
     });
   });
