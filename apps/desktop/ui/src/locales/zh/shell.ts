@@ -25,6 +25,7 @@ export default {
   "sidebar.session.needsInput": "待处理",
   "sidebar.session.actions": "会话操作",
   "sidebar.session.rename": "重命名",
+  "sidebar.session.compare": "对比这个会话",
   "sidebar.session.archive": "归档",
   "sidebar.session.delete": "删除",
   "sidebar.session.deleteArmed": "再次点击以删除",
@@ -65,14 +66,13 @@ export default {
   // Routes
   "nav.backToFleet": "← 会话列表",
   "nav.compare": "对比",
-  "nav.policy": "策略",
 
   // Fleet page
-  "fleet.topbar.countAll.one": "{n} 个会话",
-  "fleet.topbar.countAll.other": "{n} 个会话",
-  "fleet.topbar.countInProject": "本项目 {n} 个会话",
-  "fleet.title.pickSession": "选择一个会话",
-  "fleet.hint.connected": "服务器上已有的会话会显示在侧边栏。新会话以 + 开始。",
+  "fleet.scope.all": "全部会话",
+  "fleet.overview.sessions": "会话",
+  "fleet.overview.cost": "花费",
+  "fleet.overview.tokens": "Token",
+  "fleet.overview.recent": "最近会话",
   "fleet.hint.disconnected": "接入正在运行的代理服务器。服务器上的会话会在数据流连接后立即显示。",
 
   // Time
@@ -179,6 +179,4 @@ export default {
   "settings.config.remove": "已有字段不能从这里删掉。",
   "settings.config.offline": "连接 OpenCode 后可以编辑配置。",
   "settings.permission.title": "权限策略",
-  "settings.permission.hint": "在工具调用运行前，允许、询问或拒绝它的规则。",
-  "settings.permission.open": "打开策略",
 } as const;

@@ -265,18 +265,18 @@ export function PolicyEditor() {
   };
 
   return (
-    <main class="mx-auto max-w-3xl p-6">
-      <header>
-        <h1 class="text-xl font-semibold">{t("policy.title")}</h1>
-        <p class="mt-1 text-xs text-muted-foreground">
-          {t("policy.hint")}
-          <Show when={saved()?.file}>
-            <span class="font-mono"> · {saved()!.file}</span>
-          </Show>
-        </p>
-      </header>
+    // No page wrapper and no heading of its own: this lives in the settings
+    // page's permission section, which already names itself. A second <h1>
+    // under a section label reads as two pages stacked in one.
+    <div>
+      <p class="text-2xs leading-4 text-muted-foreground">
+        {t("policy.hint")}
+        <Show when={saved()?.file}>
+          <span class="font-mono"> · {saved()!.file}</span>
+        </Show>
+      </p>
 
-      <section class="mt-4 flex items-center gap-3 rounded-lg border border-border bg-muted px-4 py-3 text-sm">
+      <section class="mt-3 flex items-center gap-3 rounded-lg border border-border bg-muted px-4 py-3 text-sm">
         <span class="text-muted-foreground">{t("policy.default.label")}</span>
         <select
           class={inputCls}
@@ -360,7 +360,7 @@ export function PolicyEditor() {
             onInput={(e) => setTestInput(e.currentTarget.value)}
           />
           <button
-            class="rounded-md bg-secondary px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+            class="shrink-0 whitespace-nowrap rounded-md bg-secondary px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
             onClick={() => void runTest()}
           >
             {t("policy.test.run")}
@@ -386,6 +386,6 @@ export function PolicyEditor() {
           </p>
         </Show>
       </section>
-    </main>
+    </div>
   );
 }

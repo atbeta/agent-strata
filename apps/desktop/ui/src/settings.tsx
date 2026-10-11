@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
 import { Group, Row, Segmented, pill } from "./settings-blocks";
+import { PolicyEditor } from "./policy";
 import { ProviderSettings } from "./providers";
 import { ConfigSettings } from "./config";
 import { SETTINGS_SECTIONS, settingsSection } from "./settings-sections";
@@ -438,18 +439,11 @@ export function SettingsPage(props: { section?: string }) {
       </Show>
 
       <Show when={section() === "permission"}>
+      {/* Policy is global to strata rather than to one backend, so it is not
+          filed under OpenCode. It lives here as the editor itself: one place
+          to reach it, and the deep link is the section. */}
       <Group label={t("settings.permission.title")}>
-        <p class="text-2xs leading-4 text-muted-foreground">
-          {t("settings.permission.hint")}
-        </p>
-        <button
-          type="button"
-          class="mt-3 inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-sm hover:bg-secondary"
-          onClick={() => (location.hash = "/policy")}
-        >
-          <Icon name="shield" class="size-3.5 text-muted-foreground" />
-          {t("settings.permission.open")}
-        </button>
+        <PolicyEditor />
       </Group>
       </Show>
       </div>

@@ -169,3 +169,43 @@ export function DragBar(props: { class?: string; children?: JSX.Element }) {
     </div>
   );
 }
+
+/**
+ * A screen that fills the main column: one title row and one scrolling body.
+ *
+ * Compare, settings and the landing page each used to write their own header —
+ * a back link and a title in a DragBar — and the copies drifted apart. One
+ * shape here means a new screen inherits the chrome instead of redrawing it.
+ *
+ * `back` is opt-in on purpose. A screen you reach from the sidebar is a peer
+ * of the session list, not something you drilled into, so giving it a "back to
+ * the session list" link would imply a depth that is not there. Compare earns
+ * one because it really is opened from a pair of sessions.
+ */
+export function PageShell(props: {
+  title: string;
+  back?: { href: string; label: string };
+  /** On the right of the title row: a count, a filter, a primary action. */
+  meta?: JSX.Element;
+  children: JSX.Element;
+}) {
+  return (
+    <div class="flex h-full min-h-0 flex-col">
+      <DragBar>
+        <Show when={props.back}>
+          <button
+            class="shrink-0 text-sm text-muted-foreground transition-colors hover:text-foreground"
+            onClick={() => (location.hash = props.back!.href)}
+          >
+            {props.back!.label}
+          </button>
+        </Show>
+        <span class="min-w-0 truncate text-sm text-foreground">{props.title}</span>
+        <Show when={props.meta}>
+          <div class="ml-auto flex min-w-0 items-center gap-2">{props.meta}</div>
+        </Show>
+      </DragBar>
+      <div class="min-h-0 flex-1 overflow-y-auto">{props.children}</div>
+    </div>
+  );
+}

@@ -18,7 +18,6 @@ import {
 } from "./api";
 import { SessionDetail } from "./session-detail";
 import { CompareView } from "./compare";
-import { PolicyEditor } from "./policy";
 import { SettingsPage } from "./settings";
 import { settingsPath } from "./settings-sections";
 import { applyTheme, readTheme } from "./theme";
@@ -29,7 +28,7 @@ import { CommandPalette } from "./palette";
 import { SessionSwitcher } from "./switcher";
 import { readMru, recentOrder, stepIndex, touchMru, writeMru } from "./session-switch";
 import { Icon } from "./icons";
-import { DragBar, WindowCaptionBar } from "./chrome";
+import { PageShell, WindowCaptionBar } from "./chrome";
 import { inDesktopShell } from "./shell";
 import { windowTitle } from "./permission-card";
 import { date, num, t, tn } from "./i18n";
@@ -51,7 +50,6 @@ type Route =
   | { name: "fleet" }
   | { name: "session"; id: string }
   | { name: "compare"; a: string; b: string }
-  | { name: "policy" }
   | { name: "settings"; section?: string };
 
 function parseHash(): Route {
@@ -60,10 +58,84 @@ function parseHash(): Route {
   if (s) return { name: "session", id: decodeURIComponent(s[1]!) };
   const c = h.match(/^\/compare\/([^/]+)\/(.+)$/);
   if (c) return { name: "compare", a: decodeURIComponent(c[1]!), b: decodeURIComponent(c[2]!) };
-  if (h === "/policy") return { name: "policy" };
   const settings = settingsPath(h);
   if (settings) return { name: "settings", section: settings.section };
   return { name: "fleet" };
+}
+
+/**
+ * The landing pane.
+ *
+ * The sidebar is already the list of sessions, so repeating "pick a session"
+ * here — with a button that did the same thing as the `+` above it — spent
+ * most of the window saying nothing twice. This answers the one question the
+ * sidebar cannot: what these sessions have cost, and which ones were recent.
+ *
+ * Every figure is summed from the rows already in hand rather than from the
+ * server's global aggregate, so filtering to a project narrows the numbers to
+ * match the list instead of leaving them describing all of it.
+ */
+function FleetOverview(props: {
+  sessions: SessionRow[];
+  onOpen: (id: string) => void;
+  now: number;
+}) {
+  const cost = () => props.sessions.reduce((sum, s) => sum + s.totals.cost_usd, 0);
+  const tokens = () =>
+    props.sessions.reduce((sum, s) => sum + s.totals.input + s.totals.output, 0);
+  const recent = () =>
+    [...props.sessions]
+      .sort((a, b) => b.summary.last_ts.localeCompare(a.summary.last_ts))
+      .slice(0, 6);
+
+  const figure = (label: string, value: string) => (
+    <div class="bg-background px-4 py-3">
+      <div class="text-2xs text-muted-foreground">{label}</div>
+      <div class="mt-1 font-mono text-lg leading-none tabular-nums text-foreground">{value}</div>
+    </div>
+  );
+
+  return (
+    <div class="px-8 py-10">
+      {/* gap-px over a border-coloured field draws the hairlines between the
+          figures, which is how this design separates things: one surface, a
+          line, no second grey. */}
+      <div class="grid max-w-2xl grid-cols-3 gap-px overflow-hidden rounded-lg border border-border bg-border">
+        {figure(t("fleet.overview.sessions"), num(props.sessions.length))}
+        {figure(t("fleet.overview.cost"), fmtUsd(cost()))}
+        {figure(t("fleet.overview.tokens"), num(tokens()))}
+      </div>
+
+      <div class="mt-8 max-w-2xl">
+        <div class="mb-1 text-xs text-muted-foreground">{t("fleet.overview.recent")}</div>
+        <ul class="divide-y divide-border">
+          <For each={recent()}>
+            {(s) => (
+              <li>
+                <button
+                  type="button"
+                  class="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition-colors hover:bg-secondary/60"
+                  onClick={() => props.onOpen(s.summary.session_id)}
+                >
+                  <span class="min-w-0 flex-1 truncate text-sm text-foreground">
+                    {s.title ?? s.summary.title ?? t("common.untitled")}
+                  </span>
+                  <Show when={s.totals.cost_usd > 0}>
+                    <span class="shrink-0 font-mono text-2xs tabular-nums text-muted-foreground">
+                      {fmtUsd(s.totals.cost_usd)}
+                    </span>
+                  </Show>
+                  <span class="w-12 shrink-0 text-right text-2xs text-muted-foreground">
+                    {relTime(s.summary.last_ts, props.now)}
+                  </span>
+                </button>
+              </li>
+            )}
+          </For>
+        </ul>
+      </div>
+    </div>
+  );
 }
 
 function relTime(iso: string, now = Date.now()): string {
@@ -144,6 +216,8 @@ function SessionListItem(props: {
   onRename: (title: string) => Promise<void>;
   onArchive: () => Promise<void>;
   onDelete: () => Promise<void>;
+  /** Start a comparison with this session already picked. */
+  onCompare: () => void;
 }) {
   const [editing, setEditing] = createSignal(false);
   const [draft, setDraft] = createSignal(props.title);
@@ -255,6 +329,14 @@ function SessionListItem(props: {
             >
               <Icon name="pencil" class="size-3.5 text-muted-foreground" />
               {t("sidebar.session.rename")}
+            </DropdownMenuItem>
+            {/* Compare belongs on the session rather than behind a global
+                toggle: a comparison always starts from one of the two, so
+                asking the list to enter a mode first made the user name a
+                session before they could start. */}
+            <DropdownMenuItem onSelect={props.onCompare}>
+              <Icon name="columns" class="size-3.5 text-muted-foreground" />
+              {t("sidebar.session.compare")}
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => void props.onArchive()}>
               <Icon name="archive" class="size-3.5 text-muted-foreground" />
@@ -553,6 +635,14 @@ export function App() {
     location.hash = `/session/${encodeURIComponent(id)}`;
   };
 
+  /** Enter compare mode with one session already chosen. With no id the user
+   *  picks both, which is what the palette command does. */
+  const startCompare = (id?: string) => {
+    setCompareOn(true);
+    setCompareSel(id ? [id] : []);
+    if (id && location.hash !== "/") location.hash = "/";
+  };
+
   const sessionWorkspace = (s: SessionRow) => realWorkspace(s.workspace ?? s.summary.workspace);
 
   const library = () =>
@@ -758,6 +848,24 @@ export function App() {
   );
   onCleanup(
     registerCommand({
+      id: "app.permission",
+      title: () => t("settings.permission.title"),
+      // Straight to the section, so the keyboard path lands where the eye
+      // does rather than on the first tab with the rules one step away.
+      run: () => {
+        location.hash = "/settings/permission";
+      },
+    }),
+  );
+  onCleanup(
+    registerCommand({
+      id: "app.compare",
+      title: () => t("sidebar.compare.start"),
+      run: () => startCompare(),
+    }),
+  );
+  onCleanup(
+    registerCommand({
       id: "app.nextSession",
       title: () => t("switcher.next"),
       chord: { key: "Tab", repeat: true },
@@ -900,6 +1008,30 @@ export function App() {
           </Show>
         </div>
         <div class="min-h-0 flex-1 overflow-y-auto border-t border-border px-1.5 py-1">
+          {/* Compare is a mode of the list and it says so at the top of the
+              list. The hint used to live inside the connect panel, so entering
+              compare mode from anywhere else showed nothing at all: the rows
+              simply stopped opening, with no sign of what had changed. */}
+          <Show when={compareOn()}>
+            <div class="mb-1.5 flex items-center gap-2 rounded-md bg-secondary/40 px-2 py-1.5">
+              <Icon name="columns" class="size-3.5 shrink-0 text-muted-foreground" />
+              <span class="min-w-0 flex-1 text-2xs text-muted-foreground">
+                {compareSel().length < 2
+                  ? t("sidebar.compare.pick", { n: 2 - compareSel().length })
+                  : t("sidebar.compare.openTip")}
+              </span>
+              <button
+                type="button"
+                class="shrink-0 text-2xs text-muted-foreground transition-colors hover:text-foreground"
+                onClick={() => {
+                  setCompareOn(false);
+                  setCompareSel([]);
+                }}
+              >
+                {t("sidebar.compare.cancel")}
+              </button>
+            </div>
+          </Show>
           <For
             each={groups()}
             fallback={
@@ -943,6 +1075,7 @@ export function App() {
                         onRename={(title) => runAction(id, () => renameSession(id, title), false)}
                         onArchive={() => runAction(id, () => archiveSession(id), true)}
                         onDelete={() => runAction(id, () => deleteSession(id), true)}
+                        onCompare={() => startCompare(id)}
                       />
                     );
                   }}
@@ -1072,11 +1205,6 @@ export function App() {
                   )}
                 </For>
               </Show>
-              <Show when={compareOn() && compareSel().length < 2}>
-                <p class="px-1.5 pb-0.5 text-2xs text-muted-foreground">
-                  {t("sidebar.compare.pick", { n: 2 - compareSel().length })}
-                </p>
-              </Show>
             </div>
             <Show when={compareSel().length === 2}>
               <Tip label={t("sidebar.compare.openTip")}>
@@ -1106,6 +1234,10 @@ export function App() {
                   {t("settings.title")}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
+                {/* One row to open the panel, one row per live connection to
+                    close it. A "disconnect all" beside a list of per-host
+                    disconnects was two ways to do one thing, and the pair had
+                    to be read together to know which one the menu meant. */}
                 <DropdownMenuItem onSelect={() => setConnOpen((v) => !v)}>
                   <Icon name="link" class="size-3.5 text-muted-foreground" />
                   {connOpen() ? t("action.closeConnect") : t("action.connectBackend")}
@@ -1120,25 +1252,11 @@ export function App() {
                         })
                       }
                     >
-                      <span class="size-3.5 shrink-0" />
+                      <Icon name="plug" class="size-3.5 text-muted-foreground" />
                       {t("sidebar.menu.disconnect", { host: endpointHost(c.baseUrl) })}
                     </DropdownMenuItem>
                   )}
                 </For>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={() => (location.hash = "/policy")}>
-                  <Icon name="shield" class="size-3.5 text-muted-foreground" />
-                  {t("settings.permission.title")}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onSelect={() => {
-                    setCompareOn((v) => !v);
-                    setCompareSel([]);
-                  }}
-                >
-                  <Icon name="columns" class="size-3.5 text-muted-foreground" />
-                  {compareOn() ? t("sidebar.compare.cancel") : t("sidebar.compare.start")}
-                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -1147,91 +1265,45 @@ export function App() {
 
       <main class="relative min-w-0 flex-1">
         <Show when={route().name === "fleet"}>
-          <div class="flex h-full flex-col">
-            <DragBar class="text-sm text-muted-foreground">
-              <span class="min-w-0 truncate">
-                {currentDir()
-                  ? t("fleet.topbar.countInProject", { n: num(sessions().length) })
-                  : tn("fleet.topbar.countAll", sessions().length, {
-                      n: num(sessions().length),
-                    })}
-                {" · "}
-                <span class="font-mono tabular-nums text-foreground">
-                  {fmtUsd(settled(data)?.aggregate.total.cost_usd ?? 0)}
-                </span>
-              </span>
-            </DragBar>
-            <div class="min-h-0 flex-1 overflow-y-auto">
-              <div class="mx-auto flex max-w-sm flex-col items-start px-8 pt-24">
-                <p class="text-sm font-medium text-foreground">
-                  {connected() ? t("fleet.title.pickSession") : t("action.connectBackend")}
-                </p>
-                <p class="mt-1.5 text-sm leading-5 text-muted-foreground">
-                  {connected() ? t("fleet.hint.connected") : t("fleet.hint.disconnected")}
-                </p>
-                <Button
-                  class="mt-5"
-                  onClick={() => (connected() ? void newSession() : setConnOpen(true))}
-                >
-                  {connected() ? t("action.newSession") : t("action.connect")}
-                </Button>
-              </div>
-            </div>
-          </div>
+          <PageShell title={currentDir() ?? t("fleet.scope.all")}>
+            <Show
+              when={connected()}
+              fallback={
+                <div class="mx-auto flex max-w-sm flex-col items-start px-8 pt-24">
+                  <p class="text-sm font-medium text-foreground">
+                    {t("action.connectBackend")}
+                  </p>
+                  <p class="mt-1.5 text-sm leading-5 text-muted-foreground">
+                    {t("fleet.hint.disconnected")}
+                  </p>
+                  <Button class="mt-5" onClick={() => setConnOpen(true)}>
+                    {t("action.connect")}
+                  </Button>
+                </div>
+              }
+            >
+              <FleetOverview sessions={sessions()} onOpen={openSession} now={clock()} />
+            </Show>
+          </PageShell>
         </Show>
         <Show when={route().name === "session" ? (route() as { id: string }).id : undefined} keyed>
           {(id) => <SessionDetail id={id} sessions={settled(data)?.sessions ?? []} />}
         </Show>
         <Show when={route().name === "compare"}>
-          <div class="flex h-full min-h-0 flex-col">
-            <DragBar>
-              <button
-                class="text-sm text-muted-foreground hover:text-foreground"
-                onClick={() => (location.hash = "/")}
-              >
-                {t("nav.backToFleet")}
-              </button>
-              <span class="text-sm text-foreground">{t("nav.compare")}</span>
-            </DragBar>
-            <div class="min-h-0 flex-1 overflow-y-auto">
-              <CompareView
-                a={(route() as { a: string }).a}
-                b={(route() as { b: string }).b}
-              />
-            </div>
-          </div>
+          <PageShell
+            title={t("nav.compare")}
+            back={{ href: "/", label: t("nav.backToFleet") }}
+          >
+            <CompareView
+              a={(route() as { a: string }).a}
+              b={(route() as { b: string }).b}
+            />
+          </PageShell>
         </Show>
         <Show when={route().name === "settings"}>
-          <div class="flex h-full min-h-0 flex-col">
-            <DragBar>
-              <button
-                class="text-sm text-muted-foreground hover:text-foreground"
-                onClick={() => (location.hash = "/")}
-              >
-                {t("nav.backToFleet")}
-              </button>
-              <span class="text-sm text-foreground">{t("settings.title")}</span>
-            </DragBar>
-            <div class="min-h-0 flex-1 overflow-y-auto">
-              <SettingsPage section={(route() as { section?: string }).section} />
-            </div>
-          </div>
-        </Show>
-        <Show when={route().name === "policy"}>
-          <div class="flex h-full min-h-0 flex-col">
-            <DragBar>
-              <button
-                class="text-sm text-muted-foreground hover:text-foreground"
-                onClick={() => (location.hash = "/")}
-              >
-                {t("nav.backToFleet")}
-              </button>
-              <span class="text-sm text-foreground">{t("nav.policy")}</span>
-            </DragBar>
-            <div class="min-h-0 flex-1 overflow-y-auto">
-              <PolicyEditor />
-            </div>
-          </div>
+          <PageShell title={t("settings.title")}>
+            <SettingsPage section={(route() as { section?: string }).section} />
+          </PageShell>
         </Show>
       </main>
       </div>

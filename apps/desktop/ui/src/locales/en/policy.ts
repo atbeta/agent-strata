@@ -6,7 +6,6 @@
  */
 export default {
   // Header
-  "policy.title": "Policy editor",
   "policy.hint":
     "advisory permission rules — deny > ask > allow among matching rules, no match falls back to the default. not a sandbox.",
 

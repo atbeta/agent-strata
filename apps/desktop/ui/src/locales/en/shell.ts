@@ -24,6 +24,7 @@ export default {
   "sidebar.session.needsInput": "Needs you",
   "sidebar.session.actions": "Session actions",
   "sidebar.session.rename": "Rename",
+  "sidebar.session.compare": "Compare this session",
   "sidebar.session.archive": "Archive",
   "sidebar.session.delete": "Delete",
   "sidebar.session.deleteArmed": "Click again to delete",
@@ -64,14 +65,13 @@ export default {
   // Routes
   "nav.backToFleet": "← fleet",
   "nav.compare": "Compare",
-  "nav.policy": "Policy",
 
   // Fleet page
-  "fleet.topbar.countAll.one": "{n} session",
-  "fleet.topbar.countAll.other": "{n} sessions",
-  "fleet.topbar.countInProject": "{n} in this project",
-  "fleet.title.pickSession": "Pick a session",
-  "fleet.hint.connected": "Sessions already on the server show up in the sidebar. New ones start with +.",
+  "fleet.scope.all": "All sessions",
+  "fleet.overview.sessions": "Sessions",
+  "fleet.overview.cost": "Cost",
+  "fleet.overview.tokens": "Tokens",
+  "fleet.overview.recent": "Recent",
   "fleet.hint.disconnected":
     "Attach a running agent server. Sessions already on it show up as soon as the stream connects.",
 
@@ -179,6 +179,4 @@ export default {
   "settings.config.remove": "Existing fields cannot be removed here.",
   "settings.config.offline": "Connect OpenCode to edit its config.",
   "settings.permission.title": "Permission policy",
-  "settings.permission.hint": "Rules that allow, ask, or deny a tool call before it runs.",
-  "settings.permission.open": "Open policy",
 } as const;
