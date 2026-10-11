@@ -94,6 +94,9 @@ export default {
   "search.noMatches": "No matches",
   "search.results.sessions": "Sessions",
   "search.results.transcript": "Transcript",
+  "palette.title": "Commands",
+  "palette.placeholder": "Type a command",
+  "palette.empty": "No matching command",
 
   // Settings
   "settings.title": "Settings",

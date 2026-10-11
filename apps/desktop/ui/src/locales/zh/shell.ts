@@ -94,6 +94,9 @@ export default {
   "search.noMatches": "没有匹配结果",
   "search.results.sessions": "会话",
   "search.results.transcript": "会话记录",
+  "palette.title": "命令",
+  "palette.placeholder": "输入命令",
+  "palette.empty": "没有匹配的命令",
 
   // Settings
   "settings.title": "设置",

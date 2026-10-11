@@ -23,6 +23,8 @@ import { SettingsPage } from "./settings";
 import { applyTheme, readTheme } from "./theme";
 import { applyFonts, readFonts } from "./font";
 import { announceFinished, finishedSessions, readNotify, rememberBusy } from "./notify";
+import { commandForChord, registerCommand } from "./commands";
+import { CommandPalette } from "./palette";
 import { Icon } from "./icons";
 import { DragBar, WindowCaptionBar } from "./chrome";
 import { inDesktopShell } from "./shell";
@@ -393,12 +395,17 @@ export function App() {
       }, 200);
     };
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      if (e.isComposing) return;
+      if (paletteOpen() && e.key === "Escape") {
+        setPaletteOpen(false);
         e.preventDefault();
-        setSearchOpen((open) => {
-          if (open) setQuery("");
-          return !open;
-        });
+        return;
+      }
+      const cmd = commandForChord(e);
+      if (cmd) {
+        e.preventDefault();
+        if (cmd.id !== "app.palette") setPaletteOpen(false);
+        cmd.run();
         return;
       }
       if (e.key !== "Escape") return;
@@ -623,6 +630,51 @@ export function App() {
     return r.name === "session" ? r.id : undefined;
   };
   const connected = () => (settled(conns)?.connections.length ?? 0) > 0;
+  const [paletteOpen, setPaletteOpen] = createSignal(false);
+
+  onCleanup(
+    registerCommand({
+      id: "app.palette",
+      title: () => t("palette.title"),
+      chord: { key: "p", shift: true },
+      listed: false,
+      run: () => setPaletteOpen((open) => !open),
+    }),
+  );
+  onCleanup(
+    registerCommand({
+      id: "app.newSession",
+      title: () => t("action.newSession"),
+      run: () => {
+        if (!connected()) {
+          setConnOpen(true);
+          return;
+        }
+        void newSession();
+      },
+    }),
+  );
+  onCleanup(
+    registerCommand({
+      id: "app.search",
+      title: () => t("search.label"),
+      chord: { key: "k" },
+      run: () =>
+        setSearchOpen((open) => {
+          if (open) setQuery("");
+          return !open;
+        }),
+    }),
+  );
+  onCleanup(
+    registerCommand({
+      id: "app.settings",
+      title: () => t("settings.title"),
+      run: () => {
+        location.hash = "/settings";
+      },
+    }),
+  );
 
   return (
     <div class="flex h-full min-h-0 flex-col bg-background">
@@ -1084,6 +1136,7 @@ export function App() {
         </Show>
       </main>
       </div>
+      <CommandPalette open={paletteOpen()} onClose={() => setPaletteOpen(false)} />
     </div>
   );
 }

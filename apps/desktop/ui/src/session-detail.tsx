@@ -62,6 +62,7 @@ import { TraceDrawer, TraceStrip, type TraceBlock } from "./trace";
 import { TurnBlock } from "./transcript";
 import { Virtual, type VirtualApi } from "./virtual";
 import { applyStreamingSnapshot, mergeViewTail, type StreamingSnapshot } from "./live";
+import { registerCommand } from "./commands";
 import { Picker } from "@/components/ui/picker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -857,22 +858,6 @@ const turnIndexOf = (h: SearchHit): number => {
     window.addEventListener("strata-connections", onConns);
     const onFocus = () => refetchVcs();
     window.addEventListener("focus", onFocus);
-    // Ctrl+F is the shortcut every reader already has for "find me this in the
-    // text I am looking at". Windowing the transcript took that away from them,
-    // so it goes to the index instead of to rows that happen to be mounted.
-    const onFindKey = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "f") return;
-      e.preventDefault();
-      if (searchOpen()) searchEl?.focus();
-      else openSearch();
-    };
-    window.addEventListener("keydown", onFindKey);
-    const onTerminalKey = (e: KeyboardEvent) => {
-      if (e.code !== "Backquote" || !(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || !opencode()) return;
-      e.preventDefault();
-      setTerminalOn((on) => !on);
-    };
-    window.addEventListener("keydown", onTerminalKey);
     // Seed the virtual window's inputs. Without this the list would start with a
     // zero-height viewport and only learn its size on the first scroll, which
     // for a session that opens pinned to the bottom means one wasted pass.
@@ -941,8 +926,6 @@ const turnIndexOf = (h: SearchHit): number => {
       es.close();
       window.removeEventListener("strata-connections", onConns);
       window.removeEventListener("focus", onFocus);
-      window.removeEventListener("keydown", onFindKey);
-      window.removeEventListener("keydown", onTerminalKey);
     });
   });
 
@@ -1266,6 +1249,48 @@ const turnIndexOf = (h: SearchHit): number => {
       })
       .catch((err) => setSendErr(err instanceof Error ? err.message : t("err.network")));
   };
+
+  // Ctrl+F stays "find in what I am reading". Windowing the transcript took the
+  // browser's own find away, so the shortcut goes to the session index.
+  onCleanup(
+    registerCommand({
+      id: "session.find",
+      title: () => t("session.search.label"),
+      chord: { key: "f" },
+      run: () => {
+        if (searchOpen()) searchEl?.focus();
+        else openSearch();
+      },
+    }),
+  );
+  onCleanup(
+    registerCommand({
+      id: "session.terminal",
+      title: () => (terminalOn() ? t("terminal.hide") : t("terminal.show")),
+      chord: { key: "`" },
+      enabled: () => opencode(),
+      run: () => setTerminalOn((on) => !on),
+    }),
+  );
+  onCleanup(
+    registerCommand({
+      id: "session.files",
+      title: () => (browserOn() ? t("files.hide") : t("files.show")),
+      enabled: () => opencode(),
+      run: () => {
+        setTraceBlock(null);
+        setReplayPos(null);
+        setBrowserOn((on) => !on);
+      },
+    }),
+  );
+  onCleanup(
+    registerCommand({
+      id: "session.rail",
+      title: () => (railOn() ? t("rail.hide") : t("rail.show")),
+      run: () => toggleRail(),
+    }),
+  );
 
   return (
     <div class="flex h-full min-h-0">
