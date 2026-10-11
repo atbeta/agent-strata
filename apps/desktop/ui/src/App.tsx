@@ -20,6 +20,7 @@ import { SessionDetail } from "./session-detail";
 import { CompareView } from "./compare";
 import { PolicyEditor } from "./policy";
 import { SettingsPage } from "./settings";
+import { settingsPath } from "./settings-sections";
 import { applyTheme, readTheme } from "./theme";
 import { applyFonts, readFonts } from "./font";
 import { announceFinished, finishedSessions, readNotify, rememberBusy } from "./notify";
@@ -51,7 +52,7 @@ type Route =
   | { name: "session"; id: string }
   | { name: "compare"; a: string; b: string }
   | { name: "policy" }
-  | { name: "settings" };
+  | { name: "settings"; section?: string };
 
 function parseHash(): Route {
   const h = location.hash.slice(1);
@@ -60,7 +61,8 @@ function parseHash(): Route {
   const c = h.match(/^\/compare\/([^/]+)\/(.+)$/);
   if (c) return { name: "compare", a: decodeURIComponent(c[1]!), b: decodeURIComponent(c[2]!) };
   if (h === "/policy") return { name: "policy" };
-  if (h === "/settings") return { name: "settings" };
+  const settings = settingsPath(h);
+  if (settings) return { name: "settings", section: settings.section };
   return { name: "fleet" };
 }
 
@@ -1211,7 +1213,7 @@ export function App() {
               <span class="text-sm text-foreground">{t("settings.title")}</span>
             </DragBar>
             <div class="min-h-0 flex-1 overflow-y-auto">
-              <SettingsPage />
+              <SettingsPage section={(route() as { section?: string }).section} />
             </div>
           </div>
         </Show>

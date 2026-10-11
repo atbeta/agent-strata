@@ -107,6 +107,9 @@ export default {
   // Settings
   "settings.title": "设置",
   "settings.savedHere": "保存在此电脑上。",
+  "settings.section.interface": "界面",
+  "settings.section.opencode": "OpenCode",
+  "settings.section.permission": "权限",
   "settings.appearance": "外观",
   "settings.language": "语言",
   "settings.language.hint": "界面语言。切换后立即生效，无需重启。",

@@ -107,6 +107,9 @@ export default {
   // Settings
   "settings.title": "Settings",
   "settings.savedHere": "Saved on this computer.",
+  "settings.section.interface": "Interface",
+  "settings.section.opencode": "OpenCode",
+  "settings.section.permission": "Permissions",
   "settings.appearance": "Appearance",
   "settings.language": "Language",
   "settings.language.hint": "The interface language. Takes effect immediately, no restart.",

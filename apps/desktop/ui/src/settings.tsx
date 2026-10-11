@@ -1,4 +1,4 @@
-import { createEffect, createResource, createSignal, Show } from "solid-js";
+import { createEffect, createResource, createSignal, For, Show } from "solid-js";
 import {
   readOpencodeLaunch,
   saveOpencodeMode,
@@ -17,6 +17,7 @@ import {
 } from "./font";
 import { ProviderSettings } from "./providers";
 import { ConfigSettings } from "./config";
+import { SETTINGS_SECTIONS, settingsSection } from "./settings-sections";
 
 /** A function, not a const: the labels are translated, so they have to be read
  *  during render for a language switch to reach them. */
@@ -51,7 +52,8 @@ const CHOICES = (): { id: ThemeChoice; label: string; hint: string }[] => [
   { id: "system", label: t("settings.theme.system"), hint: t("settings.theme.systemHint") },
 ];
 
-export function SettingsPage() {
+export function SettingsPage(props: { section?: string }) {
+  const section = () => settingsSection(props.section);
   const [choice, setChoice] = createSignal<ThemeChoice>(readTheme());
   const [launch] = createResource(readOpencodeLaunch);
   const [mode, setMode] = createSignal<OpencodeLaunchMode>("embed");
@@ -117,6 +119,32 @@ export function SettingsPage() {
       <h1 class="text-xl font-medium">{t("settings.title")}</h1>
       <p class="mt-1 text-sm text-muted-foreground">{t("settings.savedHere")}</p>
 
+      <div class="mt-6 flex flex-wrap gap-1" role="tablist" aria-label={t("settings.title")}>
+        <For each={SETTINGS_SECTIONS}>
+          {(item) => (
+            <button
+              type="button"
+              role="tab"
+              id={`settings-tab-${item.id}`}
+              aria-selected={section() === item.id}
+              aria-controls="settings-panel"
+              class={`rounded-md px-2.5 py-1 text-sm transition-colors ${
+                section() === item.id
+                  ? "bg-secondary text-foreground"
+                  : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+              }`}
+              onClick={() => {
+                location.hash = item.id === SETTINGS_SECTIONS[0].id ? "/settings" : `/settings/${item.id}`;
+              }}
+            >
+              {t(item.label)}
+            </button>
+          )}
+        </For>
+      </div>
+
+      <div role="tabpanel" id="settings-panel" aria-labelledby={`settings-tab-${section()}`}>
+      <Show when={section() === "interface"}>
       <section class="mt-8">
         <h2 class="text-sm font-medium">{t("settings.appearance")}</h2>
         <div
@@ -345,7 +373,9 @@ export function SettingsPage() {
 
         <pre class="mt-4 overflow-x-auto rounded-lg border border-border bg-secondary/40 px-3 py-2 font-mono text-xs whitespace-pre">{PREVIEW}</pre>
       </section>
+      </Show>
 
+      <Show when={section() === "opencode"}>
       <section class="mt-8">
         <h2 class="text-sm font-medium">{t("settings.opencode.title")}</h2>
         <div
@@ -391,8 +421,10 @@ export function SettingsPage() {
       <ProviderSettings />
 
       <ConfigSettings />
+      </Show>
 
-      <section class="mt-8 border-t border-border pt-6">
+      <Show when={section() === "permission"}>
+      <section class="mt-8">
         <h2 class="text-sm font-medium">{t("settings.permission.title")}</h2>
         <p class="mt-1 text-sm leading-5 text-muted-foreground">
           {t("settings.permission.hint")}
@@ -406,6 +438,8 @@ export function SettingsPage() {
           {t("settings.permission.open")}
         </button>
       </section>
+      </Show>
+      </div>
     </div>
   );
 }
