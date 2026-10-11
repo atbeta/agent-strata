@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" role="img" aria-label="Agent Strata">
+  <title>Agent Strata — core</title>
+  <!-- A core pulled out of one session: right edge straight (the run of time),
+       left edge ragged because no two turns touched the same amount of work.
+       The widest band is the one under review. -->
+  <g fill="#8B8B93">
+    <rect x="6" y="2" width="14" height="4.6" rx="1.6"/>
+    <rect x="11" y="7.8" width="9" height="4.6" rx="1.6"/>
+  </g>
+  <g>
+    <rect x="6" y="13.6" width="14" height="4.6" rx="1.6" fill="#6189E5"/>
+    <rect x="13" y="19.4" width="7" height="2.6" rx="1.3" fill="#8B8B93"/>
+  </g>
+</svg>

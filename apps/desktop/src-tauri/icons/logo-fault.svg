@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" role="img" aria-label="Agent Strata">
+  <title>Agent Strata — fault</title>
+  <!-- Four strata, sheared once. The shear is a fault: everything above it is
+       history, everything below is still moving. The band directly under the
+       discontinuity is the current one, so the accent and the fault coincide. -->
+  <g fill="#8B8B93">
+    <rect x="2" y="2.8" width="18" height="3.4" rx="1.7"/>
+    <rect x="2" y="7.8" width="16" height="3.4" rx="1.7"/>
+  </g>
+  <g>
+    <rect x="6" y="12.8" width="16" height="3.4" rx="1.7" fill="#6189E5"/>
+    <rect x="6" y="17.8" width="14" height="3.4" rx="1.7" fill="#8B8B93"/>
+  </g>
+</svg>

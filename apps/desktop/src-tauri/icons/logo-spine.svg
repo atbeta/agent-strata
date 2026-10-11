@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" role="img" aria-label="Agent Strata">
+  <title>Agent Strata — spine</title>
+  <!-- The event spine: one run of events down a rail, each tick an event whose
+       length is how much it touched. The filled dot is where you are now —
+       the same idea the replay control already draws at 16px. -->
+  <g stroke="#8B8B93" stroke-linecap="round" fill="none">
+    <path d="M5.5 2.6v18.8" stroke-width="2.6"/>
+    <path d="M8.1 5.6h6.1" stroke-width="2.1"/>
+    <path d="M8.1 9.6h12.4" stroke-width="2.1"/>
+    <path d="M8.1 13.6h4.3" stroke-width="2.1"/>
+    <path d="M8.1 17.6h9.4" stroke-width="2.1"/>
+  </g>
+  <circle cx="5.5" cy="13.6" r="2.7" fill="#6189E5"/>
+</svg>
