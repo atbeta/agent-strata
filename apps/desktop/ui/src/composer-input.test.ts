@@ -8,6 +8,7 @@ import {
   matchCommands,
   nextAgent,
   promptParts,
+  explainSend,
   restoreFailed,
   toAttachment,
   triggerAt,
@@ -133,6 +134,12 @@ describe("what goes out", () => {
 });
 
 describe("a send that failed", () => {
+  test("a refusal that must not repeat the draft becomes the fallback", () => {
+    expect(explainSend("Error: prompt was not accepted", "kept")).toBe("kept");
+    expect(explainSend("", "kept")).toBe("kept");
+    expect(explainSend("Error: session not found", "kept")).toBe("session not found");
+  });
+
   const shot = (i: number) => ({ id: String(i), name: `s${i}.png`, mime: "image/png", url: "data:image/png;base64,AA==" });
   const out = (text: string, picked: string[] = [], attachments: ReturnType<typeof shot>[] = []) => ({ text, picked, attachments });
 

@@ -1245,6 +1245,79 @@ describe("connectOpencode lifecycle", () => {
     conn.stop();
     store.close();
   });
+
+  test("a prompt OpenCode rejects does not repeat the text", async () => {
+    const { connectOpencode } = await import("../src/index");
+    const secret = "secret-prompt-value-xx";
+    const enc = new TextEncoder();
+    const fakeFetch = async (input: Request | URL | string) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.includes("/global/event") || url.endsWith("/event")) {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(ctrl) {
+              ctrl.enqueue(enc.encode('data: {"type":"server.connected","properties":{}}\n\n'));
+            },
+          }),
+          { status: 200, headers: { "content-type": "text/event-stream" } },
+        );
+      }
+      if (url.includes("prompt_async")) return Response.json({ message: `rejected ${secret}` }, { status: 400 });
+      return Response.json([]);
+    };
+    const store = openStore(":memory:");
+    const conn = await connectOpencode({
+      baseUrl: "http://fake",
+      sink: store,
+      fetch: fakeFetch as typeof fetch,
+      connectTimeoutMs: 5_000,
+    });
+    const failed = conn.prompt("ses", [{ type: "text", text: secret }]);
+    await expect(failed).rejects.toThrow("prompt was not accepted");
+    await expect(failed.catch((err: Error) => err.message)).resolves.not.toContain(secret);
+    conn.stop();
+    store.close();
+  });
+
+  test("a prompt that is never accepted fails and keeps the text out", async () => {
+    const { connectOpencode } = await import("../src/index");
+    const enc = new TextEncoder();
+    const fakeFetch = async (input: Request | URL | string) => {
+      const url = input instanceof Request ? input.url : String(input);
+      const signal = input instanceof Request ? input.signal : undefined;
+      if (url.includes("/global/event") || url.endsWith("/event")) {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(ctrl) {
+              ctrl.enqueue(enc.encode('data: {"type":"server.connected","properties":{}}\n\n'));
+            },
+          }),
+          { status: 200, headers: { "content-type": "text/event-stream" } },
+        );
+      }
+      if (url.includes("prompt_async")) {
+        return new Promise<Response>((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(new DOMException("timed out", "TimeoutError")));
+        });
+      }
+      return Response.json([]);
+    };
+    const store = openStore(":memory:");
+    const conn = await connectOpencode({
+      baseUrl: "http://fake",
+      sink: store,
+      fetch: fakeFetch as typeof fetch,
+      connectTimeoutMs: 5_000,
+      promptAcceptMs: 80,
+    });
+    const started = Date.now();
+    await expect(conn.prompt("ses", [{ type: "text", text: "hello from the composer" }])).rejects.toThrow(
+      "prompt was not accepted",
+    );
+    expect(Date.now() - started).toBeLessThan(1_000);
+    conn.stop();
+    store.close();
+  });
 });
 
 describe("rebuild from OpenCode's own record", () => {

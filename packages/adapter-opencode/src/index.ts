@@ -160,8 +160,22 @@ function errorMessage(e: unknown): string {
   if (e instanceof Error && e.message) return e.message;
   const data = (e as { data?: { message?: unknown } })?.data;
   if (data && typeof data.message === "string" && data.message) return data.message;
+  const direct = (e as { message?: unknown })?.message;
+  if (typeof direct === "string" && direct) return direct;
   const text = typeof e === "string" ? e : JSON.stringify(e);
   return !text || text === "{}" ? "opencode server error" : text;
+}
+
+/** Shown when a prompt was refused or never accepted. Callers must not repeat the text. */
+export const PROMPT_NOT_ACCEPTED = "prompt was not accepted";
+
+export function promptFailure(err: unknown, text: string): string {
+  const name = err instanceof Error ? err.name : "";
+  if (name === "TimeoutError" || name === "AbortError") return PROMPT_NOT_ACCEPTED;
+  const message = errorMessage(err);
+  const sample = text.trim().slice(0, 80);
+  if (!message || message.length > 300 || (sample.length >= 12 && message.includes(sample))) return PROMPT_NOT_ACCEPTED;
+  return message;
 }
 
 /** Bump when the mapping changes; stored sessions mapped by an older version are rebuilt. */
@@ -1145,6 +1159,8 @@ export async function connectOpencode(opts: {
   onQuestion?: OnQuestion;
   onEvent?: (evt: Event) => void;
   connectTimeoutMs?: number;
+  /** How long prompt_async may take to accept. It returns once the run has started. */
+  promptAcceptMs?: number;
   fetch?: typeof fetch;
 }): Promise<{
   stop: () => void;
@@ -1221,7 +1237,8 @@ export async function connectOpencode(opts: {
   const abortingFetch = async (request: Request): Promise<Response> => {
     if (abort.signal.aborted) return new Promise<Response>(() => {});
     // Bun cuts a request quiet for 5 minutes, and a command answers only when its run is done
-    const res = await rawFetch(new Request(request, { signal: abort.signal }), { timeout: false } as RequestInit);
+    const signal = request.signal ? AbortSignal.any([abort.signal, request.signal]) : abort.signal;
+    const res = await rawFetch(new Request(request, { signal }), { timeout: false } as RequestInit);
     if (!res.body) return res;
     const real = res.body.getReader();
     openReader = real;
@@ -1278,6 +1295,7 @@ export async function connectOpencode(opts: {
   });
 
   const connectTimeout = opts.connectTimeoutMs ?? 10_000;
+  const promptAcceptMs = opts.promptAcceptMs ?? 20_000;
   // `/event` is one project directory. `/global/event` carries every project,
   // which is what a desktop session list has to follow. A 404 only rejects
   // once the body is read, so probe the global bus and fall back to `/event`.
@@ -1508,15 +1526,25 @@ export async function connectOpencode(opts: {
         directory?: string;
       },
     ) {
-      await client.session.promptAsync({
-        sessionID,
-        directory: promptOpts?.directory ?? opts.directory,
-        model: promptOpts?.model,
-        agent: promptOpts?.agent,
-        // server schema accepts `variant` (reasoning effort); SDK types lag
-        ...(promptOpts?.variant ? ({ variant: promptOpts.variant } as object) : {}),
-        parts,
-      });
+      const said = parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
+      let sent: Awaited<ReturnType<typeof client.session.promptAsync>>;
+      try {
+        sent = await client.session.promptAsync(
+          {
+            sessionID,
+            directory: promptOpts?.directory ?? opts.directory,
+            model: promptOpts?.model,
+            agent: promptOpts?.agent,
+            // server schema accepts `variant` (reasoning effort); SDK types lag
+            ...(promptOpts?.variant ? ({ variant: promptOpts.variant } as object) : {}),
+            parts,
+          },
+          { signal: AbortSignal.timeout(promptAcceptMs) },
+        );
+      } catch (err) {
+        throw new Error(promptFailure(err, said));
+      }
+      if ("error" in sent && sent.error) throw new Error(promptFailure(sent.error, said));
     },
     async command(
       sessionID: string,

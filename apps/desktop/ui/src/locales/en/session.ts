@@ -22,6 +22,7 @@ export default {
   // Errors that reach the reader from the network layer.
   "err.service": "service {status}",
   "err.network": "network error",
+  "err.send": "The message was not sent. The draft is still here",
   "err.abort": "abort failed",
 
   // Header.

@@ -78,6 +78,7 @@ import {
   MAX_ATTACHMENTS,
   nextAgent,
   promptParts,
+  explainSend,
   restoreFailed,
   toAttachment,
   triggerAt,
@@ -1184,7 +1185,7 @@ const turnIndexOf = (h: SearchHit): number => {
         await sendPrompt(props.id, promptParts(out.text, out.picked, out.attachments), choice);
       }
     } catch (err) {
-      setSendErr(err instanceof Error ? err.message : t("err.network"));
+      setSendErr(explainSend(err instanceof Error ? err.message : "", t("err.send")));
       const back = restoreFailed(out, { text: draft(), picked: picked(), attachments: attachments() });
       setDraft(back.draft.text);
       setPicked(back.draft.picked);

@@ -22,6 +22,7 @@ export default {
   // Errors that reach the reader from the network layer.
   "err.service": "服务返回 {status}",
   "err.network": "网络错误",
+  "err.send": "没能发出去，输入还在",
   "err.abort": "中止失败",
 
   // Header.

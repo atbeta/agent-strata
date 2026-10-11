@@ -85,6 +85,16 @@ export interface Outgoing {
   revertTurnId?: string;
 }
 
+/** The service says this when a prompt was refused or never accepted. */
+export const PROMPT_NOT_ACCEPTED = "prompt was not accepted";
+
+/** A refused send shows the fallback, so the draft text is not repeated in the error. */
+export function explainSend(message: string, fallback: string): string {
+  const text = message.replace(/^Error:\s*/, "");
+  if (!text || text === PROMPT_NOT_ACCEPTED) return fallback;
+  return text;
+}
+
 /** A send that failed goes back in front of whatever was typed since, so neither is lost. */
 export function restoreFailed(failed: Outgoing, current: Outgoing): { draft: Outgoing; dropped: number } {
   const typed = current.text.trim() ? current.text : "";

@@ -221,3 +221,38 @@ describe("a session with no workspace", () => {
     expect(upstream.seen.some((s) => s.path === "/command" || s.path === "/session/ses_y/command")).toBe(false);
   });
 });
+
+describe("a prompt OpenCode does not accept", () => {
+  const secret = "secret-prompt-value-xx";
+  const upstream = fakeOpencode({
+    "/session/ses_x/prompt_async": () => Response.json({ message: `rejected ${secret}` }, { status: 400 }),
+  });
+  let svc: ReturnType<typeof startService>;
+  let base = "";
+
+  beforeAll(async () => {
+    svc = startService({ db: ":memory:", port: 0 });
+    base = `http://127.0.0.1:${svc.port}`;
+    await fetch(`${base}/connect`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ baseUrl: upstream.baseUrl, directory: "/repo" }),
+    });
+  });
+  afterAll(() => {
+    svc.stop();
+    upstream.stop();
+  });
+
+  test("returns an error and leaves the text out of it", async () => {
+    const res = await fetch(`${base}/sessions/${encodeURIComponent("opencode:ses_x")}/prompt`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ parts: [{ type: "text", text: secret }] }),
+    });
+    expect(res.status).toBe(502);
+    const body = await res.text();
+    expect(body).toContain("prompt was not accepted");
+    expect(body).not.toContain(secret);
+  });
+});
