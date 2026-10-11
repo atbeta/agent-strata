@@ -1,6 +1,5 @@
 {
   "bundle": {
-    "targets": ["nsis"],
-    "externalBin": ["binaries/strata-service"]
+    "targets": ["nsis"]
   }
 }

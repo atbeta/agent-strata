@@ -112,7 +112,10 @@ if (!force && existsSync(outfile)) {
 }
 
 console.log(`building sidecar for ${triple} -> ${outfile}`);
-await $`bun build --compile --windows-hide-console ./packages/service/src/index.ts --outfile ${outfile}`;
+// --windows-hide-console keeps the sidecar from opening a console window, and
+// bun rejects it on any other target, so it cannot just stay in the command.
+const hideConsole = triple.includes("windows") ? ["--windows-hide-console"] : [];
+await $`bun build --compile ${hideConsole} ./packages/service/src/index.ts --outfile ${outfile}`;
 
 const size = statSync(outfile).size;
 console.log(`built ${outfile} (${(size / 1e6).toFixed(1)} MB)`);

@@ -255,6 +255,7 @@ pub fn read_mode(path: &Path) -> OpencodeMode {
     }
 }
 
+#[cfg(test)]
 pub fn write_mode(path: &Path, mode: OpencodeMode) -> std::io::Result<()> {
     let json = serde_json::to_string(&ModeFile { opencode: mode })
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
@@ -277,6 +278,7 @@ pub fn write_status(
     std::fs::write(path, json)
 }
 
+#[cfg(test)]
 pub fn read_status(path: &Path) -> Option<OpencodeStatus> {
     let text = std::fs::read_to_string(path).ok()?;
     serde_json::from_str(&text).ok()
