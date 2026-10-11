@@ -101,9 +101,10 @@ a plain browser tab. Linux additionally needs the system `webkit2gtk` packages.
 ## Releasing
 
 Pushing a `v*` tag is the release. GitHub Actions builds the Windows NSIS
-installer and attaches it to that tag's GitHub release. The tag has to name the
-version in `apps/desktop/src-tauri/tauri.conf.json` (`v0.1.0` for `0.1.0`).
-Nothing else runs this build. Other platforms are not built yet.
+installer, the macOS dmg, and the Linux AppImage, and attaches them to that
+tag's GitHub release. The tag has to name the version in
+`apps/desktop/src-tauri/tauri.conf.json` (`v0.1.0` for `0.1.0`). Nothing else
+runs this build. The macOS and Linux artifacts are unsigned.
 
 ```sh
 git tag v0.1.0
