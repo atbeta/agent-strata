@@ -1,5 +1,31 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { connectMcp, disconnectMcp, exportFileName, opencodePath, readMcp, readSkills, runCommand } from "./api";
+import {
+  connectMcp,
+  disconnectMcp,
+  exportFileName,
+  fmtUsd,
+  opencodePath,
+  readMcp,
+  readSkills,
+  runCommand,
+} from "./api";
+
+describe("a cost in dollars", () => {
+  test("drops the digits past the cent once it is worth dollars", () => {
+    expect(fmtUsd(5.9363)).toBe("$5.94");
+    expect(fmtUsd(3.6345964)).toBe("$3.63");
+  });
+
+  test("keeps four places below a dollar, where they are the only signal", () => {
+    expect(fmtUsd(0.0013)).toBe("$0.0013");
+    expect(fmtUsd(0.3969)).toBe("$0.3969");
+  });
+
+  test("reads as nothing rather than as a row of zeros", () => {
+    expect(fmtUsd(0)).toBe("$0.00");
+    expect(fmtUsd(Number.NaN)).toBe("$0.00");
+  });
+});
 
 describe("an exported session", () => {
   test("is saved under a name any file system takes", () => {

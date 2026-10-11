@@ -891,8 +891,17 @@ export function terminalSocket(sessionId: string, ptyId: string): string {
   return `${proto}//${location.host}/api${path}`;
 }
 
+/**
+ * Dollars, at a precision that matches the size of the number.
+ *
+ * Four places on every figure is false precision once a session costs dollars
+ * — `$5.9363` is noise past the cent — and throws away the only digit that
+ * carries information when it costs fractions of one, where `$0.0013` would
+ * otherwise round to `$0.00`.
+ */
 export function fmtUsd(n: number) {
-  return `$${n.toFixed(4)}`;
+  if (!Number.isFinite(n) || n === 0) return "$0.00";
+  return `$${n.toFixed(Math.abs(n) < 1 ? 4 : 2)}`;
 }
 
 /** Placeholder workspaces the adapter emits before a real directory is known. */

@@ -35,6 +35,7 @@ export default {
   "header.export": "导出会话记录",
   "header.branch.tip": "当前 Git 分支：{branch}",
   "header.tools": "MCP",
+  "header.more": "更多会话操作",
   "mcp.title": "MCP",
   "mcp.empty": "没有 MCP 服务器",
   "mcp.connect": "连接",

@@ -198,33 +198,43 @@ export function SettingsPage(props: { section?: string }) {
     // document, and a fixed measure floating in the middle of a wide window
     // reads as unfinished. The rail takes the space the measure used to waste.
     <div class="flex w-full items-start gap-10 px-8 py-10">
-      <nav class="sticky top-0 w-44 shrink-0" role="tablist" aria-label={t("settings.title")}>
-        <For each={SETTINGS_SECTIONS}>
-          {(item) => (
-            <button
-              type="button"
-              role="tab"
-              id={`settings-tab-${item.id}`}
-              aria-selected={section() === item.id}
-              aria-controls="settings-panel"
-              class={`block w-full rounded-md px-2.5 py-1.5 text-left text-sm transition-colors ${
-                section() === item.id
-                  ? "bg-secondary text-foreground"
-                  : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
-              }`}
-              onClick={() => {
-                location.hash = item.id === SETTINGS_SECTIONS[0].id ? "/settings" : `/settings/${item.id}`;
-              }}
-            >
-              {t(item.label)}
-            </button>
-          )}
-        </For>
-      </nav>
+      <div class="w-44 shrink-0">
+        <nav class="sticky top-0" role="tablist" aria-label={t("settings.title")}>
+          <For each={SETTINGS_SECTIONS}>
+            {(item) => (
+              <button
+                type="button"
+                role="tab"
+                id={`settings-tab-${item.id}`}
+                aria-selected={section() === item.id}
+                aria-controls="settings-panel"
+                class={`block w-full rounded-md px-2.5 py-1.5 text-left text-sm transition-colors ${
+                  section() === item.id
+                    ? "bg-secondary text-foreground"
+                    : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+                }`}
+                onClick={() => {
+                  location.hash = item.id === SETTINGS_SECTIONS[0].id ? "/settings" : `/settings/${item.id}`;
+                }}
+              >
+                {t(item.label)}
+              </button>
+            )}
+          </For>
+        </nav>
+        {/* These live in this app's store, not on the server. It belongs to the
+            rail as a caption on the whole settings surface rather than as a
+            subtitle repeating the title the shell already put in the caption
+            bar — which is what this column used to open with. */}
+        <p class="mt-3 px-2.5 text-2xs leading-4 text-muted-foreground">
+          {t("settings.savedHere")}
+        </p>
+      </div>
 
       <div class="min-w-0 max-w-2xl flex-1">
-        <h1 class="text-xl font-medium">{t("settings.title")}</h1>
-        <p class="mt-1 text-sm text-muted-foreground">{t("settings.savedHere")}</p>
+        {/* The page's visible name is the caption bar's. This keeps the
+            document outline intact without a second one on screen. */}
+        <h1 class="sr-only">{t("settings.title")}</h1>
 
       <div role="tabpanel" id="settings-panel" aria-labelledby={`settings-tab-${section()}`}>
       <Show when={section() === "interface"}>

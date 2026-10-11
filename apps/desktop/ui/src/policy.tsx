@@ -269,12 +269,15 @@ export function PolicyEditor() {
     // page's permission section, which already names itself. A second <h1>
     // under a section label reads as two pages stacked in one.
     <div>
-      <p class="text-2xs leading-4 text-muted-foreground">
-        {t("policy.hint")}
-        <Show when={saved()?.file}>
-          <span class="font-mono"> · {saved()!.file}</span>
-        </Show>
-      </p>
+      <p class="text-2xs leading-4 text-muted-foreground">{t("policy.hint")}</p>
+      {/* Its own line, truncated: run inline after a sentence and the wrap
+          lands wherever the path happens to be wide, which on a Windows
+          profile directory breaks mid-component and reads as a typo. */}
+      <Show when={saved()?.file}>
+        <p class="mt-1 truncate font-mono text-2xs text-muted-foreground/80" title={saved()!.file ?? undefined}>
+          {saved()!.file}
+        </p>
+      </Show>
 
       <section class="mt-3 flex items-center gap-3 rounded-lg border border-border bg-muted px-4 py-3 text-sm">
         <span class="text-muted-foreground">{t("policy.default.label")}</span>

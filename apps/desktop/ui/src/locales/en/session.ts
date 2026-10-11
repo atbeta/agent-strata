@@ -35,6 +35,7 @@ export default {
   "header.export": "Export transcript",
   "header.branch.tip": "Current Git branch: {branch}",
   "header.tools": "MCP",
+  "header.more": "More session actions",
   "mcp.title": "MCP",
   "mcp.empty": "No MCP servers",
   "mcp.connect": "Connect",

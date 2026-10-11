@@ -66,6 +66,13 @@ import { TurnBlock } from "./transcript";
 import { Virtual, type VirtualApi } from "./virtual";
 import { applyStreamingSnapshot, mergeViewTail, type StreamingSnapshot } from "./live";
 import { registerCommand } from "./commands";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Picker } from "@/components/ui/picker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -1397,7 +1404,7 @@ const turnIndexOf = (h: SearchHit): number => {
           {(v) => (
             <>
               <header
-                class="flex h-11 shrink-0 items-center gap-2 border-b border-border px-4 select-none"
+                class="@container flex h-11 shrink-0 items-center gap-2 border-b border-border px-4 select-none"
                 data-tauri-drag-region={inDesktopShell() ? "" : undefined}
               >
                 <div class="flex min-w-0 flex-1 items-baseline gap-2">
@@ -1417,13 +1424,24 @@ const turnIndexOf = (h: SearchHit): number => {
                       );
                     }}
                   </Show>
-                  <h1 class="min-w-0 truncate text-sm font-medium" title={v().title ?? t("session.untitled")}>
+                  {/* Identity first. `flex-1` on a zero basis takes the free space, and the
+                      min-width floor means the title gives up its width last.
+                      The chips beside it stop being offered any width at all
+                      below 440px — a truncated chip renders one glyph and then
+                      reads as corruption, and both are on screen elsewhere (the
+                      branch in the footer, the workspace in the sidebar). Before
+                      this the title reached 0px at the window's 960px minimum
+                      and the session you were reading had no name on screen. */}
+                  <h1
+                    class="min-w-24 flex-1 truncate text-sm font-medium"
+                    title={v().title ?? t("session.untitled")}
+                  >
                     {v().title ?? t("session.untitled")}
                   </h1>
                   <Show when={realWorkspace(v().workspace)}>
                     {(ws) => (
                       <span
-                        class="max-w-40 shrink-0 truncate font-mono text-2xs text-muted-foreground"
+                        class="max-w-40 shrink-0 truncate font-mono text-2xs text-muted-foreground @max-[440px]:hidden"
                         title={ws()}
                       >
                         {ws() === "/" || ws() === "\\" ? t("path.root") : ws().split(/[/\\]/).filter(Boolean).at(-1)}
@@ -1432,7 +1450,10 @@ const turnIndexOf = (h: SearchHit): number => {
                   </Show>
                   <Show when={settled(vcs)?.branch}>
                     {(branch) => (
-                      <Tip label={t("header.branch.tip", { branch: branch() })}>
+                      <Tip
+                        label={t("header.branch.tip", { branch: branch() })}
+                        class="@max-[440px]:hidden"
+                      >
                         <span class="flex max-w-32 shrink-0 items-baseline gap-1 font-mono text-2xs text-muted-foreground">
                           <Icon name="branch" class="h-3 w-3 shrink-0 self-center" />
                           <span class="truncate">{branch()}</span>
@@ -1463,28 +1484,7 @@ const turnIndexOf = (h: SearchHit): number => {
                     <Icon name="search" />
                   </button>
                 </Tip>
-                <Tip label={traceOn() ? t("trace.live") : t("trace.replay")}>
-                    <button
-                      class={`grid h-7 w-7 place-items-center rounded-md transition-colors ${
-                        traceOn()
-                          ? "bg-secondary text-foreground"
-                          : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-                      }`}
-                      aria-label={traceOn() ? t("trace.live") : t("trace.replay")}
-                      onClick={() => {
-                        if (traceOn()) {
-                          setTraceOn(false);
-                          setTraceBlock(null);
-                          setReplayPos(null);
-                        } else {
-                          setTraceOn(true);
-                        }
-                      }}
-                    >
-                      <Icon name="replay" />
-                    </button>
-                  </Tip>
-                  <Show when={opencode()}>
+                <Show when={opencode()}>
                     <Tip label={terminalOn() ? t("terminal.hide") : t("terminal.show")}>
                       <button
                         class={`grid h-7 w-7 place-items-center rounded-md transition-colors ${
@@ -1537,53 +1537,71 @@ const turnIndexOf = (h: SearchHit): number => {
                       </Show>
                     </button>
                   </Tip>
-                  <Show when={opencode()}>
-                    <Tip label={t("header.tools")}>
-                      <button
-                        type="button"
-                        class={`grid h-7 w-7 place-items-center rounded-md transition-colors ${
-                          toolsOpen()
-                            ? "bg-secondary text-foreground"
-                            : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-                        }`}
-                        aria-label={t("header.tools")}
-                        aria-expanded={toolsOpen()}
-                        onClick={toggleTools}
+                  {/* View toggles stay inline because they say what the session
+                      looks like right now. Commands — replay, MCP, compact,
+                      export — go behind one trigger: eight fixed buttons left
+                      the title no room, and at the window's 960px minimum it
+                      collapsed to nothing at all. */}
+                  <DropdownMenu placement="bottom-end">
+                    <DropdownMenuTrigger
+                      type="button"
+                      class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                      aria-label={t("header.more")}
+                    >
+                      ···
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent class="min-w-44">
+                      <DropdownMenuItem
+                        onSelect={() => {
+                          if (traceOn()) {
+                            setTraceOn(false);
+                            setTraceBlock(null);
+                            setReplayPos(null);
+                          } else {
+                            setTraceOn(true);
+                          }
+                        }}
                       >
-                        <Icon name="plug" />
-                      </button>
-                    </Tip>
-                  </Show>
-                  <Show when={caps()?.summarize}>
-                    <Tip label={t("message.summarize")}>
-                      <button
-                        type="button"
-                        class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                        aria-label={t("message.summarize")}
-                        onClick={() =>
-                          void summarizeSession(props.id).catch((err) =>
+                        <Icon
+                          name="replay"
+                          class={`size-3.5 ${traceOn() ? "text-foreground" : "text-muted-foreground"}`}
+                        />
+                        {traceOn() ? t("trace.live") : t("trace.replay")}
+                      </DropdownMenuItem>
+                      <Show when={opencode()}>
+                        <DropdownMenuItem onSelect={toggleTools}>
+                          <Icon
+                            name="plug"
+                            class={`size-3.5 ${toolsOpen() ? "text-foreground" : "text-muted-foreground"}`}
+                          />
+                          {t("header.tools")}
+                        </DropdownMenuItem>
+                      </Show>
+                      <DropdownMenuSeparator />
+                      <Show when={caps()?.summarize}>
+                        <DropdownMenuItem
+                          onSelect={() =>
+                            void summarizeSession(props.id).catch((err) =>
+                              setSendErr(err instanceof Error ? err.message : t("err.network")),
+                            )
+                          }
+                        >
+                          <Icon name="compact" class="size-3.5 text-muted-foreground" />
+                          {t("message.summarize")}
+                        </DropdownMenuItem>
+                      </Show>
+                      <DropdownMenuItem
+                        onSelect={() =>
+                          void downloadExport(v().session_id).catch((err) =>
                             setSendErr(err instanceof Error ? err.message : t("err.network")),
                           )
                         }
                       >
-                        <Icon name="compact" />
-                      </button>
-                    </Tip>
-                  </Show>
-                  <Tip label={t("header.export")}>
-                    <button
-                      type="button"
-                      class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                      aria-label={t("header.export")}
-                      onClick={() =>
-                        void downloadExport(v().session_id).catch((err) =>
-                          setSendErr(err instanceof Error ? err.message : t("err.network")),
-                        )
-                      }
-                    >
-                      <Icon name="download" />
-                    </button>
-                  </Tip>
+                        <Icon name="download" class="size-3.5 text-muted-foreground" />
+                        {t("header.export")}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </span>
               </header>
 
