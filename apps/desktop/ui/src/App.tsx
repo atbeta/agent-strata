@@ -369,6 +369,7 @@ export function App() {
         .catch(() => {})
         .finally(() => {
           refetch();
+          refetchConns();
           void refetchWs();
         });
     };
@@ -390,6 +391,7 @@ export function App() {
       clearTimeout(timer);
       timer = setTimeout(() => {
         refetch();
+        refetchConns();
         if (wsStale) {
           wsStale = false;
           void refetchWs();

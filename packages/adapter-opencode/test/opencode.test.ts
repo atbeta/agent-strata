@@ -1189,6 +1189,62 @@ describe("connectOpencode lifecycle", () => {
     expect(fetchSignal?.aborted).toBe(true);
     store.close();
   });
+
+  test("a quiet server spends the connect timeout once", async () => {
+    const { connectOpencode } = await import("../src/index");
+    const fakeFetch = async (_input: Request | URL | string, _init?: RequestInit) =>
+      new Response(new ReadableStream<Uint8Array>({ start() {} }), {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      });
+    const store = openStore(":memory:");
+    const started = Date.now();
+    await expect(
+      connectOpencode({
+        baseUrl: "http://fake",
+        sink: store,
+        fetch: fakeFetch as typeof fetch,
+        connectTimeoutMs: 300,
+      }),
+    ).rejects.toThrow(/no events within/);
+    expect(Date.now() - started).toBeLessThan(500);
+    store.close();
+  });
+
+  test("a closed event stream is opened again", async () => {
+    const { connectOpencode } = await import("../src/index");
+    const enc = new TextEncoder();
+    let eventOpens = 0;
+    const fakeFetch = async (input: Request | URL | string) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.includes("/global/event") || url.endsWith("/event")) {
+        eventOpens += 1;
+        const stay = eventOpens > 1;
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(ctrl) {
+              ctrl.enqueue(enc.encode('data: {"type":"server.connected","properties":{}}\n\n'));
+              if (!stay) ctrl.close();
+            },
+          }),
+          { status: 200, headers: { "content-type": "text/event-stream" } },
+        );
+      }
+      return Response.json([]);
+    };
+    const store = openStore(":memory:");
+    const conn = await connectOpencode({
+      baseUrl: "http://fake",
+      sink: store,
+      fetch: fakeFetch as typeof fetch,
+      connectTimeoutMs: 5_000,
+    });
+    const deadline = Date.now() + 4_000;
+    while (eventOpens < 2 && Date.now() < deadline) await Bun.sleep(50);
+    expect(eventOpens).toBeGreaterThanOrEqual(2);
+    conn.stop();
+    store.close();
+  });
 });
 
 describe("rebuild from OpenCode's own record", () => {

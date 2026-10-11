@@ -1321,16 +1321,22 @@ export async function connectOpencode(opts: {
     }
     return { iter, value: first.value };
   };
+  // Global and the per-directory bus share one budget. A quiet socket must not
+  // pay the timeout twice before connect gives up.
+  const connectStarted = Date.now();
   let got = await firstEvent(
     () => client.global.event() as Promise<{ stream: AsyncGenerator<unknown> }>,
     Math.min(connectTimeout, 3_000),
   );
   if (!got) {
     preferGlobal = false;
-    got = await firstEvent(
-      () => client.event.subscribe() as Promise<{ stream: AsyncGenerator<unknown> }>,
-      connectTimeout,
-    );
+    const left = connectTimeout - (Date.now() - connectStarted);
+    if (left >= 200) {
+      got = await firstEvent(
+        () => client.event.subscribe() as Promise<{ stream: AsyncGenerator<unknown> }>,
+        left,
+      );
+    }
   }
   if (!got) {
     abort.abort();
@@ -1397,8 +1403,12 @@ export async function connectOpencode(opts: {
       dispatch(r.value);
     }
   };
+  // Filled in once refreshSessions exists. A drop in the first tick has nothing to catch up yet.
+  let catchUp: () => void = () => {};
+  const quiet: AsyncIterator<unknown> = (async function* () {})();
   const loop = (async () => {
     let current: AsyncIterator<unknown> = got.iter;
+    let pause = 1_000;
     while (!abort.signal.aborted) {
       try {
         await pump(current);
@@ -1406,14 +1416,22 @@ export async function connectOpencode(opts: {
         if (!abort.signal.aborted) console.error("opencode event stream error:", err);
       }
       if (abort.signal.aborted) return;
-      await Bun.sleep(1000);
+      await Bun.sleep(pause);
       if (abort.signal.aborted) return;
-      try {
-        const again = await openStream();
-        current = again.stream[Symbol.asyncIterator]();
-      } catch (err) {
-        if (!abort.signal.aborted) console.error("opencode event stream reconnect failed:", err);
+      const again = await firstEvent(
+        () => openStream() as Promise<{ stream: AsyncGenerator<unknown> }>,
+        3_000,
+      );
+      if (!again) {
+        current = quiet;
+        pause = Math.min(pause * 2, 15_000);
+        if (!abort.signal.aborted) console.error("opencode event stream reconnect failed");
+        continue;
       }
+      pause = 1_000;
+      current = again.iter;
+      dispatch(again.value);
+      catchUp();
     }
   })();
 
@@ -1464,7 +1482,7 @@ export async function connectOpencode(opts: {
     );
   };
 
-  return {
+  const api = {
     stop() {
       abort.abort();
       ingestor.stop();
@@ -1480,7 +1498,16 @@ export async function connectOpencode(opts: {
       if (!r.data) throw new Error("session.create returned no data");
       return { id: r.data.id };
     },
-    async prompt(sessionID, parts, promptOpts?) {
+    async prompt(
+      sessionID: string,
+      parts: OpencodePromptPart[],
+      promptOpts?: {
+        model?: { providerID: string; modelID: string };
+        agent?: string;
+        variant?: string;
+        directory?: string;
+      },
+    ) {
       await client.session.promptAsync({
         sessionID,
         directory: promptOpts?.directory ?? opts.directory,
@@ -1491,7 +1518,18 @@ export async function connectOpencode(opts: {
         parts,
       });
     },
-    async command(sessionID, c) {
+    async command(
+      sessionID: string,
+      c: {
+        command: string;
+        arguments: string;
+        agent?: string;
+        model?: { providerID: string; modelID: string };
+        variant?: string;
+        directory?: string;
+        parts?: FilePartInput[];
+      },
+    ) {
       const directory = c.directory ?? opts.directory;
       const listed = await client.command.list({ directory });
       if (listed.error) throw new Error(errorMessage(listed.error));
@@ -1583,11 +1621,15 @@ export async function connectOpencode(opts: {
     async mcpDisconnect(name: string, directory?: string) {
       await client.mcp.disconnect({ name, directory: directory ?? opts.directory });
     },
-    async mcpAdd(name, config, directory) {
+    async mcpAdd(
+      name: string,
+      config: { type: "local"; command: string[] } | { type: "remote"; url: string },
+      directory?: string,
+    ) {
       const added = await client.mcp.add({ name, config, directory: directory ?? opts.directory });
       if (added.error) throw new Error(errorMessage(added.error));
     },
-    async mcpAuthStart(name, directory, signal) {
+    async mcpAuthStart(name: string, directory: string | undefined, signal: AbortSignal) {
       const res = await mcpAuthFetch(`/mcp/${encodeURIComponent(name)}/auth`, directory, signal);
       const text = await res.text();
       if (!res.ok) throw new Error(mcpAuthFailure(text));
@@ -1597,7 +1639,7 @@ export async function connectOpencode(opts: {
         throw new Error("mcp auth failed");
       }
     },
-    async mcpAuthFinish(name, code, directory, signal) {
+    async mcpAuthFinish(name: string, code: string, directory: string | undefined, signal: AbortSignal) {
       const res = await mcpAuthFetch(`/mcp/${encodeURIComponent(name)}/auth/callback`, directory, signal, { code });
       const text = await res.text();
       if (!res.ok) throw new Error(mcpAuthFailure(text, code));
@@ -1742,4 +1784,8 @@ export async function connectOpencode(opts: {
     importSession,
     rebuildSession,
   };
+  catchUp = () => {
+    void api.refreshSessions().catch((err) => console.error("opencode catch-up failed:", err));
+  };
+  return api;
 }

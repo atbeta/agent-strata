@@ -477,6 +477,30 @@ describe("agent-strata service", () => {
     svc.stop();
   });
 
+  test("a remembered dead address does not block the live one", async () => {
+    const oc = fakeOpencode();
+    const dir = mkdtempSync(join(tmpdir(), "strata-boot-"));
+    writeFileSync(
+      join(dir, "connections.json"),
+      JSON.stringify([{ baseUrl: "http://127.0.0.1:1" }, { baseUrl: oc.baseUrl }]) + "\n",
+    );
+    const svc = startService({ db: join(dir, "events.db"), port: 0, autoConnectTimeoutMs: 2_000 });
+    const base = `http://127.0.0.1:${svc.port}`;
+    const started = Date.now();
+    let conns = 0;
+    while (Date.now() - started < 2_000) {
+      const health = (await fetch(`${base}/health`).then((r) => r.json())) as { conns: number };
+      conns = health.conns;
+      if (conns >= 1) break;
+      await Bun.sleep(50);
+    }
+    expect(conns).toBe(1);
+    expect(Date.now() - started).toBeLessThan(1_500);
+    svc.stop();
+    oc.stop();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   test("live stream broadcasts new events", async () => {
     const svc = startService({ db: ":memory:", port: 0 });
     const base = `http://127.0.0.1:${svc.port}`;

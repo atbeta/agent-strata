@@ -16,6 +16,7 @@ import { LiveOverlay } from "./live";
 import { filesKeyOf, ViewCache } from "./views";
 import type { EventInput } from "@agent-strata/schema";
 import { connectAcpDriver } from "./acp-driver";
+import { bootPlan, REMEMBERED_PROBE_MS } from "./boot-connect";
 import { agentNameOf, connectionMemory, endpointOf, type ConnectBody } from "./connections";
 import { extensionRoute } from "./extension-route";
 import { configRoute } from "./config-edit";
@@ -269,8 +270,9 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     return { id: driver.id, indexed: indexed.length };
   };
 
-  // boot auto-connect. An explicit URL comes first; every remembered
-  // connection follows, so reopening the app is not stuck on old snapshots.
+  // boot auto-connect. The address we mean to use retries until the deadline
+  // (an embedded server may still be starting). Every other remembered address
+  // is probed once, so a dead one does not sit on the connect timeout.
   const boot: ConnectBody[] = opts.autoConnect
     ? [
         {
@@ -281,18 +283,20 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         ...memory.saved().filter((c) => endpointOf(c) !== opts.autoConnect),
       ]
     : memory.saved();
-  for (const body of boot) {
+  for (const { body, mode } of bootPlan(boot, opts.autoConnect)) {
     const endpoint = endpointOf(body);
     const deadline = Date.now() + (opts.autoConnectTimeoutMs ?? 15_000);
     void (async () => {
       for (;;) {
         try {
-          const { id } = await connectBackend(body);
+          const { id } = await connectBackend(
+            mode === "once" ? { ...body, connectTimeoutMs: REMEMBERED_PROBE_MS } : body,
+          );
           memory.remember(body);
           console.log(`auto-connected backend ${id}`);
           return;
         } catch (e) {
-          if (Date.now() > deadline) {
+          if (mode === "once" || Date.now() > deadline) {
             console.error(`auto-connect to ${endpoint} gave up: ${e}`);
             return;
           }
@@ -815,13 +819,15 @@ export function startService(opts: ServiceOpts = {}): RunningService {
 
     if (path === "/sync" && req.method === "POST") {
       if (conns.size === 0) {
-        for (const saved of memory.saved()) {
-          try {
-            await connectBackend({ ...saved, connectTimeoutMs: 2_000 });
-          } catch (e) {
-            console.error(`reconnect ${endpointOf(saved)} failed: ${e}`);
-          }
-        }
+        await Promise.all(
+          memory.saved().map(async (saved) => {
+            try {
+              await connectBackend({ ...saved, connectTimeoutMs: REMEMBERED_PROBE_MS });
+            } catch (e) {
+              console.error(`reconnect ${endpointOf(saved)} failed: ${e}`);
+            }
+          }),
+        );
       }
       if (conns.size === 0) return json({ connected: false, imported: 0 });
       let imported = 0;
