@@ -19,10 +19,17 @@ function cellClass(kind: SplitCell["kind"]): string {
  * One OpenCode diff (the session, one reply, or git) as a file list plus the
  * patch. A line click hands the composer a citation; the reader writes the
  * comment there.
+ *
+ * The unified/split switch lives here rather than in the rail's tab strip. It
+ * used to render only on some tabs, so the strip grew from five controls to
+ * seven and back on every click — a control bar that reshapes itself is worse
+ * than one that does not. This way the tab strip never changes, and the switch
+ * sits with the thing it controls.
  */
 export function ReviewPane(props: {
   files: ReviewDiff[];
   layout: "unified" | "split";
+  onLayout: (next: "unified" | "split") => void;
   onComment: (note: string) => void;
 }) {
   const named = () => props.files.filter((f) => f.file);
@@ -52,7 +59,24 @@ export function ReviewPane(props: {
   };
 
   return (
-    <div class="flex min-h-0 flex-1">
+    <div class="flex min-h-0 flex-1 flex-col">
+      <div class="flex shrink-0 items-center gap-1 border-b border-border px-2 py-1.5">
+        {(["unified", "split"] as const).map((id) => (
+          <button
+            type="button"
+            class={`rounded-md px-1.5 py-0.5 text-2xs ${
+              props.layout === id
+                ? "bg-secondary text-foreground"
+                : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+            }`}
+            aria-pressed={props.layout === id}
+            onClick={() => props.onLayout(id)}
+          >
+            {t(id === "unified" ? "review.unified" : "review.split")}
+          </button>
+        ))}
+      </div>
+      <div class="flex min-h-0 flex-1">
       <ul class="w-44 shrink-0 space-y-0.5 overflow-y-auto border-r border-border px-2 py-2">
         <For each={named()}>
           {(f) => (
@@ -112,6 +136,7 @@ export function ReviewPane(props: {
             </Show>
           )}
         </Show>
+      </div>
       </div>
     </div>
   );

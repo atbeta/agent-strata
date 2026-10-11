@@ -83,6 +83,7 @@ export default {
   // The files / plan rail.
   "rail.show": "文件与计划",
   "rail.hide": "隐藏文件",
+  "rail.resize": "调整侧栏宽度",
   "rail.running": "运行中",
   "rail.done": "完成",
   "rail.plan": "计划",
@@ -119,7 +120,9 @@ export default {
   "review.unified": "统一",
   "review.split": "并排",
   "review.loading": "正在读取改动。",
-  "review.empty": "这里没有改动。",
+  "review.empty": "OpenCode 没有报告这个会话的改动。",
+  "review.empty.git": "工作区是干净的，没有未提交的改动。",
+  "review.empty.branch": "工作区和默认分支没有差异。",
   "review.turnNone": "这一轮还没有可以对照的回复。",
   "review.comment": "把这一行放进输入框",
   "review.cite": "`{file}` 第 {line} 行：\n",

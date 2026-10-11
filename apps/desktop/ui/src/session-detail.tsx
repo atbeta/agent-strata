@@ -54,6 +54,7 @@ import { DiffBlock } from "./diff";
 import { FileBrowser } from "./files";
 import { TerminalPane } from "./terminal";
 import { ReviewPane } from "./review";
+import { clampRailWidth, readRailWidth, writeRailWidth, RAIL_MAX, RAIL_MIN } from "./rail-width";
 import { JsonView } from "./json-view";
 import { permissionView } from "./permission-card";
 import { num, t, tn } from "./i18n";
@@ -453,6 +454,37 @@ export function SessionDetail(props: {
   const [railDismissed, setRailDismissed] = createSignal(false);
   /** which file the reader opened in the rail, null for the plain list */
   const [openFile, setOpenFile] = createSignal<string | null>(null);
+  /**
+   * The rail's width belongs to the reader, not to the tab.
+   *
+   * It was `w-72` on one tab and `min(600px, 48vw)` on the rest, so every tab
+   * click resized the panel and re-wrapped the transcript beside it. Only the
+   * reader moves it now — the drag edge below, or the arrow keys — and the
+   * window only ever clamps it.
+   */
+  const [railWidth, setRailWidth] = createSignal(readRailWidth(window.innerWidth));
+  const resizeRail = (px: number, remember: boolean) => {
+    const next = clampRailWidth(px, window.innerWidth);
+    setRailWidth(next);
+    if (remember) writeRailWidth(next);
+  };
+  const startRailDrag = (e: PointerEvent & { currentTarget: HTMLDivElement }) => {
+    e.preventDefault();
+    const handle = e.currentTarget;
+    const from = e.clientX;
+    const was = railWidth();
+    handle.setPointerCapture(e.pointerId);
+    const move = (ev: PointerEvent) => resizeRail(was + (from - ev.clientX), false);
+    const done = () => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", done);
+      handle.removeEventListener("pointercancel", done);
+      writeRailWidth(railWidth());
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", done);
+    handle.addEventListener("pointercancel", done);
+  };
   const [browserOn, setBrowserOn] = createSignal(false);
   const [terminalOn, setTerminalOn] = createSignal(false);
   const [reviewSource, setReviewSource] = createSignal<"record" | "session" | "turn" | "git" | "branch">("record");
@@ -2381,10 +2413,21 @@ const turnIndexOf = (h: SearchHit): number => {
       <Show when={(browserOn() || railOn()) && settled(view)}>
         {(v) => {
           const files = () => v().files_changed;
-          const fileLabel = () => {
-            const n = files().length;
-            if (n === 0) return t("rail.plan");
-            return tn("rail.files", n);
+          /** How many files the tab you are on actually found. */
+          const viewCount = () => {
+            if (reviewSource() === "record") return files().length;
+            return (reviewDiff() ?? []).filter((f) => f.file).length;
+          };
+          /** An empty diff reads differently per baseline, so it says which. */
+          const emptyNote = () => {
+            const source = reviewSource();
+            return t(
+              source === "git"
+                ? "review.empty.git"
+                : source === "branch"
+                  ? "review.empty.branch"
+                  : "review.empty",
+            );
           };
           // The list of names is worthless at 288px next to a real diff, so the
           // rail borrows room only while a reader is actually reading one.
@@ -2416,18 +2459,40 @@ const turnIndexOf = (h: SearchHit): number => {
               </Show>
               <Show when={!browserOn()}>
             <aside
-              class={`flex shrink-0 flex-col border-l border-border ${
-                open() || reviewSource() !== "record" ? "w-[min(600px,48vw)]" : "w-72"
-              }`}
+              class="relative flex shrink-0 flex-col border-l border-border"
+              style={{ width: `${railWidth()}px` }}
             >
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                aria-label={t("rail.resize")}
+                aria-valuemin={RAIL_MIN}
+                aria-valuemax={RAIL_MAX}
+                aria-valuenow={railWidth()}
+                tabindex={0}
+                class="absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize outline-none focus-visible:bg-ring/40"
+                onPointerDown={startRailDrag}
+                onKeyDown={(e) => {
+                  const step = e.shiftKey ? 48 : 16;
+                  if (e.key === "ArrowLeft") resizeRail(railWidth() + step, true);
+                  else if (e.key === "ArrowRight") resizeRail(railWidth() - step, true);
+                  else return;
+                  e.preventDefault();
+                }}
+              />
               <div
                 class="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3 select-none"
                 data-tauri-drag-region={inDesktopShell() ? "" : undefined}
               >
-                <span class="shrink-0 text-sm font-medium">
+                <span class="shrink-0 text-2xs text-muted-foreground">
                   {generating() ? t("rail.running") : t("rail.done")}
                 </span>
-                <span class="min-w-0 flex-1 truncate text-xs text-muted-foreground">{fileLabel()}</span>
+                {/* The count belongs to the tab you are on. It used to be the
+                    record's count on every tab, so the header read 130 files
+                    above a pane that said nothing had changed. */}
+                <span class="min-w-0 flex-1 truncate text-2xs text-muted-foreground/70">
+                  {viewCount() > 0 ? tn("rail.files", viewCount()) : ""}
+                </span>
                 <button
                   class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
                   aria-label={t("rail.hide")}
@@ -2459,26 +2524,6 @@ const turnIndexOf = (h: SearchHit): number => {
                       {t(key)}
                     </button>
                   ))}
-                  <Show when={reviewSource() !== "record"}>
-                    <button
-                      type="button"
-                      class={`ml-auto rounded-md px-1.5 py-0.5 text-2xs ${
-                        reviewLayout() === "unified" ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground"
-                      }`}
-                      onClick={() => setReviewLayout("unified")}
-                    >
-                      {t("review.unified")}
-                    </button>
-                    <button
-                      type="button"
-                      class={`rounded-md px-1.5 py-0.5 text-2xs ${
-                        reviewLayout() === "split" ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground"
-                      }`}
-                      onClick={() => setReviewLayout("split")}
-                    >
-                      {t("review.split")}
-                    </button>
-                  </Show>
                 </div>
               </Show>
               <div class="flex min-h-0 flex-1">
@@ -2538,13 +2583,16 @@ const turnIndexOf = (h: SearchHit): number => {
                                       ? "bg-status-error"
                                       : "bg-status-completed"
                                 }`}
+                                title={changeWord(f.change)}
                               />
                               <span class="min-w-0 flex-1">
                                 <span class="block truncate text-sm">{fileName(f.path)}</span>
+                                {/* The word for the change lived here as well as on
+                                    the dot. It stays on the dot, where the colour
+                                    is, and this line keeps only the one number
+                                    that is not already encoded. */}
                                 <Show when={f.count > 1}>
                                   <span class="block truncate text-2xs text-muted-foreground">
-                                    {/* the dot already says how it changed */}
-                                    {open() ? "" : changeWord(f.change) + " · "}
                                     {tn("file.changes", f.count)}
                                   </span>
                                 </Show>
@@ -2648,9 +2696,14 @@ const turnIndexOf = (h: SearchHit): number => {
                       >
                         <Show
                           when={(reviewDiff() ?? []).some((f) => f.file)}
-                          fallback={<p class="px-3 py-3 text-xs text-muted-foreground">{t("review.empty")}</p>}
+                          fallback={<p class="px-3 py-3 text-xs text-muted-foreground">{emptyNote()}</p>}
                         >
-                          <ReviewPane files={reviewDiff() ?? []} layout={reviewLayout()} onComment={citeLine} />
+                          <ReviewPane
+                            files={reviewDiff() ?? []}
+                            layout={reviewLayout()}
+                            onLayout={setReviewLayout}
+                            onComment={citeLine}
+                          />
                         </Show>
                       </Show>
                     </Show>

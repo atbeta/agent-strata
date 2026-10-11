@@ -83,6 +83,7 @@ export default {
   // The files / plan rail.
   "rail.show": "Files and plan",
   "rail.hide": "Hide files",
+  "rail.resize": "Resize the rail",
   "rail.running": "Running",
   "rail.done": "Done",
   "rail.plan": "Plan",
@@ -119,7 +120,9 @@ export default {
   "review.unified": "Unified",
   "review.split": "Side by side",
   "review.loading": "Reading the changes.",
-  "review.empty": "Nothing changed here.",
+  "review.empty": "OpenCode reports no changes for this session.",
+  "review.empty.git": "The worktree is clean — nothing uncommitted.",
+  "review.empty.branch": "The worktree and the default branch are identical.",
   "review.turnNone": "This turn has no reply to compare yet.",
   "review.comment": "Put this line in the message box",
   "review.cite": "`{file}` line {line}:\n",
