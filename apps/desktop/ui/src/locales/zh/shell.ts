@@ -95,8 +95,14 @@ export default {
   "search.results.sessions": "会话",
   "search.results.transcript": "会话记录",
   "palette.title": "命令",
-  "palette.placeholder": "输入命令",
-  "palette.empty": "没有匹配的命令",
+  "palette.placeholder": "输入命令或会话",
+  "palette.empty": "没有匹配",
+  "palette.sessions": "会话",
+  "switcher.title": "切换会话",
+  "switcher.next": "下一个会话",
+  "switcher.prev": "上一个会话",
+  "switcher.current": "当前",
+  "switcher.hint": "Tab 下一个 · Shift+Tab 上一个 · 松开 {key} 打开",
 
   // Settings
   "settings.title": "设置",

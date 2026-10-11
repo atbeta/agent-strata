@@ -2,15 +2,32 @@ import { createEffect, createSignal, For, Show } from "solid-js";
 import { commandList, formatChord, type AppCommand } from "./commands";
 import { t } from "./i18n";
 
-export function CommandPalette(props: { open: boolean; onClose: () => void }) {
+type PaletteRow =
+  | { kind: "command"; cmd: AppCommand }
+  | { kind: "session"; id: string; title: string };
+
+export function CommandPalette(props: {
+  open: boolean;
+  onClose: () => void;
+  sessions: { id: string; title: string }[];
+  onOpenSession: (id: string) => void;
+}) {
   const [query, setQuery] = createSignal("");
   const [at, setAt] = createSignal(0);
   let input: HTMLInputElement | undefined;
   let list: HTMLDivElement | undefined;
 
-  const rows = (): AppCommand[] => {
+  const rows = (): PaletteRow[] => {
     const needle = query().trim().toLowerCase();
-    return commandList().filter((cmd) => !needle || cmd.title().toLowerCase().includes(needle));
+    const commands: PaletteRow[] = commandList()
+      .filter((cmd) => !needle || cmd.title().toLowerCase().includes(needle))
+      .map((cmd) => ({ kind: "command", cmd }));
+    const sessions: PaletteRow[] = needle
+      ? props.sessions
+          .filter((session) => session.title.toLowerCase().includes(needle))
+          .map((session) => ({ kind: "session", id: session.id, title: session.title }))
+      : [];
+    return [...commands, ...sessions];
   };
 
   createEffect(() => {
@@ -20,10 +37,11 @@ export function CommandPalette(props: { open: boolean; onClose: () => void }) {
     queueMicrotask(() => input?.focus());
   });
 
-  const choose = (cmd: AppCommand | undefined) => {
-    if (!cmd) return;
+  const choose = (row: PaletteRow | undefined) => {
+    if (!row) return;
     props.onClose();
-    cmd.run();
+    if (row.kind === "command") row.cmd.run();
+    else props.onOpenSession(row.id);
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
@@ -76,21 +94,28 @@ export function CommandPalette(props: { open: boolean; onClose: () => void }) {
               fallback={<p class="px-2 py-6 text-center text-sm text-muted-foreground">{t("palette.empty")}</p>}
             >
               <For each={rows()}>
-                {(cmd, i) => (
-                  <button
-                    type="button"
-                    data-at={i() === at() ? "true" : "false"}
-                    class={`flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left text-sm ${
-                      i() === at() ? "bg-accent text-foreground" : "text-foreground/90"
-                    }`}
-                    onMouseEnter={() => setAt(i())}
-                    onClick={() => choose(cmd)}
-                  >
-                    <span class="min-w-0 flex-1 truncate">{cmd.title()}</span>
-                    <Show when={cmd.chord}>
-                      {(chord) => <kbd class="shrink-0 font-mono text-2xs text-muted-foreground">{formatChord(chord())}</kbd>}
+                {(row, i) => (
+                  <>
+                    <Show when={row.kind === "session" && rows()[i() - 1]?.kind !== "session"}>
+                      <p class="px-2 pt-2 pb-1 text-2xs text-muted-foreground">{t("palette.sessions")}</p>
                     </Show>
-                  </button>
+                    <button
+                      type="button"
+                      data-at={i() === at() ? "true" : "false"}
+                      class={`flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left text-sm ${
+                        i() === at() ? "bg-accent text-foreground" : "text-foreground/90"
+                      }`}
+                      onMouseEnter={() => setAt(i())}
+                      onClick={() => choose(row)}
+                    >
+                      <span class="min-w-0 flex-1 truncate">{row.kind === "command" ? row.cmd.title() : row.title}</span>
+                      <Show when={row.kind === "command" ? row.cmd.chord : undefined}>
+                        {(chord) => (
+                          <kbd class="shrink-0 font-mono text-2xs text-muted-foreground">{formatChord(chord())}</kbd>
+                        )}
+                      </Show>
+                    </button>
+                  </>
                 )}
               </For>
             </Show>

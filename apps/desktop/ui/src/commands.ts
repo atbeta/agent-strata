@@ -7,6 +7,8 @@ export interface Chord {
   key: string;
   shift?: boolean;
   alt?: boolean;
+  /** Held keys repeat. Other chords fire once. */
+  repeat?: boolean;
 }
 
 export interface KeyLike {
@@ -50,7 +52,7 @@ export function commandList(): AppCommand[] {
 }
 
 export function chordPressed(e: KeyLike, chord: Chord): boolean {
-  if (e.repeat) return false;
+  if (e.repeat && !chord.repeat) return false;
   if (!(e.ctrlKey || e.metaKey)) return false;
   if (e.altKey !== (chord.alt === true)) return false;
   if (e.shiftKey !== (chord.shift === true)) return false;

@@ -1955,7 +1955,7 @@ const turnIndexOf = (h: SearchHit): number => {
                               else pick(menuActive());
                               return;
                             }
-                            if (e.key === "Tab") {
+                            if (e.key === "Tab" && !e.ctrlKey && !e.metaKey) {
                               e.preventDefault();
                               if (n && !e.shiftKey) pick(menuActive());
                               return;

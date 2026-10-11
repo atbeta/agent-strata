@@ -25,6 +25,8 @@ import { applyFonts, readFonts } from "./font";
 import { announceFinished, finishedSessions, readNotify, rememberBusy } from "./notify";
 import { commandForChord, registerCommand } from "./commands";
 import { CommandPalette } from "./palette";
+import { SessionSwitcher } from "./switcher";
+import { readMru, recentOrder, stepIndex, touchMru, writeMru } from "./session-switch";
 import { Icon } from "./icons";
 import { DragBar, WindowCaptionBar } from "./chrome";
 import { inDesktopShell } from "./shell";
@@ -396,6 +398,12 @@ export function App() {
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.isComposing) return;
+      if (switchOpen() && e.key === "Escape") {
+        setSwitchOpen(false);
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       if (paletteOpen() && e.key === "Escape") {
         setPaletteOpen(false);
         e.preventDefault();
@@ -404,8 +412,12 @@ export function App() {
       const cmd = commandForChord(e);
       if (cmd) {
         e.preventDefault();
+        e.stopPropagation();
         if (cmd.id !== "app.palette") setPaletteOpen(false);
+        if (cmd.id !== "app.nextSession" && cmd.id !== "app.prevSession") setSwitchOpen(false);
+        chordHeld = true;
         cmd.run();
+        chordHeld = false;
         return;
       }
       if (e.key !== "Escape") return;
@@ -425,7 +437,13 @@ export function App() {
         e.preventDefault();
       }
     };
-    window.addEventListener("keydown", onKey);
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key !== "Control" && e.key !== "Meta") return;
+      commitSwitch();
+    };
+    // Capture, so a focused terminal or the composer menu does not take Tab first.
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("keyup", onKeyUp, true);
     // The shell leaves file drops to the page, and a page that does not take one
     // navigates the whole window to the file.
     const onFileDrag = (e: DragEvent) => {
@@ -438,7 +456,8 @@ export function App() {
     onCleanup(() => {
       scheme.removeEventListener("change", onScheme);
       window.removeEventListener("hashchange", onHash);
-      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("keyup", onKeyUp, true);
       window.removeEventListener("dragover", onFileDrag);
       window.removeEventListener("drop", onFileDrag);
       clearInterval(clockTimer);
@@ -631,6 +650,64 @@ export function App() {
   };
   const connected = () => (settled(conns)?.connections.length ?? 0) > 0;
   const [paletteOpen, setPaletteOpen] = createSignal(false);
+  const [switchOpen, setSwitchOpen] = createSignal(false);
+  const [switchIds, setSwitchIds] = createSignal<string[]>([]);
+  const [switchAt, setSwitchAt] = createSignal(0);
+  let chordHeld = false;
+  let seenSession: string | undefined;
+
+  const switchSource = () =>
+    sessions().map((s) => ({
+      id: s.summary.session_id,
+      title: s.title || s.summary.title || t("common.untitled"),
+      lastTs: Date.parse(s.summary.last_ts) || 0,
+    }));
+
+  const moveSession = (delta: number) => {
+    const opening = !switchOpen();
+    const ids = opening ? recentOrder(switchSource(), readMru(), activeId()) : switchIds();
+    const at = stepIndex({
+      length: ids.length,
+      at: opening ? null : switchAt(),
+      delta,
+      currentAtFront: ids[0] === activeId(),
+    });
+    if (at === null) return;
+    if (!chordHeld) {
+      const id = ids[at];
+      if (id) location.hash = `/session/${encodeURIComponent(id)}`;
+      return;
+    }
+    if (opening) setSwitchIds(ids);
+    setSwitchAt(at);
+    setSwitchOpen(true);
+  };
+
+  const commitSwitch = () => {
+    if (!switchOpen()) return;
+    const id = switchIds()[switchAt()];
+    setSwitchOpen(false);
+    if (id && id !== activeId()) location.hash = `/session/${encodeURIComponent(id)}`;
+  };
+
+  const chooseSwitch = (id: string) => {
+    setSwitchOpen(false);
+    if (id !== activeId()) location.hash = `/session/${encodeURIComponent(id)}`;
+  };
+
+  createEffect(() => {
+    const id = activeId();
+    if (seenSession !== undefined && id !== seenSession) setSwitchOpen(false);
+    seenSession = id;
+  });
+
+  createEffect(() => {
+    const id = activeId();
+    if (!id || !library().some((s) => s.summary.session_id === id)) return;
+    const prev = readMru();
+    if (prev[0] === id) return;
+    writeMru(touchMru(prev, id));
+  });
 
   onCleanup(
     registerCommand({
@@ -673,6 +750,24 @@ export function App() {
       run: () => {
         location.hash = "/settings";
       },
+    }),
+  );
+  onCleanup(
+    registerCommand({
+      id: "app.nextSession",
+      title: () => t("switcher.next"),
+      chord: { key: "Tab", repeat: true },
+      enabled: () => sessions().length >= 2,
+      run: () => moveSession(1),
+    }),
+  );
+  onCleanup(
+    registerCommand({
+      id: "app.prevSession",
+      title: () => t("switcher.prev"),
+      chord: { key: "Tab", shift: true, repeat: true },
+      enabled: () => sessions().length >= 2,
+      run: () => moveSession(-1),
     }),
   );
 
@@ -1136,7 +1231,28 @@ export function App() {
         </Show>
       </main>
       </div>
-      <CommandPalette open={paletteOpen()} onClose={() => setPaletteOpen(false)} />
+      <CommandPalette
+        open={paletteOpen()}
+        sessions={sessions().map((s) => ({
+          id: s.summary.session_id,
+          title: s.title || s.summary.title || t("common.untitled"),
+        }))}
+        onOpenSession={(id) => {
+          location.hash = `/session/${encodeURIComponent(id)}`;
+        }}
+        onClose={() => setPaletteOpen(false)}
+      />
+      <SessionSwitcher
+        open={switchOpen()}
+        rows={switchIds().map((id) => ({
+          id,
+          title: switchSource().find((row) => row.id === id)?.title ?? t("common.untitled"),
+        }))}
+        at={switchAt()}
+        currentId={activeId()}
+        onChoose={chooseSwitch}
+        onCancel={() => setSwitchOpen(false)}
+      />
     </div>
   );
 }

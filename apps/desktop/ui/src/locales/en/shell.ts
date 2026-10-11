@@ -95,8 +95,14 @@ export default {
   "search.results.sessions": "Sessions",
   "search.results.transcript": "Transcript",
   "palette.title": "Commands",
-  "palette.placeholder": "Type a command",
-  "palette.empty": "No matching command",
+  "palette.placeholder": "Type a command or session",
+  "palette.empty": "No matches",
+  "palette.sessions": "Sessions",
+  "switcher.title": "Switch session",
+  "switcher.next": "Next session",
+  "switcher.prev": "Previous session",
+  "switcher.current": "Current",
+  "switcher.hint": "Tab next · Shift+Tab previous · release {key} to open",
 
   // Settings
   "settings.title": "Settings",

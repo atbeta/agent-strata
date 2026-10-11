@@ -37,6 +37,15 @@ describe("command chords", () => {
     expect(chordPressed(key({ key: "k", ctrlKey: true, code: "KeyK", repeat: true }), { key: "k" })).toBe(false);
   });
 
+  test("Ctrl+Tab repeats, and Shift changes which chord matches", () => {
+    const tab = key({ key: "Tab", code: "Tab", ctrlKey: true, repeat: true });
+    expect(chordPressed(tab, { key: "Tab", repeat: true })).toBe(true);
+    expect(chordPressed(tab, { key: "Tab", shift: true, repeat: true })).toBe(false);
+    expect(chordPressed({ ...tab, shiftKey: true }, { key: "Tab", shift: true, repeat: true })).toBe(true);
+    expect(formatChord({ key: "Tab" })).toBe("Ctrl+Tab");
+    expect(formatChord({ key: "Tab", shift: true })).toBe("Ctrl+Shift+Tab");
+  });
+
   test("a disabled command keeps its shortcut quiet", () => {
     drop.push(
       registerCommand({
