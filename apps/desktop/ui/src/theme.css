@@ -325,7 +325,8 @@ textarea {
   pointer-events: none;
 }
 .transcript-message:hover > .message-actions,
-.transcript-message:focus-within > .message-actions {
+.transcript-message:focus-within > .message-actions,
+.message-actions[data-copied] {
   opacity: 1;
   pointer-events: auto;
 }

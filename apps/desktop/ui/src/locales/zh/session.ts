@@ -214,7 +214,6 @@ export default {
   "message.fork": "分叉",
   "message.restore": "恢复",
   "message.reverted": "已撤回",
-  "message.summarize": "压缩",
   "message.compacted": "对话已压缩",
 
   // The prompt outline on the transcript's left edge.

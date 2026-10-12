@@ -1,4 +1,5 @@
 import { createRenderEffect, createSignal, onCleanup, Show, type JSX } from "solid-js";
+import { Portal } from "solid-js/web";
 
 const PAD = 8;
 /** Keep this far from the top so a tooltip never lands under the caption row. */
@@ -108,6 +109,9 @@ export function Tip(props: {
     >
       {props.children}
       <Show when={anchor() && props.label}>
+        {/* Portaled to body: inside a transformed transcript row a `fixed`
+            bubble would be positioned relative to the row, not the viewport. */}
+        <Portal>
         <span
           ref={setBubble}
           role="tooltip"
@@ -122,6 +126,7 @@ export function Tip(props: {
         >
           {props.label}
         </span>
+        </Portal>
       </Show>
     </span>
   );

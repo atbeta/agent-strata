@@ -214,7 +214,6 @@ export default {
   "message.fork": "Fork",
   "message.restore": "Restore",
   "message.reverted": "Reverted",
-  "message.summarize": "Summarize",
   "message.compacted": "Conversation compacted",
 
   // The prompt outline on the transcript's left edge.

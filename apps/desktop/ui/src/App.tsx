@@ -365,12 +365,14 @@ function SessionListItem(props: {
             <DropdownMenuSeparator />
             <DropdownMenuItem
               class={armed() ? "text-destructive data-[highlighted]:text-destructive" : ""}
-              closeOnSelect={armed()}
+              closeOnSelect={false}
               onSelect={() => {
                 if (!armed()) {
                   setArmed(true);
                   return;
                 }
+                setArmed(false);
+                setMenuOpen(false);
                 void props.onDelete();
               }}
             >

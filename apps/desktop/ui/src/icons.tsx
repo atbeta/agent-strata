@@ -21,11 +21,11 @@ type Name =
   | "list"
   | "wrench"
   | "branch"
+  | "fork"
   | "attach"
   | "copy"
   | "check"
   | "undo"
-  | "compact"
   | "plug"
   | "brain"
   | "stop"
@@ -205,6 +205,17 @@ export function Icon(props: { name: Name; class?: string }) {
         <path d="M11 7.2c0 2.4-2.2 3-6 3.6" />
       </Glyph>
     );
+  // Forking a conversation reads as one stem splitting two ways — not a git
+  // branch, which is why "branch" stays for the VCS glyph in the header.
+  if (props.name === "fork")
+    return (
+      <Glyph class={props.class}>
+        <path d="M8 14V9.4a2.7 2.7 0 0 0-.8-1.9L2.5 2.5" />
+        <path d="M10 6l3.5-3.5" />
+        <path d="M10 2.5h3.5V6" />
+        <path d="M6 2.5H2.5V6" />
+      </Glyph>
+    );
   if (props.name === "attach")
     return (
       <Glyph class={props.class}>
@@ -229,14 +240,6 @@ export function Icon(props: { name: Name; class?: string }) {
       <Glyph class={props.class}>
         <path d="M6.2 4.2 3.4 7l2.8 2.8" />
         <path d="M3.8 7h6.4a2.8 2.8 0 0 1 0 5.6H7.5" />
-      </Glyph>
-    );
-  if (props.name === "compact")
-    return (
-      <Glyph class={props.class}>
-        <path d="M2.8 4h10.4" />
-        <path d="M4.4 8h7.2" />
-        <path d="M6 12h4" />
       </Glyph>
     );
   if (props.name === "plug")

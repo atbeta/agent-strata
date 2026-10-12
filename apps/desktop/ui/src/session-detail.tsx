@@ -40,7 +40,6 @@ import {
   runCommand,
   searchSession,
   sendPrompt,
-  summarizeSession,
   unrevertSession,
   type McpServerStatus,
   type OptionsResponse,
@@ -1767,22 +1766,6 @@ const turnIndexOf = (h: SearchHit): number => {
                         onClick={toggleTools}
                       >
                         <Icon name="plug" />
-                      </button>
-                    </Tip>
-                  </Show>
-                  <Show when={caps()?.summarize}>
-                    <Tip label={t("message.summarize")}>
-                      <button
-                        type="button"
-                        class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                        aria-label={t("message.summarize")}
-                        onClick={() =>
-                          void summarizeSession(props.id).catch((err) =>
-                            setSendErr(err instanceof Error ? err.message : t("err.network")),
-                          )
-                        }
-                      >
-                        <Icon name="compact" />
                       </button>
                     </Tip>
                   </Show>

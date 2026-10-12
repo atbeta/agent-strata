@@ -1,4 +1,5 @@
 import { createMemo, createSignal, For, Show } from "solid-js";
+import { copyText } from "./clipboard";
 import { stripAnsi } from "./ansi";
 import { grammarFor, guessGrammar, tokenize, tokenizeDiff } from "./highlight";
 import { asStructure, looksStructured } from "./structure";
@@ -17,12 +18,9 @@ function CopyButton(props: { text: string }) {
       type="button"
       class="rounded px-1.5 py-0.5 text-2xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100"
       onClick={async () => {
-        try {
-          await navigator.clipboard.writeText(props.text);
+        if (await copyText(props.text)) {
           setDone(true);
           setTimeout(() => setDone(false), 1200);
-        } catch {
-          // Clipboard is unavailable in some webview contexts; nothing to do.
         }
       }}
     >

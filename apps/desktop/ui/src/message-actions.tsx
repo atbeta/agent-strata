@@ -1,6 +1,7 @@
 import { createEffect, createSignal, on, onCleanup, Show } from "solid-js";
 import { Icon } from "./icons";
 import { Tip } from "./tip";
+import { copyText } from "./clipboard";
 import { Button } from "./components/ui/button";
 import { t } from "./i18n";
 
@@ -40,17 +41,12 @@ export function MessageActions(props: {
   createEffect(on(() => props.text, invalidate));
 
   const copy = async () => {
-    const clip = navigator.clipboard;
-    if (!clip?.writeText) return;
     const mine = ++token;
     clearTimeout(timer);
     setCopied(false);
-    try {
-      await clip.writeText(props.text);
-    } catch {
-      // Rejection — or a synchronous throw — leaves the copy label in place.
-      return;
-    }
+    // Falls back to execCommand when the async API is absent or rejects; a
+    // failed copy leaves the label in place either way.
+    if (!(await copyText(props.text))) return;
     if (!alive || mine !== token) return;
     setCopied(true);
     clearTimeout(timer);
@@ -65,6 +61,7 @@ export function MessageActions(props: {
       class={`message-actions mt-1 flex h-7 items-center gap-0.5 ${
         props.align === "end" ? "justify-end" : "justify-start"
       }`}
+      data-copied={copied() || undefined}
     >
       <Show when={!props.disabled}>
         <Show when={props.text.trim()}>
@@ -77,7 +74,10 @@ export function MessageActions(props: {
               aria-label={copied() ? t("message.copied") : t("message.copy")}
               onClick={copy}
             >
-              <Icon name={copied() ? "check" : "copy"} class="size-3.5" />
+              <Icon
+                name={copied() ? "check" : "copy"}
+                class={`size-3.5 ${copied() ? "text-status-active" : ""}`}
+              />
             </Button>
           </Tip>
         </Show>
@@ -124,7 +124,7 @@ export function MessageActions(props: {
                 aria-label={t("message.fork")}
                 onClick={() => fork()()}
               >
-                <Icon name="branch" class="size-3.5" />
+                <Icon name="fork" class="size-3.5" />
               </Button>
             </Tip>
           )}
