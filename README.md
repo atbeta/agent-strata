@@ -91,8 +91,12 @@ Then run the shell from the repo root:
 ```sh
 bun run sidecar
 bun --cwd apps/desktop/ui run dev     # optional: only for UI-only iteration in a browser
-bun x tauri dev --config apps/desktop/src-tauri/tauri.conf.json
+bun x @tauri-apps/cli@latest dev --config apps/desktop/src-tauri/tauri.conf.json
 ```
+
+(`bun x tauri` resolves a different package and fails; `cargo tauri dev
+--config apps/desktop/src-tauri/tauri.conf.json` works too when tauri-cli is
+installed through cargo.)
 
 `tauri.conf.json` already starts the Vite dev server itself
 (`beforeDevCommand`), so the second command is only needed if you want the UI in
