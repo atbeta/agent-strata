@@ -132,18 +132,20 @@ export function AppMark() {
   return (
     <Show when={usesCustomCaption()}>
       <span class="flex shrink-0 items-center gap-2">
-        <svg
-          viewBox="0 0 16 16"
-          class="size-4 text-muted-foreground"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.5"
-          stroke-linecap="round"
-        >
-          <path d="M2 4h12" />
-          <path d="M2 8h8" />
-          <path d="M2 12h4" />
-        </svg>
+        <span
+          aria-hidden="true"
+          class="size-4 shrink-0 bg-current text-muted-foreground"
+          style={{
+            "-webkit-mask-image": "url(/brand/strata-mark.svg)",
+            "mask-image": "url(/brand/strata-mark.svg)",
+            "-webkit-mask-position": "center",
+            "mask-position": "center",
+            "-webkit-mask-repeat": "no-repeat",
+            "mask-repeat": "no-repeat",
+            "-webkit-mask-size": "contain",
+            "mask-size": "contain",
+          }}
+        />
         <span class="text-sm font-medium">Agent Strata</span>
       </span>
     </Show>

@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- FINAL · 咬合 / Interlock: the three colored strata ARE the icon — no
+       tile, no backdrop. Source rect 240..784 scaled 896/544 to the standard
+       896px macOS footprint (rx112 -> ~184). Seams and margins are truly
+       transparent. icon-source.png and all bundled sizes are rendered from
+       this file by scripts/generate-icons.sh. -->
+  <defs>
+    <linearGradient id="stratum-upper" gradientUnits="userSpaceOnUse" x1="0" y1="240" x2="0" y2="492">
+      <stop offset="0" stop-color="#F2F6FF"/>
+      <stop offset="1" stop-color="#D0DFF5"/>
+    </linearGradient>
+    <linearGradient id="stratum-mid" gradientUnits="userSpaceOnUse" x1="0" y1="396" x2="0" y2="656">
+      <stop offset="0" stop-color="#A9D3FF"/>
+      <stop offset="1" stop-color="#73A7F3"/>
+    </linearGradient>
+    <linearGradient id="stratum-low" gradientUnits="userSpaceOnUse" x1="0" y1="560" x2="0" y2="784">
+      <stop offset="0" stop-color="#598CF0"/>
+      <stop offset="1" stop-color="#2B5FC4"/>
+    </linearGradient>
+    <clipPath id="clip-upper"><path d="M0 0H1024V492H488Q456 492 456 460V428Q456 396 424 396H0Z"/></clipPath>
+    <clipPath id="clip-mid"><path d="M0 396H424Q456 396 456 428V460Q456 492 488 492H1024V656H600Q568 656 568 624V592Q568 560 536 560H0Z"/></clipPath>
+    <clipPath id="clip-low"><path d="M0 560H536Q568 560 568 592V624Q568 656 600 656H1024V1024H0Z"/></clipPath>
+    <mask id="cut" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+      <rect x="240" y="240" width="544" height="544" rx="112" fill="#FFFFFF"/>
+      <path d="M160 396H424Q456 396 456 428V460Q456 492 488 492H864" fill="none" stroke="#000000" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M160 560H536Q568 560 568 592V624Q568 656 600 656H864" fill="none" stroke="#000000" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+    </mask>
+  </defs>
+  <g transform="translate(512 512) scale(1.6470588235294117) translate(-512 -512)">
+    <g mask="url(#cut)">
+      <rect x="240" y="240" width="544" height="544" rx="112" fill="url(#stratum-upper)" clip-path="url(#clip-upper)"/>
+      <rect x="240" y="240" width="544" height="544" rx="112" fill="url(#stratum-mid)" clip-path="url(#clip-mid)"/>
+      <rect x="240" y="240" width="544" height="544" rx="112" fill="url(#stratum-low)" clip-path="url(#clip-low)"/>
+    </g>
+  </g>
+</svg>
