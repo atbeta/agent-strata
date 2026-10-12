@@ -55,6 +55,7 @@ import { FileBrowser } from "./files";
 import { TerminalPane } from "./terminal";
 import { ReviewPane } from "./review";
 import { clampRailWidth, readRailWidth, writeRailWidth, RAIL_MAX, RAIL_MIN } from "./rail-width";
+import { readFilesPanel, readRailDismissed, writeFilesPanel, writeRailDismissed } from "./right-pane";
 import { JsonView } from "./json-view";
 import { permissionView } from "./permission-card";
 import { num, t, tn } from "./i18n";
@@ -430,6 +431,17 @@ function Snippet(props: { text: string }) {
   );
 }
 
+/**
+ * The right side belongs to the window, not to the tab.
+ *
+ * Both signals used to live inside `SessionDetail`, which `App` renders `keyed`
+ * on the session id — every tab click tore them down and built fresh ones, so a
+ * closed browser reopened on the next session and the rail's auto-show came
+ * straight back. They are the reader's, so they outlive the session.
+ */
+const [browserOn, setBrowserOn] = createSignal(readFilesPanel());
+const [railDismissed, setRailDismissed] = createSignal(readRailDismissed());
+
 export function SessionDetail(props: {
   id: string;
   sessions: {
@@ -444,7 +456,6 @@ export function SessionDetail(props: {
   const [traceOn, setTraceOn] = createSignal(false);
   const [traceBlock, setTraceBlock] = createSignal<TraceBlock | null>(null);
   const [railForced, setRailForced] = createSignal(false);
-  const [railDismissed, setRailDismissed] = createSignal(false);
   /** which file the reader opened in the rail, null for the plain list */
   const [openFile, setOpenFile] = createSignal<string | null>(null);
   /**
@@ -478,7 +489,6 @@ export function SessionDetail(props: {
     handle.addEventListener("pointerup", done);
     handle.addEventListener("pointercancel", done);
   };
-  const [browserOn, setBrowserOn] = createSignal(false);
   const [terminalOn, setTerminalOn] = createSignal(false);
   const [reviewSource, setReviewSource] = createSignal<"record" | "session" | "turn" | "git" | "branch">("record");
   const [reviewLayout, setReviewLayout] = createSignal<"unified" | "split">("unified");
@@ -1345,21 +1355,40 @@ const turnIndexOf = (h: SearchHit): number => {
     return !!v && (v.files_changed.length > 0 || (v.plan?.length ?? 0) > 0);
   };
   const railOn = () => !traceBlock() && (railForced() || (hasWork() && !railDismissed()));
+  /**
+   * Open or close the file browser, remembering the choice.
+   *
+   * Closing it also stands the rail down: the two share one column, so closing
+   * the browser used to reveal the rail instead of the empty edge behind it.
+   */
+  const showFiles = (open: boolean) => {
+    setTraceBlock(null);
+    setReplayPos(null);
+    setBrowserOn(open);
+    writeFilesPanel(open);
+    setRailDismissed(!open);
+    writeRailDismissed(!open);
+  };
   const toggleRail = () => {
     setTraceBlock(null);
     setReplayPos(null);
     if (browserOn()) {
+      // Browser to rail: the other panel, not an empty edge.
       setBrowserOn(false);
+      writeFilesPanel(false);
       setRailDismissed(false);
+      writeRailDismissed(false);
       setRailForced(true);
       return;
     }
     if (railOn()) {
       setRailForced(false);
       setRailDismissed(true);
+      writeRailDismissed(true);
       return;
     }
     setRailDismissed(false);
+    writeRailDismissed(false);
     setRailForced(true);
   };
 
@@ -1425,11 +1454,7 @@ const turnIndexOf = (h: SearchHit): number => {
       id: "session.files",
       title: () => (browserOn() ? t("files.hide") : t("files.show")),
       enabled: () => opencode(),
-      run: () => {
-        setTraceBlock(null);
-        setReplayPos(null);
-        setBrowserOn((on) => !on);
-      },
+      run: () => showFiles(!browserOn()),
     }),
   );
   onCleanup(
@@ -1565,11 +1590,7 @@ const turnIndexOf = (h: SearchHit): number => {
                       }`}
                       aria-label={browserOn() ? t("files.hide") : t("files.show")}
                       aria-pressed={browserOn()}
-                      onClick={() => {
-                        setTraceBlock(null);
-                        setReplayPos(null);
-                        setBrowserOn((on) => !on);
-                      }}
+                      onClick={() => showFiles(!browserOn())}
                     >
                       <Icon name="folder" />
                     </button>
@@ -2498,7 +2519,7 @@ const turnIndexOf = (h: SearchHit): number => {
                     type="button"
                     class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
                     aria-label={t("files.hide")}
-                    onClick={() => setBrowserOn(false)}
+                    onClick={() => showFiles(false)}
                   >
                     ×
                   </button>
