@@ -759,12 +759,16 @@ export class OpencodeMapper {
           const seen = (m.compactionSeen ??= new Set());
           if (seen.has(part.id)) return out;
           seen.add(part.id);
+          // Same hole as the patch part below: a compaction carries no clock,
+          // so emitting without one stamped it with ingest time — sessions that
+          // only re-connected looked freshly active in the list.
           out.push(
             this.ev(
               s,
               "session.compacted",
               { message_id: part.messageID, auto: part.auto },
               `opencode:${part.id}:compaction`,
+              sourceTime(m.created ?? m.completed ?? s.updated),
             ),
           );
           return out;
@@ -1179,7 +1183,11 @@ export async function connectOpencode(opts: {
   fetch?: typeof fetch;
 }): Promise<{
   stop: () => void;
-  importSession: (sessionID: string, directory?: string) => Promise<void>;
+  importSession: (
+    sessionID: string,
+    directory?: string,
+    options?: { force?: boolean },
+  ) => Promise<boolean>;
   createSession: (opts?: { title?: string; directory?: string }) => Promise<{ id: string }>;
   prompt: (
     sessionID: string,
@@ -1378,15 +1386,32 @@ export async function connectOpencode(opts: {
   }
   const importedRevision = new Map<string, number>();
   const importTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  const readSession = async (sessionID: string, directory?: string): Promise<Event[]> => {
-    const dir = directory ?? opts.directory;
-    const sess = await client.session.get({ sessionID, directory: dir });
+  const sessionInfo = async (sessionID: string, directory?: string): Promise<Session> => {
+    const sess = await client.session.get({ sessionID, directory: directory ?? opts.directory });
     if (!sess.data) throw new Error(`session ${sessionID} not found`);
-    const msgs = await client.session.messages({ sessionID, directory: dir });
-    return snapshotEvents(sessionID, sess.data, msgs.data ?? []);
+    return sess.data;
   };
-  const importSession = async (sessionID: string, directory?: string) => {
-    for (const evt of await readSession(sessionID, directory)) ingestor.handle(evt);
+  const readSession = async (sessionID: string, directory?: string): Promise<Event[]> => {
+    const info = await sessionInfo(sessionID, directory);
+    const msgs = await client.session.messages({ sessionID, directory: directory ?? opts.directory });
+    return snapshotEvents(sessionID, info, msgs.data ?? []);
+  };
+  const importSession = async (
+    sessionID: string,
+    directory?: string,
+    options: { force?: boolean } = {},
+  ): Promise<boolean> => {
+    const info = await sessionInfo(sessionID, directory);
+    // The session doc carries its own revision. An unchanged one means the
+    // messages fetch — the expensive part, the whole transcript — would replay
+    // exactly what the store already holds, so a click on a session the
+    // listener already imported costs one small GET instead.
+    const updated = info.time?.updated ?? info.time?.created ?? 0;
+    if (!options.force && importedRevision.get(sessionID) === updated) return false;
+    const msgs = await client.session.messages({ sessionID, directory: directory ?? opts.directory });
+    for (const evt of snapshotEvents(sessionID, info, msgs.data ?? [])) ingestor.handle(evt);
+    importedRevision.set(sessionID, updated);
+    return true;
   };
   const rebuildSession = async (sessionID: string, directory?: string): Promise<number> => {
     if (!opts.sink.replaceSession) throw new Error("this sink cannot rebuild sessions");
@@ -1414,8 +1439,7 @@ export async function connectOpencode(opts: {
         sessionID,
         setTimeout(() => {
           importTimers.delete(sessionID);
-          importedRevision.delete(sessionID);
-          void importSession(sessionID, directory).catch((err) =>
+          void importSession(sessionID, directory, { force: true }).catch((err) =>
             console.error("import session failed:", err),
           );
         }, 400),

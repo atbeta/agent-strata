@@ -501,6 +501,8 @@ export function SessionDetail(props: {
   const [reviewSource, setReviewSource] = createSignal<"session" | "git">("session");
   const [reviewLayout, setReviewLayout] = createSignal<"unified" | "split">("unified");
   const [booting, setBooting] = createSignal(true);
+  /** the background re-import that lands after the stored view is already up */
+  const [importing, setImporting] = createSignal(true);
   const [modelTouched, setModelTouched] = createSignal(false);
   const [view, { refetch, mutate }] = createResource(
     () => ({ id: props.id, pos: replayPos() }),
@@ -998,14 +1000,25 @@ const turnIndexOf = (h: SearchHit): number => {
 
   createEffect(() => writeDraft(props.id, draft()));
 
+  // The stored view is already loading — the transcript paints as soon as it
+  // lands instead of waiting on a full re-import first.
+  createEffect(() => {
+    if (booting() && (view.state === "ready" || view.state === "errored")) setBooting(false);
+  });
+
   onMount(() => {
     if (draft()) queueMicrotask(autogrow);
-    void importSession(props.id)
-      .catch(() => {})
-      .finally(() => {
-        void refreshView(true).finally(() => setBooting(false));
-        void refetchSeq();
-      });
+    // Re-import in the background and only pay for a second full view when it
+    // actually moved the session — the head probe is index-only, so this stays
+    // cheap even when the import found nothing new.
+    void (async () => {
+      const before = await readHead(props.id).catch(() => undefined);
+      await importSession(props.id).catch(() => {});
+      const after = await readHead(props.id).catch(() => undefined);
+      setImporting(false);
+      if (after !== before) void refreshView(true);
+      void refetchSeq();
+    })();
     const onConns = () => {
       refetchOptions();
       refetchVcs();
@@ -2040,7 +2053,7 @@ const turnIndexOf = (h: SearchHit): number => {
                   }
                 >
                   <Show
-                    when={!booting()}
+                    when={!booting() && !(importing() && v().turns.length === 0)}
                     fallback={<LoadingTranscript />}
                   >
                     <Show

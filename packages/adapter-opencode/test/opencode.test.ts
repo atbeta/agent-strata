@@ -378,6 +378,46 @@ describe("OpencodeMapper", () => {
     expect(OPENCODE_REBUILT_TYPES).toContain("session.compacted");
   });
 
+  test("a compaction part is stamped by the message that asked for it", () => {
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    const created = Date.parse("2026-05-12T09:00:00.000Z");
+    m.handle(
+      msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created } }),
+    );
+    const part = { id: "pc2", sessionID: sid, messageID: "u1", type: "compaction", auto: true };
+    const evs = m.handle(partUpdated(part)).filter((e) => e.type === "session.compacted");
+    // No ingest clock — connecting today must not pull the session to the top.
+    expect(evs[0]!.ts).toBe(new Date(created).toISOString());
+  });
+
+  test("a compaction part ahead of its message takes the session clock", () => {
+    const m = new OpencodeMapper();
+    const updated = Date.parse("2026-09-20T08:00:00.000Z");
+    const info = {
+      id: sid,
+      directory: "/repo",
+      title: "Snapshot",
+      time: { created: 1, updated },
+    };
+    const messages = [
+      {
+        info: { id: "u1", sessionID: sid, role: "user", time: { created: 10 } },
+        parts: [
+          { id: "pt1", sessionID: sid, messageID: "u1", type: "text", text: "hi" },
+          { id: "pc9", sessionID: sid, messageID: "u1", type: "compaction", auto: true },
+        ],
+      },
+    ];
+    const out = snapshotEvents(sid, info as never, messages as never).flatMap((e) =>
+      m.handle(e),
+    );
+    const ev = out.find((e) => e.type === "session.compacted");
+    // Parts replay before their message on import — the session's own updated
+    // clock is the fallback, still never the ingest moment.
+    expect(ev?.ts).toBe(new Date(updated).toISOString());
+  });
+
   test("basic turn with reasoning+text+tool", () => {
     const m = new OpencodeMapper();
     const out = basicFixture().flatMap((e) => m.handle(e));
@@ -2014,5 +2054,68 @@ describe("a task tool names the child session it opened", () => {
     }));
     expect(bashRunning.find((e) => e.type === "tool.call")!.data).not.toHaveProperty("child_session_id");
     expect(bashDone.find((e) => e.type === "tool.result")!.data).not.toHaveProperty("child_session_id");
+  });
+});
+
+describe("importSession revision", () => {
+  test("an unchanged session costs only the info fetch; force pays for messages", async () => {
+    const { connectOpencode } = await import("../src/index");
+    const enc = new TextEncoder();
+    let messageCalls = 0;
+    const info = {
+      id: "ses_rev",
+      sessionID: "ses_rev",
+      title: "T",
+      directory: dir,
+      time: { created: 1, updated: 42 },
+    };
+    const messages = [
+      {
+        info: { id: "u1", sessionID: "ses_rev", role: "user", time: { created: 10 } },
+        parts: [
+          { id: "p1", sessionID: "ses_rev", messageID: "u1", type: "text", text: "hi" },
+        ],
+      },
+    ];
+    const fakeFetch = async (input: Request | URL | string) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.includes("/session/ses_rev/message")) {
+        messageCalls++;
+        return Response.json(messages);
+      }
+      if (url.includes("/session/ses_rev")) return Response.json(info);
+      if (url.includes("/event")) {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(ctrl) {
+              ctrl.enqueue(
+                enc.encode('data: {"type":"server.connected","properties":{}}\n\n'),
+              );
+            },
+          }),
+          { status: 200, headers: { "content-type": "text/event-stream" } },
+        );
+      }
+      return new Response("{}", { status: 404 });
+    };
+    const store = openStore(":memory:");
+    const conn = await connectOpencode({
+      baseUrl: "http://fake",
+      sink: store,
+      fetch: fakeFetch as typeof fetch,
+      connectTimeoutMs: 5_000,
+    });
+    try {
+      expect(await conn.importSession("ses_rev", dir)).toBe(true);
+      expect(messageCalls).toBe(1);
+      // Same time.updated -> the transcript fetch is skipped entirely.
+      expect(await conn.importSession("ses_rev", dir)).toBe(false);
+      expect(messageCalls).toBe(1);
+      expect(await conn.importSession("ses_rev", dir, { force: true })).toBe(true);
+      expect(messageCalls).toBe(2);
+    } finally {
+      conn.stop();
+      store.close();
+    }
   });
 });
