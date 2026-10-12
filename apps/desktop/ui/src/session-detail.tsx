@@ -66,6 +66,9 @@ import { Tip } from "./tip";
 import { TraceDrawer, TraceStrip, type TraceBlock } from "./trace";
 import { TurnBlock } from "./transcript";
 import { Virtual, type VirtualApi } from "./virtual";
+import { PromptNavigator } from "./prompt-navigator";
+import { promptAt, promptEntries } from "./prompt-outline";
+import { ComposerToolbar } from "./composer-toolbar";
 import { applyStreamingSnapshot, mergeViewTail, type StreamingSnapshot } from "./live";
 import { registerCommand } from "./commands";
 import { Picker } from "@/components/ui/picker";
@@ -613,6 +616,8 @@ export function SessionDetail(props: {
   // plain flag because the virtual list has to consult it while applying
   // measurements, which happens outside any render pass here.
   const [pinned, setPinned] = createSignal(true);
+  /** The turn at the top of the viewport — which prompt the outline lights up. */
+  const [activeTurn, setActiveTurn] = createSignal(0);
 
   // Full-text search inside the open session. This is not a convenience: the
   // transcript is windowed, so the reader's own Ctrl+F only sees the rows that
@@ -893,6 +898,45 @@ const turnIndexOf = (h: SearchHit): number => {
     pendingSend() ||
     !!settled(view)?.busy ||
     !!settled(view)?.turns.some((t) => t.assistant.some((a) => a.partial));
+
+  /** One outline row per real prompt, rebuilt from the view already in hand. */
+  const entries = createMemo(() => promptEntries(settled(view)?.turns ?? []));
+  const showNav = () => !booting() && replayPos() === null && entries().length >= 2;
+  /** Following the tail means the active prompt is the last one, whatever row is on top. */
+  const activeEntry = () => (pinned() ? entries().at(-1) : promptAt(entries(), activeTurn()));
+
+  let jumpSettleGen = 0;
+  const jumpToTurn = (turnId: string) => {
+    const i = settled(view)?.turns.findIndex((t) => t.turn_id === turnId) ?? -1;
+    if (i < 0) return;
+    // A jump is the reader leaving the tail — same bargain scrollToIndex makes.
+    setPinned(false);
+    list?.scrollToIndex(i, "start");
+    setActiveTurn(i);
+    // Rows land on estimated heights; once neighbours mount and measure, the
+    // target drifts. Re-anchor to the row's real box for a few frames.
+    const gen = ++jumpSettleGen;
+    let tries = 0;
+    const settle = () => {
+      if (gen !== jumpSettleGen) return;
+      const el = scroller;
+      const row = el?.querySelector(`[data-turn-id="${CSS.escape(turnId)}"]`);
+      if (!el || !(row instanceof HTMLElement) || tries >= 8) return;
+      const drift = row.getBoundingClientRect().top - el.getBoundingClientRect().top;
+      if (Math.abs(drift) <= 4) return;
+      tries += 1;
+      el.scrollTop += drift;
+      requestAnimationFrame(settle);
+    };
+    requestAnimationFrame(settle);
+  };
+
+  const jumpToLatest = () => {
+    jumpSettleGen++;
+    if (scroller) scroller.scrollTop = scroller.scrollHeight;
+    setPinned(true);
+    setActiveTurn(Math.max(0, (settled(view)?.turns.length ?? 1) - 1));
+  };
 
   /**
    * The prompt has been handed over but the agent has not produced a thing
@@ -1336,6 +1380,78 @@ const turnIndexOf = (h: SearchHit): number => {
       ? t("context.none", { n: num(total) })
       : t("context.percent", { percent, n: num(total) });
 
+  /**
+   * The composer toolbar's pickers and details popover. They are functions
+   * because the toolbar instantiates agent and effort twice — once inline and
+   * once inside the compact popover — and one element cannot be both.
+   */
+  const contextSlot = () => (
+    <Popover gutter={8} placement="top-start">
+      <Tip label={contextLabel(context()?.total ?? 0, context()?.percent ?? null)}>
+        <PopoverTrigger
+          class="grid h-8 w-8 place-items-center rounded-full transition-colors hover:bg-secondary"
+          aria-label={t("composer.details")}
+        >
+          <ContextRing percent={context()?.percent ?? null} />
+        </PopoverTrigger>
+      </Tip>
+      <PopoverContent>
+        <Show when={settled(view)}>
+          {(v) => (
+            <SessionInfo
+              totals={v().totals}
+              context={context()}
+              model={modelSel()}
+              backend={v().backend}
+              status={v().status}
+              workspace={v().workspace}
+            />
+          )}
+        </Show>
+      </PopoverContent>
+    </Popover>
+  );
+  const modelAvailable = () =>
+    (settled(options)?.models.length ?? 0) > 0 && (Boolean(modelSel()) || !booting());
+  const modelSlot = () => (
+    <Picker
+      showValueInTip
+      label={t("picker.model")}
+      value={modelSel()}
+      options={modelOptions()}
+      class="composer-model max-w-40"
+      onChange={(value) => {
+        setModelTouched(true);
+        setModelSel(value);
+        setVariantSel("");
+      }}
+    />
+  );
+  const effortSlot = () => (
+    <Picker
+      showValueInTip
+      label={t("picker.effort")}
+      capitalize
+      emptyOption={t("picker.default")}
+      placeholder={t("picker.default")}
+      value={variantSel()}
+      options={(effortModel()?.variants ?? []).map((name) => ({ value: name, label: name }))}
+      onChange={setVariantSel}
+      class="max-w-24"
+    />
+  );
+  const agentSlot = () => (
+    <Picker
+      showValueInTip
+      label={opencode() ? t("picker.agent.tip") : t("picker.agent")}
+      capitalize
+      value={agentSel()}
+      options={(settled(options)?.agents ?? []).map((a) => ({ value: a.name, label: a.name }))}
+      onChange={setAgentSel}
+      class="max-w-24"
+    />
+  );
+
   const stop = async () => {
     if (stopping()) return;
     setSendErr("");
@@ -1467,7 +1583,7 @@ const turnIndexOf = (h: SearchHit): number => {
 
   return (
     <div class="flex h-full min-h-0">
-      <div class="relative flex min-w-0 flex-1 flex-col">
+      <div class="@container/session relative flex min-w-0 flex-1 flex-col">
         <Show
           when={settled(view)}
           fallback={
@@ -1967,6 +2083,7 @@ const turnIndexOf = (h: SearchHit): number => {
                 />
               </Show>
 
+              <div class="relative flex min-h-0 flex-1 flex-col">
               <div
                 ref={scroller}
                 // overflow-x is stated, not left out. CSS turns a `visible`
@@ -1981,9 +2098,16 @@ const turnIndexOf = (h: SearchHit): number => {
                   setScrollTop(el.scrollTop);
                   setViewport(el.clientHeight);
                   setPinned(el.scrollHeight - el.scrollTop - el.clientHeight < 96);
+                  setActiveTurn(list?.indexAtTop() ?? 0);
                 }}
               >
-                <div class="mx-auto w-full max-w-3xl px-5 py-4">
+                <div
+                  class={
+                    showNav()
+                      ? "mx-auto w-full max-w-3xl py-4 pl-11 pr-5"
+                      : "mx-auto w-full max-w-3xl px-5 py-4"
+                  }
+                >
                   <Show
                     when={!booting()}
                     fallback={<LoadingTranscript />}
@@ -2014,23 +2138,45 @@ const turnIndexOf = (h: SearchHit): number => {
                       scrollTop={scrollTop()}
                       viewport={viewport()}
                       scroller={() => scroller}
-                      api={(a) => (list = a)}
+                      api={(a) => {
+                        list = a;
+                        setActiveTurn(a.indexAtTop());
+                      }}
                     >
                       {(turn) => (
-                        <TurnBlock
-                          turn={turn}
-                          awaiting={() => lastSilentTurn() === turn}
-                          childOf={childOf}
-                          onOpenChild={openChild}
-                          onEdit={editTurn}
-                          onRevert={caps()?.revert ? revertTurn : undefined}
-                          onFork={caps()?.fork ? forkTurn : undefined}
-                        />
+                        <div data-turn-id={turn.turn_id}>
+                          <TurnBlock
+                            turn={turn}
+                            awaiting={() => lastSilentTurn() === turn}
+                            childOf={childOf}
+                            onOpenChild={openChild}
+                            onEdit={editTurn}
+                            onRevert={caps()?.revert ? revertTurn : undefined}
+                            onFork={caps()?.fork ? forkTurn : undefined}
+                          />
+                        </div>
                       )}
                     </Virtual>
                     </Show>
                   </Show>
                 </div>
+              </div>
+              <Show when={showNav()}>
+                <PromptNavigator
+                  entries={entries()}
+                  activeId={activeEntry()?.turnId}
+                  onSelect={jumpToTurn}
+                />
+              </Show>
+              <Show when={!booting() && replayPos() === null && !pinned() && v().turns.length > 0}>
+                <button
+                  type="button"
+                  class="absolute bottom-4 left-1/2 z-20 -translate-x-1/2 rounded-full border border-border bg-popover px-3 py-1 text-xs text-muted-foreground shadow-md transition-colors hover:text-foreground"
+                  onClick={jumpToLatest}
+                >
+                  {t("nav.latest")}
+                </button>
+              </Show>
               </div>
 
               <Show when={replayPos() === null}>
@@ -2200,7 +2346,7 @@ const turnIndexOf = (h: SearchHit): number => {
                         </div>
                       </Show>
                     <div
-                      class={`rounded-2xl border border-input bg-card shadow-[0_8px_30px_-18px_rgba(0,0,0,0.7)] transition-colors focus-within:border-ring ${queued().length > 0 ? "-mt-2" : ""}`}
+                      class={`@container/composer rounded-2xl border border-input bg-card shadow-[0_8px_30px_-18px_rgba(0,0,0,0.7)] transition-colors focus-within:border-ring ${queued().length > 0 ? "-mt-2" : ""}`}
                       onDragOver={(e) => {
                         if (!canAttach() || !e.dataTransfer?.types.includes("Files")) return;
                         e.preventDefault();
@@ -2319,122 +2465,33 @@ const turnIndexOf = (h: SearchHit): number => {
                           }
                         }}
                       />
-                      <div class="flex items-center gap-2 px-3 pb-2.5">
-                        <Show when={canAttach()}>
-                          <input
-                            ref={fileInput}
-                            type="file"
-                            multiple
-                            accept={ATTACHMENT_ACCEPT}
-                            class="hidden"
-                            onChange={(e) => {
-                              const input = e.currentTarget;
-                              if (input.files) void addFiles(input.files);
-                              input.value = "";
-                            }}
-                          />
-                          <Tip label={t("composer.attach")}>
-                            <button
-                              type="button"
-                              class="grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                              aria-label={t("composer.attach")}
-                              onClick={() => fileInput?.click()}
-                            >
-                              <Icon name="attach" class="h-4 w-4" />
-                            </button>
-                          </Tip>
-                        </Show>
-                        <Show when={generating()}>
-                          <span class="text-xs text-muted-foreground">{t("composer.running")}</span>
-                        </Show>
-                        <div class="ml-auto">
-                          <Show
-                            when={!generating()}
-                            fallback={
-                              <Tip label={stopping() ? t("composer.stopping") : t("composer.stop")}>
-                                <button
-                                  class="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-foreground text-background transition-opacity hover:opacity-80 active:scale-95 disabled:opacity-40"
-                                  disabled={stopping()}
-                                  aria-label={stopping() ? t("composer.stopping_aria") : t("composer.stop")}
-                                  onClick={() => void stop()}
-                                >
-                                  <span class="h-2.5 w-2.5 rounded-[2px] bg-background" />
-                                </button>
-                              </Tip>
-                            }
-                          >
-                            <Tip label={canSend() ? t("composer.send") : t("composer.type")}>
-                              <button
-                                class="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-primary text-primary-foreground transition-opacity hover:opacity-90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-30 disabled:active:scale-100"
-                                disabled={!canSend()}
-                                aria-label={canSend() ? t("composer.send") : t("composer.type")}
-                                onClick={() => void send()}
-                              >
-                                <svg viewBox="0 0 16 16" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                  <path d="M8 12.5v-9M3.8 7.3 8 3l4.2 4.3" />
-                                </svg>
-                              </button>
-                            </Tip>
-                          </Show>
-                        </div>
-                      </div>
-                    </div>
-                    </div>
-                    <div class="flex items-center gap-0.5 px-1">
-                      <Popover gutter={8} placement="top-start">
-                        <Tip label={contextLabel(context()?.total ?? 0, context()?.percent ?? null)}>
-                          <PopoverTrigger
-                            class="mr-auto grid h-7 w-7 place-items-center rounded-md transition-colors hover:bg-secondary"
-                            aria-label={t("composer.details")}
-                          >
-                            <ContextRing percent={context()?.percent ?? null} />
-                          </PopoverTrigger>
-                        </Tip>
-                        <PopoverContent>
-                          <SessionInfo
-                            totals={v().totals}
-                            context={context()}
-                            model={modelSel()}
-                            backend={v().backend}
-                            status={v().status}
-                            workspace={v().workspace}
-                          />
-                        </PopoverContent>
-                      </Popover>
-                      <div class="flex min-w-0 items-center justify-end gap-0.5">
-                      <Show when={(settled(options)?.models.length ?? 0) > 0 && (Boolean(modelSel()) || !booting())}>
-                        <Picker
-                          label={t("picker.model")}
-                          value={modelSel()}
-                          options={modelOptions()}
-                          onChange={(value) => {
-                            setModelTouched(true);
-                            setModelSel(value);
-                            setVariantSel("");
+                      <Show when={canAttach()}>
+                        <input
+                          ref={fileInput}
+                          type="file"
+                          multiple
+                          accept={ATTACHMENT_ACCEPT}
+                          class="hidden"
+                          onChange={(e) => {
+                            const input = e.currentTarget;
+                            if (input.files) void addFiles(input.files);
+                            input.value = "";
                           }}
                         />
                       </Show>
-                      <Show when={(effortModel()?.variants?.length ?? 0) > 0}>
-                        <Picker
-                          label={t("picker.effort")}
-                          capitalize
-                          emptyOption={t("picker.default")}
-                          placeholder={t("picker.default")}
-                          value={variantSel()}
-                          options={(effortModel()?.variants ?? []).map((name) => ({ value: name, label: name }))}
-                          onChange={setVariantSel}
-                        />
-                      </Show>
-                      <Show when={(settled(options)?.agents.length ?? 0) > 0}>
-                        <Picker
-                          label={opencode() ? t("picker.agent.tip") : t("picker.agent")}
-                          capitalize
-                          value={agentSel()}
-                          options={(settled(options)!.agents ?? []).map((a) => ({ value: a.name, label: a.name }))}
-                          onChange={setAgentSel}
-                        />
-                      </Show>
-                      </div>
+                      <ComposerToolbar
+                        context={contextSlot}
+                        agent={(settled(options)?.agents.length ?? 0) > 0 ? agentSlot : undefined}
+                        model={modelAvailable() ? modelSlot : undefined}
+                        effort={(effortModel()?.variants?.length ?? 0) > 0 ? effortSlot : undefined}
+                        onAttach={canAttach() ? () => fileInput?.click() : undefined}
+                        generating={generating()}
+                        stopping={stopping()}
+                        canSend={canSend()}
+                        onSend={send}
+                        onStop={() => void stop()}
+                      />
+                    </div>
                     </div>
                     <Show when={sendErr()}>
                       <p class="font-mono text-2xs text-destructive">{sendErr()}</p>

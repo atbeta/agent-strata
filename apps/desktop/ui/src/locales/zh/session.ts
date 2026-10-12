@@ -159,6 +159,9 @@ export default {
   "composer.stop": "停止",
   "composer.send": "发送",
   "composer.type": "输入消息",
+  "composer.queue": "加入队列",
+  "composer.queue.tip": "加入队列——本轮结束后发送（Enter）",
+  "composer.more": "更多选项",
   "composer.details": "会话详情",
   "composer.menu.files": "文件",
   "composer.menu.commands": "命令",
@@ -213,4 +216,11 @@ export default {
   "message.reverted": "已撤回",
   "message.summarize": "压缩",
   "message.compacted": "对话已压缩",
+
+  // The prompt outline on the transcript's left edge.
+  "nav.outline": "提问导航，共 {n} 条",
+  "nav.turn": "第 {n} 轮",
+  "nav.reverted": "已回退",
+  "nav.latest": "返回最新",
+  "nav.attach": "附件",
 } as const;

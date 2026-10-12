@@ -29,7 +29,8 @@ type Name =
   | "plug"
   | "brain"
   | "stop"
-  | "alert";
+  | "alert"
+  | "plus";
 
 function Glyph(props: { class?: string; children: JSX.Element }) {
   return (
@@ -263,6 +264,12 @@ export function Icon(props: { name: Name; class?: string }) {
     return (
       <Glyph class={props.class}>
         <rect x="4" y="4" width="8" height="8" rx="1" />
+      </Glyph>
+    );
+  if (props.name === "plus")
+    return (
+      <Glyph class={props.class}>
+        <path d="M8 3.5v9M3.5 8h9" />
       </Glyph>
     );
   if (props.name === "alert")

@@ -33,6 +33,8 @@ export interface PickerProps {
   capitalize?: boolean;
   class?: string;
   contentClass?: string;
+  /** Tooltip names the current pick too; the aria-label stays the generic one. */
+  showValueInTip?: boolean;
 }
 
 /**
@@ -71,7 +73,7 @@ export function Picker(props: PickerProps) {
 
   return (
     <DropdownMenu open={open()} onOpenChange={setOpen} gutter={6}>
-      <Tip label={props.label}>
+      <Tip label={props.showValueInTip ? `${props.label}: ${triggerText()}` : props.label}>
         <DropdownMenuTrigger
           class={cn(
             "flex h-7 max-w-52 items-center gap-1 truncate rounded-md bg-transparent px-1.5 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground",

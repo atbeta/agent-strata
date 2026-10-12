@@ -159,6 +159,9 @@ export default {
   "composer.stop": "Stop",
   "composer.send": "Send",
   "composer.type": "Type a message",
+  "composer.queue": "Queue",
+  "composer.queue.tip": "Queue — sends when the current run finishes (Enter)",
+  "composer.more": "More options",
   "composer.details": "Session details",
   "composer.menu.files": "Files",
   "composer.menu.commands": "Commands",
@@ -213,4 +216,11 @@ export default {
   "message.reverted": "Reverted",
   "message.summarize": "Summarize",
   "message.compacted": "Conversation compacted",
+
+  // The prompt outline on the transcript's left edge.
+  "nav.outline": "Prompt outline, {n} prompts",
+  "nav.turn": "Turn {n}",
+  "nav.reverted": "Reverted",
+  "nav.latest": "Back to latest",
+  "nav.attach": "Attachment",
 } as const;

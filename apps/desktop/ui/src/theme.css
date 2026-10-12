@@ -336,6 +336,80 @@ textarea {
   }
 }
 
+/* Prompt outline rail: one quiet line per user prompt, always clickable.
+   The rail is its own scrollbox so long sessions keep every line reachable;
+   touch pointers get taller hit rows instead of a different control. */
+.prompt-nav {
+  --nav-row-size: 8px;
+}
+.prompt-nav .rail {
+  scrollbar-width: none;
+}
+.prompt-nav .rail::-webkit-scrollbar {
+  display: none;
+}
+.prompt-nav .nav-tick {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: var(--nav-row-size);
+  border-radius: 4px;
+}
+.prompt-nav .nav-line {
+  display: block;
+  width: 8px;
+  height: 1.5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted-foreground) 45%, transparent);
+}
+.prompt-nav .nav-tick:hover .nav-line,
+.prompt-nav .nav-tick:focus-visible .nav-line {
+  width: 14px;
+  background: var(--foreground);
+  opacity: 0.55;
+}
+.prompt-nav .nav-tick[aria-current] .nav-line {
+  width: 14px;
+  background: var(--primary);
+  opacity: 1;
+}
+@media (hover: none) {
+  .prompt-nav {
+    --nav-row-size: 28px;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .prompt-nav .nav-line {
+    transition:
+      width 0.15s ease,
+      background-color 0.15s ease;
+  }
+}
+
+/* Composer toolbar: pickers inline while the composer is wide, folded behind
+   the gear when it is not. `display: contents` keeps the slots' children in
+   the parent flex row without adding a wrapper box. */
+.composer-wide-slot {
+  display: contents;
+}
+.composer-compact-slot {
+  display: none;
+}
+@container composer (max-width: 600px) {
+  .composer-wide-slot {
+    display: none;
+  }
+  .composer-compact-slot {
+    display: contents;
+  }
+  .composer-queue-label {
+    display: none;
+  }
+  .composer-toolbar .composer-model {
+    max-width: 96px;
+  }
+}
+
 /* A chosen code face overrides the per-element size utilities. Unlayered so it
    beats Tailwind's `.text-xs` / `.text-2xs` on the same node. */
 html[data-code-size] .font-mono {
