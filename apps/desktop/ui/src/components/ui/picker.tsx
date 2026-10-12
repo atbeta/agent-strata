@@ -32,6 +32,7 @@ export interface PickerProps {
   allowEmpty?: boolean;
   capitalize?: boolean;
   class?: string;
+  contentClass?: string;
 }
 
 /**
@@ -94,7 +95,7 @@ export function Picker(props: PickerProps) {
         </DropdownMenuTrigger>
       </Tip>
 
-      <DropdownMenuContent class="max-h-80 max-w-64 overflow-y-auto">
+      <DropdownMenuContent class={cn("max-h-80 max-w-64 overflow-y-auto", props.contentClass)}>
         <Show when={props.emptyOption}>
           <DropdownMenuItem
             disabled={!props.allowEmpty && props.value === ""}

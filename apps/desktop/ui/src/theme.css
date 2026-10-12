@@ -141,6 +141,7 @@ html[data-theme="light"] {
      from this block. */
   --font-sans: ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "Cascadia Code", monospace;
+  --font-terminal: var(--font-mono);
   --text-2xs: 0.6875rem;
   --text-xs: 0.75rem;
   --text-sm: 0.8125rem;
@@ -194,6 +195,21 @@ html[data-theme="light"] {
   :is(button, a, input, textarea, select, label, [role="button"]) {
     -webkit-app-region: no-drag;
     app-region: no-drag;
+  }
+  /* The page is 13px. A control that keeps the browser default (16px) reads
+     larger than every label beside it, and a native select on Windows ignores
+     a utility size often enough that the mismatch shows up in every form. */
+  button,
+  input,
+  textarea,
+  select {
+    font-family: inherit;
+  }
+  input,
+  textarea,
+  select {
+    font-size: var(--text-sm);
+    line-height: 1.45;
   }
 }
 

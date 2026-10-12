@@ -13,7 +13,7 @@ export default {
   "question.dismiss": "忽略",
 
   // A permission request sitting above the composer.
-  "permission.wants_to_run": "请求执行",
+  "permission.wants_to_run": "等待确认",
   "permission.allow": "允许",
   "permission.once": "仅此一次",
   "permission.always": "始终允许",

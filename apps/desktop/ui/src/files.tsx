@@ -1,6 +1,7 @@
 import { createResource, createSignal, For, Show } from "solid-js";
 import { listFiles, openInEditor, readFileBody, type FileNode } from "./api";
 import { t } from "./i18n";
+import { Code } from "./payload";
 
 const PREVIEW_LIMIT = 200_000;
 
@@ -134,12 +135,12 @@ export function FileBrowser(props: { sessionId: string }) {
     (key) => readFileBody(key.id, key.path),
   );
 
-  const open = async (editor: "cursor" | "vscode") => {
+  const openInVsCode = async () => {
     const node = selected();
     if (!node) return;
     setOpenErr("");
     try {
-      await openInEditor(editor, node.absolute);
+      await openInEditor("vscode", node.absolute);
     } catch (e) {
       setOpenErr(e instanceof Error ? e.message : String(e));
     }
@@ -170,14 +171,7 @@ export function FileBrowser(props: { sessionId: string }) {
                 <button
                   type="button"
                   class="rounded-md px-1.5 py-0.5 text-2xs text-muted-foreground hover:bg-secondary hover:text-foreground"
-                  onClick={() => void open("cursor")}
-                >
-                  {t("files.cursor")}
-                </button>
-                <button
-                  type="button"
-                  class="rounded-md px-1.5 py-0.5 text-2xs text-muted-foreground hover:bg-secondary hover:text-foreground"
-                  onClick={() => void open("vscode")}
+                  onClick={() => void openInVsCode()}
                 >
                   {t("files.vscode")}
                 </button>
@@ -196,7 +190,7 @@ export function FileBrowser(props: { sessionId: string }) {
                   <p class="text-xs text-muted-foreground">{t("files.binary")}</p>
                 </Show>
                 <Show when={!body.loading && body()?.type === "text"}>
-                  <pre class="font-mono text-xs whitespace-pre">{text()}</pre>
+                  <Code source={text()} label={node().name} maxHeight="max-h-none" />
                   <Show when={(body()?.content.length ?? 0) > PREVIEW_LIMIT}>
                     <p class="mt-2 text-xs text-muted-foreground">{t("files.truncated")}</p>
                   </Show>

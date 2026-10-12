@@ -2,6 +2,7 @@ import { createEffect, createResource, createSignal, For, Show } from "solid-js"
 import { getJson, readConfig, saveConfig, type Connection } from "./api";
 import { t } from "./i18n";
 import { Group } from "./settings-blocks";
+import { Picker } from "@/components/ui/picker";
 
 function explain(message: string, draft: string): string {
   if (message === "invalid config") return t("settings.config.invalid");
@@ -75,20 +76,20 @@ function ConfigEditor(props: { connection: Connection; workspaces: { directory: 
       <Show when={dirs().length > 0}>
         <label class="block text-xs text-muted-foreground">
           {t("settings.config.directory")}
-          <select
-            class="mt-1 h-8 w-full rounded-md border border-border bg-secondary/40 px-2 text-sm text-foreground"
+          <Picker
+            label={t("settings.config.directory")}
             value={directory()}
-            onChange={(e) => {
+            class="mt-1 h-8 w-full max-w-none justify-between rounded-md border border-border bg-secondary/40 px-2 text-sm text-foreground hover:bg-secondary/40"
+            contentClass="max-w-md"
+            options={dirs().map((workspace) => ({
+              value: workspace.directory,
+              label: workspace.name ? `${workspace.name} · ${workspace.directory}` : workspace.directory,
+            }))}
+            onChange={(value) => {
               setLoadedFor("");
-              setDirectory(e.currentTarget.value);
+              setDirectory(value);
             }}
-          >
-            <For each={dirs()}>
-              {(workspace) => (
-                <option value={workspace.directory}>{workspace.name ? `${workspace.name} · ${workspace.directory}` : workspace.directory}</option>
-              )}
-            </For>
-          </select>
+          />
         </label>
       </Show>
       <textarea

@@ -801,6 +801,32 @@ describe("createIngestor seam", () => {
     expect(replies).toEqual(["once", "reject"]);
   });
 
+  test("a reply that already happened does not ask OpenCode again", async () => {
+    const replies: string[] = [];
+    let resolveAsk: ((ans: { decision: "allow" | "deny"; external?: boolean }) => void) | undefined;
+    const ing = createIngestor({
+      mapper: new OpencodeMapper(),
+      sink: { append() {} },
+      onAsk: () =>
+        new Promise((resolve) => {
+          resolveAsk = resolve;
+        }),
+      onSettled: (_id, decision) => resolveAsk?.({ decision, external: true }),
+      reply: async (_id, reply) => {
+        replies.push(reply);
+      },
+    });
+    ing.handle(sessionCreated());
+    ing.handle(asked("bash", ["ls"], "perm1"));
+    ing.handle({
+      id: "pr",
+      type: "permission.replied",
+      properties: { sessionID: sid, requestID: "perm1", reply: "once" },
+    } as unknown as Event);
+    await Bun.sleep(20);
+    expect(replies).toEqual([]);
+  });
+
   test("(a) pending onAsk does not block later events", async () => {
     const store = openStore(":memory:");
     const ing = createIngestor({

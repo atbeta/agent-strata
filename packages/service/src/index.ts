@@ -50,7 +50,8 @@ interface PendingAsk {
   tool: string;
   input: Record<string, unknown>;
   asked_at: string;
-  resolve: (ans: { decision: "allow" | "deny"; scope?: "once" | "always" }) => void;
+  call_id?: string;
+  resolve: (ans: { decision: "allow" | "deny"; scope?: "once" | "always"; external?: boolean }) => void;
 }
 
 interface PendingQuestion {
@@ -180,19 +181,43 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     return matches.length === 1 ? matches[0] : undefined;
   };
 
+  const settledAsks = new Map<string, "allow" | "deny">();
+  const rememberAsk = (id: string, decision: "allow" | "deny") => {
+    settledAsks.set(id, decision);
+    if (settledAsks.size <= 1000) return;
+    let extra = settledAsks.size - 800;
+    for (const key of settledAsks.keys()) {
+      settledAsks.delete(key);
+      if (--extra <= 0) break;
+    }
+  };
   const onAsk = (req: Extract<EventInput, { type: "permission.requested" }>) => {
     store.append([req]);
     const data = req.data;
-    return new Promise<{ decision: "allow" | "deny"; scope?: "once" | "always" }>((resolve) =>
+    const known = settledAsks.get(data.request_id);
+    // A second copy of an ask that is already on screen, or already answered,
+    // must not open another prompt or reply to OpenCode again.
+    if (known || pendingAsks.has(data.request_id)) {
+      return Promise.resolve({ decision: known ?? "allow", external: true as const });
+    }
+    return new Promise<{ decision: "allow" | "deny"; scope?: "once" | "always"; external?: boolean }>((resolve) =>
       pendingAsks.set(data.request_id, {
         request_id: data.request_id,
         session_id: req.session_id,
         tool: data.tool,
         input: data.input,
+        call_id: data.call_id,
         asked_at: req.ts,
         resolve,
       }),
     );
+  };
+  const settleAsk = (requestId: string, decision: "allow" | "deny") => {
+    rememberAsk(requestId, decision);
+    const ask = pendingAsks.get(requestId);
+    if (!ask) return;
+    pendingAsks.delete(requestId);
+    ask.resolve({ decision, external: true });
   };
   const onQuestion = (req: Extract<EventInput, { type: "question.asked" }>) => {
     store.append([req]);
@@ -243,6 +268,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         connectTimeoutMs: body.connectTimeoutMs,
         onAsk,
         onQuestion,
+        onSettled: settleAsk,
       });
     } else if (backend === "acp") {
       if (!body.command) throw new Error("command required");
@@ -915,9 +941,11 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         decision?: string;
         scope?: "once" | "always";
       };
+      const decision = body.decision === "deny" ? "deny" : "allow";
       pendingAsks.delete(ask.request_id);
+      rememberAsk(ask.request_id, decision);
       ask.resolve({
-        decision: body.decision === "deny" ? "deny" : "allow",
+        decision,
         scope: body.scope,
       });
       return json({ ok: true });

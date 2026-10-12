@@ -16,6 +16,7 @@ import {
   type CodeSize,
   type FontChoice,
 } from "./font";
+import { readThinkingOpen, saveThinkingOpen } from "./thinking";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -139,6 +140,7 @@ export function SettingsPage(props: { section?: string }) {
   const [hydrated, setHydrated] = createSignal(false);
   const [saveErr, setSaveErr] = createSignal("");
   const [fonts, setFonts] = createSignal<FontChoice>(readFonts());
+  const [thinkingOpen, setThinkingOpen] = createSignal(readThinkingOpen());
   const [notifyOn, setNotifyOn] = createSignal(readNotify());
   const [notifyErr, setNotifyErr] = createSignal("");
 
@@ -277,6 +279,22 @@ export function SettingsPage(props: { section?: string }) {
           />
         </Row>
 
+        <Row label={t("settings.thinking.title")} hint={t("settings.thinking.hint")}>
+          <Segmented
+            label={t("settings.thinking.title")}
+            value={thinkingOpen() ? "open" : "closed"}
+            onChange={(id) => {
+              const open = id === "open";
+              setThinkingOpen(open);
+              saveThinkingOpen(open);
+            }}
+            options={[
+              { id: "closed", label: t("settings.thinking.closed") },
+              { id: "open", label: t("settings.thinking.open") },
+            ]}
+          />
+        </Row>
+
         <Row label={t("settings.notify.title")} hint={t("settings.notify.hint")}>
           <Switch
             checked={notifyOn()}
@@ -329,6 +347,15 @@ export function SettingsPage(props: { section?: string }) {
               value={fonts().code}
               presets={CODE_PRESETS}
               onChange={(code) => patchFonts({ code })}
+            />
+          </Row>
+
+          <Row label={t("settings.font.terminal")} hint={t("settings.font.terminal.hint")}>
+            <FontPicker
+              label={t("settings.font.terminal")}
+              value={fonts().terminal}
+              presets={CODE_PRESETS}
+              onChange={(terminal) => patchFonts({ terminal })}
             />
           </Row>
 

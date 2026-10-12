@@ -60,6 +60,8 @@ describe("a font family name", () => {
 describe("a stored font choice", () => {
   test("falls back when the value is missing or nonsense", () => {
     expect(parseFonts(null).ligatures).toBe(true);
+    expect(parseFonts(null).terminal).toBe("");
+    expect(parseFonts(JSON.stringify({ code: "Consolas" })).terminal).toBe("");
     expect(parseFonts("{").code).toBe("");
     expect(parseFonts(JSON.stringify({ size: "99", leading: "huge" })).size).toBe("");
   });
@@ -70,6 +72,7 @@ describe("a stored font choice", () => {
         JSON.stringify({
           ui: "Segoe UI",
           code: "Sarasa Gothic SC",
+          terminal: "Consolas",
           size: "14",
           leading: "relaxed",
           ligatures: false,
@@ -78,6 +81,7 @@ describe("a stored font choice", () => {
     ).toEqual({
       ui: "Segoe UI",
       code: "Sarasa Gothic SC",
+      terminal: "Consolas",
       size: "14",
       leading: "relaxed",
       ligatures: false,
