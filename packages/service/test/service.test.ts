@@ -703,6 +703,54 @@ describe("agent-strata service", () => {
     svc.stop();
   });
 
+  test("a permission OpenCode already answered leaves the pending list", async () => {
+    const oc = fakeOpencode({});
+    const svc = startService({ db: ":memory:", port: 0 });
+    const base = `http://127.0.0.1:${svc.port}`;
+    await fetch(`${base}/connect`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ baseUrl: oc.baseUrl, directory: "/repo" }),
+    });
+    oc.push({
+      directory: "/repo",
+      payload: {
+        type: "permission.asked",
+        properties: {
+          id: "perm-done", sessionID: "ses_done", permission: "bash",
+          patterns: ["ls"], metadata: {}, always: [],
+        },
+      },
+    });
+    let pending = false;
+    for (let i = 0; i < 20 && !pending; i++) {
+      await Bun.sleep(50);
+      const body = (await fetch(`${base}/permissions`).then((r) => r.json())) as {
+        pending: { request_id: string }[];
+      };
+      pending = body.pending.some((p) => p.request_id === "perm-done");
+    }
+    expect(pending).toBe(true);
+    oc.push({
+      directory: "/repo",
+      payload: {
+        type: "permission.replied",
+        properties: { sessionID: "ses_done", requestID: "perm-done", reply: "once" },
+      },
+    });
+    let cleared = false;
+    for (let i = 0; i < 20 && !cleared; i++) {
+      await Bun.sleep(50);
+      const body = (await fetch(`${base}/permissions`).then((r) => r.json())) as {
+        pending: { request_id: string }[];
+      };
+      cleared = !body.pending.some((p) => p.request_id === "perm-done");
+    }
+    expect(cleared).toBe(true);
+    oc.stop();
+    svc.stop();
+  });
+
   test("a child session is kept under its parent", async () => {
     const root = { id: "root", title: "Parent", directory: "/repo", time: { created: 1, updated: 1 } };
     const kid = { id: "kid", parentID: "root", title: "Child", directory: "/repo", time: { created: 2, updated: 2 } };

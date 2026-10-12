@@ -13,7 +13,7 @@ export default {
   "question.dismiss": "dismiss",
 
   // A permission request sitting above the composer.
-  "permission.wants_to_run": "wants to run",
+  "permission.wants_to_run": "awaiting approval",
   "permission.allow": "allow",
   "permission.once": "Once",
   "permission.always": "Always",

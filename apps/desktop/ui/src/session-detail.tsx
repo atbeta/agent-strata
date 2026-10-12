@@ -67,13 +67,6 @@ import { TurnBlock } from "./transcript";
 import { Virtual, type VirtualApi } from "./virtual";
 import { applyStreamingSnapshot, mergeViewTail, type StreamingSnapshot } from "./live";
 import { registerCommand } from "./commands";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Picker } from "@/components/ui/picker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -513,6 +506,7 @@ export function SessionDetail(props: {
       return r.pending.filter((p) => p.session_id === id);
     },
   );
+  const [hiddenAsks, setHiddenAsks] = createSignal<ReadonlySet<string>>(new Set());
   const [questions, { refetch: refetchQuestions }] = createResource(
     () => props.id,
     async (id) => {
@@ -1054,8 +1048,38 @@ const turnIndexOf = (h: SearchHit): number => {
   });
 
   const respond = async (requestId: string, decision: "allow" | "deny", scope?: "once" | "always") => {
-    await respondPermission(requestId, decision, scope);
+    setHiddenAsks((cur) => new Set(cur).add(requestId));
+    try {
+      await respondPermission(requestId, decision, scope);
+    } catch (err) {
+      const missing = err instanceof Error && /\b404\b/.test(err.message);
+      if (!missing) {
+        setHiddenAsks((cur) => {
+          const next = new Set(cur);
+          next.delete(requestId);
+          return next;
+        });
+        setSendErr(err instanceof Error ? err.message : t("err.network"));
+      }
+    }
     refetchAsks();
+  };
+
+  const openAsks = () => {
+    const hidden = hiddenAsks();
+    const decided = new Set<string>();
+    const finished = new Set<string>();
+    for (const turn of settled(view)?.turns ?? []) {
+      for (const call of turn.tool_calls) {
+        if (call.permission?.request_id && call.permission.decision) decided.add(call.permission.request_id);
+        if (call.call_id && call.status !== "pending") finished.add(call.call_id);
+      }
+    }
+    return (settled(asks) ?? []).filter((ask) => {
+      if (hidden.has(ask.request_id) || decided.has(ask.request_id)) return false;
+      if (ask.call_id && finished.has(ask.call_id)) return false;
+      return true;
+    });
   };
 
   const autogrow = () => {
@@ -1569,71 +1593,76 @@ const turnIndexOf = (h: SearchHit): number => {
                       </Show>
                     </button>
                   </Tip>
-                  {/* View toggles stay inline because they say what the session
-                      looks like right now. Commands — replay, MCP, compact,
-                      export — go behind one trigger: eight fixed buttons left
-                      the title no room, and at the window's 960px minimum it
-                      collapsed to nothing at all. */}
-                  <DropdownMenu placement="bottom-end">
-                    <DropdownMenuTrigger
+                  <Tip label={traceOn() ? t("trace.live") : t("trace.replay")}>
+                    <button
                       type="button"
-                      class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                      aria-label={t("header.more")}
+                      class={`grid h-7 w-7 place-items-center rounded-md transition-colors ${
+                        traceOn()
+                          ? "bg-secondary text-foreground"
+                          : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                      }`}
+                      aria-label={traceOn() ? t("trace.live") : t("trace.replay")}
+                      aria-pressed={traceOn()}
+                      onClick={() => {
+                        if (traceOn()) {
+                          setTraceOn(false);
+                          setTraceBlock(null);
+                          setReplayPos(null);
+                        } else {
+                          setTraceOn(true);
+                        }
+                      }}
                     >
-                      ···
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent class="min-w-44">
-                      <DropdownMenuItem
-                        onSelect={() => {
-                          if (traceOn()) {
-                            setTraceOn(false);
-                            setTraceBlock(null);
-                            setReplayPos(null);
-                          } else {
-                            setTraceOn(true);
-                          }
-                        }}
+                      <Icon name="replay" />
+                    </button>
+                  </Tip>
+                  <Show when={opencode()}>
+                    <Tip label={t("header.tools")}>
+                      <button
+                        type="button"
+                        class={`grid h-7 w-7 place-items-center rounded-md transition-colors ${
+                          toolsOpen()
+                            ? "bg-secondary text-foreground"
+                            : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                        }`}
+                        aria-label={t("header.tools")}
+                        aria-pressed={toolsOpen()}
+                        onClick={toggleTools}
                       >
-                        <Icon
-                          name="replay"
-                          class={`size-3.5 ${traceOn() ? "text-foreground" : "text-muted-foreground"}`}
-                        />
-                        {traceOn() ? t("trace.live") : t("trace.replay")}
-                      </DropdownMenuItem>
-                      <Show when={opencode()}>
-                        <DropdownMenuItem onSelect={toggleTools}>
-                          <Icon
-                            name="plug"
-                            class={`size-3.5 ${toolsOpen() ? "text-foreground" : "text-muted-foreground"}`}
-                          />
-                          {t("header.tools")}
-                        </DropdownMenuItem>
-                      </Show>
-                      <DropdownMenuSeparator />
-                      <Show when={caps()?.summarize}>
-                        <DropdownMenuItem
-                          onSelect={() =>
-                            void summarizeSession(props.id).catch((err) =>
-                              setSendErr(err instanceof Error ? err.message : t("err.network")),
-                            )
-                          }
-                        >
-                          <Icon name="compact" class="size-3.5 text-muted-foreground" />
-                          {t("message.summarize")}
-                        </DropdownMenuItem>
-                      </Show>
-                      <DropdownMenuItem
-                        onSelect={() =>
-                          void downloadExport(v().session_id).catch((err) =>
+                        <Icon name="plug" />
+                      </button>
+                    </Tip>
+                  </Show>
+                  <Show when={caps()?.summarize}>
+                    <Tip label={t("message.summarize")}>
+                      <button
+                        type="button"
+                        class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                        aria-label={t("message.summarize")}
+                        onClick={() =>
+                          void summarizeSession(props.id).catch((err) =>
                             setSendErr(err instanceof Error ? err.message : t("err.network")),
                           )
                         }
                       >
-                        <Icon name="download" class="size-3.5 text-muted-foreground" />
-                        {t("header.export")}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                        <Icon name="compact" />
+                      </button>
+                    </Tip>
+                  </Show>
+                  <Tip label={t("header.export")}>
+                    <button
+                      type="button"
+                      class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                      aria-label={t("header.export")}
+                      onClick={() =>
+                        void downloadExport(v().session_id).catch((err) =>
+                          setSendErr(err instanceof Error ? err.message : t("err.network")),
+                        )
+                      }
+                    >
+                      <Icon name="download" />
+                    </button>
+                  </Tip>
                 </span>
               </header>
 
@@ -1986,68 +2015,88 @@ const turnIndexOf = (h: SearchHit): number => {
               <Show when={replayPos() === null}>
                 <div class="shrink-0 bg-gradient-to-t from-background from-70% px-5 pb-4 pt-6">
                   <div class="mx-auto w-full max-w-3xl space-y-2">
-                    <For each={settled(asks) ?? []}>
+                    <For each={openAsks()}>
                       {(p) => {
-                        const view = permissionView(p);
+                        const detail = permissionView(p);
+                        const summary = () => {
+                          if (detail.kind === "command") return detail.command.split("\n")[0];
+                          if (detail.kind === "url") return detail.url.split("\n")[0];
+                          if (detail.kind === "diff") return detail.path;
+                          return undefined;
+                        };
+                        const extra = () => {
+                          if (detail.kind === "command") return detail.command.includes("\n");
+                          if (detail.kind === "url") return detail.url.includes("\n");
+                          return detail.kind === "diff" || detail.kind === "json";
+                        };
                         return (
-                          <div class="rounded-xl border border-event-permission/40 bg-event-permission/10 p-3">
-                            <div class="flex items-center gap-2 text-sm">
-                              <span class="font-medium text-event-permission">{p.tool}</span>
-                              <span class="text-xs text-muted-foreground">{t("permission.wants_to_run")}</span>
-                              <span class="ml-auto flex gap-1.5">
+                          <div class="overflow-hidden rounded-lg border border-border bg-card">
+                            <div class="flex items-start gap-3 px-3 py-2">
+                              <div class="min-w-0 flex-1">
+                                <div class="flex items-baseline gap-2">
+                                  <span class="text-xs font-medium text-foreground">{p.tool}</span>
+                                  <span class="text-2xs text-muted-foreground">{t("permission.wants_to_run")}</span>
+                                </div>
+                                <Show when={summary()}>
+                                  <p class="mt-0.5 truncate font-mono text-xs text-foreground/80">{summary()}</p>
+                                </Show>
+                              </div>
+                              <div class="flex shrink-0 items-center gap-0.5">
                                 <button
-                                  class="rounded-md bg-status-active/15 px-2.5 py-1 text-xs font-medium text-status-active hover:bg-status-active/25"
-                                  onClick={() => void respond(p.request_id, "allow", "once")}
+                                  type="button"
+                                  class="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                  onClick={() => void respond(p.request_id, "deny")}
                                 >
-                                  {t("permission.once")}
+                                  {t("permission.deny")}
                                 </button>
                                 <button
-                                  class="rounded-md bg-secondary px-2.5 py-1 text-xs font-medium text-foreground hover:bg-secondary/80"
+                                  type="button"
+                                  class="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground"
                                   onClick={() => void respond(p.request_id, "allow", "always")}
                                 >
                                   {t("permission.always")}
                                 </button>
                                 <button
-                                  class="rounded-md bg-destructive/15 px-2.5 py-1 text-xs font-medium text-destructive hover:bg-destructive/25"
-                                  onClick={() => void respond(p.request_id, "deny")}
+                                  type="button"
+                                  class="rounded-md bg-foreground px-2 py-1 text-xs font-medium text-background"
+                                  onClick={() => void respond(p.request_id, "allow", "once")}
                                 >
-                                  {t("permission.deny")}
+                                  {t("permission.once")}
                                 </button>
-                              </span>
+                              </div>
                             </div>
-                            <Switch>
-                              <Match when={view.kind === "command" ? view : undefined}>
-                                {(v) => (
-                                  <pre class="mt-2 max-h-24 overflow-y-auto whitespace-pre-wrap rounded-md bg-background/50 p-2 font-mono text-2xs">
-                                    {v().command}
-                                  </pre>
-                                )}
-                              </Match>
-                              <Match when={view.kind === "diff" ? view : undefined}>
-                                {(v) => (
-                                  <>
-                                    <Show when={v().path}>
-                                      <div class="mt-2 font-mono text-2xs text-muted-foreground">{v().path}</div>
-                                    </Show>
-                                    <div class="mt-2 max-h-48 overflow-auto rounded-md bg-background/50">
-                                      <DiffBlock patch={v().patch} />
+                            <Show when={extra()}>
+                              <div class="border-t border-border px-3 py-2">
+                                <Switch>
+                                  <Match when={detail.kind === "command" ? detail : undefined}>
+                                    {(v) => (
+                                      <pre class="max-h-24 overflow-y-auto whitespace-pre-wrap font-mono text-2xs text-foreground/80">
+                                        {v().command}
+                                      </pre>
+                                    )}
+                                  </Match>
+                                  <Match when={detail.kind === "diff" ? detail : undefined}>
+                                    {(v) => (
+                                      <div class="max-h-48 overflow-auto">
+                                        <DiffBlock patch={v().patch} />
+                                      </div>
+                                    )}
+                                  </Match>
+                                  <Match when={detail.kind === "url" ? detail : undefined}>
+                                    {(v) => (
+                                      <pre class="max-h-24 overflow-y-auto whitespace-pre-wrap font-mono text-2xs text-foreground/80">
+                                        {v().url}
+                                      </pre>
+                                    )}
+                                  </Match>
+                                  <Match when={detail.kind === "json"}>
+                                    <div class="max-h-24 overflow-y-auto">
+                                      <JsonView value={p.input} />
                                     </div>
-                                  </>
-                                )}
-                              </Match>
-                              <Match when={view.kind === "url" ? view : undefined}>
-                                {(v) => (
-                                  <pre class="mt-2 max-h-24 overflow-y-auto whitespace-pre-wrap rounded-md bg-background/50 p-2 font-mono text-2xs">
-                                    {v().url}
-                                  </pre>
-                                )}
-                              </Match>
-                              <Match when={view.kind === "json"}>
-                                <div class="mt-2 max-h-24 overflow-y-auto rounded-md bg-background/50 p-2">
-                                  <JsonView value={p.input} />
-                                </div>
-                              </Match>
-                            </Switch>
+                                  </Match>
+                                </Switch>
+                              </div>
+                            </Show>
                           </div>
                         );
                       }}

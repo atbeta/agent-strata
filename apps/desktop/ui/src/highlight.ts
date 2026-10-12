@@ -33,6 +33,8 @@ interface Grammar {
   /** quote characters; a backslash escapes the next character inside them */
   quotes: string[];
   keywords: Set<string>;
+  /** Markdown headings: a line that starts with `#` is one token. */
+  hashHeading?: boolean;
 }
 
 const JS_KEYWORDS =
@@ -44,7 +46,38 @@ const PY_KEYWORDS =
 const SH_KEYWORDS =
   "if then else elif fi for while until do done case esac function return in select time coproc local export readonly declare source alias unalias set unset trap shift eval exec exit";
 
+const RUST_KEYWORDS =
+  "as async await break const continue crate dyn else enum extern false fn for if impl in let loop match mod move mut pub ref return self Self static struct super trait true type unsafe use where while";
+
+const GO_KEYWORDS =
+  "break case chan const continue default defer else fallthrough for func go goto if import interface map package range return select struct switch type var";
+
+const JAVA_KEYWORDS =
+  "abstract assert boolean break byte case catch char class const continue default do double else enum extends final finally float for if implements import instanceof int interface long native new package private protected public return short static super switch synchronized this throw throws try var void volatile while yield";
+
+const C_KEYWORDS =
+  "auto break case char class const continue default do double else enum extern float for goto if inline int long namespace private protected public register return short signed sizeof static struct switch template typedef union unsigned virtual void volatile while";
+
+const CSS_KEYWORDS =
+  "import media supports keyframes from to important charset layer";
+
+const HTML_KEYWORDS =
+  "html head body div span a p ul ol li script style link meta form input button table tr td th section article nav header footer";
+
+const SQL_KEYWORDS =
+  "select from where and or not insert into values update set delete join left right inner outer on group by order limit offset as create table drop alter index primary key null is in like between union all distinct having";
+
+const RB_KEYWORDS =
+  "def end class module if elsif else unless while until for do begin rescue ensure return yield self nil true false and or not in";
+
+const PHP_KEYWORDS =
+  "function class public private protected return if else elseif foreach as while do echo new namespace use extends implements static abstract interface trait";
+
+const LUA_KEYWORDS =
+  "and break do else elseif end false for function goto if in local nil not or repeat return then true until while";
+
 const JSON_LITERALS = new Set(["true", "false", "null"]);
+const YAML_LITERALS = new Set(["true", "false", "null", "yes", "no"]);
 
 function words(list: string): Set<string> {
   return new Set(list.split(/\s+/).filter(Boolean));
@@ -54,21 +87,95 @@ const GRAMMARS: Record<string, Grammar> = {
   ts: { lineComment: "//", blockComment: ["/*", "*/"], quotes: ['"', "'", "`"], keywords: words(JS_KEYWORDS) },
   py: { lineComment: "#", quotes: ['"', "'"], keywords: words(PY_KEYWORDS) },
   sh: { lineComment: "#", quotes: ['"', "'"], keywords: words(SH_KEYWORDS) },
+  rust: { lineComment: "//", blockComment: ["/*", "*/"], quotes: ['"'], keywords: words(RUST_KEYWORDS) },
+  go: { lineComment: "//", blockComment: ["/*", "*/"], quotes: ['"', "`"], keywords: words(GO_KEYWORDS) },
+  java: { lineComment: "//", blockComment: ["/*", "*/"], quotes: ['"'], keywords: words(JAVA_KEYWORDS) },
+  c: { lineComment: "//", blockComment: ["/*", "*/"], quotes: ['"'], keywords: words(C_KEYWORDS) },
+  css: { blockComment: ["/*", "*/"], quotes: ['"', "'"], keywords: words(CSS_KEYWORDS) },
+  html: { blockComment: ["<!--", "-->"], quotes: ['"', "'"], keywords: words(HTML_KEYWORDS) },
+  sql: { lineComment: "--", blockComment: ["/*", "*/"], quotes: ['"', "'"], keywords: words(SQL_KEYWORDS) },
+  rb: { lineComment: "#", quotes: ['"', "'"], keywords: words(RB_KEYWORDS) },
+  php: { lineComment: "//", blockComment: ["/*", "*/"], quotes: ['"', "'"], keywords: words(PHP_KEYWORDS) },
+  lua: { lineComment: "--", blockComment: ["--[[", "]]"], quotes: ['"', "'"], keywords: words(LUA_KEYWORDS) },
+  yaml: { lineComment: "#", quotes: ['"', "'"], keywords: YAML_LITERALS },
+  toml: { lineComment: "#", quotes: ['"', "'"], keywords: JSON_LITERALS },
+  md: { quotes: ['"', "'", "`"], keywords: new Set(), hashHeading: true },
   json: { quotes: ['"'], keywords: JSON_LITERALS },
+};
+
+/** Fence labels and file extensions that share one grammar. */
+const LANG: Record<string, keyof typeof GRAMMARS> = {
+  json: "json",
+  jsonc: "json",
+  bash: "sh",
+  sh: "sh",
+  shell: "sh",
+  zsh: "sh",
+  console: "sh",
+  powershell: "sh",
+  ps1: "sh",
+  python: "py",
+  py: "py",
+  pyw: "py",
+  typescript: "ts",
+  javascript: "ts",
+  ts: "ts",
+  tsx: "ts",
+  js: "ts",
+  jsx: "ts",
+  mjs: "ts",
+  cjs: "ts",
+  mts: "ts",
+  cts: "ts",
+  rust: "rust",
+  rs: "rust",
+  go: "go",
+  golang: "go",
+  java: "java",
+  kotlin: "java",
+  kt: "java",
+  kts: "java",
+  c: "c",
+  h: "c",
+  cpp: "c",
+  cc: "c",
+  cxx: "c",
+  hpp: "c",
+  hh: "c",
+  cs: "c",
+  csharp: "c",
+  swift: "c",
+  css: "css",
+  scss: "css",
+  less: "css",
+  html: "html",
+  htm: "html",
+  xml: "html",
+  vue: "html",
+  svg: "html",
+  sql: "sql",
+  ruby: "rb",
+  rb: "rb",
+  php: "php",
+  yaml: "yaml",
+  yml: "yaml",
+  toml: "toml",
+  markdown: "md",
+  md: "md",
+  lua: "lua",
 };
 
 /** Map a fence label or filename onto a grammar key. */
 export function grammarFor(label: string | undefined): keyof typeof GRAMMARS | null {
   if (!label) return null;
-  const l = label.toLowerCase();
-  if (l === "json" || l === "jsonc" || l.endsWith(".json")) return "json";
-  if (l === "bash" || l === "sh" || l === "shell" || l === "zsh" || l === "console" || l === "powershell" || l === "ps1") return "sh";
-  if (l === "python" || l === "py") return "py";
-  if (
-    l === "ts" || l === "tsx" || l === "typescript" || l === "js" || l === "jsx" || l === "javascript" ||
-    l === "rust" || l === "rs" || l === "go" || l === "java" || l === "c" || l === "cpp" || l.endsWith(".ts") ||
-    l.endsWith(".tsx") || l.endsWith(".js") || l.endsWith(".jsx")
-  ) return "ts";
+  const raw = label.toLowerCase().trim();
+  if (LANG[raw]) return LANG[raw];
+  const base = raw.split(/[/\\]/).pop() ?? raw;
+  const dot = base.lastIndexOf(".");
+  if (dot >= 0) {
+    const ext = base.slice(dot + 1);
+    if (LANG[ext]) return LANG[ext];
+  }
   return null;
 }
 
@@ -101,6 +208,15 @@ export function tokenize(src: string, grammar: keyof typeof GRAMMARS | null): To
 
   while (i < src.length) {
     const rest = src.slice(i);
+    const bol = i === 0 || src[i - 1] === "\n";
+
+    if (g.hashHeading && bol && rest.startsWith("#")) {
+      const nl = rest.indexOf("\n");
+      const end = nl === -1 ? rest.length : nl;
+      push(out, "keyword", rest.slice(0, end));
+      i += end;
+      continue;
+    }
 
     if (g.lineComment) {
       const at = rest.indexOf(g.lineComment);

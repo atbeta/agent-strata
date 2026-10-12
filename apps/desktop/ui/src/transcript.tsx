@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, Index, Match, on, onCleanup, Show, Switch } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Index, Match, on, onCleanup, onMount, Show, Switch } from "solid-js";
 import type { ContentBlock, ToolCallView, Turn } from "./api";
 import { Icon } from "./icons";
 import { Md } from "./md";
@@ -6,6 +6,7 @@ import { Tip } from "./tip";
 import { stripAnsi } from "./ansi";
 import { Code } from "./payload";
 import { t } from "./i18n";
+import { readThinkingOpen } from "./thinking";
 import {
   diffStat,
   fmtLatency,
@@ -18,23 +19,34 @@ import {
   type ToolKind,
 } from "./transcript-format";
 
-function ThinkingBlock(props: { text: string; live?: boolean }) {
-  const [open, setOpen] = createSignal(props.live === true);
-  createEffect(
-    on(
-      () => props.live,
-      (live, prev) => {
-        if (live) setOpen(true);
-        else if (prev) setOpen(false);
-      },
-    ),
+/** A reader's own open/closed choice, so a refresh does not snap it back. */
+const thinkingChoice = new Map<string, boolean>();
+
+function ThinkingBlock(props: { text: string; live?: boolean; scope?: string }) {
+  const [open, setOpen] = createSignal(
+    props.scope !== undefined && thinkingChoice.has(props.scope)
+      ? thinkingChoice.get(props.scope)!
+      : readThinkingOpen(),
   );
+  onMount(() => {
+    const onPref = () => {
+      if (props.scope !== undefined && thinkingChoice.has(props.scope)) return;
+      setOpen(readThinkingOpen());
+    };
+    window.addEventListener("strata-thinking", onPref);
+    onCleanup(() => window.removeEventListener("strata-thinking", onPref));
+  });
+  const toggle = () => {
+    const next = !open();
+    if (props.scope !== undefined) thinkingChoice.set(props.scope, next);
+    setOpen(next);
+  };
   return (
     <div class="my-2">
       <button
         class="flex max-w-full items-center gap-1.5 text-left text-sm text-muted-foreground hover:text-foreground"
         aria-expanded={open()}
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggle}
       >
         <Icon name="spark" class={`size-3.5 shrink-0 ${props.live ? "animate-pulse text-event-assistant" : ""}`} />
         <span class="shrink-0 font-medium">
@@ -43,6 +55,12 @@ function ThinkingBlock(props: { text: string; live?: boolean }) {
         <Show when={!open() && thinkingPreview(props.text)}>
           <span class="min-w-0 truncate font-normal">{thinkingPreview(props.text)}</span>
         </Show>
+        <span
+          class="inline-flex shrink-0 transition-transform"
+          style={{ transform: open() ? "none" : "rotate(-90deg)" }}
+        >
+          <Icon name="chevron" class="size-3" />
+        </span>
       </button>
       <Show when={open()}>
         <Md
@@ -95,11 +113,11 @@ function ImageBlock(props: { block: Extract<ContentBlock, { type: "image" }> }) 
   );
 }
 
-function TranscriptBlock(props: { block: ContentBlock; tight?: boolean; live?: boolean }) {
+function TranscriptBlock(props: { block: ContentBlock; tight?: boolean; live?: boolean; scope?: string }) {
   return (
     <Switch>
       <Match when={props.block.type === "thinking" ? props.block : undefined}>
-        {(block) => <ThinkingBlock text={block().text} live={props.live} />}
+        {(block) => <ThinkingBlock text={block().text} live={props.live} scope={props.scope} />}
       </Match>
       <Match when={props.block.type === "file_ref" ? props.block : undefined}>
         {(block) => <FileChip path={block().path} range={block().range} />}
@@ -114,7 +132,7 @@ function TranscriptBlock(props: { block: ContentBlock; tight?: boolean; live?: b
   );
 }
 
-export function BlockText(props: { blocks: ContentBlock[]; tight?: boolean; live?: boolean }) {
+export function BlockText(props: { blocks: ContentBlock[]; tight?: boolean; live?: boolean; scope?: string }) {
   return (
     <Index each={props.blocks}>
       {(block, index) => (
@@ -122,6 +140,7 @@ export function BlockText(props: { blocks: ContentBlock[]; tight?: boolean; live
           block={block()}
           tight={props.tight}
           live={props.live === true && index === props.blocks.length - 1}
+          scope={props.scope === undefined ? undefined : `${props.scope}:${index}`}
         />
       )}
     </Index>
@@ -198,7 +217,8 @@ function ToolCallCard(props: {
   const todos = () => todoItems(props.call.input);
   const label = () => {
     if (props.call.permission?.decision === "deny") return t("tool.status.denied");
-    if (props.call.permission && !props.call.permission.decision) return t("tool.status.needs_permission");
+    if (props.call.permission && !props.call.permission.decision && props.call.status === "pending")
+      return t("tool.status.needs_permission");
     return statusLabel(props.call.status);
   };
   return (
@@ -281,8 +301,14 @@ function ToolCallCard(props: {
       </Tip>
       <Show when={open()}>
         <div class="space-y-2 border-t border-border px-2.5 py-2">
-          <Show when={permissionLabel(props.call.permission)}>
-            <p class="text-2xs text-event-permission">{permissionLabel(props.call.permission)}</p>
+          <Show
+            when={
+              props.call.permission?.decision || props.call.status === "pending"
+                ? permissionLabel(props.call.permission)
+                : undefined
+            }
+          >
+            {(label) => <p class="text-2xs text-event-permission">{label()}</p>}
           </Show>
           <Show when={headline().kind === "todo" && todos().length > 0}>
             <ul class="space-y-1">
@@ -458,12 +484,16 @@ export function TurnBlock(props: {
         )}
       </Show>
       <Index each={flow()}>
-        {(row) => {
+        {(row, index) => {
           const r = row();
           return r.kind === "message" ? (
             <div class="max-w-3xl">
               <div class="relative">
-                <BlockText blocks={r.message.content} live={r.message.partial} />
+                <BlockText
+                  blocks={r.message.content}
+                  live={r.message.partial}
+                  scope={r.message.msg_id ?? `${props.turn.turn_id}:m${index}`}
+                />
                 <Show when={r.message.error}>
                   <p class="mt-1 text-sm text-destructive">{r.message.error}</p>
                 </Show>

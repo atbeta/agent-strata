@@ -215,6 +215,7 @@ export interface PendingAsk {
   tool: string;
   input: Record<string, unknown>;
   asked_at: string;
+  call_id?: string;
 }
 
 export interface StrataEvent {

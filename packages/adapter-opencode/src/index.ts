@@ -45,7 +45,7 @@ export type OpencodePromptPart = TextPartInput | FilePartInput;
 
 export type OnAsk = (
   req: Extract<EventInput, { type: "permission.requested" }>,
-) => Promise<{ decision: "allow" | "deny"; scope?: "once" | "always" }>;
+) => Promise<{ decision: "allow" | "deny"; scope?: "once" | "always"; external?: boolean }>;
 
 export type OnQuestion = (
   req: Extract<EventInput, { type: "question.asked" }>,
@@ -991,6 +991,8 @@ export function createIngestor(opts: {
   policy?: Policy | (() => Policy | undefined);
   onAsk?: OnAsk;
   onQuestion?: OnQuestion;
+  /** OpenCode already answered this ask, so the waiting prompt can leave. */
+  onSettled?: (requestId: string, decision: "allow" | "deny") => void;
   reply: (requestID: string, reply: "once" | "always" | "reject", message?: string) => Promise<unknown>;
   replyQuestion?: (requestID: string, answers: string[][]) => Promise<unknown>;
   rejectQuestion?: (requestID: string) => Promise<unknown>;
@@ -1065,6 +1067,7 @@ export function createIngestor(opts: {
       `opencode:${p.id}:permission.requested`,
     ) as Extract<EventInput, { type: "permission.requested" }>;
     const ans = await opts.onAsk(req);
+    if (ans.external) return;
     if (ans.decision === "allow") {
       const scope = ans.scope === "always" ? "always" : "once";
       await opts.reply(p.id, scope);
@@ -1141,6 +1144,10 @@ export function createIngestor(opts: {
           console.error("opencode permission handling error:", err),
         );
       }
+      if (evt.type === "permission.replied") {
+        const reply = evt.properties.reply;
+        opts.onSettled?.(evt.properties.requestID, reply === "reject" ? "deny" : "allow");
+      }
       if (evt.type === "question.asked") {
         void handleQuestion(evt).catch((err) =>
           console.error("opencode question handling error:", err),
@@ -1164,6 +1171,7 @@ export async function connectOpencode(opts: {
   policy?: Policy | (() => Policy | undefined);
   onAsk?: OnAsk;
   onQuestion?: OnQuestion;
+  onSettled?: (requestId: string, decision: "allow" | "deny") => void;
   onEvent?: (evt: Event) => void;
   connectTimeoutMs?: number;
   /** How long prompt_async may take to accept. It returns once the run has started. */
@@ -1290,6 +1298,7 @@ export async function connectOpencode(opts: {
     policy: opts.policy,
     onAsk: opts.onAsk,
     onQuestion: opts.onQuestion,
+    onSettled: opts.onSettled,
     reply: async (requestID, r, message) => {
       await client.permission.reply({ requestID, reply: r, message });
     },

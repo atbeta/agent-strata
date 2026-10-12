@@ -9,6 +9,8 @@ export type CodeLeading = (typeof CODE_LEADINGS)[number];
 export type FontChoice = {
   ui: string;
   code: string;
+  /** Empty follows the code font. */
+  terminal: string;
   size: CodeSize | "";
   leading: CodeLeading | "";
   ligatures: boolean;
@@ -17,6 +19,7 @@ export type FontChoice = {
 export const DEFAULT_FONTS: FontChoice = {
   ui: "",
   code: "",
+  terminal: "",
   size: "",
   leading: "",
   ligatures: true,
@@ -104,6 +107,7 @@ export function parseFonts(raw: string | null): FontChoice {
     return {
       ui: sanitizeFamily(typeof parsed.ui === "string" ? parsed.ui : ""),
       code: sanitizeFamily(typeof parsed.code === "string" ? parsed.code : ""),
+      terminal: sanitizeFamily(typeof parsed.terminal === "string" ? parsed.terminal : ""),
       size: isSize(parsed.size) ? parsed.size : "",
       leading: isLeading(parsed.leading) ? parsed.leading : "",
       ligatures: parsed.ligatures !== false,
@@ -129,6 +133,9 @@ export function applyFonts(choice: FontChoice) {
   else root.style.removeProperty("--font-sans");
   if (code) root.style.setProperty("--font-mono", fontStack(code, MONO_FALLBACK));
   else root.style.removeProperty("--font-mono");
+  const terminal = sanitizeFamily(choice.terminal);
+  if (terminal) root.style.setProperty("--font-terminal", fontStack(terminal, MONO_FALLBACK));
+  else root.style.removeProperty("--font-terminal");
 
   if (choice.size) {
     root.dataset.codeSize = choice.size;
@@ -146,12 +153,14 @@ export function applyFonts(choice: FontChoice) {
   }
   if (choice.ligatures) delete root.dataset.codeLigatures;
   else root.dataset.codeLigatures = "off";
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("strata-fonts"));
 }
 
 export function saveFonts(choice: FontChoice) {
   const next: FontChoice = {
     ui: sanitizeFamily(choice.ui),
     code: sanitizeFamily(choice.code),
+    terminal: sanitizeFamily(choice.terminal),
     size: choice.size,
     leading: choice.leading,
     ligatures: choice.ligatures,

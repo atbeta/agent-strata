@@ -12,6 +12,7 @@ import {
 } from "./api";
 import { t, tn } from "./i18n";
 import type { MessageKey } from "./locales/zh";
+import { Picker } from "@/components/ui/picker";
 
 // editing model: `when` is a Record in CASF but easier to edit as flat rows
 interface CondRow {
@@ -104,6 +105,9 @@ const DECISION_CLS: Record<PolicyDecision["decision"], string> = {
 const inputCls =
   "rounded-md border border-input bg-secondary/50 px-2 py-1 font-mono text-xs text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none";
 
+const fieldPicker =
+  "h-7 max-w-none rounded-md border border-input bg-secondary/50 px-2 font-sans text-xs text-foreground hover:bg-secondary/50";
+
 function RuleCard(props: { index: number; draft: Draft; setDraft: (fn: (d: Draft) => void) => void; remove: () => void }) {
   const rule = () => props.draft.rules[props.index]!;
   const setRule = (fn: (r: RuleDraft) => void) =>
@@ -120,21 +124,22 @@ function RuleCard(props: { index: number; draft: Draft; setDraft: (fn: (d: Draft
           value={rule().id}
           onInput={(e) => setRule((r) => (r.id = e.currentTarget.value))}
         />
-        <select
-          class={`${inputCls} ${
+        <Picker
+          label={t(EFFECT_LABEL[rule().effect])}
+          value={rule().effect}
+          class={`${fieldPicker} ${
             rule().effect === "deny"
               ? "text-destructive"
               : rule().effect === "allow"
                 ? "text-status-active"
                 : "text-event-permission"
           }`}
-          value={rule().effect}
-          onChange={(e) => setRule((r) => (r.effect = e.currentTarget.value as RuleDraft["effect"]))}
-        >
-          <For each={Object.keys(EFFECT_LABEL) as RuleDraft["effect"][]}>
-            {(fx) => <option value={fx}>{t(EFFECT_LABEL[fx])}</option>}
-          </For>
-        </select>
+          options={(Object.keys(EFFECT_LABEL) as RuleDraft["effect"][]).map((fx) => ({
+            value: fx,
+            label: t(EFFECT_LABEL[fx]),
+          }))}
+          onChange={(value) => setRule((r) => (r.effect = value as RuleDraft["effect"]))}
+        />
         <span class="text-xs text-muted-foreground">{t("policy.field.tool")}</span>
         <input
           class={`${inputCls} w-36`}
@@ -177,17 +182,17 @@ function RuleCard(props: { index: number; draft: Draft; setDraft: (fn: (d: Draft
                   setRule((r) => (r.conds[ci()]!.path = e.currentTarget.value))
                 }
               />
-              <select
-                class={inputCls}
+              <Picker
+                label={t("policy.conditions.hint")}
                 value={c.op}
-                onChange={(e) =>
-                  setRule((r) => (r.conds[ci()]!.op = e.currentTarget.value as CondRow["op"]))
-                }
-              >
-                <option value="glob">glob</option>
-                <option value="matches">regex</option>
-                <option value="equals">equals</option>
-              </select>
+                class={fieldPicker}
+                options={[
+                  { value: "glob", label: "glob" },
+                  { value: "matches", label: "regex" },
+                  { value: "equals", label: "equals" },
+                ]}
+                onChange={(value) => setRule((r) => (r.conds[ci()]!.op = value as CondRow["op"]))}
+              />
               <input
                 class={`${inputCls} flex-1`}
                 placeholder={c.op === "equals" ? "true | 5 | string" : c.op === "matches" ? "\\brm\\b" : "*.env"}
@@ -281,17 +286,17 @@ export function PolicyEditor() {
 
       <section class="mt-3 flex items-center gap-3 rounded-lg border border-border bg-muted px-4 py-3 text-sm">
         <span class="text-muted-foreground">{t("policy.default.label")}</span>
-        <select
-          class={inputCls}
+        <Picker
+          label={t("policy.default.label")}
           value={draft.default}
-          onChange={(e) =>
-            setDraftRaw("default", e.currentTarget.value as Draft["default"])
-          }
-        >
-          <option value="ask">{t("policy.rule.effect.ask")}</option>
-          <option value="allow">{t("policy.rule.effect.allow")}</option>
-          <option value="deny">{t("policy.rule.effect.deny")}</option>
-        </select>
+          class={fieldPicker}
+          options={[
+            { value: "ask", label: t("policy.rule.effect.ask") },
+            { value: "allow", label: t("policy.rule.effect.allow") },
+            { value: "deny", label: t("policy.rule.effect.deny") },
+          ]}
+          onChange={(value) => setDraftRaw("default", value as Draft["default"])}
+        />
         <span class="text-xs text-muted-foreground">
           {tn("policy.rules.count", draft.rules.length)}
         </span>
