@@ -8,9 +8,12 @@ import { Code } from "./payload";
 import { t } from "./i18n";
 import { readThinkingOpen } from "./thinking";
 import {
+  assistantNotice,
   diffStat,
   fmtLatency,
+  hasMessageContent,
   isDiff,
+  messageText,
   permissionLabel,
   statusLabel,
   thinkingPreview,
@@ -18,6 +21,7 @@ import {
   toolHeadline,
   type ToolKind,
 } from "./transcript-format";
+import { MessageActions } from "./message-actions";
 
 /** A reader's own open/closed choice, so a refresh does not snap it back. */
 const thinkingChoice = new Map<string, boolean>();
@@ -48,7 +52,7 @@ function ThinkingBlock(props: { text: string; live?: boolean; scope?: string }) 
         aria-expanded={open()}
         onClick={toggle}
       >
-        <Icon name="spark" class={`size-3.5 shrink-0 ${props.live ? "animate-pulse text-event-assistant" : ""}`} />
+        <Icon name="brain" class={`size-3.5 shrink-0 ${props.live ? "motion-safe:animate-pulse" : ""}`} />
         <span class="shrink-0 font-medium">
           {props.live ? t("transcript.thinking") : t("transcript.thought")}
         </span>
@@ -345,11 +349,70 @@ function ToolCallCard(props: {
   );
 }
 
-function joinedUserText(blocks: ContentBlock[]): string {
-  return blocks
-    .filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text")
-    .map((b) => b.text)
-    .join("\n");
+type AssistantMessageData = Turn["assistant"][number];
+type FlowRow = { kind: "message"; message: AssistantMessageData } | { kind: "tools"; calls: ToolCallView[] };
+
+/**
+ * One assistant message and its action footer. Props stay reactive — the row's
+ * partial flag and error arrive later than first render, so everything reads
+ * the message through the accessor instead of a frozen local.
+ */
+function AssistantMessage(props: {
+  turnId: string;
+  index: number;
+  message: AssistantMessageData;
+  onFork?: (messageId: string) => void;
+}) {
+  const text = () => messageText(props.message.content);
+  const notice = () => assistantNotice(props.message.error);
+  const forkable = () => Boolean(props.onFork && props.message.msg_id);
+  const hasFooter = () => text().trim() !== "";
+  return (
+    <Show when={hasMessageContent(props.message.content) || notice()}>
+      <div class="transcript-message max-w-3xl" data-message-role="assistant">
+        <div class="relative">
+          <BlockText
+            blocks={props.message.content}
+            live={props.message.partial}
+            scope={props.message.msg_id ?? `${props.turnId}:m${props.index}`}
+          />
+          <Show when={notice()?.kind === "stopped" ? notice() : undefined}>
+            {(n) => (
+              <p
+                role="status"
+                class="mt-1 inline-flex items-center gap-1.5 rounded-full border border-border bg-secondary/30 px-2 py-1 text-xs text-muted-foreground"
+              >
+                <Icon name="stop" class="size-3" />
+                {n().text}
+              </p>
+            )}
+          </Show>
+          <Show when={notice()?.kind === "error" ? notice() : undefined}>
+            {(n) => (
+              <p
+                role="alert"
+                class="mt-1 flex items-start gap-1.5 whitespace-pre-wrap break-words rounded-md border border-destructive/20 bg-destructive/5 px-2.5 py-2 text-xs text-destructive"
+              >
+                <Icon name="alert" class="mt-0.5 size-3 shrink-0" />
+                <span class="min-w-0 flex-1 whitespace-pre-wrap break-words">{n().text}</span>
+              </p>
+            )}
+          </Show>
+          <Show when={props.message.partial && props.message.content.some((block) => block.type === "text")}>
+            <span class="ml-0.5 inline-block h-[1em] w-[2px] translate-y-0.5 animate-pulse bg-foreground/70 align-text-bottom" />
+          </Show>
+        </div>
+        <Show when={hasFooter()}>
+          <MessageActions
+            text={text()}
+            align="start"
+            disabled={props.message.partial === true}
+            onFork={forkable() ? () => props.onFork!(props.message.msg_id!) : undefined}
+          />
+        </Show>
+      </div>
+    </Show>
+  );
 }
 
 export function TurnBlock(props: {
@@ -388,8 +451,7 @@ export function TurnBlock(props: {
       list.push(c);
       calls.set(i, list);
     }
-    type Row = { kind: "message"; message: Turn["assistant"][number] } | { kind: "tools"; calls: ToolCallView[] };
-    const rows: Row[] = [];
+    const rows: FlowRow[] = [];
     msgs.forEach((message, i) => {
       rows.push({ kind: "message", message });
       const mine = calls.get(i);
@@ -399,123 +461,67 @@ export function TurnBlock(props: {
     return rows;
   });
 
-  const [copied, setCopied] = createSignal(false);
-  let copiedTimer: ReturnType<typeof setTimeout> | undefined;
-  onCleanup(() => clearTimeout(copiedTimer));
-
-  const copyUser = () => {
-    const text = joinedUserText(props.turn.user ?? []);
-    void navigator.clipboard.writeText(text).then(
-      () => {
-        setCopied(true);
-        clearTimeout(copiedTimer);
-        copiedTimer = setTimeout(() => setCopied(false), 2000);
-      },
-      () => {
-        // Clipboard rejection leaves the copy label in place.
-      },
-    );
-  };
-
   return (
     <div class={`space-y-3 ${props.turn.reverted ? "opacity-50" : ""}`}>
       <Show when={props.turn.user}>
         {(blocks) => (
-          <div class="flex flex-col items-end">
+          <div class="transcript-message flex w-full flex-col items-end" data-message-role="user">
             <Show when={props.turn.reverted}>
               <p class="text-2xs text-muted-foreground">{t("message.reverted")}</p>
             </Show>
-            <div class="group flex max-w-full items-center justify-end gap-1">
-              <div class="flex shrink-0 items-center opacity-0 pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
-                <Tip label={copied() ? t("message.copied") : t("message.copy")}>
-                  <button
-                    type="button"
-                    class="grid h-6 w-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                    aria-label={copied() ? t("message.copied") : t("message.copy")}
-                    onClick={copyUser}
-                  >
-                    <Icon name={copied() ? "check" : "copy"} class="h-3.5 w-3.5" />
-                  </button>
-                </Tip>
-                <Tip label={t("message.edit")}>
-                  <button
-                    type="button"
-                    class="grid h-6 w-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                    aria-label={t("message.edit")}
-                    onClick={() => props.onEdit?.(props.turn.turn_id, joinedUserText(blocks()))}
-                  >
-                    <Icon name="pencil" class="h-3.5 w-3.5" />
-                  </button>
-                </Tip>
-                <Show when={props.onRevert}>
-                  {(revert) => (
-                    <Tip label={t("message.revert")}>
-                      <button
-                        type="button"
-                        class="grid h-6 w-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                        aria-label={t("message.revert")}
-                        onClick={() => revert()(props.turn.turn_id)}
-                      >
-                        <Icon name="undo" class="h-3.5 w-3.5" />
-                      </button>
-                    </Tip>
-                  )}
-                </Show>
-                <Show when={props.onFork}>
-                  {(fork) => (
-                    <Tip label={t("message.fork")}>
-                      <button
-                        type="button"
-                        class="grid h-6 w-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                        aria-label={t("message.fork")}
-                        onClick={() => fork()(props.turn.turn_id)}
-                      >
-                        <Icon name="branch" class="h-3.5 w-3.5" />
-                      </button>
-                    </Tip>
-                  )}
-                </Show>
-              </div>
-              <div class="max-w-[min(85%,36rem)] rounded-2xl rounded-br-md bg-secondary px-3.5 py-2 text-secondary-foreground">
-                <BlockText blocks={blocks()} tight />
-              </div>
+            <div class="max-w-[min(85%,36rem)] rounded-2xl rounded-br-md bg-secondary px-3.5 py-2 text-secondary-foreground">
+              <BlockText blocks={blocks()} tight />
             </div>
+            <Show
+              when={
+                messageText(blocks()).trim() !== "" || props.onEdit || props.onRevert || props.onFork
+              }
+            >
+              <MessageActions
+                text={messageText(blocks())}
+                align="end"
+                onEdit={
+                  props.onEdit
+                    ? () => props.onEdit!(props.turn.turn_id, messageText(blocks()))
+                    : undefined
+                }
+                onRevert={props.onRevert ? () => props.onRevert!(props.turn.turn_id) : undefined}
+                onFork={props.onFork ? () => props.onFork!(props.turn.turn_id) : undefined}
+              />
+            </Show>
           </div>
         )}
       </Show>
       <Index each={flow()}>
-        {(row, index) => {
-          const r = row();
-          return r.kind === "message" ? (
-            <div class="max-w-3xl">
-              <div class="relative">
-                <BlockText
-                  blocks={r.message.content}
-                  live={r.message.partial}
-                  scope={r.message.msg_id ?? `${props.turn.turn_id}:m${index}`}
+        {(row, index) => (
+          <Switch>
+            <Match when={row().kind === "message" ? (row() as Extract<FlowRow, { kind: "message" }>) : undefined}>
+              {(r) => (
+                <AssistantMessage
+                  turnId={props.turn.turn_id}
+                  index={index}
+                  message={r().message}
+                  onFork={props.onFork}
                 />
-                <Show when={r.message.error}>
-                  <p class="mt-1 text-sm text-destructive">{r.message.error}</p>
-                </Show>
-                <Show when={r.message.partial && r.message.content.some((block) => block.type === "text")}>
-                  <span class="ml-0.5 inline-block h-[1em] w-[2px] translate-y-0.5 animate-pulse bg-foreground/70 align-text-bottom" />
-                </Show>
-              </div>
-            </div>
-          ) : (
-            <div class="max-w-3xl space-y-1.5">
-              <For each={r.calls}>
-                {(call) => (
-                  <ToolCallCard call={call} childOf={props.childOf} onOpenChild={props.onOpenChild} />
-                )}
-              </For>
-            </div>
-          );
-        }}
+              )}
+            </Match>
+            <Match when={row().kind === "tools" ? (row() as Extract<FlowRow, { kind: "tools" }>) : undefined}>
+              {(r) => (
+                <div class="max-w-3xl space-y-1.5">
+                  <For each={r().calls}>
+                    {(call) => (
+                      <ToolCallCard call={call} childOf={props.childOf} onOpenChild={props.onOpenChild} />
+                    )}
+                  </For>
+                </div>
+              )}
+            </Match>
+          </Switch>
+        )}
       </Index>
       <Show when={props.awaiting?.()}>
         <div class="flex max-w-3xl items-center gap-2 text-sm text-muted-foreground">
-          <Icon name="spark" class="size-3.5 shrink-0 animate-pulse text-event-assistant" />
+          <Icon name="brain" class="size-3.5 shrink-0 motion-safe:animate-pulse" />
           {t("transcript.thinking")}
         </div>
       </Show>

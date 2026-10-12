@@ -1,5 +1,48 @@
-import type { ToolCallView } from "./api";
+import type { ContentBlock, ToolCallView } from "./api";
 import { t, tn } from "./i18n";
+
+/**
+ * Whether the message carries anything worth showing at all. Text/thinking
+ * must be non-blank; images and file refs always render something visible.
+ * Rows that fail this (e.g. a tool-call-only carrier) emit no element.
+ */
+export function hasMessageContent(blocks: readonly ContentBlock[]): boolean {
+  return blocks.some((block) =>
+    block.type === "text" || block.type === "thinking" ? block.text.trim() !== "" : true,
+  );
+}
+
+/** Text blocks only, joined by newline — the copyable public text of a message. */
+export function messageText(blocks: readonly ContentBlock[]): string {
+  return blocks
+    .filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text")
+    .map((b) => b.text)
+    .join("\n");
+}
+
+/**
+ * Cancellation arrives as a plain error string. Only the exact backend wordings
+ * map to the neutral "stopped" notice — a message that merely mentions aborting
+ * is a real error and must not be downgraded.
+ */
+const STOPPED_ERRORS = new Set([
+  "aborted",
+  "aborterror",
+  "messageabortederror",
+  "the operation was aborted",
+  "the operation was aborted.",
+]);
+
+export function assistantNotice(
+  error: string | undefined,
+): { kind: "stopped" | "error"; text: string } | undefined {
+  const trimmed = error?.trim();
+  if (!trimmed) return undefined;
+  if (STOPPED_ERRORS.has(trimmed.toLowerCase())) {
+    return { kind: "stopped", text: t("transcript.stopped") };
+  }
+  return { kind: "error", text: error! };
+}
 
 export type ToolKind = "shell" | "read" | "edit" | "search" | "web" | "todo" | "task" | "generic";
 

@@ -1995,7 +1995,7 @@ const turnIndexOf = (h: SearchHit): number => {
                           when={!lastSilentTurn()}
                           fallback={
                             <div class="flex items-center justify-center gap-2 pt-16 text-sm text-muted-foreground">
-                              <Icon name="spark" class="size-3.5 animate-pulse text-event-assistant" />
+                              <Icon name="brain" class="size-3.5 motion-safe:animate-pulse" />
                               {t("transcript.thinking")}
                             </div>
                           }

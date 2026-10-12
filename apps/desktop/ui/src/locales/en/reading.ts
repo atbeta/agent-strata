@@ -49,6 +49,7 @@ export default {
 
   "transcript.thinking": "Thinking",
   "transcript.thought": "Thought",
+  "transcript.stopped": "Generation stopped",
   "transcript.image": "image",
 
   "payload.copy": "Copy",

@@ -11,8 +11,11 @@ globals.document ??= { documentElement: {} } as Document;
 
 const { locale, setLocale } = await import("./i18n");
 const {
+  assistantNotice,
   diffStat,
   fmtLatency,
+  hasMessageContent,
+  messageText,
   permissionLabel,
   statusLabel,
   thinkingPreview,
@@ -218,5 +221,84 @@ describe("ACP tool kinds", () => {
     expect(toolKind("search")).toBe("search");
     expect(toolKind("delete")).toBe("edit");
     expect(toolKind("move")).toBe("edit");
+  });
+});
+
+describe("messageText", () => {
+  test("joins only text blocks, preserving markdown and whitespace", () => {
+    const blocks = [
+      { type: "thinking", text: "private reasoning" },
+      { type: "text", text: "first line\n\n- a **list**" },
+      { type: "image", mime: "image/png", data: "AAAA" },
+      { type: "file_ref", path: "src/a.ts" },
+      { type: "text", text: "  second  " },
+    ] as const;
+    expect(messageText(blocks)).toBe("first line\n\n- a **list**\n  second  ");
+  });
+
+  test("non-text and empty input yield an empty string", () => {
+    expect(messageText([])).toBe("");
+    expect(messageText([{ type: "thinking", text: "only thoughts" }])).toBe("");
+  });
+});
+
+describe("hasMessageContent", () => {
+  test("empty or blank content means the row renders nothing", () => {
+    expect(hasMessageContent([])).toBe(false);
+    expect(hasMessageContent([{ type: "text", text: "   " }])).toBe(false);
+    expect(hasMessageContent([{ type: "text", text: "" }])).toBe(false);
+    expect(hasMessageContent([{ type: "thinking", text: "  \n " }])).toBe(false);
+  });
+
+  test("non-blank text or thinking counts as content", () => {
+    expect(hasMessageContent([{ type: "text", text: "hi" }])).toBe(true);
+    expect(hasMessageContent([{ type: "thinking", text: "reasoning" }])).toBe(true);
+    expect(
+      hasMessageContent([
+        { type: "text", text: "  " },
+        { type: "thinking", text: "working it out" },
+      ]),
+    ).toBe(true);
+  });
+
+  test("images and file refs always show something", () => {
+    expect(hasMessageContent([{ type: "image", mime: "image/png", data: "AAAA" }])).toBe(true);
+    expect(hasMessageContent([{ type: "file_ref", path: "src/a.ts" }])).toBe(true);
+  });
+});
+
+describe("assistantNotice", () => {
+  const cancels = [
+    "Aborted",
+    "AbortError",
+    "MessageAbortedError",
+    "The operation was aborted.",
+    "The operation was aborted",
+    "  aborted  ",
+  ];
+  test.each(cancels)("known cancellation %j reads as stopped in English", (err) => {
+    withLocale("en", () => {
+      expect(assistantNotice(err)).toEqual({ kind: "stopped", text: "Generation stopped" });
+    });
+  });
+  test.each(cancels)("known cancellation %j reads as stopped in Chinese", (err) => {
+    withLocale("zh", () => {
+      expect(assistantNotice(err)).toEqual({ kind: "stopped", text: "已停止生成" });
+    });
+  });
+
+  test("missing or blank error means no notice", () => {
+    expect(assistantNotice(undefined)).toBeUndefined();
+    expect(assistantNotice("")).toBeUndefined();
+    expect(assistantNotice("   ")).toBeUndefined();
+  });
+
+  test("genuine errors pass through unchanged", () => {
+    expect(assistantNotice("API quota exceeded")).toEqual({ kind: "error", text: "API quota exceeded" });
+    // Mentions of aborting do not downgrade a real failure.
+    expect(assistantNotice("Request failed: Aborted upstream connection")).toEqual({
+      kind: "error",
+      text: "Request failed: Aborted upstream connection",
+    });
   });
 });

@@ -314,6 +314,28 @@ textarea {
   .md img { @apply max-w-full rounded-lg; }
 }
 
+/* Transcript message footers: hidden until the message they belong to is
+   hovered or focused within. The .transcript-message wrapper — not a shared
+   group class — scopes the reveal so one message never exposes another's
+   buttons, and the footer is inside that region so moving onto it keeps the
+   controls open. Buttons stay focusable either way; on touch devices there is
+   no hover to wait for, so they are always reachable. */
+.message-actions {
+  opacity: 0;
+  pointer-events: none;
+}
+.transcript-message:hover > .message-actions,
+.transcript-message:focus-within > .message-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+@media (hover: none) {
+  .message-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
 /* A chosen code face overrides the per-element size utilities. Unlayered so it
    beats Tailwind's `.text-xs` / `.text-2xs` on the same node. */
 html[data-code-size] .font-mono {

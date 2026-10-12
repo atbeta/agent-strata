@@ -48,6 +48,7 @@ export default {
 
   "transcript.thinking": "思考中",
   "transcript.thought": "思考",
+  "transcript.stopped": "已停止生成",
   "transcript.image": "图片",
 
   "payload.copy": "复制",

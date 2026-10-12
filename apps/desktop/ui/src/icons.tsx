@@ -26,7 +26,10 @@ type Name =
   | "check"
   | "undo"
   | "compact"
-  | "plug";
+  | "plug"
+  | "brain"
+  | "stop"
+  | "alert";
 
 function Glyph(props: { class?: string; children: JSX.Element }) {
   return (
@@ -242,6 +245,32 @@ export function Icon(props: { name: Name; class?: string }) {
         <path d="M10 2.6v3.2" />
         <path d="M4.2 5.8h7.6v3.6a3.8 3.8 0 0 1-3.8 3.8 3.8 3.8 0 0 1-3.8-3.8z" />
         <path d="M8 13.2v1.4" />
+      </Glyph>
+    );
+  // Two mirrored hemispheres with inner folds — the reasoning indicator.
+  if (props.name === "brain")
+    return (
+      <Glyph class={props.class}>
+        <g stroke-width="1.25">
+          <path d="M8 3.2C8 1.3 4.5 1.1 4.2 3.2C2.4 3.1 1.7 5.4 2.8 6.6C1.2 8.1 1.8 10.7 3.6 11.2C3.3 13.2 5.1 14.5 6.8 13.5C7.6 13.4 8 12.9 8 12Z" />
+          <path d="M8 3.2C8 1.3 11.5 1.1 11.8 3.2C13.6 3.1 14.3 5.4 13.2 6.6C14.8 8.1 14.2 10.7 12.4 11.2C12.7 13.2 10.9 14.5 9.2 13.5C8.4 13.4 8 12.9 8 12Z" />
+          <path d="M4.2 3.2v1.2c0 .8.4 1.3 1.1 1.6M2.8 6.6h1.4M3.6 11.2v-1.1c0-.9.5-1.5 1.3-1.7" />
+          <path d="M11.8 3.2v1.2c0 .8-.4 1.3-1.1 1.6M13.2 6.6h-1.4M12.4 11.2v-1.1c0-.9-.5-1.5-1.3-1.7" />
+        </g>
+      </Glyph>
+    );
+  if (props.name === "stop")
+    return (
+      <Glyph class={props.class}>
+        <rect x="4" y="4" width="8" height="8" rx="1" />
+      </Glyph>
+    );
+  if (props.name === "alert")
+    return (
+      <Glyph class={props.class}>
+        <circle cx="8" cy="8" r="5.5" />
+        <path d="M8 4.5v4" />
+        <circle cx="8" cy="11" r=".6" fill="currentColor" stroke="none" />
       </Glyph>
     );
   return (
