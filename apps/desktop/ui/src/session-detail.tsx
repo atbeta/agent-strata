@@ -51,10 +51,18 @@ import {
 import { Icon } from "./icons";
 import { DiffBlock } from "./diff";
 import { FileBrowser } from "./files";
+import { PlanStrip } from "./plan-strip";
+import { planVisible } from "./plan-progress";
 import { TerminalPane } from "./terminal";
 import { ReviewPane } from "./review";
 import { clampRailWidth, readRailWidth, writeRailWidth, RAIL_MAX, RAIL_MIN } from "./rail-width";
-import { readFilesPanel, readRailDismissed, writeFilesPanel, writeRailDismissed } from "./right-pane";
+import {
+  readPanelOpen,
+  readPanelTab,
+  writePanelOpen,
+  writePanelTab,
+  type SidePanelTab,
+} from "./right-pane";
 import { JsonView } from "./json-view";
 import { permissionView } from "./permission-card";
 import { num, t, tn } from "./i18n";
@@ -437,12 +445,11 @@ function Snippet(props: { text: string }) {
  * The right side belongs to the window, not to the tab.
  *
  * Both signals used to live inside `SessionDetail`, which `App` renders `keyed`
- * on the session id — every tab click tore them down and built fresh ones, so a
- * closed browser reopened on the next session and the rail's auto-show came
- * straight back. They are the reader's, so they outlive the session.
+ * on the session id — every tab click tore them down and built fresh ones.
+ * They are the reader's, so they outlive the session.
  */
-const [browserOn, setBrowserOn] = createSignal(readFilesPanel());
-const [railDismissed, setRailDismissed] = createSignal(readRailDismissed());
+const [panelOpen, setPanelOpen] = createSignal(readPanelOpen());
+const [panelTab, setPanelTab] = createSignal<SidePanelTab>(readPanelTab());
 
 export function SessionDetail(props: {
   id: string;
@@ -457,7 +464,6 @@ export function SessionDetail(props: {
   const [replayPos, setReplayPos] = createSignal<number | null>(null);
   const [traceOn, setTraceOn] = createSignal(false);
   const [traceBlock, setTraceBlock] = createSignal<TraceBlock | null>(null);
-  const [railForced, setRailForced] = createSignal(false);
   /** which file the reader opened in the rail, null for the plain list */
   const [openFile, setOpenFile] = createSignal<string | null>(null);
   /**
@@ -492,7 +498,7 @@ export function SessionDetail(props: {
     handle.addEventListener("pointercancel", done);
   };
   const [terminalOn, setTerminalOn] = createSignal(false);
-  const [reviewSource, setReviewSource] = createSignal<"record" | "session" | "turn" | "git" | "branch">("record");
+  const [reviewSource, setReviewSource] = createSignal<"session" | "git">("session");
   const [reviewLayout, setReviewLayout] = createSignal<"unified" | "split">("unified");
   const [booting, setBooting] = createSignal(true);
   const [modelTouched, setModelTouched] = createSignal(false);
@@ -550,32 +556,12 @@ export function SessionDetail(props: {
     () => (opencode() ? props.id : undefined),
     (id) => readLsp(id).catch(() => undefined),
   );
-  const lastAssistantId = () => {
-    const turns = settled(view)?.turns ?? [];
-    for (let i = turns.length - 1; i >= 0; i--) {
-      const msgs = turns[i]!.assistant;
-      for (let j = msgs.length - 1; j >= 0; j--) {
-        const id = msgs[j]?.msg_id;
-        if (id) return id;
-      }
-    }
-    return undefined;
-  };
   const reviewKey = () => {
     if (!opencode()) return false as const;
-    const source = reviewSource();
-    if (source === "record") return false as const;
-    if (source === "turn") {
-      const messageID = lastAssistantId();
-      if (!messageID) return false as const;
-      return { id: props.id, source, messageID };
-    }
-    return { id: props.id, source };
+    return { id: props.id, source: reviewSource() };
   };
   const [reviewDiff] = createResource(reviewKey, (key) =>
-    key.source === "git" || key.source === "branch"
-      ? readVcsDiff(key.id, key.source)
-      : readSessionDiff(key.id, "messageID" in key ? key.messageID : undefined),
+    key.source === "git" ? readVcsDiff(key.id, "git") : readSessionDiff(key.id),
   );
   const [commands, { refetch: refetchCommands }] = createResource(
     () => (caps()?.commands && opencode() ? props.id : undefined),
@@ -1465,47 +1451,36 @@ const turnIndexOf = (h: SearchHit): number => {
     }
   };
 
-  const hasWork = () => {
-    const v = settled(view);
-    return !!v && (v.files_changed.length > 0 || (v.plan?.length ?? 0) > 0);
-  };
-  const railOn = () => !traceBlock() && (railForced() || (hasWork() && !railDismissed()));
   /**
-   * Open or close the file browser, remembering the choice.
-   *
-   * Closing it also stands the rail down: the two share one column, so closing
-   * the browser used to reveal the rail instead of the empty edge behind it.
+   * One panel on the right, opened only by the reader. Trace and replay step
+   * out of the way while it is open, and the choice persists across sessions.
    */
-  const showFiles = (open: boolean) => {
+  const openPanel = (tab?: SidePanelTab) => {
     setTraceBlock(null);
     setReplayPos(null);
-    setBrowserOn(open);
-    writeFilesPanel(open);
-    setRailDismissed(!open);
-    writeRailDismissed(!open);
-  };
-  const toggleRail = () => {
-    setTraceBlock(null);
-    setReplayPos(null);
-    if (browserOn()) {
-      // Browser to rail: the other panel, not an empty edge.
-      setBrowserOn(false);
-      writeFilesPanel(false);
-      setRailDismissed(false);
-      writeRailDismissed(false);
-      setRailForced(true);
-      return;
+    if (tab) {
+      setPanelTab(tab);
+      writePanelTab(tab);
     }
-    if (railOn()) {
-      setRailForced(false);
-      setRailDismissed(true);
-      writeRailDismissed(true);
-      return;
-    }
-    setRailDismissed(false);
-    writeRailDismissed(false);
-    setRailForced(true);
+    setPanelOpen(true);
+    writePanelOpen(true);
   };
+  const closePanel = () => {
+    setPanelOpen(false);
+    writePanelOpen(false);
+  };
+  const togglePanel = () => {
+    // The trace drawer borrows the same edge while the panel stays open, so the
+    // reader's next click still means "show me the panel", not "close nothing".
+    if (panelOpen() && !traceBlock()) closePanel();
+    else openPanel();
+  };
+  const selectTab = (tab: SidePanelTab) => {
+    setPanelTab(tab);
+    writePanelTab(tab);
+  };
+  // The file browser only exists for the OpenCode backend.
+  const effectiveTab = (): SidePanelTab => (opencode() ? panelTab() : "changes");
 
   const childOf = (id: string) => {
     const row = props.sessions.find((s) => s.summary.session_id === id);
@@ -1566,17 +1541,9 @@ const turnIndexOf = (h: SearchHit): number => {
   );
   onCleanup(
     registerCommand({
-      id: "session.files",
-      title: () => (browserOn() ? t("files.hide") : t("files.show")),
-      enabled: () => opencode(),
-      run: () => showFiles(!browserOn()),
-    }),
-  );
-  onCleanup(
-    registerCommand({
-      id: "session.rail",
-      title: () => (railOn() ? t("rail.hide") : t("rail.show")),
-      run: () => toggleRail(),
+      id: "session.panel",
+      title: () => (panelOpen() ? t("panel.hide") : t("panel.show")),
+      run: () => togglePanel(),
     }),
   );
 
@@ -1696,37 +1663,18 @@ const turnIndexOf = (h: SearchHit): number => {
                       </button>
                     </Tip>
                   </Show>
-                  <Tip label={browserOn() ? t("files.hide") : t("files.show")}>
+                  <Tip label={panelOpen() ? t("panel.hide") : t("panel.show")}>
                     <button
                       class={`grid h-7 w-7 place-items-center rounded-md transition-colors ${
-                        browserOn()
+                        panelOpen()
                           ? "bg-secondary text-foreground"
                           : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                       }`}
-                      aria-label={browserOn() ? t("files.hide") : t("files.show")}
-                      aria-pressed={browserOn()}
-                      onClick={() => showFiles(!browserOn())}
-                    >
-                      <Icon name="folder" />
-                    </button>
-                  </Tip>
-                  <Tip label={railOn() ? t("rail.hide") : t("rail.show")}>
-                    <button
-                      class={`relative grid h-7 w-7 place-items-center rounded-md transition-colors ${
-                        railOn()
-                          ? "bg-secondary text-foreground"
-                          : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-                      }`}
-                      aria-label={railOn() ? t("rail.hide") : t("rail.show")}
-                      onClick={toggleRail}
+                      aria-label={panelOpen() ? t("panel.hide") : t("panel.show")}
+                      aria-pressed={panelOpen()}
+                      onClick={togglePanel}
                     >
                       <Icon name="files" />
-                      {/* Only while the rail is open. A dot on a toggle that stays
-                          lit with the panel closed says "something is here" without
-                          saying where — and the rail itself already shows the count. */}
-                      <Show when={railOn() && v().files_changed.length > 0}>
-                        <span class="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-event-file" />
-                      </Show>
                     </button>
                   </Tip>
                   <Tip label={traceOn() ? t("trace.live") : t("trace.replay")}>
@@ -2290,8 +2238,17 @@ const turnIndexOf = (h: SearchHit): number => {
                           onHover={setMenuActive}
                         />
                       </Show>
+                      <Show when={planVisible(v().plan, generating())}>
+                        <PlanStrip plan={v().plan!} generating={generating()} />
+                      </Show>
                       <Show when={queued().length > 0}>
-                        <div class="rounded-t-2xl border border-b-0 border-input bg-secondary/70 px-3 pb-4 pt-2">
+                        <div
+                          class={`border border-b-0 bg-secondary/70 px-3 pb-4 pt-2 ${
+                            planVisible(v().plan, generating())
+                              ? "border-input border-t-input/60"
+                              : "rounded-t-2xl border-input"
+                          }`}
+                        >
                           <p class="text-2xs font-medium text-muted-foreground">
                             {tn("composer.queued", queued().length)}
                           </p>
@@ -2329,7 +2286,7 @@ const turnIndexOf = (h: SearchHit): number => {
                         </div>
                       </Show>
                     <div
-                      class={`@container/composer rounded-2xl border border-input bg-card shadow-[0_8px_30px_-18px_rgba(0,0,0,0.7)] transition-colors focus-within:border-ring ${queued().length > 0 ? "-mt-2" : ""}`}
+                      class={`@container/composer rounded-2xl border border-input bg-card shadow-[0_8px_30px_-18px_rgba(0,0,0,0.7)] transition-colors focus-within:border-ring ${queued().length > 0 || planVisible(v().plan, generating()) ? "-mt-2" : ""}`}
                       onDragOver={(e) => {
                         if (!canAttach() || !e.dataTransfer?.types.includes("Files")) return;
                         e.preventDefault();
@@ -2520,54 +2477,22 @@ const turnIndexOf = (h: SearchHit): number => {
           />
         )}
       </Show>
-      <Show when={(browserOn() || railOn()) && settled(view)}>
+      <Show when={panelOpen() && !traceBlock() && settled(view)}>
         {(v) => {
           const files = () => v().files_changed;
-          /** How many files the tab you are on actually found. */
-          const viewCount = () => {
-            if (reviewSource() === "record") return files().length;
-            return (reviewDiff() ?? []).filter((f) => f.file).length;
-          };
+          /** How many files the changes view actually found. */
+          const changeCount = () =>
+            opencode() ? (reviewDiff() ?? []).filter((f) => f.file).length : files().length;
           /** An empty diff reads differently per baseline, so it says which. */
-          const emptyNote = () => {
-            const source = reviewSource();
-            return t(
-              source === "git"
-                ? "review.empty.git"
-                : source === "branch"
-                  ? "review.empty.branch"
-                  : "review.empty",
-            );
-          };
+          const emptyNote = () => t(reviewSource() === "git" ? "review.empty.git" : "review.empty");
           // The list of names is worthless at 288px next to a real diff, so the
-          // rail borrows room only while a reader is actually reading one.
+          // panel borrows room only while a reader is actually reading one.
           const open = () => files().find((f) => f.path === openFile()) ?? null;
           const toggleFile = (path: string) => setOpenFile(openFile() === path ? null : path);
           const jumpTo = (turnIndex: number) => {
             if (turnIndex >= 0) list?.scrollToIndex(turnIndex);
           };
           return (
-            <>
-              <Show when={browserOn()}>
-              <aside class="flex w-[min(720px,56vw)] shrink-0 flex-col border-l border-border">
-                <div
-                  class="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3 select-none"
-                  data-tauri-drag-region={inDesktopShell() ? "" : undefined}
-                >
-                  <span class="min-w-0 flex-1 truncate text-sm font-medium">{t("files.title")}</span>
-                  <button
-                    type="button"
-                    class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
-                    aria-label={t("files.hide")}
-                    onClick={() => showFiles(false)}
-                  >
-                    ×
-                  </button>
-                </div>
-                <FileBrowser sessionId={props.id} />
-              </aside>
-              </Show>
-              <Show when={!browserOn()}>
             <aside
               class="relative flex shrink-0 flex-col border-l border-border"
               style={{ width: `${railWidth()}px` }}
@@ -2594,204 +2519,87 @@ const turnIndexOf = (h: SearchHit): number => {
                 class="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3 select-none"
                 data-tauri-drag-region={inDesktopShell() ? "" : undefined}
               >
-                <span class="shrink-0 text-2xs text-muted-foreground">
-                  {generating() ? t("rail.running") : t("rail.done")}
-                </span>
-                {/* The count belongs to the tab you are on. It used to be the
-                    record's count on every tab, so the header read 130 files
-                    above a pane that said nothing had changed. */}
-                <span class="min-w-0 flex-1 truncate text-2xs text-muted-foreground/70">
-                  {viewCount() > 0 ? tn("rail.files", viewCount()) : ""}
-                </span>
+                <Show
+                  when={opencode()}
+                  fallback={
+                    <span class="min-w-0 flex-1 truncate text-sm font-medium">
+                      {t("panel.changes")}
+                      <Show when={changeCount() > 0}>
+                        <span class="ml-1 text-2xs font-normal text-muted-foreground">{changeCount()}</span>
+                      </Show>
+                    </span>
+                  }
+                >
+                  <div role="tablist" class="flex min-w-0 flex-1 items-center gap-0.5">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={effectiveTab() === "changes"}
+                      class={`rounded-md px-1.5 py-0.5 text-2xs ${
+                        effectiveTab() === "changes"
+                          ? "bg-secondary text-foreground"
+                          : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+                      }`}
+                      onClick={() => selectTab("changes")}
+                    >
+                      {t("panel.changes")}
+                      <Show when={changeCount() > 0}>
+                        <span class="text-muted-foreground"> {changeCount()}</span>
+                      </Show>
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={effectiveTab() === "files"}
+                      class={`rounded-md px-1.5 py-0.5 text-2xs ${
+                        effectiveTab() === "files"
+                          ? "bg-secondary text-foreground"
+                          : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+                      }`}
+                      onClick={() => selectTab("files")}
+                    >
+                      {t("panel.files")}
+                    </button>
+                  </div>
+                </Show>
                 <button
-                  class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
-                  aria-label={t("rail.hide")}
-                  onClick={toggleRail}
+                  type="button"
+                  class="grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
+                  aria-label={t("panel.hide")}
+                  onClick={closePanel}
                 >
                   ×
                 </button>
               </div>
-              <Show when={opencode()}>
-                <div class="flex shrink-0 flex-wrap items-center gap-1 border-b border-border px-2 py-1.5">
-                  {(
-                    [
-                      ["record", "review.record"],
-                      ["session", "review.session"],
-                      ["turn", "review.turn"],
-                      ["git", "review.git"],
-                      ["branch", "review.branch"],
-                    ] as const
-                  ).map(([id, key]) => (
-                    <button
-                      type="button"
-                      class={`rounded-md px-1.5 py-0.5 text-2xs ${
-                        reviewSource() === id
-                          ? "bg-secondary text-foreground"
-                          : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
-                      }`}
-                      onClick={() => setReviewSource(id)}
-                    >
-                      {t(key)}
-                    </button>
-                  ))}
-                </div>
+              <Show when={effectiveTab() === "files"}>
+                <FileBrowser sessionId={props.id} />
               </Show>
-              <div class="flex min-h-0 flex-1">
-                <Show when={reviewSource() === "record"}>
-                <div
-                  class={`min-h-0 space-y-5 overflow-x-hidden overflow-y-auto px-2 py-3 ${
-                    open() ? "w-44 shrink-0 border-r border-border" : "w-full px-3"
-                  }`}
-                >
-                  <Show when={(v().plan?.length ?? 0) > 0}>
-                    <section>
-                      <h2 class="px-1 text-2xs font-medium text-muted-foreground">{t("rail.plan")}</h2>
-                      <ul class="mt-1.5 space-y-1 text-sm">
-                        <For each={v().plan}>
-                          {(item) => (
-                            <li class="flex gap-2 px-1">
-                              <span
-                                class={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
-                                  item.status === "completed"
-                                    ? "bg-status-completed"
-                                    : item.status === "in_progress"
-                                      ? "bg-status-active"
-                                      : "bg-status-pending"
-                                }`}
-                              />
-                              <span class={item.status === "completed" ? "text-muted-foreground line-through" : ""}>
-                                {item.content}
-                              </span>
-                            </li>
-                          )}
-                        </For>
-                      </ul>
-                    </section>
-                  </Show>
-                  <Show
-                    when={files().length > 0}
-                    fallback={<p class="px-1 text-xs text-muted-foreground">{t("rail.nothing")}</p>}
-                  >
-                    <ul class="space-y-0.5">
-                      <For each={files()}>
-                        {(f) => (
-                          <li>
-                            <button
-                              type="button"
-                              aria-expanded={openFile() === f.path}
-                              onClick={() => toggleFile(f.path)}
-                              title={f.path}
-                              class={`flex w-full cursor-pointer items-baseline gap-2 rounded-md px-1 py-1 text-left hover:bg-secondary ${
-                                openFile() === f.path ? "bg-secondary" : ""
-                              }`}
-                            >
-                              <span
-                                class={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
-                                  f.change === "add"
-                                    ? "bg-status-active"
-                                    : f.change === "delete"
-                                      ? "bg-status-error"
-                                      : "bg-status-completed"
-                                }`}
-                                title={changeWord(f.change)}
-                              />
-                              <span class="min-w-0 flex-1">
-                                <span class="block truncate text-sm">{fileName(f.path)}</span>
-                                {/* The word for the change lived here as well as on
-                                    the dot. It stays on the dot, where the colour
-                                    is, and this line keeps only the one number
-                                    that is not already encoded. */}
-                                <Show when={f.count > 1}>
-                                  <span class="block truncate text-2xs text-muted-foreground">
-                                    {tn("file.changes", f.count)}
-                                  </span>
-                                </Show>
-                              </span>
-                              {/* ≥ because a change nothing explained leaves its lines uncounted */}
-                              <span
-                                class="shrink-0 font-mono text-2xs"
-                                title={f.unexplained ? t("file.partial") : undefined}
-                              >
-                                <span class="text-diff-add-fg">
-                                  {f.unexplained ? "≥+" : "+"}
-                                  {num(f.additions)}
-                                </span>{" "}
-                                <span class="text-diff-del-fg">−{num(f.deletions)}</span>
-                              </span>
-                            </button>
-                          </li>
-                        )}
-                      </For>
-                    </ul>
-                  </Show>
-                </div>
-
-                <Show when={open()}>
-                  {(f) => (
-                    <div class="flex min-h-0 min-w-0 flex-1 flex-col">
-                      <div class="flex shrink-0 items-start gap-2 border-b border-border px-3 py-2">
-                        <span class="min-w-0 flex-1 font-mono text-2xs break-all text-muted-foreground">
-                          {f().path}
-                        </span>
+              <Show when={effectiveTab() === "changes"}>
+                <div class="flex min-h-0 flex-1 flex-col">
+                  <Show when={opencode()}>
+                    <div class="flex shrink-0 items-center gap-1 border-b border-border px-2 py-1.5">
+                      {(
+                        [
+                          ["session", "review.session"],
+                          ["git", "review.git"],
+                        ] as const
+                      ).map(([id, key]) => (
                         <button
                           type="button"
-                          class="shrink-0 cursor-pointer rounded-md px-1.5 py-0.5 text-2xs text-muted-foreground hover:bg-secondary hover:text-foreground"
-                          onClick={() => setOpenFile(null)}
+                          class={`rounded-md px-1.5 py-0.5 text-2xs ${
+                            reviewSource() === id
+                              ? "bg-secondary text-foreground"
+                              : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+                          }`}
+                          onClick={() => setReviewSource(id)}
                         >
-                          {t("file.close")}
+                          {t(key)}
                         </button>
-                      </div>
-                      <div class="min-h-0 flex-1 overflow-x-auto overflow-y-auto px-3 py-2">
-                        <Show when={f().unexplained}>
-                          <p class="mb-2 rounded-md bg-secondary/60 px-2 py-1.5 text-2xs text-muted-foreground">
-                            {tn("file.hidden", f().edits.filter((e) => !e.diff).length)}
-                          </p>
-                        </Show>
-                        <For each={f().edits}>
-                          {(edit) => (
-                            <section class="mb-3 last:mb-0">
-                              <div class="sticky left-0 mb-1 flex w-max items-center gap-2 bg-background">
-                                <span class="rounded bg-secondary px-1.5 py-0.5 text-2xs text-muted-foreground">
-                                  {edit.whole_file ? t("file.whole") : t("file.region")}
-                                </span>
-                                <span class="font-mono text-2xs">
-                                  <span class="text-diff-add-fg">+{num(edit.additions)}</span>{" "}
-                                  <span class="text-diff-del-fg">−{num(edit.deletions)}</span>
-                                </span>
-                                <Show when={edit.turn_index >= 0}>
-                                  <button
-                                    type="button"
-                                    class="ml-auto shrink-0 cursor-pointer rounded px-1.5 py-0.5 text-2xs text-muted-foreground hover:bg-secondary hover:text-foreground"
-                                    onClick={() => jumpTo(edit.turn_index)}
-                                  >
-                                    {t("file.jump")}
-                                  </button>
-                                </Show>
-                              </div>
-                              <Show
-                                when={edit.diff}
-                                fallback={
-                                  <p class="rounded-md bg-secondary/60 px-2 py-1.5 text-2xs text-muted-foreground">
-                                    {t("file.noDiff")}
-                                  </p>
-                                }
-                              >
-                                <DiffBlock patch={edit.diff!} />
-                              </Show>
-                            </section>
-                          )}
-                        </For>
-                      </div>
+                      ))}
                     </div>
-                  )}
-                </Show>
-                </Show>
-                <Show when={reviewSource() !== "record"}>
-                  <div class="flex min-h-0 min-w-0 flex-1 flex-col">
-                    <Show
-                      when={reviewSource() !== "turn" || lastAssistantId()}
-                      fallback={<p class="px-3 py-3 text-xs text-muted-foreground">{t("review.turnNone")}</p>}
-                    >
+                  </Show>
+                  <Show when={opencode()}>
+                    <div class="flex min-h-0 min-w-0 flex-1 flex-col">
                       <Show
                         when={!reviewDiff.loading && !reviewDiff.error}
                         fallback={
@@ -2816,13 +2624,136 @@ const turnIndexOf = (h: SearchHit): number => {
                           />
                         </Show>
                       </Show>
-                    </Show>
-                  </div>
-                </Show>
-              </div>
-            </aside>
+                    </div>
+                  </Show>
+                  <Show when={!opencode()}>
+                    <div class="flex min-h-0 flex-1">
+                      <div
+                        class={`min-h-0 overflow-x-hidden overflow-y-auto px-2 py-3 ${
+                          open() ? "w-44 shrink-0 border-r border-border" : "w-full px-3"
+                        }`}
+                      >
+                        <Show
+                          when={files().length > 0}
+                          fallback={<p class="px-1 text-xs text-muted-foreground">{t("rail.nothing")}</p>}
+                        >
+                          <ul class="space-y-0.5">
+                            <For each={files()}>
+                              {(f) => (
+                                <li>
+                                  <button
+                                    type="button"
+                                    aria-expanded={openFile() === f.path}
+                                    onClick={() => toggleFile(f.path)}
+                                    title={f.path}
+                                    class={`flex w-full cursor-pointer items-baseline gap-2 rounded-md px-1 py-1 text-left hover:bg-secondary ${
+                                      openFile() === f.path ? "bg-secondary" : ""
+                                    }`}
+                                  >
+                                    <span
+                                      class={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
+                                        f.change === "add"
+                                          ? "bg-status-active"
+                                          : f.change === "delete"
+                                            ? "bg-status-error"
+                                            : "bg-status-completed"
+                                      }`}
+                                      title={changeWord(f.change)}
+                                    />
+                                    <span class="min-w-0 flex-1">
+                                      <span class="block truncate text-sm">{fileName(f.path)}</span>
+                                      {/* The word for the change lived here as well as on
+                                          the dot. It stays on the dot, where the colour
+                                          is, and this line keeps only the one number
+                                          that is not already encoded. */}
+                                      <Show when={f.count > 1}>
+                                        <span class="block truncate text-2xs text-muted-foreground">
+                                          {tn("file.changes", f.count)}
+                                        </span>
+                                      </Show>
+                                    </span>
+                                    {/* ≥ because a change nothing explained leaves its lines uncounted */}
+                                    <span
+                                      class="shrink-0 font-mono text-2xs"
+                                      title={f.unexplained ? t("file.partial") : undefined}
+                                    >
+                                      <span class="text-diff-add-fg">
+                                        {f.unexplained ? "≥+" : "+"}
+                                        {num(f.additions)}
+                                      </span>{" "}
+                                      <span class="text-diff-del-fg">−{num(f.deletions)}</span>
+                                    </span>
+                                  </button>
+                                </li>
+                              )}
+                            </For>
+                          </ul>
+                        </Show>
+                      </div>
+                      <Show when={open()}>
+                        {(f) => (
+                          <div class="flex min-h-0 min-w-0 flex-1 flex-col">
+                            <div class="flex shrink-0 items-start gap-2 border-b border-border px-3 py-2">
+                              <span class="min-w-0 flex-1 font-mono text-2xs break-all text-muted-foreground">
+                                {f().path}
+                              </span>
+                              <button
+                                type="button"
+                                class="shrink-0 cursor-pointer rounded-md px-1.5 py-0.5 text-2xs text-muted-foreground hover:bg-secondary hover:text-foreground"
+                                onClick={() => setOpenFile(null)}
+                              >
+                                {t("file.close")}
+                              </button>
+                            </div>
+                            <div class="min-h-0 flex-1 overflow-x-auto overflow-y-auto px-3 py-2">
+                              <Show when={f().unexplained}>
+                                <p class="mb-2 rounded-md bg-secondary/60 px-2 py-1.5 text-2xs text-muted-foreground">
+                                  {tn("file.hidden", f().edits.filter((e) => !e.diff).length)}
+                                </p>
+                              </Show>
+                              <For each={f().edits}>
+                                {(edit) => (
+                                  <section class="mb-3 last:mb-0">
+                                    <div class="sticky left-0 mb-1 flex w-max items-center gap-2 bg-background">
+                                      <span class="rounded bg-secondary px-1.5 py-0.5 text-2xs text-muted-foreground">
+                                        {edit.whole_file ? t("file.whole") : t("file.region")}
+                                      </span>
+                                      <span class="font-mono text-2xs">
+                                        <span class="text-diff-add-fg">+{num(edit.additions)}</span>{" "}
+                                        <span class="text-diff-del-fg">−{num(edit.deletions)}</span>
+                                      </span>
+                                      <Show when={edit.turn_index >= 0}>
+                                        <button
+                                          type="button"
+                                          class="ml-auto shrink-0 cursor-pointer rounded px-1.5 py-0.5 text-2xs text-muted-foreground hover:bg-secondary hover:text-foreground"
+                                          onClick={() => jumpTo(edit.turn_index)}
+                                        >
+                                          {t("file.jump")}
+                                        </button>
+                                      </Show>
+                                    </div>
+                                    <Show
+                                      when={edit.diff}
+                                      fallback={
+                                        <p class="rounded-md bg-secondary/60 px-2 py-1.5 text-2xs text-muted-foreground">
+                                          {t("file.noDiff")}
+                                        </p>
+                                      }
+                                    >
+                                      <DiffBlock patch={edit.diff!} />
+                                    </Show>
+                                  </section>
+                                )}
+                              </For>
+                            </div>
+                          </div>
+                        )}
+                      </Show>
+                    </div>
+                  </Show>
+                </div>
               </Show>
-            </>
+            </aside>
           );
         }}
       </Show>

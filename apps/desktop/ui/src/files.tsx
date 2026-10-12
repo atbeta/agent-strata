@@ -153,11 +153,12 @@ export function FileBrowser(props: { sessionId: string }) {
   };
 
   return (
-    <div class="flex min-h-0 flex-1">
-      <div class="w-56 shrink-0 overflow-auto border-r border-border py-2">
-        <Branch sessionId={props.sessionId} path="" depth={0} selected={() => selected()?.path ?? null} onOpen={setSelected} />
-      </div>
-      <div class="flex min-h-0 min-w-0 flex-1 flex-col">
+    <div class="@container flex min-h-0 flex-1 flex-col">
+      <div class="flex min-h-0 min-w-0 flex-1 flex-col @min-[560px]:flex-row">
+        <div class="max-h-[40%] shrink-0 overflow-auto border-b border-border py-2 @min-[560px]:max-h-none @min-[560px]:w-56 @min-[560px]:border-b-0 @min-[560px]:border-r">
+          <Branch sessionId={props.sessionId} path="" depth={0} selected={() => selected()?.path ?? null} onOpen={setSelected} />
+        </div>
+        <div class="flex min-h-0 min-w-0 flex-1 flex-col">
         <Show
           when={selected()}
           fallback={<p class="px-3 py-3 text-xs text-muted-foreground">{t("files.pick")}</p>}
@@ -199,6 +200,7 @@ export function FileBrowser(props: { sessionId: string }) {
             </>
           )}
         </Show>
+        </div>
       </div>
     </div>
   );
