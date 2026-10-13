@@ -8,6 +8,7 @@ import {
   OPENCODE_REBUILT_TYPES,
   OPENCODE_MAPPER_VERSION,
   STREAM_SNAPSHOT_MS,
+  pickableProviders,
 } from "../src/index";
 import { loadPolicy } from "@agent-strata/policy";
 import type { Event } from "@opencode-ai/sdk/v2";
@@ -2117,5 +2118,40 @@ describe("importSession revision", () => {
       conn.stop();
       store.close();
     }
+  });
+});
+
+describe("pickable providers", () => {
+  const catalog = [
+    { id: "deepseek", source: "api", env: ["DEEPSEEK_API_KEY"] },
+    { id: "minimax-cn-coding-plan", source: "api", env: ["MINIMAX_API_KEY"] },
+    { id: "minimax-coding-plan", source: "env", env: ["MINIMAX_API_KEY"] },
+    { id: "minimax-cn", source: "env", env: ["MINIMAX_API_KEY"] },
+    { id: "minimax", source: "env", env: ["MINIMAX_API_KEY"] },
+    { id: "opencode-go", source: "api", env: ["OPENCODE_API_KEY"] },
+    { id: "opencode", source: "custom", env: ["OPENCODE_API_KEY"] },
+    { id: "openai", source: "env", env: ["OPENAI_API_KEY"] },
+  ];
+
+  test("a stored key does not make every sibling that names the same env var pickable", () => {
+    const ids = pickableProviders(catalog, [
+      "deepseek",
+      "minimax-cn-coding-plan",
+      "minimax-coding-plan",
+      "minimax-cn",
+      "minimax",
+      "opencode-go",
+      "opencode",
+      "openai",
+    ]).map((row) => row.id);
+    expect(ids).toEqual(["deepseek", "minimax-cn-coding-plan", "opencode-go", "opencode", "openai"]);
+  });
+
+  test("an env var with no stored key is still a credential", () => {
+    const ids = pickableProviders(
+      [{ id: "groq", source: "env", env: ["GROQ_API_KEY"] }],
+      ["groq"],
+    ).map((row) => row.id);
+    expect(ids).toEqual(["groq"]);
   });
 });

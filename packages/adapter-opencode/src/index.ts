@@ -85,6 +85,41 @@ function sourceTime(ms?: number): string | undefined {
   return new Date(ms).toISOString();
 }
 
+/**
+ * Providers the model picker may offer.
+ *
+ * OpenCode's `connected` list also names every sibling that shares an env var
+ * with a key the user stored (`source: "api"`). Those siblings send that key
+ * to a different product and the request fails. A provider that is itself only
+ * an env var stays, because that var is the credential.
+ */
+export function pickableProviders<T extends { id: string }>(
+  all: readonly T[],
+  connected: readonly string[] | undefined,
+): T[] {
+  const listed = connected ? all.filter((row) => connected.includes(row.id)) : [...all];
+  const claimed = new Set<string>();
+  for (const row of listed) {
+    if (providerSource(row) !== "api") continue;
+    for (const name of providerEnv(row)) claimed.add(name);
+  }
+  if (claimed.size === 0) return listed;
+  return listed.filter(
+    (row) => providerSource(row) !== "env" || !providerEnv(row).some((name) => claimed.has(name)),
+  );
+}
+
+function providerSource(row: { id: string }): string | undefined {
+  const source = (row as { source?: unknown }).source;
+  return typeof source === "string" ? source : undefined;
+}
+
+function providerEnv(row: { id: string }): string[] {
+  const env = (row as { env?: unknown }).env;
+  if (!Array.isArray(env)) return [];
+  return env.filter((name): name is string => typeof name === "string" && name.length > 0);
+}
+
 /** One shape for a path: separators unified, and a Windows drive path compared without case. */
 function pathKey(path: string): string {
   const p = path.replace(/\\/g, "/");
@@ -1633,14 +1668,12 @@ export async function connectOpencode(opts: {
     },
     async listModels() {
       const r = await client.provider.list();
-      // `all` is the full provider catalog; `connected` is what actually has
-      // credentials — only those are pickable. Each provider's default model
-      // sorts first.
-      const connected = r.data?.connected;
+      // `connected` is broader than a stored key: a sibling that only shares
+      // the env var is listed too, and it cannot take that key. Each
+      // provider's default model sorts first.
       const out: { providerID: string; modelID: string; name: string; variants: string[]; context?: number }[] =
         [];
-      for (const p of r.data?.all ?? []) {
-        if (connected && !connected.includes(p.id)) continue;
+      for (const p of pickableProviders(r.data?.all ?? [], r.data?.connected)) {
         const def = r.data?.default?.[p.id];
         const models = Object.entries(p.models ?? {});
         models.sort(([a], [b]) => (a === def ? -1 : b === def ? 1 : 0));
