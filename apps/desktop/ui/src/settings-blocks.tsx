@@ -2,7 +2,7 @@ import { Show, type JSX } from "solid-js";
 
 /**
  * The three shapes every settings section is built from. They live here rather
- * than inside settings.tsx because the provider and config sections sit in the
+ * than inside settings.tsx because the provider and permission sections sit in the
  * same page and have to agree with it — a section heading that is one size in
  * one place and another size in the next reads as two apps in one window.
  */

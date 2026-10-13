@@ -28,7 +28,6 @@ import { Switch } from "@/components/ui/switch";
 import { Group, Row, Segmented, pill } from "./settings-blocks";
 import { PolicyEditor } from "./policy";
 import { ProviderSettings } from "./providers";
-import { ConfigSettings } from "./config";
 import { SETTINGS_SECTIONS, settingsSection } from "./settings-sections";
 
 /** A function, not a const: the labels are translated, so they have to be read
@@ -471,8 +470,6 @@ export function SettingsPage(props: { section?: string }) {
       </Group>
 
       <ProviderSettings />
-
-      <ConfigSettings />
       </Show>
 
       <Show when={section() === "permission"}>

@@ -3,7 +3,6 @@
 // A later backend implements the subset it can, and the UI hides the rest.
 
 import type { EventInput, EventType } from "@agent-strata/schema";
-import type { ConfigApi } from "./config-edit";
 import type { ProviderApi } from "./provider-auth";
 import type { TerminalApi } from "./terminal";
 
@@ -87,8 +86,6 @@ export interface BackendExtension {
   get(path: string, query: URLSearchParams, directory?: string, signal?: AbortSignal): Promise<Response>;
   /** API keys for model providers; absent when this backend has none */
   providers?: ProviderApi;
-  /** read and merge the OpenCode config for one directory */
-  config?: ConfigApi;
   /** a shell in the session workspace; absent when this backend has no terminal */
   terminal?: TerminalApi;
 }

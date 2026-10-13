@@ -19,7 +19,6 @@ import { connectAcpDriver } from "./acp-driver";
 import { bootPlan, REMEMBERED_PROBE_MS } from "./boot-connect";
 import { agentNameOf, connectionMemory, endpointOf, type ConnectBody } from "./connections";
 import { extensionRoute } from "./extension-route";
-import { configRoute } from "./config-edit";
 import { mcpAddRequest, safeMcpError } from "./mcp-add";
 import { mcpAuthCode, mcpAuthStartView } from "./mcp-auth";
 import { providerRoute } from "./provider-auth";
@@ -1015,17 +1014,6 @@ export function startService(opts: ServiceOpts = {}): RunningService {
 
     const providers = await providerRoute(req, path, (id) => conns.get(id)?.extension?.providers);
     if (providers) return providers;
-
-    const config = await configRoute(req, path, url, (id) => {
-      const conn = conns.get(id);
-      if (!conn?.extension?.config) return undefined;
-      return {
-        directory: conn.directory,
-        config: conn.extension.config,
-        known: async () => (await conn.listWorkspaces()).map((workspace) => workspace.directory),
-      };
-    });
-    if (config) return config;
 
     const extension = await extensionRoute(req, url, {
       connection: (id) => conns.get(id),
