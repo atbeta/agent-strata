@@ -12,7 +12,9 @@ export default {
   // Rule fields
   "policy.field.ruleId": "rule id",
   "policy.field.tool": "tool",
-  "policy.field.reason": "reason shown to the agent when this rule fires (optional)",
+  "policy.field.toolHint": "bash, * or edit*",
+  "policy.field.reason": "reason",
+  "policy.field.reasonPlaceholder": "shown to the agent, optional",
 
   // Effects
   "policy.rule.effect.allow": "allow",
@@ -23,11 +25,12 @@ export default {
   "policy.action.remove": "remove",
   "policy.action.clear": "clear",
   "policy.action.save": "save policy",
-  "policy.action.addRule": "+ add rule",
+  "policy.action.addRule": "add rule",
 
   // Conditions
-  "policy.conditions.hint": "when — every condition must match (input path · condition · value)",
-  "policy.conditions.add": "+ condition",
+  "policy.conditions.title": "conditions",
+  "policy.conditions.hint": "all of them have to match",
+  "policy.conditions.add": "add condition",
 
   // Default effect and the rule count
   "policy.default.label": "default effect",

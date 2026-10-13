@@ -12,7 +12,10 @@ import {
 } from "./api";
 import { t, tn } from "./i18n";
 import type { MessageKey } from "./locales/zh";
+import { Icon } from "./icons";
+import { Button } from "@/components/ui/button";
 import { Picker } from "@/components/ui/picker";
+import { Segmented } from "./settings-blocks";
 
 // editing model: `when` is a Record in CASF but easier to edit as flat rows
 interface CondRow {
@@ -103,10 +106,10 @@ const DECISION_CLS: Record<PolicyDecision["decision"], string> = {
 };
 
 const inputCls =
-  "rounded-md border border-input bg-secondary/50 px-2 py-1 font-mono text-xs text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none";
+  "h-8 min-w-0 rounded-md border border-border bg-transparent px-2 font-mono text-xs text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none";
 
 const fieldPicker =
-  "h-7 max-w-none rounded-md border border-input bg-secondary/50 px-2 font-sans text-xs text-foreground hover:bg-secondary/50";
+  "h-8 max-w-none rounded-md border border-border bg-transparent px-2 font-sans text-xs text-foreground hover:bg-transparent";
 
 function RuleCard(props: { index: number; draft: Draft; setDraft: (fn: (d: Draft) => void) => void; remove: () => void }) {
   const rule = () => props.draft.rules[props.index]!;
@@ -115,101 +118,114 @@ function RuleCard(props: { index: number; draft: Draft; setDraft: (fn: (d: Draft
       fn(d.rules[props.index]!);
     });
 
+  const effectCls = () =>
+    rule().effect === "deny"
+      ? "text-destructive"
+      : rule().effect === "allow"
+        ? "text-status-active"
+        : "text-event-permission";
+
   return (
-    <div class="rounded-lg border border-border bg-card p-4">
-      <div class="flex flex-wrap items-center gap-2">
-        <input
-          class={`${inputCls} w-40`}
-          placeholder={t("policy.field.ruleId")}
-          value={rule().id}
-          onInput={(e) => setRule((r) => (r.id = e.currentTarget.value))}
-        />
+    <div class="rounded-lg border border-border">
+      <div class="flex items-center gap-2 px-3 py-2">
         <Picker
           label={t(EFFECT_LABEL[rule().effect])}
           value={rule().effect}
-          class={`${fieldPicker} ${
-            rule().effect === "deny"
-              ? "text-destructive"
-              : rule().effect === "allow"
-                ? "text-status-active"
-                : "text-event-permission"
-          }`}
+          class={`${fieldPicker} ${effectCls()}`}
           options={(Object.keys(EFFECT_LABEL) as RuleDraft["effect"][]).map((fx) => ({
             value: fx,
             label: t(EFFECT_LABEL[fx]),
           }))}
           onChange={(value) => setRule((r) => (r.effect = value as RuleDraft["effect"]))}
         />
-        <span class="text-xs text-muted-foreground">{t("policy.field.tool")}</span>
         <input
-          class={`${inputCls} w-36`}
-          placeholder="bash | * | edit*"
+          class={`${inputCls} flex-1`}
+          aria-label={t("policy.field.tool")}
+          placeholder="bash"
+          title={t("policy.field.toolHint")}
           value={rule().tool}
           onInput={(e) => setRule((r) => (r.tool = e.currentTarget.value))}
         />
         <button
-          class="ml-auto rounded-md bg-destructive/20 px-2.5 py-1 text-xs font-medium text-destructive transition-opacity hover:opacity-80"
+          type="button"
+          class="shrink-0 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
           onClick={props.remove}
         >
           {t("policy.action.remove")}
         </button>
       </div>
-      <input
-        class={`${inputCls} mt-2 w-full font-sans`}
-        placeholder={t("policy.field.reason")}
-        value={rule().reason}
-        onInput={(e) => setRule((r) => (r.reason = e.currentTarget.value))}
-      />
 
-      <div class="mt-3 space-y-1.5">
-        <div class="flex items-center gap-2 text-xs text-muted-foreground">
-          <span>{t("policy.conditions.hint")}</span>
+      <div class="grid grid-cols-[4.75rem_minmax(0,1fr)] items-center gap-x-3 gap-y-2 border-t border-border px-3 py-2.5">
+        <span class="text-2xs text-muted-foreground">{t("policy.field.ruleId")}</span>
+        <input
+          class={inputCls}
+          aria-label={t("policy.field.ruleId")}
+          value={rule().id}
+          onInput={(e) => setRule((r) => (r.id = e.currentTarget.value))}
+        />
+        <span class="text-2xs text-muted-foreground">{t("policy.field.reason")}</span>
+        <input
+          class={`${inputCls} font-sans`}
+          placeholder={t("policy.field.reasonPlaceholder")}
+          value={rule().reason}
+          onInput={(e) => setRule((r) => (r.reason = e.currentTarget.value))}
+        />
+      </div>
+
+      <div class="border-t border-border px-3 py-2.5">
+        <div class="flex items-baseline justify-between gap-3">
+          <span class="text-2xs text-muted-foreground">
+            {t("policy.conditions.title")}
+            <span class="ml-2 text-muted-foreground/70">{t("policy.conditions.hint")}</span>
+          </span>
           <button
-            class="rounded bg-secondary px-1.5 py-0.5 text-2xs transition-colors hover:text-foreground"
+            type="button"
+            class="shrink-0 text-2xs text-muted-foreground hover:text-foreground"
             onClick={() => setRule((r) => r.conds.push({ path: "", op: "glob", value: "" }))}
           >
             {t("policy.conditions.add")}
           </button>
         </div>
-        <For each={rule().conds}>
-          {(c, ci) => (
-            <div class="flex items-center gap-1.5">
-              <input
-                class={`${inputCls} w-48`}
-                placeholder="command | input.path"
-                value={c.path}
-                onInput={(e) =>
-                  setRule((r) => (r.conds[ci()]!.path = e.currentTarget.value))
-                }
-              />
-              <Picker
-                label={t("policy.conditions.hint")}
-                value={c.op}
-                class={fieldPicker}
-                options={[
-                  { value: "glob", label: "glob" },
-                  { value: "matches", label: "regex" },
-                  { value: "equals", label: "equals" },
-                ]}
-                onChange={(value) => setRule((r) => (r.conds[ci()]!.op = value as CondRow["op"]))}
-              />
-              <input
-                class={`${inputCls} flex-1`}
-                placeholder={c.op === "equals" ? "true | 5 | string" : c.op === "matches" ? "\\brm\\b" : "*.env"}
-                value={c.value}
-                onInput={(e) =>
-                  setRule((r) => (r.conds[ci()]!.value = e.currentTarget.value))
-                }
-              />
-              <button
-                class="rounded px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:text-destructive"
-                onClick={() => setRule((r) => r.conds.splice(ci(), 1))}
-              >
-                ✕
-              </button>
-            </div>
-          )}
-        </For>
+        <div class={rule().conds.length ? "mt-2 space-y-1.5" : ""}>
+          <For each={rule().conds}>
+            {(c, ci) => (
+              <div class="flex items-center gap-1.5">
+                <input
+                  class={`${inputCls} w-36`}
+                  aria-label={t("policy.conditions.title")}
+                  placeholder="command"
+                  value={c.path}
+                  onInput={(e) => setRule((r) => (r.conds[ci()]!.path = e.currentTarget.value))}
+                />
+                <Picker
+                  label={t("policy.conditions.title")}
+                  value={c.op}
+                  class={`${fieldPicker} w-[5.5rem]`}
+                  options={[
+                    { value: "glob", label: "glob" },
+                    { value: "matches", label: "regex" },
+                    { value: "equals", label: "equals" },
+                  ]}
+                  onChange={(value) => setRule((r) => (r.conds[ci()]!.op = value as CondRow["op"]))}
+                />
+                <input
+                  class={`${inputCls} flex-1`}
+                  placeholder={c.op === "equals" ? "true" : c.op === "matches" ? "\\brm\\b" : "*.env"}
+                  value={c.value}
+                  onInput={(e) => setRule((r) => (r.conds[ci()]!.value = e.currentTarget.value))}
+                />
+                <button
+                  type="button"
+                  class="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  aria-label={t("policy.action.remove")}
+                  onClick={() => setRule((r) => r.conds.splice(ci(), 1))}
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+          </For>
+        </div>
       </div>
     </div>
   );
@@ -296,37 +312,22 @@ export function PolicyEditor() {
         </p>
       </Show>
 
-      <section class="mt-3 flex items-center gap-3 rounded-lg border border-border bg-muted px-4 py-3 text-sm">
-        <span class="text-muted-foreground">{t("policy.default.label")}</span>
-        <Picker
+      <div class="mt-4 flex items-center justify-between gap-4">
+        <div class="min-w-0">
+          <div class="text-sm">{t("policy.default.label")}</div>
+          <div class="mt-0.5 text-2xs text-muted-foreground">{tn("policy.rules.count", draft.rules.length)}</div>
+        </div>
+        <Segmented
           label={t("policy.default.label")}
           value={draft.default}
-          class={fieldPicker}
           options={[
-            { value: "ask", label: t("policy.rule.effect.ask") },
-            { value: "allow", label: t("policy.rule.effect.allow") },
-            { value: "deny", label: t("policy.rule.effect.deny") },
+            { id: "ask", label: t("policy.rule.effect.ask") },
+            { id: "allow", label: t("policy.rule.effect.allow") },
+            { id: "deny", label: t("policy.rule.effect.deny") },
           ]}
-          onChange={(value) => setDraftRaw("default", value as Draft["default"])}
+          onChange={(id) => setDraftRaw("default", id as Draft["default"])}
         />
-        <span class="text-xs text-muted-foreground">
-          {tn("policy.rules.count", draft.rules.length)}
-        </span>
-        <span class="ml-auto flex gap-2">
-          <button
-            class="rounded-md border border-border bg-secondary px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
-            onClick={() => void clear()}
-          >
-            {t("policy.action.clear")}
-          </button>
-          <button
-            class="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
-            onClick={() => void save()}
-          >
-            {t("policy.action.save")}
-          </button>
-        </span>
-      </section>
+      </div>
       <Show when={err()}>
         <p class="mt-2 font-mono text-xs text-destructive">{err()}</p>
       </Show>
@@ -339,7 +340,7 @@ export function PolicyEditor() {
         <p class="mt-2 text-xs text-status-active">{t(notice() as MessageKey)}</p>
       </Show>
 
-      <section class="mt-4 space-y-3">
+      <section class="mt-4 space-y-2">
         <For each={draft.rules}>
           {(_r, i) => (
             <RuleCard
@@ -351,25 +352,35 @@ export function PolicyEditor() {
           )}
         </For>
         <button
-          class="w-full rounded-lg border border-dashed border-border py-2.5 text-sm text-muted-foreground transition-colors hover:border-ring/50 hover:text-foreground"
+          type="button"
+          class="flex items-center gap-1.5 rounded-md px-1 py-1 text-sm text-muted-foreground hover:text-foreground"
           onClick={() =>
             setDraft((d) =>
               d.rules.push({ id: "", effect: "allow", tool: "", reason: "", conds: [] }),
             )
           }
         >
+          <Icon name="plus" class="size-3.5" />
           {t("policy.action.addRule")}
         </button>
       </section>
 
-      <section class="mt-6 rounded-lg border border-border bg-card p-4">
-        <h2 class="text-sm font-medium">{t("policy.test.title")}</h2>
-        <p class="mt-1 text-xs text-muted-foreground">
-          {t("policy.test.hint")}
-        </p>
-        <div class="mt-3 flex gap-2">
+      <div class="mt-3 flex items-center justify-end gap-2">
+        <Button variant="ghost" size="sm" onClick={() => void clear()}>
+          {t("policy.action.clear")}
+        </Button>
+        <Button size="sm" onClick={() => void save()}>
+          {t("policy.action.save")}
+        </Button>
+      </div>
+
+      <section class="mt-8">
+        <h2 class="text-xs text-muted-foreground">{t("policy.test.title")}</h2>
+        <p class="mt-1 text-2xs leading-4 text-muted-foreground">{t("policy.test.hint")}</p>
+        <div class="mt-2 flex gap-2">
           <input
-            class={`${inputCls} w-32`}
+            class={`${inputCls} w-28`}
+            aria-label={t("policy.field.tool")}
             placeholder={t("policy.field.tool")}
             value={testTool()}
             onInput={(e) => setTestTool(e.currentTarget.value)}
@@ -379,23 +390,24 @@ export function PolicyEditor() {
             value={testInput()}
             onInput={(e) => setTestInput(e.currentTarget.value)}
           />
-          <button
-            class="shrink-0 whitespace-nowrap rounded-md bg-secondary px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
-            onClick={() => void runTest()}
-          >
+          <Button variant="secondary" size="sm" class="shrink-0" onClick={() => void runTest()}>
             {t("policy.test.run")}
-          </button>
+          </Button>
         </div>
         <Show when={testResult()}>
           {(d) => (
-            <div class="mt-3 rounded-md bg-secondary/50 px-3 py-2 font-mono text-xs">
-              <span class={`font-medium ${DECISION_CLS[d().decision]}`}>{d().decision}</span>
+            <div class="mt-2 text-xs">
+              <span class={`font-medium ${DECISION_CLS[d().decision]}`}>
+                {t(EFFECT_LABEL[d().decision])}
+              </span>
               <Show when={d().rule_id}>
-                <span class="text-muted-foreground">{t("policy.test.via")}</span>
-                <span class="text-foreground">{d().rule_id}</span>
+                <span class="text-muted-foreground">
+                  {t("policy.test.via")}
+                  <span class="font-mono text-foreground">{d().rule_id}</span>
+                </span>
               </Show>
               <Show when={d().reason}>
-                <div class="mt-1 text-muted-foreground">{d().reason}</div>
+                <p class="mt-1 text-2xs text-muted-foreground">{d().reason}</p>
               </Show>
             </div>
           )}

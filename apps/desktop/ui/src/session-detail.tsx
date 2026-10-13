@@ -64,7 +64,7 @@ import {
   type SidePanelTab,
 } from "./right-pane";
 import { JsonView } from "./json-view";
-import { permissionView } from "./permission-card";
+import { permissionView, type PermissionView } from "./permission-card";
 import { num, t, tn } from "./i18n";
 import type { MessageKey } from "./locales/zh";
 import { DragBar } from "./chrome";
@@ -79,6 +79,7 @@ import { ComposerToolbar } from "./composer-toolbar";
 import { applyStreamingSnapshot, mergeViewTail, type StreamingSnapshot } from "./live";
 import { filesKeyOf, peekView, rememberView, tailMatches, viewFromTail } from "./view-cache";
 import { registerCommand } from "./commands";
+import { Button } from "@/components/ui/button";
 import { Picker } from "@/components/ui/picker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -115,6 +116,82 @@ import {
   writeHistory,
 } from "./prompt-memory";
 
+function askIcon(detail: PermissionView, tool: string): "terminal" | "pencil" | "globe" | "files" | "wrench" {
+  if (detail.kind === "command") return "terminal";
+  if (detail.kind === "diff") return "pencil";
+  if (detail.kind === "url") return "globe";
+  if (tool === "read") return "files";
+  return "wrench";
+}
+
+function AskCard(props: {
+  ask: PendingAsk;
+  onRespond: (id: string, decision: "allow" | "deny", scope?: "once" | "always") => void;
+}) {
+  const detail = () => permissionView(props.ask);
+  const body = () => {
+    const view = detail();
+    if (view.kind === "command") {
+      return (
+        <pre class="max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-md bg-secondary/50 px-2.5 py-1.5 font-mono text-xs leading-5">
+          {view.command}
+        </pre>
+      );
+    }
+    if (view.kind === "diff") {
+      return (
+        <div class="overflow-hidden rounded-md border border-border">
+          <Show when={view.path}>
+            <p class="truncate border-b border-border px-2.5 py-1 font-mono text-2xs text-muted-foreground">{view.path}</p>
+          </Show>
+          <div class="max-h-48 overflow-auto">
+            <DiffBlock patch={view.patch} />
+          </div>
+        </div>
+      );
+    }
+    if (view.kind === "url") {
+      return <p class="break-all font-mono text-xs leading-5 text-foreground/90">{view.url}</p>;
+    }
+    return (
+      <div class="max-h-32 overflow-auto rounded-md bg-secondary/50 px-2.5 py-1.5">
+        <JsonView value={props.ask.input} />
+      </div>
+    );
+  };
+  return (
+    <div class="overflow-hidden rounded-lg border border-border bg-card">
+      <div class="flex items-center gap-2 px-3 pt-2.5">
+        <Icon name={askIcon(detail(), props.ask.tool)} class="size-3.5 shrink-0 text-event-permission" />
+        <span class="text-xs font-medium">{props.ask.tool}</span>
+        <span class="text-2xs text-muted-foreground">{t("permission.wants_to_run")}</span>
+      </div>
+      <div class="px-3 py-2">{body()}</div>
+      <div class="flex items-center justify-end gap-1.5 border-t border-border px-2 py-1.5">
+        <Button
+          variant="ghost"
+          size="sm"
+          class="h-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+          onClick={() => props.onRespond(props.ask.request_id, "deny")}
+        >
+          {t("permission.deny")}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          class="h-7"
+          onClick={() => props.onRespond(props.ask.request_id, "allow", "always")}
+        >
+          {t("permission.always")}
+        </Button>
+        <Button size="sm" class="h-7" onClick={() => props.onRespond(props.ask.request_id, "allow", "once")}>
+          {t("permission.once")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function QuestionCard(props: { q: PendingQuestion; onDone: () => void }) {
   const [picks, setPicks] = createSignal<string[][]>(props.q.questions.map(() => []));
   const [custom, setCustom] = createSignal<string[]>(props.q.questions.map(() => ""));
@@ -150,38 +227,43 @@ function QuestionCard(props: { q: PendingQuestion; onDone: () => void }) {
   };
 
   return (
-    <div class="rounded-xl border border-event-permission/40 bg-event-permission/10 p-4">
+    <div class="overflow-hidden rounded-lg border border-border bg-card">
       <For each={props.q.questions}>
         {(question, qi) => (
-          <div class={qi() > 0 ? "mt-4 border-t border-border/60 pt-4" : ""}>
-            <div class="text-2xs font-medium uppercase tracking-wide text-event-permission">
-              {question.header}
-            </div>
-            <p class="mt-1 text-sm">{question.question}</p>
-            <div class="mt-2 flex flex-wrap gap-1.5">
+          <div class={qi() > 0 ? "border-t border-border px-3 py-2.5" : "px-3 py-2.5"}>
+            <Show when={question.header}>
+              <div class="text-2xs text-muted-foreground">{question.header}</div>
+            </Show>
+            <p class="mt-0.5 text-sm">{question.question}</p>
+            <div class="mt-2 space-y-1">
               <For each={question.options}>
                 {(opt) => {
                   const on = () => (picks()[qi()] ?? []).includes(opt.label);
                   return (
-                    <Tip label={opt.description}>
-                      <button
-                        class={`rounded-full px-3 py-1 text-xs transition-colors ${
-                          on()
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-secondary text-foreground hover:bg-accent"
-                        }`}
-                        onClick={() => toggle(qi(), opt.label, question.multiple)}
-                      >
-                        {opt.label}
-                      </button>
-                    </Tip>
+                    <button
+                      type="button"
+                      class={`flex w-full items-start gap-2 rounded-md border px-2.5 py-1.5 text-left transition-colors ${
+                        on() ? "border-ring bg-secondary" : "border-border hover:bg-secondary/50"
+                      }`}
+                      onClick={() => toggle(qi(), opt.label, question.multiple)}
+                    >
+                      <span class="min-w-0 flex-1">
+                        <span class="block text-sm">{opt.label}</span>
+                        <Show when={opt.description}>
+                          <span class="mt-0.5 block text-2xs leading-4 text-muted-foreground">{opt.description}</span>
+                        </Show>
+                      </span>
+                      <Show when={on()}>
+                        <Icon name="check" class="mt-0.5 size-3.5 shrink-0 text-foreground" />
+                      </Show>
+                    </button>
                   );
                 }}
               </For>
             </div>
             <Show when={question.custom}>
               <input
-                class="mt-2 w-full rounded-md border border-input bg-background/50 px-2.5 py-1.5 text-sm focus:border-ring focus:outline-none"
+                class="mt-2 h-8 w-full rounded-md border border-border bg-transparent px-2.5 text-sm focus:border-ring focus:outline-none"
                 placeholder={t("question.placeholder.custom")}
                 value={custom()[qi()] ?? ""}
                 onInput={(e) =>
@@ -192,22 +274,21 @@ function QuestionCard(props: { q: PendingQuestion; onDone: () => void }) {
           </div>
         )}
       </For>
-      <div class="mt-3 flex items-center gap-2">
-        <button
-          class="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:opacity-90"
-          onClick={() => void submit()}
-        >
-          {t("question.reply")}
-        </button>
-        <button
-          class="rounded-md px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground"
+      <div class="flex items-center gap-2 border-t border-border px-2 py-1.5">
+        <Show when={err()}>
+          <span class="min-w-0 flex-1 text-xs text-destructive">{err()}</span>
+        </Show>
+        <Button
+          variant="ghost"
+          size="sm"
+          class="ml-auto h-7 text-muted-foreground"
           onClick={() => void respondQuestion(props.q.request_id, "reject").then(props.onDone)}
         >
           {t("question.dismiss")}
-        </button>
-        <Show when={err()}>
-          <span class="text-xs text-destructive">{err()}</span>
-        </Show>
+        </Button>
+        <Button size="sm" class="h-7" onClick={() => void submit()}>
+          {t("question.reply")}
+        </Button>
       </div>
     </div>
   );
@@ -2234,90 +2315,12 @@ const turnIndexOf = (h: SearchHit): number => {
                 <div class="shrink-0 bg-gradient-to-t from-background from-70% px-5 pb-4 pt-6">
                   <div class="mx-auto w-full max-w-3xl space-y-2">
                     <For each={openAsks()}>
-                      {(p) => {
-                        const detail = permissionView(p);
-                        const summary = () => {
-                          if (detail.kind === "command") return detail.command.split("\n")[0];
-                          if (detail.kind === "url") return detail.url.split("\n")[0];
-                          if (detail.kind === "diff") return detail.path;
-                          return undefined;
-                        };
-                        const extra = () => {
-                          if (detail.kind === "command") return detail.command.includes("\n");
-                          if (detail.kind === "url") return detail.url.includes("\n");
-                          return detail.kind === "diff" || detail.kind === "json";
-                        };
-                        return (
-                          <div class="overflow-hidden rounded-lg border border-border bg-card">
-                            <div class="flex items-start gap-3 px-3 py-2">
-                              <div class="min-w-0 flex-1">
-                                <div class="flex items-baseline gap-2">
-                                  <span class="text-xs font-medium text-foreground">{p.tool}</span>
-                                  <span class="text-2xs text-muted-foreground">{t("permission.wants_to_run")}</span>
-                                </div>
-                                <Show when={summary()}>
-                                  <p class="mt-0.5 truncate font-mono text-xs text-foreground/80">{summary()}</p>
-                                </Show>
-                              </div>
-                              <div class="flex shrink-0 items-center gap-0.5">
-                                <button
-                                  type="button"
-                                  class="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                                  onClick={() => void respond(p.request_id, "deny")}
-                                >
-                                  {t("permission.deny")}
-                                </button>
-                                <button
-                                  type="button"
-                                  class="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground"
-                                  onClick={() => void respond(p.request_id, "allow", "always")}
-                                >
-                                  {t("permission.always")}
-                                </button>
-                                <button
-                                  type="button"
-                                  class="rounded-md bg-foreground px-2 py-1 text-xs font-medium text-background"
-                                  onClick={() => void respond(p.request_id, "allow", "once")}
-                                >
-                                  {t("permission.once")}
-                                </button>
-                              </div>
-                            </div>
-                            <Show when={extra()}>
-                              <div class="border-t border-border px-3 py-2">
-                                <Switch>
-                                  <Match when={detail.kind === "command" ? detail : undefined}>
-                                    {(v) => (
-                                      <pre class="max-h-24 overflow-y-auto whitespace-pre-wrap font-mono text-2xs text-foreground/80">
-                                        {v().command}
-                                      </pre>
-                                    )}
-                                  </Match>
-                                  <Match when={detail.kind === "diff" ? detail : undefined}>
-                                    {(v) => (
-                                      <div class="max-h-48 overflow-auto">
-                                        <DiffBlock patch={v().patch} />
-                                      </div>
-                                    )}
-                                  </Match>
-                                  <Match when={detail.kind === "url" ? detail : undefined}>
-                                    {(v) => (
-                                      <pre class="max-h-24 overflow-y-auto whitespace-pre-wrap font-mono text-2xs text-foreground/80">
-                                        {v().url}
-                                      </pre>
-                                    )}
-                                  </Match>
-                                  <Match when={detail.kind === "json"}>
-                                    <div class="max-h-24 overflow-y-auto">
-                                      <JsonView value={p.input} />
-                                    </div>
-                                  </Match>
-                                </Switch>
-                              </div>
-                            </Show>
-                          </div>
-                        );
-                      }}
+                      {(p) => (
+                        <AskCard
+                          ask={p}
+                          onRespond={(id, decision, scope) => void respond(id, decision, scope)}
+                        />
+                      )}
                     </For>
                     <For each={settled(questions) ?? []}>
                       {(q) => (

@@ -11,7 +11,9 @@ export default {
   // 规则卡字段
   "policy.field.ruleId": "规则 ID",
   "policy.field.tool": "工具",
-  "policy.field.reason": "规则触发时展示给智能体的原因（可选）",
+  "policy.field.toolHint": "bash、* 或 edit*",
+  "policy.field.reason": "原因",
+  "policy.field.reasonPlaceholder": "给智能体看的说明，可选",
 
   // 效果
   "policy.rule.effect.allow": "允许",
@@ -22,11 +24,12 @@ export default {
   "policy.action.remove": "移除",
   "policy.action.clear": "清空",
   "policy.action.save": "保存策略",
-  "policy.action.addRule": "+ 添加规则",
+  "policy.action.addRule": "添加规则",
 
   // 条件
-  "policy.conditions.hint": "when —— 所有条件都必须匹配（输入路径 · 条件 · 值）",
-  "policy.conditions.add": "+ 条件",
+  "policy.conditions.title": "条件",
+  "policy.conditions.hint": "要全部匹配才命中",
+  "policy.conditions.add": "添加条件",
 
   // 默认效果与计数
   "policy.default.label": "默认效果",
