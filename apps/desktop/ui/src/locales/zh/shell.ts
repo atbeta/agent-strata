@@ -68,11 +68,23 @@ export default {
   "nav.compare": "对比",
 
   // Fleet page
+  "fleet.nav": "概览",
   "fleet.scope.all": "全部会话",
   "fleet.overview.sessions": "会话",
   "fleet.overview.cost": "花费",
   "fleet.overview.tokens": "Token",
+  "fleet.overview.tools": "工具调用",
+  "fleet.overview.input": "输入",
+  "fleet.overview.output": "输出",
+  "fleet.overview.perSession": "平均 {value}",
+  "fleet.overview.projectCount.one": "{n} 个项目",
+  "fleet.overview.projectCount.other": "{n} 个项目",
   "fleet.overview.recent": "最近会话",
+  "fleet.overview.attention": "需要关注",
+  "fleet.overview.running": "进行中",
+  "fleet.overview.projects": "项目",
+  "fleet.overview.activity": "时间分布",
+  "fleet.overview.empty": "还没有会话。",
   "fleet.hint.disconnected": "接入正在运行的代理服务器。服务器上的会话会在数据流连接后立即显示。",
 
   // Time

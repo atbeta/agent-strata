@@ -5,7 +5,6 @@ import {
   connectBackend,
   deleteSession,
   disconnectBackend,
-  fmtUsd,
   getJson,
   getJsonWhenUp,
   readOpencodeLaunch,
@@ -18,6 +17,8 @@ import {
   type StrataEvent,
 } from "./api";
 import { holdRows, sameValue } from "./session-rows";
+import { dayBucket, projectName, relTime, TIME_BUCKETS } from "./fleet";
+import { FleetView } from "./fleet-view";
 import { SessionDetail } from "./session-detail";
 import { CompareView } from "./compare";
 import { SettingsPage } from "./settings";
@@ -33,7 +34,7 @@ import { Icon } from "./icons";
 import { PageShell, WindowCaptionBar } from "./chrome";
 import { inDesktopShell } from "./shell";
 import { windowTitle } from "./permission-card";
-import { date, num, t, tn } from "./i18n";
+import { t, tn } from "./i18n";
 import { Tip } from "./tip";
 import { CommandSearch } from "./search";
 import { isStreamingSnapshotMessage } from "./live";
@@ -65,122 +66,9 @@ function parseHash(): Route {
   return { name: "fleet" };
 }
 
-/**
- * The landing pane.
- *
- * The sidebar is already the list of sessions, so repeating "pick a session"
- * here — with a button that did the same thing as the `+` above it — spent
- * most of the window saying nothing twice. This answers the one question the
- * sidebar cannot: what these sessions have cost, and which ones were recent.
- *
- * Every figure is summed from the rows already in hand rather than from the
- * server's global aggregate, so filtering to a project narrows the numbers to
- * match the list instead of leaving them describing all of it.
- */
-function FleetOverview(props: {
-  sessions: SessionRow[];
-  onOpen: (id: string) => void;
-  now: number;
-}) {
-  const cost = () => props.sessions.reduce((sum, s) => sum + s.totals.cost_usd, 0);
-  const tokens = () =>
-    props.sessions.reduce((sum, s) => sum + s.totals.input + s.totals.output, 0);
-  const recent = () =>
-    [...props.sessions]
-      .sort((a, b) => b.summary.last_ts.localeCompare(a.summary.last_ts))
-      .slice(0, 6);
-
-  const figure = (label: string, value: string) => (
-    <div class="bg-background px-4 py-3">
-      <div class="text-2xs text-muted-foreground">{label}</div>
-      <div class="mt-1 font-mono text-lg leading-none tabular-nums text-foreground">{value}</div>
-    </div>
-  );
-
-  return (
-    <div class="px-8 py-10">
-      {/* gap-px over a border-coloured field draws the hairlines between the
-          figures, which is how this design separates things: one surface, a
-          line, no second grey. */}
-      <div class="grid max-w-2xl grid-cols-3 gap-px overflow-hidden rounded-lg border border-border bg-border">
-        {figure(t("fleet.overview.sessions"), num(props.sessions.length))}
-        {figure(t("fleet.overview.cost"), fmtUsd(cost()))}
-        {figure(t("fleet.overview.tokens"), num(tokens()))}
-      </div>
-
-      <div class="mt-8 max-w-2xl">
-        <div class="mb-1 text-xs text-muted-foreground">{t("fleet.overview.recent")}</div>
-        <ul class="divide-y divide-border">
-          <For each={recent()}>
-            {(s) => (
-              <li>
-                <button
-                  type="button"
-                  class="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition-colors hover:bg-secondary/60"
-                  onClick={() => props.onOpen(s.summary.session_id)}
-                >
-                  <span class="min-w-0 flex-1 truncate text-sm text-foreground">
-                    {s.title ?? s.summary.title ?? t("common.untitled")}
-                  </span>
-                  <Show when={s.totals.cost_usd > 0}>
-                    <span class="shrink-0 font-mono text-2xs tabular-nums text-muted-foreground">
-                      {fmtUsd(s.totals.cost_usd)}
-                    </span>
-                  </Show>
-                  <span class="w-12 shrink-0 text-right text-2xs text-muted-foreground">
-                    {relTime(s.summary.last_ts, props.now)}
-                  </span>
-                </button>
-              </li>
-            )}
-          </For>
-        </ul>
-      </div>
-    </div>
-  );
-}
-
-function relTime(iso: string, now = Date.now()): string {
-  const ts = new Date(iso).getTime();
-  if (!Number.isFinite(ts)) return "";
-  const mins = Math.round((now - ts) / 60_000);
-  if (mins < 1) return t("time.now");
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.round(mins / 60);
-  if (hours < 36) return `${hours}h`;
-  return date(ts);
-}
-
-const TIME_BUCKETS = ["time.today", "time.yesterday", "time.week", "time.older"] as const;
-
-function dayBucket(iso: string, now: number): (typeof TIME_BUCKETS)[number] {
-  const ts = new Date(iso).getTime();
-  if (!Number.isFinite(ts)) return "time.older";
-  const start = (ms: number) => {
-    const d = new Date(ms);
-    d.setHours(0, 0, 0, 0);
-    return d.getTime();
-  };
-  const diff = Math.round((start(now) - start(ts)) / 86_400_000);
-  if (diff <= 0) return "time.today";
-  if (diff === 1) return "time.yesterday";
-  if (diff < 7) return "time.week";
-  return "time.older";
-}
-
 const WS_KEY = "strata.workspace";
 const NEW_CONN_KEY = "strata.newSessionConnection";
 const ALL = "__all__";
-
-function baseName(path: string): string {
-  const parts = path.split(/[/\\]/).filter(Boolean);
-  return parts.at(-1) ?? path;
-}
-
-function projectName(path: string): string {
-  if (path === "/" || path === "\\") return t("project.root");
-  return baseName(path);
-}
 
 function projectHint(path: string): string {
   if (path === "/" || path === "\\") return t("project.rootHint");
@@ -692,6 +580,13 @@ export function App() {
     location.hash = `/session/${encodeURIComponent(id)}`;
   };
 
+  /** The overview is a place, not a moment before the first click. */
+  const openFleet = () => {
+    setCompareOn(false);
+    setCompareSel([]);
+    location.hash = "/";
+  };
+
   /** Enter compare mode with one session already chosen. With no id the user
    *  picks both, which is what the palette command does. */
   const startCompare = (id?: string) => {
@@ -960,6 +855,13 @@ export function App() {
   );
   onCleanup(
     registerCommand({
+      id: "app.fleet",
+      title: () => t("fleet.nav"),
+      run: () => openFleet(),
+    }),
+  );
+  onCleanup(
+    registerCommand({
       id: "app.settings",
       title: () => t("settings.title"),
       run: () => {
@@ -1128,7 +1030,24 @@ export function App() {
             </p>
           </Show>
         </div>
-        <div class="min-h-0 flex-1 overflow-y-auto border-t border-border px-1.5 py-1">
+        <div class="border-t border-border px-1.5 pt-1 pb-1">
+          <button
+            type="button"
+            class={cn(
+              "flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm transition-colors",
+              route().name === "fleet"
+                ? "bg-accent text-foreground"
+                : "text-foreground/80 hover:bg-secondary/70",
+            )}
+            aria-current={route().name === "fleet" ? "page" : undefined}
+            onClick={openFleet}
+          >
+            <Icon name="list" class="size-3.5 shrink-0 text-muted-foreground" />
+            <span class="min-w-0 flex-1 truncate">{t("fleet.nav")}</span>
+            <span class="font-mono text-2xs text-muted-foreground tabular-nums">{sessions().length}</span>
+          </button>
+        </div>
+        <div class="min-h-0 flex-1 overflow-y-auto px-1.5 py-1">
           {/* Compare is a mode of the list and it says so at the top of the
               list. The hint used to live inside the connect panel, so entering
               compare mode from anywhere else showed nothing at all: the rows
@@ -1387,7 +1306,16 @@ export function App() {
 
       <main class="relative min-w-0 flex-1">
         <Show when={route().name === "fleet"}>
-          <PageShell title={currentDir() ?? t("fleet.scope.all")}>
+          <PageShell
+            title={currentDir() ? projectName(currentDir()!) : t("fleet.scope.all")}
+            meta={
+              currentDir() ? (
+                <span class="max-w-[28rem] truncate font-mono text-2xs text-muted-foreground" title={currentDir()}>
+                  {currentDir()}
+                </span>
+              ) : undefined
+            }
+          >
             <Show
               when={connected()}
               fallback={
@@ -1404,7 +1332,13 @@ export function App() {
                 </div>
               }
             >
-              <FleetOverview sessions={sessions()} onOpen={openSession} now={clock()} />
+              <FleetView
+                sessions={sessions()}
+                scoped={currentDir() !== undefined}
+                now={clock()}
+                onOpen={openSession}
+                onOpenProject={(dir) => chooseWorkspace(dir)}
+              />
             </Show>
           </PageShell>
         </Show>

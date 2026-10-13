@@ -67,11 +67,23 @@ export default {
   "nav.compare": "Compare",
 
   // Fleet page
+  "fleet.nav": "Overview",
   "fleet.scope.all": "All sessions",
   "fleet.overview.sessions": "Sessions",
   "fleet.overview.cost": "Cost",
   "fleet.overview.tokens": "Tokens",
+  "fleet.overview.tools": "Tool calls",
+  "fleet.overview.input": "Input",
+  "fleet.overview.output": "Output",
+  "fleet.overview.perSession": "avg {value}",
+  "fleet.overview.projectCount.one": "{n} project",
+  "fleet.overview.projectCount.other": "{n} projects",
   "fleet.overview.recent": "Recent",
+  "fleet.overview.attention": "Needs attention",
+  "fleet.overview.running": "Running",
+  "fleet.overview.projects": "Projects",
+  "fleet.overview.activity": "Over time",
+  "fleet.overview.empty": "No sessions yet.",
   "fleet.hint.disconnected":
     "Attach a running agent server. Sessions already on it show up as soon as the stream connects.",
 
