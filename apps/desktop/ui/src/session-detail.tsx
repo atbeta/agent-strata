@@ -2088,10 +2088,10 @@ const turnIndexOf = (h: SearchHit): number => {
                       }}
                     >
                       {(turn) => (
-                        <div data-turn-id={turn.turn_id}>
+                        <div data-turn-id={turn().turn_id}>
                           <TurnBlock
-                            turn={turn}
-                            awaiting={() => lastSilentTurn() === turn}
+                            turn={turn()}
+                            awaiting={() => lastSilentTurn() === turn()}
                             childOf={childOf}
                             onOpenChild={openChild}
                             onEdit={editTurn}

@@ -46,6 +46,21 @@ describe("streaming snapshots in the reader's view", () => {
     expect(v.turns.map((t) => t.turn_id)).toEqual(["u1", "u2"]);
   });
 
+  /**
+   * The transcript rebuilds a row only when that row's own turn is a different
+   * object, and identity is how it knows. Streaming touches one turn at a time,
+   * so untouched turns have to survive as themselves: hand back copies of them
+   * and every visible row is torn down and rebuilt on every token, which is the
+   * cost this pins shut.
+   */
+  test("only the turn being written comes back as a new object", () => {
+    const v = base();
+    v.turns.push({ turn_id: "u2", user: [], assistant: [], tool_calls: [] });
+    const next = applyStreamingSnapshot(v, { turn_id: "u2", msg_id: "b1", content: [{ type: "text", text: "x" }] });
+    expect(next.turns[0]).toBe(v.turns[0]);
+    expect(next.turns[1]).not.toBe(v.turns[1]);
+  });
+
   test("only streaming snapshot messages are recognised", () => {
     expect(isStreamingSnapshotMessage(JSON.stringify({ type: "turn.assistant", data: { partial: true } }))).toBe(true);
     expect(isStreamingSnapshotMessage(JSON.stringify({ type: "turn.assistant", data: {} }))).toBe(false);

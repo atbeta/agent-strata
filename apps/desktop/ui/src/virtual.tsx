@@ -45,7 +45,22 @@ export interface VirtualProps<T> {
   scroller?: () => HTMLElement | undefined;
   /** Receives the imperative handle once the list is mounted. */
   api?: (a: VirtualApi) => void;
-  children: (item: T, index: number) => JSX.Element;
+  /**
+   * Called once per row, when the row is created, and never again.
+   *
+   * `item` is an accessor rather than the value because the two have to be
+   * separated. A session streams in, so `items` is a fresh array on nearly every
+   * tick while almost every row in it is byte-identical to last tick. Handing
+   * the row the array's current slot means building its markup inside an
+   * expression that reads `items`, and a row built in a tracked expression is
+   * rebuilt whenever that expression re-runs — which was every tick, for every
+   * visible row. Teardown is not cheap: the markdown under each row re-parses,
+   * and any tip anchored to a tool call loses its anchor mid-hover and hides.
+   * Reading through the accessor instead lets the row's own markup stay put and
+   * lets whatever inside it re-read `item()` on its own terms, so a row updates
+   * only when its own contents actually change.
+   */
+  children: (item: () => T, index: number) => JSX.Element;
 }
 
 /** What a parent can ask of the list once it is on screen. */
@@ -92,7 +107,6 @@ export function Virtual<T>(props: VirtualProps<T>) {
     const el = props.scroller?.();
     const next = new Map(measured());
     const o = offsets();
-    const index = rowIndex();
     // Read the live offset, not props.scrollTop. The parent mirrors scroll
     // position into a signal through an onScroll handler, and that mirror can
     // be a frame behind when the browser reports sizes — trusting it here
@@ -100,6 +114,7 @@ export function Virtual<T>(props: VirtualProps<T>) {
     const top = el?.scrollTop ?? props.scrollTop;
     let changed = false;
     let correction = 0;
+    let index: Map<string, number> | undefined;
     for (const e of entries) {
       const key = observed.get(e.target);
       if (key === undefined) continue;
@@ -109,10 +124,14 @@ export function Virtual<T>(props: VirtualProps<T>) {
       if (prev !== undefined && Math.abs(prev - h) < EPS) continue;
       next.set(key, h);
       changed = true;
-      const i = index.get(key);
+      // A row appearing for the first time has no previous height, so it cannot
+      // have displaced anything. Skip it before paying for the lookup below.
+      if (prev === undefined) continue;
       // Only rows entirely above the viewport push the content the reader is
       // looking at. Rows below it are already off-screen and cost nothing.
-      if (prev !== undefined && i !== undefined && o[i] + prev <= top) correction += h - prev;
+      index ??= rowIndex();
+      const i = index.get(key);
+      if (i !== undefined && o[i] + prev <= top) correction += h - prev;
     }
     if (!changed) return;
     setMeasured(next);
@@ -122,12 +141,20 @@ export function Virtual<T>(props: VirtualProps<T>) {
     if (!following() && correction !== 0 && el) el.scrollTop = top + correction;
   });
 
-  /** Turn id to its row number, so a measurement does not have to search. */
-  const rowIndex = createMemo(() => {
+  /**
+   * Turn id to its row number, so a measurement does not have to search.
+   *
+   * A plain function, not a memo: it walks every item in the session — 1,589 of
+   * them in the largest one held — and a memo made that walk happen on every
+   * streaming tick to have it ready for a resize callback that mostly never
+   * needs it. It is now built by the resize callback, and only when a row that
+   * was already on screen has changed height.
+   */
+  const rowIndex = (): Map<string, number> => {
     const m = new Map<string, number>();
     for (let i = 0; i < props.items.length; i++) m.set(props.id(props.items[i], i), i);
     return m;
-  });
+  };
 
   /** Prefix sums of row height + gap. Index n is the top edge of row n. */
   const offsets = createMemo(() => {
@@ -239,18 +266,28 @@ export function Virtual<T>(props: VirtualProps<T>) {
       style={{ height: `${offsets()[props.items.length]}px` }}
     >
       <For each={rows()}>
-        {(i) => (
-          <div
-            class="absolute left-0 right-0 top-0"
-            ref={(el) => {
-              observed.set(el, props.id(props.items[i], i));
-              ro.observe(el);
-            }}
-            style={{ transform: `translateY(${offsets()[i]}px)` }}
-          >
-            {props.children(props.items[i], i)}
-          </div>
-        )}
+        {(i) => {
+          const item = () => props.items[i];
+          // Built here, once, rather than inside the markup below. Written as
+          // `{props.children(props.items[i], i)}` it compiles to an insert of a
+          // thunk that reads `items`, so every row was torn down and rebuilt
+          // each time the session's array was replaced — a streaming tick, a
+          // refresh, an edit. Held in a local it is a node, not an expression,
+          // so it is inserted once and then only ever updated from inside.
+          const row = props.children(item, i);
+          return (
+            <div
+              class="absolute left-0 right-0 top-0"
+              ref={(el) => {
+                observed.set(el, props.id(item(), i));
+                ro.observe(el);
+              }}
+              style={{ transform: `translateY(${offsets()[i]}px)` }}
+            >
+              {row}
+            </div>
+          );
+        }}
       </For>
     </div>
   );
