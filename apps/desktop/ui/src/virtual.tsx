@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, onMount, type JSX } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, type JSX } from "solid-js";
 
 /**
  * Windowed list for rows of unknown height.
@@ -92,6 +92,7 @@ export function Virtual<T>(props: VirtualProps<T>) {
   const [following, setFollowing] = createSignal(true);
   const observed = new Map<Element, string>();
   let host: HTMLDivElement | undefined;
+  let scroller: HTMLElement | undefined;
 
   /**
    * Built before the JSX, not in onMount. Element refs run while the returned
@@ -226,22 +227,32 @@ export function Virtual<T>(props: VirtualProps<T>) {
     if (following()) el.scrollTop = Math.max(0, total - el.clientHeight);
   });
 
+  const onScroll = () => {
+    if (!scroller) return;
+    const at = Math.abs(scroller.scrollTop + scroller.clientHeight - end()) < 96;
+    if (at !== following()) setFollowing(at);
+  };
+
   onMount(() => {
-    const el = props.scroller?.();
-    el?.addEventListener(
-      "scroll",
-      () => {
-        if (!el) return;
-        const at = Math.abs(el.scrollTop + el.clientHeight - end()) < 96;
-        if (at !== following()) setFollowing(at);
-      },
-      { passive: true },
-    );
+    scroller = props.scroller?.();
+    scroller?.addEventListener("scroll", onScroll, { passive: true });
 
     props.api?.({
       scrollToIndex,
       indexAtTop: () => rowAt(offsets(), Math.max(0, props.scrollTop)),
     });
+  });
+
+  /**
+   * Both of these outlive the component unless it says otherwise: an observer
+   * holds a strong reference to every row it watches, and a listener on the
+   * scroller keeps calling into signals whose owner is already gone. Leaving a
+   * session and coming back installed another pair each time.
+   */
+  onCleanup(() => {
+    scroller?.removeEventListener("scroll", onScroll);
+    ro.disconnect();
+    observed.clear();
   });
 
   // Rows come and go as the window moves. ResizeObserver holds a strong

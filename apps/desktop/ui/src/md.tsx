@@ -1,4 +1,4 @@
-import { createEffect } from "solid-js";
+import { createEffect, onCleanup } from "solid-js";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { stripAnsi } from "./ansi";
@@ -8,14 +8,46 @@ marked.setOptions({ gfm: true, breaks: true });
 
 export function Md(props: { text: string; class?: string }) {
   let host: HTMLDivElement | undefined;
+  let frame = 0;
+  let started = false;
 
-  createEffect(() => {
-    const source = props.text;
+  const render = (source: string) => {
     if (!host) return;
     host.innerHTML = DOMPurify.sanitize(
       marked.parse(source, { async: false }) as string,
     );
     highlightCode(host);
+  };
+
+  /**
+   * A message being written hands this a new text on every token, and each one
+   * re-parsed the whole message, re-sanitised it and replaced the markup — tens
+   * of milliseconds, as many times a second as the model produced words, for a
+   * change too small for anyone to see yet. Later text waits for the frame
+   * instead, so a burst of tokens costs one parse rather than one each, and the
+   * frame reads whatever is current rather than what was queued.
+   *
+   * The first one still renders at once. Every message in a transcript runs
+   * this effect at least once, so deferring them all would trade a cost nobody
+   * could see for an empty line everybody would.
+   */
+  createEffect(() => {
+    const source = props.text;
+    if (!host) return;
+    if (!started) {
+      started = true;
+      render(source);
+      return;
+    }
+    if (frame) return;
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      render(props.text);
+    });
+  });
+
+  onCleanup(() => {
+    if (frame) cancelAnimationFrame(frame);
   });
 
   return <div ref={host} class={`md ${props.class ?? ""}`} />;

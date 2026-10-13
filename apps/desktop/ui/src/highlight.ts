@@ -200,42 +200,58 @@ function push(out: Token[], kind: TokenKind, text: string) {
   else out.push({ kind, text });
 }
 
+/**
+ * Anchored at a position, rather than run against a copy of the tail.
+ *
+ * This used to take `src.slice(i)` once per iteration and read everything —
+ * startsWith, two indexOfs, two regexes — off that copy, so a branch that
+ * advanced a character at a time recopied the rest of the file every time.
+ * Measured on plain text: 2.1ms at 16KB, 7.5 at 32KB, 27.6 at 64KB, 109 at
+ * 128KB. Four times the work for twice the input is quadratic, and half a
+ * second on the main thread is what one big code block cost to read.
+ *
+ * The two comment probes were part of the same bill: each scanned forward
+ * through the whole remainder to produce an offset that was only ever compared
+ * against zero. A `startsWith` at `i` answers that directly and costs the
+ * length of the delimiter.
+ */
+const NUMBER = /\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?n?/y;
+const WORD = /[A-Za-z_$][\w$]*/y;
+const PUNCT = /[{}[\]();,.:<>=+\-*/%!&|^~?]/;
+
 export function tokenize(src: string, grammar: keyof typeof GRAMMARS | null): Token[] {
   if (!grammar) return [{ kind: "plain", text: src }];
   const g = GRAMMARS[grammar];
   const out: Token[] = [];
+  const len = src.length;
   let i = 0;
 
-  while (i < src.length) {
-    const rest = src.slice(i);
+  while (i < len) {
     const bol = i === 0 || src[i - 1] === "\n";
 
-    if (g.hashHeading && bol && rest.startsWith("#")) {
-      const nl = rest.indexOf("\n");
-      const end = nl === -1 ? rest.length : nl;
-      push(out, "keyword", rest.slice(0, end));
+    if (g.hashHeading && bol && src.startsWith("#", i)) {
+      const nl = src.indexOf("\n", i);
+      const end = nl === -1 ? len - i : nl - i;
+      push(out, "keyword", src.slice(i, i + end));
       i += end;
       continue;
     }
 
-    if (g.lineComment) {
-      const at = rest.indexOf(g.lineComment);
-      if (at === 0) {
-        const nl = rest.indexOf("\n");
-        const end = nl === -1 ? rest.length : nl;
-        push(out, "comment", rest.slice(0, end));
-        i += end;
-        continue;
-      }
+    if (g.lineComment && src.startsWith(g.lineComment, i)) {
+      const nl = src.indexOf("\n", i);
+      const end = nl === -1 ? len - i : nl - i;
+      push(out, "comment", src.slice(i, i + end));
+      i += end;
+      continue;
     }
 
     if (g.blockComment) {
-      const at = rest.indexOf(g.blockComment[0]);
-      if (at === 0) {
-        const close = rest.indexOf(g.blockComment[1], g.blockComment[0].length);
-        const end = close === -1 ? rest.length : close + g.blockComment[1].length;
-        push(out, "comment", rest.slice(0, end));
-        i += end;
+      const [open, close] = g.blockComment;
+      if (src.startsWith(open, i)) {
+        const at = src.indexOf(close, i + open.length);
+        const end = at === -1 ? len : at + close.length;
+        push(out, "comment", src.slice(i, end));
+        i = end;
         continue;
       }
     }
@@ -243,33 +259,35 @@ export function tokenize(src: string, grammar: keyof typeof GRAMMARS | null): To
     const ch = src[i]!;
     if (g.quotes.includes(ch)) {
       let j = i + 1;
-      while (j < src.length) {
+      while (j < len) {
         if (src[j] === "\\") j += 2;
         else if (src[j] === ch) { j += 1; break; }
         else if (src[j] === "\n") break; // unterminated — do not swallow the rest
         else j += 1;
       }
-      const end = Math.min(j, src.length);
+      const end = Math.min(j, len);
       push(out, "string", src.slice(i, end));
       i = end;
       continue;
     }
 
-    const num = /^\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?n?/.exec(rest);
+    NUMBER.lastIndex = i;
+    const num = NUMBER.exec(src);
     if (num) {
       push(out, "number", num[0]);
       i += num[0].length;
       continue;
     }
 
-    const word = /^[A-Za-z_$][\w$]*/.exec(rest);
+    WORD.lastIndex = i;
+    const word = WORD.exec(src);
     if (word) {
       push(out, g.keywords.has(word[0]) ? "keyword" : "plain", word[0]);
       i += word[0].length;
       continue;
     }
 
-    if (/[{}[\]();,.:<>=+\-*/%!&|^~?]/.test(ch)) {
+    if (PUNCT.test(ch)) {
       push(out, "punct", ch);
       i += 1;
       continue;
