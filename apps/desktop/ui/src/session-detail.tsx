@@ -77,6 +77,7 @@ import { PromptNavigator } from "./prompt-navigator";
 import { promptAt, promptEntries } from "./prompt-outline";
 import { ComposerToolbar } from "./composer-toolbar";
 import { applyStreamingSnapshot, mergeViewTail, type StreamingSnapshot } from "./live";
+import { filesKeyOf, peekView, rememberView, tailMatches, viewFromTail } from "./view-cache";
 import { registerCommand } from "./commands";
 import { Picker } from "@/components/ui/picker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -500,16 +501,61 @@ export function SessionDetail(props: {
   const [terminalOn, setTerminalOn] = createSignal(false);
   const [reviewSource, setReviewSource] = createSignal<"session" | "git">("session");
   const [reviewLayout, setReviewLayout] = createSignal<"unified" | "split">("unified");
-  const [booting, setBooting] = createSignal(true);
+  const opening = peekView(props.id);
+  const [booting, setBooting] = createSignal(!opening);
   /** the background re-import that lands after the stored view is already up */
   const [importing, setImporting] = createSignal(true);
   const [modelTouched, setModelTouched] = createSignal(false);
+  // The files list key travels with the cached view so a warm open can leave
+  // an unchanged list off the wire. forceFull skips the cache for one fetch.
+  let filesKey: string | undefined = opening?.filesKey;
+  let forceFull = false;
+  let fetchGen = 0;
+  let viewAlive = true;
+  onCleanup(() => {
+    viewAlive = false;
+  });
   const [view, { refetch, mutate }] = createResource(
     () => ({ id: props.id, pos: replayPos() }),
-    ({ id, pos }) =>
-      getJson<SessionView>(
-        `/sessions/${encodeURIComponent(id)}/view${pos === null ? "" : `?until_seq=${pos}`}`,
-      ),
+    (key: { id: string; pos: number | null }) => {
+      const gen = ++fetchGen;
+      const path = `/sessions/${encodeURIComponent(key.id)}/view`;
+      // Consume the flag even when this fetch is a replay, so leaving the
+      // replay does not turn the next live open into a full download.
+      const fullNow = forceFull;
+      forceFull = false;
+      if (key.pos !== null) return getJson<SessionView>(`${path}?until_seq=${key.pos}`);
+      if (fullNow) {
+        return getJson<SessionView>(path).then((full) => {
+          if (gen === fetchGen) {
+            filesKey = filesKeyOf(full);
+            rememberView(key.id, full, filesKey);
+          }
+          return full;
+        });
+      }
+      const hit = peekView(key.id);
+      if (hit) {
+        if (hit.filesKey) filesKey = hit.filesKey;
+        return Promise.resolve(hit.view);
+      }
+      // Paint the tail, then replace it with the settled view. The preview is
+      // not cached: storing it would make the next open a transcript with no history.
+      return readViewTail(key.id, TAIL_TURNS).then(async (tail) => {
+        if (gen !== fetchGen) return viewFromTail(tail);
+        if (viewAlive) {
+          filesKey = tail.files_key;
+          mutate(viewFromTail(tail));
+        }
+        const full = await getJson<SessionView>(path).catch(() => undefined);
+        if (gen !== fetchGen || !full) return viewFromTail(tail);
+        const keyOf = filesKeyOf(full);
+        if (viewAlive) filesKey = keyOf;
+        rememberView(key.id, full, keyOf);
+        return full;
+      });
+    },
+    opening ? { initialValue: opening.view } : undefined,
   );
   const [maxSeq, { refetch: refetchSeq }] = createResource(() => props.id, readHead);
   // Live machine state, not part of the record: it shows only while the
@@ -943,12 +989,19 @@ const turnIndexOf = (h: SearchHit): number => {
   // A durable event during a reply only moves the last turns, and the whole
   // view of a long session is megabytes. A rebuild, a replay, or a tail that no
   // longer lines up goes back to the full view. Every view load goes through
-  // here one at a time: mutate() does not cancel a load in flight, so a full
-  // view landing after a newer tail would roll the transcript back and leave
-  // the files list behind the key the server thinks we hold.
-  let filesKey: string | undefined;
+  // here one at a time, and waits out a fetch already in flight: mutate() does
+  // not cancel that fetch, so a tail laid down first would be replaced by the
+  // older full view and leave the files list behind the key the server holds.
   let running: Promise<void> | undefined;
   let nextRefresh: "tail" | "full" | undefined;
+  const waitWhileLoading = () =>
+    new Promise<void>((resolve) => {
+      const tick = () => {
+        if (!viewAlive || !view.loading) resolve();
+        else setTimeout(tick, 16);
+      };
+      tick();
+    });
   /** settles once the view reflects this request, queued behind a running one or not */
   const refreshView = (full = false): Promise<void> => {
     if (replayPos() !== null) return Promise.resolve();
@@ -963,23 +1016,50 @@ const turnIndexOf = (h: SearchHit): number => {
     let wantFull = full;
     try {
       for (;;) {
-        const current = view.loading ? undefined : settled(view);
+        if (!viewAlive || replayPos() !== null) return;
+        if (view.loading) {
+          if (wantFull) nextRefresh = "full";
+          else if (!nextRefresh) nextRefresh = "tail";
+          await waitWhileLoading();
+          if (!viewAlive) return;
+          if (!nextRefresh) break;
+          wantFull = nextRefresh === "full";
+          nextRefresh = undefined;
+          continue;
+        }
+        const current = settled(view);
         if (wantFull || !current) {
+          if (replayPos() !== null) return;
           filesKey = undefined;
+          forceFull = true;
           await refetch();
+          if (!viewAlive || replayPos() !== null) return;
+          const fullView = settled(view);
+          if (fullView) {
+            filesKey = filesKeyOf(fullView);
+            rememberView(props.id, fullView, filesKey);
+          }
         } else {
           const tail = await readViewTail(props.id, TAIL_TURNS, filesKey);
-          if (replayPos() !== null) return;
-          const merged = view.loading ? undefined : mergeViewTail(settled(view) ?? current, tail);
-          if (!merged) {
-            filesKey = undefined;
-            if (!view.loading) {
+          if (!viewAlive || replayPos() !== null) return;
+          if (view.loading) {
+            nextRefresh = nextRefresh ?? "tail";
+            continue;
+          }
+          const base = settled(view) ?? current;
+          if (tailMatches(base, tail)) {
+            filesKey = tail.files_key;
+            rememberView(props.id, base, filesKey);
+          } else {
+            const merged = mergeViewTail(base, tail);
+            if (!merged) {
+              filesKey = undefined;
               wantFull = true;
               continue;
             }
-          } else {
             filesKey = tail.files_key;
             mutate(merged);
+            rememberView(props.id, merged, filesKey);
           }
         }
         if (!nextRefresh) break;
@@ -1001,9 +1081,21 @@ const turnIndexOf = (h: SearchHit): number => {
   createEffect(() => writeDraft(props.id, draft()));
 
   // The stored view is already loading — the transcript paints as soon as it
-  // lands instead of waiting on a full re-import first.
+  // lands instead of waiting on a full re-import first. A cached view or a
+  // tail preview is enough to leave the boot state; the settled view follows.
   createEffect(() => {
-    if (booting() && (view.state === "ready" || view.state === "errored")) setBooting(false);
+    if (booting() && (view.state === "ready" || view.state === "errored" || settled(view))) setBooting(false);
+  });
+
+  // A warm open paints the cached view from the resource, then checks the
+  // tail. Head equality is not enough while a reply is still streaming.
+  createEffect(() => {
+    const id = props.id;
+    if (replayPos() !== null) return;
+    if (!peekView(id)) return;
+    queueMicrotask(() => {
+      if (viewAlive && replayPos() === null) void refreshView(false);
+    });
   });
 
   onMount(() => {
@@ -1066,7 +1158,22 @@ const turnIndexOf = (h: SearchHit): number => {
         if (evt.session_id === props.id && evt.type === "turn.assistant" && evt.data?.partial === true) {
           if (replayPos() === null) {
             const snap = evt.data as unknown as StreamingSnapshot;
-            mutate((v) => (v ? applyStreamingSnapshot(v, snap) : v));
+            mutate((v) => {
+              if (!v) return v;
+              const next = applyStreamingSnapshot(v, snap);
+              // Only extend a view we already settled. A tail preview is shorter
+              // and must not replace the full transcript in the reader cache.
+              const held = peekView(props.id);
+              if (
+                next !== v &&
+                held &&
+                next.turns.length >= held.view.turns.length &&
+                next.turns[0]?.turn_id === held.view.turns[0]?.turn_id
+              ) {
+                rememberView(props.id, next);
+              }
+              return next;
+            });
           }
           return;
         }

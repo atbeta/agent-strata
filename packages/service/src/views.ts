@@ -9,6 +9,8 @@ interface Entry {
   events: Event[];
   head: number;
   view?: SessionView;
+  /** JSON of the settled view. Cleared with the view, so a live partial never lands here. */
+  body?: string;
 }
 
 /** Each session's stored events and projection, kept until the session moves. */
@@ -27,6 +29,7 @@ export class ViewCache {
         entry.events = entry.events.concat(more);
         entry.head = more.at(-1)?.seq ?? entry.head;
         entry.view = undefined;
+        entry.body = undefined;
       }
     } else {
       const events = this.store.read({ session_id: sessionId, limit: 20_000 });
@@ -46,6 +49,19 @@ export class ViewCache {
     const entry = this.entries.get(sessionId)!;
     entry.view ??= projectSession(events);
     return entry.view;
+  }
+
+  /**
+   * The settled view, already serialized. The object cache skips projection;
+   * this skips turning a multi-megabyte view into a string on every open.
+   * Callers that overlay live events must not use it — those bytes are the
+   * stored record only, and they are dropped as soon as the head moves.
+   */
+  viewBody(sessionId: string): string {
+    const view = this.view(sessionId);
+    const entry = this.entries.get(sessionId)!;
+    entry.body ??= JSON.stringify(view);
+    return entry.body;
   }
 
   /** a rebuild deletes rows, which an incremental read cannot see */

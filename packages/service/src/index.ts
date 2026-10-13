@@ -416,7 +416,17 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         });
       }
       const untilSeq = url.searchParams.get("until_seq");
-      if (untilSeq === null) return json(sessionView(sid));
+      if (untilSeq === null) {
+        // A live partial is not part of the stored record, so it cannot be
+        // served from the serialized body. Tail and replay reads slice the
+        // projection themselves and never touch that body.
+        if (!live.has(sid)) {
+          return new Response(views.viewBody(sid), {
+            headers: { "content-type": "application/json" },
+          });
+        }
+        return json(sessionView(sid));
+      }
       const n = Number(untilSeq);
       return json(
         projectSession(views.events(sid).filter((e) => e.seq <= n)),
