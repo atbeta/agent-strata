@@ -1,4 +1,4 @@
-import { createEffect, createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import {
   api,
   archiveSession,
@@ -16,6 +16,7 @@ import {
   type SessionsResponse,
   type StrataEvent,
 } from "./api";
+import { holdRows, sameValue } from "./session-rows";
 import { SessionDetail } from "./session-detail";
 import { CompareView } from "./compare";
 import { SettingsPage } from "./settings";
@@ -721,8 +722,22 @@ export function App() {
     };
   };
 
-  const library = () =>
-    (settled(data)?.sessions ?? []).filter((s) => !s.parent && !s.archived && !s.deleted);
+  /**
+   * The same list, row for row, whenever the answer came back the same.
+   *
+   * `data` refetches on a timer, on focus and after every event, and `<For>`
+   * compares its items by reference — so fresh rows rebuilt the whole sidebar
+   * several times a minute, taking a half-typed rename and a delete waiting on
+   * its second click with them.
+   */
+  const library = createMemo((prev: SessionRow[] | undefined) =>
+    holdRows(
+      (settled(data)?.sessions ?? []).filter((s) => !s.parent && !s.archived && !s.deleted),
+      prev,
+      (s) => s.summary.session_id,
+      sameValue,
+    ),
+  );
 
   const sessions = () => {
     const rows = library();
@@ -765,7 +780,9 @@ export function App() {
     return [...map.entries()].map(([directory, name]) => ({ directory, name }));
   };
 
-  const groups = (): { key: string; label: string; hint?: string; rows: SessionRow[] }[] => {
+  type SidebarGroup = { key: string; label: string; hint?: string; rows: SessionRow[] };
+
+  const buildGroups = (): SidebarGroup[] => {
     const rows = sessions();
     if (rows.length === 0) return [];
     if (!currentDir()) {
@@ -802,6 +819,26 @@ export function App() {
       rows: buckets.get(bucket)!,
     }));
   };
+
+  /**
+   * Same bargain one level up: the outer `<For>` compares group objects by
+   * reference too, and a group rebuilt around the same rows would take its
+   * children with it. Rows are already held still by `library`, so comparing
+   * them by identity here is enough to know the group is unchanged.
+   */
+  const groups = createMemo((prev: SidebarGroup[] | undefined) =>
+    holdRows(
+      buildGroups(),
+      prev,
+      (g) => g.key,
+      (a, b) =>
+        a.key === b.key &&
+        a.label === b.label &&
+        a.hint === b.hint &&
+        a.rows.length === b.rows.length &&
+        a.rows.every((row, i) => row === b.rows[i]),
+    ),
+  );
 
   const runAction = async (id: string, fn: () => Promise<void>, leave: boolean) => {
     setActionErr("");
