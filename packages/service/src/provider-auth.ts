@@ -83,12 +83,15 @@ export function apiProviders(list: unknown, methods: unknown): ApiProvider[] {
       : [],
   );
   const names = new Map<string, string>();
+  const sources = new Map<string, string>();
   for (const row of all) {
     if (!row || typeof row !== "object") continue;
     const id = (row as { id?: unknown }).id;
     if (typeof id !== "string" || !PROVIDER_ID.test(id)) continue;
     const name = (row as { name?: unknown }).name;
     names.set(id, typeof name === "string" && name.trim() ? name.trim() : id);
+    const source = (row as { source?: unknown }).source;
+    if (typeof source === "string") sources.set(id, source);
   }
   const table =
     methods && typeof methods === "object" && !Array.isArray(methods)
@@ -109,6 +112,15 @@ export function apiProviders(list: unknown, methods: unknown): ApiProvider[] {
     });
     if (methodsForProvider.length === 0) continue;
     out.push({ id, name: names.get(id) ?? id, connected: connected.has(id), methods: methodsForProvider });
+  }
+  // OpenCode marks a sibling as connected when it merely shares an env var.
+  // The desktop's "connected" list is the credential the user stored (`source:
+  // "api"`). Those often have no sign-in method, so the auth table never
+  // names them — and the page then shows only providers you can still add.
+  const listed = new Set(out.map((row) => row.id));
+  for (const id of connected) {
+    if (!PROVIDER_ID.test(id) || listed.has(id) || sources.get(id) !== "api") continue;
+    out.push({ id, name: names.get(id) ?? id, connected: true, methods: [] });
   }
   out.sort((a, b) => Number(b.connected) - Number(a.connected) || a.name.localeCompare(b.name));
   return out;

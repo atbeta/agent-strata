@@ -43,8 +43,8 @@ function promptShown(prompt: ProviderPrompt, inputs: Record<string, string>): bo
 }
 
 /** A key is what most people reach for; OAuth is the fallback worth a click. */
-function preferredMethod(row: ApiProvider): number {
-  return (row.methods.find((method) => method.type === "api") ?? row.methods[0]).index;
+function preferredMethod(row: ApiProvider): number | undefined {
+  return (row.methods.find((method) => method.type === "api") ?? row.methods[0])?.index;
 }
 
 /** Connected or not, said by a dot and a word rather than by colour alone. */
@@ -313,9 +313,11 @@ function ProviderRow(props: {
         <button
           type="button"
           class="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-secondary/60"
-          aria-expanded={props.open}
-          aria-controls={panel()}
-          onClick={props.onToggle}
+          aria-expanded={props.row.methods.length > 0 ? props.open : undefined}
+          aria-controls={props.row.methods.length > 0 ? panel() : undefined}
+          onClick={() => {
+            if (props.row.methods.length > 0) props.onToggle();
+          }}
         >
           <Dot on={props.row.connected} />
           <span class="shrink-0 text-sm text-foreground">{props.row.name}</span>
@@ -326,12 +328,14 @@ function ProviderRow(props: {
             <Show when={props.row.connected}>
               <span class="text-2xs text-muted-foreground">{t("settings.provider.connected")}</span>
             </Show>
-            <Icon
-              name="chevron"
-              class={`size-3 text-muted-foreground transition-transform ${
-                props.open ? "" : "-rotate-90"
-              }`}
-            />
+            <Show when={props.row.methods.length > 0}>
+              <Icon
+                name="chevron"
+                class={`size-3 text-muted-foreground transition-transform ${
+                  props.open ? "" : "-rotate-90"
+                }`}
+              />
+            </Show>
           </span>
         </button>
 

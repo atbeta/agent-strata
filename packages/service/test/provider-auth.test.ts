@@ -39,6 +39,24 @@ describe("api providers", () => {
     expect(JSON.stringify(rows).includes(secret)).toBe(false);
   });
 
+  test("a stored credential with no sign-in method is listed, an env sibling is not", () => {
+    const rows = apiProviders(
+      {
+        all: [
+          { id: "deepseek", name: "DeepSeek", source: "api" },
+          { id: "minimax", name: "MiniMax", source: "env" },
+          { id: "openai", name: "OpenAI" },
+        ],
+        connected: ["deepseek", "minimax"],
+      },
+      { openai: [{ type: "api", label: "API key" }] },
+    );
+    expect(rows).toEqual([
+      { id: "deepseek", name: "DeepSeek", connected: true, methods: [] },
+      { id: "openai", name: "OpenAI", connected: false, methods: [{ index: 0, type: "api", label: "API key" }] },
+    ]);
+  });
+
   test("a provider known only by its auth method still appears", () => {
     const rows = apiProviders({}, { groq: [{ type: "api", label: "API key" }] });
     expect(rows).toEqual([
