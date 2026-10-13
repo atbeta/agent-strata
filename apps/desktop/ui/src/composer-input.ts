@@ -136,6 +136,23 @@ export function nextAgent(agents: readonly string[], current: string, step: 1 | 
   return agents[(i + step + agents.length) % agents.length];
 }
 
+/**
+ * One step along `agents`, stopping at the ends.
+ *
+ * `nextAgent` wraps because a cycler should. Tab must not: bound to the
+ * wrapping one, Tab never reached the end of the list, so the composer became
+ * a focus trap — no way out to the toolbar, the sidebar, or anything behind the
+ * input, by Tab or by Shift+Tab. Undefined means there is no neighbour, which
+ * is the caller saying the key belongs to the browser again.
+ */
+export function stepAgent(agents: readonly string[], current: string, step: 1 | -1): string | undefined {
+  if (agents.length === 0) return undefined;
+  const i = agents.indexOf(current);
+  if (i < 0) return step > 0 ? agents[0] : agents[agents.length - 1];
+  const j = i + step;
+  return j >= 0 && j < agents.length ? agents[j] : undefined;
+}
+
 export const ATTACHMENT_ACCEPT = "image/png,image/jpeg,image/gif,image/webp,application/pdf";
 const ATTACHMENT_MIMES = new Set(ATTACHMENT_ACCEPT.split(","));
 export const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;

@@ -242,10 +242,22 @@ export function PolicyEditor() {
     }
   };
 
+  /**
+   * The rules that keep running are the ones the server still holds, so a
+   * delete that did not land has to say so instead of announcing a clear that
+   * did not happen — and the draft is only forgotten once it has. Clearing it
+   * on failure told the reader their permissions were gone while every rule
+   * they had just listed was still deciding what the agent was allowed to do.
+   */
   const clear = async () => {
     setErr("");
     setNotice("");
-    await clearPolicy().catch((e) => setErr(e instanceof Error ? e.message : String(e)));
+    try {
+      await clearPolicy();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      return;
+    }
     setDraftRaw({ default: "ask", rules: [] });
     setNotice("policy.notice.cleared");
   };

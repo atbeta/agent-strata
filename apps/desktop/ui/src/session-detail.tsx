@@ -88,7 +88,7 @@ import {
   insertPick,
   matchCommands,
   MAX_ATTACHMENTS,
-  nextAgent,
+  stepAgent,
   promptParts,
   explainSend,
   restoreFailed,
@@ -2382,8 +2382,8 @@ const turnIndexOf = (h: SearchHit): number => {
                           }
                           if (e.key === "Tab" && opencode() && !e.ctrlKey && !e.altKey && !e.metaKey) {
                             const names = (settled(options)?.agents ?? []).map((a) => a.name);
-                            const next = nextAgent(names, agentSel(), e.shiftKey ? -1 : 1);
-                            if (next && names.length > 1) {
+                            const next = stepAgent(names, agentSel(), e.shiftKey ? -1 : 1);
+                            if (next) {
                               e.preventDefault();
                               setAgentSel(next);
                               return;

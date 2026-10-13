@@ -7,6 +7,7 @@ import {
   MAX_ATTACHMENTS,
   matchCommands,
   nextAgent,
+  stepAgent,
   promptParts,
   explainSend,
   restoreFailed,
@@ -176,6 +177,26 @@ describe("tab through agents", () => {
     expect(nextAgent(["build", "plan"], "", 1)).toBe("build");
     expect(nextAgent(["build", "plan"], "", -1)).toBe("plan");
     expect(nextAgent([], "", 1)).toBeUndefined();
+  });
+
+  /**
+   * The composer binds Tab to this while there is somewhere to step to. Once
+   * there is not, it has to answer undefined so the key reaches the browser:
+   * a wrapping step here is what made the input a focus trap.
+   */
+  test("stops at the ends so Tab can leave the composer", () => {
+    expect(stepAgent(["build", "plan"], "build", 1)).toBe("plan");
+    expect(stepAgent(["build", "plan"], "plan", -1)).toBe("build");
+    expect(stepAgent(["build", "plan"], "plan", 1)).toBeUndefined();
+    expect(stepAgent(["build", "plan"], "build", -1)).toBeUndefined();
+    expect(stepAgent(["only"], "only", 1)).toBeUndefined();
+    expect(stepAgent(["only"], "only", -1)).toBeUndefined();
+    expect(stepAgent([], "", 1)).toBeUndefined();
+  });
+
+  test("starts from the ends when nothing is picked", () => {
+    expect(stepAgent(["build", "plan"], "", 1)).toBe("build");
+    expect(stepAgent(["build", "plan"], "", -1)).toBe("plan");
   });
 });
 

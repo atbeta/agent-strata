@@ -1,4 +1,4 @@
-import { createEffect, createSignal, For, on, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js";
 import { realWorkspace, type SessionRow, type StrataEvent } from "./api";
 import { t } from "./i18n";
 import { Icon } from "./icons";
@@ -49,7 +49,18 @@ export function CommandSearch(props: {
   const [cursor, setCursor] = createSignal(0);
   let input: HTMLInputElement | undefined;
 
-  const hits = (): Hit[] => {
+  /**
+   * One list, built once per change, so every reader of it sees the same
+   * objects.
+   *
+   * It used to be a plain function called four times per render, rebuilding
+   * every Hit each time — which quietly broke the two halves of this list that
+   * have to agree: the row's `hits().indexOf(hit)` looked itself up in a fresh
+   * array of fresh objects and so always came back -1. No row ever lit up for
+   * the keyboard, and moving the pointer over one set the cursor to -1, after
+   * which Enter read `list[-1]`, found nothing, and did nothing.
+   */
+  const hits = createMemo((): Hit[] => {
     const q = props.query.trim().toLowerCase();
     if (!q) return [];
     const sessions: Hit[] = props.sessions
@@ -74,7 +85,7 @@ export function CommandSearch(props: {
       when: e.ts.slice(0, 16).replace("T", " "),
     }));
     return [...sessions, ...events];
-  };
+  });
 
   createEffect(
     on(
@@ -120,10 +131,12 @@ export function CommandSearch(props: {
     }
   };
 
-  const sessionHits = () =>
-    hits().filter((h): h is Extract<Hit, { kind: "session" }> => h.kind === "session");
-  const eventHits = () =>
-    hits().filter((h): h is Extract<Hit, { kind: "event" }> => h.kind === "event");
+  const sessionHits = createMemo(() =>
+    hits().filter((h): h is Extract<Hit, { kind: "session" }> => h.kind === "session"),
+  );
+  const eventHits = createMemo(() =>
+    hits().filter((h): h is Extract<Hit, { kind: "event" }> => h.kind === "event"),
+  );
 
   return (
     <>
