@@ -341,6 +341,24 @@ export async function getJson<T>(p: string): Promise<T> {
   return (await res.json()) as T;
 }
 
+/**
+ * The first read races the service, which is spawned beside the window and is
+ * not listened for before the page paints. A connection failure is that race;
+ * an HTTP error is the service already answering, and waiting would only hide it.
+ */
+export async function getJsonWhenUp<T>(path: string): Promise<T> {
+  if (!inDesktopShell()) return getJson(path);
+  const deadline = Date.now() + 8_000;
+  for (;;) {
+    try {
+      return await getJson<T>(path);
+    } catch (err) {
+      if (!(err instanceof TypeError) || Date.now() >= deadline) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  }
+}
+
 /** A read of the session's OpenCode backend beyond its record: files, commands, VCS. */
 export function opencodePath(sessionId: string, path: string, query?: Record<string, string | number>): string {
   const q = query ? new URLSearchParams(Object.entries(query).map(([k, v]) => [k, String(v)])).toString() : "";

@@ -7,6 +7,7 @@ import {
   disconnectBackend,
   fmtUsd,
   getJson,
+  getJsonWhenUp,
   readOpencodeLaunch,
   realWorkspace,
   renameSession,
@@ -423,7 +424,14 @@ function endpointShort(url: string): string {
 export function App() {
   const [route, setRoute] = createSignal<Route>(parseHash());
   const [clock, setClock] = createSignal(Date.now());
-  const [data, { refetch }] = createResource(() => getJson<SessionsResponse>("/sessions"));
+  let opened = false;
+  const [data, { refetch }] = createResource(() => {
+    const load = opened
+      ? getJson<SessionsResponse>("/sessions")
+      : getJsonWhenUp<SessionsResponse>("/sessions");
+    opened = true;
+    return load;
+  });
   const waiting = () =>
     (settled(data)?.sessions ?? []).filter((s) => s.needs_input && !s.archived && !s.deleted).length;
   createEffect(() => {

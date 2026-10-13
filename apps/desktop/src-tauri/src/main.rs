@@ -7,12 +7,15 @@
 
 // Agent Strata desktop shell.
 //
-// Spawns the strata service next to the webview and kills it when the app
-// exits. A release build uses the bundled sidecar. `tauri dev` still runs
-// the TypeScript entry with bun. Embedded `opencode serve` is supervised
-// only when this shell owns the service and the mode is embed; otherwise
-// the service attaches to a pre-set STRATA_OPENCODE_URL, or the UI
-// connects later.
+// Spawns the strata service next to the webview. A release build uses the
+// bundled sidecar. `tauri dev` still runs the TypeScript entry with bun.
+// Embedded `opencode serve` is supervised only when this shell owns the
+// service and the mode is embed; otherwise the service attaches to a
+// pre-set STRATA_OPENCODE_URL, or the UI connects later.
+//
+// `App::run` ends in `process::exit`, which does not run destructors, so
+// `Drop` never reaps these children. They are stopped on `RunEvent::Exit`,
+// and that wait returns only once the process groups are gone.
 
 mod embed;
 
@@ -30,41 +33,79 @@ use embed::{
     write_status, OpencodeMode, OpencodeState, Spawned,
 };
 
-use tauri::Manager;
-use tauri_plugin_shell::process::{CommandChild, CommandEvent};
-use tauri_plugin_shell::ShellExt;
+use std::thread::JoinHandle;
 
-enum Proc {
-    Std(Child),
-    Bundled(CommandChild),
-}
+use tauri::Manager;
 
 struct Sidecars {
-    children: Vec<Proc>,
     shutdown: Arc<AtomicBool>,
+    /// First caller reaps. Exit and Drop can both arrive; the second finds nothing to stop.
+    stopped: AtomicBool,
     opencode: Arc<Mutex<Option<Child>>>,
+    service: Mutex<Option<Child>>,
+    supervise: Mutex<Option<JoinHandle<()>>>,
+}
+
+impl Sidecars {
+    fn empty() -> Self {
+        Self {
+            shutdown: Arc::new(AtomicBool::new(false)),
+            stopped: AtomicBool::new(false),
+            opencode: Arc::new(Mutex::new(None)),
+            service: Mutex::new(None),
+            supervise: Mutex::new(None),
+        }
+    }
+
+    /// Stop opencode and the service, and wait until their process groups are gone.
+    ///
+    /// The supervise thread is joined in between the two opencode reaps so it
+    /// cannot start a replacement after the first one was taken.
+    fn shutdown(&self) {
+        if self.stopped.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        self.shutdown.store(true, Ordering::SeqCst);
+        self.reap_opencode();
+        if let Some(handle) = self
+            .supervise
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+        {
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let _ = handle.join();
+                let _ = tx.send(());
+            });
+            let _ = rx.recv_timeout(Duration::from_secs(2));
+        }
+        self.reap_opencode();
+        if let Some(mut child) = self
+            .service
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+        {
+            reap(&mut child);
+        }
+    }
+
+    fn reap_opencode(&self) {
+        if let Some(mut child) = self
+            .opencode
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+        {
+            reap(&mut child);
+        }
+    }
 }
 
 impl Drop for Sidecars {
     fn drop(&mut self) {
-        self.shutdown.store(true, Ordering::SeqCst);
-        if let Ok(mut slot) = self.opencode.lock() {
-            if let Some(mut child) = slot.take() {
-                let _ = child.kill();
-                let _ = child.wait();
-            }
-        }
-        for proc in self.children.drain(..) {
-            match proc {
-                Proc::Std(mut child) => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                }
-                Proc::Bundled(child) => {
-                    let _ = child.kill();
-                }
-            }
-        }
+        self.shutdown();
     }
 }
 
@@ -128,17 +169,6 @@ fn port_open(port: u16) -> bool {
     TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok()
 }
 
-fn wait_port(port: u16, timeout: Duration) -> bool {
-    let start = Instant::now();
-    while start.elapsed() < timeout {
-        if port_open(port) {
-            return true;
-        }
-        std::thread::sleep(Duration::from_millis(150));
-    }
-    false
-}
-
 fn open_log(path: &Path) -> Option<File> {
     OpenOptions::new().create(true).append(true).open(path).ok()
 }
@@ -162,6 +192,13 @@ fn spawn(
             cmd.stdout(Stdio::inherit()).stderr(Stdio::inherit());
         }
     }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // The child's pid becomes its group, so closing can signal the group
+        // and take grandchildren (an ACP agent, a plugin) with it.
+        cmd.process_group(0);
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -176,69 +213,54 @@ fn spawn(
     }
 }
 
-fn spawn_bundled(
-    app: &tauri::AppHandle,
-    envs: &[(&str, String)],
-    cwd: &Path,
-    log_path: &Path,
-) -> Option<CommandChild> {
-    let command = match app.shell().sidecar("strata-service") {
-        Ok(command) => command,
-        Err(e) => {
-            eprintln!("agent-strata: bundled service is not available: {e}");
-            return None;
-        }
-    };
-    let (mut rx, child) = match command
-        .current_dir(cwd)
-        .envs(envs.iter().map(|(k, v)| (*k, v.as_str())))
-        .spawn()
+/// The bundled service sits next to the executable. The build step copies it
+/// there under this name; the target triple is only on the file in `binaries/`.
+fn sidecar_bin() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    #[cfg(windows)]
+    let path = dir.join("strata-service.exe");
+    #[cfg(not(windows))]
+    let path = dir.join("strata-service");
+    if path.is_file() {
+        Some(path)
+    } else {
+        None
+    }
+}
+
+#[cfg(unix)]
+fn kill_group(pid: u32) {
+    extern "C" {
+        fn kill(pid: i32, sig: i32) -> i32;
+    }
+    unsafe {
+        // Negative pid: every member of the group, not only the leader.
+        kill(-(pid as i32), 9);
+    }
+}
+
+/// Signal the child's process group and wait until the child itself is reaped.
+fn reap(child: &mut Child) {
+    #[cfg(unix)]
+    kill_group(child.id());
+    #[cfg(windows)]
     {
-        Ok(spawned) => spawned,
-        Err(e) => {
-            eprintln!("agent-strata: bundled service failed to start: {e}");
-            return None;
-        }
-    };
-    let log_path = log_path.to_path_buf();
-    tauri::async_runtime::spawn(async move {
-        let mut log = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&log_path)
-            .ok();
-        while let Some(event) = rx.recv().await {
-            let line = match event {
-                CommandEvent::Stdout(bytes) | CommandEvent::Stderr(bytes) => {
-                    String::from_utf8_lossy(&bytes).into_owned()
-                }
-                CommandEvent::Error(err) => format!("sidecar error: {err}\n"),
-                CommandEvent::Terminated(payload) => format!("sidecar exited: {payload:?}\n"),
-                _ => continue,
-            };
-            if let Some(file) = log.as_mut() {
-                let _ = write!(file, "{line}");
-                let _ = file.flush();
-            }
-        }
-    });
-    Some(child)
+        let _ = child.kill();
+    }
+    let _ = child.wait();
 }
 
 impl Sidecars {
-    fn start(app: &tauri::AppHandle) -> Self {
+    fn start() -> Self {
         let shutdown = Arc::new(AtomicBool::new(false));
         let opencode = Arc::new(Mutex::new(None));
-        let mut children = Vec::new();
+        let mut supervisor = None;
         let data = data_dir();
         let log_path = data.join("service.log");
         let Some(log) = open_log(&log_path) else {
             eprintln!("agent-strata: could not open {}", log_path.display());
-            return Sidecars {
-                children,
-                shutdown,
-                opencode,
-            };
+            return Sidecars::empty();
         };
         if let Ok(mut stamp) = log.try_clone() {
             let _ = writeln!(stamp, "\n--- agent-strata shell starting ---");
@@ -271,11 +293,7 @@ impl Sidecars {
             eprintln!(
                 "agent-strata: port {port} is already open, leaving the existing service in place"
             );
-            return Sidecars {
-                children,
-                shutdown,
-                opencode,
-            };
+            return Sidecars::empty();
         }
 
         let status_path = data.join("opencode-status.json");
@@ -306,7 +324,7 @@ impl Sidecars {
                                 let shutdown_flag = shutdown.clone();
                                 let opencode_slot = opencode.clone();
                                 let exited = Arc::new(AtomicBool::new(false));
-                                std::thread::spawn(move || {
+                                supervisor = Some(std::thread::spawn(move || {
                                     let wait_shutdown = shutdown_flag.clone();
                                     let wait_slot = opencode_slot.clone();
                                     let wait_exited = exited.clone();
@@ -343,23 +361,22 @@ impl Sidecars {
                                                         "spawn opencode failed",
                                                     )
                                                 })?;
-                                                let mut slot = opencode_slot.lock().map_err(|_| {
-                                                    std::io::Error::new(
-                                                        std::io::ErrorKind::Other,
-                                                        "opencode mutex poisoned",
-                                                    )
-                                                })?;
+                                                let mut slot =
+                                                    opencode_slot.lock().map_err(|_| {
+                                                        std::io::Error::new(
+                                                            std::io::ErrorKind::Other,
+                                                            "opencode mutex poisoned",
+                                                        )
+                                                    })?;
                                                 if shutdown_flag.load(Ordering::SeqCst) {
-                                                    let _ = child.kill();
-                                                    let _ = child.wait();
+                                                    reap(&mut child);
                                                     return Err(std::io::Error::new(
                                                         std::io::ErrorKind::Interrupted,
                                                         "shutdown",
                                                     ));
                                                 }
                                                 if let Some(mut prev) = slot.take() {
-                                                    let _ = prev.kill();
-                                                    let _ = prev.wait();
+                                                    reap(&mut prev);
                                                 }
                                                 *slot = Some(child);
                                                 drop(slot);
@@ -370,8 +387,7 @@ impl Sidecars {
                                                     kill: Box::new(move || {
                                                         if let Ok(mut slot) = kill_slot.lock() {
                                                             if let Some(mut child) = slot.take() {
-                                                                let _ = child.kill();
-                                                                let _ = child.wait();
+                                                                reap(&mut child);
                                                             }
                                                         }
                                                     }),
@@ -404,7 +420,7 @@ impl Sidecars {
                                         },
                                         shutdown_flag,
                                     );
-                                });
+                                }));
                             } else {
                                 eprintln!(
                                     "agent-strata: could not open opencode log at {}",
@@ -433,14 +449,14 @@ impl Sidecars {
 
         let root = repo_root();
         let service = root.join("packages/service/src/index.ts");
-        if !cfg!(debug_assertions) {
-            if let Some(child) = spawn_bundled(app, &envs, &data, &log_path) {
-                children.push(Proc::Bundled(child));
-                if !wait_port(port, Duration::from_secs(8)) {
-                    eprintln!(
-                        "agent-strata: bundled service did not listen on {port}; see {}",
-                        log_path.display()
-                    );
+        // The window used to wait here, up to eight seconds, before the webview
+        // could paint. The page retries the first read instead.
+        let service_child = if !cfg!(debug_assertions) {
+            match sidecar_bin() {
+                Some(bin) => spawn(&bin, &[], &data, &envs, &log),
+                None => {
+                    eprintln!("agent-strata: bundled service is not next to the executable");
+                    None
                 }
             }
         } else if !service.is_file() {
@@ -448,30 +464,26 @@ impl Sidecars {
                 "agent-strata: service entry not found at {}",
                 service.display()
             );
+            None
         } else if let Some(bun) = which("bun") {
-            if let Some(child) = spawn(
+            spawn(
                 &bun,
                 &[service.to_string_lossy().into_owned()],
                 &root,
                 &envs,
                 &log,
-            ) {
-                children.push(Proc::Std(child));
-                if !wait_port(port, Duration::from_secs(8)) {
-                    eprintln!(
-                        "agent-strata: service did not listen on {port}; see {}",
-                        log_path.display()
-                    );
-                }
-            }
+            )
         } else {
             eprintln!("agent-strata: bun not found on PATH");
-        }
+            None
+        };
 
         Sidecars {
-            children,
             shutdown,
+            stopped: AtomicBool::new(false),
             opencode,
+            service: Mutex::new(service_child),
+            supervise: Mutex::new(supervisor),
         }
     }
 }
@@ -494,9 +506,40 @@ fn main() {
                     }
                 }
             }
-            app.manage(Sidecars::start(app.handle()));
+            app.manage(Sidecars::start());
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running agent-strata");
+        .build(tauri::generate_context!())
+        .expect("error while building agent-strata")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                if let Some(sidecars) = app.try_state::<Sidecars>() {
+                    sidecars.shutdown();
+                }
+            }
+        });
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::reap;
+    use std::os::unix::process::CommandExt;
+    use std::process::Command;
+
+    extern "C" {
+        fn kill(pid: i32, sig: i32) -> i32;
+    }
+
+    #[test]
+    fn closing_reaps_the_process_group() {
+        let mut child = Command::new("/bin/sleep")
+            .arg("30")
+            .process_group(0)
+            .spawn()
+            .expect("sleep");
+        let pid = child.id();
+        reap(&mut child);
+        let still_alive = unsafe { kill(pid as i32, 0) == 0 };
+        assert!(!still_alive, "child {pid} was still alive after close");
+    }
 }

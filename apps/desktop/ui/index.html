@@ -16,6 +16,7 @@
           stored === "light" ||
           (stored === "system" && matchMedia("(prefers-color-scheme: light)").matches);
         document.documentElement.dataset.theme = light ? "light" : "dark";
+        document.documentElement.style.backgroundColor = light ? "#fbfbfe" : "#0f0f12";
         try {
           var fonts = JSON.parse(localStorage.getItem("strata.fonts") || "null");
           if (!fonts) return;
