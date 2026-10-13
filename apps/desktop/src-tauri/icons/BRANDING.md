@@ -16,8 +16,8 @@ standard 896px macOS icon footprint on a 1024 canvas (corner radius 112 →
 - `icon-source.svg` — full color icon, viewBox 1024×1024, transparent
   margins and seams.
 - `strata-mark.svg` — monochrome (white) mark with identical silhouette and
-  seams, viewBox `64 64 896 896` cropped to the glyph. The UI tints it via
-  CSS mask (`apps/desktop/ui/src/chrome.tsx`, `AppMark`).
+  seams, viewBox `64 64 896 896` cropped to the glyph. The caption uses the
+  full-colour window icon (`favicon.svg`) rather than tinting this one.
 
 ## Regenerating
 

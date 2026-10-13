@@ -911,28 +911,11 @@ export function App() {
       <WindowCaptionBar />
       <div class="flex min-h-0 flex-1">
       <aside class="flex w-[300px] shrink-0 flex-col border-r border-border bg-background">
-        <div
-          class="flex h-10 shrink-0 items-center gap-2 border-b border-border pr-3 pl-3 select-none"
-          data-tauri-drag-region={inDesktopShell() ? "" : undefined}
-        >
-          <Tip class="ml-auto" label={connected() ? t("action.newSession") : t("action.connectBackend")}>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              class="text-lg leading-none text-muted-foreground"
-              aria-label={connected() ? t("action.newSession") : t("action.connectBackend")}
-              onClick={() => {
-                if (!connected()) {
-                  setConnOpen(true);
-                  return;
-                }
-                void newSession();
-              }}
-            >
-              +
-            </Button>
-          </Tip>
-        </div>
+        {/* The old header was a full row whose only content was a plus pushed
+            to the right, so the corner under the wordmark was a blank band.
+            The plus sits on the search row instead. */}
+        <div class="flex items-start">
+          <div class="min-w-0 flex-1">
         <CommandSearch
           open={searchOpen()}
           query={query()}
@@ -948,6 +931,25 @@ export function App() {
             location.hash = `/session/${encodeURIComponent(id)}`;
           }}
         />
+          </div>
+          <Tip class="pt-2 pr-1.5" label={connected() ? t("action.newSession") : t("action.connectBackend")}>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              class="size-8 text-lg leading-none text-muted-foreground"
+              aria-label={connected() ? t("action.newSession") : t("action.connectBackend")}
+              onClick={() => {
+                if (!connected()) {
+                  setConnOpen(true);
+                  return;
+                }
+                void newSession();
+              }}
+            >
+              +
+            </Button>
+          </Tip>
+        </div>
         <div class="flex flex-col gap-2 px-3 pt-2 pb-3">
           <div>
             <p class="mb-1 px-0.5 text-2xs font-medium text-muted-foreground">

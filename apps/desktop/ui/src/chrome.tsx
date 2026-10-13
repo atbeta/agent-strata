@@ -127,24 +127,20 @@ export function WindowCaptionBar() {
 /**
  * Product mark for the caption bar. Windows has no traffic lights to fill its
  * top-left corner, so it carries the wordmark instead; macOS keeps that space.
+ *
+ * The picture is the window icon itself, not a tinted silhouette of it. A mask
+ * can only be one colour, and the corner then reads as an empty grey dash
+ * rather than the mark on the taskbar.
  */
 export function AppMark() {
   return (
     <Show when={usesCustomCaption()}>
       <span class="flex shrink-0 items-center gap-2">
-        <span
-          aria-hidden="true"
-          class="size-4 shrink-0 bg-current text-muted-foreground"
-          style={{
-            "-webkit-mask-image": "url(/brand/strata-mark.svg)",
-            "mask-image": "url(/brand/strata-mark.svg)",
-            "-webkit-mask-position": "center",
-            "mask-position": "center",
-            "-webkit-mask-repeat": "no-repeat",
-            "mask-repeat": "no-repeat",
-            "-webkit-mask-size": "contain",
-            "mask-size": "contain",
-          }}
+        <img
+          src="/favicon.svg"
+          alt=""
+          draggable={false}
+          class="pointer-events-none size-6 shrink-0"
         />
         <span class="text-sm font-medium">Agent Strata</span>
       </span>
