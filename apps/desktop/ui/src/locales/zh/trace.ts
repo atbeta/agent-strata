@@ -7,6 +7,8 @@ export default {
   "trace.lane.input": "输入",
   "trace.lane.reply": "回复",
   "trace.lane.tool": "工具",
+  "trace.earlier": "更早",
+  "trace.later": "更晚",
 
   // 标题与预览的兜底词（事件本身没带内容时）
   "trace.preview.message": "消息",

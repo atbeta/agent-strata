@@ -8,6 +8,8 @@ export default {
   "trace.lane.input": "Input",
   "trace.lane.reply": "Reply",
   "trace.lane.tool": "Tool",
+  "trace.earlier": "Earlier",
+  "trace.later": "Later",
 
   // Fallback words for a title or preview the event did not carry
   "trace.preview.message": "Message",

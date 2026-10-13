@@ -1,10 +1,12 @@
-import { createEffect, createResource, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
 import { getJson, type StrataEvent } from "./api";
 import { inDesktopShell } from "./shell";
 import { Md } from "./md";
 import { Tip } from "./tip";
 import { CopyButton, Payload } from "./payload";
 import { stamp, t } from "./i18n";
+import { Icon } from "./icons";
+import { mergeUserBar, traceMaxOffset, tracePage, traceWindow } from "./trace-window";
 
 export interface TraceBlock {
   key: string;
@@ -46,11 +48,6 @@ function textOf(content: unknown, kind: "spoken" | "thinking"): string {
     .trim();
 }
 
-function modelTone(model: string, index: number): string {
-  const tones = ["bg-event-assistant", "bg-status-completed", "bg-event-file", "bg-event-user"];
-  return tones[index % tones.length]!;
-}
-
 function toolTone(name: string): string {
   const n = name.toLowerCase();
   if (n === "bash" || n.includes("shell") || n === "powershell" || n === "cmd") return "bg-status-cancelled";
@@ -89,26 +86,36 @@ export function traceBlocks(events: StrataEvent[]): TraceBlock[] {
   const blocks: TraceBlock[] = [];
   const tools = new Map<string, TraceBlock>();
   const assistants = new Map<string, TraceBlock>();
-  const modelIndex = new Map<string, number>();
+  const users = new Map<string, TraceBlock>();
   for (const e of events) {
     const d = e.data;
     if (e.type === "turn.user") {
+      const turnId = String(d.turn_id ?? e.id);
       const preview = textOf(d.content, "spoken") || "message";
-      blocks.push({
-        key: e.id,
-        seq: e.seq,
-        ts: e.ts,
-        lane: "user",
-        title: "输入",
-        preview,
-        tone: "bg-event-user",
-      });
+      const prev = users.get(turnId);
+      const merged = mergeUserBar(prev, { seq: e.seq, ts: e.ts, preview });
+      if (prev) {
+        prev.seq = merged.seq;
+        prev.ts = merged.ts;
+        prev.preview = merged.preview;
+      } else {
+        const block: TraceBlock = {
+          key: turnId,
+          seq: merged.seq,
+          ts: merged.ts,
+          lane: "user",
+          title: "输入",
+          preview: merged.preview,
+          tone: "bg-event-user",
+        };
+        users.set(turnId, block);
+        blocks.push(block);
+      }
     } else if (e.type === "turn.assistant") {
       const id = String(d.msg_id ?? e.id);
       const spoken = textOf(d.content, "spoken");
       const thought = textOf(d.content, "thinking");
       const model = d.model ? String(d.model) : undefined;
-      if (model && !modelIndex.has(model)) modelIndex.set(model, modelIndex.size);
       const detail = [
         model,
         typeof d.latency_ms === "number" ? `${d.latency_ms} ms` : "",
@@ -124,7 +131,7 @@ export function traceBlocks(events: StrataEvent[]): TraceBlock[] {
         prev.quiet = !spoken;
         prev.model = model ?? prev.model;
         prev.detail = detail || prev.detail;
-        prev.tone = model ? modelTone(model, modelIndex.get(model) ?? 0) : prev.tone;
+        prev.tone = "bg-event-assistant";
         prev.title = model ? model.slice(model.indexOf("/") + 1) : prev.title;
       } else {
         const block: TraceBlock = {
@@ -136,7 +143,7 @@ export function traceBlocks(events: StrataEvent[]): TraceBlock[] {
           preview: spoken || thought.slice(0, 280) || "reply",
           detail: detail || undefined,
           model,
-          tone: model ? modelTone(model, modelIndex.get(model) ?? 0) : "bg-event-assistant",
+          tone: "bg-event-assistant",
           quiet: !spoken,
         };
         assistants.set(id, block);
@@ -214,7 +221,13 @@ function layout(blocks: TraceBlock[]) {
     x += width + 4;
     if (Number.isFinite(t)) prev = t;
   }
-  return { pos, width: Math.max(x, 160) };
+  return { pos, width: x };
+}
+
+function blockLabel(block: TraceBlock): string {
+  const title = displayTitle(block);
+  const preview = displayPreview(block);
+  return `${title}${preview && preview !== title ? ` — ${preview.slice(0, 80)}` : ""}`;
 }
 
 export function TraceStrip(props: {
@@ -232,13 +245,127 @@ export function TraceStrip(props: {
     },
   );
 
-  const placed = () => layout(events() ?? []);
-  const models = () => {
-    const seen: string[] = [];
-    for (const b of events() ?? []) {
-      if (b.model && !seen.includes(b.model)) seen.push(b.model);
+  const placed = createMemo(() => layout(events() ?? []));
+  const contentWidth = () => placed().width;
+  const [viewEl, setViewEl] = createSignal<HTMLDivElement>();
+  const [viewWidth, setViewWidth] = createSignal(0);
+  const [offset, setOffset] = createSignal(0);
+  /** Stay on the newest events until the reader moves somewhere else. */
+  const [pinned, setPinned] = createSignal(true);
+  let glide = 0;
+  let drag: { x: number; off: number; moved: boolean } | null = null;
+  let swallowClick = false;
+  onCleanup(() => cancelAnimationFrame(glide));
+
+  createEffect(() => {
+    props.sessionId;
+    cancelAnimationFrame(glide);
+    setPinned(true);
+  });
+
+  const maxOffset = () => traceMaxOffset(contentWidth(), viewWidth());
+  const overflows = () => viewWidth() > 0 && contentWidth() > viewWidth() + 1;
+  const shownOffset = () => (pinned() ? maxOffset() : offset());
+
+  const placeAt = (next: number) => {
+    const max = maxOffset();
+    const value = Math.min(Math.max(0, next), max);
+    setOffset(value);
+    setPinned(value >= max - 1);
+  };
+
+  /** Slide to a page. Dragging and the wheel write the offset directly. */
+  const glideTo = (next: number) => {
+    cancelAnimationFrame(glide);
+    const max = maxOffset();
+    const target = Math.min(Math.max(0, next), max);
+    const from = shownOffset();
+    if (Math.abs(target - from) < 1) {
+      placeAt(target);
+      return;
     }
-    return seen;
+    setPinned(false);
+    const t0 = performance.now();
+    const step = (now: number) => {
+      const t = Math.min(1, (now - t0) / 240);
+      const eased = 1 - (1 - t) ** 3;
+      const value = from + (target - from) * eased;
+      if (t < 1) {
+        setOffset(value);
+        glide = requestAnimationFrame(step);
+      } else placeAt(target);
+    };
+    glide = requestAnimationFrame(step);
+  };
+
+  createEffect(() => {
+    const el = viewEl();
+    if (!el) return;
+    const measure = () => setViewWidth(el.clientWidth);
+    const onWheel = (e: WheelEvent) => {
+      const view = el.clientWidth;
+      const content = contentWidth();
+      if (view <= 0 || content <= view + 1) return;
+      if (Math.abs(e.deltaX) < 1 || Math.abs(e.deltaX) < Math.abs(e.deltaY)) return;
+      e.preventDefault();
+      cancelAnimationFrame(glide);
+      const max = traceMaxOffset(content, view);
+      const base = pinned() ? max : offset();
+      placeAt(base + e.deltaX);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    el.addEventListener("wheel", onWheel, { passive: false });
+    onCleanup(() => {
+      ro.disconnect();
+      el.removeEventListener("wheel", onWheel);
+    });
+  });
+
+  createEffect(() => {
+    const max = maxOffset();
+    if (pinned()) setOffset(max);
+    else setOffset((current) => (current > max ? max : current));
+  });
+
+  const nudge = (dir: -1 | 1) => glideTo(tracePage(contentWidth(), viewWidth(), shownOffset(), dir));
+
+  // Before the viewport is measured the tail is shown with a container-query
+  // shift, so the mounted bars have to be the tail as well.
+  const range = createMemo(
+    () => {
+      const content = contentWidth();
+      const view = viewWidth();
+      if (view <= 0) return traceWindow(Math.max(0, content - 1600), 1600);
+      return traceWindow(shownOffset(), view);
+    },
+    { start: 0, end: 0 },
+    { equals: (a, b) => a.start === b.start && a.end === b.end },
+  );
+
+  const visible = createMemo(() => {
+    const { start, end } = range();
+    const pos = placed().pos;
+    const out: Record<(typeof LANES)[number]["id"], TraceBlock[]> = {
+      user: [],
+      assistant: [],
+      tool: [],
+    };
+    for (const block of events() ?? []) {
+      const box = pos.get(block.key);
+      if (!box || box.left + box.width < start || box.left > end) continue;
+      out[block.lane].push(block);
+    }
+    return out;
+  });
+
+  const shift = () => {
+    const width = `${contentWidth()}px`;
+    if (pinned() && viewWidth() <= 0) {
+      return { width, transform: "translate3d(min(0px, calc(-100% + 100cqw)), 0, 0)" };
+    }
+    return { width, transform: `translate3d(${-shownOffset()}px, 0, 0)` };
   };
 
   return (
@@ -248,63 +375,122 @@ export function TraceStrip(props: {
         fallback={<div class="h-8 animate-pulse rounded-md bg-secondary/50" />}
       >
         <Show when={(events()?.length ?? 0) > 0} fallback={null}>
-        <Show when={models().length > 0}>
-          <div class="mb-1.5 flex flex-wrap gap-x-3 gap-y-1">
-            <For each={models()}>
-              {(model, i) => (
-                <span class="inline-flex items-center gap-1.5 font-mono text-2xs text-muted-foreground">
-                  <span class={`h-1.5 w-3 rounded-sm ${modelTone(model, i())}`} />
-                  {model.slice(model.indexOf("/") + 1)}
-                </span>
-              )}
-            </For>
-          </div>
-        </Show>
-        <div class="space-y-1 overflow-x-auto pb-0.5">
-          <For each={LANES}>
-            {(lane) => {
-              const row = () => (events() ?? []).filter((b) => b.lane === lane.id);
-              return (
-                <div class="flex items-center gap-2">
-                  <span class="w-8 shrink-0 text-2xs text-muted-foreground">{t(lane.label)}</span>
-                  <div class="relative h-3 rounded-sm bg-secondary/40" style={{ width: `${placed().width}px` }}>
-                    <For each={row()}>
-                      {(block) => {
-                        const box = () => placed().pos.get(block.key);
-                        const label = () => {
-                          const title = displayTitle(block);
-                          const preview = displayPreview(block);
-                          return `${title}${preview && preview !== title ? ` — ${preview.slice(0, 80)}` : ""}`;
-                        };
-                        return (
-                          <Tip label={label()}>
-                            <button
-                              class={`absolute rounded-[2px] ${block.tone} ${
-                                props.selected === block.key
-                                  ? "z-10 opacity-100 ring-1 ring-foreground"
-                                  : block.quiet
-                                    ? "opacity-40 hover:opacity-100"
-                                    : "opacity-90 hover:opacity-100"
-                              }`}
-                              style={{
-                                left: `${box()?.left ?? 0}px`,
-                                width: `${box()?.width ?? 8}px`,
-                                top: props.selected === block.key ? "0px" : "2px",
-                                height: props.selected === block.key ? "12px" : "8px",
-                              }}
-                              aria-label={label()}
-                              onClick={() => props.onSelect(block)}
-                            />
-                          </Tip>
-                        );
-                      }}
-                    </For>
+          <div class="flex gap-2">
+            <div class="w-8 shrink-0 space-y-1">
+              <For each={LANES}>
+                {(lane) => (
+                  <div class="flex h-3 items-center text-2xs leading-none text-muted-foreground">
+                    {t(lane.label)}
                   </div>
+                )}
+              </For>
+            </div>
+            <div class="min-w-0 flex-1">
+              <div class="relative">
+                <div
+                  ref={setViewEl}
+                  class="space-y-1 overflow-hidden"
+                  style={{ "container-type": "inline-size", "touch-action": "pan-y" }}
+                  onPointerDown={(e) => {
+                    if (e.button !== 0 || !overflows()) return;
+                    if ((e.target as HTMLElement).closest("[data-trace-nav]")) return;
+                    swallowClick = false;
+                    cancelAnimationFrame(glide);
+                    drag = { x: e.clientX, off: shownOffset(), moved: false };
+                  }}
+                  onPointerMove={(e) => {
+                    if (!drag) return;
+                    const dx = e.clientX - drag.x;
+                    if (!drag.moved && Math.abs(dx) < 4) return;
+                    drag.moved = true;
+                    if (!e.currentTarget.hasPointerCapture(e.pointerId)) {
+                      e.currentTarget.setPointerCapture(e.pointerId);
+                    }
+                    placeAt(drag.off - dx);
+                  }}
+                  onPointerUp={() => {
+                    const moved = !!drag?.moved;
+                    drag = null;
+                    if (!moved) return;
+                    // The click that follows a drag must not open a bar. Clear
+                    // after that click, which is dispatched in this same turn.
+                    swallowClick = true;
+                    setTimeout(() => {
+                      swallowClick = false;
+                    });
+                  }}
+                  onPointerCancel={() => {
+                    drag = null;
+                  }}
+                >
+                  <For each={LANES}>
+                    {(lane) => (
+                      <div class="relative h-3 overflow-hidden rounded-sm bg-secondary/40">
+                        <div class="absolute top-0 h-full will-change-transform" style={shift()}>
+                          <For each={visible()[lane.id]}>
+                            {(block) => {
+                              const box = () => placed().pos.get(block.key);
+                              const label = () => blockLabel(block);
+                              const on = () => props.selected === block.key;
+                              return (
+                                <Tip label={label()}>
+                                  <button
+                                    class={`absolute rounded-[2px] ${block.tone} ${
+                                      on()
+                                        ? "z-10 opacity-100"
+                                        : block.quiet
+                                          ? "opacity-40 hover:opacity-100"
+                                          : "opacity-90 hover:opacity-100"
+                                    }`}
+                                    style={{
+                                      left: `${box()?.left ?? 0}px`,
+                                      width: `${box()?.width ?? 8}px`,
+                                      top: on() ? "0px" : "2px",
+                                      height: on() ? "12px" : "8px",
+                                    }}
+                                    aria-label={label()}
+                                    onClick={() => {
+                                      if (swallowClick) {
+                                        swallowClick = false;
+                                        return;
+                                      }
+                                      props.onSelect(block);
+                                    }}
+                                  />
+                                </Tip>
+                              );
+                            }}
+                          </For>
+                        </div>
+                      </div>
+                    )}
+                  </For>
                 </div>
-              );
-            }}
-          </For>
-        </div>
+                <Show when={overflows() && shownOffset() > 1}>
+                  <button
+                    type="button"
+                    data-trace-nav
+                    class="absolute top-1/2 left-0 z-10 grid h-5 w-4 -translate-y-1/2 place-items-center rounded text-muted-foreground/50 hover:bg-secondary hover:text-foreground"
+                    aria-label={t("trace.earlier")}
+                    onClick={() => nudge(-1)}
+                  >
+                    <Icon name="chevron" class="h-3 w-3 rotate-90" />
+                  </button>
+                </Show>
+                <Show when={overflows() && shownOffset() < maxOffset() - 1}>
+                  <button
+                    type="button"
+                    data-trace-nav
+                    class="absolute top-1/2 right-0 z-10 grid h-5 w-4 -translate-y-1/2 place-items-center rounded text-muted-foreground/50 hover:bg-secondary hover:text-foreground"
+                    aria-label={t("trace.later")}
+                    onClick={() => nudge(1)}
+                  >
+                    <Icon name="chevron" class="h-3 w-3 -rotate-90" />
+                  </button>
+                </Show>
+              </div>
+            </div>
+          </div>
         </Show>
       </Show>
     </div>
