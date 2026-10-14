@@ -261,12 +261,36 @@ export function Virtual<T>(props: VirtualProps<T>) {
   createEffect(() => {
     rows();
     queueMicrotask(() => {
+      // One `setMeasured` for the whole pass. Committing inside the loop gave
+      // each row its own invalidation, and every one of those rebuilt the
+      // prefix sum over the entire session — a window of twenty rows arriving
+      // unmeasured cost twenty full passes, on the scroll path, and that is
+      // what made dragging the window stutter.
+      let next: Map<string, number> | undefined;
       for (const el of [...observed.keys()]) {
         if (!el.isConnected) {
           ro.unobserve(el);
           observed.delete(el);
+          continue;
         }
+        // A mounted row that has no measurement is being positioned from
+        // `estimate`, and `estimate` is a guess about a row's height, not a
+        // layout: at 100 against a turn that renders at several hundred, an
+        // unmeasured row is not a slightly-short placeholder but one printed
+        // on top of its neighbours. The observer is best-effort — an entry can
+        // be dropped if the element left `observed` before the callback was
+        // delivered, and `unobserve` above can remove a node Solid is still
+        // holding — and once that happens there may be no further resize to
+        // report. So a mounted row without a measurement is read here rather
+        // than waited on. Anything read too early, the observer corrects.
+        const key = observed.get(el);
+        if (key === undefined || measured().has(key)) continue;
+        const h = (el as HTMLElement).offsetHeight;
+        if (!h) continue;
+        next ??= new Map(measured());
+        next.set(key, h);
       }
+      if (next) setMeasured(next);
     });
   });
 
