@@ -2,6 +2,7 @@ import { createEffect, createMemo, createResource, createSignal, For, onCleanup,
 import {
   api,
   archiveSession,
+  backendLabel,
   connectBackend,
   deleteSession,
   disconnectBackend,
@@ -274,12 +275,6 @@ function SessionListItem(props: {
       </Show>
     </div>
   );
-}
-
-function backendLabel(backend: string): string {
-  if (backend === "opencode") return "OpenCode";
-  if (backend === "acp") return "ACP";
-  return backend;
 }
 
 function endpointHost(url: string): string {
@@ -767,6 +762,26 @@ export function App() {
     return r.name === "session" ? r.id : undefined;
   };
   const connected = () => (settled(conns)?.connections.length ?? 0) > 0;
+
+  /**
+   * States in which a backend is on its way rather than one waiting on a person.
+   *
+   * `external` counts: the service attaches to a pre-set `STRATA_OPENCODE_URL`
+   * and retries until it answers, which is the same wait as a spawn, just one
+   * this shell did not start. `unmanaged` does not, because nothing is coming
+   * — that is the one state where the prompt to connect is the whole truth.
+   */
+  const LAUNCHING = new Set(["starting", "restarting", "running", "external"]);
+  const launching = () => LAUNCHING.has(settled(opencodeLaunch)?.state ?? "");
+
+  /**
+   * `connected()` is false for the whole stretch between the window opening
+   * and the stream attaching: the shell spawns `opencode serve`, the service
+   * retries until it answers, and until it does `/connections` is empty. Read
+   * as a boolean that stretch looks identical to a person who has not attached
+   * anything, and the page asked them to fix something already in progress.
+   */
+  const attaching = () => !connected() && launching();
   const [paletteOpen, setPaletteOpen] = createSignal(false);
   const [switchOpen, setSwitchOpen] = createSignal(false);
   const [switchIds, setSwitchIds] = createSignal<string[]>([]);
@@ -1216,7 +1231,11 @@ export function App() {
                 fallback={
                   <div class="min-w-0 px-1.5 py-1">
                     <p class="truncate text-xs text-muted-foreground">
-                      {backendMissing() ? t("sidebar.backend.missing") : t("sidebar.backend.none")}
+                      {attaching()
+                        ? t("sidebar.backend.connecting")
+                        : backendMissing()
+                          ? t("sidebar.backend.missing")
+                          : t("sidebar.backend.none")}
                     </p>
                     <Show when={backendMissing()}>
                       <a
@@ -1329,17 +1348,35 @@ export function App() {
             <Show
               when={connected()}
               fallback={
-                <div class="mx-auto flex max-w-sm flex-col items-start px-8 pt-24">
-                  <p class="text-sm font-medium text-foreground">
-                    {t("action.connectBackend")}
-                  </p>
-                  <p class="mt-1.5 text-sm leading-5 text-muted-foreground">
-                    {t("fleet.hint.disconnected")}
-                  </p>
-                  <Button class="mt-5" onClick={() => setConnOpen(true)}>
-                    {t("action.connect")}
-                  </Button>
-                </div>
+                <Show
+                  when={attaching()}
+                  fallback={
+                    <div class="mx-auto flex max-w-sm flex-col items-start px-8 pt-24">
+                      <p class="text-sm font-medium text-foreground">
+                        {t("action.connectBackend")}
+                      </p>
+                      <p class="mt-1.5 text-sm leading-5 text-muted-foreground">
+                        {t("fleet.hint.disconnected")}
+                      </p>
+                      <Button class="mt-5" onClick={() => setConnOpen(true)}>
+                        {t("action.connect")}
+                      </Button>
+                    </div>
+                  }
+                >
+                  {/* The dot carries the state and the words carry it back:
+                      `status-active` on its own would be a decoration, and the
+                      label would be a lie while it was still grey. */}
+                  <div class="mx-auto flex max-w-sm flex-col items-start px-8 pt-24">
+                    <p class="flex items-center gap-2 text-sm font-medium text-foreground">
+                      <span class="size-1.5 shrink-0 motion-safe:animate-pulse rounded-full bg-status-active" />
+                      {t("action.attachingBackend")}
+                    </p>
+                    <p class="mt-1.5 text-sm leading-5 text-muted-foreground">
+                      {t("fleet.hint.connecting")}
+                    </p>
+                  </div>
+                </Show>
               }
             >
               <FleetView

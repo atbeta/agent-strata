@@ -703,6 +703,8 @@ export interface ApiProvider {
   name: string;
   connected: boolean;
   methods: ProviderMethod[];
+  /** An API key can be pasted, even though there is no sign-in method to pick. */
+  canKey: boolean;
 }
 
 export interface OAuthStart {
@@ -915,12 +917,31 @@ export function fmtUsd(n: number) {
   return `$${n.toFixed(Math.abs(n) < 1 ? 4 : 2)}`;
 }
 
+/**
+ * Always cents, for a column that is read down its length.
+ *
+ * `fmtUsd` widens to four places below a dollar so a lone session that cost
+ * fractions of one does not print as `$0.00`. In a column where each row is
+ * compared with the next, that rule makes the `$` step sideways row by row and
+ * the decimal points never line up — the precision the reader wants least is
+ * the one they cannot scan. Same figures, same order, aligned.
+ */
+export function fmtUsdFlat(n: number): string {
+  if (!Number.isFinite(n)) return "$0.00";
+  return `$${n.toFixed(2)}`;
+}
+
 /** Placeholder workspaces the adapter emits before a real directory is known. */
 export function realWorkspace(ws?: string | null): string | undefined {
   if (!ws || ws === "unknown" || ws === "no workspace") return undefined;
   return ws;
 }
 
+/**
+ * The status vocabulary, in one place: which colour a dot takes, and which
+ * dictionary key names it. Keys rather than finished words, so a caller renders
+ * them with `t()` instead of freezing a language into a module-level object.
+ */
 export const STATUS_DOT: Record<string, string> = {
   active: "bg-status-active",
   completed: "bg-status-completed",
@@ -928,14 +949,20 @@ export const STATUS_DOT: Record<string, string> = {
   cancelled: "bg-status-cancelled",
 };
 
-/**
- * Dead today — nothing imports it — but kept so the status vocabulary has one
- * home. Values are dictionary keys rather than finished words: a caller renders
- * them with `t()` instead of freezing a language into a module-level object.
- */
 export const STATUS_LABEL: Record<string, MessageKey> = {
   active: "api.status.active",
   completed: "api.status.completed",
   error: "api.status.error",
   cancelled: "api.status.cancelled",
 };
+
+/**
+ * The backend's own name, spelled the way its author does. `opencode` is a
+ * product, not a lowercase word, and printing the raw field made a sidebar row
+ * and the session's own popover disagree about what it is called.
+ */
+export function backendLabel(backend: string): string {
+  if (backend === "opencode") return "OpenCode";
+  if (backend === "acp") return "ACP";
+  return backend;
+}

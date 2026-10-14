@@ -179,6 +179,8 @@ export default {
 
   // The context popover.
   "info.session": "会话",
+  "info.group.usage": "用量",
+  "info.group.identity": "归属",
   "info.context": "上下文",
   "info.context.none": "未报告用量",
   "info.context.of": "共 {n}",
@@ -193,6 +195,8 @@ export default {
   "info.status": "状态",
   "info.backend": "后端",
   "info.workspace": "工作区",
+  "info.id": "会话 ID",
+  "info.id.copy": "复制会话 ID",
 
   // Context label on the ring trigger.
   "context.none": "上下文中 {n} tokens",

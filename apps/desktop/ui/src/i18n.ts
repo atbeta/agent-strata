@@ -45,6 +45,21 @@ export function num(n: number): string {
   return n.toLocaleString(current());
 }
 
+/**
+ * A large figure at the size it will actually be read at.
+ *
+ * `10,249,497` across a stat tile is read as "about ten million"; the seven
+ * digits after the first are width spent on precision the glance does not use,
+ * in the one place on the page whose whole job is to be glanced at. Below a
+ * hundred thousand the digits are the honest answer and are left alone. This
+ * follows the locale, so Chinese gets 万 and English gets M.
+ */
+export function compactNum(n: number): string {
+  if (!Number.isFinite(n)) return num(0);
+  if (Math.abs(n) < 100_000) return num(n);
+  return n.toLocaleString(current(), { notation: "compact", maximumFractionDigits: 1 });
+}
+
 export function date(n: number | Date): string {
   return new Date(n).toLocaleDateString(LOCALE_TAG[current()], {
     month: "numeric",

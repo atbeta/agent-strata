@@ -1,5 +1,5 @@
 import { For, Show, type JSX } from "solid-js";
-import { fmtUsd, realWorkspace, type SessionRow } from "./api";
+import { fmtUsd, fmtUsdFlat, realWorkspace, type SessionRow } from "./api";
 import {
   fleetActivity,
   fleetAttention,
@@ -10,7 +10,7 @@ import {
   relTime,
   shareOf,
 } from "./fleet";
-import { num, t, tn } from "./i18n";
+import { compactNum, num, t, tn } from "./i18n";
 
 /**
  * The landing pane.
@@ -65,17 +65,24 @@ export function FleetView(props: {
             </span>
           </Show>
         </Stat>
-        <Stat label={t("fleet.overview.tokens")} value={num(tokens())}>
+        <Stat label={t("fleet.overview.tokens")} value={compactNum(tokens())}>
           <Show when={tokens() > 0}>
             <span
               class="flex min-w-0 flex-1 items-center gap-2"
               title={`${t("fleet.overview.input")} ${num(totals().input)} · ${t("fleet.overview.output")} ${num(totals().output)}`}
             >
-              <span class="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-secondary">
-                <span class="block h-full bg-foreground/45" style={{ width: `${inPct()}%` }} />
+              {/* Two segments that together fill the track, not one bar that
+                  happens to stop at 90%. A single fill is a quota meter — it
+                  says "this is running out", which is exactly the wrong thing to
+                  imply about a split between prompt and completion. Drawing both
+                  ends is what makes it read as a composition. */}
+              <span class="flex h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-foreground/10">
+                <span class="block h-full bg-foreground/55" style={{ width: `${inPct()}%` }} />
+                <span class="block h-full bg-event-tool/50" style={{ width: `${100 - inPct()}%` }} />
               </span>
-              <span class="shrink-0 text-2xs text-muted-foreground">{t("fleet.overview.input")}</span>
-              <span class="shrink-0 font-mono text-2xs tabular-nums text-muted-foreground">{inPct()}%</span>
+              <span class="shrink-0 text-2xs text-muted-foreground">
+                {t("fleet.overview.input")} {inPct()}%
+              </span>
             </span>
           </Show>
         </Stat>
@@ -191,7 +198,7 @@ export function FleetView(props: {
                               {num(b.sessions)}
                             </span>
                             <span class="shrink-0 text-right font-mono text-2xs tabular-nums text-muted-foreground">
-                              {fmtUsd(b.cost)}
+                              {fmtUsdFlat(b.cost)}
                             </span>
                           </div>
                         </li>
@@ -281,7 +288,9 @@ function ProjectBody(props: {
         <span class="min-w-0 flex-1 truncate text-sm text-foreground">
           {props.project.workspace ? projectName(props.project.workspace) : t("sidebar.project.none")}
         </span>
-        <span class="shrink-0 font-mono text-2xs tabular-nums text-muted-foreground">{fmtUsd(props.project.cost)}</span>
+        <span class="shrink-0 font-mono text-2xs tabular-nums text-muted-foreground">
+          {fmtUsdFlat(props.project.cost)}
+        </span>
       </span>
       <span class="mt-0.5 flex items-baseline gap-2">
         <span class="min-w-0 flex-1 truncate font-mono text-2xs text-muted-foreground">
@@ -290,21 +299,34 @@ function ProjectBody(props: {
         <span class="shrink-0 text-2xs text-muted-foreground">{tn("sidebar.sessionCount", props.project.sessions)}</span>
       </span>
       <span class="mt-2 block">
-        <Bar part={props.part} whole={props.whole} />
+        <Bar part={props.part} whole={props.whole} showShare />
       </span>
     </>
   );
 }
 
-function Bar(props: { part: number; whole: number }) {
+/**
+ * A share of a whole. `showShare` puts the number on the end, because a bar
+ * with no figure beside it asks the reader to do the division themselves —
+ * the activity column already does exactly that with its two side figures.
+ */
+function Bar(props: { part: number; whole: number; showShare?: boolean }) {
+  const share = () => shareOf(props.part, props.whole);
   const width = () => {
-    const n = shareOf(props.part, props.whole);
+    const n = share();
     if (n <= 0) return "0%";
     return `${Math.max(n, 2)}%`;
   };
   return (
-    <span class="block h-1.5 w-full overflow-hidden rounded-full bg-foreground/10">
-      <span class="block h-full rounded-full bg-foreground/55" style={{ width: width() }} />
+    <span class="flex items-center gap-2">
+      <span class="block h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-foreground/10">
+        <span class="block h-full rounded-full bg-foreground/55" style={{ width: width() }} />
+      </span>
+      <Show when={props.showShare && share() > 0}>
+        <span class="shrink-0 font-mono text-2xs tabular-nums text-muted-foreground">
+          {Math.round(share())}%
+        </span>
+      </Show>
     </span>
   );
 }

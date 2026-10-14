@@ -10,11 +10,13 @@ import {
   onMount,
   Show,
   Switch,
+  type JSX,
 } from "solid-js";
 import {
   abortSession,
   api,
   addMcp,
+  backendLabel,
   beginMcpLogin,
   connectMcp,
   disconnectMcp,
@@ -40,6 +42,8 @@ import {
   runCommand,
   searchSession,
   sendPrompt,
+  STATUS_DOT,
+  STATUS_LABEL,
   unrevertSession,
   type McpServerStatus,
   type OptionsResponse,
@@ -65,8 +69,9 @@ import {
 } from "./right-pane";
 import { JsonView } from "./json-view";
 import { permissionView, type PermissionView } from "./permission-card";
-import { num, t, tn } from "./i18n";
+import { compactNum, num, t, tn } from "./i18n";
 import type { MessageKey } from "./locales/zh";
+import { copyText } from "./clipboard";
 import { DragBar } from "./chrome";
 import { inDesktopShell, shellPlatform } from "./shell";
 import { Tip } from "./tip";
@@ -402,16 +407,51 @@ function ContextBar(props: { percent: number | null }) {
 }
 
 /** Label / value row in the session details panel. */
-function InfoRow(props: { label: string; value: string; mono?: boolean; tone?: string }) {
+/**
+ * A label on the left, a value on the right. `value` is an element rather than
+ * a string because the status is a dot with a word beside it, not a word — and
+ * because a value this card shows has to be allowed to truncate rather than
+ * push the label off the row: a model id is longer than the panel is wide.
+ */
+function InfoRow(props: {
+  label: string;
+  value: JSX.Element;
+  mono?: boolean;
+  tone?: string;
+  title?: string;
+}) {
   return (
-    <div class="flex items-baseline justify-between gap-6 py-1">
-      <span class="text-xs text-muted-foreground">{props.label}</span>
+    <div class="flex items-baseline justify-between gap-4 py-1">
+      <span class="shrink-0 text-xs text-muted-foreground">{props.label}</span>
       <span
-        class={`text-xs tabular-nums ${props.mono ? "font-mono" : ""} ${props.tone ?? "text-foreground"}`}
+        class={`min-w-0 truncate text-right text-xs tabular-nums ${props.mono ? "font-mono" : ""} ${props.tone ?? "text-foreground"}`}
+        title={props.title}
       >
         {props.value}
       </span>
     </div>
+  );
+}
+
+/** A band of related rows. The rule above it is what groups the card. */
+function InfoGroup(props: { label: string; children: JSX.Element }) {
+  return (
+    <section class="mt-2.5 border-t border-border pt-2.5">
+      <div class="mb-0.5 text-2xs tracking-wide text-muted-foreground/70">{props.label}</div>
+      <div class="divide-y divide-border/60">{props.children}</div>
+    </section>
+  );
+}
+
+/** A status, as the rest of the app draws one: a dot and the word beside it. */
+function StatusValue(props: { status: string }) {
+  const key = () => STATUS_LABEL[props.status];
+  const dot = () => STATUS_DOT[props.status] ?? "bg-status-pending";
+  return (
+    <span class="inline-flex items-center gap-1.5">
+      <span class={`size-1.5 shrink-0 rounded-full ${dot()}`} />
+      <span class="truncate">{key() ? t(key()!) : props.status}</span>
+    </span>
   );
 }
 
@@ -422,6 +462,7 @@ function InfoRow(props: { label: string; value: string; mono?: boolean; tone?: s
  * window caption; here it has room to be a real number.
  */
 function SessionInfo(props: {
+  id: string;
   totals: SessionView["totals"];
   context: { total: number; percent: number | null } | undefined;
   model: string;
@@ -432,6 +473,32 @@ function SessionInfo(props: {
   const contextLimit = () => {
     if (!props.context || props.context.percent == null || props.context.total <= 0) return null;
     return Math.round(props.context.total / (props.context.percent / 100));
+  };
+  const [idCopied, setIdCopied] = createSignal(false);
+  const copyId = async () => {
+    const mine = ++copyIdToken;
+    clearTimeout(copyIdTimer);
+    if (!(await copyText(props.id))) return;
+    if (mine !== copyIdToken) return;
+    setIdCopied(true);
+    copyIdTimer = setTimeout(() => setIdCopied(false), 2000);
+  };
+  let copyIdToken = 0;
+  let copyIdTimer: ReturnType<typeof setTimeout> | undefined;
+  /**
+   * The id split at its backend prefix.
+   *
+   * The prefix is not decoration — the service routes a session back to its
+   * backend by reading `casfId.split(":")[0]`, and an ACP id carries the agent's
+   * name in a second segment, so dropping only the first would make the rest
+   * more ambiguous, not less. A field labelled "session ID" that showed
+   * something other than the id would not survive being copied. What is
+   * genuinely redundant is the row above already naming the backend, so the
+   * prefix is dimmed instead of removed.
+   */
+  const idParts = () => {
+    const at = props.id.indexOf(":");
+    return at === -1 ? [props.id, ""] : [props.id.slice(0, at + 1), props.id.slice(at + 1)];
   };
 
   return (
@@ -462,16 +529,39 @@ function SessionInfo(props: {
         </div>
       </div>
 
-      <div class="mt-3 divide-y divide-border border-t border-border">
-        <InfoRow label={t("info.model")} value={props.model || "—"} mono />
+      <InfoGroup label={t("info.group.usage")}>
+        <InfoRow label={t("info.model")} value={props.model || "—"} mono title={props.model} />
         <InfoRow label={t("info.cost")} value={fmtUsd(props.totals.cost_usd)} mono />
-        <InfoRow label={t("info.input")} value={num(props.totals.input)} mono />
-        <InfoRow label={t("info.output")} value={num(props.totals.output)} mono />
+        {/* A cache-read count runs to nine digits. Spelled out it is the
+            widest thing in the panel and pushes every other row's decimal out
+            of alignment; the exact figure stays on hover. */}
+        <InfoRow
+          label={t("info.input")}
+          value={compactNum(props.totals.input)}
+          mono
+          title={num(props.totals.input)}
+        />
+        <InfoRow
+          label={t("info.output")}
+          value={compactNum(props.totals.output)}
+          mono
+          title={num(props.totals.output)}
+        />
         <Show when={props.totals.reasoning > 0}>
-          <InfoRow label={t("info.reasoning")} value={num(props.totals.reasoning)} mono />
+          <InfoRow
+            label={t("info.reasoning")}
+            value={compactNum(props.totals.reasoning)}
+            mono
+            title={num(props.totals.reasoning)}
+          />
         </Show>
         <Show when={props.totals.cache_read > 0}>
-          <InfoRow label={t("info.cache_read")} value={num(props.totals.cache_read)} mono />
+          <InfoRow
+            label={t("info.cache_read")}
+            value={compactNum(props.totals.cache_read)}
+            mono
+            title={num(props.totals.cache_read)}
+          />
         </Show>
         <InfoRow
           label={t("info.tool_calls")}
@@ -479,12 +569,35 @@ function SessionInfo(props: {
           mono
           tone={props.totals.tool_errors > 0 ? "text-status-error" : undefined}
         />
-        <InfoRow label={t("info.status")} value={props.status} />
-        <InfoRow label={t("info.backend")} value={props.backend} mono />
+      </InfoGroup>
+
+      <InfoGroup label={t("info.group.identity")}>
+        <InfoRow label={t("info.status")} value={<StatusValue status={props.status} />} />
+        <InfoRow label={t("info.backend")} value={backendLabel(props.backend)} />
         <Show when={props.workspace}>
-          <InfoRow label={t("info.workspace")} value={props.workspace!} mono />
+          <InfoRow label={t("info.workspace")} value={props.workspace!} mono title={props.workspace} />
         </Show>
-      </div>
+        <InfoRow
+          label={t("info.id")}
+          value={
+            <button
+              type="button"
+              class="inline-flex max-w-full items-center gap-1.5 rounded transition-colors hover:text-foreground"
+              title={props.id}
+              aria-label={t("info.id.copy")}
+              onClick={() => void copyId()}
+            >
+              <Icon name={idCopied() ? "check" : "copy"} class="size-3 shrink-0 text-muted-foreground" />
+              <span class="truncate">
+                <span class="text-muted-foreground">{idParts()[0]}</span>
+                {idParts()[1]}
+              </span>
+            </button>
+          }
+          mono
+          title={props.id}
+        />
+      </InfoGroup>
     </div>
   );
 }
@@ -1610,6 +1723,7 @@ const turnIndexOf = (h: SearchHit): number => {
         <Show when={settled(view)}>
           {(v) => (
             <SessionInfo
+              id={props.id}
               totals={v().totals}
               context={context()}
               model={modelSel()}

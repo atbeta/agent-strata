@@ -4,6 +4,7 @@ import {
   disconnectMcp,
   exportFileName,
   fmtUsd,
+  fmtUsdFlat,
   opencodePath,
   readMcp,
   readSkills,
@@ -24,6 +25,17 @@ describe("a cost in dollars", () => {
   test("reads as nothing rather than as a row of zeros", () => {
     expect(fmtUsd(0)).toBe("$0.00");
     expect(fmtUsd(Number.NaN)).toBe("$0.00");
+  });
+
+  test("a column of costs keeps every decimal point on the same line", () => {
+    // What `fmtUsd` widens for a lone row, a column has to give up: five
+    // places side by side only line up if they are all the same five.
+    expect(fmtUsdFlat(5.9363)).toBe("$5.94");
+    expect(fmtUsdFlat(0.4621)).toBe("$0.46");
+    expect(fmtUsdFlat(0.0566)).toBe("$0.06");
+    expect(fmtUsdFlat(0)).toBe("$0.00");
+    expect(fmtUsdFlat(Number.NaN)).toBe("$0.00");
+    expect(fmtUsdFlat(0.0013)).toBe("$0.00");
   });
 });
 

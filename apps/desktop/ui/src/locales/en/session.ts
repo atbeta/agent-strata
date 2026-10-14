@@ -179,6 +179,8 @@ export default {
 
   // The context popover.
   "info.session": "Session",
+  "info.group.usage": "Usage",
+  "info.group.identity": "Origin",
   "info.context": "Context",
   "info.context.none": "no usage reported",
   "info.context.of": "of {n}",
@@ -193,6 +195,8 @@ export default {
   "info.status": "Status",
   "info.backend": "Backend",
   "info.workspace": "Workspace",
+  "info.id": "Session ID",
+  "info.id.copy": "Copy session ID",
 
   // Context label on the ring trigger.
   "context.none": "{n} tokens in context",
