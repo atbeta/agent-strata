@@ -46,9 +46,14 @@ function ThinkingBlock(props: { text: string; live?: boolean; scope?: string }) 
     setOpen(next);
   };
   return (
-    <div class="my-2">
+    // `px-2.5` and `gap-2` are the tool card's own insets (below), not the
+    // transcript's. A thought row and a tool card are the same kind of thing —
+    // collapsed activity with a chevron — and they alternate down the stream, so
+    // their icons have to share one column. Sized identically but set at the
+    // content edge, the brain sat 11px left of every terminal.
+    <div class="my-2 px-2.5">
       <button
-        class="flex max-w-full items-center gap-1.5 text-left text-sm text-muted-foreground hover:text-foreground"
+        class="flex max-w-full items-center gap-2 text-left text-sm text-muted-foreground hover:text-foreground"
         aria-expanded={open()}
         onClick={toggle}
       >
@@ -248,6 +253,10 @@ function ToolCallCard(props: {
           <span class={`shrink-0 text-2xs font-medium ${denied() ? "text-destructive" : "text-muted-foreground"}`}>
             {headline().verb}
           </span>
+          {/* One line, always. Wrapping a long command was tried and is worse
+              than the information it costs: the label and the stats stay
+              vertically centred, so the second line reads as an orphan, and the
+              row loses its shape. The tail of a long command is in the title. */}
           <span class="min-w-0 flex-1 truncate font-mono text-xs text-foreground/90" title={title()}>
             {title()}
           </span>
@@ -255,7 +264,11 @@ function ToolCallCard(props: {
             {(s) => (
               <span class="shrink-0 font-mono text-2xs tabular-nums">
                 <span class="text-status-active">+{s().add}</span>{" "}
-                <span class="text-destructive">−{s().del}</span>
+                {/* A zero deletion is not a deletion: painting it destructive
+                    spent the reader's eye on a change that did not happen. */}
+                <span class={s().del > 0 ? "text-destructive" : "text-muted-foreground"}>
+                  −{s().del}
+                </span>
               </span>
             )}
           </Show>

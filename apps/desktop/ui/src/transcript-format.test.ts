@@ -150,6 +150,29 @@ describe("diff and labels", () => {
     expect(thinkingPreview("  first line\nsecond")).toBe("first line second");
   });
 
+  test("a thinking preview is cut by displayed width, not by character count", () => {
+    const wide = (n: number) => "字".repeat(n);
+    const narrow = (n: number) => "a".repeat(n);
+    // Same character budget, half the width: CJK is cut near twice as early.
+    expect(thinkingPreview(wide(89))).toBe(`${wide(44)}…`);
+    expect(thinkingPreview(narrow(89))).toBe(`${narrow(88)}…`);
+    // Inside the budget neither is touched.
+    expect(thinkingPreview(wide(44))).toBe(wide(44));
+    expect(thinkingPreview(narrow(88))).toBe(narrow(88));
+  });
+
+  test("a cut thinking preview prefers a word boundary", () => {
+    // The last space sits 18 columns back — inside the quarter-width backstop —
+    // so the cut backs off to it rather than landing mid-token.
+    const near = `${"a".repeat(70)} ${"b".repeat(30)}`;
+    expect(thinkingPreview(near)).toBe(`${"a".repeat(70)}…`);
+    // Same shape, but the space is 38 back: too far to give up the content.
+    const far = `${"a".repeat(50)} ${"b".repeat(60)}`;
+    expect(thinkingPreview(far)).toBe(`${"a".repeat(50)} ${"b".repeat(37)}…`);
+    // One enormous unbreakable token still gets cut rather than overflowing.
+    expect(thinkingPreview(`see ${"y".repeat(200)}`)).toBe(`see ${"y".repeat(84)}…`);
+  });
+
   test("units are the same number in both languages", () => {
     // `840ms` and `1.5s` are units, not prose: nothing about them is Chinese.
     withLocale("en", () => {

@@ -163,8 +163,37 @@ export function diffStat(text: string): { add: number; del: number } | undefined
   return { add, del };
 }
 
+/** Columns a full-width glyph occupies against a Latin one. */
+const WIDE = /[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE6F\uFF00-\uFF60\uFFE0-\uFFE6]/;
+
+/**
+ * Cut to a width the reader can see, not to a character count.
+ *
+ * Counting characters gave a Chinese preview half the room of an English one —
+ * a CJK glyph is about twice as wide — and Chinese is the language where a
+ * short preview hurts most. Cutting also prefers a word boundary, because a
+ * preview ending mid-token (`git log --oneline "origi…`) reads as a corrupted
+ * string rather than a clipped one. The backstop keeps the break from marching
+ * so far left that the preview says less than it had room for.
+ */
+function clipToWidth(line: string, columns: number): string {
+  let width = 0;
+  let cut = line.length;
+  for (let i = 0; i < line.length; i++) {
+    width += WIDE.test(line[i]) ? 2 : 1;
+    if (width > columns) {
+      cut = i;
+      break;
+    }
+  }
+  if (cut === line.length) return line;
+  const backstop = cut - Math.floor(columns / 4);
+  const space = line.lastIndexOf(" ", cut);
+  return `${(space > backstop ? line.slice(0, space) : line.slice(0, cut)).trimEnd()}…`;
+}
+
 export function thinkingPreview(text: string): string {
-  return firstLine(text.replace(/\s+/g, " "), 88);
+  return clipToWidth(text.replace(/\s+/g, " ").trim(), 88);
 }
 
 /** Milliseconds and seconds are units: `840ms`, `1.5s`, `12s` in every language. */
