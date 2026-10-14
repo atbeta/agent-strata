@@ -555,18 +555,26 @@ export function App() {
   });
 
   const newSession = async () => {
-    const res = await fetch(api("/sessions"), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ directory: currentDir(), connection_id: newSessionConnection() }),
-    });
-    const body = (await res.json()) as { id?: string; error?: string };
-    if (body.id) {
-      refetch();
-      location.hash = `/session/${encodeURIComponent(body.id)}`;
-    } else {
-      setConnErr(body.error ?? t("error.createSession"));
-      setConnOpen(true);
+    setActionErr("");
+    try {
+      const res = await fetch(api("/sessions"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ directory: currentDir(), connection_id: newSessionConnection() }),
+      });
+      const body = (await res.json()) as { id?: string; error?: string };
+      if (body.id) {
+        refetch();
+        location.hash = `/session/${encodeURIComponent(body.id)}`;
+      } else {
+        setConnErr(body.error ?? t("error.createSession"));
+        setConnOpen(true);
+      }
+    } catch (e) {
+      // Reached from `void newSession()`, so a rejection here had nowhere to
+      // go: the click did nothing, said nothing, and looked broken. A service
+      // that is not answering is the usual reason, and it deserves to be seen.
+      setActionErr(explain(e));
     }
   };
 

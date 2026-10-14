@@ -30,6 +30,7 @@ export default {
   "session.child.open": "打开子会话",
   "session.child.back": "返回上级会话",
   "session.service_unreachable": "无法连接到 strata 服务。",
+  "session.retry": "重试",
   "session.empty": "空会话。写一条消息开始。",
   "header.cost.tip": "已花费 {amount} — 打开上下文环查看明细",
   "header.export": "导出会话记录",

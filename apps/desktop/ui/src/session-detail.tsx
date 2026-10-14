@@ -593,6 +593,8 @@ export function SessionDetail(props: {
   let forceFull = false;
   let fetchGen = 0;
   let viewAlive = true;
+  /** Consecutive automatic reload attempts after a failed one. */
+  let retries = 0;
   onCleanup(() => {
     viewAlive = false;
   });
@@ -1166,6 +1168,29 @@ const turnIndexOf = (h: SearchHit): number => {
   // tail preview is enough to leave the boot state; the settled view follows.
   createEffect(() => {
     if (booting() && (view.state === "ready" || view.state === "errored" || settled(view))) setBooting(false);
+  });
+
+  /**
+   * A failed load used to be permanent.
+   *
+   * The view resource only refetches when its source changes, so one request
+   * that failed — the window opening before the service was listening, a proxy
+   * restarting, a laptop waking — left the reader on that message for the rest
+   * of the session with no way out but leaving. Try a few times on our own,
+   * backing off so a service that is genuinely down is not hammered, then stop
+   * and leave the button for them.
+   */
+  createEffect(() => {
+    if (!view.error) {
+      retries = 0;
+      return;
+    }
+    if (retries >= 4) return;
+    const wait = 500 * 2 ** retries++;
+    const timer = setTimeout(() => {
+      if (viewAlive) void refetch();
+    }, wait);
+    onCleanup(() => clearTimeout(timer));
   });
 
   // A warm open paints the cached view from the resource, then checks the
@@ -1760,7 +1785,19 @@ const turnIndexOf = (h: SearchHit): number => {
                 when={view.error}
                 fallback={<LoadingTranscript />}
               >
-                <p class="px-8 pt-24 text-sm text-muted-foreground">{t("session.service_unreachable")}</p>
+                <div class="px-8 pt-24">
+                  <p class="text-sm text-muted-foreground">{t("session.service_unreachable")}</p>
+                  <button
+                    type="button"
+                    class="mt-3 rounded-md border border-border bg-secondary px-2.5 py-1.5 text-xs text-foreground transition-colors hover:bg-accent"
+                    onClick={() => {
+                      retries = 0;
+                      void refetch();
+                    }}
+                  >
+                    {t("session.retry")}
+                  </button>
+                </div>
               </Show>
             </div>
           }

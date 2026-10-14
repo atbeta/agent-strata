@@ -30,6 +30,7 @@ export default {
   "session.child.open": "Open child session",
   "session.child.back": "Back to parent",
   "session.service_unreachable": "Can't reach the strata service.",
+  "session.retry": "Try again",
   "session.empty": "Empty session. Write a prompt to start.",
   "header.cost.tip": "{amount} so far — open the context ring for the breakdown",
   "header.export": "Export transcript",
