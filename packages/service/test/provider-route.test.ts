@@ -84,12 +84,14 @@ describe("provider api keys", () => {
             { index: 0, type: "api", label: "API key" },
             { index: 1, type: "oauth", label: "Claude Max" },
           ],
+          canKey: true,
         },
         {
           id: "copilot",
           name: "GitHub Copilot",
           connected: false,
           methods: [{ index: 0, type: "oauth", label: "Sign in" }],
+          canKey: false,
         },
       ],
     });

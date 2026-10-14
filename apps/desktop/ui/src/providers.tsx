@@ -1,4 +1,4 @@
-import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
+import { createEffect, createResource, createSignal, For, onCleanup, Show } from "solid-js";
 import {
   beginProviderLogin,
   finishProviderLogin,
@@ -45,6 +45,17 @@ function promptShown(prompt: ProviderPrompt, inputs: Record<string, string>): bo
 /** A key is what most people reach for; OAuth is the fallback worth a click. */
 function preferredMethod(row: ApiProvider): number | undefined {
   return (row.methods.find((method) => method.type === "api") ?? row.methods[0])?.index;
+}
+
+/**
+ * Whether the row opens into something.
+ *
+ * Not `methods.length`: a vendor with no OAuth flow has no method to choose
+ * from, and gating on that hid the API key box for exactly the vendors that
+ * only ever wanted a key — the row looked like it had nothing to offer.
+ */
+function expandable(row: ApiProvider): boolean {
+  return row.methods.length > 0 || row.canKey;
 }
 
 /** Connected or not, said by a dot and a word rather than by colour alone. */
@@ -204,7 +215,18 @@ function ProviderDetail(props: {
           </div>
         </Show>
 
-        <Show when={method()} keyed>
+        <Show
+          when={method()}
+          keyed
+          fallback={
+            // No sign-in method to pick from, but a key is still the whole
+            // point of the row. Showing nothing here was the reason the API-key
+            // vendors could be listed but never configured.
+            <Show when={props.row.canKey}>
+              <div class="mt-2">{keyForm}</div>
+            </Show>
+          }
+        >
           {(current) => (
             <div class="mt-2">
               <Show when={current.type === "api"} fallback={
@@ -291,6 +313,8 @@ function ProviderRow(props: {
   draft: string;
   inputs: Record<string, string>;
   error: string;
+  /** A removal that landed but the running server cannot show yet. */
+  notice?: string;
   method?: ProviderMethod;
   flow?: { start: OAuthStart };
   code: string;
@@ -313,10 +337,10 @@ function ProviderRow(props: {
         <button
           type="button"
           class="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-secondary/60"
-          aria-expanded={props.row.methods.length > 0 ? props.open : undefined}
-          aria-controls={props.row.methods.length > 0 ? panel() : undefined}
+          aria-expanded={expandable(props.row) ? props.open : undefined}
+          aria-controls={expandable(props.row) ? panel() : undefined}
           onClick={() => {
-            if (props.row.methods.length > 0) props.onToggle();
+            if (expandable(props.row)) props.onToggle();
           }}
         >
           <Dot on={props.row.connected} />
@@ -328,7 +352,7 @@ function ProviderRow(props: {
             <Show when={props.row.connected}>
               <span class="text-2xs text-muted-foreground">{t("settings.provider.connected")}</span>
             </Show>
-            <Show when={props.row.methods.length > 0}>
+            <Show when={expandable(props.row)}>
               <Icon
                 name="chevron"
                 class={`size-3 text-muted-foreground transition-transform ${
@@ -340,7 +364,19 @@ function ProviderRow(props: {
         </button>
 
         {/* Disconnecting is destructive and rare, so it waits to be asked for
-            instead of sitting on every connected row all day. */}
+            instead of sitting on every connected row all day.
+
+            `methods` is deliberately not a gate here. An empty list means the
+            provider has no sign-in method, not that it has no credential: the
+            service synthesises `methods: []` precisely for the API-key entries
+            that never appear in OpenCode's auth-method table, and those are
+            exactly the credentials this action removes.
+
+            The remaining gap is the other way round: `connected` also covers a
+            provider held open by a shared env var or an OpenCode account, where
+            there is nothing stored to delete and this becomes a no-op. OpenCode
+            does not say which is which, and a row that works but reads 未接入
+            is the worse lie. */}
         <Show when={props.row.connected}>
           <DropdownMenu>
             <DropdownMenuTrigger
@@ -360,6 +396,13 @@ function ProviderRow(props: {
           </DropdownMenu>
         </Show>
       </div>
+
+      {/* On the row rather than inside the panel: a provider with no sign-in
+          method has no panel to open, and those are exactly the ones whose
+          removal lands without moving the list. */}
+      <Show when={props.notice}>
+        {(text) => <p class="px-2 pt-1 text-2xs leading-4 text-muted-foreground">{text()}</p>}
+      </Show>
 
       <Show when={props.open}>
         <div id={panel()}>
@@ -395,6 +438,17 @@ function ProviderList(props: { connectionId: string }) {
   const [drafts, setDrafts] = createSignal<Record<string, string>>({});
   const [inputs, setInputs] = createSignal<Record<string, Record<string, string>>>({});
   const [errors, setErrors] = createSignal<Record<string, string>>({});
+  /**
+   * A removal that landed but cannot show up in the list yet.
+   *
+   * OpenCode reads its auth store once and serves that view for the life of the
+   * process, so the delete writes `auth.json` and the running server keeps
+   * answering `connected`. The list is not stale in this window — it is what the
+   * server actually reports — so the row keeps its 已接入 marker and the user
+   * would otherwise conclude the button did nothing. Cleared on its own once
+   * the provider stops being reported connected, which is what a restart does.
+   */
+  const [notices, setNotices] = createSignal<Record<string, string>>({});
   const [busy, setBusy] = createSignal("");
   const [flow, setFlow] = createSignal<{ id: string; index: number; start: OAuthStart }>();
   const [code, setCode] = createSignal("");
@@ -432,12 +486,25 @@ function ProviderList(props: { connectionId: string }) {
   };
 
   const clearError = (id: string) => setErrors((prev) => ({ ...prev, [id]: "" }));
+  const clearNotice = (id: string) => setNotices((prev) => ({ ...prev, [id]: "" }));
+
+  // The notice has an ending of its own: once the server stops reporting the
+  // provider as connected the row has already moved on, and a note about a
+  // restart would outlive the thing it was about.
+  createEffect(() => {
+    const stillConnected = new Set(all().filter((r) => r.connected).map((r) => r.id));
+    if (!Object.keys(notices()).some((id) => !stillConnected.has(id))) return;
+    setNotices((prev) =>
+      Object.fromEntries(Object.entries(prev).filter(([id]) => stillConnected.has(id))),
+    );
+  });
 
   const save = async (row: ApiProvider) => {
     const key = drafts()[row.id]?.trim() ?? "";
     if (!key || busy()) return;
     setBusy(row.id);
     clearError(row.id);
+    clearNotice(row.id);
     try {
       await saveProviderKey(props.connectionId, row.id, key);
       setDrafts((prev) => ({ ...prev, [row.id]: "" }));
@@ -453,9 +520,12 @@ function ProviderList(props: { connectionId: string }) {
     if (busy()) return;
     setBusy(row.id);
     clearError(row.id);
+    clearNotice(row.id);
     try {
       await removeProviderKey(props.connectionId, row.id);
       setOpen("");
+      setNotices((prev) => ({ ...prev, [row.id]: t("settings.provider.removed") }));
+      refetch();
       refetch();
     } catch (e) {
       fail(row.id, e);
@@ -529,6 +599,7 @@ function ProviderList(props: { connectionId: string }) {
                 draft={drafts()[row.id] ?? ""}
                 inputs={inputs()[row.id] ?? {}}
                 error={errors()[row.id] ?? ""}
+                notice={notices()[row.id] ?? ""}
                 method={pick(row)}
                 flow={flow()?.id === row.id ? { start: flow()!.start } : undefined}
                 code={code()}
@@ -554,8 +625,13 @@ function ProviderList(props: { connectionId: string }) {
 
   return (
     <div class="mt-3">
-      <Show when={rows.loading}>
-        <p class="text-sm text-muted-foreground">{t("search.searching")}</p>
+      {/* Only while there is nothing on screen to keep. A refetch — a
+          disconnect just fired, or the window regained focus — used to replace
+          the whole list with one line, and that line borrowed the global
+          search's "searching" because nothing here searches: the query below
+          filters in memory over rows already loaded. */}
+      <Show when={rows.loading && all().length === 0}>
+        <p class="text-sm text-muted-foreground">{t("settings.provider.loading")}</p>
       </Show>
       <Show when={rows.error}>
         <p class="text-sm text-destructive">{t("settings.provider.failed")}</p>
@@ -581,7 +657,7 @@ function ProviderList(props: { connectionId: string }) {
       {group(t("settings.provider.linked"), linked())}
       {group(t("settings.provider.available"), rest())}
 
-      <Show when={!rows.loading && !rows.error && all().length > 0 && visible().length === 0}>
+      <Show when={!rows.error && all().length > 0 && visible().length === 0}>
         <p class="mt-4 text-sm text-muted-foreground">{t("settings.provider.noMatch")}</p>
       </Show>
     </div>

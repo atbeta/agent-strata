@@ -24,7 +24,52 @@ export interface ApiProvider {
   name: string;
   connected: boolean;
   methods: ProviderMethod[];
+  /**
+   * An API key can be pasted for this one. A row with no `methods` has no
+   * sign-in choice to offer, so without this the page cannot tell "nothing to
+   * do here" apart from "a key is exactly what this wants".
+   */
+  canKey: boolean;
 }
+
+/**
+ * The vendors to put in front of someone who asked which ones people actually
+ * use, in the order to read them.
+ *
+ * OpenCode's auth table only ever names vendors with an OAuth flow, which in
+ * practice means the overseas ones. The API-key vendors — the ones anyone
+ * outside that list reaches for first — are absent from the page entirely, so
+ * there was nowhere to paste their key. Ids are the ones OpenCode's provider
+ * catalog actually carries (`kimi` is `moonshotai-cn`, GLM is `zhipuai`); the
+ * display names are ours because upstream's say "Zhipu AI" and "Moonshot AI",
+ * which is no help to someone looking for GLM or Kimi.
+ *
+ * **Region matters more than it looks.** Most of these vendors run two
+ * platforms on two domains, and the catalog carries both as separate entries:
+ * `minimax` is `api.minimax.io`, `minimax-cn` is `api.minimax.cn`; `zai` is
+ * `api.z.ai`, `zhipuai` is `open.bigmodel.cn`; likewise `moonshotai` /
+ * `moonshotai-cn`, `siliconflow` / `siliconflow-cn`, `alibaba` /
+ * `alibaba-cn`. A key bought on the Chinese platform does not work on the
+ * international one, so this list is the `-cn` side throughout. DeepSeek,
+ * OpenCode Go, Volcengine and ModelScope publish a single endpoint and need no
+ * such choice.
+ *
+ * The catalog behind this is a couple of hundred entries. Listing all of them
+ * would trade one unusable list for a longer one, which is why this is a short
+ * list rather than a filter over everything.
+ */
+const COMMON: readonly { id: string; name: string }[] = [
+  { id: "deepseek", name: "DeepSeek" },
+  { id: "minimax-cn", name: "MiniMax (minimax.cn)" },
+  { id: "zhipuai", name: "Zhipu AI (GLM)" },
+  { id: "moonshotai-cn", name: "Moonshot AI (Kimi)" },
+  { id: "opencode-go", name: "OpenCode Go" },
+  { id: "alibaba-cn", name: "Alibaba (Qwen)" },
+  { id: "siliconflow-cn", name: "SiliconFlow (siliconflow.cn)" },
+  { id: "volcengine", name: "Volcengine Ark" },
+  { id: "modelscope", name: "ModelScope" },
+  { id: "stepfun", name: "StepFun" },
+];
 
 export interface OAuthStart {
   url: string;
@@ -83,15 +128,12 @@ export function apiProviders(list: unknown, methods: unknown): ApiProvider[] {
       : [],
   );
   const names = new Map<string, string>();
-  const sources = new Map<string, string>();
   for (const row of all) {
     if (!row || typeof row !== "object") continue;
     const id = (row as { id?: unknown }).id;
     if (typeof id !== "string" || !PROVIDER_ID.test(id)) continue;
     const name = (row as { name?: unknown }).name;
     names.set(id, typeof name === "string" && name.trim() ? name.trim() : id);
-    const source = (row as { source?: unknown }).source;
-    if (typeof source === "string") sources.set(id, source);
   }
   const table =
     methods && typeof methods === "object" && !Array.isArray(methods)
@@ -111,18 +153,56 @@ export function apiProviders(list: unknown, methods: unknown): ApiProvider[] {
       methodsForProvider.push({ index, type, label, ...(prompts.length ? { prompts } : {}) });
     });
     if (methodsForProvider.length === 0) continue;
-    out.push({ id, name: names.get(id) ?? id, connected: connected.has(id), methods: methodsForProvider });
+    out.push({
+      id,
+      name: names.get(id) ?? id,
+      connected: connected.has(id),
+      methods: methodsForProvider,
+      canKey: methodsForProvider.some((method) => method.type === "api"),
+    });
   }
-  // OpenCode marks a sibling as connected when it merely shares an env var.
-  // The desktop's "connected" list is the credential the user stored (`source:
-  // "api"`). Those often have no sign-in method, so the auth table never
-  // names them — and the page then shows only providers you can still add.
+  // Whatever `connected` names has a credential the server can use, and it
+  // answers the instant one is written or deleted — there is no cache to wait
+  // out. It used to be filtered on `source === "api"`, meant to separate a
+  // stored key from one that merely shares an env var.
+  //
+  // That field is a generation behind. Measured against opencode 1.18.35: a key
+  // written through the API reads `source: "custom"` for the whole life of the
+  // process and only becomes `"api"` after a restart. So the filter hid the row
+  // the user had just saved, and this second pass was the reason "保存后没反应"
+  // and "断开后还亮着" were one bug rather than two.
+  //
+  // The cost of dropping it: a provider that is connected only because a shared
+  // env var or an OpenCode account covers it now reads as 已接入 too, and the
+  // disconnect action on such a row has nothing stored to remove. It is still
+  // the server's own answer, and a row that works but says 未接入 is the worse
+  // lie.
   const listed = new Set(out.map((row) => row.id));
   for (const id of connected) {
-    if (!PROVIDER_ID.test(id) || listed.has(id) || sources.get(id) !== "api") continue;
-    out.push({ id, name: names.get(id) ?? id, connected: true, methods: [] });
+    if (!PROVIDER_ID.test(id) || listed.has(id)) continue;
+    listed.add(id);
+    out.push({ id, name: names.get(id) ?? id, connected: true, methods: [], canKey: true });
   }
-  out.sort((a, b) => Number(b.connected) - Number(a.connected) || a.name.localeCompare(b.name));
+  // And the vendors nobody has keyed yet but should still be able to: without
+  // this they are not on the page, and with `methods: []` there was nothing to
+  // open. `names.has` is the membership test that matters — a vendor OpenCode's
+  // catalog does not carry cannot take a key, however well known it is here.
+  // `connected` stays false on purpose: a stored credential was already claimed
+  // by the pass above, and repeating the test for "shares an env var" here is
+  // how a vendor nobody signed into ends up under 已接入.
+  for (const entry of COMMON) {
+    if (listed.has(entry.id) || !names.has(entry.id)) continue;
+    listed.add(entry.id);
+    out.push({ id: entry.id, name: entry.name, connected: false, methods: [], canKey: true });
+  }
+  const rank = new Map(COMMON.map((entry, index) => [entry.id, index]));
+  const unranked = Number.MAX_SAFE_INTEGER;
+  out.sort(
+    (a, b) =>
+      Number(b.connected) - Number(a.connected) ||
+      (rank.get(a.id) ?? unranked) - (rank.get(b.id) ?? unranked) ||
+      a.name.localeCompare(b.name),
+  );
   return out;
 }
 

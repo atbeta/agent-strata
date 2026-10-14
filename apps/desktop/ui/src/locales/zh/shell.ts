@@ -38,9 +38,11 @@ export default {
 
   // Backends
   "sidebar.backend.none": "未连接后端",
+  "sidebar.backend.connecting": "正在连接后端…",
   "sidebar.backend.missing": "没有找到 opencode",
   "action.newSession": "新建会话",
   "action.connectBackend": "连接后端",
+  "action.attachingBackend": "正在接入后端…",
   "action.connect": "连接",
   "action.connecting": "连接中…",
   "action.closeConnect": "关闭连接",
@@ -86,6 +88,7 @@ export default {
   "fleet.overview.activity": "时间分布",
   "fleet.overview.empty": "还没有会话。",
   "fleet.hint.disconnected": "接入正在运行的代理服务器。服务器上的会话会在数据流连接后立即显示。",
+  "fleet.hint.connecting": "代理服务器正在启动，接上之后会话会自动出现。这里不需要你做任何事。",
 
   // Time
   "time.now": "刚刚",
@@ -167,6 +170,7 @@ export default {
   "settings.provider.hint": "API key 和登录都写到 OpenCode。这里不保留密钥。",
   "settings.provider.offline": "连接 OpenCode 后可以填写 API key。",
   "settings.provider.empty": "没有可以填写 API key 的厂商。",
+  "settings.provider.loading": "正在读取厂商…",
   "settings.provider.filter": "筛选厂商",
   "settings.provider.noMatch": "没有匹配的厂商",
   "settings.provider.linked": "已接入",
@@ -179,6 +183,8 @@ export default {
   "settings.provider.replace": "替换",
   "settings.provider.login": "登录",
   "settings.provider.disconnect": "断开连接",
+  "settings.provider.removed":
+    "已移除。运行中的 OpenCode 还在返回旧状态，重启后才会更新。",
   "settings.provider.actions": "更多操作",
   "settings.provider.failed": "没能保存密钥",
   "settings.provider.open": "打开授权页面",

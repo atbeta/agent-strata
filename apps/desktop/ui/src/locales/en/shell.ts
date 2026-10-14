@@ -37,9 +37,11 @@ export default {
 
   // Backends
   "sidebar.backend.none": "No backend",
+  "sidebar.backend.connecting": "Connecting to a backend…",
   "sidebar.backend.missing": "opencode was not found",
   "action.newSession": "New session",
   "action.connectBackend": "Connect a backend",
+  "action.attachingBackend": "Attaching to a backend…",
   "action.connect": "Connect",
   "action.connecting": "Connecting…",
   "action.closeConnect": "Close connect",
@@ -86,6 +88,8 @@ export default {
   "fleet.overview.empty": "No sessions yet.",
   "fleet.hint.disconnected":
     "Attach a running agent server. Sessions already on it show up as soon as the stream connects.",
+  "fleet.hint.connecting":
+    "The agent server is starting. Sessions appear on its own once it is up — nothing to do here.",
 
   // Time
   "time.now": "now",
@@ -167,6 +171,7 @@ export default {
   "settings.provider.hint": "API keys and sign-in are stored by OpenCode. This page does not keep them.",
   "settings.provider.offline": "Connect OpenCode to add an API key.",
   "settings.provider.empty": "No provider accepts an API key.",
+  "settings.provider.loading": "Reading providers…",
   "settings.provider.filter": "Filter providers",
   "settings.provider.noMatch": "No matching provider",
   "settings.provider.linked": "Connected",
@@ -179,6 +184,8 @@ export default {
   "settings.provider.replace": "Replace",
   "settings.provider.login": "Sign in",
   "settings.provider.disconnect": "Disconnect",
+  "settings.provider.removed":
+    "Removed. The running OpenCode still serves the old state; restart it to see this.",
   "settings.provider.actions": "More actions",
   "settings.provider.failed": "Could not save the key",
   "settings.provider.open": "Open the authorization page",
