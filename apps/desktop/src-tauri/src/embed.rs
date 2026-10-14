@@ -73,8 +73,7 @@ pub fn random_password() -> String {
 }
 
 fn encode_base64url_nopad(bytes: &[u8]) -> String {
-    const TABLE: &[u8; 64] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
     let mut out = String::with_capacity((bytes.len() * 4 + 2) / 3);
     let mut chunks = bytes.chunks_exact(3);
     for chunk in chunks.by_ref() {
@@ -99,8 +98,7 @@ fn encode_base64url_nopad(bytes: &[u8]) -> String {
 }
 
 fn encode_base64_std(bytes: &[u8]) -> String {
-    const TABLE: &[u8; 64] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
     let mut chunks = bytes.chunks_exact(3);
     for chunk in chunks.by_ref() {
@@ -148,11 +146,10 @@ pub fn health_ok(url: &str, username: &str, password: &str) -> bool {
     let Ok(addr) = addr_text.parse::<SocketAddr>() else {
         return false;
     };
-    let mut stream =
-        match TcpStream::connect_timeout(&addr, Duration::from_millis(500)) {
-            Ok(stream) => stream,
-            Err(_) => return false,
-        };
+    let mut stream = match TcpStream::connect_timeout(&addr, Duration::from_millis(500)) {
+        Ok(stream) => stream,
+        Err(_) => return false,
+    };
     if stream
         .set_read_timeout(Some(Duration::from_millis(500)))
         .is_err()
@@ -210,28 +207,16 @@ pub fn serve_args(port: u16) -> Vec<String> {
 
 pub fn child_env(plan: &OpencodePlan) -> Vec<(String, String)> {
     vec![
-        (
-            "OPENCODE_SERVER_USERNAME".into(),
-            plan.username.clone(),
-        ),
-        (
-            "OPENCODE_SERVER_PASSWORD".into(),
-            plan.password.clone(),
-        ),
+        ("OPENCODE_SERVER_USERNAME".into(), plan.username.clone()),
+        ("OPENCODE_SERVER_PASSWORD".into(), plan.password.clone()),
     ]
 }
 
 pub fn service_env(plan: &OpencodePlan) -> Vec<(String, String)> {
     vec![
         ("STRATA_OPENCODE_URL".into(), plan.url.clone()),
-        (
-            "STRATA_OPENCODE_USERNAME".into(),
-            plan.username.clone(),
-        ),
-        (
-            "STRATA_OPENCODE_PASSWORD".into(),
-            plan.password.clone(),
-        ),
+        ("STRATA_OPENCODE_USERNAME".into(), plan.username.clone()),
+        ("STRATA_OPENCODE_PASSWORD".into(), plan.password.clone()),
     ]
 }
 
@@ -644,13 +629,8 @@ mod tests {
     fn status_json_does_not_contain_the_password() {
         let plan = sample_plan();
         let path = temp_path("status.json");
-        write_status(
-            &path,
-            plan.mode,
-            OpencodeState::Starting,
-            Some(&plan.url),
-        )
-        .expect("write status");
+        write_status(&path, plan.mode, OpencodeState::Starting, Some(&plan.url))
+            .expect("write status");
         let text = fs::read_to_string(&path).unwrap();
         assert!(
             !text.contains(&plan.password),

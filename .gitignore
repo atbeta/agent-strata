@@ -2,6 +2,7 @@ node_modules/
 dist/
 *.tsbuildinfo
 target/
+.DS_Store
 apps/desktop/src-tauri/gen/
 apps/desktop/src-tauri/binaries/
 .tmp-*
