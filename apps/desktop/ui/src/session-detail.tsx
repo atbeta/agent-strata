@@ -209,8 +209,8 @@ function AskCard(props: {
     );
   };
   return (
-    <div class="overflow-hidden rounded-lg border border-border bg-card">
-      <div class="flex items-center gap-2 px-3 pt-2.5">
+    <div class="overflow-hidden rounded-lg border border-event-permission/40 bg-card">
+      <div class="flex items-center gap-2 bg-event-permission/8 px-3 py-2">
         <Icon name={askIcon(detail(), props.ask.tool)} class="size-3.5 shrink-0 text-event-permission" />
         <span class="text-xs font-medium">{props.ask.tool}</span>
         <span class="text-2xs text-muted-foreground">{t("permission.wants_to_run")}</span>
@@ -283,7 +283,7 @@ function QuestionCard(props: { q: PendingQuestion; onDone: () => void }) {
   };
 
   return (
-    <div class="overflow-hidden rounded-lg border border-border bg-card">
+    <div class="overflow-hidden rounded-lg border border-event-user/40 bg-card">
       <Show
         when={groups.length > 0}
         fallback={

@@ -270,6 +270,14 @@ textarea {
     box-shadow: var(--popover-shadow);
   }
 
+  /* Menus mount the moment they open, so a keyframe on the content is the
+     whole entrance. Kobalte's popper publishes the anchor corner as a custom
+     property; scaling from it reads as the menu growing out of its trigger
+     rather than fading in at the centre. */
+  .menu-pop {
+    transform-origin: var(--kb-popper-content-transform-origin, var(--kb-menu-content-transform-origin, top left));
+  }
+
   /* Token colours for the transcript highlighter. One hue per token class so
      the palette stays here rather than in the tokenizer. */
   .tok-comment { @apply text-muted-foreground italic; }
@@ -409,6 +417,48 @@ textarea {
     transition:
       width 0.15s ease,
       background-color 0.15s ease;
+  }
+  .menu-pop {
+    animation: menu-pop 0.12s ease-out;
+  }
+  @keyframes menu-pop {
+    from {
+      opacity: 0;
+      transform: scale(0.97) translateY(-2px);
+    }
+  }
+  .fade-in {
+    animation: fade-in 0.08s ease-out;
+  }
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+  .message-actions {
+    transition: opacity 0.12s ease;
+  }
+}
+
+/* Indeterminate sweep for work whose total is not known yet — the scanning
+   phase of a sync, where a determinate bar would sit at 0% and lie. */
+@media (prefers-reduced-motion: no-preference) {
+  .scan-line::after {
+    content: "";
+    display: block;
+    width: 40%;
+    height: 100%;
+    border-radius: 999px;
+    background: var(--status-active);
+    animation: scan-line 1.1s ease-in-out infinite;
+  }
+  @keyframes scan-line {
+    0% {
+      transform: translateX(-110%);
+    }
+    100% {
+      transform: translateX(280%);
+    }
   }
 }
 

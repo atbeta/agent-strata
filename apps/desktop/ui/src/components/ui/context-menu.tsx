@@ -33,7 +33,7 @@ function ContextMenuContent(props: ContentProps) {
     <ContextMenuPrimitive.Portal>
       <ContextMenuPrimitive.Content
         class={cn(
-          "surface-popover z-50 min-w-48 overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground",
+          "surface-popover menu-pop z-50 min-w-48 overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground",
           local.class,
         )}
         {...rest}

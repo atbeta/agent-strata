@@ -115,7 +115,7 @@ export function Tip(props: {
         <span
           ref={setBubble}
           role="tooltip"
-          class={`pointer-events-none fixed z-[80] w-max -translate-x-1/2 rounded-md border border-border bg-popover px-1.5 py-0.5 text-2xs break-words whitespace-pre-wrap text-popover-foreground shadow-md ${
+          class={`fade-in pointer-events-none fixed z-[80] w-max -translate-x-1/2 rounded-md border border-border bg-popover px-1.5 py-0.5 text-2xs break-words whitespace-pre-wrap text-popover-foreground shadow-md ${
             pos()?.below ? "" : "-translate-y-full"
           }`}
           style={{

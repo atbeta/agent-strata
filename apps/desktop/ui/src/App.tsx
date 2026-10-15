@@ -247,6 +247,9 @@ function SessionListItem(props: {
           {props.instance!.short}
         </span>
       </Show>
+      <Show when={props.pinned && !editing()}>
+        <Icon name="pin" class="size-3 shrink-0 text-muted-foreground/70" />
+      </Show>
       <Show
         when={editing()}
         fallback={<span class="min-w-0 flex-1 truncate pr-[4.75rem] text-sm leading-none">{props.title}</span>}
@@ -1351,16 +1354,16 @@ export function App() {
                     : t("sidebar.sync.scanning")}
                 </span>
               </div>
-              <Show when={syncTotals().total > 0}>
-                <div class="mt-1 h-0.5 w-full overflow-hidden rounded-full bg-secondary">
+              <div class="scan-line mt-1 h-0.5 w-full overflow-hidden rounded-full bg-secondary">
+                <Show when={syncTotals().total > 0}>
                   <div
                     class="h-full rounded-full bg-status-active transition-[width] duration-300"
                     style={{
                       width: `${Math.min(100, (syncTotals().done / Math.max(1, syncTotals().total)) * 100)}%`,
                     }}
                   />
-                </div>
-              </Show>
+                </Show>
+              </div>
             </div>
           </Show>
           <Show when={connOpen()}>
