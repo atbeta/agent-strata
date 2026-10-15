@@ -54,6 +54,13 @@ export interface Store {
   sessionMapper(session_id: string): string | null;
   /** record the mapping behind a session that has none yet; a recorded one is kept */
   markMapper(session_id: string, mapper: string): void;
+  /**
+   * The backend revision a session's transcript was last imported at, absent
+   * until one is recorded. Survives restarts, so a sync can tell "unchanged"
+   * without fetching the transcript to find out.
+   */
+  sessionRevision(session_id: string): number | null;
+  markRevision(session_id: string, rev: number): void;
   lastSeq(session_id: string): number;
   search(
     query: string,
@@ -118,6 +125,10 @@ export function openStore(path: string | ":memory:"): Store {
     );
     CREATE VIRTUAL TABLE IF NOT EXISTS events_fts USING fts5(
       event_id UNINDEXED, session_id UNINDEXED, text
+    );
+    CREATE TABLE IF NOT EXISTS session_rev(
+      session_id TEXT PRIMARY KEY,
+      rev REAL NOT NULL
     );
   `);
   const sessionColumns = db.query("PRAGMA table_info(sessions)").all() as { name: string }[];
@@ -358,6 +369,19 @@ export function openStore(path: string | ":memory:"): Store {
 
     markMapper(session_id, mapper) {
       db.query("UPDATE sessions SET mapper=? WHERE session_id=? AND mapper IS NULL").run(mapper, session_id);
+    },
+
+    sessionRevision(session_id) {
+      const row = db.query("SELECT rev FROM session_rev WHERE session_id=?").get(session_id) as
+        | { rev: number }
+        | null;
+      return row?.rev ?? null;
+    },
+
+    markRevision(session_id, rev) {
+      db.query(
+        "INSERT INTO session_rev(session_id,rev) VALUES(?,?) ON CONFLICT(session_id) DO UPDATE SET rev=excluded.rev",
+      ).run(session_id, rev);
     },
 
     lastSeq(session_id) {

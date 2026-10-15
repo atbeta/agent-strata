@@ -323,6 +323,45 @@ export function App() {
     opened = true;
     return load;
   });
+  /**
+   * Backend sync progress per connection. `started`/`progress`/`finished`
+   * arrive over the stream; the strip only appears once a sync outlives a
+   * short grace period, so the steady-state poll — over in a blink — never
+   * flashes it.
+   */
+  const [syncTicks, setSyncTicks] = createSignal<ReadonlyMap<string, { done: number; total: number }>>(
+    new Map(),
+  );
+  const [syncShown, setSyncShown] = createSignal(false);
+  let syncGrace: ReturnType<typeof setTimeout> | undefined;
+  const onSyncEvent = (evt: { type?: string; connection_id?: string; done?: number; total?: number }) => {
+    const id = evt.connection_id ?? "";
+    if (evt.type === "sync.finished") {
+      const next = new Map(syncTicks());
+      next.delete(id);
+      setSyncTicks(next);
+      if (next.size === 0) {
+        clearTimeout(syncGrace);
+        setSyncShown(false);
+      }
+      refetch();
+      return;
+    }
+    const idle = syncTicks().size === 0;
+    const next = new Map(syncTicks());
+    next.set(id, { done: evt.done ?? 0, total: evt.total ?? 0 });
+    setSyncTicks(next);
+    if (idle) syncGrace = setTimeout(() => setSyncShown(true), 800);
+  };
+  const syncTotals = () => {
+    let done = 0,
+      total = 0;
+    for (const s of syncTicks().values()) {
+      done += s.done;
+      total += s.total;
+    }
+    return { done, total };
+  };
   const waiting = () =>
     (settled(data)?.sessions ?? []).filter((s) => s.needs_input && !s.archived && !s.deleted).length;
   createEffect(() => {
@@ -414,8 +453,19 @@ export function App() {
       // The project list costs a round trip to every backend, and only a
       // session appearing, moving or going away can change it.
       try {
-        const type = (JSON.parse(m.data) as { type?: string }).type;
-        if (type === "session.started" || type === "session.updated" || type === "session.deleted") wsStale = true;
+        const evt = JSON.parse(m.data) as {
+          type?: string;
+          connection_id?: string;
+          done?: number;
+          total?: number;
+        };
+        // Sync ticks update the progress strip and nothing else; the session.*
+        // events a sync produces already drive the refetch.
+        if (evt.type?.startsWith("sync.")) {
+          onSyncEvent(evt);
+          return;
+        }
+        if (evt.type === "session.started" || evt.type === "session.updated" || evt.type === "session.deleted") wsStale = true;
       } catch {
         // heartbeats
       }
@@ -496,6 +546,7 @@ export function App() {
       clearInterval(clockTimer);
       clearInterval(syncTimer);
       clearTimeout(timer);
+      clearTimeout(syncGrace);
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisibility);
       es.close();
@@ -1243,6 +1294,28 @@ export function App() {
           </For>
         </div>
         <div class="border-t border-border px-2 py-1.5">
+          <Show when={syncShown()}>
+            <div class="mb-1.5 px-1" role="status" aria-live="polite">
+              <div class="flex items-center gap-1.5 text-2xs text-muted-foreground">
+                <span class="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-status-active" />
+                <span class="truncate">
+                  {syncTotals().total > 0
+                    ? t("sidebar.sync.progress", { done: syncTotals().done, total: syncTotals().total })
+                    : t("sidebar.sync.scanning")}
+                </span>
+              </div>
+              <Show when={syncTotals().total > 0}>
+                <div class="mt-1 h-0.5 w-full overflow-hidden rounded-full bg-secondary">
+                  <div
+                    class="h-full rounded-full bg-status-active transition-[width] duration-300"
+                    style={{
+                      width: `${Math.min(100, (syncTotals().done / Math.max(1, syncTotals().total)) * 100)}%`,
+                    }}
+                  />
+                </div>
+              </Show>
+            </div>
+          </Show>
           <Show when={connOpen()}>
             <div class="mb-1.5 space-y-1.5 px-1">
               <div class="flex gap-1">

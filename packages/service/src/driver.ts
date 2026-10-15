@@ -16,6 +16,9 @@ export interface BackendSink {
     opts: { replaceTypes: EventType[]; mapper?: string },
   ): number;
   markMapped(sessionId: string, mapper: string): void;
+  /** the transcript revision stored for a session; absent until one is marked */
+  sessionRevision(sessionId: string): number | null;
+  markRevision(sessionId: string, rev: number): void;
 }
 
 export interface ModelChoice {
@@ -104,6 +107,8 @@ export interface SyncGuard {
    * unroutable, along with everything the user could do to it.
    */
   claimed?: (casfId: string) => void;
+  /** sessions read so far / sessions found; fires once discovery knows the total */
+  progress?(done: number, total: number): void;
 }
 
 export interface BackendDriver {

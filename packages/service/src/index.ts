@@ -134,20 +134,28 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       return n;
     },
     markMapped: (sessionId, mapper) => store.markMapper(sessionId, mapper),
+    sessionRevision: (sessionId) => store.sessionRevision(sessionId),
+    markRevision: (sessionId, rev) => store.markRevision(sessionId, rev),
   };
-  const syncDriver = (driver: BackendDriver) =>
-    driver.sync({
-      stale: (casfId) =>
-        driver.mapperVersion !== undefined && store.sessionMapper(casfId) !== driver.mapperVersion,
-      taken: (casfId) => {
-        const native = driver.nativeId(casfId);
-        return (
-          native !== undefined &&
-          claims.shadowed({ backend: driver.agent, native_id: native }, casfId)
-        );
-      },
-      claimed: (casfId) => owners.set(casfId, driver.id),
-    });
+  const syncDriver = (driver: BackendDriver) => {
+    broadcast({ type: "sync.started", connection_id: driver.id });
+    return driver
+      .sync({
+        stale: (casfId) =>
+          driver.mapperVersion !== undefined && store.sessionMapper(casfId) !== driver.mapperVersion,
+        taken: (casfId) => {
+          const native = driver.nativeId(casfId);
+          return (
+            native !== undefined &&
+            claims.shadowed({ backend: driver.agent, native_id: native }, casfId)
+          );
+        },
+        claimed: (casfId) => owners.set(casfId, driver.id),
+        progress: (done, total) =>
+          broadcast({ type: "sync.progress", connection_id: driver.id, done, total }),
+      })
+      .finally(() => broadcast({ type: "sync.finished", connection_id: driver.id }));
+  };
 
   const json = (data: unknown, status = 200) =>
     new Response(JSON.stringify(data), {

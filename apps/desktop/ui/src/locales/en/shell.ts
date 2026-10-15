@@ -74,6 +74,8 @@ export default {
   // Overflow menu
   "sidebar.menu.more": "More",
   "sidebar.menu.disconnect": "Disconnect {host}",
+  "sidebar.sync.scanning": "Scanning sessions…",
+  "sidebar.sync.progress": "Syncing sessions {done}/{total}",
 
   // Routes
   "nav.backToFleet": "← fleet",

@@ -74,6 +74,8 @@ export default {
   // Overflow menu
   "sidebar.menu.more": "更多",
   "sidebar.menu.disconnect": "断开 {host}",
+  "sidebar.sync.scanning": "正在扫描会话…",
+  "sidebar.sync.progress": "正在同步会话 {done}/{total}",
 
   // Routes
   "nav.backToFleet": "← 会话列表",

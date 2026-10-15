@@ -28,6 +28,13 @@ export interface Sink {
   ): unknown;
   /** record which mapping wrote a session strata watched from its creation */
   markMapped?(sessionId: string, mapper: string): void;
+  /**
+   * The transcript revision the sink last recorded for a session, absent
+   * until one is marked. Lets a sync skip re-reading a transcript the store
+   * already holds, across restarts where memory would have forgotten it.
+   */
+  sessionRevision?(sessionId: string): number | null;
+  markRevision?(sessionId: string, rev: number): void;
 }
 
 /** What the caller knows about a session before this adapter re-reads it. */
@@ -38,6 +45,8 @@ export interface OpencodeSyncGuard {
   taken?: (casfId: string) => boolean;
   /** this server just answered for it, so it owns the session */
   claimed?: (casfId: string) => void;
+  /** sessions read so far / sessions found; fires once discovery knows the total */
+  progress?(done: number, total: number): void;
 }
 
 /** A piece of a prompt as OpenCode's prompt endpoint takes it. */
@@ -1559,6 +1568,13 @@ export async function connectOpencode(opts: {
     throw new Error(`opencode event stream produced no events within ${connectTimeout}ms`);
   }
   const importedRevision = new Map<string, number>();
+  /** In-memory first, then what the store recorded on an earlier run. */
+  const knownRevision = (sessionID: string) =>
+    importedRevision.get(sessionID) ?? opts.sink.sessionRevision?.(`opencode:${sessionID}`) ?? undefined;
+  const noteRevision = (sessionID: string, rev: number) => {
+    importedRevision.set(sessionID, rev);
+    opts.sink.markRevision?.(`opencode:${sessionID}`, rev);
+  };
   const importTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const sessionInfo = async (sessionID: string, directory?: string): Promise<Session> => {
     const sess = await client.session.get({ sessionID, directory: directory ?? opts.directory });
@@ -1581,10 +1597,10 @@ export async function connectOpencode(opts: {
     // exactly what the store already holds, so a click on a session the
     // listener already imported costs one small GET instead.
     const updated = info.time?.updated ?? info.time?.created ?? 0;
-    if (!options.force && importedRevision.get(sessionID) === updated) return false;
+    if (!options.force && knownRevision(sessionID) === updated) return false;
     const msgs = await client.session.messages({ sessionID, directory: directory ?? opts.directory });
     for (const evt of snapshotEvents(sessionID, info, msgs.data ?? [])) ingestor.handle(evt);
-    importedRevision.set(sessionID, updated);
+    noteRevision(sessionID, updated);
     return true;
   };
   const rebuildSession = async (sessionID: string, directory?: string): Promise<number> => {
@@ -1667,29 +1683,49 @@ export async function connectOpencode(opts: {
     }
   })();
 
+  /** Sync crawl fans out over session trees; bound it so one idle poll is cheap. */
+  const SYNC_CONCURRENCY = 6;
+  const mapLimit = async <T>(items: T[], limit: number, fn: (item: T) => Promise<void>) => {
+    let i = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(limit, items.length) }, async () => {
+        while (i < items.length) await fn(items[i++]!);
+      }),
+    );
+  };
+
+  /**
+   * Breadth-first over every pending session's children, one level at a time:
+   * a level's `children` calls run at SYNC_CONCURRENCY, then its visits, then
+   * the next level is queued. `seen` starts with the frontier's own ids, so a
+   * cycle or a repeat across roots is walked once.
+   */
   const walkChildren = async (
-    sessionID: string,
-    directory: string | undefined,
-    visit: (info: Session) => Promise<void>,
+    pending0: { sessionID: string; directory: string | undefined }[],
+    visit: (info: Session, directory: string | undefined) => Promise<void> | void,
   ) => {
-    const pending = [sessionID];
-    const seen = new Set<string>();
-    while (pending.length) {
-      const id = pending.pop()!;
-      if (seen.has(id)) continue;
-      seen.add(id);
-      let kids;
-      try {
-        kids = await client.session.children({ sessionID: id, directory });
-      } catch (err) {
-        console.error(`opencode children failed for ${id}:`, err);
-        continue;
-      }
-      for (const info of kids.data ?? []) {
-        if (!info?.id) continue;
-        await visit(info);
-        pending.push(info.id);
-      }
+    const seen = new Set(pending0.map((p) => p.sessionID));
+    let frontier = pending0;
+    while (frontier.length) {
+      const next: { info: Session; directory: string | undefined }[] = [];
+      await mapLimit(frontier, SYNC_CONCURRENCY, async ({ sessionID, directory }) => {
+        let kids;
+        try {
+          kids = await client.session.children({ sessionID, directory });
+        } catch (err) {
+          console.error(`opencode children failed for ${sessionID}:`, err);
+          return;
+        }
+        for (const info of kids.data ?? []) {
+          if (!info?.id || seen.has(info.id)) continue;
+          seen.add(info.id);
+          next.push({ info, directory });
+        }
+      });
+      await mapLimit(next, SYNC_CONCURRENCY, async ({ info, directory }) => {
+        await visit(info, directory);
+      });
+      frontier = next.map(({ info, directory }) => ({ sessionID: info.id, directory }));
     }
   };
 
@@ -1948,6 +1984,7 @@ export async function connectOpencode(opts: {
     },
     async indexSessions() {
       const sessions = await client.session.list({ directory: opts.directory, roots: true, limit: 80 });
+      const roots = (sessions.data ?? []).filter((i): i is Session => !!i?.id);
       const ids: string[] = [];
       const visit = async (info: Session) => {
         ingestor.handle({
@@ -1957,16 +1994,18 @@ export async function connectOpencode(opts: {
         } as Event);
         ids.push(info.id);
       };
-      for (const info of sessions.data ?? []) {
-        await visit(info);
-        await walkChildren(info.id, info.directory || opts.directory, visit);
-      }
+      for (const info of roots) await visit(info);
+      await walkChildren(
+        roots.map((r) => ({ sessionID: r.id, directory: r.directory || opts.directory })),
+        visit,
+      );
       return ids;
     },
     /**
      * Re-read every project the server knows and pull transcripts that moved
      * since the last sync. Safe to call repeatedly: an unchanged session is
-     * not imported again.
+     * not imported again. Two phases — a concurrent metadata crawl that makes
+     * every session a row, then a concurrent import of only what moved.
      */
     async refreshSessions(guard?: OpencodeSyncGuard) {
       const directories = new Set<string | undefined>([opts.directory]);
@@ -1980,49 +2019,64 @@ export async function connectOpencode(opts: {
         console.error("opencode project list failed:", err);
       }
       const seen = new Set<string>();
-      let imported = 0;
-      for (const directory of directories) {
+      const found: { info: Session; directory: string | undefined }[] = [];
+      const collect = (info: Session, directory: string | undefined) => {
+        if (!info?.id || seen.has(info.id)) return;
+        seen.add(info.id);
+        // The same session can be driven over another channel at once. Whoever
+        // holds it writes it; touching it here would make a second copy of a
+        // conversation the user is already watching.
+        if (guard?.taken?.(`opencode:${info.id}`)) return;
+        // Sync walks every project the server knows while indexSessions walks
+        // one, so most sessions arrive by this road. Claiming here is what
+        // keeps a second OpenCode from making all of them unroutable.
+        guard?.claimed?.(`opencode:${info.id}`);
+        try {
+          ingestor.handle({
+            id: `sync:${info.id}:${info.time?.updated ?? 0}`,
+            type: "session.updated",
+            properties: { sessionID: info.id, info },
+          } as Event);
+          found.push({ info, directory: info.directory || directory });
+        } catch (err) {
+          console.error(`sync session ${info.id} failed:`, err);
+        }
+      };
+      await mapLimit([...directories], SYNC_CONCURRENCY, async (directory) => {
         let sessions;
         try {
           sessions = await client.session.list({ directory, roots: true, limit: 80 });
         } catch (err) {
           console.error(`opencode session list failed for ${directory ?? "(default)"}:`, err);
-          continue;
+          return;
         }
-        const visit = async (info: Session) => {
-          if (!info?.id || seen.has(info.id)) return;
-          seen.add(info.id);
-          // The same session can be driven over another channel at once. Whoever
-          // holds it writes it; touching it here would make a second copy of a
-          // conversation the user is already watching.
-          if (guard?.taken?.(`opencode:${info.id}`)) return;
-          // Sync walks every project the server knows while indexSessions walks
-          // one, so most sessions arrive by this road. Claiming here is what
-          // keeps a second OpenCode from making all of them unroutable.
-          guard?.claimed?.(`opencode:${info.id}`);
-          try {
-            ingestor.handle({
-              id: `sync:${info.id}:${info.time?.updated ?? 0}`,
-              type: "session.updated",
-              properties: { sessionID: info.id, info },
-            } as Event);
-            const updated = info.time?.updated ?? info.time?.created ?? 0;
-            if (importedRevision.get(info.id) === updated) return;
-            const dir = info.directory || directory;
-            if (guard?.stale?.(`opencode:${info.id}`)) await rebuildSession(info.id, dir);
-            else await importSession(info.id, dir);
-            importedRevision.set(info.id, updated);
+        const roots = (sessions.data ?? []).filter((i): i is Session => !!i?.id);
+        for (const info of roots) collect(info, directory);
+        await walkChildren(
+          roots.map((r) => ({ sessionID: r.id, directory: r.directory || directory })),
+          (info, directory) => collect(info, directory),
+        );
+      });
+      let imported = 0;
+      let done = 0;
+      guard?.progress?.(0, found.length);
+      await mapLimit(found, SYNC_CONCURRENCY, async ({ info, directory }) => {
+        const updated = info.time?.updated ?? info.time?.created ?? 0;
+        try {
+          if (knownRevision(info.id) !== updated) {
+            if (guard?.stale?.(`opencode:${info.id}`)) await rebuildSession(info.id, directory);
+            else await importSession(info.id, directory);
+            noteRevision(info.id, updated);
             imported += 1;
-          } catch (err) {
-            console.error(`sync session ${info.id} failed:`, err);
           }
-        };
-        for (const info of sessions.data ?? []) {
-          if (!info?.id || seen.has(info.id)) continue;
-          await visit(info);
-          await walkChildren(info.id, info.directory || directory, visit);
+        } catch (err) {
+          console.error(`sync session ${info.id} failed:`, err);
         }
-      }
+        done += 1;
+        // One broadcast per session would turn a steady-state poll into a
+        // stream of its own; the UI only needs landmarks.
+        if (done % 8 === 0 || done === found.length) guard?.progress?.(done, found.length);
+      });
       return imported;
     },
     importSession,

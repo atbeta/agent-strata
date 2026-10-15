@@ -262,4 +262,22 @@ describe("store.query", () => {
     expect(s.query({}).length).toBe(6);
     s.close();
   });
+
+  test("session revision survives reopen and keeps the newest mark", () => {
+    const dir = mkdtempSync(join(tmpdir(), "strata-store-"));
+    try {
+      const path = join(dir, "events.db");
+      const s1 = openStore(path);
+      expect(s1.sessionRevision("opencode:ses_1")).toBeNull();
+      s1.markRevision("opencode:ses_1", 1000);
+      s1.markRevision("opencode:ses_1", 2000);
+      s1.close();
+      const s2 = openStore(path);
+      expect(s2.sessionRevision("opencode:ses_1")).toBe(2000);
+      expect(s2.sessionRevision("opencode:ses_2")).toBeNull();
+      s2.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
