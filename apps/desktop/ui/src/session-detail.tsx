@@ -83,6 +83,7 @@ import { PromptNavigator } from "./prompt-navigator";
 import { promptAt, promptEntries } from "./prompt-outline";
 import { ComposerToolbar } from "./composer-toolbar";
 import { applyStreamingSnapshot, mergeViewTail, type StreamingSnapshot } from "./live";
+import { ECHO_TURN_ID, withEcho, type PendingEcho } from "./prompt-echo";
 import { filesKeyOf, peekView, rememberView, tailMatches, viewFromTail } from "./view-cache";
 import { registerCommand } from "./commands";
 import { Button } from "@/components/ui/button";
@@ -1254,6 +1255,19 @@ const turnIndexOf = (h: SearchHit): number => {
     return last;
   });
 
+  /**
+   * The prompt the reader just sent and the backend has not echoed back.
+   *
+   * Everything before this point was a round trip with an empty column in the
+   * middle of it: POST, the agent's SDK, its event stream, SSE back, and a
+   * second request for the tail. `turns()` puts the sentence on screen at the
+   * instant Enter is pressed and drops it the moment the store's turn count
+   * passes the baseline `deliver` recorded, so the real one replaces it rather
+   * than joining it.
+   */
+  const [echo, setEcho] = createSignal<PendingEcho>();
+  const turns = createMemo(() => withEcho(settled(view)?.turns ?? [], echo()));
+
   // A durable event during a reply only moves the last turns, and the whole
   // view of a long session is megabytes. A rebuild, a replay, or a tail that no
   // longer lines up goes back to the full view. Every view load goes through
@@ -1673,6 +1687,11 @@ const turnIndexOf = (h: SearchHit): number => {
     setSendErr("");
     setPendingSend(true);
     setHistIndex(-1);
+    // The reader's own sentence goes on screen now. Until the store's turn
+    // count passes this baseline, `turns()` draws it in place of a turn the
+    // backend has not produced yet; a send that fails clears it below, and a
+    // send that succeeds clears it by itself.
+    setEcho({ base: settled(view)?.turns.length ?? 0, text: out.text });
     if (out.text) writeHistory(rememberPrompt(readHistory(), out.text));
     const chosen = selectedModel();
     const implied = !chosen && variantSel() ? effortModel() : undefined;
@@ -1706,6 +1725,7 @@ const turnIndexOf = (h: SearchHit): number => {
       if (back.dropped) setAttachErr(t("composer.attach.too_many", { n: MAX_ATTACHMENTS }));
       setQueuePaused(true);
       setPendingSend(false);
+      setEcho(undefined);
       queueMicrotask(autogrow);
     }
   };
@@ -2460,11 +2480,11 @@ const turnIndexOf = (h: SearchHit): number => {
                   }
                 >
                   <Show
-                    when={!booting() && !(importing() && v().turns.length === 0)}
+                    when={!booting() && !(importing() && turns().length === 0)}
                     fallback={<LoadingTranscript />}
                   >
                     <Show
-                      when={v().turns.length > 0}
+                      when={turns().length > 0}
                       fallback={
                         <Show
                           when={!lastSilentTurn()}
@@ -2490,7 +2510,7 @@ const turnIndexOf = (h: SearchHit): number => {
                       }
                     >
                     <Virtual
-                      items={v().turns}
+                      items={turns()}
                       id={(t) => t.turn_id}
                       estimate={100}
                       gap={32}
@@ -2506,7 +2526,9 @@ const turnIndexOf = (h: SearchHit): number => {
                         <div data-turn-id={turn().turn_id}>
                           <TurnBlock
                             turn={turn()}
-                            awaiting={() => lastSilentTurn() === turn()}
+                            awaiting={() =>
+                              turn().turn_id === ECHO_TURN_ID || lastSilentTurn() === turn()
+                            }
                             childOf={childOf}
                             onOpenChild={openChild}
                             onEdit={editTurn}

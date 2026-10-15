@@ -1,4 +1,5 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, type JSX } from "solid-js";
+import { atTail } from "./virtual-tail";
 
 /**
  * Windowed list for rows of unknown height.
@@ -219,8 +220,23 @@ export function Virtual<T>(props: VirtualProps<T>) {
     );
   };
 
-  /** Follow the tail: re-pin whenever the content's extent changes under us. */
+  /**
+   * The scroller's own height, as a signal, so following the tail can depend on
+   * it.
+   *
+   * Re-pinning on `end()` covers a new turn and a row finally being measured.
+   * It did not cover the scroller changing size — and this transcript's does,
+   * the moment the dock beneath it grows to its cap for the pending questions
+   * it has just fetched. The list stayed correctly pinned to a bottom that no
+   * longer existed: `end()` did not move, so nothing re-ran, and the reader
+   * was left 500px above the turn they had just sent, with a button as the
+   * only way back to it.
+   */
+  const [scrollerHeight, setScrollerHeight] = createSignal(0);
+
+  /** Follow the tail: re-pin whenever the content's extent, or the window, changes. */
   createEffect(() => {
+    scrollerHeight();
     const total = end();
     const el = props.scroller?.();
     if (!el || !total) return;
@@ -229,18 +245,27 @@ export function Virtual<T>(props: VirtualProps<T>) {
 
   const onScroll = () => {
     if (!scroller) return;
-    const at = Math.abs(scroller.scrollTop + scroller.clientHeight - end()) < 96;
+    const at = atTail(scroller.scrollTop, scroller.clientHeight, end());
     if (at !== following()) setFollowing(at);
   };
 
   onMount(() => {
     scroller = props.scroller?.();
     scroller?.addEventListener("scroll", onScroll, { passive: true });
+    const rov = new ResizeObserver(() => {
+      const el = scroller;
+      if (el) setScrollerHeight(el.clientHeight);
+    });
+    if (scroller) {
+      rov.observe(scroller);
+      setScrollerHeight(scroller.clientHeight);
+    }
 
     props.api?.({
       scrollToIndex,
       indexAtTop: () => rowAt(offsets(), Math.max(0, props.scrollTop)),
     });
+    onCleanup(() => rov.disconnect());
   });
 
   /**
