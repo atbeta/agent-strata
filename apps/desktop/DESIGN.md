@@ -1,4 +1,4 @@
-# Agent Strata design system v0.2
+# Agent Strata design system v0.3
 
 The shell is a dark, quiet desktop app. Visual references are Linear (one neutral surface, hairline borders, 13px UI type, accent used sparingly) and OpenCode Desktop (session sidebar, conversation, composer, custom window chrome). Tokens live in `ui/src/theme.css`. Interactive controls come from a small Solid component set in `ui/src/components/ui`, styled with those tokens. Light is available via `theme.ts`; dark stays the default.
 
@@ -8,7 +8,29 @@ The set is an owned copy of [solid-ui](https://github.com/stefan-karger/solid-ui
 
 Official shadcn/ui is React, so its CLI is not used here. solid-ui's own CLI targets Tailwind 3 and this app is Tailwind 4, so new pieces are copied in and adapted by hand: keep the Kobalte behavior, restyle with the tokens in `theme.css`, and skip animation class names that are not defined in this theme. Density is tighter than the solid-ui defaults (13px type, 32px fields, 28px icon buttons).
 
-In use: `Button`, `TextField`, `DropdownMenu` on the sidebar (project switcher, search, row actions, connect). Session, compare, and policy still have hand-styled controls; they move onto this set as those screens are touched. Do not add a second styling path beside these components.
+In use: `Button`, `TextField`, `DropdownMenu` on the sidebar (project switcher, search, row actions, connect). The rest of the screens still carry hand-styled controls; they move onto this set as those screens are touched. Do not add a second styling path beside these components.
+
+`primitive-adoption.test.ts` enforces this. It counts hand-written `<button>` and `<input>` outside `components/ui` and fails when the count rises above a fixed budget. The budget only moves down, and a screen that converts its controls lowers it in the same commit — so "do not add a second styling path" is a red build rather than a sentence in this file.
+
+## Patterns
+
+The primitives cover controls. These cover the recurring *shapes* the screens otherwise re-invented, each of which had drifted per screen.
+
+- **`ListRow`** — the shell for any clickable list row (session, search hit, provider, policy). A `div[role=button]`, because rows contain their own interactive children (inline rename, per-row menu) and nesting those in a real `<button>` is invalid. It therefore owns the keyboard contract once: Enter and Space activate, Escape and Tab do not, the focus ring matches `Button`, and `active` sets `aria-current`. Per-row menus mark themselves `data-row-menu` so clicking one does not also open the row.
+- **`SectionHeader`** — a sidebar group's label, count and optional hint. The count follows the label directly; only the hint takes the far side. An `ml-auto` count left the label and its number ~250px apart with nothing between them, which read as unrelated chrome.
+- **`EmptyState`** — the one way this app says "nothing here yet" or "that did not work". Fixed shape: icon in a muted disc, title, optional description, optional action, centred. `tone="danger"` tints it for a failure. Loading stays `LoadingTranscript`'s skeleton; `EmptyState` is for states that will not resolve on their own.
+
+### Size ladder
+
+`Button` runs 20 → 44 because the screens already used those heights: tool-card actions at 20/24, dense toolbars at 28, fields and default buttons at 32/36. Only 28 and up were expressible before, so the denser call sites hand-wrote their own buttons — which is how one screen ended up with four icon-button heights. A size a screen genuinely needs belongs in `buttonVariants`, not in that screen's `className`.
+
+| Size | Height | Use |
+| --- | --- | --- |
+| `icon-2xs` | 20 | inline remove, inside a card row |
+| `xs` | 24 | tool-card actions, MCP row buttons |
+| `icon-xs` / `icon-sm` | 24 / 28 | find arrows, header tools, panel closers |
+| `sm` | 32 | dense fields and toolbars |
+| `default` / `lg` | 36 / 44 | primary action |
 
 ## What the references change
 

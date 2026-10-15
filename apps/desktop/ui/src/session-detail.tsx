@@ -85,6 +85,7 @@ import { applyStreamingSnapshot, mergeViewTail, type StreamingSnapshot } from ".
 import { filesKeyOf, peekView, rememberView, tailMatches, viewFromTail } from "./view-cache";
 import { registerCommand } from "./commands";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Picker } from "@/components/ui/picker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -1899,18 +1900,24 @@ const turnIndexOf = (h: SearchHit): number => {
                 when={view.error}
                 fallback={<LoadingTranscript />}
               >
-                <div class="px-8 pt-24">
-                  <p class="text-sm text-muted-foreground">{t("session.service_unreachable")}</p>
-                  <button
-                    type="button"
-                    class="mt-3 rounded-md border border-border bg-secondary px-2.5 py-1.5 text-xs text-foreground transition-colors hover:bg-accent"
-                    onClick={() => {
-                      retries = 0;
-                      void refetch();
-                    }}
-                  >
-                    {t("session.retry")}
-                  </button>
+                <div class="flex flex-1 items-center justify-center">
+                  <EmptyState
+                    icon="alert"
+                    tone="danger"
+                    title={t("session.service_unreachable")}
+                    description={t("session.service_unreachable_hint")}
+                    action={
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          retries = 0;
+                          void refetch();
+                        }}
+                      >
+                        {t("session.retry")}
+                      </Button>
+                    }
+                  />
                 </div>
               </Show>
             </div>
@@ -2070,9 +2077,10 @@ const turnIndexOf = (h: SearchHit): number => {
                     </Tip>
                   </Show>
                   <Tip label={t("header.export")}>
-                    <button
+                    <Button
                       type="button"
-                      class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                      size="icon-sm"
+                      variant="icon"
                       aria-label={t("header.export")}
                       onClick={() =>
                         void downloadExport(v().session_id).catch((err) =>
@@ -2081,7 +2089,7 @@ const turnIndexOf = (h: SearchHit): number => {
                       }
                     >
                       <Icon name="download" />
-                    </button>
+                    </Button>
                   </Tip>
                 </span>
               </header>
@@ -2116,22 +2124,26 @@ const turnIndexOf = (h: SearchHit): number => {
                             : t("session.search.counter.none")}
                       </span>
                     </Show>
-                    <button
-                      class="grid h-6 w-6 shrink-0 place-items-center rounded text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
+                    <Button
+                      type="button"
+                      size="icon-xs"
+                      variant="icon"
                       aria-label={t("session.search.prev")}
                       disabled={!targets().length}
                       onClick={() => step(-1)}
                     >
                       <Icon name="chevron" class="h-3.5 w-3.5 rotate-180" />
-                    </button>
-                    <button
-                      class="grid h-6 w-6 shrink-0 place-items-center rounded text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
+                    </Button>
+                    <Button
+                      type="button"
+                      size="icon-xs"
+                      variant="icon"
                       aria-label={t("session.search.next")}
                       disabled={!targets().length}
                       onClick={() => step(1)}
                     >
                       <Icon name="chevron" class="h-3.5 w-3.5" />
-                    </button>
+                    </Button>
                   </div>
 
                   <Show
@@ -2229,9 +2241,10 @@ const turnIndexOf = (h: SearchHit): number => {
                                   </Show>
                                 </div>
                                 <Show when={canDisconnect() || canConnect() || canAuth()}>
-                                  <button
+                                  <Button
                                     type="button"
-                                    class="h-6 shrink-0 rounded-md px-2 text-2xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
+                                    size="xs"
+                                    variant="icon"
                                     disabled={busy()}
                                     onClick={() => {
                                       if (canAuth()) void beginMcpAuth(name);
@@ -2241,7 +2254,7 @@ const turnIndexOf = (h: SearchHit): number => {
                                     {busy()
                                       ? t(canDisconnect() ? "mcp.disconnecting" : canAuth() ? "mcp.auth" : "mcp.connecting")
                                       : t(canDisconnect() ? "mcp.disconnect" : canAuth() ? "mcp.auth" : "mcp.connect")}
-                                  </button>
+                                  </Button>
                                 </Show>
                                 </div>
                                 <Show when={mcpAuth()?.name === name ? mcpAuth() : undefined}>
@@ -2272,21 +2285,25 @@ const turnIndexOf = (h: SearchHit): number => {
                                           value={mcpCode()}
                                           onInput={(e) => setMcpCode(e.currentTarget.value)}
                                         />
-                                        <button
+                                        <Button
                                           type="submit"
-                                          class="h-7 shrink-0 rounded-md border border-border px-2 text-2xs hover:bg-secondary disabled:opacity-40"
+                                          size="xs"
+                                          variant="outline"
+                                          class="h-7 shrink-0"
                                           disabled={busy() || !mcpCode().trim()}
                                         >
                                           {t("mcp.auth.confirm")}
-                                        </button>
+                                        </Button>
                                       </form>
-                                      <button
+                                      <Button
                                         type="button"
-                                        class="mt-1.5 h-6 rounded-md px-2 text-2xs text-muted-foreground hover:bg-secondary hover:text-foreground"
+                                        size="xs"
+                                        variant="icon"
+                                        class="mt-1.5"
                                         onClick={cancelMcpAuth}
                                       >
                                         {t("mcp.auth.cancel")}
-                                      </button>
+                                      </Button>
                                     </div>
                                   )}
                                 </Show>
@@ -2337,13 +2354,15 @@ const turnIndexOf = (h: SearchHit): number => {
                         <Show when={mcpAddErr()}>
                           <p class="mt-1 text-2xs text-status-error">{mcpAddErr()}</p>
                         </Show>
-                        <button
+                        <Button
                           type="submit"
-                          class="mt-1.5 h-6 rounded-md border border-border px-2 text-2xs hover:bg-secondary disabled:opacity-40"
+                          size="xs"
+                          variant="outline"
+                          class="mt-1.5"
                           disabled={mcpAdding() || !mcpName().trim() || !mcpValue().trim()}
                         >
                           {t(mcpAdding() ? "mcp.add.adding" : "mcp.add.submit")}
-                        </button>
+                        </Button>
                       </form>
                     </Show>
                   </div>
@@ -2401,15 +2420,23 @@ const turnIndexOf = (h: SearchHit): number => {
                         <Show
                           when={!lastSilentTurn()}
                           fallback={
-                            <div class="flex items-center justify-center gap-2 pt-16 text-sm text-muted-foreground">
-                              <Icon name="brain" class="size-3.5 motion-safe:animate-pulse" />
-                              {t("transcript.thinking")}
+                            <div class="flex justify-center">
+                              <EmptyState
+                                icon="brain"
+                                title={t("transcript.thinking")}
+                                class="py-10"
+                              />
                             </div>
                           }
                         >
-                          <p class="pt-16 text-center text-sm text-muted-foreground">
-                            {t("session.empty")}
-                          </p>
+                          <div class="flex justify-center">
+                            <EmptyState
+                              icon="spark"
+                              title={t("session.empty")}
+                              description={t("session.empty_hint")}
+                              class="py-10"
+                            />
+                          </div>
                         </Show>
                       }
                     >
@@ -2545,14 +2572,16 @@ const turnIndexOf = (h: SearchHit): number => {
                                   >
                                     {t("composer.edit")}
                                   </button>
-                                  <button
+                                  <Button
                                     type="button"
-                                    class="grid h-5 w-5 shrink-0 place-items-center rounded text-muted-foreground hover:bg-background hover:text-foreground"
+                                    size="icon-2xs"
+                                    variant="icon"
+                                    class="hover:bg-background"
                                     aria-label={t("composer.remove_queued")}
                                     onClick={() => setQueued((q) => q.filter((_, n) => n !== i()))}
                                   >
                                     ×
-                                  </button>
+                                  </Button>
                                 </li>
                               )}
                             </For>
@@ -2836,14 +2865,15 @@ const turnIndexOf = (h: SearchHit): number => {
                     </button>
                   </div>
                 </Show>
-                <button
+                <Button
                   type="button"
-                  class="grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
+                  size="icon-sm"
+                  variant="icon"
                   aria-label={t("panel.hide")}
                   onClick={closePanel}
                 >
                   ×
-                </button>
+                </Button>
               </div>
               <Show when={effectiveTab() === "files"}>
                 <FileBrowser sessionId={props.id} />

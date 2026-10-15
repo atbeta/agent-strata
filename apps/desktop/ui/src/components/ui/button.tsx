@@ -15,14 +15,32 @@ const buttonVariants = cva(
         outline: "border border-border bg-transparent hover:bg-accent hover:text-accent-foreground",
         secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
         ghost: "hover:bg-accent hover:text-accent-foreground",
+        /* A trigger with no box at all: run text inside a sentence, a timestamp,
+           a section link. `link` is the accent-coloured underlined form, which
+           is right for a real hyperlink and too loud for these. */
+        quiet: "text-muted-foreground hover:text-foreground",
+        /* A bordered-icon toolbar button: header tools, find arrows, panel
+           closers. Muted at rest, a quiet fill on hover — not the accent that
+           `ghost` reserves for the selected row. */
+        icon: "text-muted-foreground hover:bg-secondary hover:text-foreground",
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
+        /* The ladder runs 20 → 44. It exists because the screens already used
+           these heights: tool-card actions sit at h-6, dense toolbars at h-7,
+           fields and default buttons at h-8/h-9. Before this scale existed only
+           h-7 and up were expressible, so those call sites hand-wrote their own
+           buttons instead of using this one — which is how a single screen ended
+           up with four different icon-button heights. A size that a screen
+           genuinely needs belongs here, not in that screen's className. */
         default: "h-9 px-3",
         sm: "h-8 px-2.5",
+        xs: "h-6 px-2 text-2xs",
         lg: "h-11 px-6",
         icon: "size-9",
         "icon-sm": "size-7",
+        "icon-xs": "size-6",
+        "icon-2xs": "size-5",
       },
     },
     defaultVariants: {

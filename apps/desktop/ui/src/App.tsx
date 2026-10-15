@@ -40,6 +40,8 @@ import { Tip } from "./tip";
 import { CommandSearch } from "./search";
 import { isStreamingSnapshotMessage } from "./live";
 import { Button } from "@/components/ui/button";
+import { ListRow } from "@/components/ui/list-row";
+import { SectionHeader } from "@/components/ui/section-header";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -137,24 +139,12 @@ function SessionListItem(props: {
   };
 
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      class={`relative flex h-8 w-full items-center gap-2 rounded-md px-2 text-left transition-colors ${
-        props.active ? "bg-accent text-foreground" : "text-foreground/80 hover:bg-secondary/70"
-      }`}
+    <ListRow
+      active={props.active}
+      onOpen={props.onOpen}
+      disabled={editing()}
       onMouseEnter={() => setHot(true)}
       onMouseLeave={() => setHot(false)}
-      onClick={(e) => {
-        if (editing()) return;
-        const target = e.target as HTMLElement | null;
-        if (target?.closest?.("[data-session-menu]")) return;
-        props.onOpen();
-      }}
-      onKeyDown={(e) => {
-        if (editing()) return;
-        if (e.key === "Enter") props.onOpen();
-      }}
     >
       <span
         class={`h-1.5 w-1.5 shrink-0 rounded-full ${props.busy ? "bg-status-active" : "bg-transparent"}`}
@@ -224,7 +214,7 @@ function SessionListItem(props: {
               reveal() ? "" : "invisible pointer-events-none"
             }`}
             aria-label={t("sidebar.session.actions")}
-            data-session-menu=""
+            data-row-menu=""
             tabIndex={reveal() ? 0 : -1}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
@@ -273,7 +263,7 @@ function SessionListItem(props: {
           </DropdownMenuContent>
         </DropdownMenu>
       </Show>
-    </div>
+    </ListRow>
   );
 }
 
@@ -1111,19 +1101,11 @@ export function App() {
           >
             {(group) => (
               <section class="mb-2">
-                <h2 class="flex items-baseline gap-2 px-2 pt-3 pb-1" title={group.hint}>
-                  <span class="shrink-0 text-2xs font-medium text-muted-foreground">
-                    {group.label}
-                  </span>
-                  <Show when={group.hint}>
-                    <span class="min-w-0 flex-1 truncate font-mono text-2xs text-muted-foreground/80">
-                      {group.hint}
-                    </span>
-                  </Show>
-                  <span class="ml-auto font-mono text-2xs text-muted-foreground/70 tabular-nums">
-                    {group.rows.length}
-                  </span>
-                </h2>
+                <SectionHeader
+                  label={group.label}
+                  count={group.rows.length}
+                  hint={group.hint}
+                />
                 <For each={group.rows}>
                   {(s) => {
                     const id = s.summary.session_id;

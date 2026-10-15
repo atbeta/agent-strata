@@ -1,6 +1,6 @@
 import { createMemo, type JSX } from "solid-js";
 
-type Name =
+export type Name =
   | "replay"
   | "files"
   | "download"
