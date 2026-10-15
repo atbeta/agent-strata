@@ -117,6 +117,12 @@ Tool `input` and `result` arrive as raw event data and are rendered by `Payload`
 
 Wrapping is `break-words`, never `break-all`: breaking inside a word turns one long token into a column of fragments.
 
+### The transcript and the dock
+
+They share one column, and the dock is `shrink-0` — so whatever the dock takes, the transcript does not get. The dock's cap therefore belongs to the dock, not to the cards inside it: a `max-h` on the card stack bounds the cards and leaves the dock's own padding and the composer outside it, which is how a session with one pending question measured 548px of a 900px window and left the conversation 232px of it. The transcript holds a `min-h` floor for the same reason. A conversation is the thing the reader came for, and a dock that grows past the floor scrolls instead of squeezing it.
+
+A jump lands with `JUMP_GAP` of air above the row, not flush against the title strip. `origin()` folds the container's padding into the target, so by the time a row lands that padding is behind the viewport — measuring it does not put it back. Centring uses the row's measured height rather than the estimate, because the row being measured is the one whose estimate is least likely to hold. And the window that renders the list is told about a programmatic scroll immediately: it is otherwise computed from the parent's mirror of the scroll, which arrives a frame later, so the row that was jumped to is not in the document and the jump does nothing.
+
 ## Screens
 
 - **Sidebar** (`App.tsx`): project switcher, search, sessions grouped by day or by project.

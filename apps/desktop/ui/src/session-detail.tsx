@@ -79,6 +79,7 @@ import { Tip } from "./tip";
 import { TraceDrawer, TraceStrip, type TraceBlock } from "./trace";
 import { TurnBlock } from "./transcript";
 import { Virtual, type VirtualApi } from "./virtual";
+import { JUMP_GAP } from "./virtual-tail";
 import { PromptNavigator } from "./prompt-navigator";
 import { promptAt, promptEntries } from "./prompt-outline";
 import { ComposerToolbar } from "./composer-toolbar";
@@ -1215,16 +1216,36 @@ const turnIndexOf = (h: SearchHit): number => {
     list?.scrollToIndex(i, "start");
     setActiveTurn(i);
     // Rows land on estimated heights; once neighbours mount and measure, the
-    // target drifts. Re-anchor to the row's real box for a few frames.
+    // target drifts. Re-anchor to the row's real box for a few frames, holding
+    // the same gap a fresh jump gets rather than the top edge itself.
+    //
+    // Two failures live here, and they need different answers. The row can be
+    // mounted and sitting in the wrong place, which is drift and one subtraction
+    // fixes. Or it can be not mounted at all, which is what actually happens on
+    // a real jump: `scrollToIndex` writes `scrollTop`, the window is recomputed
+    // from the parent's mirrored signal, and until that round trip lands the row
+    // is not in the document. Giving up on that — the old code returned on the
+    // first missing row, having spent none of its eight tries — left the reader
+    // somewhere else entirely, with a nav tick showing the jump they asked for
+    // and no evidence of it on screen.
     const gen = ++jumpSettleGen;
     let tries = 0;
+    let waiting = 0;
     const settle = () => {
       if (gen !== jumpSettleGen) return;
       const el = scroller;
-      const row = el?.querySelector(`[data-turn-id="${CSS.escape(turnId)}"]`);
-      if (!el || !(row instanceof HTMLElement) || tries >= 8) return;
-      const drift = row.getBoundingClientRect().top - el.getBoundingClientRect().top;
+      if (!el) return;
+      const row = el.querySelector(`[data-turn-id="${CSS.escape(turnId)}"]`);
+      if (!(row instanceof HTMLElement)) {
+        // Not in the document yet. Keep looking: this is the window catching up
+        // with the scroll we just asked for, and it is measured in frames.
+        if (++waiting > 60) return;
+        requestAnimationFrame(settle);
+        return;
+      }
+      const drift = row.getBoundingClientRect().top - el.getBoundingClientRect().top - JUMP_GAP;
       if (Math.abs(drift) <= 4) return;
+      if (tries >= 8) return;
       tries += 1;
       el.scrollTop += drift;
       requestAnimationFrame(settle);
@@ -2498,7 +2519,15 @@ const turnIndexOf = (h: SearchHit): number => {
                 />
               </Show>
 
-              <div class="relative flex min-h-0 flex-1 flex-col">
+              {/* `min-h-0` alone lets the dock take everything. The transcript
+                  is the thing the reader came for, so it gets a floor: a dock
+                  that grows past this much pushes the dock's own scrollbox
+                  rather than collapsing the conversation to a strip. It is also
+                  what stops the entry jump — the column arrives at full height
+                  and is then squeezed when the pending questions land, and the
+                  reader sees their transcript compress rather than the dock
+                  expand into room that was already there. */}
+              <div class="relative flex min-h-[30vh] flex-1 flex-col">
               <div
                 ref={scroller}
                 // overflow-x is stated, not left out. CSS turns a `visible`
@@ -2607,6 +2636,23 @@ const turnIndexOf = (h: SearchHit): number => {
               </div>
 
               <Show when={replayPos() === null}>
+                {/*
+                  The dock is `shrink-0`, so whatever it takes, the transcript
+                  does not get. That made the cap on the card stack a fiction:
+                  `max-h-[45vh]` bounded the cards, but the dock's own `pt-6 pb-4`
+                  and the composer below it were outside it, and the measured
+                  total was 548px against a 900px window — 405 of cards plus 40 of
+                  padding plus a 103px composer. The transcript was left 232px,
+                  and since it arrives at full height and is then squeezed, the
+                  reader watches their conversation compress on entry.
+
+                  The cap therefore belongs to the dock, not to the cards inside
+                  it, and it has to leave the composer room: the composer is
+                  where a pending question is answered, so a cap that buried it
+                  would answer the reader's problem by taking away the only way
+                  out of it. `max-h-[55vh]` on the scrollable region keeps both,
+                  and the composer stays outside it, pinned where it is.
+                */}
                 <div class="shrink-0 bg-gradient-to-t from-background from-70% px-5 pb-4 pt-6">
                   <div class="mx-auto w-full max-w-3xl space-y-2">
                     {/* Pending asks and questions share the dock with the
@@ -2617,7 +2663,7 @@ const turnIndexOf = (h: SearchHit): number => {
                         to it, landed in the title bar. The stack now takes at
                         most half the window and scrolls; the composer stays
                         where it is. */}
-                    <div class="max-h-[45vh] overflow-y-auto">
+                    <div class="max-h-[40vh] overflow-y-auto">
                       <div class="space-y-2">
                     {/* A prompt that fails to load is the worst thing that can
                         happen here: the agent is waiting for an answer the user

@@ -177,6 +177,16 @@ function assistantFailure(error: unknown): string | undefined {
 // Deltas arrive per token; a reader needs about twenty frames a second.
 export const STREAM_SNAPSHOT_MS = 50;
 
+/**
+ * How long a finished turn waits before we claim the session is idle.
+ *
+ * Long enough for the next assistant message of the same turn to arrive — it is
+ * created after the previous one completes, so this window is the gap between
+ * the halves of one run. Short enough that a dot on a finished conversation
+ * stops within the same beat.
+ */
+export const SETTLE_DELAY_MS = 250;
+
 /** How long a command may take to fail before it counts as started. */
 export const COMMAND_START_MS = 1_500;
 
@@ -324,6 +334,31 @@ interface SessionState {
   updated?: number;
   messages: Map<string, MsgState>;
   pendingUserMsgs: Set<string>;
+  /**
+   * Whether the backend currently says this session is generating.
+   *
+   * Upstream is the authority for this, but it is not reliable enough to be the
+   * only source: a session that finished a turn after a permission was granted
+   * never got a `session.idle`, and its `busy` stayed true forever. A session
+   * that reads "running" while nothing is running is worse than one that reads
+   * "running" a moment too long — it is a breathing dot on a dead conversation,
+   * and it never corrects itself, so nobody can tell it apart from a real run.
+   * This is what lets us notice the disagreement.
+   */
+  sawBusy?: boolean;
+  /**
+   * Assistant messages seen in this session, by id, carrying the turn they
+   * belong to. A turn is finished when every assistant message in it has
+   * reported completion.
+   *
+   * Per message rather than a bare counter, because a turn is several assistant
+   * messages and they arrive in order: the second is created after the first has
+   * already completed. A counter would read zero the moment the first finished
+   * and announce idleness mid-turn — the opposite failure from the one this
+   * exists to fix, and a worse one, because it stops the projector clearing a
+   * run that is genuinely going.
+   */
+  liveMsgs?: Map<string, string | undefined>;
   /** last title / directory / archive we emitted, so cost-only session.updated stays quiet */
   metaSeen?: boolean;
   title?: string;
@@ -401,6 +436,74 @@ export class OpencodeMapper {
     } as EventInput);
     if (id) base.id = id;
     return base;
+  }
+
+  /**
+   * Say the session is idle when the backend has stopped generating but did not
+   * say so itself.
+   *
+   * This exists because `busy` is only ever cleared by an incoming idle, and the
+   * backend does not always send one. A session whose turn finished after a
+   * permission was granted ends on `permission.replied` and `session.updated`,
+   * with no `session.idle` behind them: measured on a real one, the last
+   * `session.status` was `busy` and nothing ever followed it. Every list that
+   * shows state then shows a breathing dot on a conversation that finished
+   * hours ago, and because the projector only ever hears "busy", nothing can
+   * tell it apart from a live run — the one state a reader cannot afford to
+   * misread.
+   *
+   * Two things have to be true before speaking, because an idle that arrives
+   * early is its own lie:
+   *
+   *   - the backend said busy at some point, so this is correcting it rather
+   *     than announcing idleness for a session that never started;
+   *   - every assistant message we have seen has reported completion, so a
+   *     multi-message turn that is still going does not get cut short here.
+   *
+   * The event is keyed per completion rather than per state change, so it is
+   * idempotent under replay: a session already known idle emits nothing.
+   */
+  /**
+   * Announce idleness for turns that finished without the backend saying so.
+   *
+   * It is deliberately not done at the moment the last assistant message
+   * completes. A turn is several messages and the next one is created *after*
+   * the previous one has completed, so deciding there announces idleness in the
+   * gap between two halves of the same run — the projector then clears `busy`
+   * while the session is still working, which is worse than leaving it set,
+   * because the run goes on with nothing marking it. Waiting one window lets a
+   * message that is already on its way arrive first and keep the session live.
+   *
+   * A turn that really has ended waits one window and nothing more. The cost is
+   * a few hundred milliseconds of a dot still breathing on a conversation that
+   * just finished; the alternative is a dot that never stops.
+   */
+  flushSettles(): EventInput[] {
+    const out: EventInput[] = [];
+    for (const [s, msgID] of [...this.pendingSettles]) {
+      this.pendingSettles.delete(s);
+      // A message that arrived during the window cancels the announcement.
+      if ((s.liveMsgs?.size ?? 0) > 0) continue;
+      s.sawBusy = false;
+      out.push(
+        this.ev(
+          s,
+          "session.status",
+          { state: "idle" },
+          `opencode:${s.sessionID}:session.status:idle:${msgID}`,
+        ),
+      );
+    }
+    return out;
+  }
+
+  /** Turn-completions waiting out the window before they claim the session is idle. */
+  private pendingSettles = new Map<SessionState, string>();
+
+  private queueSettle(s: SessionState, completedMsgId: string): void {
+    if (!s.sawBusy) return;
+    if ((s.liveMsgs?.size ?? 0) > 0) return;
+    this.pendingSettles.set(s, completedMsgId);
   }
 
   private ensureSession(sessionID: string): { s: SessionState; out: EventInput[] } {
@@ -690,6 +793,7 @@ export class OpencodeMapper {
         }
         if (info.role === "assistant") {
           m.parentID = info.parentID;
+          (s.liveMsgs ??= new Map()).set(info.id, info.parentID);
           this.flushUser(s, out, info.parentID);
           for (const t of m.toolParts.values()) {
             const part = t.deferred;
@@ -733,6 +837,10 @@ export class OpencodeMapper {
                 sourceTime(info.time.completed ?? info.time.created ?? s.updated),
               ),
             );
+          }
+          if (info.time.completed !== undefined) {
+            s.liveMsgs?.delete(info.id);
+            this.queueSettle(s, info.id);
           }
         }
         return out;
@@ -895,6 +1003,12 @@ export class OpencodeMapper {
           // a message that never finished is retired by the overlay at idle; a
           // late frame for it would bring it back
           for (const [msgID, held] of this.held) if (held.s === s) this.held.delete(msgID);
+          s.sawBusy = false;
+          s.liveMsgs?.clear();
+        } else {
+          // Remember that the backend claimed work, so a later completion with
+          // no idle behind it is something we can correct rather than guess at.
+          s.sawBusy = true;
         }
         out.push(
           this.ev(
@@ -1061,6 +1175,25 @@ export function createIngestor(opts: {
     }, STREAM_SNAPSHOT_MS);
   };
 
+  /**
+   * Drives the mapper's idle fallback, on its own timer rather than the stream
+   * flush above: a turn that ended produces no held stream, so a flush that
+   * waits for one would never fire and the session would stay busy forever —
+   * which is the state this exists to end.
+   */
+  let settleTimer: ReturnType<typeof setTimeout> | undefined;
+  const scheduleSettle = () => {
+    if (settleTimer) return;
+    settleTimer = setTimeout(() => {
+      settleTimer = undefined;
+      try {
+        emit(mapper.flushSettles());
+      } catch (err) {
+        console.error("opencode settle flush error:", err);
+      }
+    }, SETTLE_DELAY_MS);
+  };
+
   const emitResolved = (sessionID: string, data: Record<string, unknown>) => {
     const s = mapper.sessions.get(sessionID);
     if (!s) return;
@@ -1178,6 +1311,7 @@ export function createIngestor(opts: {
         sink.markMapped?.(`opencode:${evt.properties.sessionID}`, OPENCODE_MAPPER_VERSION);
       }
       scheduleFlush();
+      scheduleSettle();
       if (evt.type === "permission.asked") {
         void handlePermission(evt).catch((err) =>
           console.error("opencode permission handling error:", err),
@@ -1196,6 +1330,11 @@ export function createIngestor(opts: {
     stop() {
       clearTimeout(flushTimer);
       flushTimer = undefined;
+      // The settle timer holds a reference to the emitter and to the mapper's
+      // pending queue, so leaving it armed keeps a stopped connection's work
+      // alive until it fires on its own.
+      clearTimeout(settleTimer);
+      settleTimer = undefined;
     },
   };
 }

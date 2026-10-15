@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, type JSX } from "solid-js";
-import { atTail } from "./virtual-tail";
+import { atTail, scrollTopForRow, scrollTopToCentreRow } from "./virtual-tail";
 
 /**
  * Windowed list for rows of unknown height.
@@ -94,6 +94,11 @@ export function Virtual<T>(props: VirtualProps<T>) {
   const observed = new Map<Element, string>();
   let host: HTMLDivElement | undefined;
   let scroller: HTMLElement | undefined;
+  /**
+   * A scroll this list made itself, overriding the parent's mirror until the
+   * reader scrolls again. See `rows()`.
+   */
+  const [pendingTop, setPendingTop] = createSignal<number | undefined>(undefined);
 
   /**
    * Built before the JSX, not in onMount. Element refs run while the returned
@@ -188,8 +193,14 @@ export function Virtual<T>(props: VirtualProps<T>) {
     const n = props.items.length;
     if (!n) return [];
     const o = offsets();
-    const first = rowAt(o, Math.max(0, props.scrollTop - overscan()));
-    const last = Math.min(n - 1, rowAt(o, props.scrollTop + props.viewport + overscan()));
+    // `top` prefers a programmatic scroll this list just made over the parent's
+    // mirror of it. The mirror arrives through `onScroll`, which is a frame
+    // behind, and the row a jump went to is not in the window until the window
+    // is told about the scroll — which is what leaving this on the parent alone
+    // prevented.
+    const top = pendingTop() ?? props.scrollTop;
+    const first = rowAt(o, Math.max(0, top - overscan()));
+    const last = Math.min(n - 1, rowAt(o, top + props.viewport + overscan()));
     const out: number[] = [];
     for (let i = first; i <= last; i++) out.push(i);
     return out;
@@ -208,16 +219,34 @@ export function Virtual<T>(props: VirtualProps<T>) {
     return host.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop;
   };
 
+  /**
+   * A row's real height when it is on screen, else the estimate.
+   *
+   * A jump always comes from something the reader clicked, so the row they
+   * jumped to is mounted and measured. Reading the measurement rather than the
+   * estimate is what lets the centring below be right on the first frame.
+   */
+  const heightOf = (index: number): number => {
+    const id = props.id(props.items[index]!, index);
+    return measured().get(id) ?? props.estimate;
+  };
+
   const scrollToIndex: VirtualApi["scrollToIndex"] = (index, align = "center") => {
     const el = props.scroller?.();
     if (!el || !props.items.length) return;
     const i = Math.max(0, Math.min(props.items.length - 1, Math.round(index)));
     const top = origin() + offsets()[i];
     setFollowing(false);
-    el.scrollTop = Math.max(
-      0,
-      align === "start" ? top : top - Math.max(0, (el.clientHeight - props.estimate) / 2),
-    );
+    el.scrollTop =
+      align === "start"
+        ? scrollTopForRow(top)
+        : scrollTopToCentreRow(top, heightOf(i), el.clientHeight, end());
+    // The window this list renders is computed from the scroll position, which
+    // the parent mirrors through its own `onScroll` handler — a frame behind the
+    // scroll just written. Saying so here is what mounts the row that was jumped
+    // to: without it the reader lands on whatever the window still held, and a
+    // tick in the nav claims a jump that never happened on screen.
+    setPendingTop(el.scrollTop);
   };
 
   /**
@@ -245,6 +274,8 @@ export function Virtual<T>(props: VirtualProps<T>) {
 
   const onScroll = () => {
     if (!scroller) return;
+    // The reader moved: the parent's mirror is the truth again.
+    setPendingTop(undefined);
     const at = atTail(scroller.scrollTop, scroller.clientHeight, end());
     if (at !== following()) setFollowing(at);
   };

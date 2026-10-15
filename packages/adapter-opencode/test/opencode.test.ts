@@ -537,7 +537,94 @@ describe("OpencodeMapper", () => {
     expect(idle.find((e) => e.type === "session.status")!.data).toEqual({ state: "idle" });
   });
 
+  test("a finished turn says idle when the backend never did", () => {
+    // The case that left a dead session breathing in every list. Measured on a
+    // real one: a turn that finished after a permission was granted ended on
+    // `permission.replied` and `session.updated`, with no `session.idle` behind
+    // it. `busy` is only ever cleared by an incoming idle, so it stayed true
+    // forever — a running dot on a conversation that ended hours ago, with
+    // nothing able to tell it apart from a live one.
+    const m = new OpencodeMapper();
+    m.handle({
+      id: "s1", type: "session.status", properties: { sessionID: sid, status: { type: "busy" } },
+    } as unknown as Event);
+
+    m.handle(msgUpdated({
+      id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
+      time: { created: 20, completed: 50 }, providerID: "anthropic", modelID: "claude",
+      agent: "build", mode: "build", path: { cwd: "/repo", root: "/repo" }, cost: 0.25, finish: "stop",
+      tokens: { input: 100, output: 40, reasoning: 5, cache: { read: 3, write: 2 } },
+    }));
+    const settled = m.flushSettles();
+    expect(settled.find((e) => e.type === "session.status")!.data).toEqual({ state: "idle" });
+  });
+
+  test("a turn still running is not cut short by the fallback", () => {
+    // Two assistant messages in one turn. The second is created *after* the
+    // first has completed, so claiming idleness at the first completion lands
+    // in the gap between two halves of the same run — the projector clears
+    // `busy` while the session is still working, which is worse than leaving it
+    // set, because the run goes on with nothing marking it.
+    const m = new OpencodeMapper();
+    m.handle({
+      id: "s1", type: "session.status", properties: { sessionID: sid, status: { type: "busy" } },
+    } as unknown as Event);
+
+    const assistant = (id: string, time: object) =>
+      msgUpdated({
+        id, sessionID: sid, role: "assistant", parentID: "u1",
+        time, providerID: "anthropic", modelID: "claude",
+        agent: "build", mode: "build", path: { cwd: "/repo", root: "/repo" }, cost: 0, finish: "stop",
+        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      });
+
+    m.handle(assistant("a1", { created: 20, completed: 30 }));
+    // The window passes with nothing following it.
+    expect(m.flushSettles().some((e) => e.type === "session.status")).toBe(true);
+
+    // A second half arriving after an idle is too late to un-say it, so the
+    // order that matters is the real one: the second message is already open
+    // when the first completes.
+    const m2 = new OpencodeMapper();
+    m2.handle({
+      id: "s1", type: "session.status", properties: { sessionID: sid, status: { type: "busy" } },
+    } as unknown as Event);
+    m2.handle(assistant("a2", { created: 31 }));
+    m2.handle(assistant("a1", { created: 20, completed: 30 }));
+    expect(m2.flushSettles().some((e) => e.type === "session.status")).toBe(false);
+  });
+
+  test("the fallback stays quiet for a session that was never busy", () => {
+    // Idempotence, and the guard against announcing idleness nobody asked for.
+    const m = new OpencodeMapper();
+    m.handle(msgUpdated({
+      id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
+      time: { created: 20, completed: 50 }, providerID: "anthropic", modelID: "claude",
+      agent: "build", mode: "build", path: { cwd: "/repo", root: "/repo" }, cost: 0, finish: "stop",
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    }));
+    expect(m.flushSettles().some((e) => e.type === "session.status")).toBe(false);
+  });
+
+  test("an idle that arrived on its own is not followed by a second one", () => {
+    const m = new OpencodeMapper();
+    m.handle({
+      id: "s1", type: "session.status", properties: { sessionID: sid, status: { type: "busy" } },
+    } as unknown as Event);
+    m.handle({
+      id: "s2", type: "session.idle", properties: { sessionID: sid },
+    } as unknown as Event);
+    m.handle(msgUpdated({
+      id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
+      time: { created: 20, completed: 50 }, providerID: "anthropic", modelID: "claude",
+      agent: "build", mode: "build", path: { cwd: "/repo", root: "/repo" }, cost: 0, finish: "stop",
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    }));
+    expect(m.flushSettles().some((e) => e.type === "session.status")).toBe(false);
+  });
+
   test("turn.user echoes on first text part; idle doesn't re-emit", () => {
+
     const m = new OpencodeMapper();
     const out1 = [
       m.handle(sessionCreated()),
