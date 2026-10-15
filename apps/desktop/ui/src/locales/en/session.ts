@@ -19,6 +19,18 @@ export default {
   "question.unreadable_hint":
     "The service sent it without the content to answer with. Dismiss it to let the session move on.",
 
+  // How a session is doing, as the sidebar and the fleet list both draw it.
+  // Three dictionaries used to say the same two words three ways — 待处理 /
+  // Needs you here, 进行中 / Running there, 运行中 / running in the API layer —
+  // so one list could call the same session 待处理 and the next one 进行中 for
+  // states that are not the same. These five are the whole vocabulary now.
+  "session.status.needsInput": "Needs you",
+  "session.status.running": "Running",
+  "session.status.failed": "Failed",
+  "session.status.stopped": "Stopped",
+  "session.status.done": "Done",
+  "session.status.idle": "Idle",
+
   // A permission request sitting above the composer.
   "permission.wants_to_run": "awaiting approval",
   "permission.allow": "allow",

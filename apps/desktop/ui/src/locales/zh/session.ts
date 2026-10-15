@@ -19,6 +19,18 @@ export default {
   "question.unreadable_hint":
     "服务返回的这条提问缺少内容，无法作答。可以先忽略它，再让会话继续。",
 
+  // How a session is doing, as the sidebar and the fleet list both draw it.
+  // Three dictionaries used to say the same two words three ways — 待处理 /
+  // Needs you here, 进行中 / Running there, 运行中 / running in the API layer —
+  // so one list could call the same session 待处理 and the next one 进行中 for
+  // states that are not the same. These five are the whole vocabulary now.
+  "session.status.needsInput": "待处理",
+  "session.status.running": "进行中",
+  "session.status.failed": "失败",
+  "session.status.stopped": "已停止",
+  "session.status.done": "已完成",
+  "session.status.idle": "空闲",
+
   // A permission request sitting above the composer.
   "permission.wants_to_run": "等待确认",
   "permission.allow": "允许",

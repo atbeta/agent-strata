@@ -22,7 +22,6 @@ export default {
 
   // Session rows
   "common.untitled": "未命名",
-  "sidebar.session.needsInput": "待处理",
   "sidebar.session.actions": "会话操作",
   "sidebar.session.rename": "重命名",
   "sidebar.session.compare": "对比这个会话",
@@ -83,7 +82,6 @@ export default {
   "fleet.overview.projectCount.other": "{n} 个项目",
   "fleet.overview.recent": "最近会话",
   "fleet.overview.attention": "需要关注",
-  "fleet.overview.running": "进行中",
   "fleet.overview.projects": "项目",
   "fleet.overview.activity": "时间分布",
   "fleet.overview.empty": "还没有会话。",

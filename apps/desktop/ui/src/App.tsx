@@ -39,6 +39,8 @@ import { t, tn } from "./i18n";
 import { Tip } from "./tip";
 import { CommandSearch } from "./search";
 import { isStreamingSnapshotMessage } from "./live";
+import { sessionStatus, type SessionStatus } from "./session-status";
+import { SessionStatusMark } from "@/components/ui/session-status";
 import { Button } from "@/components/ui/button";
 import { ListRow } from "@/components/ui/list-row";
 import { RowButton } from "@/components/ui/row-button";
@@ -102,8 +104,7 @@ function SessionListItem(props: {
   id: string;
   title: string;
   active: boolean;
-  busy: boolean;
-  needsInput: boolean;
+  status: SessionStatus;
   time: string;
   actions: boolean;
   onOpen: () => void;
@@ -147,14 +148,13 @@ function SessionListItem(props: {
       onMouseEnter={() => setHot(true)}
       onMouseLeave={() => setHot(false)}
     >
-      <span
-        class={`h-1.5 w-1.5 shrink-0 rounded-full ${props.busy ? "bg-status-active" : "bg-transparent"}`}
-      />
-      <Show when={props.needsInput}>
-        <span class="shrink-0 rounded bg-event-permission/15 px-1 text-2xs font-medium text-event-permission">
-          {t("sidebar.session.needsInput")}
-        </span>
-      </Show>
+      {/* The one place a row says what state it is in. It used to be a
+          six-pixel dot that only appeared while busy — no word, no name for a
+          screen reader — plus a badge that existed only for pending input, so
+          a session that had ended in an error drew exactly what a session that
+          had ended cleanly drew: nothing. `sessionStatus()` decides, this
+          draws. */}
+      <SessionStatusMark status={props.status} />
       {/* Before the title, not after it: the title reserves its right padding
           for the timestamp, which is absolutely positioned over the end of the
           row, and a badge placed after the title lands on top of it. Left of
@@ -1128,8 +1128,7 @@ export function App() {
                         id={id}
                         title={s.title ?? s.summary.title ?? t("common.untitled")}
                         active={activeId() === id || compareSel().includes(id)}
-                        busy={s.busy === true}
-                        needsInput={s.needs_input === true}
+                        status={sessionStatus(s)}
                         time={relTime(s.summary.last_ts, clock())}
                         actions={!compareOn()}
                         onOpen={() => openSession(id)}

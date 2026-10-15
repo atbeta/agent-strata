@@ -1,5 +1,7 @@
 import { For, Show, type JSX } from "solid-js";
 import { fmtUsd, fmtUsdFlat, realWorkspace, type SessionRow } from "./api";
+import { sessionStatus } from "./session-status";
+import { SessionStatusMark } from "@/components/ui/session-status";
 import {
   fleetActivity,
   fleetAttention,
@@ -113,11 +115,7 @@ export function FleetView(props: {
                         class="items-start gap-3 rounded-none px-5 py-2.5"
                         onClick={() => props.onOpen(s.summary.session_id)}
                       >
-                        <span
-                          class={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
-                            s.busy ? "bg-status-active" : s.needs_input ? "bg-event-permission" : "bg-transparent"
-                          }`}
-                        />
+                        <SessionStatusMark status={sessionStatus(s)} class="mt-1" />
                         <span class="min-w-0 flex-1">
                           <span class="block truncate text-sm text-foreground">
                             {s.title ?? s.summary.title ?? t("common.untitled")}
@@ -156,15 +154,7 @@ export function FleetView(props: {
                           class="rounded-none px-5 py-2.5"
                           onClick={() => props.onOpen(s.summary.session_id)}
                         >
-                          <span
-                            class={`shrink-0 rounded px-1 text-2xs font-medium ${
-                              s.needs_input
-                                ? "bg-event-permission/15 text-event-permission"
-                                : "bg-status-active/15 text-status-active"
-                            }`}
-                          >
-                            {s.needs_input ? t("sidebar.session.needsInput") : t("fleet.overview.running")}
-                          </span>
+                          <SessionStatusMark status={sessionStatus(s)} />
                           <span class="min-w-0 flex-1 truncate text-sm text-foreground">
                             {s.title ?? s.summary.title ?? t("common.untitled")}
                           </span>

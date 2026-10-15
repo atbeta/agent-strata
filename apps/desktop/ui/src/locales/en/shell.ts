@@ -21,7 +21,6 @@ export default {
 
   // Session rows
   "common.untitled": "untitled",
-  "sidebar.session.needsInput": "Needs you",
   "sidebar.session.actions": "Session actions",
   "sidebar.session.rename": "Rename",
   "sidebar.session.compare": "Compare this session",
@@ -82,7 +81,6 @@ export default {
   "fleet.overview.projectCount.other": "{n} projects",
   "fleet.overview.recent": "Recent",
   "fleet.overview.attention": "Needs attention",
-  "fleet.overview.running": "Running",
   "fleet.overview.projects": "Projects",
   "fleet.overview.activity": "Over time",
   "fleet.overview.empty": "No sessions yet.",
