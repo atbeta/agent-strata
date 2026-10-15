@@ -19,7 +19,26 @@ import { join } from "node:path";
  * `components/ui` is excluded — that is where a primitive is allowed to render
  * its own element.
  */
-const BUDGET = { button: 40, input: 21 };
+/**
+ * Every one of these ten is a deliberate exception, not an oversight:
+ *
+ *   settings-blocks.tsx x2  `Segmented` and `PillGroup` — these *are* the
+ *                           settings-block definitions. They are what the other
+ *                           screens are being converted onto.
+ *   chrome.tsx              `CaptionButton` — has to fill a 44px title bar and
+ *                           sit square against the window edge.
+ *   trace.tsx x3            a timeline mark (absolute, opacity-driven) and two
+ *                           20x16 scroll arrows pinned to the scroll container.
+ *   review.tsx              a diff cell whose own background carries the
+ *                           add/del colour; the button is only the click target.
+ *   json-view.tsx           a 14px tree caret, below the smallest size the
+ *                           ladder offers.
+ *   prompt-navigator.tsx    the transcript tick, styled by `.nav-tick`.
+ *   composer-menu.tsx       a 16px round removal badge on an attachment chip.
+ *
+ * Adding an eleventh means adding a reason, not a conversion.
+ */
+const BUDGET = { button: 10, input: 21 };
 
 const SRC = import.meta.dir;
 const PRIMITIVES = join(SRC, "components", "ui");
@@ -58,10 +77,12 @@ describe("primitive adoption", () => {
 
   test(`raw <button> outside components/ui stays at or under ${BUDGET.button}`, () => {
     const found = countIn(files, "button");
-    // The floor matters as much as the ceiling. A walker that matched nothing
-    // would report 0, pass `<= 75` forever, and retire the ratchet silently —
-    // the one failure mode this file exists to prevent.
-    expect(found).toBeGreaterThan(30);
+    // The floor is a backstop against a vacuous pass, not a convergence
+    // target. The test above already proves the walker sees the screen set and
+    // App.tsx specifically; this only catches the case where the screen files
+    // have all but vanished from `src`. It has to stay low, because pinning it
+    // near the real count would make finishing the job a test failure.
+    expect(found).toBeGreaterThanOrEqual(3);
     expect(found).toBeLessThanOrEqual(BUDGET.button);
   });
 

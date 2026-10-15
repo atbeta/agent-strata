@@ -20,6 +20,7 @@ export default {
   "trace.tab.input": "参数",
   "trace.tab.result": "结果",
   "trace.tab.time": "计时",
+  "trace.view": "回放视图",
   "trace.action.close": "关闭",
   "trace.section.result": "结果",
   "trace.section.input": "输入",

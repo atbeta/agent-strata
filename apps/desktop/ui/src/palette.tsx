@@ -1,6 +1,7 @@
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { commandList, formatChord, type AppCommand } from "./commands";
 import { t } from "./i18n";
+import { RowButton } from "@/components/ui/row-button";
 
 type PaletteRow =
   | { kind: "command"; cmd: AppCommand }
@@ -99,12 +100,11 @@ export function CommandPalette(props: {
                     <Show when={row.kind === "session" && rows()[i() - 1]?.kind !== "session"}>
                       <p class="px-2 pt-2 pb-1 text-2xs text-muted-foreground">{t("palette.sessions")}</p>
                     </Show>
-                    <button
-                      type="button"
-                      data-at={i() === at() ? "true" : "false"}
-                      class={`flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left text-sm ${
+                    <RowButton
+                      class={`gap-3 hover:bg-accent/60 ${
                         i() === at() ? "bg-accent text-foreground" : "text-foreground/90"
                       }`}
+                      active={i() === at()}
                       onMouseEnter={() => setAt(i())}
                       onClick={() => choose(row)}
                     >
@@ -114,7 +114,7 @@ export function CommandPalette(props: {
                           <kbd class="shrink-0 font-mono text-2xs text-muted-foreground">{formatChord(chord())}</kbd>
                         )}
                       </Show>
-                    </button>
+                    </RowButton>
                   </>
                 )}
               </For>

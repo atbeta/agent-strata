@@ -85,8 +85,11 @@ import { applyStreamingSnapshot, mergeViewTail, type StreamingSnapshot } from ".
 import { filesKeyOf, peekView, rememberView, tailMatches, viewFromTail } from "./view-cache";
 import { registerCommand } from "./commands";
 import { Button } from "@/components/ui/button";
+import { ChoiceCard } from "@/components/ui/choice-card";
 import { EmptyState } from "@/components/ui/empty-state";
+import { MiniTabs } from "@/components/ui/mini-tabs";
 import { Picker } from "@/components/ui/picker";
+import { RowButton } from "@/components/ui/row-button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   ATTACHMENT_ACCEPT,
@@ -246,23 +249,17 @@ function QuestionCard(props: { q: PendingQuestion; onDone: () => void }) {
                 {(opt) => {
                   const on = () => (picks()[qi()] ?? []).includes(opt.label);
                   return (
-                    <button
-                      type="button"
-                      class={`flex w-full cursor-pointer items-start gap-2 rounded-md border px-2.5 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                        on() ? "border-ring bg-secondary" : "border-border hover:bg-secondary/50"
-                      }`}
-                      onClick={() => toggle(qi(), opt.label, question.multiple)}
+                    <ChoiceCard
+                      mode="press"
+                      check
+                      selected={on()}
+                      onSelect={() => toggle(qi(), opt.label, question.multiple)}
                     >
-                      <span class="min-w-0 flex-1">
-                        <span class="block text-sm">{opt.label}</span>
-                        <Show when={opt.description}>
-                          <span class="mt-0.5 block text-2xs leading-4 text-muted-foreground">{opt.description}</span>
-                        </Show>
-                      </span>
-                      <Show when={on()}>
-                        <Icon name="check" class="mt-0.5 size-3.5 shrink-0 text-foreground" />
+                      <span class="block text-sm">{opt.label}</span>
+                      <Show when={opt.description}>
+                        <span class="mt-0.5 block text-2xs leading-4 text-muted-foreground">{opt.description}</span>
                       </Show>
-                    </button>
+                    </ChoiceCard>
                   );
                 }}
               </For>
@@ -2180,11 +2177,15 @@ const turnIndexOf = (h: SearchHit): number => {
                       <For each={targets()}>
                         {(h, i) => (
                           <li>
-                            <button
+                            <RowButton
                               data-hit={i()}
-                              class={`flex w-full flex-col gap-0.5 px-3 py-1.5 text-left transition-colors ${
-                                i() === hitAt() ? "bg-secondary" : "hover:bg-secondary/60"
+                              // `items-stretch` is not decoration: the base row is a
+                              // horizontal flex box, and a column box would centre its
+                              // snippet horizontally without it.
+                              class={`flex-col items-stretch gap-0.5 px-3 ${
+                                i() === hitAt() ? "bg-secondary" : ""
                               }`}
+                              active={i() === hitAt()}
                               onClick={() => {
                                 setHitAt(i());
                                 goTo(h);
@@ -2194,7 +2195,7 @@ const turnIndexOf = (h: SearchHit): number => {
                               <span class="font-mono text-2xs text-muted-foreground">
                                 {t("session.search.turn", { n: turnNumber(h) })}
                               </span>
-                            </button>
+                            </RowButton>
                           </li>
                         )}
                       </For>
@@ -2342,28 +2343,17 @@ const turnIndexOf = (h: SearchHit): number => {
                           class="mt-1.5 h-7 w-full rounded-md border border-border bg-secondary/40 px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground"
                           onInput={(e) => setMcpName(e.currentTarget.value)}
                         />
-                        <div class="mt-1.5 flex gap-1">
-                          <button
-                            type="button"
-                            class={`h-6 rounded-md px-2 text-2xs ${
-                              mcpKind() === "url" ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-secondary/60"
-                            }`}
-                            onClick={() => setMcpKind("url")}
-                          >
-                            {t("mcp.add.url")}
-                          </button>
-                          <button
-                            type="button"
-                            class={`h-6 rounded-md px-2 text-2xs ${
-                              mcpKind() === "command"
-                                ? "bg-secondary text-foreground"
-                                : "text-muted-foreground hover:bg-secondary/60"
-                            }`}
-                            onClick={() => setMcpKind("command")}
-                          >
-                            {t("mcp.add.command")}
-                          </button>
-                        </div>
+                        <MiniTabs
+                          kind="radio"
+                          label={t("mcp.add")}
+                          value={mcpKind()}
+                          onChange={(id) => setMcpKind(id as "url" | "command")}
+                          options={[
+                            { id: "url", label: t("mcp.add.url") },
+                            { id: "command", label: t("mcp.add.command") },
+                          ]}
+                          class="mt-1.5 gap-1"
+                        />
                         <input
                           value={mcpValue()}
                           placeholder={t(mcpKind() === "command" ? "mcp.add.command.placeholder" : "mcp.add.url.placeholder")}
@@ -2871,37 +2861,16 @@ const turnIndexOf = (h: SearchHit): number => {
                     </span>
                   }
                 >
-                  <div role="tablist" class="flex min-w-0 flex-1 items-center gap-0.5">
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={effectiveTab() === "changes"}
-                      class={`rounded-md px-1.5 py-0.5 text-2xs ${
-                        effectiveTab() === "changes"
-                          ? "bg-secondary text-foreground"
-                          : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
-                      }`}
-                      onClick={() => selectTab("changes")}
-                    >
-                      {t("panel.changes")}
-                      <Show when={changeCount() > 0}>
-                        <span class="text-muted-foreground"> {changeCount()}</span>
-                      </Show>
-                    </button>
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={effectiveTab() === "files"}
-                      class={`rounded-md px-1.5 py-0.5 text-2xs ${
-                        effectiveTab() === "files"
-                          ? "bg-secondary text-foreground"
-                          : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
-                      }`}
-                      onClick={() => selectTab("files")}
-                    >
-                      {t("panel.files")}
-                    </button>
-                  </div>
+                  <MiniTabs
+                    kind="tabs"
+                    value={effectiveTab()}
+                    onChange={(id) => selectTab(id as "changes" | "files")}
+                    options={[
+                      { id: "changes", label: t("panel.changes"), count: changeCount() },
+                      { id: "files", label: t("panel.files") },
+                    ]}
+                    class="min-w-0 flex-1"
+                  />
                 </Show>
                 <Button
                   type="button"
@@ -2920,24 +2889,17 @@ const turnIndexOf = (h: SearchHit): number => {
                 <div class="flex min-h-0 flex-1 flex-col">
                   <Show when={opencode()}>
                     <div class="flex shrink-0 items-center gap-1 border-b border-border px-2 py-1.5">
-                      {(
-                        [
-                          ["session", "review.session"],
-                          ["git", "review.git"],
-                        ] as const
-                      ).map(([id, key]) => (
-                        <button
-                          type="button"
-                          class={`rounded-md px-1.5 py-0.5 text-2xs ${
-                            reviewSource() === id
-                              ? "bg-secondary text-foreground"
-                              : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
-                          }`}
-                          onClick={() => setReviewSource(id)}
-                        >
-                          {t(key)}
-                        </button>
-                      ))}
+                    <MiniTabs
+                      kind="radio"
+                      label={t("panel.changes")}
+                      value={reviewSource()}
+                      onChange={(id) => setReviewSource(id as "session" | "git")}
+                      options={[
+                        { id: "session", label: t("review.session") },
+                        { id: "git", label: t("review.git") },
+                      ]}
+                      class="shrink-0"
+                    />
                     </div>
                   </Show>
                   <Show when={opencode()}>
@@ -2983,12 +2945,11 @@ const turnIndexOf = (h: SearchHit): number => {
                             <For each={files()}>
                               {(f) => (
                                 <li>
-                                  <button
-                                    type="button"
+                                  <RowButton
                                     aria-expanded={openFile() === f.path}
                                     onClick={() => toggleFile(f.path)}
                                     title={f.path}
-                                    class={`flex w-full cursor-pointer items-baseline gap-2 rounded-md px-1 py-1 text-left hover:bg-secondary ${
+                                    class={`items-baseline gap-2 px-1 py-1 hover:bg-secondary ${
                                       openFile() === f.path ? "bg-secondary" : ""
                                     }`}
                                   >
@@ -3025,7 +2986,7 @@ const turnIndexOf = (h: SearchHit): number => {
                                       </span>{" "}
                                       <span class="text-diff-del-fg">−{num(f.deletions)}</span>
                                     </span>
-                                  </button>
+                                  </RowButton>
                                 </li>
                               )}
                             </For>
@@ -3039,13 +3000,15 @@ const turnIndexOf = (h: SearchHit): number => {
                               <span class="min-w-0 flex-1 font-mono text-2xs break-all text-muted-foreground">
                                 {f().path}
                               </span>
-                              <button
+                              <Button
                                 type="button"
-                                class="shrink-0 cursor-pointer rounded-md px-1.5 py-0.5 text-2xs text-muted-foreground hover:bg-secondary hover:text-foreground"
+                                variant="icon"
+                                size="xs"
+                                class="shrink-0 px-1.5"
                                 onClick={() => setOpenFile(null)}
                               >
                                 {t("file.close")}
-                              </button>
+                              </Button>
                             </div>
                             <div class="min-h-0 flex-1 overflow-x-auto overflow-y-auto px-3 py-2">
                               <Show when={f().unexplained}>
@@ -3065,13 +3028,15 @@ const turnIndexOf = (h: SearchHit): number => {
                                         <span class="text-diff-del-fg">−{num(edit.deletions)}</span>
                                       </span>
                                       <Show when={edit.turn_index >= 0}>
-                                        <button
+                                        <Button
                                           type="button"
-                                          class="ml-auto shrink-0 cursor-pointer rounded px-1.5 py-0.5 text-2xs text-muted-foreground hover:bg-secondary hover:text-foreground"
+                                          variant="icon"
+                                          size="xs"
+                                          class="ml-auto shrink-0 rounded px-1.5"
                                           onClick={() => jumpTo(edit.turn_index)}
                                         >
                                           {t("file.jump")}
-                                        </button>
+                                        </Button>
                                       </Show>
                                     </div>
                                     <Show

@@ -8,6 +8,7 @@ import { stamp, t } from "./i18n";
 import { Icon } from "./icons";
 import { mergeUserBar, traceMaxOffset, tracePage, traceWindow } from "./trace-window";
 import { Button } from "@/components/ui/button";
+import { MiniTabs } from "@/components/ui/mini-tabs";
 
 export interface TraceBlock {
   key: string;
@@ -546,23 +547,13 @@ export function TraceDrawer(props: { block: TraceBlock; onClose: () => void }) {
           </Button>
         </Tip>
       </div>
-      <div class="flex gap-1 px-3 pt-3">
-        <For each={tabs()}>
-          {(item) => (
-            <button
-              type="button"
-              class={`cursor-pointer rounded-md px-2 py-1 text-2xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                tab() === item.id
-                  ? "bg-secondary text-foreground"
-                  : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-              }`}
-              onClick={() => setTab(item.id)}
-            >
-              {item.label}
-            </button>
-          )}
-        </For>
-      </div>
+      <MiniTabs
+        value={tab()}
+        onChange={setTab}
+        options={tabs().map((item) => ({ id: item.id, label: item.label }))}
+        label={t("trace.view")}
+        class="gap-1 px-3 pt-3"
+      />
       <div class="min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-4">
         <Show when={tab() === "overview"}>
           <Md text={props.block.preview} class="text-xs leading-[1.65]" />

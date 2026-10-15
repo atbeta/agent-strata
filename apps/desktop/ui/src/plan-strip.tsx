@@ -2,6 +2,7 @@ import { createSignal, For, Show } from "solid-js";
 import { Icon } from "./icons";
 import { t } from "./i18n";
 import { planProgress, readPlanOpen, writePlanOpen, type PlanItem } from "./plan-progress";
+import { Button } from "@/components/ui/button";
 
 /**
  * Collapsed or expanded belongs to the window, not to the session — same story
@@ -23,9 +24,10 @@ export function PlanStrip(props: { plan: readonly PlanItem[]; generating: boolea
   };
   return (
     <div class="rounded-t-2xl border border-b-0 border-input bg-secondary/70 px-3 pb-4 pt-2">
-      <button
+      <Button
         type="button"
-        class="flex w-full items-center gap-2 text-left"
+        variant="quiet"
+        class="h-auto w-full justify-start whitespace-normal px-0 text-left font-normal"
         aria-expanded={planOpen()}
         onClick={toggle}
       >
@@ -40,7 +42,7 @@ export function PlanStrip(props: { plan: readonly PlanItem[]; generating: boolea
           name="chevron"
           class={`h-3 w-3 shrink-0 text-muted-foreground transition-transform ${planOpen() ? "rotate-180" : ""}`}
         />
-      </button>
+      </Button>
       <Show when={planOpen()}>
         <ul class="mt-1.5 max-h-[40vh] space-y-1 overflow-y-auto text-sm">
           <For each={props.plan}>

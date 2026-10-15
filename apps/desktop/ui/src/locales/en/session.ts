@@ -115,6 +115,7 @@ export default {
   "review.git": "Uncommitted",
   "review.unified": "Unified",
   "review.split": "Side by side",
+  "review.layout": "Diff layout",
   "review.loading": "Reading the changes.",
   "review.empty": "OpenCode reports no changes for this session.",
   "review.empty.git": "The worktree is clean — nothing uncommitted.",

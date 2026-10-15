@@ -3,6 +3,7 @@ import type { ReviewDiff } from "./api";
 import { t } from "./i18n";
 import { splitPatch, type SplitCell, type SplitRow } from "./split-patch";
 import { RowButton } from "@/components/ui/row-button";
+import { MiniTabs } from "@/components/ui/mini-tabs";
 
 function baseName(path: string): string {
   const i = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
@@ -61,22 +62,20 @@ export function ReviewPane(props: {
 
   return (
     <div class="flex min-h-0 flex-1 flex-col">
-      <div class="flex shrink-0 items-center gap-1 border-b border-border px-2 py-1.5">
-        {(["unified", "split"] as const).map((id) => (
-          <button
-            type="button"
-            class={`rounded-md px-1.5 py-0.5 text-2xs ${
-              props.layout === id
-                ? "bg-secondary text-foreground"
-                : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
-            }`}
-            aria-pressed={props.layout === id}
-            onClick={() => props.onLayout(id)}
-          >
-            {t(id === "unified" ? "review.unified" : "review.split")}
-          </button>
-        ))}
-      </div>
+      {/* Mutually exclusive, so this is a radiogroup. It answered
+          `aria-pressed` on two buttons, which tells a screen reader that two
+          independent toggles exist here rather than one choice. */}
+      <MiniTabs
+        kind="radio"
+        label={t("review.layout")}
+        value={props.layout}
+        onChange={(id) => props.onLayout(id as "unified" | "split")}
+        options={[
+          { id: "unified", label: t("review.unified") },
+          { id: "split", label: t("review.split") },
+        ]}
+        class="shrink-0 gap-1 border-b border-border px-2 py-1.5"
+      />
       <div class="flex min-h-0 flex-1">
       <ul class="w-44 shrink-0 space-y-0.5 overflow-y-auto border-r border-border px-2 py-2">
         <For each={named()}>

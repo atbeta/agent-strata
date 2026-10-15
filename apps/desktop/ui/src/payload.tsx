@@ -5,6 +5,7 @@ import { grammarFor, guessGrammar, tokenize, tokenizeDiff } from "./highlight";
 import { asStructure, looksStructured } from "./structure";
 import { JsonView } from "./json-view";
 import { t } from "./i18n";
+import { Button } from "@/components/ui/button";
 
 /**
  * A framed block for a tool payload. Structure renders as a tree, text renders
@@ -14,9 +15,13 @@ import { t } from "./i18n";
 function CopyButton(props: { text: string }) {
   const [done, setDone] = createSignal(false);
   return (
-    <button
+    <Button
       type="button"
-      class="rounded px-1.5 py-0.5 text-2xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100"
+      variant="icon"
+      size="xs"
+      // Hidden until the block is hovered or the button itself is focused —
+      // a keyboard user tabbing in must be able to see where they landed.
+      class="rounded px-1.5 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
       onClick={async () => {
         if (await copyText(props.text)) {
           setDone(true);
@@ -25,7 +30,7 @@ function CopyButton(props: { text: string }) {
       }}
     >
       {done() ? t("payload.copied") : t("payload.copy")}
-    </button>
+    </Button>
   );
 }
 

@@ -1,5 +1,6 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
+import { Button } from "@/components/ui/button";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import "@xterm/xterm/css/xterm.css";
 import {
@@ -136,32 +137,38 @@ export function TerminalPane(props: { sessionId: string }) {
                 active() === tab.id ? "bg-secondary text-foreground" : "text-muted-foreground"
               }`}
             >
-              <button
+              <Button
                 type="button"
-                class="truncate px-2 py-1 text-xs"
+                variant="quiet"
+                size="xs"
+                class="truncate text-xs"
                 onClick={() => setActive(tab.id)}
               >
                 {tab.title}
-              </button>
-              <button
+              </Button>
+              {/* Same bar, same 24px box, same hover — the close and the new-tab
+                  button used to disagree on whether hovering drew a fill. */}
+              <Button
                 type="button"
-                class="grid h-6 w-6 place-items-center text-muted-foreground hover:text-foreground"
+                variant="icon"
+                size="icon-xs"
                 aria-label={t("terminal.close")}
                 onClick={() => void close(tab.id)}
               >
                 ×
-              </button>
+              </Button>
             </div>
           )}
         </For>
-        <button
+        <Button
           type="button"
-          class="grid h-6 w-6 place-items-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
+          variant="icon"
+          size="icon-xs"
           aria-label={t("terminal.new")}
           onClick={() => void create()}
         >
           +
-        </button>
+        </Button>
         <Show when={err()}>
           <p class="truncate px-2 text-2xs text-destructive">{err()}</p>
         </Show>

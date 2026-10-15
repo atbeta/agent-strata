@@ -1,6 +1,7 @@
 import { createEffect, For, Show } from "solid-js";
 import { t } from "./i18n";
 import { shellPlatform } from "./shell";
+import { RowButton } from "@/components/ui/row-button";
 
 export function SessionSwitcher(props: {
   open: boolean;
@@ -36,19 +37,18 @@ export function SessionSwitcher(props: {
           <div ref={list} class="max-h-80 overflow-y-auto p-1">
             <For each={props.rows}>
               {(row, i) => (
-                <button
-                  type="button"
-                  data-at={i() === props.at ? "true" : "false"}
-                  class={`flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left text-sm ${
+                <RowButton
+                  class={`gap-3 hover:bg-accent/60 ${
                     i() === props.at ? "bg-accent text-foreground" : "text-foreground/90"
                   }`}
+                  active={i() === props.at}
                   onClick={() => props.onChoose(row.id)}
                 >
                   <span class="min-w-0 flex-1 truncate">{row.title}</span>
                   <Show when={row.id === props.currentId}>
                     <span class="shrink-0 text-2xs text-muted-foreground">{t("switcher.current")}</span>
                   </Show>
-                </button>
+                </RowButton>
               )}
             </For>
           </div>

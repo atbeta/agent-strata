@@ -41,6 +41,7 @@ import { CommandSearch } from "./search";
 import { isStreamingSnapshotMessage } from "./live";
 import { Button } from "@/components/ui/button";
 import { ListRow } from "@/components/ui/list-row";
+import { RowButton } from "@/components/ui/row-button";
 import { SectionHeader } from "@/components/ui/section-header";
 import {
   DropdownMenu,
@@ -1046,10 +1047,9 @@ export function App() {
           </Show>
         </div>
         <div class="border-t border-border px-1.5 pt-1 pb-1">
-          <button
-            type="button"
+          <RowButton
             class={cn(
-              "flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm transition-colors",
+              "h-8 items-center px-2",
               route().name === "fleet"
                 ? "bg-accent text-foreground"
                 : "text-foreground/80 hover:bg-secondary/70",
@@ -1068,7 +1068,7 @@ export function App() {
                 {sessions().length}
               </span>
             </span>
-          </button>
+          </RowButton>
         </div>
         <div class="min-h-0 flex-1 overflow-y-auto px-1.5 py-1">
           {/* Compare is a mode of the list and it says so at the top of the
@@ -1083,16 +1083,18 @@ export function App() {
                   ? t("sidebar.compare.pick", { n: 2 - compareSel().length })
                   : t("sidebar.compare.openTip")}
               </span>
-              <button
+              <Button
                 type="button"
-                class="shrink-0 text-2xs text-muted-foreground transition-colors hover:text-foreground"
+                variant="quiet"
+                size="xs"
+                class="shrink-0"
                 onClick={() => {
                   setCompareOn(false);
                   setCompareSel([]);
                 }}
               >
                 {t("sidebar.compare.cancel")}
-              </button>
+              </Button>
             </div>
           </Show>
           <For
@@ -1242,9 +1244,8 @@ export function App() {
               >
                 <For each={settled(conns)?.connections ?? []}>
                   {(c) => (
-                    <button
-                      type="button"
-                      class="flex w-full items-center gap-2 truncate rounded-md px-1.5 py-1 text-left text-xs hover:bg-secondary"
+                    <RowButton
+                      class="gap-2 px-1.5 text-xs hover:bg-secondary"
                       title={c.baseUrl}
                       onClick={() => chooseNewConn(c.id)}
                     >
@@ -1261,7 +1262,7 @@ export function App() {
                           {t("sidebar.backend.newTarget")}
                         </span>
                       </Show>
-                    </button>
+                    </RowButton>
                   )}
                 </For>
               </Show>

@@ -3,6 +3,7 @@ import { listFiles, openInEditor, readFileBody, type FileNode } from "./api";
 import { t } from "./i18n";
 import { Code } from "./payload";
 import { RowButton } from "@/components/ui/row-button";
+import { Button } from "@/components/ui/button";
 
 const PREVIEW_LIMIT = 200_000;
 
@@ -168,13 +169,15 @@ export function FileBrowser(props: { sessionId: string }) {
                 <span class="min-w-0 flex-1 truncate font-mono text-2xs text-muted-foreground" title={node().absolute}>
                   {node().path}
                 </span>
-                <button
+                <Button
                   type="button"
-                  class="rounded-md px-1.5 py-0.5 text-2xs text-muted-foreground hover:bg-secondary hover:text-foreground"
+                  variant="icon"
+                  size="xs"
+                  class="px-1.5"
                   onClick={() => void openInVsCode()}
                 >
                   {t("files.vscode")}
-                </button>
+                </Button>
               </div>
               <Show when={openErr()}>
                 <p class="px-3 py-1 text-xs text-destructive">{openErr()}</p>

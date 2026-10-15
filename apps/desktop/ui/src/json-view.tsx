@@ -1,6 +1,7 @@
 import { createSignal, For, Show } from "solid-js";
 import { entriesOf, kindOf, summaryOf, type JsonKind } from "./structure";
 import { t } from "./i18n";
+import { Button } from "@/components/ui/button";
 
 /**
  * A collapsible tree for structured tool input/output.
@@ -80,13 +81,14 @@ function Node(props: {
                 </span>
               }
             >
-              <button
+              <Button
                 type="button"
-                class="text-left text-muted-foreground hover:text-foreground"
+                variant="quiet"
+                class="h-auto px-0 text-left font-normal"
                 onClick={() => props.toggle(props.path)}
               >
                 {summary()}
-              </button>
+              </Button>
             </Show>
           }
         >

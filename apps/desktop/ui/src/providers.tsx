@@ -188,14 +188,11 @@ function ProviderDetail(props: {
           <div role="radiogroup" aria-label={t("settings.provider.method")}>
             <For each={props.row.methods}>
               {(option) => (
-                <button
-                  type="button"
+                <RowButton
                   role="radio"
                   aria-checked={option.index === method()?.index}
-                  class={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${
-                    option.index === method()?.index
-                      ? "bg-secondary text-foreground"
-                      : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+                  class={`gap-2 hover:bg-secondary/50 ${
+                    option.index === method()?.index ? "bg-secondary text-foreground" : ""
                   }`}
                   onClick={() => props.onPick(option.index)}
                 >
@@ -210,7 +207,7 @@ function ProviderDetail(props: {
                       {t("settings.provider.connected")}
                     </span>
                   </Show>
-                </button>
+                </RowButton>
               )}
             </For>
           </div>

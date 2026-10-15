@@ -24,6 +24,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ChoiceCard } from "@/components/ui/choice-card";
+import { RowButton } from "@/components/ui/row-button";
 import { Switch } from "@/components/ui/switch";
 import { Group, PillGroup, Row, Segmented } from "./settings-blocks";
 import { PolicyEditor } from "./policy";
@@ -203,23 +205,21 @@ export function SettingsPage(props: { section?: string }) {
         <nav class="sticky top-0" role="tablist" aria-label={t("settings.title")}>
           <For each={SETTINGS_SECTIONS}>
             {(item) => (
-              <button
-                type="button"
+              <RowButton
                 role="tab"
                 id={`settings-tab-${item.id}`}
                 aria-selected={section() === item.id}
                 aria-controls="settings-panel"
-                class={`block w-full rounded-md px-2.5 py-1.5 text-left text-sm transition-colors ${
-                  section() === item.id
-                    ? "bg-secondary text-foreground"
-                    : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+                class={`block px-2.5 py-1.5 hover:bg-secondary/60 ${
+                  section() === item.id ? "bg-secondary text-foreground" : ""
                 }`}
+                active={section() === item.id}
                 onClick={() => {
                   location.hash = item.id === SETTINGS_SECTIONS[0].id ? "/settings" : `/settings/${item.id}`;
                 }}
               >
                 {t(item.label)}
-              </button>
+              </RowButton>
             )}
           </For>
         </nav>
@@ -418,20 +418,15 @@ export function SettingsPage(props: { section?: string }) {
           aria-label={t("settings.opencode.title")}
         >
           {OPENCODE_MODES().map((item) => (
-            <button
-              type="button"
-              role="radio"
-              aria-checked={mode() === item.id}
-              class={`rounded-lg border px-3 py-2.5 text-left transition-colors ${
-                mode() === item.id
-                  ? "border-ring bg-secondary"
-                  : "border-border hover:bg-secondary/60"
-              }`}
-              onClick={() => void pickMode(item.id)}
+            <ChoiceCard
+              mode="radio"
+              class="rounded-lg px-3 py-2.5"
+              selected={mode() === item.id}
+              onSelect={() => void pickMode(item.id)}
             >
               <span class="block text-sm font-medium">{item.label}</span>
               <span class="mt-0.5 block text-2xs text-muted-foreground">{item.hint}</span>
-            </button>
+            </ChoiceCard>
           ))}
         </div>
         <p class={`mt-3 text-sm ${saveErr() ? "text-destructive" : "text-muted-foreground"}`}>

@@ -21,6 +21,7 @@ export default {
   "trace.tab.input": "Parameters",
   "trace.tab.result": "Result",
   "trace.tab.time": "Timing",
+  "trace.view": "Trace view",
   "trace.action.close": "Close",
   "trace.section.result": "Result",
   "trace.section.input": "Input",

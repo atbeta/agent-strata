@@ -1,5 +1,6 @@
 import { createEffect, createMemo, createSignal, For, Index, Match, on, onCleanup, onMount, Show, Switch } from "solid-js";
 import type { ContentBlock, ToolCallView, Turn } from "./api";
+import { Button } from "@/components/ui/button";
 import { Icon } from "./icons";
 import { Md } from "./md";
 import { Tip } from "./tip";
@@ -52,8 +53,12 @@ function ThinkingBlock(props: { text: string; live?: boolean; scope?: string }) 
     // their icons have to share one column. Sized identically but set at the
     // content edge, the brain sat 11px left of every terminal.
     <div class="my-2 px-2.5">
-      <button
-        class="flex max-w-full items-center gap-2 text-left text-sm text-muted-foreground hover:text-foreground"
+      {/* `whitespace-normal` and `px-0` are load-bearing: the button base is
+          `whitespace-nowrap` with padding, which would clip the preview that
+          trails the label instead of truncating it. */}
+      <Button
+        variant="quiet"
+        class="h-auto max-w-full justify-start whitespace-normal px-0 text-left font-normal"
         aria-expanded={open()}
         onClick={toggle}
       >
@@ -70,7 +75,7 @@ function ThinkingBlock(props: { text: string; live?: boolean; scope?: string }) 
         >
           <Icon name="chevron" class="size-3" />
         </span>
-      </button>
+      </Button>
       <Show when={open()}>
         <Md
           class="mt-1.5 border-l border-border pl-3 text-sm leading-6 text-muted-foreground"
@@ -295,9 +300,11 @@ function ToolCallCard(props: {
           </Show>
           <Show when={props.call.child_session_id}>
             {(id) => (
-              <button
+              <Button
                 type="button"
-                class="shrink-0 text-sm text-muted-foreground hover:text-foreground"
+                variant="quiet"
+                size="sm"
+                class="h-auto shrink-0 px-0"
                 onClick={(e) => {
                   e.stopPropagation();
                   props.onOpenChild?.(id());
@@ -305,7 +312,7 @@ function ToolCallCard(props: {
                 onKeyDown={(e) => e.stopPropagation()}
               >
                 {t("session.child.open")}
-              </button>
+              </Button>
             )}
           </Show>
           <span

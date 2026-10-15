@@ -133,12 +133,9 @@ export function CommandSearch(props: {
           anyone finds it — and it would shove every project below it up by one
           row while the overlay was up. */}
       <div class="px-1.5 pt-2">
-        <button
-          type="button"
-          class={`flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm transition-colors ${
-            props.open
-              ? "bg-secondary text-foreground"
-              : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+        <RowButton
+          class={`h-8 items-center px-2 ${
+            props.open ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-secondary"
           }`}
           aria-label={t("search.label")}
           onClick={() => props.onOpenChange(true)}
@@ -146,7 +143,7 @@ export function CommandSearch(props: {
           <Icon name="search" class="size-3.5 shrink-0" />
           <span>{t("search.label")}</span>
           <kbd class="ml-auto font-mono text-2xs text-muted-foreground/80">{shortcutLabel()}</kbd>
-        </button>
+        </RowButton>
       </div>
 
       {/* Centred because it was never a dropdown. It already dimmed the whole
