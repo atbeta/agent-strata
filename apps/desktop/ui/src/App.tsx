@@ -1293,9 +1293,9 @@ export function App() {
             )}
           </For>
         </div>
-        <div class="border-t border-border px-2 py-1.5">
+        <div class="border-t border-border px-2">
           <Show when={syncShown()}>
-            <div class="mb-1.5 px-1" role="status" aria-live="polite">
+            <div class="my-1 px-1" role="status" aria-live="polite">
               <div class="flex items-center gap-1.5 text-2xs text-muted-foreground">
                 <span class="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-status-active" />
                 <span class="truncate">
@@ -1317,7 +1317,7 @@ export function App() {
             </div>
           </Show>
           <Show when={connOpen()}>
-            <div class="mb-1.5 space-y-1.5 px-1">
+            <div class="my-1.5 space-y-1.5 px-1">
               <div class="flex gap-1">
                 <Button
                   size="sm"
@@ -1401,9 +1401,12 @@ export function App() {
             </div>
           </Show>
           <Show when={connErr()}>
-            <p class="mb-1 px-1.5 font-mono text-2xs text-destructive">{connErr()}</p>
+            <p class="my-1 px-1.5 font-mono text-2xs text-destructive">{connErr()}</p>
           </Show>
-          <div class="flex items-center gap-1">
+          {/* min-h-7 so the strip lands on the same line as the session view's
+              status footer — two bottoms at different heights read as a seam
+              misaligned by accident. */}
+          <div class="flex min-h-7 items-center gap-1">
             <div class="min-w-0 flex-1">
               <Show
                 when={(settled(conns)?.connections.length ?? 0) > 0}
@@ -1432,7 +1435,7 @@ export function App() {
                 <For each={settled(conns)?.connections ?? []}>
                   {(c) => (
                     <RowButton
-                      class="gap-2 px-1.5 text-xs hover:bg-secondary"
+                      class="gap-2 px-1.5 py-0 text-xs hover:bg-secondary"
                       title={c.baseUrl}
                       onClick={() => chooseNewConn(c.id)}
                     >

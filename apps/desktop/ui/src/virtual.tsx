@@ -91,7 +91,13 @@ export function Virtual<T>(props: VirtualProps<T>) {
    * where it happened to be when it lost the flag.
    */
   const [following, setFollowing] = createSignal(true);
-  const observed = new Map<Element, string>();
+  /**
+   * Element → the row it was bound to. `For` keeps a node when `rows()` still
+   * holds its index, so on a session switch the same element renders a new
+   * item while its recorded key still names the old one — the sweep below
+   * rebinds it before a measurement can land under the wrong name.
+   */
+  const observed = new Map<Element, { key: string; i: number }>();
   let host: HTMLDivElement | undefined;
   let scroller: HTMLElement | undefined;
   /**
@@ -123,22 +129,23 @@ export function Virtual<T>(props: VirtualProps<T>) {
     let correction = 0;
     let index: Map<string, number> | undefined;
     for (const e of entries) {
-      const key = observed.get(e.target);
+      const key = observed.get(e.target)?.key;
       if (key === undefined) continue;
       const h = e.borderBoxSize?.[0]?.blockSize ?? (e.target as HTMLElement).offsetHeight;
       if (!h) continue;
       const prev = next.get(key);
-      if (prev !== undefined && Math.abs(prev - h) < EPS) continue;
+      // A row never measured still occupies `estimate` in the prefix sum, so
+      // its first real height displaces everything below it exactly like a
+      // change does — `prev` falls back to the estimate, not to "skip".
+      const prevH = prev ?? props.estimate;
+      if (Math.abs(prevH - h) < EPS) continue;
       next.set(key, h);
       changed = true;
-      // A row appearing for the first time has no previous height, so it cannot
-      // have displaced anything. Skip it before paying for the lookup below.
-      if (prev === undefined) continue;
       // Only rows entirely above the viewport push the content the reader is
       // looking at. Rows below it are already off-screen and cost nothing.
       index ??= rowIndex();
       const i = index.get(key);
-      if (i !== undefined && o[i] + prev <= top) correction += h - prev;
+      if (i !== undefined && o[i]! + prevH <= top) correction += h - prevH;
     }
     if (!changed) return;
     setMeasured(next);
@@ -323,12 +330,22 @@ export function Virtual<T>(props: VirtualProps<T>) {
       // unmeasured cost twenty full passes, on the scroll path, and that is
       // what made dragging the window stutter.
       let next: Map<string, number> | undefined;
-      for (const el of [...observed.keys()]) {
+      for (const [el, entry] of [...observed]) {
         if (!el.isConnected) {
           ro.unobserve(el);
           observed.delete(el);
           continue;
         }
+        // The node may have been re-used for a different item since its ref
+        // ran — `For` keys rows by index value, and a session switch swaps the
+        // items behind the same indices. Rebind before reading; measuring the
+        // element under its old key would feed the new row a height that
+        // belongs to a conversation it is not in — which is exactly how rows
+        // landed on top of one another until a scroll remounted them.
+        const current = props.items[entry.i];
+        const key = current === undefined ? undefined : props.id(current, entry.i);
+        if (key === undefined) continue;
+        entry.key = key;
         // A mounted row that has no measurement is being positioned from
         // `estimate`, and `estimate` is a guess about a row's height, not a
         // layout: at 100 against a turn that renders at several hundred, an
@@ -339,8 +356,7 @@ export function Virtual<T>(props: VirtualProps<T>) {
         // holding — and once that happens there may be no further resize to
         // report. So a mounted row without a measurement is read here rather
         // than waited on. Anything read too early, the observer corrects.
-        const key = observed.get(el);
-        if (key === undefined || measured().has(key)) continue;
+        if (measured().has(key)) continue;
         const h = (el as HTMLElement).offsetHeight;
         if (!h) continue;
         next ??= new Map(measured());
@@ -370,7 +386,7 @@ export function Virtual<T>(props: VirtualProps<T>) {
             <div
               class="absolute left-0 right-0 top-0"
               ref={(el) => {
-                observed.set(el, props.id(item(), i));
+                observed.set(el, { key: props.id(item(), i), i });
                 ro.observe(el);
               }}
               style={{ transform: `translateY(${offsets()[i]}px)` }}

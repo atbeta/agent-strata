@@ -173,6 +173,31 @@ html[data-theme="light"] {
     scrollbar-width: thin;
     scrollbar-color: var(--scrollbar) transparent;
   }
+  /* WebKit ignores the standard properties, so the same look is drawn by
+     hand: an 8px lane with a 4px thumb floating in it, transparent track,
+     slightly deeper on hover. The thumb hugs the edge rather than claiming
+     a strip of the pane. */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: var(--scrollbar);
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    border-width: 1px;
+    background: color-mix(in srgb, var(--muted-foreground) 55%, transparent);
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
   /* Top strips are the window chrome. Do not set app-region on html/body:
      WebKit then ignores drag on every descendant, so the window cannot move.
      Interactive controls opt out everywhere, so a drag region cannot swallow
