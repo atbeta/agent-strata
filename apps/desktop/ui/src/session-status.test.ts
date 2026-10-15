@@ -101,7 +101,7 @@ describe("lists draw status through one primitive", () => {
 
   test("both lists use it", () => {
     // Two lists, two bespoke status drawings, one vocabulary.
-    for (const file of ["App.tsx", "fleet-view.tsx"]) {
+    for (const file of ["sidebar-row.tsx", "fleet-view.tsx"]) {
       expect(read(file)).toContain("<SessionStatusMark");
     }
   });
@@ -110,16 +110,16 @@ describe("lists draw status through one primitive", () => {
     // `busy` and `needsInput` arrived as separate booleans, which is how the
     // row ended up deciding for itself: green dot OR orange badge, no third
     // option, and nothing at all for the state that had none.
-    const src = read("App.tsx");
+    const src = read("sidebar-row.tsx");
     expect(src).not.toContain("props.busy");
     expect(src).not.toContain("props.needsInput");
   });
 
   test("the sidebar row picks no status colour of its own", () => {
-    // Scoped to the row. Elsewhere in the file the same classes are correct:
+    // Scoped to the row. Elsewhere in the app the same classes are correct:
     // a connection row draws a green dot for a live backend, and the attaching
     // screen breathes while it connects. Neither is a session.
-    const row = body(read("App.tsx"), "function SessionListItem");
+    const row = body(read("sidebar-row.tsx"), "function SessionListItem");
     expect(row).not.toMatch(/bg-status-|bg-event-permission|bg-transparent/);
   });
 
