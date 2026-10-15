@@ -856,7 +856,6 @@ export function SessionDetail(props: {
   const [histIndex, setHistIndex] = createSignal(-1);
   const [histSaved, setHistSaved] = createSignal("");
   const [sendErr, setSendErr] = createSignal("");
-  const [stopping, setStopping] = createSignal(false);
   const [pendingSend, setPendingSend] = createSignal(false);
   const [options, { refetch: refetchOptions }] = createResource(() =>
     getJson<OptionsResponse>("/options"),
@@ -1685,6 +1684,9 @@ const turnIndexOf = (h: SearchHit): number => {
 
   const deliver = async (out: Outgoing) => {
     setSendErr("");
+    // A confirmation about the run that just ended says nothing about the one
+    // starting, and two of them stacked read as a session stopped twice.
+    setStopped(false);
     setPendingSend(true);
     setHistIndex(-1);
     // The reader's own sentence goes on screen now. Until the store's turn
@@ -1869,17 +1871,59 @@ const turnIndexOf = (h: SearchHit): number => {
     />
   );
 
+  /**
+   * A stop the reader asked for and the backend has not confirmed yet.
+   *
+   * The abort POST returning is not evidence that anything stopped: it returns
+   * when the request is accepted, and the agent is still generating. Measured on
+   * a live session, the old code held "停止中" for about 200ms — shorter than
+   * the blink it takes to notice — and then flipped the button back with the
+   * transcript showing nothing at all, so a stop that worked, a stop that
+   * missed, and a stop aimed at the wrong session were the same picture.
+   *
+   * The event log has no `session.ended` for an abort either — a stopped
+   * session holds `session.status busy` then `idle` and nothing else — so the
+   * session being idle is the whole of the confirmation. This watches that
+   * condition rather than the transition into it: the session can go idle
+   * between the reader deciding to stop and the request landing, and a listener
+   * on the event would then wait for an event that has already been and gone,
+   * and report a stop that worked as one that failed.
+   */
+  const [stopping, setStopping] = createSignal(false);
+  const [stopped, setStopped] = createSignal(false);
+
+  createEffect(() => {
+    if (stopping() && !generating()) {
+      setStopping(false);
+      setStopped(true);
+    }
+  });
+
+  const STOP_TIMEOUT = 8_000;
+  createEffect(() => {
+    if (!stopping()) return;
+    const id = setTimeout(() => {
+      // Still running after all that. Say which of the two it is, rather than
+      // leaving a button that looks exactly like the one that was never pressed.
+      if (!stopping()) return;
+      setStopping(false);
+      setStopped(false);
+      setSendErr(t("stop.unconfirmed"));
+    }, STOP_TIMEOUT);
+    onCleanup(() => clearTimeout(id));
+  });
+
   const stop = async () => {
     if (stopping()) return;
     setSendErr("");
+    setStopped(false);
     setStopping(true);
     try {
       await abortSession(props.id);
       setPendingSend(false);
     } catch (err) {
-      setSendErr(err instanceof Error ? err.message : t("err.abort"));
-    } finally {
       setStopping(false);
+      setSendErr(explainSend(err instanceof Error ? err.message : "", t("err.abort")));
     }
   };
 
@@ -2856,6 +2900,15 @@ const turnIndexOf = (h: SearchHit): number => {
                     </div>
                     <Show when={sendErr()}>
                       <p class="font-mono text-2xs text-destructive">{sendErr()}</p>
+                    </Show>
+                    {/* The stop landed. Without this the button flips back to
+                        Send and the transcript shows a turn that simply ends,
+                        which is the same picture as a stop that did nothing. */}
+                    <Show when={stopped()}>
+                      <p class="flex items-center gap-1.5 font-mono text-2xs text-muted-foreground">
+                        <Icon name="stop" class="size-3 shrink-0" />
+                        {t("stop.done")}
+                      </p>
                     </Show>
                     <Show when={attachErr()}>
                       <p class="font-mono text-2xs text-destructive">{attachErr()}</p>

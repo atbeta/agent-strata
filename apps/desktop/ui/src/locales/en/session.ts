@@ -44,6 +44,14 @@ export default {
   "err.send": "The message was not sent. The draft is still here",
   "err.abort": "abort failed",
 
+  // The two states a stop can be in that are not a failure of the request. The
+  // abort POST returning says nothing — it returns when the request is
+  // accepted, and the agent is still generating. These are what the reader is
+  // shown instead, because "the session is still running" and "the request
+  // failed" look identical if all you have is a button that flipped back.
+  "stop.unconfirmed": "The stop did not take — this session is still running. Try stopping it again.",
+  "stop.done": "Stopped",
+
   // Header.
   "session.untitled": "untitled session",
   "session.child.open": "Open child session",

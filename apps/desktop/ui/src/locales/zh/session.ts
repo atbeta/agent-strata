@@ -44,6 +44,14 @@ export default {
   "err.send": "没能发出去，输入还在",
   "err.abort": "中止失败",
 
+  // The two states a stop can be in that are not a failure of the request. The
+  // abort POST returning says nothing — it returns when the request is
+  // accepted, and the agent is still generating. These are what the reader is
+  // shown instead, because "the session is still running" and "the request
+  // failed" look identical if all you have is a button that flipped back.
+  "stop.unconfirmed": "停止没有生效，这个会话还在运行。可以再停一次。",
+  "stop.done": "已停止",
+
   // Header.
   "session.untitled": "未命名会话",
   "session.child.open": "打开子会话",
