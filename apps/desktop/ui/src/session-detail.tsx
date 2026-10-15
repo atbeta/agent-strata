@@ -2750,17 +2750,26 @@ const turnIndexOf = (h: SearchHit): number => {
                     {(parentId) => {
                       const parent = () => props.sessions.find((s) => s.summary.session_id === parentId());
                       return (
-                        <Button
-                          type="button"
-                          variant="quiet"
-                          size="sm"
-                          class="h-auto max-w-48 shrink-0 truncate px-0 py-0 text-sm"
-                          onClick={() => {
-                            location.hash = `/session/${encodeURIComponent(parentId())}`;
-                          }}
-                        >
-                          {parent()?.title || t("session.child.back")}
-                        </Button>
+                        <>
+                          <Button
+                            type="button"
+                            variant="quiet"
+                            size="sm"
+                            class="h-auto max-w-48 shrink-0 truncate px-0 py-0 text-sm"
+                            onClick={() => {
+                              location.hash = `/session/${encodeURIComponent(parentId())}`;
+                            }}
+                          >
+                            {parent()?.title || t("session.child.back")}
+                          </Button>
+                          {/* The parent is a link back and the h1 is where we
+                              are — without a mark between them the two titles
+                              read as one run-on name. */}
+                          <Icon
+                            name="chevron-right"
+                            class="size-3 shrink-0 self-center text-muted-foreground/60"
+                          />
+                        </>
                       );
                     }}
                   </Show>

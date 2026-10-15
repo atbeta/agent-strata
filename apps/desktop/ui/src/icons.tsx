@@ -10,6 +10,7 @@ export type Name =
   | "search"
   | "folder"
   | "chevron"
+  | "chevron-right"
   | "pencil"
   | "archive"
   | "trash"
@@ -125,6 +126,12 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
     return (
       <Glyph class={cls}>
         <path d="M4 6.2 8 10l4-3.8" />
+      </Glyph>
+    );
+  if (name === "chevron-right")
+    return (
+      <Glyph class={cls}>
+        <path d="M6.2 4 10 8l-3.8 4" />
       </Glyph>
     );
   if (name === "pencil")

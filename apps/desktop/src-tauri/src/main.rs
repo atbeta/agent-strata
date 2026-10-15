@@ -488,9 +488,28 @@ impl Sidecars {
     }
 }
 
+/// A webview download lands in ~/Downloads without ever asking — WKWebView
+/// does not show a save panel for blob URLs. The export button goes through
+/// this instead: a real save panel, then the file written where it pointed.
+/// Returns the chosen path, or None when the panel was dismissed.
+#[tauri::command]
+async fn save_export(file_name: String, contents: Vec<u8>) -> Result<Option<String>, String> {
+    let Some(file) = rfd::AsyncFileDialog::new()
+        .set_file_name(&file_name)
+        .save_file()
+        .await
+    else {
+        return Ok(None);
+    };
+    let path = file.path().to_path_buf();
+    fs::write(&path, &contents).map_err(|e| format!("write {} failed: {e}", path.display()))?;
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .invoke_handler(tauri::generate_handler![save_export])
         .setup(|app| {
             // macOS keeps the overlay title bar and traffic lights. Windows
             // drops the native caption so the webview's drag strip and caption

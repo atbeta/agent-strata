@@ -558,17 +558,29 @@ export function exportFileName(sessionId: string): string {
 /**
  * The shell's page and the service are different origins, so a link to the
  * export would be a cross-site navigation the service refuses. Fetch it and
- * save it from this page instead.
+ * save it from this page instead. In the desktop shell a webview download
+ * drops into ~/Downloads without asking, so the save goes through a native
+ * panel — and its answer comes back so the button can say where it went.
  */
-export async function downloadExport(sessionId: string): Promise<void> {
+export async function downloadExport(sessionId: string): Promise<string | undefined> {
   const res = await fetch(api(`/export?session_id=${encodeURIComponent(sessionId)}`));
   await throwOnError(res);
-  const url = URL.createObjectURL(await res.blob());
+  const blob = await res.blob();
+  if (inDesktopShell()) {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const saved = await invoke<string | null>("save_export", {
+      fileName: exportFileName(sessionId),
+      contents: new Uint8Array(await blob.arrayBuffer()),
+    });
+    return saved ?? undefined;
+  }
+  const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = exportFileName(sessionId);
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  return undefined;
 }
 
 export async function readViewTail(id: string, turns: number, filesKey?: string): Promise<ViewTail> {
