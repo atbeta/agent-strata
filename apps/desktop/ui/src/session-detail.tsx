@@ -80,6 +80,7 @@ import { TraceDrawer, TraceStrip, type TraceBlock } from "./trace";
 import { TurnBlock } from "./transcript";
 import { Virtual, type VirtualApi } from "./virtual";
 import { JUMP_GAP } from "./virtual-tail";
+import { stopConfirmed } from "./stop-verdict";
 import { PromptNavigator } from "./prompt-navigator";
 import { promptAt, promptEntries } from "./prompt-outline";
 import { ComposerToolbar } from "./composer-toolbar";
@@ -1912,9 +1913,25 @@ const turnIndexOf = (h: SearchHit): number => {
    */
   const [stopping, setStopping] = createSignal(false);
   const [stopped, setStopped] = createSignal(false);
+  /**
+   * Whether the backend has taken the abort.
+   *
+   * The view behind this is not a witness. It is a re-fetch, and on a long
+   * session that is the slowest thing on screen: `busy` stays whatever it last
+   * was until the fetch lands, so waiting for it to say idle means waiting on
+   * the slowest part of a system that has already answered. Measured on a
+   * 2,272-event session, the abort itself came back in 420ms — and the watchdog
+   * would have gone on asking for eight.
+   *
+   * The abort POST returning 200 is the answer: the service returns it only
+   * after the backend has taken the request, and a 502 that says otherwise
+   * arrives here as a thrown error instead.
+   */
+  const [abortAccepted, setAbortAccepted] = createSignal(false);
 
   createEffect(() => {
-    if (stopping() && !generating()) {
+    if (!stopping()) return;
+    if (stopConfirmed(abortAccepted(), generating())) {
       setStopping(false);
       setStopped(true);
     }
@@ -1939,9 +1956,23 @@ const turnIndexOf = (h: SearchHit): number => {
     setSendErr("");
     setStopped(false);
     setStopping(true);
+    setAbortAccepted(false);
+    // Before the request, not after it. `pendingSend` says "the reader handed a
+    // prompt over and nothing has come back yet", and pressing stop makes that
+    // untrue the moment the reader presses it — the prompt is no longer waiting
+    // on anything. It used to be cleared after `await abortSession`, which put a
+    // network round trip between pressing the button and the session reading as
+    // not generating; on a long session, where the view behind it is a full
+    // re-fetch, that round trip is long enough for the watchdog to fire first and
+    // report a stop that worked as one that did not.
+    setPendingSend(false);
     try {
       await abortSession(props.id);
-      setPendingSend(false);
+      // The backend returns once it has taken the abort, which is the strongest
+      // confirmation available: a 502 means it did not, and says so. Re-reading
+      // the view is the cross-check, not the primary evidence.
+      setAbortAccepted(true);
+      void refreshView(false);
     } catch (err) {
       setStopping(false);
       setSendErr(explainSend(err instanceof Error ? err.message : "", t("err.abort")));
