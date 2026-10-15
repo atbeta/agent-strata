@@ -10,7 +10,7 @@ Official shadcn/ui is React, so its CLI is not used here. solid-ui's own CLI tar
 
 In use: `Button`, `TextField`, `DropdownMenu` on the sidebar (project switcher, search, row actions, connect). The rest of the screens still carry hand-styled controls; they move onto this set as those screens are touched. Do not add a second styling path beside these components.
 
-`primitive-adoption.test.ts` enforces this. It counts hand-written `<button>` and `<input>` outside `components/ui` and fails when the count rises above a fixed budget. The budget only moves down, and a screen that converts its controls lowers it in the same commit — so "do not add a second styling path" is a red build rather than a sentence in this file.
+`primitive-adoption.test.ts` enforces this. It counts hand-written `<button>` and `<input>` outside `components/ui` and fails when the count rises above a fixed budget. The budget only moves down, and a screen that converts its controls lowers it in the same commit — so "do not add a second styling path" is a red build rather than a sentence in this file. See *Controls left hand-written* below for what the remaining budget is spent on.
 
 ## Patterns
 
@@ -20,6 +20,21 @@ The primitives cover controls. These cover the recurring *shapes* the screens ot
 - **`SectionHeader`** — a sidebar group's label, count and optional hint. The count follows the label directly; only the hint takes the far side. An `ml-auto` count left the label and its number ~250px apart with nothing between them, which read as unrelated chrome.
 - **`EmptyState`** — the one way this app says "nothing here yet" or "that did not work". Fixed shape: icon in a muted disc, title, optional description, optional action, centred. `tone="danger"` tints it for a failure. Loading stays `LoadingTranscript`'s skeleton; `EmptyState` is for states that will not resolve on their own.
 - **`PillGroup`** (in `settings-blocks.tsx`) — the pill idiom as a whole, for sets too wide for one control: six font sizes, four leading presets. `Segmented` covers the two- and three-option case. It wraps deliberately — a set too wide for its column folds instead of spilling past the edge — so the column it sits in has to be wide enough for the widest set, not the average one.
+- **`RowButton`** — a clickable list row that is a *single action*, so unlike `ListRow` it stays a native `<button>` and gets Enter, Space and form semantics for free. Full width, left-aligned, content-sized, one hover shade, one focus ring. Callers override geometry (`rounded-none` for the flush fleet rows, `flex-col items-stretch` for the stacked search hits) and pass `style` / `aria-*` straight through, which is what lets the file tree keep its depth indent and the provider row keep its `aria-expanded`. Reach for `ListRow` when the row holds its own controls; for this when it does not.
+- **`MiniTabs`** — the compact switcher at panel scale: two or three words, one on, no container. Not a variant of `Segmented`, which is the same idea at settings scale with a border and room for a swatch. `kind` is not decoration — `tabs` answers `aria-selected` inside a `tablist` because it reveals a panel that stays mounted, `radio` answers `aria-checked` inside a `radiogroup` because it picks one value out of a set. They look the same; collapsing that would mean lying to one of them.
+- **`ChoiceCard`** — a bordered card that picks one thing: a pending-question option, the OpenCode launch mode. It carries two lines of text where `Button` carries one and a fill, so it earns its border. `mode` again separates the honest contracts — `radio` for one-of-N, `press` for a question that may take several answers at once. `check` draws the corner tick where the border does not already say it.
+
+### Controls left hand-written
+
+Ten `<button>`s stay outside `components/ui`, each because the primitive would be wrong rather than merely redundant. `primitive-adoption.test.ts` names them in full; the categories:
+
+- **Definitions** — `Segmented` and `PillGroup` in `settings-blocks.tsx` are what the other screens are being converted onto.
+- **Sub-ladder sizes** — a 14px JSON tree caret and a 16px attachment-removal badge, both below the 20px floor of the size ladder, which exists so a screen does not invent its own icon-button height.
+- **Absolute-positioned marks** — the trace timeline block and its two 20×16 scroll arrows, which are pinned to a scroll container and driven by opacity.
+- **Cells that already look like something** — a diff cell whose background carries the add/delete colour; the button is only the click target.
+- **Named custom styling** — the transcript tick (`.nav-tick`).
+
+A new one has to argue its way in against that list, not against the budget.
 
 Patterns with one consumer live next to it rather than in `components/ui`: `PanelToggle` (the session header's five panel controls, `session-detail.tsx`), `CaptionButton` (the frameless-window caption controls, `chrome.tsx`). They are the shapes, not primitives, and a second screen asking for one is when they move.
 
