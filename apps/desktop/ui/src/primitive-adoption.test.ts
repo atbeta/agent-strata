@@ -43,7 +43,7 @@ const BUDGET = {
   /**
    * Two, both for the same reason: neither one draws anything.
    *
-   * `session-detail.tsx` is the hidden `type="file"` behind the composer's
+   * `session-composer.tsx` is the hidden `type="file"` behind the composer's
    * attach button — `class="hidden"`, no field chrome, just a picker the
    * button triggers. Putting it in a `TextFieldInput` would add a border and
    * then hide the border.

@@ -53,7 +53,7 @@ describe("question payload", () => {
 });
 
 describe("QuestionCard never reads the raw field again", () => {
-  const src = readFileSync(join(import.meta.dir, "session-detail.tsx"), "utf8");
+  const src = readFileSync(join(import.meta.dir, "session-prompts.tsx"), "utf8");
 
   test("the component has no direct access to q.questions", () => {
     // Exactly one reference is legitimate — the argument handed to the

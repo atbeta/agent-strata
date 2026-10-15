@@ -2,6 +2,9 @@ import type { SessionView, ViewTail } from "./api";
 
 const CAPACITY = 4;
 
+/** turns a live refresh asks for; a durable event during a reply lands in the last one or two */
+export const TAIL_TURNS = 3;
+
 interface Slot {
   id: string;
   view: SessionView;

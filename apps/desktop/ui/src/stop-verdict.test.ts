@@ -40,8 +40,10 @@ describe("stop verdict ratchet", () => {
     // it after `await` put a round trip between the button and the session
     // reading as idle, which on a slow view is long enough for the watchdog to
     // fire on a stop that worked.
-    const src = read("session-detail.tsx");
-    const stop = src.slice(src.indexOf("const stop = async"));
+    const src = read("session-composer.tsx");
+    // Bound the slice to `stop` itself — later helpers also clear the flag.
+    const start = src.indexOf("const stop = async");
+    const stop = src.slice(start, src.indexOf("\n  const ", start + 1));
     const before = stop.slice(0, stop.indexOf("try {"));
     const after = stop.slice(stop.indexOf("try {"));
     expect(before).toContain("setPendingSend(false)");
@@ -49,14 +51,14 @@ describe("stop verdict ratchet", () => {
   });
 
   test("the confirmation is the abort's answer, not the view's", () => {
-    const src = read("session-detail.tsx");
+    const src = read("session-composer.tsx");
     expect(src).toContain("stopConfirmed(abortAccepted(), generating())");
   });
 
   test("a refused abort says so rather than waiting for a verdict", () => {
     // The 502 path has to leave the stopping state, or the button keeps a
     // promise the backend already refused.
-    const src = read("session-detail.tsx");
+    const src = read("session-composer.tsx");
     const stop = src.slice(src.indexOf("const stop = async"));
     const catchBlock = stop.slice(stop.indexOf("catch (err)"));
     expect(catchBlock.slice(0, 300)).toContain("setStopping(false)");
