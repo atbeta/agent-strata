@@ -12,6 +12,13 @@ export default {
   "question.reply": "回复",
   "question.dismiss": "忽略",
 
+  // A prompt whose payload is malformed. The agent still holds its turn and
+  // still expects an answer, so this cannot be a silent drop — it has to be
+  // visible, and it has to be dismissible so it cannot pin the dock open.
+  "question.unreadable": "这条提问读不出来。",
+  "question.unreadable_hint":
+    "服务返回的这条提问缺少内容，无法作答。可以先忽略它，再让会话继续。",
+
   // A permission request sitting above the composer.
   "permission.wants_to_run": "等待确认",
   "permission.allow": "允许",

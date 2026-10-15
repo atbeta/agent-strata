@@ -12,6 +12,13 @@ export default {
   "question.reply": "reply",
   "question.dismiss": "dismiss",
 
+  // A prompt whose payload is malformed. The agent still holds its turn and
+  // still expects an answer, so this cannot be a silent drop — it has to be
+  // visible, and it has to be dismissible so it cannot pin the dock open.
+  "question.unreadable": "This question came back unreadable.",
+  "question.unreadable_hint":
+    "The service sent it without the content to answer with. Dismiss it to let the session move on.",
+
   // A permission request sitting above the composer.
   "permission.wants_to_run": "awaiting approval",
   "permission.allow": "allow",

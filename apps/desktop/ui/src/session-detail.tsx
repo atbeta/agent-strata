@@ -53,6 +53,7 @@ import {
   type SessionView,
 } from "./api";
 import { Icon } from "./icons";
+import { questionGroups } from "./question-payload";
 import { DiffBlock } from "./diff";
 import { FileBrowser } from "./files";
 import { PlanStrip } from "./plan-strip";
@@ -213,8 +214,15 @@ function AskCard(props: {
 }
 
 function QuestionCard(props: { q: PendingQuestion; onDone: () => void }) {
-  const [picks, setPicks] = createSignal<string[][]>(props.q.questions.map(() => []));
-  const [custom, setCustom] = createSignal<string[]>(props.q.questions.map(() => ""));
+  // `/questions` arrives through a blind cast, so nothing checks its shape. An
+  // entry with no `questions` used to throw on the next line — during setup,
+  // before the dock could draw its error bar — and take the whole prompt area
+  // with it: the agent keeps holding its turn waiting on an answer nobody can
+  // see, and the region reads as empty rather than broken. Normalising here
+  // keeps a malformed entry on screen and dismissible instead.
+  const groups = questionGroups(props.q.questions);
+  const [picks, setPicks] = createSignal<string[][]>(groups.map(() => []));
+  const [custom, setCustom] = createSignal<string[]>(groups.map(() => ""));
   const [err, setErr] = createSignal("");
 
   const toggle = (qi: number, label: string, multiple?: boolean) => {
@@ -228,7 +236,7 @@ function QuestionCard(props: { q: PendingQuestion; onDone: () => void }) {
   };
 
   const answers = () =>
-    props.q.questions.map((question, i) => {
+    groups.map((question, i) => {
       const selected = picks()[i] ?? [];
       const extra = custom()[i]?.trim();
       if (selected.length && extra && question.custom) return [...selected, extra];
@@ -248,47 +256,59 @@ function QuestionCard(props: { q: PendingQuestion; onDone: () => void }) {
 
   return (
     <div class="overflow-hidden rounded-lg border border-border bg-card">
-      <For each={props.q.questions}>
-        {(question, qi) => (
-          <div class={qi() > 0 ? "border-t border-border px-3 py-2.5" : "px-3 py-2.5"}>
-            <Show when={question.header}>
-              <div class="text-2xs text-muted-foreground">{question.header}</div>
-            </Show>
-            <p class="mt-0.5 text-sm">{question.question}</p>
-            <div class="mt-2 space-y-1">
-              <For each={question.options}>
-                {(opt) => {
-                  const on = () => (picks()[qi()] ?? []).includes(opt.label);
-                  return (
-                    <ChoiceCard
-                      mode="press"
-                      check
-                      selected={on()}
-                      onSelect={() => toggle(qi(), opt.label, question.multiple)}
-                    >
-                      <span class="block text-sm">{opt.label}</span>
-                      <Show when={opt.description}>
-                        <span class="mt-0.5 block text-2xs leading-4 text-muted-foreground">{opt.description}</span>
-                      </Show>
-                    </ChoiceCard>
-                  );
-                }}
-              </For>
+      <Show
+        when={groups.length > 0}
+        fallback={
+          <div class="px-3 py-2.5">
+            <div class="text-sm text-destructive">{t("question.unreadable")}</div>
+            <div class="mt-0.5 text-2xs leading-4 text-muted-foreground">
+              {t("question.unreadable_hint")}
             </div>
-            <Show when={question.custom}>
-              <TextFieldInput
-                size="sm"
-                class="mt-2"
-                placeholder={t("question.placeholder.custom")}
-                value={custom()[qi()] ?? ""}
-                onInput={(e) =>
-                  setCustom((all) => all.map((v, i) => (i === qi() ? e.currentTarget.value : v)))
-                }
-              />
-            </Show>
           </div>
-        )}
-      </For>
+        }
+      >
+        <For each={groups}>
+          {(question, qi) => (
+            <div class={qi() > 0 ? "border-t border-border px-3 py-2.5" : "px-3 py-2.5"}>
+              <Show when={question.header}>
+                <div class="text-2xs text-muted-foreground">{question.header}</div>
+              </Show>
+              <p class="mt-0.5 text-sm">{question.question}</p>
+              <div class="mt-2 space-y-1">
+                <For each={question.options}>
+                  {(opt) => {
+                    const on = () => (picks()[qi()] ?? []).includes(opt.label);
+                    return (
+                      <ChoiceCard
+                        mode="press"
+                        check
+                        selected={on()}
+                        onSelect={() => toggle(qi(), opt.label, question.multiple)}
+                      >
+                        <span class="block text-sm">{opt.label}</span>
+                        <Show when={opt.description}>
+                          <span class="mt-0.5 block text-2xs leading-4 text-muted-foreground">{opt.description}</span>
+                        </Show>
+                      </ChoiceCard>
+                    );
+                  }}
+                </For>
+              </div>
+              <Show when={question.custom}>
+                <TextFieldInput
+                  size="sm"
+                  class="mt-2"
+                  placeholder={t("question.placeholder.custom")}
+                  value={custom()[qi()] ?? ""}
+                  onInput={(e) =>
+                    setCustom((all) => all.map((v, i) => (i === qi() ? e.currentTarget.value : v)))
+                  }
+                />
+              </Show>
+            </div>
+          )}
+        </For>
+      </Show>
       <div class="flex items-center gap-2 border-t border-border px-2 py-1.5">
         <Show when={err()}>
           <span class="min-w-0 flex-1 text-xs text-destructive">{err()}</span>
@@ -301,9 +321,11 @@ function QuestionCard(props: { q: PendingQuestion; onDone: () => void }) {
         >
           {t("question.dismiss")}
         </Button>
-        <Button size="sm" class="h-7" onClick={() => void submit()}>
-          {t("question.reply")}
-        </Button>
+        <Show when={groups.length > 0}>
+          <Button size="sm" class="h-7" onClick={() => void submit()}>
+            {t("question.reply")}
+          </Button>
+        </Show>
       </div>
     </div>
   );
