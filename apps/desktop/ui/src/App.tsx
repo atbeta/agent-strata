@@ -1058,8 +1058,16 @@ export function App() {
             onClick={openFleet}
           >
             <Icon name="list" class="size-3.5 shrink-0 text-muted-foreground" />
-            <span class="min-w-0 flex-1 truncate">{t("fleet.nav")}</span>
-            <span class="font-mono text-2xs text-muted-foreground tabular-nums">{sessions().length}</span>
+            {/* Label and count travel together, the way SectionHeader sets a
+                group's count beside its name. `flex-1` here stranded the number
+                at the panel edge, so the one row that sits directly above the
+                groups read differently from the groups below it. */}
+            <span class="flex items-baseline gap-1.5">
+              <span class="truncate">{t("fleet.nav")}</span>
+              <span class="font-mono text-2xs text-muted-foreground/60 tabular-nums">
+                {sessions().length}
+              </span>
+            </span>
           </button>
         </div>
         <div class="min-h-0 flex-1 overflow-y-auto px-1.5 py-1">

@@ -358,7 +358,7 @@ export function SettingsPage(props: { section?: string }) {
             />
           </Row>
 
-          <Row label={t("settings.font.size")}>
+          <Row label={t("settings.font.size")} controlClass="w-72">
             <div class="flex flex-wrap justify-end gap-1.5" role="radiogroup" aria-label={t("settings.font.size")}>
               <button
                 type="button"

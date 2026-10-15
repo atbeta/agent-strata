@@ -1,4 +1,5 @@
 import { Show, type JSX } from "solid-js";
+import { cn } from "@/lib/utils";
 
 /**
  * The three shapes every settings section is built from. They live here rather
@@ -22,7 +23,14 @@ export function Group(props: { label: string; children: JSX.Element }) {
  * on the page ends at the same x — controls that size themselves to their
  * content leave a ragged right edge that reads as unfinished.
  */
-export function Row(props: { label: string; hint?: string; children: JSX.Element }) {
+export function Row(props: {
+  label: string;
+  hint?: string;
+  /** Control column width. A row whose control is wider than one chip-column
+   *  needs more room or the chips wrap and leave an orphan on their own line. */
+  controlClass?: string;
+  children: JSX.Element;
+}) {
   return (
     <div class="flex items-start justify-between gap-6 py-2.5">
       <div class="min-w-0 pt-1">
@@ -31,7 +39,9 @@ export function Row(props: { label: string; hint?: string; children: JSX.Element
           <div class="mt-0.5 text-2xs leading-4 text-muted-foreground">{props.hint}</div>
         </Show>
       </div>
-      <div class="flex w-60 shrink-0 justify-end pt-1">{props.children}</div>
+      <div class={cn("flex shrink-0 justify-end pt-1", props.controlClass ?? "w-60")}>
+        {props.children}
+      </div>
     </div>
   );
 }

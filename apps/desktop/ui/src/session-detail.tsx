@@ -248,7 +248,7 @@ function QuestionCard(props: { q: PendingQuestion; onDone: () => void }) {
                   return (
                     <button
                       type="button"
-                      class={`flex w-full items-start gap-2 rounded-md border px-2.5 py-1.5 text-left transition-colors ${
+                      class={`flex w-full cursor-pointer items-start gap-2 rounded-md border px-2.5 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                         on() ? "border-ring bg-secondary" : "border-border hover:bg-secondary/50"
                       }`}
                       onClick={() => toggle(qi(), opt.label, question.multiple)}
