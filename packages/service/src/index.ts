@@ -64,7 +64,7 @@ interface PendingQuestion {
     custom?: boolean;
   }[];
   asked_at: string;
-  resolve: (ans: { decision: "reply" | "reject"; answers?: string[][] }) => void;
+  resolve: (ans: { decision: "reply" | "reject"; answers?: string[][]; external?: boolean }) => void;
 }
 
 export interface RunningService {
@@ -229,15 +229,23 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   const onQuestion = (req: Extract<EventInput, { type: "question.asked" }>) => {
     store.append([req]);
     const data = req.data;
-    return new Promise<{ decision: "reply" | "reject"; answers?: string[][] }>((resolve) =>
-      pendingQuestions.set(data.request_id, {
-        request_id: data.request_id,
-        session_id: req.session_id,
-        questions: data.questions,
-        asked_at: req.ts,
-        resolve,
-      }),
+    return new Promise<{ decision: "reply" | "reject"; answers?: string[][]; external?: boolean }>(
+      (resolve) =>
+        pendingQuestions.set(data.request_id, {
+          request_id: data.request_id,
+          session_id: req.session_id,
+          questions: data.questions,
+          asked_at: req.ts,
+          resolve,
+        }),
     );
+  };
+  /** Answered on another client — drop our card without replying again. */
+  const settleQuestion = (requestId: string) => {
+    const q = pendingQuestions.get(requestId);
+    if (!q) return;
+    pendingQuestions.delete(requestId);
+    q.resolve({ decision: "reply", external: true });
   };
   const memory = connectionMemory(opts.db);
 
@@ -276,6 +284,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         onAsk,
         onQuestion,
         onSettled: settleAsk,
+        onQuestionSettled: settleQuestion,
       });
     } else if (backend === "acp") {
       if (!body.command) throw new Error("command required");

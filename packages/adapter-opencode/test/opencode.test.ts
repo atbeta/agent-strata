@@ -993,6 +993,77 @@ describe("createIngestor seam", () => {
     store.close();
   });
 
+  test("an ask replayed while still pending does not prompt again", async () => {
+    let asks = 0;
+    const ing = createIngestor({
+      mapper: new OpencodeMapper(),
+      sink: { append() {} },
+      onAsk: () => {
+        asks += 1;
+        return new Promise(() => {}); // user still thinking
+      },
+      reply: async () => {},
+    });
+    ing.handle(sessionCreated());
+    // the pending-permission list is re-polled every sync and replays the ask
+    ing.handle(asked("bash", ["ls"], "perm1"));
+    ing.handle(asked("bash", ["ls"], "perm1"));
+    await Bun.sleep(20);
+    expect(asks).toBe(1);
+    // answered elsewhere: the inflight marker clears, and a later re-ask is new work
+    ing.handle({
+      id: "pr",
+      type: "permission.replied",
+      properties: { sessionID: sid, requestID: "perm1", reply: "once" },
+    } as unknown as Event);
+    ing.handle(asked("bash", ["ls"], "perm1"));
+    await Bun.sleep(20);
+    expect(asks).toBe(2);
+  });
+
+  test("question.replied settles the pending question without answering", async () => {
+    const settled: string[] = [];
+    const replied: string[] = [];
+    let resolveQ: ((ans: { decision: "reply" | "reject"; external?: boolean }) => void) | undefined;
+    const ing = createIngestor({
+      mapper: new OpencodeMapper(),
+      sink: { append() {} },
+      onQuestion: () =>
+        new Promise((resolve) => {
+          resolveQ = resolve;
+        }),
+      onQuestionSettled: (id) => {
+        settled.push(id);
+        resolveQ?.({ decision: "reply", external: true });
+      },
+      reply: async () => {},
+      replyQuestion: async (id) => {
+        replied.push(id);
+      },
+      rejectQuestion: async () => {},
+    });
+    ing.handle(sessionCreated());
+    ing.handle({
+      id: "qa1",
+      type: "question.asked",
+      properties: {
+        id: "q1",
+        sessionID: sid,
+        questions: [
+          { question: "proceed?", header: "?", options: [{ label: "yes", description: "" }] },
+        ],
+      },
+    } as unknown as Event);
+    ing.handle({
+      id: "qr1",
+      type: "question.replied",
+      properties: { sessionID: sid, requestID: "q1", answers: [["yes"]] },
+    } as unknown as Event);
+    await Bun.sleep(20);
+    expect(settled).toEqual(["q1"]);
+    expect(replied).toEqual([]);
+  });
+
   test("streaming snapshots go to publish, never to append", () => {
     const appended: EventInput[] = [];
     const published: EventInput[] = [];

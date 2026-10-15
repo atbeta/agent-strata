@@ -58,7 +58,7 @@ export type OnAsk = (
 
 export type OnQuestion = (
   req: Extract<EventInput, { type: "question.asked" }>,
-) => Promise<{ decision: "reply" | "reject"; answers?: string[][] }>;
+) => Promise<{ decision: "reply" | "reject"; answers?: string[][]; external?: boolean }>;
 
 const SHELL_PERMS = new Set(["bash", "pwsh", "powershell", "cmd"]);
 
@@ -1155,6 +1155,8 @@ export function createIngestor(opts: {
   onQuestion?: OnQuestion;
   /** OpenCode already answered this ask, so the waiting prompt can leave. */
   onSettled?: (requestId: string, decision: "allow" | "deny") => void;
+  /** Same for a question answered on another client. */
+  onQuestionSettled?: (requestId: string) => void;
   reply: (requestID: string, reply: "once" | "always" | "reject", message?: string) => Promise<unknown>;
   replyQuestion?: (requestID: string, answers: string[][]) => Promise<unknown>;
   rejectQuestion?: (requestID: string) => Promise<unknown>;
@@ -1302,6 +1304,7 @@ export function createIngestor(opts: {
       `opencode:${p.id}:question.asked`,
     ) as Extract<EventInput, { type: "question.asked" }>;
     const ans = await opts.onQuestion(req);
+    if (ans.external) return;
     if (ans.decision === "reply") {
       await opts.replyQuestion(p.id, ans.answers ?? []);
       emitQuestionResolved(p.sessionID, p.id, "reply", ans.answers);
@@ -1310,6 +1313,13 @@ export function createIngestor(opts: {
     await opts.rejectQuestion(p.id);
     emitQuestionResolved(p.sessionID, p.id, "reject");
   };
+
+  /**
+   * Requests waiting on a user answer, keyed by kind+id. The pending lists
+   * are re-polled on every sync, so the same ask would otherwise spawn a
+   * fresh handler — and for questions a fresh waiting promise — each round.
+   */
+  const inflightPrompts = new Set<string>();
 
   return {
     handle(evt: Event) {
@@ -1322,18 +1332,31 @@ export function createIngestor(opts: {
       scheduleFlush();
       scheduleSettle();
       if (evt.type === "permission.asked") {
-        void handlePermission(evt).catch((err) =>
-          console.error("opencode permission handling error:", err),
-        );
+        const key = `perm:${evt.properties.id}`;
+        if (!inflightPrompts.has(key)) {
+          inflightPrompts.add(key);
+          void handlePermission(evt).catch((err) =>
+            console.error("opencode permission handling error:", err),
+          );
+        }
       }
       if (evt.type === "permission.replied") {
+        inflightPrompts.delete(`perm:${evt.properties.requestID}`);
         const reply = evt.properties.reply;
         opts.onSettled?.(evt.properties.requestID, reply === "reject" ? "deny" : "allow");
       }
       if (evt.type === "question.asked") {
-        void handleQuestion(evt).catch((err) =>
-          console.error("opencode question handling error:", err),
-        );
+        const key = `q:${evt.properties.id}`;
+        if (!inflightPrompts.has(key)) {
+          inflightPrompts.add(key);
+          void handleQuestion(evt).catch((err) =>
+            console.error("opencode question handling error:", err),
+          );
+        }
+      }
+      if (evt.type === "question.replied" || evt.type === "question.rejected") {
+        inflightPrompts.delete(`q:${evt.properties.requestID}`);
+        opts.onQuestionSettled?.(evt.properties.requestID);
       }
     },
     stop() {
@@ -1359,6 +1382,7 @@ export async function connectOpencode(opts: {
   onAsk?: OnAsk;
   onQuestion?: OnQuestion;
   onSettled?: (requestId: string, decision: "allow" | "deny") => void;
+  onQuestionSettled?: (requestId: string) => void;
   onEvent?: (evt: Event) => void;
   connectTimeoutMs?: number;
   /** How long prompt_async may take to accept. It returns once the run has started. */
@@ -1490,6 +1514,7 @@ export async function connectOpencode(opts: {
     onAsk: opts.onAsk,
     onQuestion: opts.onQuestion,
     onSettled: opts.onSettled,
+    onQuestionSettled: opts.onQuestionSettled,
     reply: async (requestID, r, message) => {
       await client.permission.reply({ requestID, reply: r, message });
     },
@@ -2002,6 +2027,60 @@ export async function connectOpencode(opts: {
       return ids;
     },
     /**
+     * Prompts waiting on a user answer live server-side, not on the event
+     * bus: an ask raised while this connection was down never reaches us as
+     * `permission.asked`, and the session sits busy forever with no card.
+     * The server owns a list of them — replaying each as the asked event
+     * runs the same policy and prompt path a live ask would, and the
+     * ingestor's inflight set makes a re-poll a no-op.
+     *
+     * The lists are scoped per project directory: an unscoped call only
+     * sees asks bound to the server's own root, which is why this runs per
+     * known directory (plus once unscoped for that root).
+     */
+    async restorePendingPrompts(directories: Set<string | undefined>) {
+      const pending: Event[] = [];
+      const seen = new Set<string>();
+      await mapLimit([undefined, ...directories], SYNC_CONCURRENCY, async (directory) => {
+        const [perms, questions] = await Promise.all([
+          client.permission.list({ directory }).then(
+            (r) => r.data ?? [],
+            (err) => {
+              console.error("opencode permission list failed:", err);
+              return [];
+            },
+          ),
+          client.question.list({ directory }).then(
+            (r) => r.data ?? [],
+            (err) => {
+              console.error("opencode question list failed:", err);
+              return [];
+            },
+          ),
+        ]);
+        for (const req of perms) {
+          if (seen.has(`p:${req.id}`)) continue;
+          seen.add(`p:${req.id}`);
+          pending.push({
+            id: `restore:permission:${req.id}`,
+            type: "permission.asked",
+            properties: req,
+          } as Event);
+        }
+        for (const req of questions) {
+          if (seen.has(`q:${req.id}`)) continue;
+          seen.add(`q:${req.id}`);
+          pending.push({
+            id: `restore:question:${req.id}`,
+            type: "question.asked",
+            properties: req,
+          } as Event);
+        }
+      });
+      for (const evt of pending) ingestor.handle(evt);
+    },
+
+    /**
      * Re-read every project the server knows and pull transcripts that moved
      * since the last sync. Safe to call repeatedly: an unchanged session is
      * not imported again. Two phases — a concurrent metadata crawl that makes
@@ -2018,6 +2097,7 @@ export async function connectOpencode(opts: {
       } catch (err) {
         console.error("opencode project list failed:", err);
       }
+      await api.restorePendingPrompts(directories);
       const seen = new Set<string>();
       const found: { info: Session; directory: string | undefined }[] = [];
       const collect = (info: Session, directory: string | undefined) => {

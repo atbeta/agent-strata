@@ -24,6 +24,7 @@ export async function connectOpencodeDriver(opts: {
   onAsk?: OnAsk;
   onQuestion?: OnQuestion;
   onSettled?: (requestId: string, decision: "allow" | "deny") => void;
+  onQuestionSettled?: (requestId: string) => void;
 }): Promise<BackendDriver> {
   let syncing: Promise<number> | undefined;
   const conn = await connectOpencode({
@@ -37,6 +38,7 @@ export async function connectOpencodeDriver(opts: {
     onAsk: opts.onAsk,
     onQuestion: opts.onQuestion,
     onSettled: opts.onSettled,
+    onQuestionSettled: opts.onQuestionSettled,
   });
   const id = `${PREFIX}${opts.baseUrl}`;
   return {
