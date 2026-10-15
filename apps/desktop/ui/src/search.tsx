@@ -4,6 +4,7 @@ import { t } from "./i18n";
 import { Icon } from "./icons";
 import { eventText, previewWindow, type PreviewWindow } from "./search-format";
 import { RowButton } from "@/components/ui/row-button";
+import { TextFieldInput } from "@/components/ui/text-field";
 
 function projectLabel(path?: string | null): string {
   if (!path) return "";
@@ -167,9 +168,10 @@ export function CommandSearch(props: {
             class="w-[32rem] max-w-[calc(100%-2rem)] overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-lg"
             onMouseDown={(e) => e.stopPropagation()}
           >
-            <input
+            <TextFieldInput
               ref={input}
-              class="h-11 w-full bg-transparent px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground"
+              bare
+              class="h-11 px-3"
               placeholder={t("search.placeholder")}
               aria-label={t("search.label")}
               value={props.query}

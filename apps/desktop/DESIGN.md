@@ -26,15 +26,21 @@ The primitives cover controls. These cover the recurring *shapes* the screens ot
 
 ### Controls left hand-written
 
-Ten `<button>`s stay outside `components/ui`, each because the primitive would be wrong rather than merely redundant. `primitive-adoption.test.ts` names them in full; the categories:
+Ten `<button>`s and two `<input>`s stay outside `components/ui`, each because the primitive would be wrong rather than merely redundant. `primitive-adoption.test.ts` names them in full; the categories:
 
 - **Definitions** — `Segmented` and `PillGroup` in `settings-blocks.tsx` are what the other screens are being converted onto.
 - **Sub-ladder sizes** — a 14px JSON tree caret and a 16px attachment-removal badge, both below the 20px floor of the size ladder, which exists so a screen does not invent its own icon-button height.
 - **Absolute-positioned marks** — the trace timeline block and its two 20×16 scroll arrows, which are pinned to a scroll container and driven by opacity.
 - **Cells that already look like something** — a diff cell whose background carries the add/delete colour; the button is only the click target.
-- **Named custom styling** — the transcript tick (`.nav-tick`).
+- **Inputs that draw nothing** — the hidden `type="file"` behind the composer's attach button, and the inline rename field inside a sidebar `ListRow`. The second one is the documented reason `ListRow` is a `div[role=button]` rather than a real button: a field cannot legally nest inside one, and it has to be borderless so the edit does not reflow the row.
 
 A new one has to argue its way in against that list, not against the budget.
+
+### Fields
+
+`TextFieldInput` runs 28 → 36 for the same reason `Button` runs 20 → 44: the policy editor and the MCP and provider forms sit inside panels that are already dense, and a 36px field there made the form read as settings rather than as part of the surface it belongs to. `mono` is a face rather than a size — a field holding a command, a path or a token is set in mono, and three screens had each invented that class for itself. `bare` drops the box entirely for a field already inside one: the global search overlay, the command palette, the in-session find bar.
+
+`TextField` exists only to give `TextFieldLabel` something to point at. A field with no caption above it — a table row, a toolbar — takes `TextFieldInput` alone, which is what nineteen of the call sites do.
 
 Patterns with one consumer live next to it rather than in `components/ui`: `PanelToggle` (the session header's five panel controls, `session-detail.tsx`), `CaptionButton` (the frameless-window caption controls, `chrome.tsx`). They are the shapes, not primitives, and a second screen asking for one is when they move.
 

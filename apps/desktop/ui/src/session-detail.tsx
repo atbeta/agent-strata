@@ -90,6 +90,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { MiniTabs } from "@/components/ui/mini-tabs";
 import { Picker } from "@/components/ui/picker";
 import { RowButton } from "@/components/ui/row-button";
+import { TextFieldInput } from "@/components/ui/text-field";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   ATTACHMENT_ACCEPT,
@@ -265,8 +266,9 @@ function QuestionCard(props: { q: PendingQuestion; onDone: () => void }) {
               </For>
             </div>
             <Show when={question.custom}>
-              <input
-                class="mt-2 h-8 w-full rounded-md border border-border bg-transparent px-2.5 text-sm focus:border-ring focus:outline-none"
+              <TextFieldInput
+                size="sm"
+                class="mt-2"
                 placeholder={t("question.placeholder.custom")}
                 value={custom()[qi()] ?? ""}
                 onInput={(e) =>
@@ -2115,9 +2117,10 @@ const turnIndexOf = (h: SearchHit): number => {
                 <div class="absolute right-4 top-11 z-30 w-[26rem] max-w-[calc(100%-2rem)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg">
                   <div class="flex items-center gap-2 border-b border-border px-3 py-2">
                     <Icon name="search" class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    <input
+                    <TextFieldInput
                       ref={(el) => (searchEl = el)}
-                      class="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                      bare
+                      class="min-w-0 flex-1"
                       placeholder={t("session.search.placeholder")}
                       value={query()}
                       onInput={(e) => onQuery(e.currentTarget.value)}
@@ -2297,8 +2300,9 @@ const turnIndexOf = (h: SearchHit): number => {
                                           void finishMcpAuth(name);
                                         }}
                                       >
-                                        <input
-                                          class="h-7 min-w-0 flex-1 rounded-md border border-border bg-secondary/40 px-2 text-xs text-foreground outline-none"
+                                        <TextFieldInput
+                                          size="xs"
+                                          class="min-w-0 flex-1"
                                           aria-label={t("mcp.auth.code")}
                                           placeholder={t("mcp.auth.code")}
                                           autocomplete="off"
@@ -2337,10 +2341,11 @@ const turnIndexOf = (h: SearchHit): number => {
                     <Show when={toolsReady()}>
                       <form class="mt-2 border-t border-border px-1.5 pt-2" onSubmit={(e) => void submitMcp(e)}>
                         <div class="text-2xs font-medium text-muted-foreground">{t("mcp.add")}</div>
-                        <input
+                        <TextFieldInput
+                          size="xs"
                           value={mcpName()}
                           placeholder={t("mcp.add.name")}
-                          class="mt-1.5 h-7 w-full rounded-md border border-border bg-secondary/40 px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground"
+                          class="mt-1.5"
                           onInput={(e) => setMcpName(e.currentTarget.value)}
                         />
                         <MiniTabs
@@ -2354,10 +2359,12 @@ const turnIndexOf = (h: SearchHit): number => {
                           ]}
                           class="mt-1.5 gap-1"
                         />
-                        <input
+                        <TextFieldInput
+                          size="xs"
+                          mono
                           value={mcpValue()}
                           placeholder={t(mcpKind() === "command" ? "mcp.add.command.placeholder" : "mcp.add.url.placeholder")}
-                          class="mt-1.5 h-7 w-full rounded-md border border-border bg-secondary/40 px-2 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground"
+                          class="mt-1.5"
                           onInput={(e) => setMcpValue(e.currentTarget.value)}
                         />
                         <p class="mt-1.5 text-2xs text-muted-foreground">{t("mcp.add.hint")}</p>

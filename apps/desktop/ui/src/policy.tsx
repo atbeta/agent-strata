@@ -14,6 +14,7 @@ import { t, tn } from "./i18n";
 import type { MessageKey } from "./locales/zh";
 import { Icon } from "./icons";
 import { Button } from "@/components/ui/button";
+import { TextFieldInput } from "@/components/ui/text-field";
 import { Picker } from "@/components/ui/picker";
 import { Segmented } from "./settings-blocks";
 
@@ -105,8 +106,9 @@ const DECISION_CLS: Record<PolicyDecision["decision"], string> = {
   ask: "text-event-permission",
 };
 
-const inputCls =
-  "h-8 min-w-0 rounded-md border border-border bg-transparent px-2 font-mono text-xs text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none";
+/** Every field in the policy editor holds a command, a path or a pattern, so
+ *  they are dense and set in the mono face. The rule's reason is the exception
+ *  — it is a sentence, and it does not say `mono`. */
 
 const fieldPicker =
   "h-8 max-w-none rounded-md border border-border bg-transparent px-2 font-sans text-xs text-foreground hover:bg-transparent";
@@ -138,8 +140,10 @@ function RuleCard(props: { index: number; draft: Draft; setDraft: (fn: (d: Draft
           }))}
           onChange={(value) => setRule((r) => (r.effect = value as RuleDraft["effect"]))}
         />
-        <input
-          class={`${inputCls} flex-1`}
+        <TextFieldInput
+          size="sm"
+          mono
+          class="flex-1"
           aria-label={t("policy.field.tool")}
           placeholder="bash"
           title={t("policy.field.toolHint")}
@@ -159,15 +163,16 @@ function RuleCard(props: { index: number; draft: Draft; setDraft: (fn: (d: Draft
 
       <div class="grid grid-cols-[4.75rem_minmax(0,1fr)] items-center gap-x-3 gap-y-2 border-t border-border px-3 py-2.5">
         <span class="text-2xs text-muted-foreground">{t("policy.field.ruleId")}</span>
-        <input
-          class={inputCls}
+        <TextFieldInput
+          size="sm"
+          mono
           aria-label={t("policy.field.ruleId")}
           value={rule().id}
           onInput={(e) => setRule((r) => (r.id = e.currentTarget.value))}
         />
         <span class="text-2xs text-muted-foreground">{t("policy.field.reason")}</span>
-        <input
-          class={`${inputCls} font-sans`}
+        <TextFieldInput
+          size="sm"
           placeholder={t("policy.field.reasonPlaceholder")}
           value={rule().reason}
           onInput={(e) => setRule((r) => (r.reason = e.currentTarget.value))}
@@ -194,8 +199,10 @@ function RuleCard(props: { index: number; draft: Draft; setDraft: (fn: (d: Draft
           <For each={rule().conds}>
             {(c, ci) => (
               <div class="flex items-center gap-1.5">
-                <input
-                  class={`${inputCls} w-36`}
+                <TextFieldInput
+                  size="sm"
+                  mono
+                  class="w-36"
                   aria-label={t("policy.conditions.title")}
                   placeholder="command"
                   value={c.path}
@@ -212,8 +219,10 @@ function RuleCard(props: { index: number; draft: Draft; setDraft: (fn: (d: Draft
                   ]}
                   onChange={(value) => setRule((r) => (r.conds[ci()]!.op = value as CondRow["op"]))}
                 />
-                <input
-                  class={`${inputCls} flex-1`}
+                <TextFieldInput
+                  size="sm"
+                  mono
+                  class="flex-1"
                   placeholder={c.op === "equals" ? "true" : c.op === "matches" ? "\\brm\\b" : "*.env"}
                   value={c.value}
                   onInput={(e) => setRule((r) => (r.conds[ci()]!.value = e.currentTarget.value))}
@@ -386,15 +395,19 @@ export function PolicyEditor() {
         <h2 class="text-xs text-muted-foreground">{t("policy.test.title")}</h2>
         <p class="mt-1 text-2xs leading-4 text-muted-foreground">{t("policy.test.hint")}</p>
         <div class="mt-2 flex gap-2">
-          <input
-            class={`${inputCls} w-28`}
+          <TextFieldInput
+            size="sm"
+            mono
+            class="w-28"
             aria-label={t("policy.field.tool")}
             placeholder={t("policy.field.tool")}
             value={testTool()}
             onInput={(e) => setTestTool(e.currentTarget.value)}
           />
-          <input
-            class={`${inputCls} flex-1`}
+          <TextFieldInput
+            size="sm"
+            mono
+            class="flex-1"
             value={testInput()}
             onInput={(e) => setTestInput(e.currentTarget.value)}
           />

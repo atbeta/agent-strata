@@ -24,6 +24,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { RowButton } from "@/components/ui/row-button";
+import { TextFieldInput } from "@/components/ui/text-field";
 
 /**
  * Providers used to be twenty full cards, each with its own password box and
@@ -100,11 +101,13 @@ function ProviderDetail(props: {
         props.onSave();
       }}
     >
-      <input
+      <TextFieldInput
         type="password"
         autocomplete="off"
         spellcheck={false}
-        class="h-8 min-w-0 flex-1 rounded-md border border-border bg-secondary/40 px-2.5 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-ring"
+        size="xs"
+        mono
+        class="min-w-0 flex-1"
         aria-label={`${props.row.name} ${t("settings.provider.key")}`}
         placeholder={
           props.row.connected ? t("settings.provider.keyReplace") : t("settings.provider.key")
@@ -153,8 +156,10 @@ function ProviderDetail(props: {
                   props.onSubmitCode();
                 }}
               >
-                <input
-                  class="h-8 min-w-0 flex-1 rounded-md border border-border bg-secondary/40 px-2.5 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-ring"
+                <TextFieldInput
+                  size="xs"
+                  mono
+                  class="min-w-0 flex-1"
                   aria-label={t("settings.provider.code")}
                   placeholder={t("settings.provider.code")}
                   autocomplete="off"
@@ -258,8 +263,9 @@ function ProviderDetail(props: {
                             <Show
                               when={prompt.type === "select"}
                               fallback={
-                                <input
-                                  class="mt-1 h-8 w-full rounded-md border border-border bg-secondary/40 px-2.5 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-ring"
+                                <TextFieldInput
+                                  size="sm"
+                                  class="mt-1"
                                   placeholder={prompt.placeholder ?? ""}
                                   value={props.inputs[prompt.key] ?? ""}
                                   onInput={(event) =>
@@ -641,8 +647,8 @@ function ProviderList(props: { connectionId: string }) {
           the two or three providers of a fresh install should not carry a
           search box for a list you can already read. */}
       <Show when={all().length > 6}>
-        <input
-          class="h-8 w-full rounded-md border border-border bg-secondary/40 px-2.5 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-ring"
+        <TextFieldInput
+          size="sm"
           type="search"
           placeholder={t("settings.provider.filter")}
           aria-label={t("settings.provider.filter")}

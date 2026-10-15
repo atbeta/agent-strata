@@ -2,6 +2,7 @@ import { createEffect, createSignal, For, Show } from "solid-js";
 import { commandList, formatChord, type AppCommand } from "./commands";
 import { t } from "./i18n";
 import { RowButton } from "@/components/ui/row-button";
+import { TextFieldInput } from "@/components/ui/text-field";
 
 type PaletteRow =
   | { kind: "command"; cmd: AppCommand }
@@ -77,9 +78,10 @@ export function CommandPalette(props: {
           class="w-[32rem] max-w-[calc(100%-2rem)] overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-lg"
           onMouseDown={(e) => e.stopPropagation()}
         >
-          <input
+          <TextFieldInput
             ref={input}
-            class="h-11 w-full bg-transparent px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground"
+            bare
+            class="h-11 px-3"
             placeholder={t("palette.placeholder")}
             aria-label={t("palette.title")}
             value={query()}

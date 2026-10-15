@@ -1026,12 +1026,16 @@ export function App() {
                   }}
                   onPointerDown={(e) => e.stopPropagation()}
                 >
-                  <TextField value={wsDraft()} onChange={setWsDraft}>
+                  <TextField>
                     <TextFieldLabel class="text-2xs font-medium text-muted-foreground">
                       {t("sidebar.project.openDirectory")}
                     </TextFieldLabel>
                     <TextFieldInput
-                      class="h-8 font-mono text-2xs"
+                      size="sm"
+                      mono
+                      value={wsDraft()}
+                      onChange={setWsDraft}
+                      class="bg-background text-2xs"
                       placeholder="/path/to/project"
                       onKeyDown={(e) => e.stopPropagation()}
                     />
@@ -1167,42 +1171,56 @@ export function App() {
                 when={connKind() === "acp"}
                 fallback={
                   <>
-                    <TextField value={connUrl()} onChange={setConnUrl} class="gap-0">
-                      <TextFieldInput
-                        class="h-8 bg-background font-mono text-2xs"
-                        placeholder="http://127.0.0.1:4096"
-                      />
-                    </TextField>
+                    <TextFieldInput
+                      size="sm"
+                      mono
+                      value={connUrl()}
+                      onChange={setConnUrl}
+                      class="bg-background text-2xs"
+                      placeholder="http://127.0.0.1:4096"
+                    />
                     <div class="flex gap-1.5">
-                      <TextField value={connName()} onChange={setConnName} class="w-1/3 gap-0">
-                        <TextFieldInput class="h-8 bg-background px-2 text-2xs" placeholder={t("connect.form.name")} />
-                      </TextField>
-                      <TextField value={connUser()} onChange={setConnUser} class="w-1/3 gap-0">
-                        <TextFieldInput
-                          class="h-8 bg-background px-2 text-2xs"
-                          placeholder={t("connect.form.user")}
-                        />
-                      </TextField>
-                      <TextField value={connPass()} onChange={setConnPass} class="w-1/3 gap-0">
-                        <TextFieldInput
-                          type="password"
-                          class="h-8 bg-background px-2 text-2xs"
-                          placeholder={t("connect.form.password")}
-                        />
-                      </TextField>
+                      <TextFieldInput
+                        size="sm"
+                        value={connName()}
+                        onChange={setConnName}
+                        class="w-1/3 bg-background px-2 text-2xs"
+                        placeholder={t("connect.form.name")}
+                      />
+                      <TextFieldInput
+                        size="sm"
+                        value={connUser()}
+                        onChange={setConnUser}
+                        class="w-1/3 bg-background px-2 text-2xs"
+                        placeholder={t("connect.form.user")}
+                      />
+                      <TextFieldInput
+                        size="sm"
+                        type="password"
+                        value={connPass()}
+                        onChange={setConnPass}
+                        class="w-1/3 bg-background px-2 text-2xs"
+                        placeholder={t("connect.form.password")}
+                      />
                     </div>
                   </>
                 }
               >
-                <TextField value={connCmd()} onChange={setConnCmd} class="gap-0">
-                  <TextFieldInput
-                    class="h-8 bg-background font-mono text-2xs"
-                    placeholder={t("connect.form.command")}
-                  />
-                </TextField>
-                <TextField value={connName()} onChange={setConnName} class="gap-0">
-                  <TextFieldInput class="h-8 bg-background px-2 text-2xs" placeholder={t("connect.form.name")} />
-                </TextField>
+                <TextFieldInput
+                  size="sm"
+                  mono
+                  value={connCmd()}
+                  onChange={setConnCmd}
+                  class="bg-background text-2xs"
+                  placeholder={t("connect.form.command")}
+                />
+                <TextFieldInput
+                  size="sm"
+                  value={connName()}
+                  onChange={setConnName}
+                  class="bg-background px-2 text-2xs"
+                  placeholder={t("connect.form.name")}
+                />
               </Show>
               <Button
                 class="h-8 w-full"

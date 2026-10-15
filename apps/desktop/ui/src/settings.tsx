@@ -27,6 +27,7 @@ import {
 import { ChoiceCard } from "@/components/ui/choice-card";
 import { RowButton } from "@/components/ui/row-button";
 import { Switch } from "@/components/ui/switch";
+import { TextFieldInput } from "@/components/ui/text-field";
 import { Group, PillGroup, Row, Segmented } from "./settings-blocks";
 import { PolicyEditor } from "./policy";
 import { ProviderSettings } from "./providers";
@@ -111,8 +112,9 @@ function FontPicker(props: {
       </DropdownMenu>
 
       <Show when={editing() || missing()}>
-        <input
-          class="mt-2 h-8 w-full rounded-md border border-border bg-transparent px-2.5 text-sm outline-none focus:border-ring"
+        <TextFieldInput
+          size="sm"
+          class="mt-2"
           placeholder={t("settings.font.placeholder")}
           aria-label={props.label}
           value={props.value}

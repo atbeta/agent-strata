@@ -38,7 +38,23 @@ import { join } from "node:path";
  *
  * Adding an eleventh means adding a reason, not a conversion.
  */
-const BUDGET = { button: 10, input: 21 };
+const BUDGET = {
+  button: 10,
+  /**
+   * Two, both for the same reason: neither one draws anything.
+   *
+   * `session-detail.tsx` is the hidden `type="file"` behind the composer's
+   * attach button — `class="hidden"`, no field chrome, just a picker the
+   * button triggers. Putting it in a `TextFieldInput` would add a border and
+   * then hide the border.
+   *
+   * `App.tsx` is the inline rename field inside a sidebar `ListRow`. It is
+   * *meant* to have no border, so the edit does not reflow the row it is in.
+   * That row is the documented reason `ListRow` is a `div[role=button]`
+   * rather than a real button — a field cannot legally nest inside one.
+   */
+  input: 2,
+};
 
 const SRC = import.meta.dir;
 const PRIMITIVES = join(SRC, "components", "ui");

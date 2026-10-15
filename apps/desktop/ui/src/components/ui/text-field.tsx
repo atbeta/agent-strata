@@ -1,32 +1,62 @@
-import { mergeProps, splitProps } from "solid-js";
-import { TextField as TextFieldPrimitive } from "@kobalte/core/text-field";
-import type { TextFieldInputProps, TextFieldLabelProps, TextFieldRootProps } from "@kobalte/core/text-field";
-import type { PolymorphicProps } from "@kobalte/core/polymorphic";
+import { createContext, createUniqueId, splitProps, useContext, type JSX } from "solid-js";
 import { cva } from "class-variance-authority";
 import { cn } from "@/lib/utils";
+import { fieldVariants, type FieldSize } from "./field";
 
-type TextFieldProps = PolymorphicProps<"div", TextFieldRootProps<"div">> & { class?: string };
+/**
+ * Three pieces of one idea: the box, the field, and the caption above it.
+ *
+ * This used to wrap Kobalte's `TextField`, which meant the input could only
+ * be rendered inside a root — `useFormControlContext` throws otherwise, and
+ * nothing in the file said so. Nineteen call sites use a field on its own,
+ * because a field inside a table row or a toolbar has no caption to put above
+ * it; all nineteen took the whole page down with a blank screen until this was
+ * caught. The app was never using Kobalte's validation, descriptions or
+ * controlled-state plumbing, only the three class lists, so the dependency was
+ * pure cost. These are plain elements now and the one piece of shared state —
+ * which id the label points at — is explicit.
+ */
 
-function TextField(props: TextFieldProps) {
-  const [local, others] = splitProps(props, ["class"]);
-  return <TextFieldPrimitive class={cn("flex flex-col gap-1", local.class)} {...others} />;
+const FieldIdContext = createContext<string>();
+
+function TextField(props: {
+  class?: string;
+  children: JSX.Element;
+  /** Only needed when the input or label wants to reference the pairing itself. */
+  id?: string;
+}) {
+  const [local, others] = splitProps(props, ["class", "children", "id"]);
+  // Stable across re-renders, which `createUniqueId` is; a random id per pass
+  // would break the label association on every keystroke that re-renders it.
+  const id = () => local.id ?? generated;
+  const generated = createUniqueId();
+  return (
+    <div class={cn("flex flex-col gap-1", local.class)} {...others}>
+      <FieldIdContext.Provider value={id()}>{local.children}</FieldIdContext.Provider>
+    </div>
+  );
 }
 
-type InputProps = PolymorphicProps<"input", TextFieldInputProps<"input">> & {
+type InputProps = Omit<JSX.InputHTMLAttributes<HTMLInputElement>, "class" | "type"> & {
   class?: string;
   type?: "text" | "password" | "search" | "url" | "email";
+  size?: FieldSize;
+  bare?: boolean;
+  mono?: boolean;
 };
 
+/**
+ * The field. It stands alone: without a `TextField` above it there is no
+ * caption, and a caption is what `TextField` is for.
+ */
 function TextFieldInput(rawProps: InputProps) {
-  const props = mergeProps<InputProps[]>({ type: "text" }, rawProps);
-  const [local, others] = splitProps(props, ["type", "class"]);
+  const fieldId = useContext(FieldIdContext);
+  const [local, others] = splitProps(rawProps, ["type", "class", "size", "bare", "mono", "id"]);
   return (
-    <TextFieldPrimitive.Input
-      type={local.type}
-      class={cn(
-        "flex h-9 w-full rounded-md border border-border bg-secondary/40 px-3 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40",
-        local.class,
-      )}
+    <input
+      type={local.type ?? "text"}
+      id={local.id ?? fieldId}
+      class={cn(fieldVariants({ size: local.size, bare: local.bare, mono: local.mono }), local.class)}
       {...others}
     />
   );
@@ -43,11 +73,18 @@ const labelVariants = cva("text-sm font-medium leading-none", {
   defaultVariants: { variant: "label" },
 });
 
-type LabelProps = PolymorphicProps<"label", TextFieldLabelProps<"label">> & { class?: string };
-
-function TextFieldLabel(props: LabelProps) {
-  const [local, others] = splitProps(props, ["class"]);
-  return <TextFieldPrimitive.Label class={cn(labelVariants(), local.class)} {...others} />;
+function TextFieldLabel(props: {
+  class?: string;
+  variant?: "label" | "description" | "error";
+  children: JSX.Element;
+}) {
+  const fieldId = useContext(FieldIdContext);
+  const [local, others] = splitProps(props, ["class", "variant", "children"]);
+  return (
+    <label for={fieldId} class={cn(labelVariants({ variant: local.variant }), local.class)} {...others}>
+      {local.children}
+    </label>
+  );
 }
 
 export { TextField, TextFieldInput, TextFieldLabel };
