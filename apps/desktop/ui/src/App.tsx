@@ -20,7 +20,7 @@ import {
 import { holdRows, sameValue } from "./session-rows";
 import { dayBucket, projectName, relTime, TIME_BUCKETS } from "./fleet";
 import { FleetView } from "./fleet-view";
-import { SessionDetail } from "./session-detail";
+import { openSessionInSplit, SessionDetail } from "./session-detail";
 import { CompareView } from "./compare";
 import { SettingsPage } from "./settings";
 import { settingsPath } from "./settings-sections";
@@ -113,6 +113,8 @@ function SessionListItem(props: {
   onDelete: () => Promise<void>;
   /** Start a comparison with this session already picked. */
   onCompare: () => void;
+  /** Open this session in a side-by-side split pane. */
+  onSplitOpen?: () => void;
   /**
    * Which server this session lives on, set only while one backend kind has
    * more than one instance connected.
@@ -236,6 +238,12 @@ function SessionListItem(props: {
                 toggle: a comparison always starts from one of the two, so
                 asking the list to enter a mode first made the user name a
                 session before they could start. */}
+            <Show when={props.onSplitOpen}>
+              <DropdownMenuItem onSelect={() => props.onSplitOpen?.()}>
+                <Icon name="split-row" class="size-3.5 text-muted-foreground" />
+                {t("pane.split.right")}
+              </DropdownMenuItem>
+            </Show>
             <DropdownMenuItem onSelect={props.onCompare}>
               <Icon name="columns" class="size-3.5 text-muted-foreground" />
               {t("sidebar.session.compare")}
@@ -1136,6 +1144,7 @@ export function App() {
                         onArchive={() => runAction(id, () => archiveSession(id), true)}
                         onDelete={() => runAction(id, () => deleteSession(id), true)}
                         onCompare={() => startCompare(id)}
+                        onSplitOpen={() => openSessionInSplit(id, "row")}
                         instance={instanceOf(s)}
                       />
                     );
@@ -1397,8 +1406,11 @@ export function App() {
             </Show>
           </PageShell>
         </Show>
-        <Show when={route().name === "session" ? (route() as { id: string }).id : undefined} keyed>
-          {(id) => <SessionDetail id={id} sessions={settled(data)?.sessions ?? []} />}
+        <Show when={route().name === "session"}>
+          <SessionDetail
+            id={(route() as { id: string }).id}
+            sessions={settled(data)?.sessions ?? []}
+          />
         </Show>
         <Show when={route().name === "compare"}>
           <PageShell

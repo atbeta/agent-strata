@@ -88,6 +88,23 @@ import { applyStreamingSnapshot, mergeViewTail, type StreamingSnapshot } from ".
 import { ECHO_TURN_ID, withEcho, type PendingEcho } from "./prompt-echo";
 import { filesKeyOf, peekView, rememberView, tailMatches, viewFromTail } from "./view-cache";
 import { registerCommand } from "./commands";
+import { LayoutSwitcher, PaneStage, type SessionRowSummary } from "./pane-stage";
+import {
+  applyLayoutPreset,
+  assignSessionToWorkspace,
+  closePane,
+  focusedLeaf,
+  focusPane,
+  readPaneWorkspace,
+  resizeSplit,
+  setPaneSession,
+  splitPane,
+  toggleZoomPane,
+  writePaneWorkspace,
+  type LayoutPreset,
+  type PaneWorkspaceState,
+  type SplitDir,
+} from "./pane-tree";
 import { Button } from "@/components/ui/button";
 import { ChoiceCard } from "@/components/ui/choice-card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -720,17 +737,431 @@ function Snippet(props: { text: string }) {
  */
 const [panelOpen, setPanelOpen] = createSignal(readPanelOpen());
 const [panelTab, setPanelTab] = createSignal<SidePanelTab>(readPanelTab());
+const [paneWorkspace, setPaneWorkspace] = createSignal<PaneWorkspaceState>(readPaneWorkspace());
+const paneScrollMemory = new Map<string, { scrollTop: number; pinned: boolean }>();
+
+function updatePaneWorkspace(updater: (prev: PaneWorkspaceState) => PaneWorkspaceState): PaneWorkspaceState {
+  const cur = paneWorkspace();
+  const next = updater(cur);
+  if (next === cur) return cur;
+  setPaneWorkspace(next);
+  writePaneWorkspace(next);
+  return next;
+}
+
+/**
+ * Open `sessionId` in a new split beside the currently focused pane and
+ * navigate to it.
+ */
+export function openSessionInSplit(sessionId: string, dir: SplitDir = "row"): void {
+  updatePaneWorkspace((ws) => splitPane(ws, ws.focusedPaneId, dir, sessionId));
+  location.hash = `/session/${encodeURIComponent(sessionId)}`;
+}
+
+type StreamEventPayload = {
+  session_id?: string;
+  type: string;
+  data?: { state?: string; partial?: boolean };
+};
+
+/**
+ * Lightweight live transcript for a non-focused pane in multiplex mode.
+ * Shares the in-memory `view-cache` and receives SSE events forwarded from the
+ * single `EventSource` owned by `SessionDetail`, so watching four panes in a
+ * 2x2 grid still uses only one stream connection.
+ */
+function PeerSessionTranscript(props: {
+  sessionId: string;
+  paneId: string;
+  sessions: readonly SessionRowSummary[];
+  onFocus: () => void;
+  onOpenChild: (id: string) => void;
+}) {
+  const memKey = () => `${props.paneId}:${props.sessionId}`;
+  const savedScroll = paneScrollMemory.get(`${props.paneId}:${props.sessionId}`);
+  const opening = peekView(props.sessionId);
+  const [booting, setBooting] = createSignal(!opening);
+  let filesKey: string | undefined = opening?.filesKey;
+  let forceFull = false;
+  let fetchGen = 0;
+  let alive = true;
+  onCleanup(() => {
+    alive = false;
+  });
+
+  const [view, { refetch, mutate }] = createResource(
+    () => props.sessionId,
+    (id: string) => {
+      const gen = ++fetchGen;
+      const path = `/sessions/${encodeURIComponent(id)}/view`;
+      const fullNow = forceFull;
+      forceFull = false;
+      if (fullNow) {
+        return getJson<SessionView>(path).then((full) => {
+          if (gen === fetchGen) {
+            filesKey = filesKeyOf(full);
+            rememberView(id, full, filesKey);
+          }
+          return full;
+        });
+      }
+      const hit = peekView(id);
+      if (hit) {
+        if (hit.filesKey) filesKey = hit.filesKey;
+        return Promise.resolve(hit.view);
+      }
+      return readViewTail(id, TAIL_TURNS).then(async (tail) => {
+        if (gen !== fetchGen) return viewFromTail(tail);
+        if (alive) {
+          filesKey = tail.files_key;
+          mutate(viewFromTail(tail));
+        }
+        const full = await getJson<SessionView>(path).catch(() => undefined);
+        if (gen !== fetchGen || !full) return viewFromTail(tail);
+        const keyOf = filesKeyOf(full);
+        if (alive) filesKey = keyOf;
+        rememberView(id, full, keyOf);
+        return full;
+      });
+    },
+    opening ? { initialValue: opening.view } : undefined,
+  );
+
+  createEffect(() => {
+    if (booting() && (view.state === "ready" || view.state === "errored" || settled(view))) {
+      setBooting(false);
+    }
+  });
+
+  let running: Promise<void> | undefined;
+  let nextRefresh: "tail" | "full" | undefined;
+  const refreshPeerView = (full = false): Promise<void> => {
+    if (running) {
+      if (full || !nextRefresh) nextRefresh = full ? "full" : "tail";
+      return running;
+    }
+    running = (async () => {
+      let wantFull = full;
+      try {
+        for (;;) {
+          if (!alive) return;
+          const current = settled(view);
+          if (wantFull || !current) {
+            filesKey = undefined;
+            forceFull = true;
+            await refetch();
+            if (!alive) return;
+            const fullView = settled(view);
+            if (fullView) {
+              filesKey = filesKeyOf(fullView);
+              rememberView(props.sessionId, fullView, filesKey);
+            }
+          } else {
+            const tail = await readViewTail(props.sessionId, TAIL_TURNS, filesKey);
+            if (!alive) return;
+            const base = settled(view) ?? current;
+            if (tailMatches(base, tail)) {
+              filesKey = tail.files_key;
+              rememberView(props.sessionId, base, filesKey);
+            } else {
+              const merged = mergeViewTail(base, tail);
+              if (!merged) {
+                filesKey = undefined;
+                wantFull = true;
+                continue;
+              }
+              filesKey = tail.files_key;
+              mutate(merged);
+              rememberView(props.sessionId, merged, filesKey);
+            }
+          }
+          if (!nextRefresh) break;
+          wantFull = nextRefresh === "full";
+          nextRefresh = undefined;
+        }
+      } catch {
+        // Retried on next stream event
+      } finally {
+        running = undefined;
+      }
+    })();
+    return running;
+  };
+
+  let scroller: HTMLDivElement | undefined;
+  let list: VirtualApi | undefined;
+  const [scrollTop, setScrollTop] = createSignal(savedScroll?.scrollTop ?? 0);
+  const [viewport, setViewport] = createSignal(0);
+  const [pinned, setPinned] = createSignal(savedScroll?.pinned ?? true);
+  const [activeTurn, setActiveTurn] = createSignal(0);
+
+  onMount(() => {
+    if (peekView(props.sessionId)) {
+      queueMicrotask(() => {
+        if (alive) void refreshPeerView(false);
+      });
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let rebuilt = false;
+    const onStream = (ev: Event) => {
+      const evt = (ev as CustomEvent<StreamEventPayload>).detail;
+      if (!evt || evt.session_id !== props.sessionId) return;
+      if (evt.type === "turn.assistant" && evt.data?.partial === true) {
+        const snap = evt.data as unknown as StreamingSnapshot;
+        mutate((v) => {
+          if (!v) return v;
+          const next = applyStreamingSnapshot(v, snap);
+          const held = peekView(props.sessionId);
+          if (
+            next !== v &&
+            held &&
+            next.turns.length >= held.view.turns.length &&
+            next.turns[0]?.turn_id === held.view.turns[0]?.turn_id
+          ) {
+            rememberView(props.sessionId, next);
+          }
+          return next;
+        });
+        return;
+      }
+      if (evt.type === "session.rebuilt") rebuilt = true;
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        void refreshPeerView(rebuilt);
+        rebuilt = false;
+      }, 90);
+    };
+    window.addEventListener("strata-stream-event", onStream);
+    onCleanup(() => {
+      clearTimeout(timer);
+      window.removeEventListener("strata-stream-event", onStream);
+    });
+  });
+
+  const turns = () => settled(view)?.turns ?? [];
+  const entries = createMemo(() => promptEntries(turns()));
+  const showNav = () => !booting() && entries().length >= 2;
+  const activeEntry = () => (pinned() ? entries().at(-1) : promptAt(entries(), activeTurn()));
+  const row = () => props.sessions.find((s) => s.summary.session_id === props.sessionId);
+  const peerGenerating = () =>
+    Boolean(row()?.busy) ||
+    Boolean(settled(view)?.busy) ||
+    turns().some((t) => t.assistant.some((a) => a.partial));
+  const needsInput = () => Boolean(row()?.needs_input);
+
+  const childOf = (id: string) => {
+    const r = props.sessions.find((s) => s.summary.session_id === id);
+    if (!r) return undefined;
+    return { title: r.title ?? "", status: r.status, busy: r.busy };
+  };
+
+  const jumpToLatest = () => {
+    if (scroller) scroller.scrollTop = scroller.scrollHeight;
+    setPinned(true);
+    setActiveTurn(Math.max(0, turns().length - 1));
+    paneScrollMemory.set(memKey(), { scrollTop: scroller?.scrollTop ?? 0, pinned: true });
+  };
+
+  return (
+    <div class="relative flex min-h-0 flex-1 flex-col">
+      <div
+        ref={(el) => {
+          scroller = el;
+          queueMicrotask(() => {
+            if (!el) return;
+            setViewport(el.clientHeight);
+            const remembered = paneScrollMemory.get(memKey());
+            if (remembered && !remembered.pinned && remembered.scrollTop > 0) {
+              el.scrollTop = remembered.scrollTop;
+              setScrollTop(remembered.scrollTop);
+            }
+          });
+        }}
+        class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          const isPinned = el.scrollHeight - el.scrollTop - el.clientHeight < 96;
+          setScrollTop(el.scrollTop);
+          setViewport(el.clientHeight);
+          setPinned(isPinned);
+          setActiveTurn(list?.indexAtTop() ?? 0);
+          paneScrollMemory.set(memKey(), { scrollTop: el.scrollTop, pinned: isPinned });
+        }}
+      >
+        <div
+          class={
+            showNav()
+              ? "mx-auto w-full max-w-3xl py-4 pl-11 pr-5"
+              : "mx-auto w-full max-w-3xl px-5 py-4"
+          }
+        >
+          <Show when={!booting()} fallback={<LoadingTranscript />}>
+            <Show
+              when={turns().length > 0}
+              fallback={
+                <div class="flex justify-center">
+                  <EmptyState
+                    icon="spark"
+                    title={t("session.empty")}
+                    description={t("session.empty_hint")}
+                    class="py-10"
+                  />
+                </div>
+              }
+            >
+              <Virtual
+                items={turns()}
+                id={(turn) => turn.turn_id}
+                estimate={100}
+                gap={32}
+                scrollTop={scrollTop()}
+                viewport={viewport()}
+                scroller={() => scroller}
+                api={(a) => {
+                  list = a;
+                  setActiveTurn(a.indexAtTop());
+                }}
+              >
+                {(turn) => (
+                  <div data-turn-id={turn().turn_id}>
+                    <TurnBlock
+                      turn={turn()}
+                      awaiting={() => false}
+                      childOf={childOf}
+                      onOpenChild={props.onOpenChild}
+                    />
+                  </div>
+                )}
+              </Virtual>
+            </Show>
+          </Show>
+        </div>
+      </div>
+
+      <Show when={showNav()}>
+        <PromptNavigator
+          entries={entries()}
+          activeId={activeEntry()?.turnId}
+          onSelect={(turnId) => {
+            const idx = turns().findIndex((x) => x.turn_id === turnId);
+            if (idx >= 0) {
+              setPinned(false);
+              list?.scrollToIndex(idx, "start");
+              setActiveTurn(idx);
+            }
+          }}
+        />
+      </Show>
+
+      <Show when={!booting() && !pinned() && turns().length > 0}>
+        <Button
+          type="button"
+          variant="quiet"
+          size="xs"
+          class="surface-popover absolute bottom-10 left-1/2 z-20 h-auto -translate-x-1/2 rounded-full border border-border bg-popover px-3 py-1 shadow-md"
+          onClick={jumpToLatest}
+        >
+          {t("nav.latest")}
+        </Button>
+      </Show>
+
+      <Show when={settled(view)?.plan && planVisible(settled(view)!.plan, peerGenerating())}>
+        <div class="shrink-0 border-t border-border px-3 py-1.5">
+          <PlanStrip
+            sessionId={props.sessionId}
+            plan={settled(view)!.plan!}
+            generating={peerGenerating()}
+          />
+        </div>
+      </Show>
+
+      <Show when={needsInput()}>
+        <div
+          class="shrink-0 border-t border-border bg-secondary/40 px-3 py-1.5"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <Button
+            type="button"
+            variant="outline"
+            size="xs"
+            class="w-full justify-start gap-2 border-status-pending/40 bg-status-pending/10 text-foreground hover:bg-status-pending/20"
+            onClick={() => props.onFocus()}
+          >
+            <span class="size-1.5 shrink-0 rounded-full bg-status-pending" />
+            <span class="truncate text-xs">{t("pane.needs_input.banner")}</span>
+          </Button>
+        </div>
+      </Show>
+    </div>
+  );
+}
 
 export function SessionDetail(props: {
   id: string;
-  sessions: {
-    summary: { session_id: string };
-    title?: string;
-    parent?: string;
-    status: string;
-    busy?: boolean;
-  }[];
+  sessions: SessionRowSummary[];
 }) {
+  createEffect(() => {
+    const id = props.id;
+    updatePaneWorkspace((ws) => assignSessionToWorkspace(ws, id));
+  });
+
+  const candidateSessionIds = () => props.sessions.map((s) => s.summary.session_id);
+
+  const navigatePaneSession = (sessionId: string | null) => {
+    if (sessionId && sessionId !== props.id) {
+      location.hash = `/session/${encodeURIComponent(sessionId)}`;
+    }
+  };
+
+  const handleSelectPreset = (preset: LayoutPreset) => {
+    const next = updatePaneWorkspace((ws) =>
+      applyLayoutPreset(ws, preset, props.id, candidateSessionIds()),
+    );
+    navigatePaneSession(focusedLeaf(next).sessionId);
+  };
+
+  const handleSplitPane = (paneId: string, dir: SplitDir) => {
+    // Seed the new split with the next session not already on screen, or leave
+    // the pane empty for the picker.
+    const usedIds = new Set<string>();
+    const collectUsed = (n: PaneWorkspaceState["root"]) => {
+      if (n.kind === "leaf") {
+        if (n.sessionId) usedIds.add(n.sessionId);
+      } else {
+        collectUsed(n.a);
+        collectUsed(n.b);
+      }
+    };
+    collectUsed(paneWorkspace().root);
+    usedIds.add(props.id);
+    const nextCandidate = candidateSessionIds().find((sid) => !usedIds.has(sid)) ?? null;
+    const next = updatePaneWorkspace((ws) => splitPane(ws, paneId, dir, nextCandidate));
+    navigatePaneSession(focusedLeaf(next).sessionId);
+  };
+
+  const handleFocusPane = (paneId: string, sessionId: string | null) => {
+    updatePaneWorkspace((ws) => focusPane(ws, paneId));
+    navigatePaneSession(sessionId);
+  };
+
+  const handleSelectPaneSession = (paneId: string, sessionId: string) => {
+    updatePaneWorkspace((ws) => setPaneSession(ws, paneId, sessionId));
+    navigatePaneSession(sessionId);
+  };
+
+  const handleClosePane = (paneId: string) => {
+    const next = updatePaneWorkspace((ws) => closePane(ws, paneId));
+    navigatePaneSession(focusedLeaf(next).sessionId);
+  };
+
+  const handleToggleZoom = (paneId: string) => {
+    const next = updatePaneWorkspace((ws) => toggleZoomPane(ws, paneId));
+    navigatePaneSession(focusedLeaf(next).sessionId);
+  };
+
+  const handleResizeSplit = (splitId: string, ratio: number) => {
+    updatePaneWorkspace((ws) => resizeSplit(ws, splitId, ratio));
+  };
   const [replayPos, setReplayPos] = createSignal<number | null>(null);
   const [traceOn, setTraceOn] = createSignal(false);
   const [traceBlock, setTraceBlock] = createSignal<TraceBlock | null>(null);
@@ -1383,6 +1814,57 @@ const turnIndexOf = (h: SearchHit): number => {
 
   createEffect(() => writeDraft(props.id, draft()));
 
+  // When focus switches between panes (or sidebar sessions) without unmounting
+  // `SessionDetail`, swap per-session transient state and paint any cached view
+  // synchronously so other panes in the split tree stay mounted undisturbed.
+  let activeSessionId = props.id;
+  createEffect(() => {
+    const id = props.id;
+    if (id === activeSessionId) return;
+    activeSessionId = id;
+    const hit = peekView(id);
+    filesKey = hit?.filesKey;
+    forceFull = false;
+    retries = 0;
+    setBooting(!hit);
+    setImporting(!hit);
+    if (hit) mutate(hit.view);
+    setReplayPos(null);
+    setTraceOn(false);
+    setTraceBlock(null);
+    setOpenFile(null);
+    setHiddenAsks(new Set<string>());
+    setDraft(readDraft(id));
+    setQueued([]);
+    setHistIndex(-1);
+    setHistSaved("");
+    setSendErr("");
+    setPendingSend(false);
+    setEcho(undefined);
+    setStopping(false);
+    setStopped(false);
+    setAbortAccepted(false);
+    setModelTouched(false);
+    setModelSel("");
+    setPicked([]);
+    setAttachments([]);
+    setAttachErr("");
+    setQueuePaused(false);
+    setEditTurnId(undefined);
+    closeSearch();
+    setToolsOpen(false);
+    queueMicrotask(autogrow);
+    void (async () => {
+      const before = await readHead(id).catch(() => undefined);
+      await importSession(id).catch(() => {});
+      if (props.id !== id) return;
+      const after = await readHead(id).catch(() => undefined);
+      setImporting(false);
+      if (after !== before) void refreshView(true);
+      void refetchSeq();
+    })();
+  });
+
   // The stored view is already loading — the transcript paints as soon as it
   // lands instead of waiting on a full re-import first. A cached view or a
   // tail preview is enough to leave the boot state; the settled view follows.
@@ -1481,6 +1963,9 @@ const turnIndexOf = (h: SearchHit): number => {
           type: string;
           data?: { state?: string; partial?: boolean };
         };
+        if (evt.session_id && evt.session_id !== props.id) {
+          window.dispatchEvent(new CustomEvent("strata-stream-event", { detail: evt }));
+        }
         if (evt.session_id === props.id && evt.type === "turn.assistant" && evt.data?.partial === true) {
           if (replayPos() === null) {
             const snap = evt.data as unknown as StreamingSnapshot;
@@ -2074,6 +2559,34 @@ const turnIndexOf = (h: SearchHit): number => {
       run: () => togglePanel(),
     }),
   );
+  onCleanup(
+    registerCommand({
+      id: "pane.splitRight",
+      title: () => t("pane.split.right"),
+      run: () => handleSplitPane(paneWorkspace().focusedPaneId, "row"),
+    }),
+  );
+  onCleanup(
+    registerCommand({
+      id: "pane.splitDown",
+      title: () => t("pane.split.down"),
+      run: () => handleSplitPane(paneWorkspace().focusedPaneId, "col"),
+    }),
+  );
+  onCleanup(
+    registerCommand({
+      id: "pane.grid4",
+      title: () => t("pane.mode.grid4"),
+      run: () => handleSelectPreset("grid-4"),
+    }),
+  );
+  onCleanup(
+    registerCommand({
+      id: "pane.single",
+      title: () => t("pane.mode.single"),
+      run: () => handleSelectPreset("single"),
+    }),
+  );
 
   return (
     <div class="flex h-full min-h-0">
@@ -2243,6 +2756,12 @@ const turnIndexOf = (h: SearchHit): number => {
                       </PanelToggle>
                     </Tip>
                   </Show>
+                  <LayoutSwitcher
+                    workspace={paneWorkspace()}
+                    onPreset={handleSelectPreset}
+                    onSplit={(dir) => handleSplitPane(paneWorkspace().focusedPaneId, dir)}
+                    onToggleZoom={() => handleToggleZoom(paneWorkspace().focusedPaneId)}
+                  />
                   <Tip label={t("header.export")}>
                     <Button
                       type="button"
@@ -2558,9 +3077,41 @@ const turnIndexOf = (h: SearchHit): number => {
                   and is then squeezed when the pending questions land, and the
                   reader sees their transcript compress rather than the dock
                   expand into room that was already there. */}
-              <div class="relative flex min-h-[30vh] flex-1 flex-col">
+              <PaneStage
+                workspace={paneWorkspace()}
+                sessions={props.sessions}
+                onFocusPane={handleFocusPane}
+                onSelectPaneSession={handleSelectPaneSession}
+                onSplitPane={handleSplitPane}
+                onClosePane={handleClosePane}
+                onToggleZoom={handleToggleZoom}
+                onResizeSplit={handleResizeSplit}
+                renderPeerTranscript={(peerSessionId, paneId) => (
+                  <PeerSessionTranscript
+                    sessionId={peerSessionId}
+                    paneId={paneId}
+                    sessions={props.sessions}
+                    onFocus={() => handleFocusPane(paneId, peerSessionId)}
+                    onOpenChild={openChild}
+                  />
+                )}
+                renderFocusedTranscript={() => (
+              <div class={`relative flex flex-1 flex-col ${paneWorkspace().mode === "multiplex" ? "min-h-0" : "min-h-[30vh]"}`}>
               <div
-                ref={scroller}
+                ref={(el) => {
+                  scroller = el;
+                  const memKey = `${paneWorkspace().focusedPaneId}:${props.id}`;
+                  queueMicrotask(() => {
+                    if (!el) return;
+                    setViewport(el.clientHeight);
+                    const remembered = paneScrollMemory.get(memKey);
+                    if (remembered && !remembered.pinned && remembered.scrollTop > 0) {
+                      el.scrollTop = remembered.scrollTop;
+                      setScrollTop(remembered.scrollTop);
+                      setPinned(false);
+                    }
+                  });
+                }}
                 // overflow-x is stated, not left out. CSS turns a `visible`
                 // overflow-x into `auto` whenever overflow-y is a scroller, so
                 // any one row wider than the column grew a horizontal scrollbar
@@ -2570,10 +3121,15 @@ const turnIndexOf = (h: SearchHit): number => {
                 class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
                 onScroll={(e) => {
                   const el = e.currentTarget;
+                  const isPinned = el.scrollHeight - el.scrollTop - el.clientHeight < 96;
                   setScrollTop(el.scrollTop);
                   setViewport(el.clientHeight);
-                  setPinned(el.scrollHeight - el.scrollTop - el.clientHeight < 96);
+                  setPinned(isPinned);
                   setActiveTurn(list?.indexAtTop() ?? 0);
+                  paneScrollMemory.set(`${paneWorkspace().focusedPaneId}:${props.id}`, {
+                    scrollTop: el.scrollTop,
+                    pinned: isPinned,
+                  });
                 }}
               >
                 <div
@@ -2665,6 +3221,8 @@ const turnIndexOf = (h: SearchHit): number => {
                 </Button>
               </Show>
               </div>
+                )}
+              />
 
               <Show when={replayPos() === null}>
                 {/*
@@ -2853,7 +3411,15 @@ const turnIndexOf = (h: SearchHit): number => {
                         ref={draftEl}
                         class="max-h-56 w-full resize-none bg-transparent px-4 py-3 font-sans text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none"
                         rows={1}
-                        placeholder={generating() ? t("composer.placeholder.queue") : t("composer.placeholder.message")}
+                        placeholder={
+                          paneWorkspace().mode === "multiplex"
+                            ? generating()
+                              ? t("pane.composer.queue_target", { title: v().title ?? t("session.untitled") })
+                              : t("pane.composer.target", { title: v().title ?? t("session.untitled") })
+                            : generating()
+                              ? t("composer.placeholder.queue")
+                              : t("composer.placeholder.message")
+                        }
                         value={draft()}
                         aria-autocomplete="list"
                         aria-controls={menuOpen() && menuItems().length ? menuId : undefined}

@@ -30,7 +30,14 @@ export type Name =
   | "brain"
   | "stop"
   | "alert"
-  | "plus";
+  | "plus"
+  | "x"
+  | "split-row"
+  | "split-col"
+  | "grid"
+  | "single-pane"
+  | "maximize"
+  | "minimize";
 
 function Glyph(props: { class?: string; children: JSX.Element }) {
   return (
@@ -273,6 +280,51 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
     return (
       <Glyph class={cls}>
         <path d="M8 3.5v9M3.5 8h9" />
+      </Glyph>
+    );
+  if (name === "x")
+    return (
+      <Glyph class={cls}>
+        <path d="M4.2 4.2 11.8 11.8M11.8 4.2 4.2 11.8" />
+      </Glyph>
+    );
+  if (name === "single-pane")
+    return (
+      <Glyph class={cls}>
+        <rect x="2.5" y="3" width="11" height="10" rx="1.4" />
+      </Glyph>
+    );
+  if (name === "split-row")
+    return (
+      <Glyph class={cls}>
+        <rect x="2.5" y="3" width="11" height="10" rx="1.4" />
+        <path d="M8 3v10" />
+      </Glyph>
+    );
+  if (name === "split-col")
+    return (
+      <Glyph class={cls}>
+        <rect x="2.5" y="3" width="11" height="10" rx="1.4" />
+        <path d="M2.5 8h11" />
+      </Glyph>
+    );
+  if (name === "grid")
+    return (
+      <Glyph class={cls}>
+        <rect x="2.5" y="3" width="11" height="10" rx="1.4" />
+        <path d="M8 3v10M2.5 8h11" />
+      </Glyph>
+    );
+  if (name === "maximize")
+    return (
+      <Glyph class={cls}>
+        <path d="M9.8 2.8h3.4v3.4M6.2 13.2H2.8V9.8M13.2 2.8 9.2 6.8M2.8 13.2l4-4" />
+      </Glyph>
+    );
+  if (name === "minimize")
+    return (
+      <Glyph class={cls}>
+        <path d="M13 6.2H9.8V3M3 9.8h3.2V13M9.8 6.2 13.5 2.5M6.2 9.8 2.5 13.5" />
       </Glyph>
     );
   if (name === "alert")
