@@ -1,7 +1,46 @@
 import { Show, createSignal, onCleanup, onMount, type JSX } from "solid-js";
+import { cn } from "./lib/utils";
+import { Button } from "./components/ui/button";
 import { inDesktopShell, drawsOwnTopStrip, usesCustomCaption } from "./shell";
 import { t } from "./i18n";
 import { Tip } from "./tip";
+
+/**
+ * A caption control on the frameless Windows shell.
+ *
+ * These cannot be `Button`: they fill the full height of the caption strip and
+ * sit square against the window edge, where the primitive's rounded, padded,
+ * fixed-height shape would leave gaps at the top and bottom. What they do share
+ * is worth owning here anyway — the class string was copy-pasted three times,
+ * and none of the three drew a focus ring, so a keyboard user tabbing across
+ * the title bar had no way to see where they were.
+ */
+function CaptionButton(props: {
+  label: string;
+  onClick: () => void;
+  /** `close` gets the destructive hover; the other two share a quiet one. */
+  variant?: "default" | "close";
+  class?: string;
+  children: JSX.Element;
+}) {
+  return (
+    <button
+      type="button"
+      class={cn(
+        "grid h-full place-items-center text-muted-foreground transition-colors",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        props.variant === "close"
+          ? "hover:bg-destructive hover:text-destructive-foreground"
+          : "hover:bg-secondary hover:text-foreground",
+        props.class,
+      )}
+      aria-label={props.label}
+      onClick={props.onClick}
+    >
+      {props.children}
+    </button>
+  );
+}
 
 type WindowHandle = {
   minimize(): Promise<void>;
@@ -47,22 +86,20 @@ export function CaptionButtons() {
     <Show when={usesCustomCaption()}>
       <div class="flex h-full shrink-0">
         <Tip label={t("window.caption.minimize")} class="h-full">
-          <button
-            type="button"
-            class="grid h-full w-11 place-items-center text-muted-foreground hover:bg-secondary hover:text-foreground"
-            aria-label={t("window.caption.minimize")}
+          <CaptionButton
+            class="w-11"
+            label={t("window.caption.minimize")}
             onClick={() => run((win) => win.minimize())}
           >
             <svg viewBox="0 0 12 12" class="size-3" fill="none" stroke="currentColor" stroke-width="1.2">
               <path d="M2 6h8" />
             </svg>
-          </button>
+          </CaptionButton>
         </Tip>
         <Tip label={maximized() ? t("window.caption.restore") : t("window.caption.maximize")} class="h-full">
-          <button
-            type="button"
-            class="grid h-full w-11 place-items-center text-muted-foreground hover:bg-secondary hover:text-foreground"
-            aria-label={maximized() ? t("window.caption.restore") : t("window.caption.maximize")}
+          <CaptionButton
+            class="w-11"
+            label={maximized() ? t("window.caption.restore") : t("window.caption.maximize")}
             onClick={() => run((win) => win.toggleMaximize())}
           >
             <Show
@@ -78,19 +115,19 @@ export function CaptionButtons() {
                 <rect x="2" y="4" width="6" height="6" />
               </svg>
             </Show>
-          </button>
+          </CaptionButton>
         </Tip>
         <Tip label={t("window.caption.close")} class="h-full">
-          <button
-            type="button"
-            class="grid h-full w-12 place-items-center text-muted-foreground hover:bg-destructive hover:text-destructive-foreground"
-            aria-label={t("window.caption.close")}
+          <CaptionButton
+            variant="close"
+            class="w-12"
+            label={t("window.caption.close")}
             onClick={() => run((win) => win.close())}
           >
             <svg viewBox="0 0 12 12" class="size-3" fill="none" stroke="currentColor" stroke-width="1.2">
               <path d="M3 3l6 6M9 3 3 9" />
             </svg>
-          </button>
+          </CaptionButton>
         </Tip>
       </div>
     </Show>
@@ -191,12 +228,15 @@ export function PageShell(props: {
     <div class="flex h-full min-h-0 flex-col">
       <DragBar>
         <Show when={props.back}>
-          <button
-            class="shrink-0 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          <Button
+            type="button"
+            variant="quiet"
+            size="sm"
+            class="h-auto shrink-0 px-0 py-0 text-sm"
             onClick={() => (location.hash = props.back!.href)}
           >
             {props.back!.label}
-          </button>
+          </Button>
         </Show>
         <span class="min-w-0 truncate text-sm text-foreground">{props.title}</span>
         <Show when={props.meta}>

@@ -25,7 +25,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
-import { Group, Row, Segmented, pill } from "./settings-blocks";
+import { Group, PillGroup, Row, Segmented } from "./settings-blocks";
 import { PolicyEditor } from "./policy";
 import { ProviderSettings } from "./providers";
 import { SETTINGS_SECTIONS, settingsSection } from "./settings-sections";
@@ -359,69 +359,46 @@ export function SettingsPage(props: { section?: string }) {
           </Row>
 
           <Row label={t("settings.font.size")} controlClass="w-72">
-            <div class="flex flex-wrap justify-end gap-1.5" role="radiogroup" aria-label={t("settings.font.size")}>
-              <button
-                type="button"
-                role="radio"
-                aria-checked={fonts().size === ""}
-                class={pill(fonts().size === "")}
-                onClick={() => patchFonts({ size: "" })}
-              >
-                {t("settings.font.system")}
-              </button>
-              {CODE_SIZES.map((size: CodeSize) => (
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={fonts().size === size}
-                  class={pill(fonts().size === size)}
-                  onClick={() => patchFonts({ size })}
-                >
-                  {size}
-                </button>
-              ))}
-            </div>
+            <PillGroup
+              label={t("settings.font.size")}
+              value={fonts().size}
+              options={[
+                { id: "", label: t("settings.font.system") },
+                ...CODE_SIZES.map((size: CodeSize) => ({ id: size, label: size })),
+              ]}
+              onChange={(size) => patchFonts({ size: size as CodeSize | "" })}
+            />
           </Row>
 
-          <Row label={t("settings.font.leading")}>
-            <div class="flex gap-1.5" role="radiogroup" aria-label={t("settings.font.leading")}>
-              {(["", "compact", "normal", "relaxed"] as const).map((option) => (
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={fonts().leading === option}
-                  class={pill(fonts().leading === option)}
-                  onClick={() => patchFonts({ leading: option })}
-                >
-                  {option === ""
+          <Row label={t("settings.font.leading")} controlClass="w-72">
+            <PillGroup
+              label={t("settings.font.leading")}
+              value={fonts().leading}
+              options={(["", "compact", "normal", "relaxed"] as const).map((option) => ({
+                id: option,
+                label:
+                  option === ""
                     ? t("settings.font.system")
-                    : t(`settings.font.leading.${option}`)}
-                </button>
-              ))}
-            </div>
+                    : t(`settings.font.leading.${option}`),
+              }))}
+              onChange={(leading) =>
+                patchFonts({
+                  leading: leading as "" | "compact" | "normal" | "relaxed",
+                })
+              }
+            />
           </Row>
 
           <Row label={t("settings.font.ligatures")}>
-            <div class="flex gap-1.5" role="radiogroup" aria-label={t("settings.font.ligatures")}>
-              <button
-                type="button"
-                role="radio"
-                aria-checked={fonts().ligatures}
-                class={pill(fonts().ligatures)}
-                onClick={() => patchFonts({ ligatures: true })}
-              >
-                {t("settings.font.ligatures.on")}
-              </button>
-              <button
-                type="button"
-                role="radio"
-                aria-checked={!fonts().ligatures}
-                class={pill(!fonts().ligatures)}
-                onClick={() => patchFonts({ ligatures: false })}
-              >
-                {t("settings.font.ligatures.off")}
-              </button>
-            </div>
+            <PillGroup
+              label={t("settings.font.ligatures")}
+              value={fonts().ligatures ? "on" : "off"}
+              options={[
+                { id: "on", label: t("settings.font.ligatures.on") },
+                { id: "off", label: t("settings.font.ligatures.off") },
+              ]}
+              onChange={(v) => patchFonts({ ligatures: v === "on" })}
+            />
           </Row>
         </div>
       </Group>

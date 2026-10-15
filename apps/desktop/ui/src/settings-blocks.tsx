@@ -1,4 +1,4 @@
-import { Show, type JSX } from "solid-js";
+import { For, Show, type JSX } from "solid-js";
 import { cn } from "@/lib/utils";
 
 /**
@@ -84,9 +84,50 @@ export function Segmented(props: {
 
 /** A compact choice chip, for the sets too many to sit inside one control. */
 export function pill(on: boolean): string {
-  return `rounded-md border px-2.5 py-1 text-xs transition-colors ${
+  return `rounded-md border px-2.5 py-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
     on
       ? "border-ring bg-secondary text-foreground"
       : "border-border text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
   }`;
+}
+
+/**
+ * The pill idiom as a whole — one choice among several, as separate chips
+ * rather than one bordered container.
+ *
+ * `Segmented` covers the two- and three-option case; this covers the wider sets
+ * (six font sizes, four leading presets) that would not fit inside one
+ * control. It exists because each group was assembling the same radiogroup
+ * wiring by hand, so the one row whose options overflowed the control column
+ * and wrapped onto a second line was fixed by widening that single row — the
+ * next wide set would have wrapped the same way. `wrap` stays on deliberately:
+ * a set too wide for its column folds instead of spilling past the edge.
+ */
+export function PillGroup(props: {
+  label: string;
+  value: string;
+  options: { id: string; label: string }[];
+  onChange: (id: string) => void;
+}) {
+  return (
+    <div
+      class="flex flex-wrap justify-end gap-1.5"
+      role="radiogroup"
+      aria-label={props.label}
+    >
+      <For each={props.options}>
+        {(option) => (
+          <button
+            type="button"
+            role="radio"
+            aria-checked={props.value === option.id}
+            class={pill(props.value === option.id)}
+            onClick={() => props.onChange(option.id)}
+          >
+            {option.label}
+          </button>
+        )}
+      </For>
+    </div>
+  );
 }

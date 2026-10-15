@@ -19,7 +19,7 @@ import { join } from "node:path";
  * `components/ui` is excluded — that is where a primitive is allowed to render
  * its own element.
  */
-const BUDGET = { button: 75, input: 21 };
+const BUDGET = { button: 59, input: 21 };
 
 const SRC = import.meta.dir;
 const PRIMITIVES = join(SRC, "components", "ui");
@@ -61,7 +61,7 @@ describe("primitive adoption", () => {
     // The floor matters as much as the ceiling. A walker that matched nothing
     // would report 0, pass `<= 75` forever, and retire the ratchet silently —
     // the one failure mode this file exists to prevent.
-    expect(found).toBeGreaterThan(50);
+    expect(found).toBeGreaterThan(40);
     expect(found).toBeLessThanOrEqual(BUDGET.button);
   });
 

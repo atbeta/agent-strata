@@ -146,13 +146,15 @@ function RuleCard(props: { index: number; draft: Draft; setDraft: (fn: (d: Draft
           value={rule().tool}
           onInput={(e) => setRule((r) => (r.tool = e.currentTarget.value))}
         />
-        <button
+        <Button
           type="button"
-          class="shrink-0 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+          size="xs"
+          variant="quiet"
+          class="shrink-0 hover:bg-destructive/10 hover:text-destructive"
           onClick={props.remove}
         >
           {t("policy.action.remove")}
-        </button>
+        </Button>
       </div>
 
       <div class="grid grid-cols-[4.75rem_minmax(0,1fr)] items-center gap-x-3 gap-y-2 border-t border-border px-3 py-2.5">
@@ -178,13 +180,15 @@ function RuleCard(props: { index: number; draft: Draft; setDraft: (fn: (d: Draft
             {t("policy.conditions.title")}
             <span class="ml-2 text-muted-foreground/70">{t("policy.conditions.hint")}</span>
           </span>
-          <button
+          <Button
             type="button"
-            class="shrink-0 text-2xs text-muted-foreground hover:text-foreground"
+            size="xs"
+            variant="quiet"
+            class="shrink-0"
             onClick={() => setRule((r) => r.conds.push({ path: "", op: "glob", value: "" }))}
           >
             {t("policy.conditions.add")}
-          </button>
+          </Button>
         </div>
         <div class={rule().conds.length ? "mt-2 space-y-1.5" : ""}>
           <For each={rule().conds}>
@@ -214,14 +218,16 @@ function RuleCard(props: { index: number; draft: Draft; setDraft: (fn: (d: Draft
                   value={c.value}
                   onInput={(e) => setRule((r) => (r.conds[ci()]!.value = e.currentTarget.value))}
                 />
-                <button
+                <Button
                   type="button"
-                  class="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  size="icon-sm"
+                  variant="quiet"
+                  class="shrink-0 hover:bg-destructive/10 hover:text-destructive"
                   aria-label={t("policy.action.remove")}
                   onClick={() => setRule((r) => r.conds.splice(ci(), 1))}
                 >
                   ✕
-                </button>
+                </Button>
               </div>
             )}
           </For>
@@ -351,9 +357,11 @@ export function PolicyEditor() {
             />
           )}
         </For>
-        <button
+        <Button
           type="button"
-          class="flex items-center gap-1.5 rounded-md px-1 py-1 text-sm text-muted-foreground hover:text-foreground"
+          size="sm"
+          variant="quiet"
+          class="shrink-0 gap-1.5"
           onClick={() =>
             setDraft((d) =>
               d.rules.push({ id: "", effect: "allow", tool: "", reason: "", conds: [] }),
@@ -362,7 +370,7 @@ export function PolicyEditor() {
         >
           <Icon name="plus" class="size-3.5" />
           {t("policy.action.addRule")}
-        </button>
+        </Button>
       </section>
 
       <div class="mt-3 flex items-center justify-end gap-2">

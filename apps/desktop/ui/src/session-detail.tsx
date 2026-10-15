@@ -2492,6 +2492,16 @@ const turnIndexOf = (h: SearchHit): number => {
               <Show when={replayPos() === null}>
                 <div class="shrink-0 bg-gradient-to-t from-background from-70% px-5 pb-4 pt-6">
                   <div class="mx-auto w-full max-w-3xl space-y-2">
+                    {/* Pending asks and questions share the dock with the
+                        composer, and the dock is `shrink-0` — four stacked
+                        prompts measured 1024px against a 900px window, which
+                        took every pixel the transcript had and left that column
+                        at zero height, so the "back to latest" control, anchored
+                        to it, landed in the title bar. The stack now takes at
+                        most half the window and scrolls; the composer stays
+                        where it is. */}
+                    <div class="max-h-[45vh] overflow-y-auto">
+                      <div class="space-y-2">
                     <For each={openAsks()}>
                       {(p) => (
                         <AskCard
@@ -2511,6 +2521,8 @@ const turnIndexOf = (h: SearchHit): number => {
                         />
                       )}
                     </For>
+                      </div>
+                    </div>
                     <Show when={v().revert_turn_id}>
                       <div class="flex items-center justify-between gap-2 px-1">
                         <span class="text-2xs text-muted-foreground">{t("message.reverted")}</span>

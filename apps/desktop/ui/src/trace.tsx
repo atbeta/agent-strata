@@ -7,6 +7,7 @@ import { CopyButton, Payload } from "./payload";
 import { stamp, t } from "./i18n";
 import { Icon } from "./icons";
 import { mergeUserBar, traceMaxOffset, tracePage, traceWindow } from "./trace-window";
+import { Button } from "@/components/ui/button";
 
 export interface TraceBlock {
   key: string;
@@ -534,20 +535,23 @@ export function TraceDrawer(props: { block: TraceBlock; onClose: () => void }) {
         />
         <h2 class="min-w-0 flex-1 truncate text-sm font-medium">{displayTitle(props.block)}</h2>
         <Tip label={t("trace.action.close")}>
-          <button
-            class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="icon"
             aria-label={t("trace.action.close")}
             onClick={() => props.onClose()}
           >
             ×
-          </button>
+          </Button>
         </Tip>
       </div>
       <div class="flex gap-1 px-3 pt-3">
         <For each={tabs()}>
           {(item) => (
             <button
-              class={`rounded-md px-2 py-1 text-2xs transition-colors ${
+              type="button"
+              class={`cursor-pointer rounded-md px-2 py-1 text-2xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                 tab() === item.id
                   ? "bg-secondary text-foreground"
                   : "text-muted-foreground hover:bg-secondary hover:text-foreground"

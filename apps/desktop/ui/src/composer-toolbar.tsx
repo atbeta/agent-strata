@@ -1,4 +1,5 @@
 import { Show, type JSX } from "solid-js";
+import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Icon } from "./icons";
 import { Tip } from "./tip";
@@ -29,14 +30,16 @@ export function ComposerToolbar(props: {
       <Show when={props.onAttach}>
         {(attach) => (
           <Tip label={t("composer.attach")}>
-            <button
+            <Button
               type="button"
-              class="grid h-8 w-8 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              size="icon-sm"
+              variant="icon"
+              class="shrink-0 rounded-full"
               aria-label={t("composer.attach")}
               onClick={() => attach()()}
             >
               <Icon name="plus" class="size-4" />
-            </button>
+            </Button>
           </Tip>
         )}
       </Show>
@@ -71,35 +74,40 @@ export function ComposerToolbar(props: {
         </Show>
         <Show when={props.generating && props.canSend}>
           <Tip label={t("composer.queue.tip")}>
-            <button
+            <Button
               type="button"
-              class="composer-queue flex h-8 shrink-0 items-center gap-1 rounded-full px-2 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              size="sm"
+              variant="icon"
+              class="composer-queue shrink-0 gap-1 rounded-full px-2 text-xs"
               aria-label={t("composer.queue")}
               onClick={() => props.onSend()}
             >
               <Icon name="list" class="size-3.5" />
               <span class="composer-queue-label">{t("composer.queue")}</span>
-            </button>
+            </Button>
           </Tip>
         </Show>
         <Show when={props.generating}>
           <Tip label={props.stopping ? t("composer.stopping") : t("composer.stop")}>
-            <button
+            <Button
               type="button"
-              class="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-foreground text-background transition-opacity hover:opacity-80 active:scale-95 disabled:opacity-40"
+              size="icon-sm"
+              variant="icon"
+              class="shrink-0 rounded-full bg-foreground text-background transition-opacity hover:bg-foreground hover:text-background hover:opacity-80 active:scale-95"
               disabled={props.stopping}
               aria-label={props.stopping ? t("composer.stopping_aria") : t("composer.stop")}
               onClick={() => props.onStop()}
             >
               <span class="h-2.5 w-2.5 rounded-[2px] bg-background" />
-            </button>
+            </Button>
           </Tip>
         </Show>
         <Show when={!props.generating}>
           <Tip label={props.canSend ? t("composer.send") : t("composer.type")}>
-            <button
+            <Button
               type="button"
-              class="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground transition-opacity hover:opacity-90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-30 disabled:active:scale-100"
+              size="icon-sm"
+              class="shrink-0 rounded-full transition-opacity active:scale-95"
               disabled={!props.canSend}
               aria-label={props.canSend ? t("composer.send") : t("composer.type")}
               onClick={() => props.onSend()}
@@ -115,7 +123,7 @@ export function ComposerToolbar(props: {
               >
                 <path d="M8 12.5v-9M3.8 7.3 8 3l4.2 4.3" />
               </svg>
-            </button>
+            </Button>
           </Tip>
         </Show>
       </div>
