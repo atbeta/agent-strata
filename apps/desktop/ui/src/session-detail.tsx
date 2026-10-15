@@ -112,7 +112,17 @@ import {
 } from "./composer-input";
 import { AttachmentStrip, ComposerMenu, type MenuItem } from "./composer-menu";
 
-/** An errored Solid resource throws when read, which unmounts the whole window. */
+/**
+ * An errored Solid resource throws when read, which unmounts the whole window.
+ *
+ * This is the right trade for the transcript: a view that will not load has no
+ * useful half-state, so showing a full-window failure beats showing nothing.
+ * It is the wrong trade for the pending prompts, which live in the dock beside
+ * a composer that still works. `settled()` turns a failed `/questions` fetch
+ * into "there are no questions" — the card vanishes, the session sits at
+ * 运行中 with nothing to answer, and nothing anywhere says why. The dock
+ * reads `questions.error` directly for exactly that reason.
+ */
 function settled<T>(resource: { error: unknown; (): T | undefined }): T | undefined {
   return resource.error ? undefined : resource();
 }
@@ -2521,6 +2531,35 @@ const turnIndexOf = (h: SearchHit): number => {
                         where it is. */}
                     <div class="max-h-[45vh] overflow-y-auto">
                       <div class="space-y-2">
+                    {/* A prompt that fails to load is the worst thing that can
+                        happen here: the agent is waiting for an answer the user
+                        cannot see, and the session looks stuck rather than
+                        broken. Say so, and let them ask again. */}
+                    <Show when={questions.error || asks.error}>
+                      <div class="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2.5">
+                        <Icon name="alert" class="mt-0.5 size-3.5 shrink-0 text-destructive" />
+                        <div class="min-w-0 flex-1">
+                          <div class="text-sm text-destructive">
+                            {t("prompt.load_failed")}
+                          </div>
+                          <div class="mt-0.5 text-2xs leading-4 text-muted-foreground">
+                            {t("prompt.load_failed_hint")}
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          size="xs"
+                          variant="outline"
+                          class="shrink-0"
+                          onClick={() => {
+                            void refetchQuestions();
+                            void refetchAsks();
+                          }}
+                        >
+                          {t("session.retry")}
+                        </Button>
+                      </div>
+                    </Show>
                     <For each={openAsks()}>
                       {(p) => (
                         <AskCard

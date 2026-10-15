@@ -32,6 +32,11 @@ export default {
   "session.service_unreachable": "Can't reach the strata service.",
   "session.retry": "Try again",
   "session.service_unreachable_hint": "It retries on its own once the service is up, or try once by hand.",
+  // A prompt that will not load is worse than one that is visibly absent: the
+  // agent is still waiting for an answer nobody can see, and the session reads
+  // as stuck rather than broken. The name has to say which thing failed.
+  "prompt.load_failed": "Couldn't load the pending questions.",
+  "prompt.load_failed_hint": "The service is still waiting for your answer. Load them again — or if there were none to begin with, this session has nothing pending.",
   "session.empty": "Empty session. Write a prompt to start.",
   "session.empty_hint": "Nothing has been said in this session yet.",
   "header.cost.tip": "{amount} so far — open the context ring for the breakdown",
