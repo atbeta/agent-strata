@@ -137,7 +137,15 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     sessionRevision: (sessionId) => store.sessionRevision(sessionId),
     markRevision: (sessionId, rev) => store.markRevision(sessionId, rev),
   };
+  /**
+   * Syncs currently running, for subscribers that attach mid-flight: the
+   * startup sync fires `sync.started` before the app's stream socket exists,
+   * and an event-only channel has no way to say "a sync is already going".
+   * `/stream` replays this to every new subscriber.
+   */
+  const activeSyncs = new Map<string, { done: number; total: number }>();
   const syncDriver = (driver: BackendDriver) => {
+    activeSyncs.set(driver.id, { done: 0, total: 0 });
     broadcast({ type: "sync.started", connection_id: driver.id });
     return driver
       .sync({
@@ -151,10 +159,15 @@ export function startService(opts: ServiceOpts = {}): RunningService {
           );
         },
         claimed: (casfId) => owners.set(casfId, driver.id),
-        progress: (done, total) =>
-          broadcast({ type: "sync.progress", connection_id: driver.id, done, total }),
+        progress: (done, total) => {
+          activeSyncs.set(driver.id, { done, total });
+          broadcast({ type: "sync.progress", connection_id: driver.id, done, total });
+        },
       })
-      .finally(() => broadcast({ type: "sync.finished", connection_id: driver.id }));
+      .finally(() => {
+        activeSyncs.delete(driver.id);
+        broadcast({ type: "sync.finished", connection_id: driver.id });
+      });
   };
 
   const json = (data: unknown, status = 200) =>
@@ -1075,6 +1088,14 @@ export function startService(opts: ServiceOpts = {}): RunningService {
             }
           };
           write(`data: ${JSON.stringify({ type: "service.connected" })}\n\n`);
+          // A sync that began before this socket attached would otherwise be
+          // invisible until the next round — replay its state as a started
+          // event carrying the progress seen so far.
+          for (const [connection_id, s] of activeSyncs) {
+            write(
+              `data: ${JSON.stringify({ type: "sync.started", connection_id, done: s.done, total: s.total })}\n\n`,
+            );
+          }
           // comment-frame heartbeat: keeps proxies flushing the stream and
           // surfaces dead connections so stale subscribers get reaped
           heartbeat = setInterval(() => write(`: hb\n\n`), 15_000);
