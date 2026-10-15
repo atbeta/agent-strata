@@ -18,7 +18,8 @@ import {
   type StrataEvent,
 } from "./api";
 import { holdRows, sameValue } from "./session-rows";
-import { dayBucket, projectName, relTime, TIME_BUCKETS } from "./fleet";
+import { dayBucket, fleetAttention, projectName, relTime, TIME_BUCKETS } from "./fleet";
+import { readPins, togglePin, writePins } from "./pins";
 import { FleetView } from "./fleet-view";
 import { openSessionInSplit, SessionDetail } from "./session-detail";
 import { CompareView } from "./compare";
@@ -53,6 +54,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { TextField, TextFieldInput, TextFieldLabel } from "@/components/ui/text-field";
+import { MiniTabs } from "@/components/ui/mini-tabs";
 import { cn } from "@/lib/utils";
 
 type Route =
@@ -111,6 +113,9 @@ function SessionListItem(props: {
   onRename: (title: string) => Promise<void>;
   onArchive: () => Promise<void>;
   onDelete: () => Promise<void>;
+  /** Whether the row sits in the pinned group; the menu reads one of two words. */
+  pinned: boolean;
+  onTogglePin: () => void;
   /** Start a comparison with this session already picked. */
   onCompare: () => void;
   /** Open this session in a side-by-side split pane. */
@@ -233,6 +238,10 @@ function SessionListItem(props: {
             >
               <Icon name="pencil" class="size-3.5 text-muted-foreground" />
               {t("sidebar.session.rename")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => props.onTogglePin()}>
+              <Icon name="pin" class="size-3.5 text-muted-foreground" />
+              {t(props.pinned ? "sidebar.session.unpin" : "sidebar.session.pin")}
             </DropdownMenuItem>
             {/* Compare belongs on the session rather than behind a global
                 toggle: a comparison always starts from one of the two, so
@@ -687,42 +696,96 @@ export function App() {
 
   type SidebarGroup = { key: string; label: string; hint?: string; rows: SessionRow[] };
 
+  /**
+   * Sessions the reader keeps on top, and the "only what is running" lens.
+   *
+   * A pin is window-side state — it says this window cares about this
+   * session, which is a property of the person looking, not of the session,
+   * so it persists in storage rather than on the backend. `attentionOnly`
+   * is the momentary version of the same question and is deliberately not
+   * persisted: it answers "where is my running work" for a glance, and a
+   * lens that survived restarts would hide sessions the reader forgot they
+   * filtered out.
+   */
+  const [pins, setPins] = createSignal(readPins());
+  const [attentionOnly, setAttentionOnly] = createSignal(false);
+  const togglePinned = (id: string) => {
+    const next = togglePin(pins(), id);
+    setPins(next);
+    writePins(next);
+  };
+
+  /** The attention set, filter included — pinned rows count when they run. */
+  const attentionRows = () => fleetAttention(sessions());
+
   const buildGroups = (): SidebarGroup[] => {
     const rows = sessions();
     if (rows.length === 0) return [];
+
+    // Three lanes, each row in exactly one: pinned first, then whatever is
+    // running or waiting — the same set the fleet page calls "needs
+    // attention" — then everything else in its usual buckets. Repeating a
+    // row under both 需要关注 and its day would make the list argue with
+    // itself about where the session lives.
+    const pinSet = new Set(pins());
+    const pinned: SessionRow[] = [];
+    const loose: SessionRow[] = [];
+    for (const s of rows) {
+      (pinSet.has(s.summary.session_id) ? pinned : loose).push(s);
+    }
+    pinned.sort((a, b) => b.summary.last_ts.localeCompare(a.summary.last_ts));
+
+    const attention = fleetAttention(loose);
+    const attentionIds = new Set(attention.map((s) => s.summary.session_id));
+    const rest = loose.filter((s) => !attentionIds.has(s.summary.session_id));
+
+    const out: SidebarGroup[] = [];
+    if (pinned.length > 0) {
+      out.push({ key: "__pinned__", label: t("sidebar.group.pinned"), rows: pinned });
+    }
+    if (attention.length > 0) {
+      out.push({ key: "__attention__", label: t("sidebar.group.attention"), rows: attention });
+    }
+
     if (!currentDir()) {
       const byWs = new Map<string, SessionRow[]>();
-      for (const s of rows) {
+      for (const s of rest) {
         const ws = sessionWorkspace(s) ?? "";
         const list = byWs.get(ws) ?? [];
         list.push(s);
         byWs.set(ws, list);
       }
-      return [...byWs.entries()]
-        .sort((a, b) => {
-          const ta = new Date(a[1][0]?.summary.last_ts ?? 0).getTime();
-          const tb = new Date(b[1][0]?.summary.last_ts ?? 0).getTime();
-          return tb - ta;
-        })
-        .map(([ws, list]) => ({
-          key: ws || "none",
-          label: ws ? projectName(ws) : t("sidebar.project.none"),
-          hint: ws || undefined,
-          rows: list,
-        }));
+      out.push(
+        ...[...byWs.entries()]
+          .sort((a, b) => {
+            const ta = new Date(a[1][0]?.summary.last_ts ?? 0).getTime();
+            const tb = new Date(b[1][0]?.summary.last_ts ?? 0).getTime();
+            return tb - ta;
+          })
+          .map(([ws, list]) => ({
+            key: ws || "none",
+            label: ws ? projectName(ws) : t("sidebar.project.none"),
+            hint: ws || undefined,
+            rows: list,
+          })),
+      );
+      return out;
     }
     const buckets = new Map<string, SessionRow[]>();
-    for (const s of rows) {
+    for (const s of rest) {
       const bucket = dayBucket(s.summary.last_ts, clock());
       const list = buckets.get(bucket) ?? [];
       list.push(s);
       buckets.set(bucket, list);
     }
-    return TIME_BUCKETS.filter((bucket) => buckets.has(bucket)).map((bucket) => ({
-      key: bucket,
-      label: t(bucket),
-      rows: buckets.get(bucket)!,
-    }));
+    out.push(
+      ...TIME_BUCKETS.filter((bucket) => buckets.has(bucket)).map((bucket) => ({
+        key: bucket,
+        label: t(bucket),
+        rows: buckets.get(bucket)!,
+      })),
+    );
+    return out;
   };
 
   /**
@@ -730,10 +793,16 @@ export function App() {
    * reference too, and a group rebuilt around the same rows would take its
    * children with it. Rows are already held still by `library`, so comparing
    * them by identity here is enough to know the group is unchanged.
+   *
+   * The attention lens shares this memo rather than building its own list in
+   * the render path, because a freshly allocated group every poll would
+   * unmount every row in it and drop a half-typed rename with it.
    */
   const groups = createMemo((prev: SidebarGroup[] | undefined) =>
     holdRows(
-      buildGroups(),
+      attentionOnly()
+        ? [{ key: "__attention__", label: t("sidebar.group.attention"), rows: attentionRows() }]
+        : buildGroups(),
       prev,
       (g) => g.key,
       (a, b) =>
@@ -1059,28 +1128,43 @@ export function App() {
           </Show>
         </div>
         <div class="border-t border-border px-1.5 pt-1 pb-1">
-          <RowButton
-            class={cn(
-              "h-8 items-center px-2",
-              route().name === "fleet"
-                ? "bg-accent text-foreground"
-                : "text-foreground/80 hover:bg-secondary/70",
-            )}
-            aria-current={route().name === "fleet" ? "page" : undefined}
-            onClick={openFleet}
-          >
-            <Icon name="list" class="size-3.5 shrink-0 text-muted-foreground" />
-            {/* Label and count travel together, the way SectionHeader sets a
-                group's count beside its name. `flex-1` here stranded the number
-                at the panel edge, so the one row that sits directly above the
-                groups read differently from the groups below it. */}
-            <span class="flex items-baseline gap-1.5">
-              <span class="truncate">{t("fleet.nav")}</span>
-              <span class="font-mono text-2xs text-muted-foreground/60 tabular-nums">
-                {sessions().length}
+          <div class="flex items-center gap-1">
+            <RowButton
+              class={cn(
+                "h-8 min-w-0 flex-1 items-center px-2",
+                route().name === "fleet"
+                  ? "bg-accent text-foreground"
+                  : "text-foreground/80 hover:bg-secondary/70",
+              )}
+              aria-current={route().name === "fleet" ? "page" : undefined}
+              onClick={openFleet}
+            >
+              <Icon name="list" class="size-3.5 shrink-0 text-muted-foreground" />
+              {/* Label and count travel together, the way SectionHeader sets a
+                  group's count beside its name. `flex-1` here stranded the number
+                  at the panel edge, so the one row that sits directly above the
+                  groups read differently from the groups below it. */}
+              <span class="flex items-baseline gap-1.5">
+                <span class="truncate">{t("fleet.nav")}</span>
+                <span class="font-mono text-2xs text-muted-foreground/60 tabular-nums">
+                  {sessions().length}
+                </span>
               </span>
-            </span>
-          </RowButton>
+            </RowButton>
+            {/* The "only what is running" lens. It filters rather than sorts
+                because a session that is not moving answers a different
+                question than the one this tab asks. */}
+            <MiniTabs
+              class="shrink-0"
+              value={attentionOnly() ? "attention" : "all"}
+              options={[
+                { id: "all", label: t("sidebar.filter.all") },
+                { id: "attention", label: t("sidebar.filter.attention"), count: attentionRows().length },
+              ]}
+              onChange={(id) => setAttentionOnly(id === "attention")}
+              label={t("sidebar.filter.label")}
+            />
+          </div>
         </div>
         <div class="min-h-0 flex-1 overflow-y-auto px-1.5 py-1">
           {/* Compare is a mode of the list and it says so at the top of the
@@ -1113,11 +1197,13 @@ export function App() {
             each={groups()}
             fallback={
               <p class="px-2 py-8 text-center text-xs text-muted-foreground">
-                {data.error
-                  ? explain(data.error)
-                  : settled(data)
-                    ? t("sidebar.empty.inProject")
-                    : t("sidebar.empty.needBackend")}
+                {attentionOnly() && sessions().length > 0
+                  ? t("sidebar.empty.attention")
+                  : data.error
+                    ? explain(data.error)
+                    : settled(data)
+                      ? t("sidebar.empty.inProject")
+                      : t("sidebar.empty.needBackend")}
               </p>
             }
           >
@@ -1143,6 +1229,8 @@ export function App() {
                         onRename={(title) => runAction(id, () => renameSession(id, title), false)}
                         onArchive={() => runAction(id, () => archiveSession(id), true)}
                         onDelete={() => runAction(id, () => deleteSession(id), true)}
+                        pinned={pins().includes(id)}
+                        onTogglePin={() => togglePinned(id)}
                         onCompare={() => startCompare(id)}
                         onSplitOpen={() => openSessionInSplit(id, "row")}
                         instance={instanceOf(s)}

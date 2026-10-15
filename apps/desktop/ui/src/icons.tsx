@@ -37,7 +37,8 @@ export type Name =
   | "grid"
   | "single-pane"
   | "maximize"
-  | "minimize";
+  | "minimize"
+  | "pin";
 
 function Glyph(props: { class?: string; children: JSX.Element }) {
   return (
@@ -333,6 +334,14 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
         <circle cx="8" cy="8" r="5.5" />
         <path d="M8 4.5v4" />
         <circle cx="8" cy="11" r=".6" fill="currentColor" stroke="none" />
+      </Glyph>
+    );
+  // A pushpin tipped down-left: square head, short needle to the page corner.
+  if (name === "pin")
+    return (
+      <Glyph class={cls}>
+        <path d="M9.7 2.3 13.7 6.3l-.8 2.3-2.5-.7-2.9 2.9-1.4-1.4 2.9-2.9-.7-2.5z" />
+        <path d="M6.4 10.2 3 13.6" />
       </Glyph>
     );
   return (

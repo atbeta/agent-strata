@@ -23,6 +23,8 @@ export default {
   "common.untitled": "untitled",
   "sidebar.session.actions": "Session actions",
   "sidebar.session.rename": "Rename",
+  "sidebar.session.pin": "Pin to top",
+  "sidebar.session.unpin": "Unpin",
   "sidebar.session.compare": "Compare this session",
   "sidebar.session.archive": "Archive",
   "sidebar.session.delete": "Delete",
@@ -30,9 +32,19 @@ export default {
   "sidebar.sessionCount.one": "{n} session",
   "sidebar.sessionCount.other": "{n} sessions",
 
+  // Sidebar groups and the filter above them. The attention set is the same
+  // one the fleet page calls "Needs attention", so both screens use the one
+  // word.
+  "sidebar.group.pinned": "Pinned",
+  "sidebar.group.attention": "Needs attention",
+  "sidebar.filter.label": "Filter sessions",
+  "sidebar.filter.all": "All",
+  "sidebar.filter.attention": "Needs attention",
+
   // Sidebar empty state
   "sidebar.empty.inProject": "No sessions in this project yet.",
   "sidebar.empty.needBackend": "Connect a backend to see sessions.",
+  "sidebar.empty.attention": "Nothing needs attention right now.",
 
   // Backends
   "sidebar.backend.none": "No backend",

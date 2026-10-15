@@ -24,6 +24,8 @@ export default {
   "common.untitled": "未命名",
   "sidebar.session.actions": "会话操作",
   "sidebar.session.rename": "重命名",
+  "sidebar.session.pin": "置顶",
+  "sidebar.session.unpin": "取消置顶",
   "sidebar.session.compare": "对比这个会话",
   "sidebar.session.archive": "归档",
   "sidebar.session.delete": "删除",
@@ -31,9 +33,18 @@ export default {
   "sidebar.sessionCount.one": "{n} 个会话",
   "sidebar.sessionCount.other": "{n} 个会话",
 
+  // Sidebar groups and the filter above them. The attention set is the same
+  // one the fleet page calls 需要关注, so both screens use the one word.
+  "sidebar.group.pinned": "置顶",
+  "sidebar.group.attention": "需要关注",
+  "sidebar.filter.label": "筛选会话列表",
+  "sidebar.filter.all": "全部",
+  "sidebar.filter.attention": "需要关注",
+
   // Sidebar empty state
   "sidebar.empty.inProject": "此项目中还没有会话。",
   "sidebar.empty.needBackend": "连接后端后即可看到会话。",
+  "sidebar.empty.attention": "当前没有需要关注的会话。",
 
   // Backends
   "sidebar.backend.none": "未连接后端",
