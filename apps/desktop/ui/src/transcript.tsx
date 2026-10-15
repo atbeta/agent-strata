@@ -1,6 +1,14 @@
-import { createEffect, createMemo, createSignal, For, Index, Match, on, onCleanup, onMount, Show, Switch } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Index, Match, on, onCleanup, onMount, Show, Switch, type JSX } from "solid-js";
 import type { ContentBlock, ToolCallView, Turn } from "./api";
 import { Button } from "@/components/ui/button";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import { copyText } from "./clipboard";
 import { Icon } from "./icons";
 import { Md } from "./md";
 import { Tip } from "./tip";
@@ -23,6 +31,72 @@ import {
   type ToolKind,
 } from "./transcript-format";
 import { MessageActions } from "./message-actions";
+
+/**
+ * A right-click on a message gets the same things the action row under it
+ * offers, plus what a pointer gesture makes natural: copy just the marked
+ * text. The trigger keeps `contents` so the message's own box is the surface
+ * the menu opens on.
+ */
+function MessageMenu(props: {
+  text: () => string;
+  onEdit?: () => void;
+  onRevert?: () => void;
+  onFork?: () => void;
+  children: JSX.Element;
+}) {
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger class="contents">{props.children}</ContextMenuTrigger>
+      <ContextMenuContent class="min-w-40">
+        {(() => {
+          // Read at open time: a selection the pointer just made is what a
+          // "copy selection" item is for, and the menu renders lazily.
+          const sel = window.getSelection()?.toString().trim() ?? "";
+          return sel ? (
+            <ContextMenuItem onSelect={() => void copyText(sel)}>
+              <Icon name="copy" class="size-3.5 text-muted-foreground" />
+              {t("message.copySelection")}
+            </ContextMenuItem>
+          ) : null;
+        })()}
+        <Show when={props.text().trim()}>
+          <ContextMenuItem onSelect={() => void copyText(props.text())}>
+            <Icon name="copy" class="size-3.5 text-muted-foreground" />
+            {t("message.copy")}
+          </ContextMenuItem>
+        </Show>
+        <Show when={props.onEdit || props.onRevert || props.onFork}>
+          <ContextMenuSeparator />
+        </Show>
+        <Show when={props.onEdit}>
+          {(edit) => (
+            <ContextMenuItem onSelect={() => edit()()}>
+              <Icon name="pencil" class="size-3.5 text-muted-foreground" />
+              {t("message.edit")}
+            </ContextMenuItem>
+          )}
+        </Show>
+        <Show when={props.onRevert}>
+          {(revert) => (
+            <ContextMenuItem onSelect={() => revert()()}>
+              <Icon name="undo" class="size-3.5 text-muted-foreground" />
+              {t("message.revert")}
+            </ContextMenuItem>
+          )}
+        </Show>
+        <Show when={props.onFork}>
+          {(fork) => (
+            <ContextMenuItem onSelect={() => fork()()}>
+              <Icon name="fork" class="size-3.5 text-muted-foreground" />
+              {t("message.fork")}
+            </ContextMenuItem>
+          )}
+        </Show>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
 
 /** A reader's own open/closed choice, so a refresh does not snap it back. */
 const thinkingChoice = new Map<string, boolean>();
@@ -389,6 +463,10 @@ function AssistantMessage(props: {
   const hasFooter = () => text().trim() !== "";
   return (
     <Show when={hasMessageContent(props.message.content) || notice()}>
+      <MessageMenu
+        text={text}
+        onFork={forkable() ? () => props.onFork!(props.message.msg_id!) : undefined}
+      >
       <div class="transcript-message max-w-3xl" data-message-role="assistant">
         <div class="relative">
           <BlockText
@@ -431,6 +509,7 @@ function AssistantMessage(props: {
           />
         </Show>
       </div>
+      </MessageMenu>
     </Show>
   );
 }
@@ -485,6 +564,16 @@ export function TurnBlock(props: {
     <div class={`space-y-3 ${props.turn.reverted ? "opacity-50" : ""}`}>
       <Show when={props.turn.user}>
         {(blocks) => (
+          <MessageMenu
+            text={() => messageText(blocks())}
+            onEdit={
+              props.onEdit
+                ? () => props.onEdit!(props.turn.turn_id, messageText(blocks()))
+                : undefined
+            }
+            onRevert={props.onRevert ? () => props.onRevert!(props.turn.turn_id) : undefined}
+            onFork={props.onFork ? () => props.onFork!(props.turn.turn_id) : undefined}
+          >
           <div class="transcript-message flex w-full flex-col items-end" data-message-role="user">
             <Show when={props.turn.reverted}>
               <p class="text-2xs text-muted-foreground">{t("message.reverted")}</p>
@@ -510,6 +599,7 @@ export function TurnBlock(props: {
               />
             </Show>
           </div>
+          </MessageMenu>
         )}
       </Show>
       <Index each={flow()}>

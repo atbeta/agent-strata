@@ -259,6 +259,7 @@ export default {
 
   // Actions on a user message, and the restore / compaction chrome around them.
   "message.copy": "复制",
+  "message.copySelection": "复制选中内容",
   "message.copied": "已复制",
   "message.edit": "编辑",
   "message.revert": "撤回",

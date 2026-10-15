@@ -53,6 +53,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { TextField, TextFieldInput, TextFieldLabel } from "@/components/ui/text-field";
 import { MiniTabs } from "@/components/ui/mini-tabs";
 import { cn } from "@/lib/utils";
@@ -147,8 +154,71 @@ function SessionListItem(props: {
     await props.onRename(title);
   };
 
+  /**
+   * One list of actions behind two surfaces: the hover `···` and a right-click
+   * on the row itself. Both menus draw the same items — a row's actions should
+   * not depend on which gesture found them.
+   */
+  const menuItems = (
+    Item: typeof DropdownMenuItem,
+    Separator: typeof DropdownMenuSeparator,
+  ) => (
+    <>
+      <Item
+        onSelect={() => {
+          setDraft(props.title);
+          setEditing(true);
+        }}
+      >
+        <Icon name="pencil" class="size-3.5 text-muted-foreground" />
+        {t("sidebar.session.rename")}
+      </Item>
+      <Item onSelect={() => props.onTogglePin()}>
+        <Icon name="pin" class="size-3.5 text-muted-foreground" />
+        {t(props.pinned ? "sidebar.session.unpin" : "sidebar.session.pin")}
+      </Item>
+      {/* Compare belongs on the session rather than behind a global
+          toggle: a comparison always starts from one of the two, so
+          asking the list to enter a mode first made the user name a
+          session before they could start. */}
+      <Show when={props.onSplitOpen}>
+        <Item onSelect={() => props.onSplitOpen?.()}>
+          <Icon name="split-row" class="size-3.5 text-muted-foreground" />
+          {t("pane.split.right")}
+        </Item>
+      </Show>
+      <Item onSelect={props.onCompare}>
+        <Icon name="columns" class="size-3.5 text-muted-foreground" />
+        {t("sidebar.session.compare")}
+      </Item>
+      <Item onSelect={() => void props.onArchive()}>
+        <Icon name="archive" class="size-3.5 text-muted-foreground" />
+        {t("sidebar.session.archive")}
+      </Item>
+      <Separator />
+      <Item
+        class={armed() ? "text-destructive data-[highlighted]:text-destructive" : ""}
+        closeOnSelect={armed()}
+        onSelect={() => {
+          if (!armed()) {
+            setArmed(true);
+            return;
+          }
+          setArmed(false);
+          setMenuOpen(false);
+          void props.onDelete();
+        }}
+      >
+        <Icon name="trash" class={`size-3.5 ${armed() ? "" : "text-muted-foreground"}`} />
+        {armed() ? t("sidebar.session.deleteArmed") : t("sidebar.session.delete")}
+      </Item>
+    </>
+  );
+
   return (
-    <ListRow
+    <ContextMenu onOpenChange={(open) => !open && setArmed(false)}>
+      <ContextMenuTrigger class="contents" disabled={editing()}>
+        <ListRow
       active={props.active}
       onOpen={props.onOpen}
       disabled={editing()}
@@ -230,58 +300,19 @@ function SessionListItem(props: {
             <Icon name="more" class="size-3.5" />
           </DropdownMenuTrigger>
           <DropdownMenuContent class="min-w-40">
-            <DropdownMenuItem
-              onSelect={() => {
-                setDraft(props.title);
-                setEditing(true);
-              }}
-            >
-              <Icon name="pencil" class="size-3.5 text-muted-foreground" />
-              {t("sidebar.session.rename")}
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => props.onTogglePin()}>
-              <Icon name="pin" class="size-3.5 text-muted-foreground" />
-              {t(props.pinned ? "sidebar.session.unpin" : "sidebar.session.pin")}
-            </DropdownMenuItem>
-            {/* Compare belongs on the session rather than behind a global
-                toggle: a comparison always starts from one of the two, so
-                asking the list to enter a mode first made the user name a
-                session before they could start. */}
-            <Show when={props.onSplitOpen}>
-              <DropdownMenuItem onSelect={() => props.onSplitOpen?.()}>
-                <Icon name="split-row" class="size-3.5 text-muted-foreground" />
-                {t("pane.split.right")}
-              </DropdownMenuItem>
-            </Show>
-            <DropdownMenuItem onSelect={props.onCompare}>
-              <Icon name="columns" class="size-3.5 text-muted-foreground" />
-              {t("sidebar.session.compare")}
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => void props.onArchive()}>
-              <Icon name="archive" class="size-3.5 text-muted-foreground" />
-              {t("sidebar.session.archive")}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              class={armed() ? "text-destructive data-[highlighted]:text-destructive" : ""}
-              closeOnSelect={false}
-              onSelect={() => {
-                if (!armed()) {
-                  setArmed(true);
-                  return;
-                }
-                setArmed(false);
-                setMenuOpen(false);
-                void props.onDelete();
-              }}
-            >
-              <Icon name="trash" class={`size-3.5 ${armed() ? "" : "text-muted-foreground"}`} />
-              {armed() ? t("sidebar.session.deleteArmed") : t("sidebar.session.delete")}
-            </DropdownMenuItem>
+            {menuItems(DropdownMenuItem, DropdownMenuSeparator)}
           </DropdownMenuContent>
         </DropdownMenu>
       </Show>
     </ListRow>
+      </ContextMenuTrigger>
+      <ContextMenuContent class="min-w-40">
+        {menuItems(
+          ContextMenuItem as unknown as typeof DropdownMenuItem,
+          ContextMenuSeparator as unknown as typeof DropdownMenuSeparator,
+        )}
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 
@@ -536,6 +567,21 @@ export function App() {
     };
     window.addEventListener("dragover", onFileDrag);
     window.addEventListener("drop", onFileDrag);
+    /**
+     * The webview's own menu is a browser's — back, reload, inspect — and
+     * none of it means anything here, so it is suppressed everywhere. Editable
+     * text keeps it: the system edit menu there (cut, copy, paste, select all)
+     * is real functionality the web cannot faithfully re-create. Surfaces
+     * with actual row actions own a ContextMenu trigger instead, which opens
+     * before this bubbling handler runs.
+     */
+    const onContextMenu = (e: MouseEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el?.closest?.("input, textarea, select, [contenteditable='true'], [data-native-contextmenu]"))
+        return;
+      e.preventDefault();
+    };
+    window.addEventListener("contextmenu", onContextMenu);
     onCleanup(() => {
       scheme.removeEventListener("change", onScheme);
       window.removeEventListener("hashchange", onHash);
@@ -543,6 +589,7 @@ export function App() {
       window.removeEventListener("keyup", onKeyUp, true);
       window.removeEventListener("dragover", onFileDrag);
       window.removeEventListener("drop", onFileDrag);
+      window.removeEventListener("contextmenu", onContextMenu);
       clearInterval(clockTimer);
       clearInterval(syncTimer);
       clearTimeout(timer);

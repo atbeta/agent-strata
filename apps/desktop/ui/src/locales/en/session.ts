@@ -257,6 +257,7 @@ export default {
 
   // Actions on a user message, and the restore / compaction chrome around them.
   "message.copy": "Copy",
+  "message.copySelection": "Copy selection",
   "message.copied": "Copied",
   "message.edit": "Edit",
   "message.revert": "Revert",
