@@ -62,6 +62,14 @@ import { TerminalPane } from "./terminal";
 import { ReviewPane } from "./review";
 import { clampRailWidth, readRailWidth, writeRailWidth, RAIL_MAX, RAIL_MIN } from "./rail-width";
 import {
+  clampContentWidth,
+  CONTENT_W_DEFAULT,
+  CONTENT_W_MAX,
+  CONTENT_W_MIN,
+  readContentWidth,
+  writeContentWidth,
+} from "./content-width";
+import {
   readPanelOpen,
   readPanelTab,
   writePanelOpen,
@@ -408,7 +416,7 @@ function PanelToggle(props: {
 
 function LoadingTranscript() {
   return (
-    <div class="mx-auto w-full max-w-3xl space-y-4 px-5 py-8">
+    <div class="mx-auto w-full space-y-4 px-5 py-8" style={{ "max-width": `${contentW()}px` }}>
       <div class="ml-auto h-10 w-2/3 animate-pulse rounded-2xl bg-secondary/80" />
       <div class="h-4 w-5/6 animate-pulse rounded bg-secondary/50" />
       <div class="h-4 w-2/3 animate-pulse rounded bg-secondary/40" />
@@ -740,6 +748,102 @@ const [panelTab, setPanelTab] = createSignal<SidePanelTab>(readPanelTab());
 const [paneWorkspace, setPaneWorkspace] = createSignal<PaneWorkspaceState>(readPaneWorkspace());
 const paneScrollMemory = new Map<string, { scrollTop: number; pinned: boolean }>();
 
+/**
+ * The reading column's width, shared by every transcript and the composer so
+ * they always end on the same edges. Module scope like the pane workspace:
+ * the width belongs to the window, not to whichever pane is focused.
+ */
+const [contentW, setContentW] = createSignal(readContentWidth());
+const setContentWidth = (px: number, remember = true) => {
+  const next = clampContentWidth(px);
+  setContentW(next);
+  if (remember) writeContentWidth(next);
+};
+
+/**
+ * The reading column's own resize handles: an invisible strip on each edge of
+ * the column that answers hover with a short segment of line under the
+ * pointer, gradient-faded at both ends — the edge says it can move only
+ * where the pointer asks, never as a standing border. The column is centered,
+ * so dragging either side resizes symmetrically — the width is twice the
+ * pointer's distance from the middle of the stage. Double-click resets.
+ */
+function ContentSashes() {
+  const [dragging, setDragging] = createSignal(false);
+  const [gripY, setGripY] = createSignal(0);
+  const start = (e: PointerEvent & { currentTarget: HTMLDivElement }) => {
+    e.preventDefault();
+    const handle = e.currentTarget;
+    const host = handle.parentElement;
+    if (!host) return;
+    const center = host.getBoundingClientRect().left + host.clientWidth / 2;
+    handle.setPointerCapture(e.pointerId);
+    setDragging(true);
+    const move = (ev: PointerEvent) => setContentWidth(2 * Math.abs(ev.clientX - center), false);
+    const done = () => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", done);
+      handle.removeEventListener("pointercancel", done);
+      setDragging(false);
+      writeContentWidth(contentW());
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", done);
+    handle.addEventListener("pointercancel", done);
+  };
+  const onKey = (side: "left" | "right") => (e: KeyboardEvent) => {
+    const step = e.shiftKey ? 48 : 16;
+    const grow =
+      side === "left" ? e.key === "ArrowLeft" : e.key === "ArrowRight";
+    const shrink =
+      side === "left" ? e.key === "ArrowRight" : e.key === "ArrowLeft";
+    if (!grow && !shrink) return;
+    e.preventDefault();
+    setContentWidth(contentW() + (grow ? step : -step));
+  };
+  // The strip straddles the column edge, half in the margin and half over the
+  // column; `max()` keeps it on the pane's own border when the pane has no
+  // margin to spare.
+  const edge = () => `max(0px, calc(50% - ${contentW() / 2 + 8}px))`;
+  const grip = (side: "left" | "right") => (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={t("content.resize")}
+      aria-valuemin={CONTENT_W_MIN}
+      aria-valuemax={CONTENT_W_MAX}
+      aria-valuenow={contentW()}
+      tabindex={0}
+      class="group absolute inset-y-0 z-10 w-4 cursor-ew-resize outline-none"
+      style={side === "left" ? { left: edge() } : { right: edge() }}
+      onPointerDown={start}
+      onPointerMove={(e) => setGripY(e.offsetY)}
+      onDblClick={() => setContentWidth(CONTENT_W_DEFAULT)}
+      onKeyDown={onKey(side)}
+    >
+      {/* 64px of edge under the pointer, its ends masked away — a hairline that
+          exists only where it is being looked at. */}
+      <div
+        class={`pointer-events-none absolute left-1/2 h-16 w-0.5 -translate-x-1/2 rounded-full bg-muted-foreground/70 transition-opacity ${
+          dragging() ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"
+        }`}
+        style={{
+          top: `clamp(0px, ${gripY() - 32}px, calc(100% - 64px))`,
+          "mask-image":
+            "linear-gradient(to bottom, transparent, black 30%, black 70%, transparent)",
+        }}
+      />
+    </div>
+  );
+  return (
+    <>
+      {grip("left")}
+      {grip("right")}
+    </>
+  );
+}
+
+
 function updatePaneWorkspace(updater: (prev: PaneWorkspaceState) => PaneWorkspaceState): PaneWorkspaceState {
   const cur = paneWorkspace();
   const next = updater(cur);
@@ -964,6 +1068,7 @@ function PeerSessionTranscript(props: {
 
   return (
     <div class="relative flex min-h-0 flex-1 flex-col">
+      <ContentSashes />
       <div
         ref={(el) => {
           scroller = el;
@@ -991,9 +1096,10 @@ function PeerSessionTranscript(props: {
         <div
           class={
             showNav()
-              ? "mx-auto w-full max-w-3xl py-4 pl-11 pr-5"
-              : "mx-auto w-full max-w-3xl px-5 py-4"
+              ? "mx-auto w-full py-4 pl-11 pr-5"
+              : "mx-auto w-full px-5 py-4"
           }
+          style={{ "max-width": `${contentW()}px` }}
         >
           <Show when={!booting()} fallback={<LoadingTranscript />}>
             <Show
@@ -2495,6 +2601,16 @@ const turnIndexOf = (h: SearchHit): number => {
   // The file browser only exists for the OpenCode backend.
   const effectiveTab = (): SidePanelTab => (opencode() ? panelTab() : "changes");
 
+  /**
+   * How many files the changes view actually found. The rail header wears it
+   * while open; the collapsed edge strip wears the same number while closed,
+   * so the rail advertises what it holds before it takes any room.
+   */
+  const changeCount = () =>
+    opencode()
+      ? (reviewDiff() ?? []).filter((f) => f.file).length
+      : (settled(view)?.files_changed.length ?? 0);
+
   const childOf = (id: string) => {
     const row = props.sessions.find((s) => s.summary.session_id === id);
     if (!row) return undefined;
@@ -2716,16 +2832,6 @@ const turnIndexOf = (h: SearchHit): number => {
                       </PanelToggle>
                     </Tip>
                   </Show>
-                  <Tip label={panelOpen() ? t("panel.hide") : t("panel.show")}>
-                    <PanelToggle
-                      label={panelOpen() ? t("panel.hide") : t("panel.show")}
-                      on={panelOpen()}
-                      pressed={panelOpen()}
-                      onClick={togglePanel}
-                    >
-                      <Icon name="files" />
-                    </PanelToggle>
-                  </Tip>
                   <Tip label={traceOn() ? t("trace.live") : t("trace.replay")}>
                     <PanelToggle
                       label={traceOn() ? t("trace.live") : t("trace.replay")}
@@ -3097,6 +3203,7 @@ const turnIndexOf = (h: SearchHit): number => {
                 )}
                 renderFocusedTranscript={() => (
               <div class={`relative flex flex-1 flex-col ${paneWorkspace().mode === "multiplex" ? "min-h-0" : "min-h-[30vh]"}`}>
+              <ContentSashes />
               <div
                 ref={(el) => {
                   scroller = el;
@@ -3135,9 +3242,10 @@ const turnIndexOf = (h: SearchHit): number => {
                 <div
                   class={
                     showNav()
-                      ? "mx-auto w-full max-w-3xl py-4 pl-11 pr-5"
-                      : "mx-auto w-full max-w-3xl px-5 py-4"
+                      ? "mx-auto w-full py-4 pl-11 pr-5"
+                      : "mx-auto w-full px-5 py-4"
                   }
+                  style={{ "max-width": `${contentW()}px` }}
                 >
                   <Show
                     when={!booting() && !(importing() && turns().length === 0)}
@@ -3243,7 +3351,7 @@ const turnIndexOf = (h: SearchHit): number => {
                   and the composer stays outside it, pinned where it is.
                 */}
                 <div class="shrink-0 bg-gradient-to-t from-background from-70% px-5 pb-4 pt-6">
-                  <div class="mx-auto w-full max-w-3xl space-y-2">
+                  <div class="mx-auto w-full space-y-2" style={{ "max-width": `${contentW()}px` }}>
                     {/* Pending asks and questions share the dock with the
                         composer, and the dock is `shrink-0` — four stacked
                         prompts measured 1024px against a 900px window, which
@@ -3597,9 +3705,6 @@ const turnIndexOf = (h: SearchHit): number => {
       <Show when={panelOpen() && !traceBlock() && settled(view)}>
         {(v) => {
           const files = () => v().files_changed;
-          /** How many files the changes view actually found. */
-          const changeCount = () =>
-            opencode() ? (reviewDiff() ?? []).filter((f) => f.file).length : files().length;
           /** An empty diff reads differently per baseline, so it says which. */
           const emptyNote = () => t(reviewSource() === "git" ? "review.empty.git" : "review.empty");
           // The list of names is worthless at 288px next to a real diff, so the
@@ -3849,6 +3954,35 @@ const turnIndexOf = (h: SearchHit): number => {
             </aside>
           );
         }}
+      </Show>
+      {/* The rail's collapsed form: one slim strip the right edge owns itself.
+          The header used to carry this toggle among the session's own actions,
+          where a button that opens a rail read identical to buttons that act on
+          the transcript. Now the edge is the switch — click it anywhere to
+          open, and the open rail's own header closes it back. The top cell is
+          the same h-11 row the open rail and the main header both draw, so the
+          hairline and the icon land on the same line as the buttons beside
+          them. The count is the same one the rail header shows while open. */}
+      <Show when={!panelOpen() && !traceBlock() && settled(view)}>
+        <Button
+          type="button"
+          variant="icon"
+          class="h-full w-7 shrink-0 flex-col justify-start gap-1 rounded-none border-l border-border p-0"
+          aria-label={t("panel.show")}
+          aria-expanded="false"
+          onClick={() => openPanel()}
+        >
+          <span class="flex h-11 w-full shrink-0 items-center justify-center border-b border-border">
+            <Tip label={t("panel.show")}>
+              <Icon name="files" />
+            </Tip>
+          </span>
+          <Show when={changeCount() > 0}>
+            <span class="select-none font-mono text-2xs text-muted-foreground tabular-nums">
+              {changeCount()}
+            </span>
+          </Show>
+        </Button>
       </Show>
     </div>
   );

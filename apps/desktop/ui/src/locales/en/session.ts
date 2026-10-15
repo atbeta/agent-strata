@@ -138,6 +138,7 @@ export default {
   "panel.changes": "Changes",
   "panel.files": "Files",
   "rail.resize": "Resize the panel",
+  "content.resize": "Resize the reading column (double-click to reset)",
   "rail.nothing": "Nothing changed yet.",
   "plan.title": "Plan",
   "plan.progress": "{done}/{total}",

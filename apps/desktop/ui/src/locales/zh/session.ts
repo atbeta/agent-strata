@@ -140,6 +140,7 @@ export default {
   "panel.changes": "改动",
   "panel.files": "文件",
   "rail.resize": "调整侧栏宽度",
+  "content.resize": "调整阅读区宽度（双击复位）",
   "rail.nothing": "尚无改动。",
   "plan.title": "计划",
   "plan.progress": "{done}/{total}",
