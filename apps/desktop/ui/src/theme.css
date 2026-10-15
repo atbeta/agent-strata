@@ -440,27 +440,7 @@ textarea {
   }
 }
 
-/* Indeterminate sweep for work whose total is not known yet — the scanning
-   phase of a sync, where a determinate bar would sit at 0% and lie. */
-@media (prefers-reduced-motion: no-preference) {
-  .scan-line::after {
-    content: "";
-    display: block;
-    width: 40%;
-    height: 100%;
-    border-radius: 999px;
-    background: var(--status-active);
-    animation: scan-line 1.1s ease-in-out infinite;
-  }
-  @keyframes scan-line {
-    0% {
-      transform: translateX(-110%);
-    }
-    100% {
-      transform: translateX(280%);
-    }
-  }
-}
+
 
 /* Composer toolbar: pickers inline while the composer is wide, folded behind
    the gear when it is not. `display: contents` keeps the slots' children in

@@ -74,6 +74,7 @@ export default {
   // Overflow menu
   "sidebar.menu.more": "More",
   "sidebar.menu.disconnect": "Disconnect {host}",
+  "sidebar.sync.busy": "Syncing",
   "sidebar.sync.scanning": "Scanning sessions…",
   "sidebar.sync.progress": "Syncing sessions {done}/{total}",
 

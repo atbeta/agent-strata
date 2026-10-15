@@ -387,15 +387,6 @@ export function App() {
     setSyncTicks(next);
     if (idle) syncGrace = setTimeout(() => setSyncShown(true), 800);
   };
-  const syncTotals = () => {
-    let done = 0,
-      total = 0;
-    for (const s of syncTicks().values()) {
-      done += s.done;
-      total += s.total;
-    }
-    return { done, total };
-  };
   const waiting = () =>
     (settled(data)?.sessions ?? []).filter((s) => s.needs_input && !s.archived && !s.deleted).length;
   createEffect(() => {
@@ -1344,28 +1335,6 @@ export function App() {
           </For>
         </div>
         <div class="border-t border-border px-2">
-          <Show when={syncShown()}>
-            <div class="my-1 px-1" role="status" aria-live="polite">
-              <div class="flex items-center gap-1.5 text-2xs text-muted-foreground">
-                <span class="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-status-active" />
-                <span class="truncate">
-                  {syncTotals().total > 0
-                    ? t("sidebar.sync.progress", { done: syncTotals().done, total: syncTotals().total })
-                    : t("sidebar.sync.scanning")}
-                </span>
-              </div>
-              <div class="scan-line mt-1 h-0.5 w-full overflow-hidden rounded-full bg-secondary">
-                <Show when={syncTotals().total > 0}>
-                  <div
-                    class="h-full rounded-full bg-status-active transition-[width] duration-300"
-                    style={{
-                      width: `${Math.min(100, (syncTotals().done / Math.max(1, syncTotals().total)) * 100)}%`,
-                    }}
-                  />
-                </Show>
-              </div>
-            </div>
-          </Show>
           <Show when={connOpen()}>
             <div class="my-1.5 space-y-1.5 px-1">
               <div class="flex gap-1">
@@ -1483,13 +1452,28 @@ export function App() {
                 }
               >
                 <For each={settled(conns)?.connections ?? []}>
-                  {(c) => (
+                  {(c) => {
+                    const tick = () => (syncShown() ? syncTicks().get(c.id) : undefined);
+                    return (
                     <RowButton
                       class="gap-2 px-1.5 py-0 text-xs hover:bg-secondary"
-                      title={c.baseUrl}
+                      title={
+                        tick()
+                          ? tick()!.total > 0
+                            ? t("sidebar.sync.progress", {
+                                done: tick()!.done,
+                                total: tick()!.total,
+                              })
+                            : t("sidebar.sync.scanning")
+                          : c.baseUrl
+                      }
                       onClick={() => chooseNewConn(c.id)}
                     >
-                      <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-status-active" />
+                      <span
+                        class={`h-1.5 w-1.5 shrink-0 rounded-full bg-status-active ${
+                          tick() ? "animate-pulse" : ""
+                        }`}
+                      />
                       <span class="truncate">
                         {backendLabel(c.backend)}
                         <span class="font-mono text-2xs text-muted-foreground">
@@ -1497,13 +1481,27 @@ export function App() {
                           · {endpointHost(c.baseUrl)}
                         </span>
                       </span>
-                      <Show when={(settled(conns)?.connections.length ?? 0) > 1 && newSessionConnection() === c.id}>
-                        <span class="ml-auto shrink-0 text-2xs text-muted-foreground">
-                          {t("sidebar.backend.newTarget")}
-                        </span>
-                      </Show>
+                      <span class="ml-auto flex shrink-0 items-center gap-1.5">
+                        <Show when={tick()}>
+                          {(tk) => (
+                            <span
+                              role="status"
+                              aria-live="polite"
+                              class="font-mono text-2xs text-muted-foreground tabular-nums"
+                            >
+                              {tk().total > 0 ? `${tk().done}/${tk().total}` : t("sidebar.sync.busy")}
+                            </span>
+                          )}
+                        </Show>
+                        <Show when={(settled(conns)?.connections.length ?? 0) > 1 && newSessionConnection() === c.id}>
+                          <span class="text-2xs text-muted-foreground">
+                            {t("sidebar.backend.newTarget")}
+                          </span>
+                        </Show>
+                      </span>
                     </RowButton>
-                  )}
+                    );
+                  }}
                 </For>
               </Show>
             </div>
