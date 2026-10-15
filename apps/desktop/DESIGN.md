@@ -121,4 +121,6 @@ Wrapping is `break-words`, never `break-all`: breaking inside a word turns one l
 
 - **Sidebar** (`App.tsx`): project switcher, search, sessions grouped by day or by project.
 - **Session** (`session-detail.tsx`): transcript, composer, optional files and replay. Thinking is a quiet disclosure (`Thought` / live `Thinking`) with a one-line preview. Tool calls are separate cards: Bash shows the command, Read and Edit show the path, edits add a `+n −n` diff, Search and Fetch show the query or URL, and a plan tool lists its items. File references are chips. Failed and denied calls use the destructive border; a finished call stays collapsed.
+
+A plan is `PlanStrip`, tucked above the composer: one line when collapsed — progress and the step it is on — the full list when opened. It appears while a live session still has steps left and once they are all done, since a finished list is history and the transcript holding it is directly above. It opens by itself only for a session that is still working and has work in it, which is what makes a plan read as part of the run rather than something to go and open; from then on the reader's own toggle is remembered, keyed per session, so expanding a plan never silently expands it in another conversation.
 - **Compare** (`compare.tsx`) and **policy** (`policy.tsx`): same tokens, no separate theme.

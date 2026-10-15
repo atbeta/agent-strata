@@ -2700,7 +2700,7 @@ const turnIndexOf = (h: SearchHit): number => {
                         />
                       </Show>
                       <Show when={planVisible(v().plan, generating())}>
-                        <PlanStrip plan={v().plan!} generating={generating()} />
+                        <PlanStrip sessionId={props.id} plan={v().plan!} generating={generating()} />
                       </Show>
                       <Show when={queued().length > 0}>
                         <div
