@@ -240,26 +240,32 @@ export function SettingsPage(props: { section?: string }) {
       <div role="tabpanel" id="settings-panel" aria-labelledby={`settings-tab-${section()}`}>
       <Show when={section() === "interface"}>
       <Group label={t("settings.appearance")}>
-        <Segmented
-          label={t("settings.theme")}
-          value={choice()}
-          onChange={(id) => pick(id as ThemeChoice)}
-          options={CHOICES().map((item) => ({
-            id: item.id,
-            label: item.label,
-            swatch: (
-              <span
-                class={`h-3.5 w-6 shrink-0 rounded-sm border border-border ${
-                  item.id === "light"
-                    ? "bg-white"
-                    : item.id === "system"
-                      ? "bg-[linear-gradient(90deg,#f7f7f8_50%,#17171a_50%)]"
-                      : "bg-[#17171a]"
-                }`}
-              />
-            ),
-          }))}
-        />
+        {/* This one was a bare Segmented straight inside the group, so its
+            control sat under the group heading on the left while every other
+            control on the page right-aligned against one edge — the ragged
+            edge that Row exists to prevent. */}
+        <Row label={t("settings.theme")} controlClass="w-88">
+          <Segmented
+            label={t("settings.theme")}
+            value={choice()}
+            onChange={(id) => pick(id as ThemeChoice)}
+            options={CHOICES().map((item) => ({
+              id: item.id,
+              label: item.label,
+              swatch: (
+                <span
+                  class={`h-3.5 w-6 shrink-0 rounded-sm border border-border ${
+                    item.id === "light"
+                      ? "bg-white"
+                      : item.id === "system"
+                        ? "bg-[linear-gradient(90deg,#f7f7f8_50%,#17171a_50%)]"
+                        : "bg-[#17171a]"
+                  }`}
+                />
+              ),
+            }))}
+          />
+        </Row>
       </Group>
 
       {/* Language and notification are preferences, not a category each: they
