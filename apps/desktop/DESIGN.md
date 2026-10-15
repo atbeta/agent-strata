@@ -19,6 +19,9 @@ The primitives cover controls. These cover the recurring *shapes* the screens ot
 - **`ListRow`** — the shell for any clickable list row (session, search hit, provider, policy). A `div[role=button]`, because rows contain their own interactive children (inline rename, per-row menu) and nesting those in a real `<button>` is invalid. It therefore owns the keyboard contract once: Enter and Space activate, Escape and Tab do not, the focus ring matches `Button`, and `active` sets `aria-current`. Per-row menus mark themselves `data-row-menu` so clicking one does not also open the row.
 - **`SectionHeader`** — a sidebar group's label, count and optional hint. The count follows the label directly; only the hint takes the far side. An `ml-auto` count left the label and its number ~250px apart with nothing between them, which read as unrelated chrome.
 - **`EmptyState`** — the one way this app says "nothing here yet" or "that did not work". Fixed shape: icon in a muted disc, title, optional description, optional action, centred. `tone="danger"` tints it for a failure. Loading stays `LoadingTranscript`'s skeleton; `EmptyState` is for states that will not resolve on their own.
+- **`PillGroup`** (in `settings-blocks.tsx`) — the pill idiom as a whole, for sets too wide for one control: six font sizes, four leading presets. `Segmented` covers the two- and three-option case. It wraps deliberately — a set too wide for its column folds instead of spilling past the edge — so the column it sits in has to be wide enough for the widest set, not the average one.
+
+Patterns with one consumer live next to it rather than in `components/ui`: `PanelToggle` (the session header's five panel controls, `session-detail.tsx`), `CaptionButton` (the frameless-window caption controls, `chrome.tsx`). They are the shapes, not primitives, and a second screen asking for one is when they move.
 
 ### Size ladder
 
