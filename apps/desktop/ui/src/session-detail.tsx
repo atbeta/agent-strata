@@ -317,6 +317,44 @@ function splitModel(id: string): { providerID: string; modelID: string } | undef
   return { providerID: id.slice(0, i), modelID: id.slice(i + 1) };
 }
 
+/**
+ * A header panel toggle: icon button, quiet at rest, filled while its panel is
+ * open.
+ *
+ * Five of these sit in one row — search, terminal, files, replay, tools — and
+ * each had the same class string written out again with the selected state
+ * interpolated, so adding a sixth meant copying a ternary. None of them drew a
+ * focus ring either, which left tabbing across the header moving an invisible
+ * cursor past five controls.
+ *
+ * `expanded` and `pressed` are separate because the search button answers
+ * `aria-expanded` (it reveals a field) while the rest answer `aria-pressed`
+ * (they toggle a surface that stays in the layout).
+ */
+function PanelToggle(props: {
+  label: string;
+  on: boolean;
+  expanded?: boolean;
+  pressed?: boolean;
+  onClick: () => void;
+  children: JSX.Element;
+}) {
+  return (
+    <Button
+      type="button"
+      size="icon-sm"
+      variant="icon"
+      class={props.on ? "bg-secondary text-foreground" : undefined}
+      aria-label={props.label}
+      aria-expanded={props.expanded}
+      aria-pressed={props.pressed}
+      onClick={props.onClick}
+    >
+      {props.children}
+    </Button>
+  );
+}
+
 function LoadingTranscript() {
   return (
     <div class="mx-auto w-full max-w-3xl space-y-4 px-5 py-8">
@@ -581,9 +619,11 @@ function SessionInfo(props: {
         <InfoRow
           label={t("info.id")}
           value={
-            <button
+            <Button
               type="button"
-              class="inline-flex max-w-full items-center gap-1.5 rounded transition-colors hover:text-foreground"
+              variant="quiet"
+              size="xs"
+              class="h-auto max-w-full px-0 py-0"
               title={props.id}
               aria-label={t("info.id.copy")}
               onClick={() => void copyId()}
@@ -593,7 +633,7 @@ function SessionInfo(props: {
                 <span class="text-muted-foreground">{idParts()[0]}</span>
                 {idParts()[1]}
               </span>
-            </button>
+            </Button>
           }
           mono
           title={props.id}
@@ -1934,15 +1974,17 @@ const turnIndexOf = (h: SearchHit): number => {
                     {(parentId) => {
                       const parent = () => props.sessions.find((s) => s.summary.session_id === parentId());
                       return (
-                        <button
+                        <Button
                           type="button"
-                          class="max-w-48 shrink-0 truncate text-sm text-muted-foreground hover:text-foreground"
+                          variant="quiet"
+                          size="sm"
+                          class="h-auto max-w-48 shrink-0 truncate px-0 py-0 text-sm"
                           onClick={() => {
                             location.hash = `/session/${encodeURIComponent(parentId())}`;
                           }}
                         >
                           {parent()?.title || t("session.child.back")}
-                        </button>
+                        </Button>
                       );
                     }}
                   </Show>
@@ -1993,59 +2035,42 @@ const turnIndexOf = (h: SearchHit): number => {
                     </Tip>
                   </Show>
                   <Tip label={t("session.search.tip", { shortcut: findKey() })}>
-                  <button
-                    class={`grid h-7 w-7 place-items-center rounded-md transition-colors ${
-                      searchOpen()
-                        ? "bg-secondary text-foreground"
-                        : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-                    }`}
-                    aria-label={t("session.search.label")}
-                    aria-expanded={searchOpen()}
+                  <PanelToggle
+                    label={t("session.search.label")}
+                    on={searchOpen()}
+                    expanded={searchOpen()}
                     onClick={() => (searchOpen() ? closeSearch() : openSearch())}
                   >
                     <Icon name="search" />
-                  </button>
+                  </PanelToggle>
                 </Tip>
                 <Show when={opencode()}>
                     <Tip label={terminalOn() ? t("terminal.hide") : t("terminal.show")}>
-                      <button
-                        class={`grid h-7 w-7 place-items-center rounded-md transition-colors ${
-                          terminalOn()
-                            ? "bg-secondary text-foreground"
-                            : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-                        }`}
-                        aria-label={terminalOn() ? t("terminal.hide") : t("terminal.show")}
-                        aria-pressed={terminalOn()}
+                      <PanelToggle
+                        label={terminalOn() ? t("terminal.hide") : t("terminal.show")}
+                        on={terminalOn()}
+                        pressed={terminalOn()}
                         onClick={() => setTerminalOn((on) => !on)}
                       >
                         <Icon name="terminal" />
-                      </button>
+                      </PanelToggle>
                     </Tip>
                   </Show>
                   <Tip label={panelOpen() ? t("panel.hide") : t("panel.show")}>
-                    <button
-                      class={`grid h-7 w-7 place-items-center rounded-md transition-colors ${
-                        panelOpen()
-                          ? "bg-secondary text-foreground"
-                          : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-                      }`}
-                      aria-label={panelOpen() ? t("panel.hide") : t("panel.show")}
-                      aria-pressed={panelOpen()}
+                    <PanelToggle
+                      label={panelOpen() ? t("panel.hide") : t("panel.show")}
+                      on={panelOpen()}
+                      pressed={panelOpen()}
                       onClick={togglePanel}
                     >
                       <Icon name="files" />
-                    </button>
+                    </PanelToggle>
                   </Tip>
                   <Tip label={traceOn() ? t("trace.live") : t("trace.replay")}>
-                    <button
-                      type="button"
-                      class={`grid h-7 w-7 place-items-center rounded-md transition-colors ${
-                        traceOn()
-                          ? "bg-secondary text-foreground"
-                          : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-                      }`}
-                      aria-label={traceOn() ? t("trace.live") : t("trace.replay")}
-                      aria-pressed={traceOn()}
+                    <PanelToggle
+                      label={traceOn() ? t("trace.live") : t("trace.replay")}
+                      on={traceOn()}
+                      pressed={traceOn()}
                       onClick={() => {
                         if (traceOn()) {
                           setTraceOn(false);
@@ -2057,23 +2082,18 @@ const turnIndexOf = (h: SearchHit): number => {
                       }}
                     >
                       <Icon name="replay" />
-                    </button>
+                    </PanelToggle>
                   </Tip>
                   <Show when={opencode()}>
                     <Tip label={t("header.tools")}>
-                      <button
-                        type="button"
-                        class={`grid h-7 w-7 place-items-center rounded-md transition-colors ${
-                          toolsOpen()
-                            ? "bg-secondary text-foreground"
-                            : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-                        }`}
-                        aria-label={t("header.tools")}
-                        aria-pressed={toolsOpen()}
+                      <PanelToggle
+                        label={t("header.tools")}
+                        on={toolsOpen()}
+                        pressed={toolsOpen()}
                         onClick={toggleTools}
                       >
                         <Icon name="plug" />
-                      </button>
+                      </PanelToggle>
                     </Tip>
                   </Show>
                   <Tip label={t("header.export")}>
@@ -2479,13 +2499,15 @@ const turnIndexOf = (h: SearchHit): number => {
                 />
               </Show>
               <Show when={!booting() && replayPos() === null && !pinned() && v().turns.length > 0}>
-                <button
+                <Button
                   type="button"
-                  class="absolute bottom-4 left-1/2 z-20 -translate-x-1/2 rounded-full border border-border bg-popover px-3 py-1 text-xs text-muted-foreground shadow-md transition-colors hover:text-foreground"
+                  variant="quiet"
+                  size="xs"
+                  class="surface-popover absolute bottom-4 left-1/2 z-20 h-auto -translate-x-1/2 rounded-full border border-border bg-popover px-3 py-1 shadow-md"
                   onClick={jumpToLatest}
                 >
                   {t("nav.latest")}
-                </button>
+                </Button>
               </Show>
               </div>
 
@@ -2526,9 +2548,11 @@ const turnIndexOf = (h: SearchHit): number => {
                     <Show when={v().revert_turn_id}>
                       <div class="flex items-center justify-between gap-2 px-1">
                         <span class="text-2xs text-muted-foreground">{t("message.reverted")}</span>
-                        <button
+                        <Button
                           type="button"
-                          class="text-2xs text-muted-foreground hover:text-foreground"
+                          variant="quiet"
+                          size="xs"
+                          class="h-auto px-0 py-0"
                           onClick={() =>
                             void unrevertSession(props.id).catch((err) =>
                               setSendErr(err instanceof Error ? err.message : t("err.network")),
@@ -2536,7 +2560,7 @@ const turnIndexOf = (h: SearchHit): number => {
                           }
                         >
                           {t("message.restore")}
-                        </button>
+                        </Button>
                       </div>
                     </Show>
                     <div class="relative">
@@ -2577,13 +2601,15 @@ const turnIndexOf = (h: SearchHit): number => {
                                       </span>
                                     </Show>
                                   </span>
-                                  <button
+                                  <Button
                                     type="button"
-                                    class="shrink-0 text-xs text-muted-foreground hover:text-foreground"
+                                    variant="quiet"
+                                    size="xs"
+                                    class="h-auto shrink-0 px-0 py-0 text-xs"
                                     onClick={() => editQueued(i())}
                                   >
                                     {t("composer.edit")}
-                                  </button>
+                                  </Button>
                                   <Button
                                     type="button"
                                     size="icon-2xs"
