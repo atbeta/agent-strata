@@ -54,6 +54,7 @@ export default {
 
   // Header.
   "session.untitled": "未命名会话",
+  "board.close": "移出并列",
   "session.child.open": "打开子会话",
   "session.child.back": "返回上级会话",
   "session.service_unreachable": "无法连接到 strata 服务。",

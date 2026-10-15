@@ -54,6 +54,7 @@ export default {
 
   // Header.
   "session.untitled": "untitled session",
+  "board.close": "Remove from the row",
   "session.child.open": "Open child session",
   "session.child.back": "Back to parent",
   "session.service_unreachable": "Can't reach the strata service.",

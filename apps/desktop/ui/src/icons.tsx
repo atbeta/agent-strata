@@ -30,7 +30,8 @@ export type Name =
   | "brain"
   | "stop"
   | "alert"
-  | "plus";
+  | "plus"
+  | "x";
 
 function Glyph(props: { class?: string; children: JSX.Element }) {
   return (
@@ -273,6 +274,12 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
     return (
       <Glyph class={cls}>
         <path d="M8 3.5v9M3.5 8h9" />
+      </Glyph>
+    );
+  if (name === "x")
+    return (
+      <Glyph class={cls}>
+        <path d="M4.2 4.2 11.8 11.8M11.8 4.2 4.2 11.8" />
       </Glyph>
     );
   if (name === "alert")

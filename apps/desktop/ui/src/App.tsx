@@ -20,7 +20,8 @@ import {
 import { holdRows, sameValue } from "./session-rows";
 import { dayBucket, projectName, relTime, TIME_BUCKETS } from "./fleet";
 import { FleetView } from "./fleet-view";
-import { SessionDetail } from "./session-detail";
+import { SessionBoard } from "./session-board-view";
+import { admit, dismiss, readBoard, writeBoard } from "./session-board";
 import { CompareView } from "./compare";
 import { SettingsPage } from "./settings";
 import { settingsPath } from "./settings-sections";
@@ -297,6 +298,27 @@ function endpointShort(url: string): string {
 
 export function App() {
   const [route, setRoute] = createSignal<Route>(parseHash());
+  const [board, setBoard] = createSignal<string[]>(readBoard());
+  // The id just taken off the row. The address still names it until the hash
+  // follows, and admitting that address again would put the pane straight back.
+  const [held, setHeld] = createSignal<string | null>(null);
+  // Opening a session adds it to the row. Focusing one that is already there
+  // keeps the same array, so the other panes stay mounted.
+  createEffect(() => {
+    const current = route();
+    if (current.name !== "session") return;
+    if (held() === current.id) return;
+    const next = admit(board(), current.id);
+    if (next === board()) return;
+    writeBoard(next);
+    setBoard(next);
+  });
+  createEffect(() => {
+    const closed = held();
+    if (!closed) return;
+    const current = route();
+    if (current.name !== "session" || current.id !== closed) setHeld(null);
+  });
   const [clock, setClock] = createSignal(Date.now());
   let opened = false;
   const [data, { refetch }] = createResource(() => {
@@ -1397,8 +1419,24 @@ export function App() {
             </Show>
           </PageShell>
         </Show>
-        <Show when={route().name === "session" ? (route() as { id: string }).id : undefined} keyed>
-          {(id) => <SessionDetail id={id} sessions={settled(data)?.sessions ?? []} />}
+        <Show when={route().name === "session" ? (route() as { id: string }).id : undefined}>
+          {(id) => (
+            <SessionBoard
+              ids={held() === id() ? board() : admit(board(), id())}
+              activeId={id()}
+              sessions={settled(data)?.sessions ?? []}
+              onFocus={(next) => {
+                location.hash = `/session/${encodeURIComponent(next)}`;
+              }}
+              onClose={(closed) => {
+                const next = dismiss(admit(board(), id()), closed, id());
+                setHeld(closed);
+                writeBoard(next.ids);
+                setBoard(next.ids);
+                location.hash = next.active ? `/session/${encodeURIComponent(next.active)}` : "/";
+              }}
+            />
+          )}
         </Show>
         <Show when={route().name === "compare"}>
           <PageShell

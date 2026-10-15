@@ -89,6 +89,8 @@ import { ECHO_TURN_ID, withEcho, type PendingEcho } from "./prompt-echo";
 import { filesKeyOf, peekView, rememberView, tailMatches, viewFromTail } from "./view-cache";
 import { registerCommand } from "./commands";
 import { Button } from "@/components/ui/button";
+import { SessionStatusMark } from "@/components/ui/session-status";
+import { sessionStatus, showsDot } from "./session-status";
 import { ChoiceCard } from "@/components/ui/choice-card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { MiniTabs } from "@/components/ui/mini-tabs";
@@ -719,6 +721,7 @@ function Snippet(props: { text: string }) {
  * They are the reader's, so they outlive the session.
  */
 const [panelOpen, setPanelOpen] = createSignal(readPanelOpen());
+export { panelOpen };
 const [panelTab, setPanelTab] = createSignal<SidePanelTab>(readPanelTab());
 
 export function SessionDetail(props: {
@@ -729,7 +732,13 @@ export function SessionDetail(props: {
     parent?: string;
     status: string;
     busy?: boolean;
+    needs_input?: boolean;
   }[];
+  /** Keyboard, the files panel and the terminal follow this pane. */
+  active?: boolean;
+  /** Other sessions are open beside this one, so the pane can be taken off the row. */
+  closable?: boolean;
+  onClose?: () => void;
 }) {
   const [replayPos, setReplayPos] = createSignal<number | null>(null);
   const [traceOn, setTraceOn] = createSignal(false);
@@ -955,10 +964,13 @@ export function SessionDetail(props: {
     setHitAt(0);
   };
 
-  const loadTools = async () => {
+  const loadTools = async (broadcast = false) => {
     try {
       const mcp = await readMcp(props.id);
       setMcpServers(Object.entries(mcp ?? {}).sort(([a], [b]) => a.localeCompare(b)));
+      // MCP is stored on the workspace, so a pane that shares this directory
+      // is looking at the same servers. It refetches; this pane already has them.
+      if (broadcast) window.dispatchEvent(new CustomEvent("strata-mcp", { detail: props.id }));
     } catch (err) {
       setSendErr(err instanceof Error ? err.message : t("err.network"));
     } finally {
@@ -989,7 +1001,7 @@ export function SessionDetail(props: {
     try {
       if (action === "connect") await connectMcp(props.id, name);
       else await disconnectMcp(props.id, name);
-      await loadTools();
+      await loadTools(true);
       const after = mcpServers().find(([n]) => n === name)?.[1].status;
       if (after === before) setMcpNote({ name, text: t("mcp.unchanged") });
     } catch (err) {
@@ -1016,7 +1028,7 @@ export function SessionDetail(props: {
       await addMcp(props.id, mcpKind() === "command" ? { name, command: value } : { name, url: value });
       setMcpName("");
       setMcpValue("");
-      await loadTools();
+      await loadTools(true);
     } catch (err) {
       const text = err instanceof Error ? err.message : t("err.network");
       setMcpAddErr(value.length >= 8 && text.includes(value) ? t("mcp.add.failed") : text);
@@ -1048,7 +1060,7 @@ export function SessionDetail(props: {
       if ("url" in started && (started.url.startsWith("https://") || started.url.startsWith("http://"))) {
         setMcpAuth({ name, url: started.url });
       } else {
-        await loadTools();
+        await loadTools(true);
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
@@ -1070,7 +1082,7 @@ export function SessionDetail(props: {
       await finishMcpLogin(props.id, name, code, mcpAuthWait.signal);
       setMcpCode("");
       setMcpAuth(undefined);
-      await loadTools();
+      await loadTools(true);
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
       const text = err instanceof Error ? err.message : t("mcp.auth.failed");
@@ -1444,6 +1456,11 @@ const turnIndexOf = (h: SearchHit): number => {
       refetchCommands();
     };
     window.addEventListener("strata-connections", onConns);
+    const onMcp = (ev: Event) => {
+      if ((ev as CustomEvent<string>).detail === props.id || !opencode()) return;
+      void loadTools();
+    };
+    window.addEventListener("strata-mcp", onMcp);
     const onFocus = () => refetchVcs();
     window.addEventListener("focus", onFocus);
     // Seed the virtual window's inputs. Without this the list would start with a
@@ -1528,6 +1545,7 @@ const turnIndexOf = (h: SearchHit): number => {
       clearTimeout(probeTimer);
       es.close();
       window.removeEventListener("strata-connections", onConns);
+      window.removeEventListener("strata-mcp", onMcp);
       window.removeEventListener("focus", onFocus);
     });
   });
@@ -2045,38 +2063,47 @@ const turnIndexOf = (h: SearchHit): number => {
       .catch((err) => setSendErr(err instanceof Error ? err.message : t("err.network")));
   };
 
-  // Ctrl+F stays "find in what I am reading". Windowing the transcript took the
-  // browser's own find away, so the shortcut goes to the session index.
-  onCleanup(
-    registerCommand({
-      id: "session.find",
-      title: () => t("session.search.label"),
-      chord: { key: "f" },
-      run: () => {
-        if (searchOpen()) searchEl?.focus();
-        else openSearch();
-      },
-    }),
-  );
-  onCleanup(
-    registerCommand({
-      id: "session.terminal",
-      title: () => (terminalOn() ? t("terminal.hide") : t("terminal.show")),
-      chord: { key: "`" },
-      enabled: () => opencode(),
-      run: () => setTerminalOn((on) => !on),
-    }),
-  );
-  onCleanup(
-    registerCommand({
-      id: "session.panel",
-      title: () => (panelOpen() ? t("panel.hide") : t("panel.show")),
-      run: () => togglePanel(),
-    }),
-  );
+  const focused = () => props.active !== false;
+  const rowStatus = () => {
+    const row = props.sessions.find((s) => s.summary.session_id === props.id);
+    return row ? sessionStatus(row) : undefined;
+  };
+
+  // Shortcuts name one session. A second pane used to register the same ids
+  // and steal them, so only the focused pane owns find, the terminal and the
+  // files panel. Ctrl+F stays "find in what I am reading".
+  createEffect(() => {
+    if (!focused()) return;
+    const unregister = [
+      registerCommand({
+        id: "session.find",
+        title: () => t("session.search.label"),
+        chord: { key: "f" },
+        run: () => {
+          if (searchOpen()) searchEl?.focus();
+          else openSearch();
+        },
+      }),
+      registerCommand({
+        id: "session.terminal",
+        title: () => (terminalOn() ? t("terminal.hide") : t("terminal.show")),
+        chord: { key: "`" },
+        enabled: () => opencode(),
+        run: () => setTerminalOn((on) => !on),
+      }),
+      registerCommand({
+        id: "session.panel",
+        title: () => (panelOpen() ? t("panel.hide") : t("panel.show")),
+        run: () => togglePanel(),
+      }),
+    ];
+    onCleanup(() => {
+      for (const off of unregister) off();
+    });
+  });
 
   return (
-    <div class="flex h-full min-h-0">
+    <div class="flex h-full min-h-0 w-full min-w-0">
       <div class="@container/session relative flex min-w-0 flex-1 flex-col">
         <Show
           when={settled(view)}
@@ -2113,10 +2140,15 @@ const turnIndexOf = (h: SearchHit): number => {
           {(v) => (
             <>
               <header
-                class="@container flex h-11 shrink-0 items-center gap-2 border-b border-border px-4 select-none"
+                class={`@container flex h-11 shrink-0 items-center gap-2 border-b border-border px-4 select-none ${
+                  props.closable && focused() ? "bg-secondary/40" : ""
+                }`}
                 data-tauri-drag-region={inDesktopShell() ? "" : undefined}
               >
                 <div class="flex min-w-0 flex-1 items-baseline gap-2">
+                  <Show when={props.closable && rowStatus() && showsDot(rowStatus()!)}>
+                    <SessionStatusMark status={rowStatus()!} class="self-center" />
+                  </Show>
                   <Show when={v().parent_session_id}>
                     {(parentId) => {
                       const parent = () => props.sessions.find((s) => s.summary.session_id === parentId());
@@ -2258,10 +2290,22 @@ const turnIndexOf = (h: SearchHit): number => {
                       <Icon name="download" />
                     </Button>
                   </Tip>
+                  <Show when={props.closable}>
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="icon"
+                      aria-label={t("board.close")}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() => props.onClose?.()}
+                    >
+                      <Icon name="x" />
+                    </Button>
+                  </Show>
                 </span>
               </header>
 
-              <Show when={searchOpen()}>
+              <Show when={focused() && searchOpen()}>
                 <div class="absolute right-4 top-11 z-30 w-[26rem] max-w-[calc(100%-2rem)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg">
                   <div class="flex items-center gap-2 border-b border-border px-3 py-2">
                     <Icon name="search" class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -2355,7 +2399,7 @@ const turnIndexOf = (h: SearchHit): number => {
                 </div>
               </Show>
 
-              <Show when={toolsOpen()}>
+              <Show when={focused() && toolsOpen()}>
                 <div class="absolute right-4 top-11 z-30 w-80 max-w-[calc(100%-2rem)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg">
                   <div class="max-h-80 overflow-y-auto px-2 py-2">
                     <h2 class="px-1.5 text-2xs font-medium text-muted-foreground">{t("mcp.title")}</h2>
@@ -2534,7 +2578,7 @@ const turnIndexOf = (h: SearchHit): number => {
                 </div>
               </Show>
 
-              <Show when={traceOn()}>
+              <Show when={focused() && traceOn()}>
                 <TraceStrip
                   sessionId={props.id}
                   selected={traceBlock()?.key ?? null}
@@ -2996,7 +3040,7 @@ const turnIndexOf = (h: SearchHit): number => {
             </>
           )}
         </Show>
-        <Show when={terminalOn() && opencode()}>
+        <Show when={focused() && terminalOn() && opencode()}>
           <TerminalPane sessionId={props.id} />
         </Show>
         <Show when={opencode()}>
@@ -3017,7 +3061,7 @@ const turnIndexOf = (h: SearchHit): number => {
         </Show>
       </div>
 
-      <Show when={traceBlock()}>
+      <Show when={focused() && traceBlock()}>
         {(block) => (
           <TraceDrawer
             block={block()}
@@ -3028,7 +3072,7 @@ const turnIndexOf = (h: SearchHit): number => {
           />
         )}
       </Show>
-      <Show when={panelOpen() && !traceBlock() && settled(view)}>
+      <Show when={focused() && panelOpen() && !traceBlock() && settled(view)}>
         {(v) => {
           const files = () => v().files_changed;
           /** How many files the changes view actually found. */
