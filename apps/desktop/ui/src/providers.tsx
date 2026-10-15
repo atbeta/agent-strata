@@ -23,6 +23,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { RowButton } from "@/components/ui/row-button";
 
 /**
  * Providers used to be twenty full cards, each with its own password box and
@@ -334,9 +335,8 @@ function ProviderRow(props: {
   return (
     <li class="py-0.5">
       <div class="flex items-center gap-1">
-        <button
-          type="button"
-          class="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-secondary/60"
+        <RowButton
+          class="min-w-0 flex-1 gap-2.5"
           aria-expanded={expandable(props.row) ? props.open : undefined}
           aria-controls={expandable(props.row) ? panel() : undefined}
           onClick={() => {
@@ -361,7 +361,7 @@ function ProviderRow(props: {
               />
             </Show>
           </span>
-        </button>
+        </RowButton>
 
         {/* Disconnecting is destructive and rare, so it waits to be asked for
             instead of sitting on every connected row all day.

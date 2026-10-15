@@ -85,7 +85,9 @@ export default {
 
   // The changes / files side panel, and the plan strip under the composer.
   "panel.show": "改动与文件",
-  "panel.hide": "隐藏侧栏",
+  // Not "隐藏侧栏" — the sidebar has its own toggle two buttons away, and a
+  // tooltip that names the wrong control sends the user to close the wrong one.
+  "panel.hide": "隐藏改动与文件",
   "panel.changes": "改动",
   "panel.files": "文件",
   "rail.resize": "调整侧栏宽度",

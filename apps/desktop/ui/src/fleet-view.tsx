@@ -11,6 +11,7 @@ import {
   shareOf,
 } from "./fleet";
 import { compactNum, num, t, tn } from "./i18n";
+import { RowButton } from "@/components/ui/row-button";
 
 /**
  * The landing pane.
@@ -108,9 +109,8 @@ export function FleetView(props: {
                   const sub = () => recentSub(s, props.scoped);
                   return (
                     <li>
-                      <button
-                        type="button"
-                        class="flex w-full items-start gap-3 px-5 py-2.5 text-left transition-colors hover:bg-secondary/60"
+                      <RowButton
+                        class="items-start gap-3 rounded-none px-5 py-2.5"
                         onClick={() => props.onOpen(s.summary.session_id)}
                       >
                         <span
@@ -136,7 +136,7 @@ export function FleetView(props: {
                             {relTime(s.summary.last_ts, props.now)}
                           </span>
                         </span>
-                      </button>
+                      </RowButton>
                     </li>
                   );
                 }}
@@ -152,9 +152,8 @@ export function FleetView(props: {
                   <For each={attention()}>
                     {(s) => (
                       <li>
-                        <button
-                          type="button"
-                          class="flex w-full items-center gap-2 px-5 py-2.5 text-left transition-colors hover:bg-secondary/60"
+                        <RowButton
+                          class="rounded-none px-5 py-2.5"
                           onClick={() => props.onOpen(s.summary.session_id)}
                         >
                           <span
@@ -169,7 +168,7 @@ export function FleetView(props: {
                           <span class="min-w-0 flex-1 truncate text-sm text-foreground">
                             {s.title ?? s.summary.title ?? t("common.untitled")}
                           </span>
-                        </button>
+                        </RowButton>
                       </li>
                     )}
                   </For>
@@ -266,13 +265,12 @@ function ProjectRow(props: {
         </div>
       }
     >
-      <button
-        type="button"
-        class="block w-full px-5 py-3 text-left transition-colors hover:bg-secondary/60"
+      <RowButton
+        class="rounded-none px-5 py-3"
         onClick={() => props.onOpen?.()}
       >
         <ProjectBody project={props.project} part={props.part} whole={props.whole} />
-      </button>
+      </RowButton>
     </Show>
   );
 }

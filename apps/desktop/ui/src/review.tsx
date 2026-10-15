@@ -2,6 +2,7 @@ import { createEffect, createSignal, For, Show } from "solid-js";
 import type { ReviewDiff } from "./api";
 import { t } from "./i18n";
 import { splitPatch, type SplitCell, type SplitRow } from "./split-patch";
+import { RowButton } from "@/components/ui/row-button";
 
 function baseName(path: string): string {
   const i = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
@@ -81,9 +82,8 @@ export function ReviewPane(props: {
         <For each={named()}>
           {(f) => (
             <li>
-              <button
-                type="button"
-                class={`flex w-full items-baseline gap-2 rounded-md px-1 py-1 text-left hover:bg-secondary ${
+              <RowButton
+                class={`items-baseline gap-2 px-1 py-1 hover:bg-secondary ${
                   selected() === f.file ? "bg-secondary" : ""
                 }`}
                 onClick={() => setSelected(f.file!)}
@@ -95,7 +95,7 @@ export function ReviewPane(props: {
                   <span class="text-diff-add-fg">+{f.additions}</span>{" "}
                   <span class="text-diff-del-fg">−{f.deletions}</span>
                 </span>
-              </button>
+              </RowButton>
             </li>
           )}
         </For>

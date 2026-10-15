@@ -85,7 +85,7 @@ export default {
 
   // The changes / files side panel, and the plan strip under the composer.
   "panel.show": "Changes & files",
-  "panel.hide": "Hide panel",
+  "panel.hide": "Hide changes & files",
   "panel.changes": "Changes",
   "panel.files": "Files",
   "rail.resize": "Resize the panel",

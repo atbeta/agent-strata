@@ -2,6 +2,7 @@ import { createResource, createSignal, For, Show } from "solid-js";
 import { listFiles, openInEditor, readFileBody, type FileNode } from "./api";
 import { t } from "./i18n";
 import { Code } from "./payload";
+import { RowButton } from "@/components/ui/row-button";
 
 const PREVIEW_LIMIT = 200_000;
 
@@ -43,16 +44,15 @@ function Branch(props: {
       }
     >
       <li>
-        <button
-          type="button"
-          class="flex w-full items-center gap-1 rounded-md px-1 py-0.5 text-left text-sm hover:bg-secondary"
+        <RowButton
+          class="gap-1 px-1 py-0.5 hover:bg-secondary"
           style={{ "padding-left": `${props.depth * 12}px` }}
           aria-expanded={open()}
           onClick={() => setOpen((v) => !v)}
         >
           <span class="w-3 shrink-0 text-2xs text-muted-foreground">{open() ? "▾" : "▸"}</span>
           <span class="truncate">{props.path.split(/[/\\]/).filter(Boolean).at(-1)}</span>
-        </button>
+        </RowButton>
         <Show when={open()}>
           <NodeList
             sessionId={props.sessionId}
@@ -95,16 +95,15 @@ function NodeList(props: {
               when={node.type === "directory"}
               fallback={
                 <li>
-                  <button
-                    type="button"
-                    class={`block w-full truncate rounded-md px-1 py-0.5 text-left text-sm hover:bg-secondary ${
+                  <RowButton
+                    class={`block truncate px-1 py-0.5 hover:bg-secondary ${
                       props.selected() === node.path ? "bg-secondary" : ""
                     }`}
                     style={{ "padding-left": `${(props.depth + 1) * 12 + 16}px` }}
                     onClick={() => props.onOpen(node)}
                   >
                     {node.name}
-                  </button>
+                  </RowButton>
                 </li>
               }
             >

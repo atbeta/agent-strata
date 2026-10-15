@@ -3,6 +3,7 @@ import { realWorkspace, type SessionRow, type StrataEvent } from "./api";
 import { t } from "./i18n";
 import { Icon } from "./icons";
 import { eventText, previewWindow, type PreviewWindow } from "./search-format";
+import { RowButton } from "@/components/ui/row-button";
 
 function projectLabel(path?: string | null): string {
   if (!path) return "";
@@ -199,13 +200,10 @@ export function CommandSearch(props: {
                       {(hit) => {
                         const index = () => hits().indexOf(hit);
                         return (
-                          <button
-                            type="button"
-                            data-at={cursor() === index() ? "true" : "false"}
-                            class={`flex w-full items-baseline gap-3 rounded-md px-2 py-1.5 text-left text-sm ${
-                              cursor() === index()
-                                ? "bg-accent text-accent-foreground"
-                                : "hover:bg-accent/60"
+                          <RowButton
+                            active={cursor() === index()}
+                            class={`items-baseline gap-3 hover:bg-accent/60 ${
+                              cursor() === index() ? "bg-accent text-accent-foreground" : ""
                             }`}
                             onMouseEnter={() => setCursor(index())}
                             onClick={() => go(hit)}
@@ -216,7 +214,7 @@ export function CommandSearch(props: {
                                 {hit.hint}
                               </span>
                             </Show>
-                          </button>
+                          </RowButton>
                         );
                       }}
                     </For>
@@ -229,13 +227,10 @@ export function CommandSearch(props: {
                       {(hit) => {
                         const index = () => hits().indexOf(hit);
                         return (
-                          <button
-                            type="button"
-                            data-at={cursor() === index() ? "true" : "false"}
-                            class={`block w-full rounded-md px-2 py-1.5 text-left ${
-                              cursor() === index()
-                                ? "bg-accent text-accent-foreground"
-                                : "hover:bg-accent/60"
+                          <RowButton
+                            active={cursor() === index()}
+                            class={`block hover:bg-accent/60 ${
+                              cursor() === index() ? "bg-accent text-accent-foreground" : ""
                             }`}
                             onMouseEnter={() => setCursor(index())}
                             onClick={() => go(hit)}
@@ -261,7 +256,7 @@ export function CommandSearch(props: {
                               </Show>
                               {hit.preview.rest}
                             </span>
-                          </button>
+                          </RowButton>
                         );
                       }}
                     </For>
