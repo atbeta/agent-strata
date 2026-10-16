@@ -8,6 +8,7 @@ import {
   OPENCODE_REBUILT_TYPES,
   OPENCODE_MAPPER_VERSION,
   STREAM_SNAPSHOT_MS,
+  SETTLE_QUIET_MS,
   pickableProviders,
 } from "../src/index";
 import { loadPolicy } from "@agent-strata/policy";
@@ -621,6 +622,95 @@ describe("OpencodeMapper", () => {
       tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
     }));
     expect(m.flushSettles().some((e) => e.type === "session.status")).toBe(false);
+  });
+
+  test("a message stuck open past the quiet window says idle anyway", () => {
+    // The case that kept a real session breathing for three hours: the turn's
+    // last message ran a tool that sat awaiting a permission the reader never
+    // saw. The message never completed, so the completed-message settle never
+    // queued, and the guard turned the fallback off for as long as the message
+    // stayed open. Past the quiet window with no running tool, the message is
+    // a stall, not a pause.
+    let now = 1_000_000;
+    const m = new OpencodeMapper({ now: () => now });
+    m.handle({
+      id: "s1", type: "session.status", properties: { sessionID: sid, status: { type: "busy" } },
+    } as unknown as Event);
+    // the second half is already open when the first completes, so the
+    // completion queues a settle the open message blocks
+    m.handle(msgUpdated({
+      id: "a2", sessionID: sid, role: "assistant", parentID: "u1",
+      time: { created: 31 }, providerID: "anthropic", modelID: "claude",
+      agent: "build", mode: "build", path: { cwd: "/repo", root: "/repo" }, cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    }));
+    m.handle(msgUpdated({
+      id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
+      time: { created: 20, completed: 30 }, providerID: "anthropic", modelID: "claude",
+      agent: "build", mode: "build", path: { cwd: "/repo", root: "/repo" }, cost: 0, finish: "stop",
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    }));
+    expect(m.flushSettles().some((e) => e.type === "session.status")).toBe(false);
+    now += SETTLE_QUIET_MS + 1;
+    const settled = m.flushSettles();
+    expect(settled.find((e) => e.type === "session.status")!.data).toEqual({ state: "idle" });
+  });
+
+  test("a running tool keeps the quiet window from speaking", () => {
+    // A long tool call is quiet for minutes while it works; the session is
+    // genuinely running and must not read as idle.
+    let now = 1_000_000;
+    const m = new OpencodeMapper({ now: () => now });
+    m.handle({
+      id: "s1", type: "session.status", properties: { sessionID: sid, status: { type: "busy" } },
+    } as unknown as Event);
+    m.handle(msgUpdated({
+      id: "a2", sessionID: sid, role: "assistant", parentID: "u1",
+      time: { created: 31 }, providerID: "anthropic", modelID: "claude",
+      agent: "build", mode: "build", path: { cwd: "/repo", root: "/repo" }, cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    }));
+    m.handle(partUpdated({
+      id: "pt2", sessionID: sid, messageID: "a2", type: "tool", callID: "c1", tool: "bash",
+      state: { status: "running", input: { command: "sleep 300" }, time: { start: 32 } },
+    }));
+    m.handle(msgUpdated({
+      id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
+      time: { created: 20, completed: 30 }, providerID: "anthropic", modelID: "claude",
+      agent: "build", mode: "build", path: { cwd: "/repo", root: "/repo" }, cost: 0, finish: "stop",
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    }));
+    now += SETTLE_QUIET_MS + 1;
+    expect(m.flushSettles().some((e) => e.type === "session.status")).toBe(false);
+  });
+
+  test("settleTimerMs asks for the short beat while a completion waits, and the rest of the window while stalled", () => {
+    let now = 1_000_000;
+    const m = new OpencodeMapper({ now: () => now });
+    expect(m.settleTimerMs()).toBeUndefined();
+    m.handle({
+      id: "s1", type: "session.status", properties: { sessionID: sid, status: { type: "busy" } },
+    } as unknown as Event);
+    m.handle(msgUpdated({
+      id: "a2", sessionID: sid, role: "assistant", parentID: "u1",
+      time: { created: 31 }, providerID: "anthropic", modelID: "claude",
+      agent: "build", mode: "build", path: { cwd: "/repo", root: "/repo" }, cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    }));
+    m.handle(msgUpdated({
+      id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
+      time: { created: 20, completed: 30 }, providerID: "anthropic", modelID: "claude",
+      agent: "build", mode: "build", path: { cwd: "/repo", root: "/repo" }, cost: 0, finish: "stop",
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    }));
+    // stalled: the open message just went quiet, so the whole window remains
+    expect(m.settleTimerMs()).toBe(SETTLE_QUIET_MS);
+    now += SETTLE_QUIET_MS - 500;
+    expect(m.settleTimerMs()).toBe(500);
+    // past the window with nothing running, the flush speaks and the timer ends
+    now += 500;
+    expect(m.flushSettles().some((e) => e.type === "session.status")).toBe(true);
+    expect(m.settleTimerMs()).toBeUndefined();
   });
 
   test("turn.user echoes on first text part; idle doesn't re-emit", () => {

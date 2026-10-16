@@ -196,6 +196,24 @@ export const STREAM_SNAPSHOT_MS = 50;
  */
 export const SETTLE_DELAY_MS = 250;
 
+/**
+ * How long a session may sit with an open assistant message and no activity of
+ * its own before the settle fallback stops waiting for that message.
+ *
+ * The fallback waits for every assistant message to report completion, because
+ * a mid-turn gap between two messages must not read as idle. But a message can
+ * stay open forever without the turn going on: measured on a real one, a turn
+ * whose last tool sat awaiting a permission the reader never saw kept that
+ * message open for three hours, and the guard turned the fallback off for all
+ * of them — a breathing dot on a conversation nobody was in. Past this window
+ * an open message with no running tool is a stall, not a pause, and the next
+ * real event re-marks busy if it was wrong.
+ */
+export const SETTLE_QUIET_MS = 30_000;
+
+/** How often the connection re-reads the backend's own pending asks. */
+export const RESTORE_POLL_MS = 30_000;
+
 /** How long a command may take to fail before it counts as started. */
 export const COMMAND_START_MS = 1_500;
 
@@ -310,6 +328,8 @@ interface ToolTrack {
   order: number;
   /** latest state of a part seen before its message named the turn */
   deferred?: ToolPart;
+  /** the newest state this part was seen in, so a stall check can tell a running tool from a waiting one */
+  status?: string;
 }
 
 interface MsgState {
@@ -376,6 +396,12 @@ interface SessionState {
   parent?: string;
   /** last revert message id we emitted; cleared after revert: null */
   revertMessageID?: string;
+  /**
+   * When this session last produced an event of its own. The settle fallback
+   * reads it: an open message inside a session that has gone quiet is a stall
+   * rather than a pause, and one still receiving events is a live turn.
+   */
+  lastTouch?: number;
 }
 
 export class OpencodeMapper {
@@ -466,8 +492,9 @@ export class OpencodeMapper {
    *
    *   - the backend said busy at some point, so this is correcting it rather
    *     than announcing idleness for a session that never started;
-   *   - every assistant message we have seen has reported completion, so a
-   *     multi-message turn that is still going does not get cut short here.
+   *   - every assistant message we have seen has reported completion — or, if
+   *     one is stuck open, the session has gone quiet long enough with no
+   *     running tool that the message is a stall rather than a pause.
    *
    * The event is keyed per completion rather than per state change, so it is
    * idempotent under replay: a session already known idle emits nothing.
@@ -490,9 +517,14 @@ export class OpencodeMapper {
   flushSettles(): EventInput[] {
     const out: EventInput[] = [];
     for (const [s, msgID] of [...this.pendingSettles]) {
+      // The backend said idle itself, or we already announced: drop the queued
+      // correction rather than stacking a second idle under a different id.
+      if (!s.sawBusy) {
+        this.pendingSettles.delete(s);
+        continue;
+      }
+      if (!this.settleReady(s)) continue;
       this.pendingSettles.delete(s);
-      // A message that arrived during the window cancels the announcement.
-      if ((s.liveMsgs?.size ?? 0) > 0) continue;
       s.sawBusy = false;
       out.push(
         this.ev(
@@ -511,8 +543,46 @@ export class OpencodeMapper {
 
   private queueSettle(s: SessionState, completedMsgId: string): void {
     if (!s.sawBusy) return;
-    if ((s.liveMsgs?.size ?? 0) > 0) return;
     this.pendingSettles.set(s, completedMsgId);
+  }
+
+  /**
+   * Whether a queued settle may speak.
+   *
+   * Every assistant message having reported completion is the ordinary case:
+   * the turn is over. An open message only blocks the announcement while the
+   * session is still producing events of its own — past the quiet window with
+   * no running tool, the message is a stall (a tool waiting on a permission
+   * nobody was shown, a run the backend dropped) and waiting longer only
+   * keeps a dead conversation breathing.
+   */
+  private settleReady(s: SessionState): boolean {
+    if ((s.liveMsgs?.size ?? 0) === 0) return true;
+    if (this.now() - (s.lastTouch ?? 0) < SETTLE_QUIET_MS) return false;
+    for (const m of s.messages.values()) {
+      for (const t of m.toolParts.values()) if (t.status === "running") return false;
+    }
+    return true;
+  }
+
+  /**
+   * How long the ingestor should wait before the next settle flush, or
+   * undefined when nothing is waiting. A completion inside the window wants
+   * the short delay; a stalled open message wants the rest of its quiet
+   * window; a stall already past the window with a running tool cannot become
+   * ready without a new event, so it asks for no timer at all.
+   */
+  settleTimerMs(): number | undefined {
+    if (this.pendingSettles.size === 0) return undefined;
+    const now = this.now();
+    let candidate: number | undefined;
+    for (const [s] of this.pendingSettles) {
+      if (!s.sawBusy || (s.liveMsgs?.size ?? 0) === 0) return SETTLE_DELAY_MS;
+      const quietFor = now - (s.lastTouch ?? 0);
+      if (quietFor >= SETTLE_QUIET_MS) continue;
+      candidate = Math.min(candidate ?? Infinity, Math.max(SETTLE_DELAY_MS, SETTLE_QUIET_MS - quietFor));
+    }
+    return candidate;
   }
 
   private ensureSession(sessionID: string): { s: SessionState; out: EventInput[] } {
@@ -525,6 +595,7 @@ export class OpencodeMapper {
         started: false,
         messages: new Map(),
         pendingUserMsgs: new Set(),
+        lastTouch: this.now(),
       };
       this.sessions.set(sessionID, s);
     }
@@ -660,6 +731,7 @@ export class OpencodeMapper {
   private toolEvents(s: SessionState, m: MsgState, part: ToolPart, t: ToolTrack): EventInput[] {
     const out: EventInput[] = [];
     const st = part.state;
+    t.status = st.status;
     const child = taskChild(part.tool, st.status === "pending" ? undefined : st.metadata);
     if (!t.emittedCall && st.status !== "pending") {
       t.emittedCall = true;
@@ -724,6 +796,10 @@ export class OpencodeMapper {
     const props = "properties" in evt ? evt.properties : undefined;
     const sessionID =
       props && "sessionID" in props ? (props.sessionID as string) : undefined;
+    if (sessionID) {
+      const known = this.sessions.get(sessionID);
+      if (known) known.lastTouch = this.now();
+    }
 
     switch (evt.type) {
       case "session.created": {
@@ -1190,11 +1266,28 @@ export function createIngestor(opts: {
    * Drives the mapper's idle fallback, on its own timer rather than the stream
    * flush above: a turn that ended produces no held stream, so a flush that
    * waits for one would never fire and the session would stay busy forever —
-   * which is the state this exists to end.
+   * which is the state this exists to end. The delay comes from the mapper, so
+   * a stalled open message waits out its quiet window instead of the beat.
    */
   let settleTimer: ReturnType<typeof setTimeout> | undefined;
+  let settleArmedAt = 0;
+  let settleArmedDelay = 0;
   const scheduleSettle = () => {
-    if (settleTimer) return;
+    const delay = mapper.settleTimerMs();
+    if (delay === undefined) {
+      clearTimeout(settleTimer);
+      settleTimer = undefined;
+      return;
+    }
+    // A delay that shrank (the open message just completed) must not wait out
+    // the long one an earlier state armed; a delay that grew can keep waiting.
+    if (settleTimer) {
+      const remaining = settleArmedDelay - (Date.now() - settleArmedAt);
+      if (delay >= remaining) return;
+      clearTimeout(settleTimer);
+    }
+    settleArmedAt = Date.now();
+    settleArmedDelay = delay;
     settleTimer = setTimeout(() => {
       settleTimer = undefined;
       try {
@@ -1202,7 +1295,8 @@ export function createIngestor(opts: {
       } catch (err) {
         console.error("opencode settle flush error:", err);
       }
-    }, SETTLE_DELAY_MS);
+      scheduleSettle();
+    }, delay);
   };
 
   const emitResolved = (sessionID: string, data: Record<string, unknown>) => {
@@ -1775,10 +1869,14 @@ export async function connectOpencode(opts: {
     );
   };
 
+  /** Project directories the pending-ask reads are scoped to; sync keeps it current. */
+  const knownDirectories = new Set<string | undefined>([opts.directory]);
+
   const api = {
     stop() {
       abort.abort();
       ingestor.stop();
+      clearInterval(restoreTimer);
       for (const timer of importTimers.values()) clearTimeout(timer);
       importTimers.clear();
       void loop;
@@ -2087,7 +2185,9 @@ export async function connectOpencode(opts: {
      * every session a row, then a concurrent import of only what moved.
      */
     async refreshSessions(guard?: OpencodeSyncGuard) {
-      const directories = new Set<string | undefined>([opts.directory]);
+      const directories = knownDirectories;
+      directories.clear();
+      directories.add(opts.directory);
       try {
         const projects = await client.project.list();
         for (const project of projects.data ?? []) {
@@ -2165,5 +2265,22 @@ export async function connectOpencode(opts: {
   catchUp = () => {
     void api.refreshSessions().catch((err) => console.error("opencode catch-up failed:", err));
   };
+
+  /**
+   * Re-read the backend's own pending asks on a clock of its own.
+   *
+   * An ask raised while the event stream was between connections never reaches
+   * us as `permission.asked`, and the syncs that would replay it are driven by
+   * the UI — a reader that is closed, asleep, or simply not polling leaves the
+   * ask unseen and the session reading as busy with no card. The connection
+   * owns the truth about its pending prompts, so it polls for them itself;
+   * the ingestor's inflight set makes a re-poll of an ask already handled a
+   * no-op.
+   */
+  const restoreTimer = setInterval(() => {
+    void api.restorePendingPrompts(knownDirectories).catch((err) =>
+      console.error("opencode pending prompt restore failed:", err),
+    );
+  }, RESTORE_POLL_MS);
   return api;
 }
