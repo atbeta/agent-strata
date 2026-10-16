@@ -171,6 +171,7 @@ export function useMcpTools(args: {
   return {
     toolsOpen,
     setToolsOpen,
+    closeTools: () => setToolsOpen(false),
     toggleTools,
     mcpServers,
     mcpBusy,
@@ -195,10 +196,17 @@ export function useMcpTools(args: {
   };
 }
 
-export function McpToolsPanel(props: { tools: ReturnType<typeof useMcpTools> }) {
+export function McpToolsPanel(props: {
+  tools: ReturnType<typeof useMcpTools>;
+  /** the body counts as inside itself, so a dismiss elsewhere leaves it be */
+  bindPanel: (el: HTMLDivElement | undefined) => void;
+}) {
   const m = () => props.tools;
   return (
-    <div class="absolute right-4 top-11 z-30 w-80 max-w-[calc(100%-2rem)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg">
+    <div
+      ref={props.bindPanel}
+      class="absolute right-4 top-11 z-30 w-80 max-w-[calc(100%-2rem)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg"
+    >
       <div class="max-h-80 overflow-y-auto px-2 py-2">
         <h2 class="px-1.5 text-2xs font-medium text-muted-foreground">{t("mcp.title")}</h2>
         <Show when={m().toolsReady() && m().mcpServers().length === 0}>

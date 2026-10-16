@@ -164,10 +164,17 @@ export function useSessionSearch(args: {
   };
 }
 
-export function SearchPanel(props: { search: ReturnType<typeof useSessionSearch> }) {
+export function SearchPanel(props: {
+  search: ReturnType<typeof useSessionSearch>;
+  /** the body counts as inside itself, so a dismiss elsewhere leaves it be */
+  bindPanel: (el: HTMLDivElement | undefined) => void;
+}) {
   const s = () => props.search;
   return (
-    <div class="absolute right-4 top-11 z-30 w-[26rem] max-w-[calc(100%-2rem)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg">
+    <div
+      ref={props.bindPanel}
+      class="absolute right-4 top-11 z-30 w-[26rem] max-w-[calc(100%-2rem)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg"
+    >
       <div class="flex items-center gap-2 border-b border-border px-3 py-2">
         <Icon name="search" class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <TextFieldInput

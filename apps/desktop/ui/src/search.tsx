@@ -3,6 +3,7 @@ import { realWorkspace, type SessionRow, type StrataEvent } from "./api";
 import { t } from "./i18n";
 import { Icon } from "./icons";
 import { eventText, previewWindow, type PreviewWindow } from "./search-format";
+import { toggleClasses } from "./toggle-state";
 import { RowButton } from "@/components/ui/row-button";
 import { TextFieldInput } from "@/components/ui/text-field";
 
@@ -135,8 +136,11 @@ export function CommandSearch(props: {
           row while the overlay was up. */}
       <div class="px-1.5 pt-2">
         <RowButton
-          class={`h-8 items-center px-2 ${
-            props.open ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-secondary"
+          // Same collision the header toggles had: closed+hovered and open both
+          // resolved to bg-secondary, and the pointer is on the row while you
+          // decide whether the search is already up.
+          class={`h-8 items-center px-2 ${toggleClasses(props.open)} ${
+            props.open ? "" : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
           }`}
           aria-label={t("search.label")}
           onClick={() => props.onOpenChange(true)}

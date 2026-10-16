@@ -37,6 +37,9 @@ import { t } from "./i18n";
 import { settled } from "./resource";
 import { inDesktopShell, shellPlatform } from "./shell";
 import { Tip } from "./tip";
+import { useDismiss } from "./dismiss";
+import { ToggleIcon } from "./header-toggle";
+import { toggleClasses } from "./toggle-state";
 import { TraceDrawer, TraceStrip, type TraceBlock } from "./trace";
 import { TerminalPane } from "./terminal";
 import { TurnBlock } from "./transcript";
@@ -124,21 +127,28 @@ function PanelToggle(props: {
   on: boolean;
   expanded?: boolean;
   pressed?: boolean;
+  /** the colour an open toggle's icon takes, when open means more than "a panel is showing" */
+  tone?: string;
+  /** the trigger counts as inside its own panel, so dismissing must name it */
+  bindRef?: (el: HTMLButtonElement | undefined) => void;
   onClick: () => void;
   children: JSX.Element;
 }) {
   return (
     <Button
+      ref={props.bindRef}
       type="button"
       size="icon-sm"
       variant="icon"
-      class={props.on ? "bg-secondary text-foreground" : undefined}
+      class={toggleClasses(props.on)}
       aria-label={props.label}
       aria-expanded={props.expanded}
       aria-pressed={props.pressed}
       onClick={props.onClick}
     >
-      {props.children}
+      <ToggleIcon on={props.on} tone={props.tone}>
+        {props.children}
+      </ToggleIcon>
     </Button>
   );
 }
@@ -528,6 +538,22 @@ export function SessionDetail(props: {
     onOpen: () => search.closeSearch(),
     onError: (message) => composer.setSendErr(message),
   });
+
+  /**
+   * The two anchored panels put themselves away when the press lands elsewhere.
+   *
+   * Both are anchored to the header and hold work in progress — a half-typed
+   * query, a connect button — so leaving them up was deliberate, but so was
+   * having to find the same trigger again to close them. Each names its own
+   * trigger and its own body: forget the trigger and the press that dismisses
+   * and the press that reopens both arrive, and the button reads as stuck.
+   */
+  let searchPanelEl: HTMLDivElement | undefined;
+  let searchTriggerEl: HTMLButtonElement | undefined;
+  let toolsPanelEl: HTMLDivElement | undefined;
+  let toolsTriggerEl: HTMLButtonElement | undefined;
+  useDismiss(search.searchOpen, search.closeSearch, () => searchPanelEl, () => searchTriggerEl);
+  useDismiss(tools.toolsOpen, tools.closeTools, () => toolsPanelEl, () => toolsTriggerEl);
 
   /** One outline row per real prompt, rebuilt from the view already in hand. */
   const entries = createMemo(() => promptEntries(settled(view)?.turns ?? []));
@@ -1036,6 +1062,7 @@ export function SessionDetail(props: {
                     on={search.searchOpen()}
                     expanded={search.searchOpen()}
                     onClick={() => (search.searchOpen() ? search.closeSearch() : search.openSearch())}
+                    bindRef={(el) => (searchTriggerEl = el)}
                   >
                     <Icon name="search" />
                   </PanelToggle>
@@ -1077,6 +1104,7 @@ export function SessionDetail(props: {
                         on={tools.toolsOpen()}
                         pressed={tools.toolsOpen()}
                         onClick={tools.toggleTools}
+                        bindRef={(el) => (toolsTriggerEl = el)}
                       >
                         <Icon name="plug" />
                       </PanelToggle>
@@ -1090,23 +1118,26 @@ export function SessionDetail(props: {
                         : t(on() ? "header.autoAccept.on" : "header.autoAccept.off"))
                     }
                   >
-                    <span class="contents">
-                      <PanelToggle
-                        label={t("header.autoAccept")}
-                        on={on()}
-                        pressed={on()}
-                        onClick={() => void toggleAutoAccept()}
-                      >
-                        <Icon
-                          name="shield"
-                          class={
-                            autoAcceptErr() || autoAccept() === "unknown"
-                              ? "text-destructive"
-                              : undefined
-                          }
-                        />
-                      </PanelToggle>
-                    </span>
+                    <PanelToggle
+                      label={t("header.autoAccept")}
+                      on={on()}
+                      pressed={on()}
+                      // Amber, like the permission cards: this toggle is the
+                      // one in the row that changes what the agent may do
+                      // without asking, so it should not read as "a panel is
+                      // showing". Red when the state cannot be read, which is
+                      // neither — and unlit, because it is not enabled.
+                      tone={
+                        autoAcceptErr() || autoAccept() === "unknown"
+                          ? "text-destructive"
+                          : on()
+                            ? "text-event-permission"
+                            : "text-muted-foreground"
+                      }
+                      onClick={() => void toggleAutoAccept()}
+                    >
+                      <Icon name="shield" />
+                    </PanelToggle>
                   </Tip>
                   <LayoutSwitcher
                     workspace={paneWorkspace()}
@@ -1133,11 +1164,11 @@ export function SessionDetail(props: {
               </header>
 
               <Show when={search.searchOpen()}>
-                <SearchPanel search={search} />
+                <SearchPanel search={search} bindPanel={(el) => (searchPanelEl = el)} />
               </Show>
 
               <Show when={tools.toolsOpen()}>
-                <McpToolsPanel tools={tools} />
+                <McpToolsPanel tools={tools} bindPanel={(el) => (toolsPanelEl = el)} />
               </Show>
 
               <Show when={traceOn()}>

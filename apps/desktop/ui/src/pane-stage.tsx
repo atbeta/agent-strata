@@ -4,6 +4,8 @@ import { t } from "./i18n";
 import { Tip } from "./tip";
 import { realWorkspace } from "./api";
 import { sessionStatus, showsDot } from "./session-status";
+import { ToggleIcon } from "./header-toggle";
+import { toggleClasses } from "./toggle-state";
 import { SessionStatusMark } from "@/components/ui/session-status";
 import { Button } from "@/components/ui/button";
 import { RowButton } from "@/components/ui/row-button";
@@ -69,12 +71,14 @@ export function LayoutSwitcher(props: {
     <DropdownMenu placement="bottom-end">
       <Tip label={t("pane.layout")}>
         <DropdownMenuTrigger
-          class={`inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground ${
-            isMultiplex() ? "bg-secondary text-foreground" : ""
+          class={`inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-secondary ${
+            isMultiplex() ? toggleClasses(true) : "text-muted-foreground hover:text-foreground"
           }`}
           aria-label={t("pane.layout")}
         >
-          <Icon name={presetIcon(currentPreset())} />
+          <ToggleIcon on={isMultiplex()}>
+            <Icon name={presetIcon(currentPreset())} />
+          </ToggleIcon>
         </DropdownMenuTrigger>
       </Tip>
       <DropdownMenuContent class="min-w-52">
@@ -241,11 +245,13 @@ function PaneHeader(props: {
             type="button"
             size="icon-2xs"
             variant="icon"
-            class={props.zoomed ? "bg-secondary text-foreground" : undefined}
+            class={toggleClasses(props.zoomed)}
             aria-label={props.zoomed ? t("pane.zoom.out") : t("pane.zoom.in")}
             onClick={() => props.onToggleZoom()}
           >
-            <Icon name={props.zoomed ? "minimize" : "maximize"} class="size-3" />
+            <ToggleIcon on={props.zoomed}>
+              <Icon name={props.zoomed ? "minimize" : "maximize"} class="size-3" />
+            </ToggleIcon>
           </Button>
         </Tip>
         <Tip label={t("pane.close")}>
