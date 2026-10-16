@@ -323,13 +323,24 @@ export function SessionDetail(props: {
    * Per session on purpose and not persisted: it is a stance about a
    * conversation in progress, so switching sessions must show what that
    * session is actually doing rather than the last one that was touched.
+   *
+   * `unknown` is a real answer and not a polite default. A read that failed —
+   * a service too old to have the route, a sidecar that has not come up — used
+   * to be reported as `inherit`, which drew an ordinary "off" switch and made
+   * a broken backend look exactly like a working one. Pressing it then did
+   * nothing at all: the write 404'd, the catch undid the flip, and every
+   * symptom was the button being dead. Anything unreadable now says so on the
+   * button rather than pretending.
    */
   const [autoAccept, { refetch: refetchAutoAccept }] = createResource(
     () => props.id,
-    (id) => readSessionPolicy(id).catch(() => "inherit" as const),
+    (id) => readSessionPolicy(id).catch(() => "unknown" as const),
   );
+  const [autoAcceptErr, setAutoAcceptErr] = createSignal("");
+  const on = () => autoAccept() === "auto";
   const toggleAutoAccept = async () => {
-    const next = autoAccept() === "auto" ? "inherit" : "auto";
+    const next = on() ? "inherit" : "auto";
+    setAutoAcceptErr("");
     // Flip the reader's own read first. The route is a local POST and the
     // answer is already known; waiting for it would make the button sit there
     // not having moved, which is how a reader toggles it twice.
@@ -351,8 +362,9 @@ export function SessionDetail(props: {
       }
       refetchAutoAccept();
       refetchAsks();
-    } catch {
+    } catch (err) {
       for (const request_id of held) unhideAsk(request_id);
+      setAutoAcceptErr(err instanceof Error ? err.message : String(err));
       refetchAutoAccept();
     }
   };
@@ -1071,18 +1083,30 @@ export function SessionDetail(props: {
                     </Tip>
                   </Show>
                   <Tip
-                    label={t(
-                      autoAccept() === "auto" ? "header.autoAccept.on" : "header.autoAccept.off",
-                    )}
+                    label={
+                      autoAcceptErr() ||
+                      (autoAccept() === "unknown"
+                        ? t("header.autoAccept.broken")
+                        : t(on() ? "header.autoAccept.on" : "header.autoAccept.off"))
+                    }
                   >
-                    <PanelToggle
-                      label={t("header.autoAccept")}
-                      on={autoAccept() === "auto"}
-                      pressed={autoAccept() === "auto"}
-                      onClick={() => void toggleAutoAccept()}
-                    >
-                      <Icon name="shield" />
-                    </PanelToggle>
+                    <span class="contents">
+                      <PanelToggle
+                        label={t("header.autoAccept")}
+                        on={on()}
+                        pressed={on()}
+                        onClick={() => void toggleAutoAccept()}
+                      >
+                        <Icon
+                          name="shield"
+                          class={
+                            autoAcceptErr() || autoAccept() === "unknown"
+                              ? "text-destructive"
+                              : undefined
+                          }
+                        />
+                      </PanelToggle>
+                    </span>
                   </Tip>
                   <LayoutSwitcher
                     workspace={paneWorkspace()}

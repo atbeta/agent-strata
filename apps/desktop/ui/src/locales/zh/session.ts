@@ -90,6 +90,7 @@ export default {
   "header.autoAccept": "本会话自动接受",
   "header.autoAccept.on": "本会话不再询问权限 · 当前挂起的也会一并允许",
   "header.autoAccept.off": "本会话自动接受权限",
+  "header.autoAccept.broken": "读不到开关状态 —— 服务端可能还是旧版本，试试重建 sidecar",
   "header.autoAccept.err": "切换自动接受失败",
   "header.more": "更多会话操作",
   "mcp.title": "MCP",

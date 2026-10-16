@@ -90,6 +90,7 @@ export default {
   "header.autoAccept": "Auto-accept",
   "header.autoAccept.on": "This session stops asking · anything already pending is allowed too",
   "header.autoAccept.off": "Auto-accept permissions in this session",
+  "header.autoAccept.broken": "cannot read the switch — the service is probably stale, rebuild the sidecar",
   "header.autoAccept.err": "could not switch auto-accept",
   "header.more": "More session actions",
   "mcp.title": "MCP",

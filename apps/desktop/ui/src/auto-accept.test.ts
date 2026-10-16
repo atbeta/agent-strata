@@ -66,4 +66,32 @@ describe("the per-session auto-accept switch", () => {
     const fn = api.slice(api.indexOf("export async function readSessionPolicy"));
     expect(fn.slice(0, fn.indexOf("\n}"))).toContain('body.mode === "auto" ? "auto" : "inherit"');
   });
+
+  test("a read that failed is not drawn as an ordinary switch that is off", () => {
+    // Found the hard way. A service too old to have the route answers 404, the
+    // read used to be reported as `inherit`, and the button drew a normal "off"
+    // switch — so a stale sidecar was indistinguishable from a working one.
+    // Pressing it then wrote to a route that did not exist, the catch undid
+    // the flip, and the only symptom was a button that did nothing.
+    const src = read("session-detail.tsx");
+    expect(src).toContain('readSessionPolicy(id).catch(() => "unknown"');
+    expect(src).toContain('autoAccept() === "unknown"');
+    expect(src).not.toContain('readSessionPolicy(id).catch(() => "inherit"');
+  });
+
+  test("a write that failed says so instead of quietly putting the switch back", () => {
+    const src = read("session-detail.tsx");
+    const start = src.indexOf("const toggleAutoAccept");
+    const body = src.slice(start, src.indexOf("\n  const ", start + 1));
+    expect(body).toContain("setAutoAcceptErr(");
+    // And the reader's own read is put back, so the button does not sit
+    // claiming something the service never agreed to.
+    expect(body).toContain("refetchAutoAccept();");
+  });
+
+  test("an unreadable switch and a failed write both mark the button", () => {
+    const src = read("session-detail.tsx");
+    expect(src).toContain("text-destructive");
+    expect(src).toContain("header.autoAccept.broken");
+  });
 });
