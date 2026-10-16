@@ -16,7 +16,7 @@ import {
 import { createPatch } from "diff";
 import { monotonicFactory } from "ulid";
 import { makeEvent, type ContentBlock, type EventInput } from "@agent-strata/schema";
-import { evaluate, type Policy } from "@agent-strata/policy";
+import { evaluate, policyFor, type Policy, type PolicySource } from "@agent-strata/policy";
 
 const ulid = monotonicFactory();
 
@@ -66,7 +66,7 @@ export class AcpRecorder implements Client {
     private opts: {
       agentName: string;
       sink: Sink;
-      policy?: Policy | (() => Policy | undefined);
+      policy?: PolicySource;
       onAsk?: OnAsk;
     },
   ) {}
@@ -328,7 +328,9 @@ export class AcpRecorder implements Client {
     });
     const cancelled: RequestPermissionResponse = { outcome: { outcome: "cancelled" } };
 
-    const policy = typeof this.opts.policy === "function" ? this.opts.policy() : this.opts.policy;
+    // Asked with the session, not the connection: a reader can leave one
+    // session on "stop asking" while the rest of the fleet still asks.
+    const policy = policyFor(this.opts.policy, s.casfSessionId);
     const d = policy
       ? evaluate(policy, { tool: call.tool, input: call.input })
       : { decision: "ask" as const };
@@ -389,7 +391,7 @@ export async function connectAcpAgent(opts: {
   cwd?: string;
   agentName: string;
   sink: Sink;
-  policy?: Policy | (() => Policy | undefined);
+  policy?: PolicySource;
   onAsk?: OnAsk;
   env?: Record<string, string | undefined>;
 }): Promise<{

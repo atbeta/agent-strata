@@ -688,6 +688,25 @@ export async function respondPermission(
   if (!res.ok) throw new Error(t("api.err.service", { status: res.status }));
 }
 
+/** Whether this session stops asking, or follows the shared policy. */
+export type SessionPolicyMode = "auto" | "inherit";
+
+export async function readSessionPolicy(id: string): Promise<SessionPolicyMode> {
+  const res = await fetch(api(`/sessions/${encodeURIComponent(id)}/policy`));
+  if (!res.ok) throw new Error(t("api.err.service", { status: res.status }));
+  const body = (await res.json()) as { mode?: string };
+  return body.mode === "auto" ? "auto" : "inherit";
+}
+
+export async function setSessionPolicy(id: string, mode: SessionPolicyMode): Promise<void> {
+  const res = await fetch(api(`/sessions/${encodeURIComponent(id)}/policy`), {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ mode }),
+  });
+  if (!res.ok) throw new Error(t("api.err.service", { status: res.status }));
+}
+
 async function throwOnError(res: Response): Promise<void> {
   if (res.ok) return;
   const body = (await res.json().catch(() => ({}))) as { error?: string };

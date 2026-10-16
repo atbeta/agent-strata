@@ -47,6 +47,19 @@ v0 ACP limitations: sessions live as long as the agent process (no `session/load
 
 The policy engine performs advisory static analysis of commands — it is not a sandbox. Constructs it cannot analyze safely are downgraded to `ask`; real enforcement requires a sandboxed execution layer (future work). The HTTP API listens on the loopback address only and refuses any request whose Host is not `127.0.0.1`/`localhost` (a DNS-rebound page) or that another site's page made the browser send; only the desktop shell's origins can read its responses cross-origin. Extension reads (`/…/opencode/<path>`) reach files on this machine, so on top of that they are GET-only and allow-listed.
 
+### Auto-accept, per session
+
+The shield in a session's header puts **that one session** on auto (`GET/PUT/DELETE /sessions/:id/policy`, body `{ "mode": "auto" | "inherit" }`). It is not persisted and does not survive a service restart — it is a stance about a conversation in progress, so a session nobody switched back on should not come back unattended.
+
+What it changes is the **fallback only**. `autoAccept` derives from the live policy rather than replacing it, so:
+
+- a rule you wrote saying `deny` still denies, and one saying `ask` still asks — softening the default is declining to be a gate, not overriding your own rules;
+- a `default` of `deny` is left alone; inverting a deny-by-default posture is a decision you did not make;
+- edits to the shared policy keep reaching a session that is already on auto;
+- the engine's floor is untouched, and no policy document can turn it off: a shell construct the engine cannot analyse, or one that writes through a redirect, is still asked about.
+
+Answering a permission card with **always** is a different thing and stays what it was: OpenCode's own memory of one `permission + pattern` for that session. It is narrower than the switch and survives a restart.
+
 ## Run
 
 ```sh

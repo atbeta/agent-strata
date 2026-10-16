@@ -199,6 +199,11 @@ export function PeerSessionTranscript(props: {
         });
         return;
       }
+      // Permissions are not turns. The switch that governs them moved, and the
+      // transcript did not, so this pane's view is still exactly right — and on
+      // a long session the refetch it would otherwise trigger is the slowest
+      // thing on screen.
+      if (evt.type === "session.policy") return;
       if (evt.type === "session.rebuilt") rebuilt = true;
       clearTimeout(timer);
       timer = setTimeout(() => {

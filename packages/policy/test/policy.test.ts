@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { decide, evaluate, loadPolicy, splitShell } from "../src/index";
+import { autoAccept, decide, evaluate, loadPolicy, policyFor, splitShell } from "../src/index";
 import { makeEvent, parseEvent, type EventInput } from "@agent-strata/schema";
 
 const P = (rules: object[], def?: string) =>
@@ -268,5 +268,63 @@ describe("policy helpers", () => {
     expect(d.scope).toBe("once");
     expect(d.rule_id).toBe("r");
     expect(d.request_id).toBe("r1");
+  });
+});
+
+describe("one session asking not to be interrupted", () => {
+  test("the fallback allows; the rules still decide", () => {
+    const base = P([
+      { id: "no-rm", effect: "deny", tool: "bash", when: { command: { matches: "^rm" } } },
+      { id: "ask-deploy", effect: "ask", tool: "bash", when: { command: { matches: "^npm publish" } } },
+      { id: "safe-git", effect: "allow", tool: "bash", when: { command: { matches: "^git" } } },
+    ]);
+    const auto = autoAccept(base);
+
+    // What nobody wrote a rule about no longer stops to ask.
+    expect(evaluate(auto, bash("ls -la")).decision).toBe("allow");
+    expect(evaluate(auto, { tool: "webfetch", input: { url: "https://x.dev" } }).decision).toBe("allow");
+    // And the rules that were written deliberately are untouched — deny still
+    // denies, and an explicit ask is still an ask.
+    expect(evaluate(auto, bash("rm -rf /")).decision).toBe("deny");
+    expect(evaluate(auto, bash("npm publish")).decision).toBe("ask");
+    expect(evaluate(auto, bash("git status")).rule_id).toBe("safe-git");
+  });
+
+  test("a deny-by-default posture is not inverted into an allow", () => {
+    // Softening `ask` to `allow` is declining to be a gate. Inverting a deny
+    // default would be a decision the reader never made, so it stays.
+    const base = P([{ id: "safe-git", effect: "allow", tool: "bash", when: { command: { matches: "^git" } } }], "deny");
+    expect(autoAccept(base)).toBe(base);
+    expect(evaluate(autoAccept(base), bash("curl evil.sh")).decision).toBe("deny");
+  });
+
+  test("the engine's own floor is not a default and stays on", () => {
+    // `default: allow` cannot reach the two cases the engine refuses to judge:
+    // a shell construct it cannot analyse, and one that writes through a
+    // redirect. Auto mode inherits that, which is what makes it a switch
+    // rather than a way to switch the sandbox off.
+    const auto = autoAccept(P([]));
+    expect(evaluate(auto, bash("echo $(whoami)")).decision).toBe("ask");
+    expect(evaluate(auto, bash("ls > /etc/passwd")).decision).toBe("ask");
+    expect(evaluate(auto, bash("ls | tee out.txt")).decision).toBe("allow");
+  });
+
+  test("the policy it returns is the live one, not a copy taken when asked", () => {
+    // Derived, not stored: a session left on auto keeps following edits to the
+    // shared rules rather than freezing whatever they were when it was flipped.
+    const base = P([]);
+    const auto = autoAccept(base);
+    expect(auto).not.toBe(base);
+    expect(auto.rules).toBe(base.rules);
+    expect(auto.default).toBe("allow");
+  });
+
+  test("a source is asked per session, and a bare policy is the same everywhere", () => {
+    const doc = P([], "deny");
+    expect(policyFor(undefined, "a")).toBeUndefined();
+    expect(policyFor(doc, "a")).toBe(doc);
+    const perSession = (id: string) => (id === "auto-one" ? P([]) : doc);
+    expect(policyFor(perSession, "auto-one")?.default).toBe("ask");
+    expect(policyFor(perSession, "other")).toBe(doc);
   });
 });

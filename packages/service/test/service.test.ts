@@ -463,6 +463,138 @@ describe("agent-strata service", () => {
     svc3.stop();
   });
 
+  test("one session stops asking, and only that one", async () => {
+    // The whole point of the switch: the same permission at the same moment on
+    // two sessions of one connection — one answered by the policy, one still
+    // held for the reader. Anything less scoped than this is the shared policy
+    // editor wearing a different label.
+    const oc = fakeOpencode({
+      "/permission/p-auto/reply": () => Response.json(true),
+      "/permission/p-back/reply": () => Response.json(true),
+    });
+    const svc = startService({ db: ":memory:", port: 0 });
+    const base = `http://127.0.0.1:${svc.port}`;
+    const put = (u: string, b: unknown) =>
+      fetch(u, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(b) });
+    const asked = (id: string) =>
+      oc.seen.find((s) => s.path === `/permission/${id}/reply`);
+    const pendingIds = async () =>
+      (await fetch(`${base}/permissions`).then((r) => r.json())).pending.map(
+        (p: { request_id: string }) => p.request_id,
+      );
+    const ask = (id: string, sessionID: string) =>
+      oc.push({
+        directory: "/repo",
+        payload: {
+          type: "permission.asked",
+          properties: {
+            id, sessionID, permission: "bash", patterns: ["ls"], metadata: {}, always: [],
+          },
+        },
+      });
+
+    // A shared policy that answers one tool and defers everything else.
+    await put(`${base}/policy`, {
+      version: 1,
+      default: "ask",
+      rules: [{ id: "allow-read", effect: "allow", tool: "read" }],
+    });
+    await fetch(`${base}/connect`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ baseUrl: oc.baseUrl, directory: "/repo" }),
+    });
+
+    // Off by default, and said so.
+    expect((await fetch(`${base}/sessions/opencode%3Ases_auto/policy`).then((r) => r.json())).mode).toBe("inherit");
+
+    await put(`${base}/sessions/opencode%3Ases_auto/policy`, { mode: "auto" });
+    expect((await fetch(`${base}/sessions/opencode%3Ases_auto/policy`).then((r) => r.json())).mode).toBe("auto");
+    const bad = await fetch(`${base}/sessions/opencode%3Ases_auto/policy`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode: "yolo" }),
+    });
+    expect(bad.status).toBe(400);
+
+    ask("p-auto", "ses_auto");
+    ask("p-other", "ses_other");
+    for (let i = 0; i < 30 && !(asked("p-auto") && (await pendingIds()).includes("p-other")); i++) {
+      await Bun.sleep(50);
+    }
+    // The switched session was answered on its own; the other one is still
+    // waiting for a reader, which is what "one session" has to mean.
+    expect(asked("p-auto")).toBeDefined();
+    expect(JSON.parse(asked("p-auto")!.body).reply).toBe("once");
+    expect(await pendingIds()).toContain("p-other");
+
+    // Switching back asks again, in the very session that was on auto.
+    await fetch(`${base}/sessions/opencode%3Ases_auto/policy`, { method: "DELETE" });
+    expect((await fetch(`${base}/sessions/opencode%3Ases_auto/policy`).then((r) => r.json())).mode).toBe("inherit");
+    ask("p-back", "ses_auto");
+    for (let i = 0; i < 30 && !(await pendingIds()).includes("p-back"); i++) await Bun.sleep(50);
+    expect(await pendingIds()).toContain("p-back");
+
+    // A session nobody has met is reported unknown rather than pretended.
+    expect((await fetch(`${base}/sessions/opencode%3Aghost/policy`).then((r) => r.json())).known).toBe(false);
+
+    oc.stop();
+    svc.stop();
+  });
+
+  test("a session on auto still obeys a deny rule, and is not persisted", async () => {
+    const oc = fakeOpencode({ "/permission/p-rm/reply": () => Response.json(true) });
+    const dir = `${import.meta.dir}/.tmp-${Bun.randomUUIDv7()}`;
+    const svc = startService({ db: ":memory:", port: 0, policyFile: `${dir}/policy.json` });
+    const base = `http://127.0.0.1:${svc.port}`;
+    await fetch(`${base}/policy`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        version: 1,
+        default: "ask",
+        rules: [{ id: "no-rm", effect: "deny", tool: "bash", when: { command: { matches: "^rm" } } }],
+      }),
+    });
+    await fetch(`${base}/connect`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ baseUrl: oc.baseUrl, directory: "/repo" }),
+    });
+    await fetch(`${base}/sessions/opencode%3Ases_s/policy`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode: "auto" }),
+    });
+    // The rule the reader wrote still runs. Auto softens the fallback; it does
+    // not replace the document, and it does not survive a restart — it is a
+    // stance about a run in progress, not a setting for the machine.
+    oc.push({
+      directory: "/repo",
+      payload: {
+        type: "permission.asked",
+        properties: {
+          id: "p-rm", sessionID: "ses_s", permission: "bash",
+          patterns: ["rm -rf /"], metadata: {}, always: [],
+        },
+      },
+    });
+    let reply: (typeof oc.seen)[number] | undefined;
+    for (let i = 0; i < 30 && !reply; i++) {
+      await Bun.sleep(50);
+      reply = oc.seen.find((s) => s.path === "/permission/p-rm/reply");
+    }
+    expect(JSON.parse(reply!.body).reply).toBe("reject");
+    oc.stop();
+    svc.stop();
+
+    const svc2 = startService({ db: ":memory:", port: 0, policyFile: `${dir}/policy.json` });
+    expect(
+      (await fetch(`http://127.0.0.1:${svc2.port}/sessions/opencode%3Ases_s/policy`).then((r) => r.json())).mode,
+    ).toBe("inherit");
+    svc2.stop();
+  });
+
   test("autoConnect to a dead backend retries then gives up, service stays up", async () => {
     const svc = startService({
       db: ":memory:",

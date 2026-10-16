@@ -14,7 +14,7 @@ import {
   type EventInput,
   type EventType,
 } from "@agent-strata/schema";
-import { evaluate, type Policy } from "@agent-strata/policy";
+import { evaluate, policyFor, type Policy, type PolicySource } from "@agent-strata/policy";
 import { createPatch } from "diff";
 
 export interface Sink {
@@ -1299,7 +1299,7 @@ export class OpencodeMapper {
 export function createIngestor(opts: {
   mapper: OpencodeMapper;
   sink: Sink;
-  policy?: Policy | (() => Policy | undefined);
+  policy?: PolicySource;
   onAsk?: OnAsk;
   onQuestion?: OnQuestion;
   /** OpenCode already answered this ask, so the waiting prompt can leave. */
@@ -1386,8 +1386,12 @@ export function createIngestor(opts: {
     const input: Record<string, unknown> = { ...p.metadata, patterns: p.patterns };
     if (shell) input.command = p.patterns.join("\n");
     const tool = shell ? "bash" : p.permission;
-    const policy =
-      typeof opts.policy === "function" ? opts.policy() : opts.policy;
+    const s = mapper.sessions.get(p.sessionID);
+    // Asked with the session, not the connection: a reader can leave one
+    // session on "stop asking" while the rest of the fleet still asks. Keyed
+    // off the mapper's own state so an ask for a session we have not seen still
+    // resolves — against the shared policy rather than by asking.
+    const policy = policyFor(opts.policy, s?.casfId ?? `opencode:${p.sessionID}`);
     const d = policy
       ? evaluate(policy, { tool, input })
       : { decision: "ask" as const };
@@ -1408,7 +1412,6 @@ export function createIngestor(opts: {
       return;
     }
     if (!opts.onAsk) return;
-    const s = mapper.sessions.get(p.sessionID);
     if (!s) return;
     const req = mapper.ev(
       s,
@@ -1545,7 +1548,7 @@ export async function connectOpencode(opts: {
   username?: string;
   password?: string;
   sink: Sink;
-  policy?: Policy | (() => Policy | undefined);
+  policy?: PolicySource;
   onAsk?: OnAsk;
   onQuestion?: OnQuestion;
   onSettled?: (requestId: string, decision: "allow" | "deny") => void;

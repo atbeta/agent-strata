@@ -17,10 +17,12 @@ import {
   importSession,
   readCapabilities,
   readCommands,
+  readSessionPolicy,
   readLsp,
   readVcs,
   realWorkspace,
   respondPermission,
+  setSessionPolicy,
   readViewTail,
   revertSession,
   forkSession,
@@ -284,6 +286,12 @@ export function SessionDetail(props: {
     },
   );
   const [hiddenAsks, setHiddenAsks] = createSignal<ReadonlySet<string>>(new Set());
+  const unhideAsk = (request_id: string) =>
+    setHiddenAsks((cur) => {
+      const next = new Set(cur);
+      next.delete(request_id);
+      return next;
+    });
   const [questions, { refetch: refetchQuestions }] = createResource(
     () => props.id,
     async (id) => {
@@ -309,6 +317,45 @@ export function SessionDetail(props: {
     () => (caps()?.commands && opencode() ? props.id : undefined),
     (id) => readCommands(id).catch(() => undefined),
   );
+  /**
+   * Whether this session has been told to stop asking.
+   *
+   * Per session on purpose and not persisted: it is a stance about a
+   * conversation in progress, so switching sessions must show what that
+   * session is actually doing rather than the last one that was touched.
+   */
+  const [autoAccept, { refetch: refetchAutoAccept }] = createResource(
+    () => props.id,
+    (id) => readSessionPolicy(id).catch(() => "inherit" as const),
+  );
+  const toggleAutoAccept = async () => {
+    const next = autoAccept() === "auto" ? "inherit" : "auto";
+    // Flip the reader's own read first. The route is a local POST and the
+    // answer is already known; waiting for it would make the button sit there
+    // not having moved, which is how a reader toggles it twice.
+    refetchAutoAccept(next);
+    // What was already on screen has to follow. A card still waiting while the
+    // header says the session is not waiting any more is the same disagreement
+    // this whole switch is meant to remove, and it is the one a reader meets
+    // first — they are looking at a permission when they reach for the button.
+    const held = next === "auto" ? (asks() ?? []).map((a) => a.request_id) : [];
+    for (const request_id of held) setHiddenAsks((cur) => new Set(cur).add(request_id));
+    try {
+      await setSessionPolicy(props.id, next);
+      for (const request_id of held) {
+        await respondPermission(request_id, "allow", "once").catch(() => {
+          // Gone, or answered elsewhere. Either way it is not this reader's
+          // to hold up the switch over.
+          unhideAsk(request_id);
+        });
+      }
+      refetchAutoAccept();
+      refetchAsks();
+    } catch {
+      for (const request_id of held) unhideAsk(request_id);
+      refetchAutoAccept();
+    }
+  };
 
   let scroller: HTMLDivElement | undefined;
   // Virtual needs these every frame it decides what to keep mounted. The
@@ -705,6 +752,15 @@ export function SessionDetail(props: {
         }
         if (evt.session_id === props.id && evt.type === "session.status" && evt.data?.state === "idle")
           composer.clearPending();
+        if (evt.type === "session.policy") {
+          // Another window, or another pane of this one, moved the switch. A
+          // read that is only correct because it happens not to be looking
+          // somewhere else is a read that will be wrong the moment someone
+          // glances at the same session twice. Handled here and then ignored
+          // below: permissions are not turns, so nothing in the view moved.
+          if (evt.session_id === props.id) refetchAutoAccept();
+          return;
+        }
         if (evt.session_id === props.id || evt.type === "permission.requested" || evt.type === "question.asked") {
           if (replayPos() === null) {
             if (evt.session_id === props.id && evt.type === "session.rebuilt") rebuilt = true;
@@ -1014,6 +1070,20 @@ export function SessionDetail(props: {
                       </PanelToggle>
                     </Tip>
                   </Show>
+                  <Tip
+                    label={t(
+                      autoAccept() === "auto" ? "header.autoAccept.on" : "header.autoAccept.off",
+                    )}
+                  >
+                    <PanelToggle
+                      label={t("header.autoAccept")}
+                      on={autoAccept() === "auto"}
+                      pressed={autoAccept() === "auto"}
+                      onClick={() => void toggleAutoAccept()}
+                    >
+                      <Icon name="shield" />
+                    </PanelToggle>
+                  </Tip>
                   <LayoutSwitcher
                     workspace={paneWorkspace()}
                     onPreset={handleSelectPreset}

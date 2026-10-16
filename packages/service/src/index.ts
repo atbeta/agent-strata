@@ -8,7 +8,7 @@ import { dirname, join } from "node:path";
 import { openStore, type Store, type EventQuery } from "@agent-strata/store";
 import { projectSession, aggregate, type SessionView } from "@agent-strata/projector";
 import { compareSessions, exportEvents } from "@agent-strata/core";
-import { evaluate, loadPolicy, type Policy } from "@agent-strata/policy";
+import { autoAccept, evaluate, loadPolicy, type Policy } from "@agent-strata/policy";
 import { UnknownCommandError } from "@agent-strata/adapter-opencode";
 import type { BackendDriver, BackendSink, ModelChoice, PromptPart } from "./driver";
 import { connectOpencodeDriver } from "./opencode-driver";
@@ -91,6 +91,18 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     }
   };
   currentPolicy = loadPolicyFile();
+  /**
+   * Sessions left on "stop asking me", by casf id.
+   *
+   * A set rather than a stored policy on purpose: the answer is derived from
+   * the live one every time it is needed, so a session on auto keeps following
+   * the shared rules as they are edited instead of freezing a copy of them the
+   * moment the switch was flipped. A reader who then tightens a rule sees it
+   * take effect in the session they already switched off.
+   */
+  const autoSessions = new Set<string>();
+  const modeOf = (sessionID: string): "auto" | "inherit" =>
+    autoSessions.has(sessionID) ? "auto" : "inherit";
   const persistPolicy = () => {
     if (!opts.policyFile) return;
     if (currentPolicy === undefined) {
@@ -280,8 +292,14 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       return { id: already.id, indexed: 0 };
     }
     const explicit: Policy | undefined = body.policy ? loadPolicy(body.policy) : undefined;
-    // per-connect policy wins; otherwise follow the live shared policy
-    const policy = explicit ? () => explicit : () => currentPolicy;
+    // Per-connect policy wins; otherwise follow the live shared policy — unless
+    // this session was left on auto, which softens the shared fallback rather
+    // than replacing the document, so the reader's own rules still apply.
+    const shared = explicit ? () => explicit : () => currentPolicy;
+    const policy = (sessionID: string): Policy | undefined => {
+      const base = shared();
+      return base && autoSessions.has(sessionID) ? autoAccept(base) : base;
+    };
     let driver: BackendDriver;
     if (backend === "opencode") {
       if (!body.baseUrl) throw new Error("baseUrl required");
@@ -943,6 +961,41 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       currentPolicy = undefined;
       persistPolicy();
       return json({ ok: true });
+    }
+
+    /**
+     * Whether one session stops asking.
+     *
+     * The shared policy is the whole answer for every session, so this carries
+     * one bit and no rules: the reader has said "do not interrupt me here", not
+     * "here is a different policy". The effective document is derived, so the
+     * session keeps following edits to the shared one — a rule tightened later
+     * reaches a session that is already on auto.
+     *
+     * Not persisted, and deliberately: it is a stance about a conversation
+     * being in progress, and a service that came back up should not find a
+     * week-old session still running unattended.
+     */
+    const sessionPolicyMatch = path.match(/^\/sessions\/([^/]+)\/policy$/);
+    if (sessionPolicyMatch) {
+      const sid = decodeURIComponent(sessionPolicyMatch[1]!);
+      const known = store.lastSeq(sid) > 0;
+      if (req.method === "GET") {
+        return json({ mode: modeOf(sid), session_id: sid, known });
+      }
+      if (req.method === "PUT") {
+        const body = (await req.json().catch(() => null)) as { mode?: string } | null;
+        if (body?.mode === "auto") autoSessions.add(sid);
+        else if (body?.mode === "inherit" || body?.mode === undefined) autoSessions.delete(sid);
+        else return json({ error: "mode must be auto or inherit" }, 400);
+        broadcast({ type: "session.policy", session_id: sid, mode: modeOf(sid) });
+        return json({ ok: true, mode: modeOf(sid), session_id: sid });
+      }
+      if (req.method === "DELETE") {
+        autoSessions.delete(sid);
+        broadcast({ type: "session.policy", session_id: sid, mode: "inherit" });
+        return json({ ok: true, mode: "inherit", session_id: sid });
+      }
     }
 
     if (path === "/policy/test" && req.method === "POST") {

@@ -5,7 +5,7 @@ import {
   type OnQuestion,
   type Sink,
 } from "@agent-strata/adapter-opencode";
-import type { Policy } from "@agent-strata/policy";
+import type { PolicySource } from "@agent-strata/policy";
 import type { BackendDriver } from "./driver";
 import { opencodeExtension } from "./opencode-extension";
 import { toOpencodeParts, type OpencodeFilePart } from "./opencode-parts";
@@ -19,7 +19,7 @@ export async function connectOpencodeDriver(opts: {
   directory?: string;
   username?: string;
   password?: string;
-  policy?: Policy | (() => Policy | undefined);
+  policy?: PolicySource;
   connectTimeoutMs?: number;
   onAsk?: OnAsk;
   onQuestion?: OnQuestion;

@@ -1,5 +1,5 @@
 import { connectAcpAgent, type OnAsk } from "@agent-strata/adapter-acp";
-import type { Policy } from "@agent-strata/policy";
+import type { PolicySource } from "@agent-strata/policy";
 import { makeEvent, type EventInput } from "@agent-strata/schema";
 import type { BackendDriver, BackendSink } from "./driver";
 
@@ -10,7 +10,7 @@ export async function connectAcpDriver(opts: {
   cwd?: string;
   agentName: string;
   name?: string;
-  policy?: () => Policy | undefined;
+  policy?: PolicySource;
   onAsk?: OnAsk;
 }): Promise<BackendDriver> {
   const agent = await connectAcpAgent({

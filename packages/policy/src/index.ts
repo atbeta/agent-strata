@@ -47,6 +47,41 @@ export function loadPolicy(json: unknown): Policy {
   return policy;
 }
 
+/**
+ * The same policy with the fallback allowed instead of asked — one session
+ * stopping to ask about every call.
+ *
+ * Only the fallback moves. A rule that says `deny` still denies and a rule that
+ * says `ask` still asks, because those were written deliberately and a reader
+ * who wrote them meant them; what this answers is "I do not want to be
+ * interrupted for the ones nobody wrote a rule about". A `default` of `deny` is
+ * likewise left alone: softening `ask` to `allow` is declining to be a gate,
+ * whereas inverting a deny posture would be a decision the reader never made.
+ *
+ * The engine's own floor is untouched by this and by `default` — a shell
+ * construct it cannot analyse, or one that writes through a redirect, is still
+ * asked about. Nothing in the policy document can turn that off.
+ */
+export function autoAccept(policy: Policy): Policy {
+  return policy.default === "ask" ? { ...policy, default: "allow" } : policy;
+}
+
+/**
+ * How a backend asks what the rules are.
+ *
+ * The session is an argument because the answer can differ per session: one
+ * reader can leave a session on "stop asking me" while the rest of the fleet
+ * still asks. A bare `Policy` stays valid and means the same document for
+ * everything, which is what a connection with its own policy passes.
+ */
+export type PolicySource = Policy | ((sessionID: string) => Policy | undefined);
+
+/** The rules in force for one session, or undefined to ask the reader. */
+export function policyFor(source: PolicySource | undefined, sessionID: string): Policy | undefined {
+  if (!source) return undefined;
+  return typeof source === "function" ? source(sessionID) : source;
+}
+
 function globToRe(glob: string): RegExp {
   let re = "";
   for (let i = 0; i < glob.length; i++) {
