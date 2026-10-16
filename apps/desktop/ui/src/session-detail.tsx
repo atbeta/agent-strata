@@ -680,7 +680,9 @@ export function SessionDetail(props: {
           window.dispatchEvent(new CustomEvent("strata-stream-event", { detail: evt }));
         }
         if (evt.session_id === props.id && evt.type === "turn.assistant" && evt.data?.partial === true) {
-          if (replayPos() === null) {
+          // An idle session keeps receiving a leftover snapshot. Painting it
+          // puts the cursor back on a turn that has finished.
+          if (replayPos() === null && (settled(view)?.busy === true || composer.generating())) {
             const snap = evt.data as unknown as StreamingSnapshot;
             mutate((v) => {
               if (!v) return v;

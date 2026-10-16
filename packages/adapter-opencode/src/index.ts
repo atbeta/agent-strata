@@ -526,6 +526,13 @@ export class OpencodeMapper {
       if (!this.settleReady(s)) continue;
       this.pendingSettles.delete(s);
       s.sawBusy = false;
+      s.liveMsgs?.clear();
+      // The same retirement a real idle does. Leaving the open message held
+      // meant the stream flush published one more partial after this idle, and
+      // the composer treats a partial as a run — the stop button came back on
+      // a session that had just been declared finished, and abort had nothing
+      // left to stop.
+      for (const [msgID, held] of this.held) if (held.s === s) this.held.delete(msgID);
       out.push(
         this.ev(
           s,
@@ -2013,6 +2020,17 @@ export async function connectOpencode(opts: {
     },
     async abort(sessionID: string, directory?: string) {
       await client.session.abort({ sessionID, directory: directory ?? opts.directory });
+      // Abort returns when the request is accepted, not when a status event
+      // arrives. A session that was already idle accepts it and sends nothing,
+      // so the stored `busy` flag — the thing the stop button is reading —
+      // never moves. Saying idle here is the same event a real stop produces;
+      // a run that is genuinely still going sends `busy` again and the button
+      // comes back with it.
+      ingestor.handle({
+        id: `abort:${sessionID}:${Date.now()}`,
+        type: "session.idle",
+        properties: { sessionID },
+      } as Event);
     },
     async mcpConnect(name: string, directory?: string) {
       await client.mcp.connect({ name, directory: directory ?? opts.directory });

@@ -43,12 +43,13 @@ describe("session status", () => {
     expect(s.tone.dot).toBe("bg-status-error");
   });
 
-  test("cancelled and completed are named but not marked", () => {
+  test("cancelled and completed keep a quiet dot and no word", () => {
     for (const status of ["cancelled", "completed"]) {
       const s = sessionStatus(row({ status }));
       expect(s.badge).toBe(false);
       expect(s.pulse).toBe(false);
-      expect(showsDot(s)).toBe(false);
+      expect(showsDot(s)).toBe(true);
+      expect(s.tone.dot).toBe("bg-status-pending");
     }
   });
 
@@ -69,7 +70,9 @@ describe("session status", () => {
     expect(new Set(labels).size).toBe(labels.length);
   });
 
-  test("only the states that want something from the reader take a dot", () => {
+  test("every state draws a dot, and only two of them also draw a word", () => {
+    // A row with nothing in front of the title has no status. Idle is the
+    // common case, so a list that marks only the loud states looks unmarked.
     const drawn = ["needs-input", "running", "failed"] as const;
     for (const kind of drawn) {
       const s = sessionStatus(
@@ -83,7 +86,9 @@ describe("session status", () => {
       expect(showsDot(s)).toBe(true);
     }
     for (const s of [sessionStatus(row({ status: "completed" })), sessionStatus(row({}))]) {
-      expect(showsDot(s)).toBe(false);
+      expect(showsDot(s)).toBe(true);
+      expect(s.badge).toBe(false);
+      expect(s.pulse).toBe(false);
     }
   });
 });

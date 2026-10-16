@@ -6,6 +6,19 @@ export interface StreamingSnapshot {
   content: ContentBlock[];
 }
 
+/**
+ * Whether the composer should offer Stop.
+ *
+ * A prompt just handed over counts, and so does `busy`. A partial message does
+ * not. Partials outlive the run: the idle fallback retires `busy` while the
+ * last snapshot is still open, and a later import publishes that snapshot
+ * again. Treating it as a run leaves Stop on a session that is idle, and
+ * pressing it cannot retire a message the backend has already finished.
+ */
+export function runInProgress(input: { pending?: boolean; busy?: boolean }): boolean {
+  return input.pending === true || input.busy === true;
+}
+
 /** Lay a message still being written over the view the reader holds; a finished one is left alone. */
 export function applyStreamingSnapshot(view: SessionView, snap: StreamingSnapshot): SessionView {
   if (!snap.msg_id) return view;

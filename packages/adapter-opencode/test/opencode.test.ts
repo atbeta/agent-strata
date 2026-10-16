@@ -656,6 +656,42 @@ describe("OpencodeMapper", () => {
     expect(settled.find((e) => e.type === "session.status")!.data).toEqual({ state: "idle" });
   });
 
+  test("the idle fallback does not leave a live snapshot behind", () => {
+    // The stream flush runs on its own timer. Announcing idle while the open
+    // message stayed held published one more partial afterwards, and the
+    // composer read that partial as a run that abort could not end.
+    let now = 1_000;
+    const m = new OpencodeMapper({ now: () => now });
+    m.handle({
+      id: "s1", type: "session.status", properties: { sessionID: sid, status: { type: "busy" } },
+    } as unknown as Event);
+    m.handle(msgUpdated({
+      id: "a2", sessionID: sid, role: "assistant", parentID: "u1",
+      time: { created: 31 }, providerID: "anthropic", modelID: "claude",
+      agent: "build", mode: "build", path: { cwd: "/repo", root: "/repo" }, cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    }));
+    now = 1_000;
+    m.handle(partUpdated({
+      id: "pt", sessionID: sid, messageID: "a2", type: "text", text: "still",
+    }));
+    // Inside the snapshot window, so the message stays held instead of flushing.
+    now = 1_020;
+    m.handle(partUpdated({
+      id: "pt", sessionID: sid, messageID: "a2", type: "text", text: "still open",
+    }));
+    m.handle(msgUpdated({
+      id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
+      time: { created: 20, completed: 30 }, providerID: "anthropic", modelID: "claude",
+      agent: "build", mode: "build", path: { cwd: "/repo", root: "/repo" }, cost: 0, finish: "stop",
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    }));
+    now += SETTLE_QUIET_MS + 1;
+    expect(m.flushSettles().some((e) => e.type === "session.status")).toBe(true);
+    now += STREAM_SNAPSHOT_MS;
+    expect(m.flushStreaming()).toEqual([]);
+  });
+
   test("a running tool keeps the quiet window from speaking", () => {
     // A long tool call is quiet for minutes while it works; the session is
     // genuinely running and must not read as idle.
