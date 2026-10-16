@@ -7,16 +7,36 @@ export interface StreamingSnapshot {
 }
 
 /**
+ * How long "the prompt is on its way" may stand on its own.
+ *
+ * It covers one round trip: the POST lands, the backend marks the session busy,
+ * the projection says so and the view behind it re-fetches. Generous enough for
+ * a long session where that view is the slowest thing on screen, and short
+ * enough that a session nobody is in is not still holding the composer.
+ *
+ * It has to be a deadline. Every earlier version made this a flag with four
+ * exits, of which the ordinary one — the backend's own idle — depends on the
+ * backend saying so. When it did not, the flag outlived the run and the
+ * composer kept a second, independent reason to believe the session was busy
+ * that no event and no re-fetch could ever clear. Two latches OR-ed together,
+ * each with its own incomplete exit, is why this took four passes to land: a
+ * fix to one arm left the other standing.
+ */
+export const SEND_GRACE_MS = 15_000;
+
+/**
  * Whether the composer should offer Stop.
  *
- * A prompt just handed over counts, and so does `busy`. A partial message does
- * not. Partials outlive the run: the idle fallback retires `busy` while the
- * last snapshot is still open, and a later import publishes that snapshot
- * again. Treating it as a run leaves Stop on a session that is idle, and
- * pressing it cannot retire a message the backend has already finished.
+ * `busy` is the fact: the projection's own read of the session, and the one
+ * thing here that changes for reasons other than the reader. Everything else is
+ * a bounded handover window covering the gap before that fact catches up — a
+ * partial message does not count, because partials outlive the run, and neither
+ * does a handover that has run out of time.
  */
-export function runInProgress(input: { pending?: boolean; busy?: boolean }): boolean {
-  return input.pending === true || input.busy === true;
+export function runInProgress(input: { handover?: number; busy?: boolean; now?: number }): boolean {
+  if (input.busy === true) return true;
+  if (input.handover === undefined) return false;
+  return (input.now ?? Date.now()) - input.handover < SEND_GRACE_MS;
 }
 
 /** Lay a message still being written over the view the reader holds; a finished one is left alone. */

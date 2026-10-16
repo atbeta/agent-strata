@@ -36,18 +36,18 @@ describe("stop verdict", () => {
 
 describe("stop verdict ratchet", () => {
   test("the prompt-handover flag is dropped before the request, not after", () => {
-    // `pendingSend` is the one part of `generating()` the client owns. Clearing
+    // The handover is the one part of `generating()` the client owns. Closing
     // it after `await` put a round trip between the button and the session
     // reading as idle, which on a slow view is long enough for the watchdog to
     // fire on a stop that worked.
     const src = read("session-composer.tsx");
-    // Bound the slice to `stop` itself — later helpers also clear the flag.
+    // Bound the slice to `stop` itself — later helpers also close the handover.
     const start = src.indexOf("const stop = async");
     const stop = src.slice(start, src.indexOf("\n  const ", start + 1));
     const before = stop.slice(0, stop.indexOf("try {"));
     const after = stop.slice(stop.indexOf("try {"));
-    expect(before).toContain("setPendingSend(false)");
-    expect(after).not.toContain("setPendingSend(false)");
+    expect(before).toContain("closeHandover()");
+    expect(after).not.toContain("closeHandover()");
   });
 
   test("the confirmation is the abort's answer, not the view's", () => {

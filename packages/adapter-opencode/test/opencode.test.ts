@@ -8,7 +8,9 @@ import {
   OPENCODE_REBUILT_TYPES,
   OPENCODE_MAPPER_VERSION,
   STREAM_SNAPSHOT_MS,
+  SETTLE_DELAY_MS,
   SETTLE_QUIET_MS,
+  SETTLE_STALL_MS,
   pickableProviders,
 } from "../src/index";
 import { loadPolicy } from "@agent-strata/policy";
@@ -747,6 +749,104 @@ describe("OpencodeMapper", () => {
     now += 500;
     expect(m.flushSettles().some((e) => e.type === "session.status")).toBe(true);
     expect(m.settleTimerMs()).toBeUndefined();
+  });
+
+  describe("a correction that can still arrive when nothing else does", () => {
+    const busy = (m: OpencodeMapper) =>
+      m.handle({
+        id: "s1", type: "session.status", properties: { sessionID: sid, status: { type: "busy" } },
+      } as unknown as Event);
+
+    const assistant = (id: string, time: object) =>
+      msgUpdated({
+        id, sessionID: sid, role: "assistant", parentID: "u1",
+        time, providerID: "anthropic", modelID: "claude",
+        agent: "build", mode: "build", path: { cwd: "/repo", root: "/repo" }, cost: 0, finish: "stop",
+        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      });
+
+    const runningTool = (callID: string, tool: string, command: string, start: number) =>
+      partUpdated({
+        id: callID, sessionID: sid, messageID: "a1", type: "tool", callID, tool,
+        state: { status: "running", input: { command }, time: { start } },
+      });
+
+    test("a run that ends without a message completing still gets corrected", () => {
+      // The abort case. The reader stops a run, the backend drops it, and no
+      // message ever reports completion — so nothing queued a settle,
+      // `settleTimerMs()` answered undefined, and no timer was ever armed.
+      // `busy` then survived for the life of the session and every composer
+      // kept queueing messages sent to a conversation nobody was in.
+      let now = 1_000_000;
+      const m = new OpencodeMapper({ now: () => now });
+      busy(m);
+      m.handle(assistant("a1", { created: 20 }));
+      m.handle(runningTool("c1", "bash", "sleep 300", 21));
+
+      // A claim alone is a run that may be starting, and the tool is running:
+      // the correction is held to the tool's own ceiling, and the timer names
+      // it. What matters is that a timer exists at all.
+      expect(m.settleTimerMs()).toBe(SETTLE_STALL_MS);
+      now += SETTLE_QUIET_MS + 1;
+      // The tool is still reported running, so it has not been given up on yet
+      // — but a timer is armed for the rest of its ceiling, which is the part
+      // that used to be missing.
+      expect(m.flushSettles().some((e) => e.type === "session.status")).toBe(false);
+      expect(m.settleTimerMs()).toBe(SETTLE_STALL_MS - SETTLE_QUIET_MS - 1);
+      // Past the ceiling on a session that has said nothing at all, the tool is
+      // a dropped run and the correction arrives on its own.
+      now += SETTLE_STALL_MS - SETTLE_QUIET_MS - 1;
+      expect(m.flushSettles().find((e) => e.type === "session.status")!.data).toEqual({ state: "idle" });
+    });
+
+    test("a running tool delays the correction, it does not cancel it", () => {
+      // A long tool is quiet while it works and the session really is running,
+      // so it has to hold the correction back. What it must not do is hold it
+      // forever: the old code asked for *no timer at all* once the quiet window
+      // passed with a tool still running, on the reasoning that becoming ready
+      // needs a new event. A dropped run produces no new event, so that is
+      // precisely the case the guard was written for.
+      let now = 1_000_000;
+      const m = new OpencodeMapper({ now: () => now });
+      busy(m);
+      m.handle(assistant("a1", { created: 20 }));
+      m.handle(assistant("a2", { created: 31 }));
+      m.handle(runningTool("c1", "bash", "sleep 300", 32));
+      // a1 completing after a2 is what must not announce idleness mid-run.
+      m.handle(assistant("a1", { created: 20, completed: 30 }));
+
+      now += SETTLE_QUIET_MS - 500;
+      // Not ready — the tool owns the answer until its own ceiling — but the
+      // timer names the moment it could speak rather than giving up on it.
+      expect(m.settleTimerMs()).toBe(SETTLE_STALL_MS - SETTLE_QUIET_MS + 500);
+      expect(m.flushSettles().some((e) => e.type === "session.status")).toBe(false);
+
+      now += SETTLE_STALL_MS - SETTLE_QUIET_MS + 500;
+      expect(m.flushSettles().find((e) => e.type === "session.status")!.data).toEqual({ state: "idle" });
+    });
+
+    test("a completed message with a tool still running is not idle", () => {
+      // The mirror of the case above, and it went the other way. Every
+      // assistant message reported completion, so the old shortcut returned
+      // ready before it ever looked at tool parts — a turn whose last event was
+      // a tool that had not reported back was announced idle 250ms in, while it
+      // was still working.
+      let now = 1_000_000;
+      const m = new OpencodeMapper({ now: () => now });
+      busy(m);
+      m.handle(assistant("a1", { created: 20 }));
+      m.handle(runningTool("c1", "bash", "sleep 300", 21));
+      m.handle(assistant("a1", { created: 20, completed: 30 }));
+
+      now += SETTLE_DELAY_MS + 1;
+      expect(m.flushSettles().some((e) => e.type === "session.status")).toBe(false);
+      // Once the tool lands, the turn really is over and the correction speaks.
+      m.handle(partUpdated({
+        id: "c1", sessionID: sid, messageID: "a1", type: "tool", callID: "c1", tool: "bash",
+        state: { status: "completed", input: { command: "sleep 300" }, output: "ok", metadata: {}, time: { start: 21, end: 40 } },
+      }));
+      expect(m.flushSettles().some((e) => e.type === "session.status")).toBe(true);
+    });
   });
 
   test("turn.user echoes on first text part; idle doesn't re-emit", () => {

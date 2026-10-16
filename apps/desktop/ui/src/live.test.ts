@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { applyStreamingSnapshot, isStreamingSnapshotMessage, mergeViewTail, runInProgress } from "./live";
+import { applyStreamingSnapshot, isStreamingSnapshotMessage, mergeViewTail, runInProgress, SEND_GRACE_MS } from "./live";
 import type { SessionView, ViewTail } from "./api";
 
 const base = (): SessionView => ({
@@ -23,17 +23,31 @@ const base = (): SessionView => ({
 });
 
 describe("whether the composer is in a run", () => {
-  test("a prompt just handed over counts, and so does busy", () => {
-    expect(runInProgress({ pending: true })).toBe(true);
-    expect(runInProgress({ busy: true })).toBe(true);
+  test("busy is a run, and so is a prompt still on its way", () => {
+    expect(runInProgress({ busy: true, now: 0 })).toBe(true);
+    expect(runInProgress({ handover: 1_000, now: 1_000 })).toBe(true);
   });
 
   test("an idle session is not a run", () => {
     // A partial left open after the backend went idle used to count. Stop
     // stayed on the button, and abort could not retire a message that had
     // already finished.
-    expect(runInProgress({ busy: false })).toBe(false);
-    expect(runInProgress({})).toBe(false);
+    expect(runInProgress({ busy: false, now: 0 })).toBe(false);
+    expect(runInProgress({ now: 0 })).toBe(false);
+  });
+
+  test("a handover that has run out of time is not a reason to keep queueing", () => {
+    // The line this whole thing came down to. `busy` is the fact and it is only
+    // ever cleared by an idle the backend may never send; a second local latch
+    // beside it, waiting on that same event with no deadline, is what left the
+    // composer queueing into a session nobody was in. Bounded, it can only ever
+    // cost a follow-up that goes out a moment early.
+    expect(runInProgress({ handover: 1_000, now: 1_000 + SEND_GRACE_MS - 1 })).toBe(true);
+    expect(runInProgress({ handover: 1_000, now: 1_000 + SEND_GRACE_MS })).toBe(false);
+    expect(runInProgress({ handover: 1_000, busy: false, now: 1_000 + SEND_GRACE_MS })).toBe(false);
+    // A stuck `busy` is still a run: that is the projection's word, and the
+    // adapter is what has to correct it.
+    expect(runInProgress({ handover: 1_000, busy: true, now: 1_000 + SEND_GRACE_MS })).toBe(true);
   });
 });
 

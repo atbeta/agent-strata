@@ -211,6 +211,22 @@ export const SETTLE_DELAY_MS = 250;
  */
 export const SETTLE_QUIET_MS = 30_000;
 
+/**
+ * How long a tool still reported as running keeps the correction back.
+ *
+ * Nothing in the event stream can tell a long tool from a run the backend
+ * dropped: both are a session that has stopped talking, and the only evidence
+ * either way is how long that lasts. So the tool gets a ceiling instead of a
+ * veto. It has to have one: a settle that a running tool can hold off forever
+ * is a settle that never speaks in the exact case it was written for — a run
+ * that went quiet without ever completing a message and without ever sending
+ * `session.idle` — and `busy` then survives for the life of the session, which
+ * is the failure this whole mechanism exists to end. Past this the tool is
+ * taken to have been dropped; the next real event re-marks the session busy if
+ * that was wrong.
+ */
+export const SETTLE_STALL_MS = 300_000;
+
 /** How often the connection re-reads the backend's own pending asks. */
 export const RESTORE_POLL_MS = 30_000;
 
@@ -516,14 +532,14 @@ export class OpencodeMapper {
    */
   flushSettles(): EventInput[] {
     const out: EventInput[] = [];
-    for (const [s, msgID] of [...this.pendingSettles]) {
+    for (const [s, entry] of [...this.pendingSettles]) {
       // The backend said idle itself, or we already announced: drop the queued
       // correction rather than stacking a second idle under a different id.
       if (!s.sawBusy) {
         this.pendingSettles.delete(s);
         continue;
       }
-      if (!this.settleReady(s)) continue;
+      if (!this.settleReady(s, entry)) continue;
       this.pendingSettles.delete(s);
       s.sawBusy = false;
       s.liveMsgs?.clear();
@@ -538,56 +554,96 @@ export class OpencodeMapper {
           s,
           "session.status",
           { state: "idle" },
-          `opencode:${s.sessionID}:session.status:idle:${msgID}`,
+          `opencode:${s.sessionID}:session.status:idle:${entry.key}`,
         ),
       );
     }
     return out;
   }
 
-  /** Turn-completions waiting out the window before they claim the session is idle. */
-  private pendingSettles = new Map<SessionState, string>();
+  /**
+   * Sessions waiting to be declared idle, and why each is waiting.
+   *
+   * `afterCompletion` means an assistant message reported completion, so the
+   * turn may be over and the short beat is enough to find out. `false` means
+   * the backend only claimed the session — nothing has finished, so the session
+   * may be a run that is starting, and it has to be quiet for a whole window
+   * before it can be called over.
+   *
+   * `key` names what queued it, so a session corrected twice under different
+   * evidence does not collapse into one event id and replay as already seen.
+   */
+  private pendingSettles = new Map<SessionState, { key: string; afterCompletion: boolean }>();
 
-  private queueSettle(s: SessionState, completedMsgId: string): void {
+  private queueSettle(s: SessionState, key: string, afterCompletion: boolean): void {
     if (!s.sawBusy) return;
-    this.pendingSettles.set(s, completedMsgId);
+    // A completion is the stronger reason to be here; a claim queued behind it
+    // must not downgrade it into waiting for the whole quiet window.
+    if (afterCompletion) this.pendingSettles.set(s, { key, afterCompletion });
+    else if (!this.pendingSettles.has(s)) this.pendingSettles.set(s, { key, afterCompletion });
+  }
+
+  /** Whether any tool part in the session is still reported as running. */
+  private toolRunning(s: SessionState): boolean {
+    for (const m of s.messages.values()) {
+      for (const t of m.toolParts.values()) if (t.status === "running") return true;
+    }
+    return false;
   }
 
   /**
    * Whether a queued settle may speak.
    *
-   * Every assistant message having reported completion is the ordinary case:
-   * the turn is over. An open message only blocks the announcement while the
-   * session is still producing events of its own — past the quiet window with
-   * no running tool, the message is a stall (a tool waiting on a permission
-   * nobody was shown, a run the backend dropped) and waiting longer only
-   * keeps a dead conversation breathing.
+   * Three questions, in the order they can mislead:
+   *
+   *   - Did anything finish? No, and the session has not gone quiet for the
+   *     whole window — then this is a run in progress and announcing idleness
+   *     would clear `busy` out from under work that is genuinely going.
+   *   - Is a tool still running? While it is, the run is real; it stops being
+   *     evidence only once the session has said nothing at all for the stall
+   *     ceiling, because a tool that never reports back and a tool that is
+   *     still working look identical from here.
+   *   - Is a message still open? A pause while the session is producing events
+   *     of its own, a stall once it has gone quiet.
+   *
+   * The order matters: "every message reported completion" used to be the first
+   * test and short-circuited before tool parts were ever looked at, so a turn
+   * whose last event was an unreported tool was announced idle one beat in.
    */
-  private settleReady(s: SessionState): boolean {
-    if ((s.liveMsgs?.size ?? 0) === 0) return true;
-    if (this.now() - (s.lastTouch ?? 0) < SETTLE_QUIET_MS) return false;
-    for (const m of s.messages.values()) {
-      for (const t of m.toolParts.values()) if (t.status === "running") return false;
-    }
+  private settleReady(s: SessionState, entry: { afterCompletion: boolean }): boolean {
+    const quietFor = this.now() - (s.lastTouch ?? 0);
+    if (!entry.afterCompletion && quietFor < SETTLE_QUIET_MS) return false;
+    if (this.toolRunning(s) && quietFor < SETTLE_STALL_MS) return false;
+    if ((s.liveMsgs?.size ?? 0) > 0 && quietFor < SETTLE_QUIET_MS) return false;
     return true;
   }
 
   /**
    * How long the ingestor should wait before the next settle flush, or
-   * undefined when nothing is waiting. A completion inside the window wants
-   * the short delay; a stalled open message wants the rest of its quiet
-   * window; a stall already past the window with a running tool cannot become
-   * ready without a new event, so it asks for no timer at all.
+   * undefined when nothing is waiting.
+   *
+   * Always a number while a settle is pending. Answering undefined meant
+   * "nothing can become ready without a new event", which is true of the
+   * conditions and irrelevant to the outcome: the runs that stall do it by
+   * going silent, and a silent run produces no event to re-arm anything with.
    */
   settleTimerMs(): number | undefined {
     if (this.pendingSettles.size === 0) return undefined;
     const now = this.now();
     let candidate: number | undefined;
-    for (const [s] of this.pendingSettles) {
-      if (!s.sawBusy || (s.liveMsgs?.size ?? 0) === 0) return SETTLE_DELAY_MS;
-      const quietFor = now - (s.lastTouch ?? 0);
-      if (quietFor >= SETTLE_QUIET_MS) continue;
-      candidate = Math.min(candidate ?? Infinity, Math.max(SETTLE_DELAY_MS, SETTLE_QUIET_MS - quietFor));
+    for (const [s, entry] of this.pendingSettles) {
+      if (!s.sawBusy) continue;
+      if (this.settleReady(s, entry)) return SETTLE_DELAY_MS;
+      const until = Math.max(
+        // Not ready because nothing finished: the whole quiet window is still
+        // owed before a claim alone can be called over.
+        entry.afterCompletion ? SETTLE_DELAY_MS : SETTLE_QUIET_MS,
+        // Not ready because a tool or an open message is holding it: whichever
+        // ceiling is later.
+        this.toolRunning(s) ? SETTLE_STALL_MS : SETTLE_QUIET_MS,
+      );
+      const wait = Math.max(SETTLE_DELAY_MS, until - (now - (s.lastTouch ?? 0)));
+      candidate = candidate === undefined ? wait : Math.max(candidate, wait);
     }
     return candidate;
   }
@@ -932,7 +988,7 @@ export class OpencodeMapper {
           }
           if (info.time.completed !== undefined) {
             s.liveMsgs?.delete(info.id);
-            this.queueSettle(s, info.id);
+            this.queueSettle(s, info.id, true);
           }
         }
         return out;
@@ -1101,6 +1157,16 @@ export class OpencodeMapper {
           // Remember that the backend claimed work, so a later completion with
           // no idle behind it is something we can correct rather than guess at.
           s.sawBusy = true;
+          // Arm the correction here, on the claim, rather than waiting for a
+          // message to complete. Every earlier version armed it from the
+          // completion, which made the correction depend on the run producing
+          // one — and the runs that most need correcting are the ones that do
+          // not: a turn the reader aborted, a provider that dropped mid-answer,
+          // a run the backend discarded. Those never complete a message, so
+          // nothing queued a settle, `settleTimerMs()` answered undefined and
+          // no timer existed: `busy` then outlived the session and the
+          // composer queued every message sent to it from then on.
+          this.queueSettle(s, `busy:${evt.id}`, false);
         }
         out.push(
           this.ev(

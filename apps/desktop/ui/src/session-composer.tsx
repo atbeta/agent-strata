@@ -23,7 +23,7 @@ import { num, t, tn } from "./i18n";
 import { Tip } from "./tip";
 import { planVisible } from "./plan-progress";
 import { PlanStrip } from "./plan-strip";
-import { runInProgress } from "./live";
+import { runInProgress, SEND_GRACE_MS } from "./live";
 import { stopConfirmed } from "./stop-verdict";
 import { ComposerToolbar } from "./composer-toolbar";
 import { withEcho, type PendingEcho } from "./prompt-echo";
@@ -96,7 +96,15 @@ export function useSessionComposer(args: {
   const [histIndex, setHistIndex] = createSignal(-1);
   const [histSaved, setHistSaved] = createSignal("");
   const [sendErr, setSendErr] = createSignal("");
-  const [pendingSend, setPendingSend] = createSignal(false);
+  /**
+   * When the backend last took a prompt off our hands.
+   *
+   * A handover window, not a flag. It opens the moment Enter is pressed so the
+   * next send queues rather than going out beside it, and it opens again when
+   * the POST lands, because that is the moment the handover is really done and
+   * the wait is now for the projection to say `busy`. See `runInProgress`.
+   */
+  const [handover, setHandover] = createSignal<number>();
   const [modelSel, setModelSel] = createSignal("");
   const [agentSel, setAgentSel] = createSignal("");
   const [variantSel, setVariantSel] = createSignal("");
@@ -264,7 +272,46 @@ export function useSessionComposer(args: {
   };
   const canAttach = () => args.caps()?.attachments === true;
 
-  const generating = () => runInProgress({ pending: pendingSend(), busy: args.view()?.busy });
+  const generating = () => runInProgress({ handover: handover(), busy: args.view()?.busy });
+
+  /**
+   * The handover deadline, so it cannot outlive the run it was opened for.
+   *
+   * Timed rather than left to an event because the event it waits for is the
+   * one that may never come: the backend saying idle is the ordinary way out,
+   * and a session that finished without saying so has no other signal to give.
+   * This is the backstop, so it is armed on the way in rather than trusted to
+   * be cleared on the way out.
+   */
+  let handoverTimer: ReturnType<typeof setTimeout> | undefined;
+  const openHandover = () => {
+    clearTimeout(handoverTimer);
+    handoverTimer = undefined;
+    // The projection already says the session is running — the backend can mark
+    // it busy before the POST that handed it the prompt comes back. There is
+    // nothing left for a window to cover, and holding one anyway would be the
+    // two latches again, just narrower.
+    if (args.view()?.busy === true) {
+      setHandover(undefined);
+      return;
+    }
+    handoverTimer = setTimeout(() => setHandover(undefined), SEND_GRACE_MS);
+    setHandover(Date.now());
+  };
+  const closeHandover = () => {
+    clearTimeout(handoverTimer);
+    handoverTimer = undefined;
+    setHandover(undefined);
+  };
+  onCleanup(closeHandover);
+
+  // The projection has caught up with the handover, so `busy` is the only word
+  // left and it changes for honest reasons. Without this the two sat OR-ed
+  // together for the life of the session, and a `busy` that recovered on a
+  // re-fetch still left the composer queueing.
+  createEffect(() => {
+    if (args.view()?.busy === true) closeHandover();
+  });
 
   createEffect(() => {
     const agents = args.options()?.agents ?? [];
@@ -330,7 +377,7 @@ export function useSessionComposer(args: {
     // A confirmation about the run that just ended says nothing about the one
     // starting, and two of them stacked read as a session stopped twice.
     setStopped(false);
-    setPendingSend(true);
+    openHandover();
     setHistIndex(-1);
     // The reader's own sentence goes on screen now. Until the store's turn
     // count passes this baseline, `turns()` draws it in place of a turn the
@@ -361,6 +408,11 @@ export function useSessionComposer(args: {
       } else {
         await sendPrompt(args.sessionId(), promptParts(out.text, out.picked, out.attachments), choice);
       }
+      // The backend has it now. The handover that mattered — "the reader gave
+      // this over and nothing has come back" — is over; what is left is the
+      // projection catching up, so the window restarts from here rather than
+      // from the press.
+      openHandover();
     } catch (err) {
       setSendErr(explainSend(err instanceof Error ? err.message : "", t("err.send")));
       const back = restoreFailed(out, { text: draft(), picked: picked(), attachments: attachments() });
@@ -369,7 +421,7 @@ export function useSessionComposer(args: {
       setAttachments(back.draft.attachments);
       if (back.dropped) setAttachErr(t("composer.attach.too_many", { n: MAX_ATTACHMENTS }));
       setQueuePaused(true);
-      setPendingSend(false);
+      closeHandover();
       setEcho(undefined);
       queueMicrotask(autogrow);
     }
@@ -402,7 +454,7 @@ export function useSessionComposer(args: {
   const canSend = () => Boolean(draft().trim()) || attachments().length > 0;
 
   // A follow-up typed while the agent is running waits here, then goes out
-  // on the next idle. deliver() sets pendingSend in the same turn, so this
+  // on the next idle. deliver() opens the handover in the same turn, so this
   // does not drain the rest of the queue until that turn finishes.
   createEffect(() => {
     if (generating() || args.replayPos() !== null || queuePaused()) return;
@@ -578,7 +630,7 @@ export function useSessionComposer(args: {
     setStopped(false);
     setStopping(true);
     setAbortAccepted(false);
-    // Before the request, not after it. `pendingSend` says "the reader handed a
+    // Before the request, not after it. The handover says "the reader handed a
     // prompt over and nothing has come back yet", and pressing stop makes that
     // untrue the moment the reader presses it — the prompt is no longer waiting
     // on anything. It used to be cleared after `await abortSession`, which put a
@@ -586,7 +638,7 @@ export function useSessionComposer(args: {
     // not generating; on a long session, where the view behind it is a full
     // re-fetch, that round trip is long enough for the watchdog to fire first and
     // report a stop that worked as one that did not.
-    setPendingSend(false);
+    closeHandover();
     try {
       await abortSession(args.sessionId());
       // The backend returns once it has taken the abort, which is the strongest
@@ -626,7 +678,7 @@ export function useSessionComposer(args: {
     setHistIndex(-1);
     setHistSaved("");
     setSendErr("");
-    setPendingSend(false);
+    closeHandover();
     setEcho(undefined);
     setStopping(false);
     setStopped(false);
@@ -752,7 +804,7 @@ export function useSessionComposer(args: {
     setAgentSel,
     context,
     modelSel,
-    clearPending: () => setPendingSend(false),
+    clearPending: closeHandover,
     resetFor,
     onKeyDown,
     bindDraft: (el: HTMLTextAreaElement) => (draftEl = el),
