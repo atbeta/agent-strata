@@ -93,7 +93,7 @@ export function ComposerToolbar(props: {
               type="button"
               size="icon-sm"
               variant="icon"
-              class="shrink-0 rounded-full bg-foreground text-background transition-opacity hover:bg-foreground hover:text-background hover:opacity-80 active:scale-95"
+              class="shrink-0 rounded-full bg-foreground text-background transition-opacity hover:bg-foreground hover:text-background hover:opacity-80 motion-safe:active:scale-95"
               disabled={props.stopping}
               aria-label={props.stopping ? t("composer.stopping_aria") : t("composer.stop")}
               onClick={() => props.onStop()}
@@ -107,7 +107,7 @@ export function ComposerToolbar(props: {
             <Button
               type="button"
               size="icon-sm"
-              class="shrink-0 rounded-full transition-opacity active:scale-95"
+              class="shrink-0 rounded-full transition-opacity motion-safe:active:scale-95"
               disabled={!props.canSend}
               aria-label={props.canSend ? t("composer.send") : t("composer.type")}
               onClick={() => props.onSend()}

@@ -202,9 +202,9 @@ export function SettingsPage(props: { section?: string }) {
     // Anchored to the left edge rather than centred: a settings page is a
     // document, and a fixed measure floating in the middle of a wide window
     // reads as unfinished. The rail takes the space the measure used to waste.
-    <div class="flex w-full items-start gap-10 px-8 py-10">
-      <div class="w-44 shrink-0">
-        <nav class="sticky top-0" role="tablist" aria-label={t("settings.title")}>
+    <div class="flex w-full flex-col items-start gap-6 px-5 py-6 @min-[880px]/main:flex-row @min-[880px]/main:gap-10 @min-[880px]/main:px-8 @min-[880px]/main:py-10">
+      <div class="w-full shrink-0 @min-[880px]/main:w-44">
+        <nav class="flex gap-1 overflow-x-auto @min-[880px]/main:sticky @min-[880px]/main:top-0 @min-[880px]/main:block" role="tablist" aria-label={t("settings.title")}>
           <For each={SETTINGS_SECTIONS}>
             {(item) => (
               <RowButton
@@ -212,7 +212,7 @@ export function SettingsPage(props: { section?: string }) {
                 id={`settings-tab-${item.id}`}
                 aria-selected={section() === item.id}
                 aria-controls="settings-panel"
-                class={`block px-2.5 py-1.5 hover:bg-secondary/60 ${
+                class={`block w-auto shrink-0 whitespace-nowrap px-2.5 py-1.5 hover:bg-secondary/60 @min-[880px]/main:w-full ${
                   section() === item.id ? "bg-secondary text-foreground" : ""
                 }`}
                 active={section() === item.id}
@@ -229,17 +229,17 @@ export function SettingsPage(props: { section?: string }) {
             rail as a caption on the whole settings surface rather than as a
             subtitle repeating the title the shell already put in the caption
             bar — which is what this column used to open with. */}
-        <p class="mt-3 px-2.5 text-2xs leading-4 text-muted-foreground">
+        <p class="hidden px-2.5 text-2xs leading-4 text-muted-foreground @min-[880px]/main:mt-3 @min-[880px]/main:block">
           {t("settings.savedHere")}
         </p>
       </div>
 
-      <div class="min-w-0 max-w-2xl flex-1">
+      <div class="w-full min-w-0 max-w-2xl flex-1">
         {/* The page's visible name is the caption bar's. This keeps the
             document outline intact without a second one on screen. */}
         <h1 class="sr-only">{t("settings.title")}</h1>
 
-      <div role="tabpanel" id="settings-panel" aria-labelledby={`settings-tab-${section()}`}>
+      <div role="tabpanel" id="settings-panel" aria-labelledby={`settings-tab-${section()}`} class="[&>section:first-child]:mt-0">
       <Show when={section() === "interface"}>
       <Group label={t("settings.appearance")}>
         {/* This one was a bare Segmented straight inside the group, so its

@@ -367,7 +367,7 @@ export function ConnectionsFooter(props: {
                   >
                     <span
                       class={`h-1.5 w-1.5 shrink-0 rounded-full bg-status-active ${
-                        tick() ? "animate-pulse" : ""
+                        tick() ? "motion-safe:animate-pulse" : ""
                       }`}
                     />
                     <span class="truncate">

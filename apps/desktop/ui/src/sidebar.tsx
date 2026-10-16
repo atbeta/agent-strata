@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { RowButton } from "@/components/ui/row-button";
 import { SectionHeader } from "@/components/ui/section-header";
 import { MiniTabs } from "@/components/ui/mini-tabs";
+import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "./lib/utils";
 
 /** The search field's wiring lives in App; the sidebar only draws it. */
@@ -200,17 +201,22 @@ export function Sidebar(props: {
           </div>
         </Show>
         <For
-          each={list().groups()}
+          each={list().groups().filter((group) => group.rows.length > 0)}
           fallback={
-            <p class="px-2 py-8 text-center text-xs text-muted-foreground">
-              {list().attentionOnly() && list().sessions().length > 0
-                ? t("sidebar.empty.attention")
-                : list().data.error
-                  ? explain(list().data.error)
-                  : settled(list().data)
-                    ? t("sidebar.empty.inProject")
-                    : t("sidebar.empty.needBackend")}
-            </p>
+            <EmptyState
+              icon={list().data.error ? "alert" : "list"}
+              tone={list().data.error ? "danger" : "neutral"}
+              class="px-4 py-10"
+              title={
+                list().attentionOnly() && list().sessions().length > 0
+                  ? t("sidebar.empty.attention")
+                  : list().data.error
+                    ? explain(list().data.error)
+                    : settled(list().data)
+                      ? t("sidebar.empty.inProject")
+                      : t("sidebar.empty.needBackend")
+              }
+            />
           }
         >
           {(group) => (

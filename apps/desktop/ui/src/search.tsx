@@ -5,6 +5,7 @@ import { Icon } from "./icons";
 import { eventText, previewWindow, type PreviewWindow } from "./search-format";
 import { toggleClasses } from "./toggle-state";
 import { RowButton } from "@/components/ui/row-button";
+import { CommandDialog } from "@/components/ui/command-dialog";
 import { TextFieldInput } from "@/components/ui/text-field";
 
 function projectLabel(path?: string | null): string {
@@ -157,21 +158,14 @@ export function CommandSearch(props: {
           160-character transcript line survived about twenty characters of it.
           The chrome is the command palette's, deliberately: two overlays that
           behave identically should look identical. */}
-      <Show when={props.open}>
-        <div
-          class="fixed inset-0 z-50 flex items-start justify-center bg-background/50 pt-[15vh]"
-          onMouseDown={() => {
-            props.onQuery("");
-            props.onOpenChange(false);
-          }}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label={t("search.label")}
-            class="w-[32rem] max-w-[calc(100%-2rem)] overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-lg"
-            onMouseDown={(e) => e.stopPropagation()}
-          >
+      <CommandDialog
+        open={props.open}
+        label={t("search.label")}
+        onClose={() => {
+          props.onQuery("");
+          props.onOpenChange(false);
+        }}
+      >
             <TextFieldInput
               ref={input}
               bare
@@ -267,9 +261,7 @@ export function CommandSearch(props: {
                 </Show>
               </Show>
             </div>
-          </div>
-        </div>
-      </Show>
+      </CommandDialog>
     </>
   );
 }

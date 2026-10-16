@@ -829,6 +829,14 @@ export function SessionComposer(props: {
   title: string | undefined;
 }) {
   const c = () => props.c;
+  const placeholder = () =>
+    paneWorkspace().mode === "multiplex"
+      ? c().generating()
+        ? t("pane.composer.queue_target", { title: props.title ?? t("session.untitled") })
+        : t("pane.composer.target", { title: props.title ?? t("session.untitled") })
+      : c().generating()
+        ? t("composer.placeholder.queue")
+        : t("composer.placeholder.message");
   return (
     <>
       <div class="relative">
@@ -895,7 +903,7 @@ export function SessionComposer(props: {
           </div>
         </Show>
         <div
-          class={`@container/composer rounded-2xl border border-input bg-card shadow-[0_8px_30px_-18px_rgba(0,0,0,0.7)] transition-colors focus-within:border-ring ${c().queued().length > 0 || planVisible(props.plan, c().generating()) ? "-mt-2" : ""}`}
+          class={`@container/composer surface-composer rounded-2xl border border-input bg-card transition-colors focus-within:border-ring ${c().queued().length > 0 || planVisible(props.plan, c().generating()) ? "-mt-2" : ""}`}
           onDragOver={(e) => {
             if (!c().canAttach() || !e.dataTransfer?.types.includes("Files")) return;
             e.preventDefault();
@@ -914,15 +922,8 @@ export function SessionComposer(props: {
             ref={c().bindDraft}
             class="max-h-56 w-full resize-none bg-transparent px-4 py-3 font-sans text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none"
             rows={1}
-            placeholder={
-              paneWorkspace().mode === "multiplex"
-                ? c().generating()
-                  ? t("pane.composer.queue_target", { title: props.title ?? t("session.untitled") })
-                  : t("pane.composer.target", { title: props.title ?? t("session.untitled") })
-                : c().generating()
-                  ? t("composer.placeholder.queue")
-                  : t("composer.placeholder.message")
-            }
+            placeholder={placeholder()}
+            aria-label={placeholder()}
             value={c().draft()}
             aria-autocomplete="list"
             aria-controls={c().menuOpen() && c().menuItems().length ? c().menuId : undefined}

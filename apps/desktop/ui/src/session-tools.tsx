@@ -225,7 +225,7 @@ export function McpToolsPanel(props: {
                   <li class="rounded-md px-1.5 py-1.5">
                     <div class="flex items-center gap-2">
                     <span
-                      class={`size-1.5 shrink-0 rounded-full ${mcpDot(server.status)} ${busy() ? "animate-pulse" : ""}`}
+                      class={`size-1.5 shrink-0 rounded-full ${mcpDot(server.status)} ${busy() ? "motion-safe:animate-pulse" : ""}`}
                     />
                     <div class="min-w-0 flex-1">
                       <div class="truncate text-sm">{name}</div>

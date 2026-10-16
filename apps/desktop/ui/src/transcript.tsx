@@ -313,7 +313,7 @@ function ToolCallCard(props: {
     <div class={`overflow-hidden rounded-lg border bg-card ${denied() ? "border-destructive/35" : "border-border"}`}>
       <Tip label={open() ? t("tool.output.hide") : t("tool.output.show")} class="w-full">
         <div
-          class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left hover:bg-secondary/50"
+          class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           role="button"
           tabIndex={0}
           aria-expanded={open()}
@@ -362,7 +362,7 @@ function ToolCallCard(props: {
               }`}
             >
               <Show when={props.call.status === "pending" || childBusy()}>
-                <span class="mr-1 inline-block size-1.5 animate-pulse rounded-full bg-status-active align-middle" />
+                <span class="mr-1 inline-block size-1.5 motion-safe:animate-pulse rounded-full bg-status-active align-middle" />
               </Show>
               {label()}
             </span>
@@ -497,7 +497,7 @@ function AssistantMessage(props: {
             )}
           </Show>
           <Show when={props.message.partial && props.message.content.some((block) => block.type === "text")}>
-            <span class="ml-0.5 inline-block h-[1em] w-[2px] translate-y-0.5 animate-pulse bg-foreground/70 align-text-bottom" />
+            <span class="ml-0.5 inline-block h-[1em] w-[2px] translate-y-0.5 motion-safe:animate-pulse bg-foreground/70 align-text-bottom" />
           </Show>
         </div>
         <Show when={hasFooter()}>

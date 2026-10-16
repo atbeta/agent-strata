@@ -19,9 +19,8 @@ export function Group(props: { label: string; children: JSX.Element }) {
 }
 
 /**
- * One setting on one line. The control column is a fixed measure so every row
- * on the page ends at the same x — controls that size themselves to their
- * content leave a ragged right edge that reads as unfinished.
+ * One setting and its control. Wide rows put the control in a fixed column so
+ * every row ends at the same x; narrow rows stack instead of crushing the label.
  */
 export function Row(props: {
   label: string;
@@ -32,14 +31,14 @@ export function Row(props: {
   children: JSX.Element;
 }) {
   return (
-    <div class="flex items-start justify-between gap-6 py-2.5">
+    <div class="flex flex-col gap-3 py-2.5 @min-[560px]/main:flex-row @min-[560px]/main:items-start @min-[560px]/main:justify-between @min-[560px]/main:gap-6">
       <div class="min-w-0 pt-1">
         <div class="text-sm text-foreground">{props.label}</div>
         <Show when={props.hint}>
           <div class="mt-0.5 text-2xs leading-4 text-muted-foreground">{props.hint}</div>
         </Show>
       </div>
-      <div class={cn("flex shrink-0 justify-end pt-1", props.controlClass ?? "w-60")}>
+      <div class={cn("flex max-w-full shrink-0 justify-end pt-1", props.controlClass ?? "w-60", "@max-[560px]/main:w-full @max-[560px]/main:justify-start")}>
         {props.children}
       </div>
     </div>
@@ -58,7 +57,7 @@ export function Segmented(props: {
 }) {
   return (
     <div
-      class="inline-flex rounded-lg border border-border p-0.5"
+      class="inline-flex max-w-full overflow-x-auto rounded-lg border border-border p-0.5"
       role="radiogroup"
       aria-label={props.label}
     >
@@ -67,7 +66,7 @@ export function Segmented(props: {
           type="button"
           role="radio"
           aria-checked={props.value === option.id}
-          class={`flex items-center gap-2 whitespace-nowrap rounded-md px-2.5 py-1.5 text-sm transition-colors ${
+          class={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2.5 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
             props.value === option.id
               ? "bg-secondary text-foreground"
               : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"

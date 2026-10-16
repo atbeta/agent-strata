@@ -24,7 +24,7 @@ export function SessionStatusMark(props: { status: SessionStatus; class?: string
     <span class={cn("inline-flex shrink-0 items-center gap-1.5", local.class)} {...rest}>
       <Show when={showsDot(s())}>
         <span
-          class={cn("h-1.5 w-1.5 rounded-full", s().tone.dot, s().pulse && "animate-pulse")}
+          class={cn("h-1.5 w-1.5 rounded-full", s().tone.dot, s().pulse && "motion-safe:animate-pulse")}
           aria-hidden="true"
         />
       </Show>

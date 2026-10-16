@@ -49,6 +49,8 @@
   --diff-del-bg: hsl(0 72% 50% / 0.14);
   --scrollbar: hsl(0 0% 100% / 0.16);
   --popover-shadow: 0 16px 40px hsl(0 0% 0% / 0.45), 0 0 0 1px hsl(0 0% 100% / 0.06);
+  --dialog-shadow: 0 24px 80px hsl(0 0% 0% / 0.52), 0 0 0 1px hsl(0 0% 100% / 0.07);
+  --composer-shadow: 0 12px 32px -20px hsl(0 0% 0% / 0.7);
 }
 
 html[data-theme="light"] {
@@ -91,6 +93,8 @@ html[data-theme="light"] {
   --diff-del-bg: hsl(0 72% 50% / 0.13);
   --scrollbar: hsl(240 6% 12% / 0.2);
   --popover-shadow: 0 16px 40px hsl(240 10% 20% / 0.12), 0 0 0 1px hsl(240 6% 12% / 0.06);
+  --dialog-shadow: 0 24px 80px hsl(240 10% 20% / 0.16), 0 0 0 1px hsl(240 6% 12% / 0.07);
+  --composer-shadow: 0 12px 32px -20px hsl(240 10% 20% / 0.24);
 }
 
 @theme inline {
@@ -236,6 +240,14 @@ html[data-theme="light"] {
     font-size: var(--text-sm);
     line-height: 1.45;
   }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      scroll-behavior: auto !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
 }
 
 /* Tailwind's preflight leaves buttons on the arrow cursor. Anything that
@@ -268,6 +280,12 @@ textarea {
 @layer components {
   .surface-popover {
     box-shadow: var(--popover-shadow);
+  }
+  .surface-dialog {
+    box-shadow: var(--dialog-shadow);
+  }
+  .surface-composer {
+    box-shadow: var(--composer-shadow);
   }
 
   /* Menus mount the moment they open, so a keyframe on the content is the
@@ -425,6 +443,15 @@ textarea {
     from {
       opacity: 0;
       transform: scale(0.97) translateY(-2px);
+    }
+  }
+  .dialog-pop {
+    animation: dialog-pop 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  @keyframes dialog-pop {
+    from {
+      opacity: 0;
+      transform: translateY(-6px) scale(0.985);
     }
   }
   .fade-in {

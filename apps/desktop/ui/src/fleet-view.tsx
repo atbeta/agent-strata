@@ -14,6 +14,7 @@ import {
 } from "./fleet";
 import { compactNum, num, t, tn } from "./i18n";
 import { RowButton } from "@/components/ui/row-button";
+import { EmptyState } from "@/components/ui/empty-state";
 
 /**
  * The landing pane.
@@ -95,8 +96,8 @@ export function FleetView(props: {
       <Show
         when={props.sessions.length > 0}
         fallback={
-          <div class="flex flex-1 items-start px-8 py-16">
-            <p class="text-sm text-muted-foreground">{t("fleet.overview.empty")}</p>
+          <div class="flex flex-1 items-center justify-center">
+            <EmptyState icon="list" title={t("fleet.overview.empty")} />
           </div>
         }
       >

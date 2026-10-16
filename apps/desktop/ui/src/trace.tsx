@@ -374,7 +374,7 @@ export function TraceStrip(props: {
     <div class="shrink-0 border-b border-border px-4 py-2.5">
       <Show
         when={!events.loading}
-        fallback={<div class="h-8 animate-pulse rounded-md bg-secondary/50" />}
+        fallback={<div class="h-8 motion-safe:animate-pulse rounded-md bg-secondary/50" />}
       >
         <Show when={(events()?.length ?? 0) > 0} fallback={null}>
           <div class="flex gap-2">

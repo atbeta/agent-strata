@@ -238,7 +238,7 @@ export function PageShell(props: {
             {props.back!.label}
           </Button>
         </Show>
-        <span class="min-w-0 truncate text-sm text-foreground">{props.title}</span>
+        <span class="min-w-0 truncate text-sm font-medium text-foreground">{props.title}</span>
         <Show when={props.meta}>
           <div class="ml-auto flex min-w-0 items-center gap-2">{props.meta}</div>
         </Show>

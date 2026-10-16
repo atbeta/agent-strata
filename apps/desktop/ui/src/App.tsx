@@ -13,6 +13,7 @@ import { CommandPalette } from "./palette";
 import { SessionSwitcher } from "./switcher";
 import { PageShell, WindowCaptionBar } from "./chrome";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { t } from "./i18n";
 import { isStreamingSnapshotMessage } from "./live";
 import { parseHash, type Route } from "./routes";
@@ -405,7 +406,7 @@ export function App() {
         onOpenFleet={openFleet}
       />
 
-      <main class="relative min-w-0 flex-1">
+      <main class="@container/main relative min-w-0 flex-1">
         <Show when={route().name === "fleet"}>
           <PageShell
             title={ws.currentDir() ? projectName(ws.currentDir()!) : t("fleet.scope.all")}
@@ -423,30 +424,26 @@ export function App() {
                 <Show
                   when={conns.attaching()}
                   fallback={
-                    <div class="mx-auto flex max-w-sm flex-col items-start px-8 pt-24">
-                      <p class="text-sm font-medium text-foreground">
-                        {t("action.connectBackend")}
-                      </p>
-                      <p class="mt-1.5 text-sm leading-5 text-muted-foreground">
-                        {t("fleet.hint.disconnected")}
-                      </p>
-                      <Button class="mt-5" onClick={() => conns.setConnOpen(true)}>
-                        {t("action.connect")}
-                      </Button>
+                    <div class="flex h-full items-center justify-center">
+                      <EmptyState
+                        icon="plug"
+                        title={t("action.connectBackend")}
+                        description={t("fleet.hint.disconnected")}
+                        action={
+                          <Button onClick={() => conns.setConnOpen(true)}>
+                            {t("action.connect")}
+                          </Button>
+                        }
+                      />
                     </div>
                   }
                 >
-                  {/* The dot carries the state and the words carry it back:
-                      `status-active` on its own would be a decoration, and the
-                      label would be a lie while it was still grey. */}
-                  <div class="mx-auto flex max-w-sm flex-col items-start px-8 pt-24">
-                    <p class="flex items-center gap-2 text-sm font-medium text-foreground">
-                      <span class="size-1.5 shrink-0 motion-safe:animate-pulse rounded-full bg-status-active" />
-                      {t("action.attachingBackend")}
-                    </p>
-                    <p class="mt-1.5 text-sm leading-5 text-muted-foreground">
-                      {t("fleet.hint.connecting")}
-                    </p>
+                  <div class="flex h-full items-center justify-center">
+                    <EmptyState
+                      icon="plug"
+                      title={t("action.attachingBackend")}
+                      description={t("fleet.hint.connecting")}
+                    />
                   </div>
                 </Show>
               }

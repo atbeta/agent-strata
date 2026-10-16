@@ -34,7 +34,7 @@ function PopoverContent(props: ContentProps) {
     <PopoverPrimitive.Portal>
       <PopoverPrimitive.Content
         class={cn(
-          "surface-popover z-50 overflow-hidden rounded-lg border border-border bg-popover p-4 text-popover-foreground shadow-[0_12px_40px_-20px_rgba(0,0,0,0.6)]",
+          "surface-popover z-50 overflow-hidden rounded-lg border border-border bg-popover p-4 text-popover-foreground",
           local.class,
         )}
         {...rest}

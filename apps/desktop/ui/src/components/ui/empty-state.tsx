@@ -55,7 +55,7 @@ export function EmptyState(props: {
       </Show>
       <p
         class={cn(
-          "text-sm",
+          "text-sm font-medium",
           tone() === "danger" ? "text-destructive" : "text-foreground",
         )}
       >
