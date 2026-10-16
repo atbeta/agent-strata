@@ -15,7 +15,7 @@ import { TurnBlock } from "./transcript";
 import { Virtual, type VirtualApi } from "./virtual";
 import { PromptNavigator } from "./prompt-navigator";
 import { promptAt, promptEntries } from "./prompt-outline";
-import { applyStreamingSnapshot, mergeViewTail, type StreamingSnapshot } from "./live";
+import { applyStreamingSnapshot, mergeViewTail, runInProgress, type StreamingSnapshot } from "./live";
 import {
   filesKeyOf,
   peekView,
@@ -180,6 +180,8 @@ export function PeerSessionTranscript(props: {
       const evt = (ev as CustomEvent<StreamEventPayload>).detail;
       if (!evt || evt.session_id !== props.sessionId) return;
       if (evt.type === "turn.assistant" && evt.data?.partial === true) {
+        // Same rule as the focused pane: a snapshot after idle is not a run.
+        if (settled(view)?.busy !== true && row()?.busy !== true) return;
         const snap = evt.data as unknown as StreamingSnapshot;
         mutate((v) => {
           if (!v) return v;
@@ -216,10 +218,7 @@ export function PeerSessionTranscript(props: {
   const showNav = () => !booting() && entries().length >= 2;
   const activeEntry = () => (pinned() ? entries().at(-1) : promptAt(entries(), activeTurn()));
   const row = () => props.sessions.find((s) => s.summary.session_id === props.sessionId);
-  const peerGenerating = () =>
-    Boolean(row()?.busy) ||
-    Boolean(settled(view)?.busy) ||
-    turns().some((t) => t.assistant.some((a) => a.partial));
+  const peerGenerating = () => runInProgress({ busy: row()?.busy || settled(view)?.busy });
   const needsInput = () => Boolean(row()?.needs_input);
 
   const childOf = (id: string) => {

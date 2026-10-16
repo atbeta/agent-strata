@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { applyStreamingSnapshot, isStreamingSnapshotMessage, mergeViewTail } from "./live";
+import { applyStreamingSnapshot, isStreamingSnapshotMessage, mergeViewTail, runInProgress } from "./live";
 import type { SessionView, ViewTail } from "./api";
 
 const base = (): SessionView => ({
@@ -20,6 +20,21 @@ const base = (): SessionView => ({
     input: 0, output: 0, cost_usd: 0, tool_calls: 0, cache_read: 0, cache_write: 0,
     reasoning: 0, tool_errors: 0, permissions_denied: 0,
   },
+});
+
+describe("whether the composer is in a run", () => {
+  test("a prompt just handed over counts, and so does busy", () => {
+    expect(runInProgress({ pending: true })).toBe(true);
+    expect(runInProgress({ busy: true })).toBe(true);
+  });
+
+  test("an idle session is not a run", () => {
+    // A partial left open after the backend went idle used to count. Stop
+    // stayed on the button, and abort could not retire a message that had
+    // already finished.
+    expect(runInProgress({ busy: false })).toBe(false);
+    expect(runInProgress({})).toBe(false);
+  });
 });
 
 describe("streaming snapshots in the reader's view", () => {

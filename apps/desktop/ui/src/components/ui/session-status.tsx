@@ -35,8 +35,8 @@ export function SessionStatusMark(props: { status: SessionStatus; class?: string
           {t(s().label)}
         </span>
       </Show>
-      {/* Without a badge the dot alone says nothing to a screen reader, and the
-          three states that draw no dot are the ones still worth naming. */}
+      {/* Without a badge the dot alone says nothing to a screen reader. Idle,
+          stopped and done are that case: the dot is there, the word is not. */}
       <Show when={!s().badge}>
         <span class="sr-only">{t(s().label)}</span>
       </Show>

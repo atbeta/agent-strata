@@ -23,6 +23,7 @@ import { num, t, tn } from "./i18n";
 import { Tip } from "./tip";
 import { planVisible } from "./plan-progress";
 import { PlanStrip } from "./plan-strip";
+import { runInProgress } from "./live";
 import { stopConfirmed } from "./stop-verdict";
 import { ComposerToolbar } from "./composer-toolbar";
 import { withEcho, type PendingEcho } from "./prompt-echo";
@@ -263,10 +264,7 @@ export function useSessionComposer(args: {
   };
   const canAttach = () => args.caps()?.attachments === true;
 
-  const generating = () =>
-    pendingSend() ||
-    !!args.view()?.busy ||
-    !!args.view()?.turns.some((t) => t.assistant.some((a) => a.partial));
+  const generating = () => runInProgress({ pending: pendingSend(), busy: args.view()?.busy });
 
   createEffect(() => {
     const agents = args.options()?.agents ?? [];

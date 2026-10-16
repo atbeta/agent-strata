@@ -71,10 +71,10 @@ const MUTED: StatusTone = {
  *   - needs input, because the reader is the one holding the turn up;
  *   - failed, because it ended and nothing else on screen would say so.
  *
- * Running says itself with a breathing dot. Stopped, done and idle say
- * nothing: a finished session is the normal case for every row in a list of
- * four hundred, and marking every one of them marks none of them. The word is
- * still there for a hover or a screen reader — just not burned into the list.
+ * Running says itself with a breathing dot. Stopped, done and idle draw the
+ * same quiet dot and no word: a row with nothing in front of the title has no
+ * status at all, which on a list of finished sessions is every row. The word
+ * stays for a screen reader.
  */
 export function sessionStatus(row: {
   status?: string;
@@ -103,7 +103,7 @@ export function sessionStatus(row: {
   }
 }
 
-/** The states that draw a dot at all. The other three draw nothing. */
-export function showsDot(s: SessionStatus): boolean {
-  return s.badge || s.pulse;
+/** Every state draws a dot. The quiet ones are how an idle row is told from a gap. */
+export function showsDot(_s: SessionStatus): boolean {
+  return true;
 }
