@@ -94,9 +94,23 @@ describe("what else in the app still spends the hover background on a state", ()
     // is the primary signal and a hovered row reads as a different visual from a
     // selected one. They are left alone on purpose, so this says what is
     // deliberately still there rather than sweeping the string out.
-    for (const f of ["session-detail.tsx", "pane-stage.tsx", "search.tsx"]) {
+    for (const f of ["session-detail.tsx", "search.tsx"]) {
       expect(read(f)).not.toContain('"bg-secondary text-foreground"');
     }
+    // pane-stage.tsx now has one too, and it is the focused pane header: a
+    // selected *surface*, the same family as the settings row and the mini tab
+    // asserted below, rather than a control that changes something when pressed.
+    // Sweeping the string out of this file would only have meant deleting a list
+    // of exemptions from this test until it meant nothing, so the exemption is
+    // stated instead and pinned: the one site is the header, and the state it
+    // tracks is focus.
+    const pane = read("pane-stage.tsx");
+    const at = pane.indexOf('"bg-secondary text-foreground"');
+    expect(at).toBeGreaterThan(-1);
+    expect(pane.slice(Math.max(0, at - 200), at)).toContain("props.focused");
+    expect(pane.slice(at + '"bg-secondary text-foreground"'.length)).not.toContain(
+      '"bg-secondary text-foreground"',
+    );
     expect(read("settings.tsx")).toContain('"bg-secondary text-foreground"');
     expect(read("components/ui/mini-tabs.tsx")).toContain('"bg-secondary text-foreground"');
   });

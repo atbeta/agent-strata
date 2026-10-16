@@ -23,6 +23,7 @@ import {
   realWorkspace,
   respondPermission,
   setSessionPolicy,
+  readHead,
   readViewTail,
   revertSession,
   forkSession,
@@ -94,14 +95,7 @@ import { SessionRail } from "./session-rail";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { DragBar } from "./chrome";
-
-/** Newest sequence number for a session, or 0. Covers (session_id, seq), so this is an index probe. */
-async function readHead(id: string): Promise<number> {
-  const r = await getJson<{ events: { seq: number }[] }>(
-    `/events?session_id=${encodeURIComponent(id)}&order=desc&limit=1`,
-  );
-  return r.events[0]?.seq ?? 0;
-}
+import { clearPaneBusy, publishPaneBusy } from "./pane-activity";
 
 /** Ctrl on a PC, ⌘ on a Mac. The tooltip used to say "Ctrl+F" on every platform. */
 function findKey(): string {
@@ -281,6 +275,19 @@ export function SessionDetail(props: {
     opening ? { initialValue: opening.view } : undefined,
   );
   const [maxSeq, { refetch: refetchSeq }] = createResource(() => props.id, readHead);
+
+  // The focused pane vouches for its own session too, for the same reason the
+  // peers do: the header reads the freshest evidence available, and this view
+  // is the freshest. Guarded on the view's own id because a resource keyed on
+  // `props.id` still holds the previous session's answer for the beat before it
+  // resolves, and publishing that under the new id would move the lie rather
+  // than fix it.
+  createEffect(() => {
+    const id = props.id;
+    const v = settled(view);
+    publishPaneBusy(id, v?.session_id === id && v.busy === true);
+    onCleanup(() => clearPaneBusy(id));
+  });
   // Live machine state, not part of the record: it shows only while the
   // session's OpenCode backend is connected, and follows a checkout made
   // outside strata once the window comes back.

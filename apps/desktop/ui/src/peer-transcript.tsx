@@ -7,7 +7,7 @@ import {
   onMount,
   Show,
 } from "solid-js";
-import { getJson, readViewTail, type SessionView } from "./api";
+import { getJson, readHead, readViewTail, type SessionView } from "./api";
 import { settled } from "./resource";
 import { planVisible } from "./plan-progress";
 import { PlanStrip } from "./plan-strip";
@@ -25,6 +25,7 @@ import {
   viewFromTail,
 } from "./view-cache";
 import { t } from "./i18n";
+import { clearPaneBusy, publishPaneBusy } from "./pane-activity";
 import { contentW, paneScrollMemory } from "./session-chrome";
 import { ContentSashes, LoadingTranscript } from "./content-sashes";
 import type { SessionRowSummary } from "./pane-stage";
@@ -60,6 +61,10 @@ export function PeerSessionTranscript(props: {
   let alive = true;
   onCleanup(() => {
     alive = false;
+    // This pane stops vouching for the session the moment it stops existing. A
+    // claim outliving its pane is the exact failure `pane-activity` was written
+    // to remove, reintroduced by the cleanup that was supposed to prevent it.
+    clearPaneBusy(props.sessionId);
   });
 
   const [view, { refetch, mutate }] = createResource(
@@ -104,6 +109,14 @@ export function PeerSessionTranscript(props: {
     if (booting() && (view.state === "ready" || view.state === "errored" || settled(view))) {
       setBooting(false);
     }
+  });
+
+  // The header's dot is 28px tall and is where you look to decide whether to
+  // switch to this pane, so it has to be right while the pane is not the one
+  // being looked at. This view already carries the answer; publish it rather
+  // than waiting for the session list to be refetched from behind.
+  createEffect(() => {
+    publishPaneBusy(props.sessionId, settled(view)?.busy === true);
   });
 
   let running: Promise<void> | undefined;
@@ -212,7 +225,36 @@ export function PeerSessionTranscript(props: {
       }, 90);
     };
     window.addEventListener("strata-stream-event", onStream);
+
+    // The floor under the forwarded stream.
+    //
+    // `/stream` is one connection, owned by the focused pane, and this pane's
+    // only subscription to it is a window event that pane dispatches on its
+    // behalf. Everything this peer knows arrives through that one hand-off, and
+    // a hand-off has no way to report its own failure: a stream reconnecting, a
+    // peer mounting while the focused pane's stream was down, one dropped
+    // message — and from outside it is indistinguishable from an idle session.
+    // The pane then stays frozen, because the event that would have corrected
+    // it is also the event that is not arriving. That is the shape of the bug
+    // this whole path was written to avoid: a latch with no independent exit.
+    //
+    // So the peer keeps the focused pane's own safety net, one layer down: ask
+    // the head whether the session has moved since last time, and only pay for
+    // a tail refresh when it has. An unchanged head returns before any view
+    // work happens, so an idle peer costs one index probe and nothing else.
+    let head = 0;
+    const probe = setInterval(() => {
+      void readHead(props.sessionId)
+        .then((seq) => {
+          if (seq === head) return;
+          head = seq;
+          void refreshPeerView(false);
+        })
+        .catch(() => {});
+    }, 3_000);
+
     onCleanup(() => {
+      clearInterval(probe);
       clearTimeout(timer);
       window.removeEventListener("strata-stream-event", onStream);
     });

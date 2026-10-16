@@ -583,6 +583,26 @@ export async function downloadExport(sessionId: string): Promise<string | undefi
   return undefined;
 }
 
+/**
+ * Newest stored sequence number for a session, or 0.
+ *
+ * Covers `(session_id, seq)`, so this is an index probe: it answers "has this
+ * session moved" for a few hundred bytes, against a projection that has to be
+ * rebuilt from every event it ever received. A reader that has to notice a
+ * change it was not told about pays this instead of the view.
+ *
+ * It counts *stored* events. A message still being written lives in the
+ * service's live overlay and never reaches the log, so a moving head means
+ * something durable landed — a user turn, a finished message, a tool result —
+ * not that the text on screen is still changing.
+ */
+export async function readHead(id: string): Promise<number> {
+  const r = await getJson<{ events: { seq: number }[] }>(
+    `/events?session_id=${encodeURIComponent(id)}&order=desc&limit=1`,
+  );
+  return r.events[0]?.seq ?? 0;
+}
+
 export async function readViewTail(id: string, turns: number, filesKey?: string): Promise<ViewTail> {
   const q = new URLSearchParams({ tail: String(turns) });
   if (filesKey) q.set("files_key", filesKey);

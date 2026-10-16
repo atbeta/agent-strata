@@ -4,6 +4,7 @@ import { t } from "./i18n";
 import { Tip } from "./tip";
 import { realWorkspace } from "./api";
 import { sessionStatus, showsDot } from "./session-status";
+import { paneStatus } from "./pane-activity";
 import { ToggleIcon } from "./header-toggle";
 import { toggleClasses } from "./toggle-state";
 import { SessionStatusMark } from "@/components/ui/session-status";
@@ -143,9 +144,11 @@ function PaneHeader(props: {
   onClose: () => void;
 }) {
   const row = () => props.sessions.find((s) => s.summary.session_id === props.leaf.sessionId);
+  // OR-ed with whatever the pane showing this session last read from its own
+  // view, so the dot is not held hostage to the session list's refetch latency.
   const status = () => {
-    const r = row();
-    return r ? sessionStatus(r) : undefined;
+    const id = props.leaf.sessionId;
+    return id ? paneStatus(id, row()) : undefined;
   };
   const title = () => {
     if (!props.leaf.sessionId) return t("pane.empty.title");
@@ -160,16 +163,23 @@ function PaneHeader(props: {
   return (
     <div
       class={`@container flex h-7 shrink-0 items-center justify-between gap-1.5 border-b border-border px-2.5 select-none transition-colors ${
+        // Focus used to be `bg-secondary/60` against `bg-background/70`, which
+        // is 13% grey at 60% strength over 6.5% — about a four-point lightness
+        // step on the least contrast-sensitive channel available, on a band
+        // seven pixels tall. At full strength it is a six-and-a-half-point
+        // step, which is a surface you can see without hunting for it.
         props.focused
-          ? "bg-secondary/60 text-foreground"
-          : "bg-background/70 text-muted-foreground hover:bg-secondary/25"
+          ? "bg-secondary text-foreground"
+          : "bg-transparent text-muted-foreground hover:bg-secondary/40"
       }`}
       onPointerDown={() => props.onFocus()}
     >
       <div class="flex min-w-0 flex-1 items-center gap-1.5">
         <span
-          class={`h-3 w-0.5 shrink-0 rounded-full transition-colors ${
-            props.focused ? "bg-primary" : "bg-transparent"
+          class={`w-0.5 shrink-0 rounded-full transition-colors ${
+            // Full header height, so the rail reads as an edge of the pane
+            // rather than a tick floating beside the title.
+            props.focused ? "h-5 bg-primary" : "h-5 bg-transparent"
           }`}
         />
         <Show when={status() && showsDot(status()!)}>
@@ -177,7 +187,12 @@ function PaneHeader(props: {
         </Show>
         <DropdownMenu placement="bottom-start">
           <DropdownMenuTrigger
-            class="flex min-w-0 max-w-full items-center gap-1 rounded px-1 py-0.5 text-left text-xs font-medium hover:bg-secondary"
+            class={`flex min-w-0 max-w-full items-center gap-1 rounded px-1 py-0.5 text-left text-xs hover:bg-secondary ${
+              // Weight, not colour: the one focus channel that survives both
+              // themes and greyscale, and the one that survives a reader who
+              // cannot separate 6.5% from 13% at a glance.
+              props.focused ? "font-semibold" : "font-medium"
+            }`}
             aria-label={t("pane.switch_session")}
             onPointerDown={(e) => e.stopPropagation()}
           >
