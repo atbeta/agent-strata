@@ -578,7 +578,7 @@ export function TurnBlock(props: {
             <Show when={props.turn.reverted}>
               <p class="text-2xs text-muted-foreground">{t("message.reverted")}</p>
             </Show>
-            <div class="max-w-[min(85%,36rem)] rounded-2xl rounded-br-md bg-secondary px-3.5 py-2 text-secondary-foreground">
+            <div class="max-w-[min(85%,36rem)] rounded-xl bg-secondary px-3.5 py-2 text-secondary-foreground">
               <BlockText blocks={blocks()} tight />
             </div>
             <Show

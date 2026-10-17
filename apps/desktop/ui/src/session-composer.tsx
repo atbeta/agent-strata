@@ -903,7 +903,7 @@ export function SessionComposer(props: {
           </div>
         </Show>
         <div
-          class={`@container/composer surface-composer rounded-2xl border border-input bg-card transition-colors focus-within:border-ring ${c().queued().length > 0 || planVisible(props.plan, c().generating()) ? "-mt-2" : ""}`}
+          class={`@container/composer surface-composer rounded-2xl border border-transparent bg-card transition-colors focus-within:border-ring ${c().queued().length > 0 || planVisible(props.plan, c().generating()) ? "-mt-2" : ""}`}
           onDragOver={(e) => {
             if (!c().canAttach() || !e.dataTransfer?.types.includes("Files")) return;
             e.preventDefault();

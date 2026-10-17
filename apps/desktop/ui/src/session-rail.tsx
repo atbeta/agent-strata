@@ -126,14 +126,14 @@ export function SessionRail(props: {
         <Button
           type="button"
           variant="icon"
-          class="h-full w-7 shrink-0 flex-col justify-start gap-1 rounded-none border-l border-border p-0"
+          class="h-full w-6 shrink-0 flex-col justify-start gap-1 rounded-none border-l border-border bg-card p-0"
           aria-label={t("panel.show")}
           aria-expanded="false"
           onClick={props.onOpen}
         >
           <span class="flex h-11 w-full shrink-0 items-center justify-center border-b border-border">
             <Tip label={t("panel.show")}>
-              <Icon name="files" />
+              <Icon name="files" class="size-3.5" />
             </Tip>
           </span>
           <Show when={changeCount() > 0}>

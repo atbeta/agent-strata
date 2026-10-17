@@ -34,7 +34,7 @@ export function ComposerToolbar(props: {
               type="button"
               size="icon-sm"
               variant="icon"
-              class="shrink-0 rounded-full"
+              class="shrink-0"
               aria-label={t("composer.attach")}
               onClick={() => attach()()}
             >
@@ -53,7 +53,7 @@ export function ComposerToolbar(props: {
             <Popover gutter={6} placement="top-end">
               <Tip label={t("composer.more")}>
                 <PopoverTrigger
-                  class="grid h-8 w-8 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                  class="grid h-8 w-8 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                   aria-label={t("composer.more")}
                 >
                   <Icon name="gear" class="size-4" />
@@ -78,7 +78,7 @@ export function ComposerToolbar(props: {
               type="button"
               size="sm"
               variant="icon"
-              class="composer-queue shrink-0 gap-1 rounded-full px-2 text-xs"
+              class="composer-queue shrink-0 gap-1 px-2 text-xs"
               aria-label={t("composer.queue")}
               onClick={() => props.onSend()}
             >
@@ -93,7 +93,7 @@ export function ComposerToolbar(props: {
               type="button"
               size="icon-sm"
               variant="icon"
-              class="shrink-0 rounded-full bg-foreground text-background transition-opacity hover:bg-foreground hover:text-background hover:opacity-80 motion-safe:active:scale-95"
+              class="surface-action shrink-0 bg-foreground text-background transition-opacity hover:bg-foreground hover:text-background hover:opacity-80 motion-safe:active:scale-95"
               disabled={props.stopping}
               aria-label={props.stopping ? t("composer.stopping_aria") : t("composer.stop")}
               onClick={() => props.onStop()}
@@ -107,7 +107,7 @@ export function ComposerToolbar(props: {
             <Button
               type="button"
               size="icon-sm"
-              class="shrink-0 rounded-full transition-opacity motion-safe:active:scale-95"
+              class="surface-action shrink-0 transition-opacity motion-safe:active:scale-95"
               disabled={!props.canSend}
               aria-label={props.canSend ? t("composer.send") : t("composer.type")}
               onClick={() => props.onSend()}

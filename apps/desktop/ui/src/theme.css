@@ -27,8 +27,8 @@
   --accent-foreground: hsl(240 10% 93%);
   --destructive: hsl(0 72% 58%);
   --destructive-foreground: hsl(0 0% 100%);
-  --border: hsl(0 0% 100% / 0.08);
-  --input: hsl(0 0% 100% / 0.1);
+  --border: hsl(0 0% 100% / 0.07);
+  --input: hsl(0 0% 100% / 0.09);
   --ring: hsl(222 72% 64%);
   --status-active: hsl(152 62% 52%);
   --status-completed: hsl(217 91% 60%);
@@ -47,10 +47,24 @@
   --diff-add-bg: hsl(150 60% 40% / 0.14);
   --diff-del-fg: hsl(0 76% 68%);
   --diff-del-bg: hsl(0 72% 50% / 0.14);
-  --scrollbar: hsl(0 0% 100% / 0.16);
-  --popover-shadow: 0 16px 40px hsl(0 0% 0% / 0.45), 0 0 0 1px hsl(0 0% 100% / 0.06);
-  --dialog-shadow: 0 24px 80px hsl(0 0% 0% / 0.52), 0 0 0 1px hsl(0 0% 100% / 0.07);
-  --composer-shadow: 0 12px 32px -20px hsl(0 0% 0% / 0.7);
+  --scrollbar: hsl(0 0% 100% / 0.12);
+  /* Elevation follows the opencode recipe: the edge of a floating surface is
+     a 0.5px ring inside the shadow, not a CSS border, so on retina it reads
+     as a hairline. The trailing -0.5px layer lifts the bottom edge. */
+  --popover-shadow:
+    0 8px 16px hsl(0 0% 0% / 0.3), 0 4px 8px hsl(0 0% 0% / 0.3),
+    0 0 0 0.5px hsl(0 0% 100% / 0.16), 0 -0.5px 0 hsl(0 0% 100% / 0.06);
+  --dialog-shadow:
+    0 16px 32px hsl(0 0% 0% / 0.3), 0 8px 16px hsl(0 0% 0% / 0.3),
+    0 0 0 0.5px hsl(0 0% 100% / 0.16), 0 -0.5px 0 hsl(0 0% 100% / 0.06);
+  --composer-shadow:
+    0 8px 16px hsl(0 0% 0% / 0.3), 0 4px 8px hsl(0 0% 0% / 0.3),
+    0 0 0 0.5px hsl(0 0% 100% / 0.16), 0 -0.5px 0 hsl(0 0% 100% / 0.06);
+  /* The one contrast action (send, stop): tiny drop, 0.5px edge ring, and an
+     inset top highlight — the same three layers opencode gives its submit. */
+  --action-shadow:
+    0 1px 2px hsl(0 0% 0% / 0.4), 0 0 0 0.5px hsl(0 0% 0% / 0.35),
+    inset 0 1px 0 hsl(0 0% 100% / 0.16);
 }
 
 html[data-theme="light"] {
@@ -71,8 +85,8 @@ html[data-theme="light"] {
   --accent-foreground: hsl(240 10% 12%);
   --destructive: hsl(0 72% 46%);
   --destructive-foreground: hsl(0 0% 100%);
-  --border: hsl(240 6% 12% / 0.1);
-  --input: hsl(240 6% 12% / 0.14);
+  --border: hsl(240 6% 12% / 0.08);
+  --input: hsl(240 6% 12% / 0.11);
   --ring: hsl(222 72% 48%);
   --status-active: hsl(152 62% 32%);
   --status-completed: hsl(217 80% 46%);
@@ -91,10 +105,19 @@ html[data-theme="light"] {
   --diff-add-bg: hsl(150 60% 40% / 0.16);
   --diff-del-fg: hsl(0 70% 40%);
   --diff-del-bg: hsl(0 72% 50% / 0.13);
-  --scrollbar: hsl(240 6% 12% / 0.2);
-  --popover-shadow: 0 16px 40px hsl(240 10% 20% / 0.12), 0 0 0 1px hsl(240 6% 12% / 0.06);
-  --dialog-shadow: 0 24px 80px hsl(240 10% 20% / 0.16), 0 0 0 1px hsl(240 6% 12% / 0.07);
-  --composer-shadow: 0 12px 32px -20px hsl(240 10% 20% / 0.24);
+  --scrollbar: hsl(240 6% 12% / 0.12);
+  --popover-shadow:
+    0 8px 16px hsl(240 10% 20% / 0.04), 0 4px 8px hsl(240 10% 20% / 0.08),
+    0 0 0 0.5px hsl(240 6% 12% / 0.12);
+  --dialog-shadow:
+    0 16px 32px hsl(240 10% 20% / 0.04), 0 8px 16px hsl(240 10% 20% / 0.08),
+    0 0 0 0.5px hsl(240 6% 12% / 0.12);
+  --composer-shadow:
+    0 8px 16px hsl(240 10% 20% / 0.04), 0 4px 8px hsl(240 10% 20% / 0.08),
+    0 0 0 0.5px hsl(240 6% 12% / 0.12);
+  --action-shadow:
+    0 1px 1.5px hsl(240 10% 20% / 0.18), 0 0 0 0.5px hsl(240 10% 20% / 0.15),
+    inset 0 1px 0 hsl(0 0% 100% / 0.3);
 }
 
 @theme inline {
@@ -154,11 +177,16 @@ html[data-theme="light"] {
   --text-xl: 1.25rem;
   --text-2xl: 1.5rem;
 
-  /* --- radius --- */
-  --radius-sm: 0.375rem;
-  --radius-md: 0.5rem;
-  --radius-lg: 0.625rem;
-  --radius-xl: 0.75rem;
+  /* --- radius ---
+     Tuned against the opencode desktop scale (xs 2 / sm 4 / md 6 / lg 8 /
+     xl 10): rows, fields and buttons sit at md (6px), cards and menus at lg
+     (8px), dialogs and the message bubble at xl (10px), and 2xl (12px) is
+     reserved for the composer dock — the only surface that floats. */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.625rem;
+  --radius-2xl: 0.75rem;
 }
 
 @layer base {
@@ -173,34 +201,20 @@ html[data-theme="light"] {
   ::selection {
     background: color-mix(in srgb, var(--ring) 35%, transparent);
   }
+  /* opencode's thumb is an overlay: it takes no layout space and appears
+     only while the pane is in use. The closest native equivalent is to NOT
+     style ::-webkit-scrollbar at all — styling a single pseudo is what flips
+     WebKit from its auto-hiding overlay scrollbar (thin, floats over the
+     content, appears on scroll) to a classic lane that eats pane width.
+     scrollbar-width/color stay for Chromium and Firefox: thin (8px), hidden
+     at rest, revealed when the scrollable element is hovered — the same
+     contract as opencode's JS thumb. */
   * {
     scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+  *:hover {
     scrollbar-color: var(--scrollbar) transparent;
-  }
-  /* WebKit ignores the standard properties, so the same look is drawn by
-     hand: an 8px lane with a 4px thumb floating in it, transparent track,
-     slightly deeper on hover. The thumb hugs the edge rather than claiming
-     a strip of the pane. */
-  ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-  }
-  ::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  ::-webkit-scrollbar-thumb {
-    border: 2px solid transparent;
-    border-radius: 999px;
-    background: var(--scrollbar);
-    background-clip: padding-box;
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    border-width: 1px;
-    background: color-mix(in srgb, var(--muted-foreground) 55%, transparent);
-    background-clip: padding-box;
-  }
-  ::-webkit-scrollbar-corner {
-    background: transparent;
   }
   /* Top strips are the window chrome. Do not set app-region on html/body:
      WebKit then ignores drag on every descendant, so the window cannot move.
@@ -286,6 +300,9 @@ textarea {
   }
   .surface-composer {
     box-shadow: var(--composer-shadow);
+  }
+  .surface-action {
+    box-shadow: var(--action-shadow);
   }
 
   /* Menus mount the moment they open, so a keyframe on the content is the

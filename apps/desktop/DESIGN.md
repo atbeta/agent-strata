@@ -96,12 +96,12 @@ macOS already overlays the traffic lights in that strip (`pl-[76px]`). Windows i
 
 ### Elevation, motion and responsive layout
 
-`surface-popover`, `surface-dialog` and `surface-composer` read their shadows from `--popover-shadow`, `--dialog-shadow` and `--composer-shadow`. A screen does not invent an RGBA shadow of its own; light and dark change the tokens together. Command overlays use one backdrop and one `dialog-pop` entrance. Entrance animations and status pulses only run under `prefers-reduced-motion: no-preference`; reduced motion also collapses CSS transitions and smooth scrolling.
+`surface-popover`, `surface-dialog`, `surface-composer` and `surface-action` read their shadows from `--popover-shadow`, `--dialog-shadow`, `--composer-shadow` and `--action-shadow`. Floating surfaces draw no CSS border — a 0.5px ring inside the shadow is the edge (the opencode recipe), which is why the composer keeps a transparent border only as a focus indicator. `surface-action` is the contrast-button treatment (send, stop, every `default` Button): tiny drop, edge ring, inset top highlight. A screen does not invent an RGBA shadow of its own; light and dark change the tokens together. Command overlays use one backdrop and one `dialog-pop` entrance. Entrance animations and status pulses only run under `prefers-reduced-motion: no-preference`; reduced motion also collapses CSS transitions and smooth scrolling.
 
 `main` is `@container/main`, so a screen responds to the column it actually has rather than to the window minus a guessed sidebar. Settings keeps its left rail at 880px and above, switches to horizontal section tabs below it, and stacks a setting's label and control below 560px. New main-column breakpoints use the same named container.
 
 ### Type and radius
-System sans for UI, mono for paths, ids, commands, and money. Radius stays small (`md` on rows and fields).
+System sans for UI, mono for paths, ids, commands, and money. Radius follows the OpenCode desktop scale — `sm` 4px, `md` 6px on rows/fields/buttons, `lg` 8px on cards and menus, `xl` 10px on dialogs and the message bubble, `2xl` 12px reserved for the composer dock — so `rounded-full` is for pills, dots and switches only, never for buttons.
 
 The type scale is declared once in `theme.css` and tuned to this app rather than to Tailwind's defaults, so `text-sm` — not `text-base` — is the UI size:
 

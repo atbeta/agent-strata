@@ -1117,6 +1117,12 @@ export function SessionDetail(props: {
                       </PanelToggle>
                     </Tip>
                   </Show>
+                  {/* Two clusters: the four to the left open surfaces that
+                      inspect this transcript (find, terminal, trace, tools);
+                      the rest drive the session itself (permission mode,
+                      pane layout, export). One hairline between them keeps
+                      seven same-shaped buttons from reading as a wall. */}
+                  <span class="mx-1 h-4 w-px shrink-0 bg-border" aria-hidden="true" />
                   <Tip
                     label={
                       autoAcceptErr() ||

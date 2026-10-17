@@ -65,11 +65,10 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
     return (
       <Glyph class={cls}>
         <path d="M4.5 2.6v10.8" />
-        <circle cx="4.5" cy="4.2" r="1.15" fill="currentColor" stroke="none" />
-        <circle cx="4.5" cy="11.8" r="1.15" fill="currentColor" stroke="none" />
-        <path d="M8 4.2h4.8M8 11.8h4.8" />
-        <circle cx="4.5" cy="8" r="2.1" />
-        <path d="M8 8h3.2" />
+        <circle cx="4.5" cy="4" r="1.2" fill="currentColor" stroke="none" />
+        <circle cx="4.5" cy="8" r="1.2" fill="currentColor" stroke="none" />
+        <circle cx="4.5" cy="12" r="1.2" fill="currentColor" stroke="none" />
+        <path d="M8 4h4.8M8 8h4.8M8 12h4.8" />
       </Glyph>
     );
   // A panel with a rail, matching the drawer it opens.
