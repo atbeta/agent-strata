@@ -144,6 +144,16 @@ They share one column, and the dock is `shrink-0` — so whatever the dock takes
 
 A jump lands with `JUMP_GAP` of air above the row, not flush against the title strip. `origin()` folds the container's padding into the target, so by the time a row lands that padding is behind the viewport — measuring it does not put it back. Centring uses the row's measured height rather than the estimate, because the row being measured is the one whose estimate is least likely to hold. And the window that renders the list is told about a programmatic scroll immediately: it is otherwise computed from the parent's mirror of the scroll, which arrives a frame later, so the row that was jumped to is not in the document and the jump does nothing.
 
+### A question the reader has to answer
+
+The dock's cards are only as good as the truth behind them, and for questions that truth was a map of promises. A question arrives as a promise handed back to whoever was connected at the time, and that promise lives in one process — so a restart emptied the map, and `/questions` answering from it meant a question someone was still looking at stopped existing as far as the UI was concerned. Not "answered": gone. No card, and no marker on the session that was waiting, which is the one signal that would have said otherwise.
+
+The window was not theoretical. The connection re-reads the backend's pending prompts on a 30s clock, so the first half-minute of every launch had no questions in it at all. The log already had them — `question.asked` is appended the moment it arrives, and the projection replays it — so the projection is what `/questions`, `needs_input`, and the dock all read now. One source, so the marker on the session, the card in the dock, and the endpoint behind them cannot disagree about whether something is being asked.
+
+Two consequences follow from the log being the record rather than the promise. Answering is no longer gated on holding a live promise: a question answered after a restart writes `question.resolved` and tells the backend through the driver directly, instead of returning a 404 from a lookup that restart had already emptied. And the 30s gap is closed twice over — the log answers immediately, and the connection now re-reads pending prompts once at startup rather than one interval in.
+
+The card still needs a place to be. The dock has one. A pane showing another session beside this one does not — it has no questions, no dock and no composer, only a banner that jumps here — so a question raised while you were looking elsewhere is answered by coming back, not by answering in place.
+
 ## Screens
 
 - **Sidebar** (`App.tsx`): project switcher, search, sessions grouped by day or by project.

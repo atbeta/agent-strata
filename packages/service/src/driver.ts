@@ -148,6 +148,15 @@ export interface BackendDriver {
   mcpAuthFinish?(name: string, code: string, directory: string | undefined, signal: AbortSignal): Promise<void>;
   revert?(nativeId: string, messageId: string, directory?: string): Promise<void>;
   unrevert?(nativeId: string, directory?: string): Promise<void>;
+  /**
+   * Answer a question the backend asked, by the id it gave it.
+   *
+   * Separate from the promise the question arrives on, because that promise only
+   * exists in the process that received the question. Answering one after a
+   * restart goes through here instead.
+   */
+  replyQuestion?(requestId: string, answers: string[][]): Promise<unknown>;
+  rejectQuestion?(requestId: string): Promise<unknown>;
   fork?(nativeId: string, messageId: string, directory?: string): Promise<{ casfId: string; nativeId: string }>;
   summarize?(
     nativeId: string,

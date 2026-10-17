@@ -14,7 +14,7 @@ import type { BackendDriver, BackendSink, ModelChoice, PromptPart } from "./driv
 import { connectOpencodeDriver } from "./opencode-driver";
 import { LiveOverlay } from "./live";
 import { filesKeyOf, ViewCache } from "./views";
-import type { EventInput } from "@agent-strata/schema";
+import { makeEvent, type EventInput } from "@agent-strata/schema";
 import { connectAcpDriver } from "./acp-driver";
 import { bootPlan, REMEMBERED_PROBE_MS } from "./boot-connect";
 import { agentNameOf, connectionMemory, endpointOf, type ConnectBody } from "./connections";
@@ -272,6 +272,35 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     pendingQuestions.delete(requestId);
     q.resolve({ decision: "reply", external: true });
   };
+
+  /**
+   * Which session is still waiting on this question, according to the log.
+   *
+   * The live map knows only about questions this process saw. The log knows all
+   * of them, and it is the one a restarted service can still read — which is
+   * the whole difference between answering a question after a restart and being
+   * told there is nothing to answer.
+   */
+  const sessionIdOfPendingQuestion = (requestId: string): string | undefined => {
+    for (const summary of store.listSessions({ limit: 500 })) {
+      const view = sessionView(summary.session_id);
+      if (view.pending_questions.some((q) => q.request_id === requestId)) return summary.session_id;
+    }
+    return undefined;
+  };
+
+  /** Tell the backend an answer, for a question this process did not receive. */
+  const replyQuestion = async (
+    sessionId: string,
+    requestId: string,
+    decision: "reply" | "reject",
+    answers?: string[][],
+  ) => {
+    const conn = driverFor(sessionId);
+    if (!conn) return;
+    if (decision === "reject") await conn.rejectQuestion?.(requestId);
+    else await conn.replyQuestion?.(requestId, answers ?? []);
+  };
   const memory = connectionMemory(opts.db);
 
   const inflightConnects = new Map<string, Promise<{ id: string; indexed: number }>>();
@@ -392,8 +421,15 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         limit: Number(url.searchParams.get("limit") ?? 200),
       });
       const askSessions = new Set([...pendingAsks.values()].map((p) => p.session_id));
-      const questionSessions = new Set([...pendingQuestions.values()].map((p) => p.session_id));
       const rows = summaries.map((summary) => ({ summary, view: sessionView(summary.session_id) }));
+      // From the projection, not from `pendingQuestions`. That map only holds
+      // what arrived over a live connection since this process started, so it
+      // forgets everything the moment the service restarts — and a question
+      // someone is still looking at does not become answered because the app
+      // was closed. The projector reads the event log, which remembers.
+      const questionSessions = new Set(
+        rows.flatMap(({ summary, view: v }) => v.pending_questions.map(() => summary.session_id)),
+      );
       const sessions = rows.map(({ summary, view: v }) => ({
         summary,
         status: v.status,
@@ -1044,24 +1080,54 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     }
 
     if (path === "/questions" && req.method === "GET") {
-      return json({
-        pending: [...pendingQuestions.values()].map(({ resolve: _r, ...p }) => p),
-      });
+      // Read from the projection rather than from `pendingQuestions`. That map
+      // is what a live connection writes into, so it only knows about questions
+      // asked since this process started — and it is a map of promises, which
+      // cannot be rebuilt from a restart. A question someone is still looking at
+      // does not stop being asked because the window was closed, and this
+      // endpoint is the only thing telling the UI that it is waiting on an
+      // answer.
+      const ids = store
+        .listSessions({ limit: Number(url.searchParams.get("limit") ?? 200) })
+        .map((s) => s.session_id);
+      const pending = ids.flatMap((session_id) =>
+        sessionView(session_id).pending_questions.map((q) => ({ ...q, session_id })),
+      );
+      return json({ pending });
     }
 
     const questionMatch = path.match(/^\/questions\/([^/]+)\/respond$/);
     if (questionMatch && req.method === "POST") {
-      const q = pendingQuestions.get(decodeURIComponent(questionMatch[1]!));
-      if (!q) return json({ error: "no pending question" }, 404);
+      const requestId = decodeURIComponent(questionMatch[1]!);
+      const q = pendingQuestions.get(requestId);
       const body = (await req.json().catch(() => ({}))) as {
         decision?: string;
         answers?: string[][];
       };
-      pendingQuestions.delete(q.request_id);
-      q.resolve({
-        decision: body.decision === "reject" ? "reject" : "reply",
-        answers: body.answers,
-      });
+      const decision = body.decision === "reject" ? "reject" : "reply";
+      if (q) {
+        pendingQuestions.delete(q.request_id);
+        q.resolve({ decision, answers: body.answers });
+        return json({ ok: true });
+      }
+      // Not in the map — the service restarted while the question was still
+      // open, so there is no promise to resolve. That does not make the answer
+      // wrong. It is recorded against the session that asked it, which is what
+      // the projection reads and therefore what retires the card; and the
+      // backend is told directly, because it is the one holding the turn.
+      const sessionId = sessionIdOfPendingQuestion(requestId);
+      if (!sessionId) return json({ error: "no pending question" }, 404);
+      store.append([
+        makeEvent({
+          session_id: sessionId,
+          source: { backend: "desktop" },
+          type: "question.resolved",
+          data: { request_id: requestId, decision, answers: body.answers },
+        }) as EventInput,
+      ]);
+      await replyQuestion(sessionId, requestId, decision, body.answers).catch((err) =>
+        console.error("question reply failed:", err),
+      );
       return json({ ok: true });
     }
 

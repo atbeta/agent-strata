@@ -1595,6 +1595,8 @@ export async function connectOpencode(opts: {
   listSessions: () => Promise<{ id: string; title: string; directory: string }[]>;
   listWorkspaces: () => Promise<{ id: string; name?: string; directory: string }[]>;
   abort: (sessionID: string, directory?: string) => Promise<void>;
+  replyQuestion: (requestID: string, answers: string[][]) => Promise<void>;
+  rejectQuestion: (requestID: string) => Promise<void>;
   mcpConnect: (name: string, directory?: string) => Promise<void>;
   mcpDisconnect: (name: string, directory?: string) => Promise<void>;
   mcpAdd: (
@@ -2087,6 +2089,20 @@ export async function connectOpencode(opts: {
       }
       return out;
     },
+    /**
+     * Answer a question by the id OpenCode gave it.
+     *
+     * The path a question normally takes is a promise handed back to the caller
+     * when it arrives, and that promise only exists in the process that received
+     * it. Answering after a restart goes through here instead, and says so in the
+     * log — the projector reads the log, so that is what retires the card.
+     */
+    async replyQuestion(requestId: string, answers: string[][]) {
+      await client.question.reply({ requestID: requestId, answers, directory: opts.directory });
+    },
+    async rejectQuestion(requestId: string) {
+      await client.question.reject({ requestID: requestId, directory: opts.directory });
+    },
     async abort(sessionID: string, directory?: string) {
       await client.session.abort({ sessionID, directory: directory ?? opts.directory });
       // Abort returns when the request is accepted, not when a status event
@@ -2364,10 +2380,16 @@ export async function connectOpencode(opts: {
    * the ingestor's inflight set makes a re-poll of an ask already handled a
    * no-op.
    */
-  const restoreTimer = setInterval(() => {
+  const restorePending = () => {
     void api.restorePendingPrompts(knownDirectories).catch((err) =>
       console.error("opencode pending prompt restore failed:", err),
     );
-  }, RESTORE_POLL_MS);
+  };
+  // Once at startup, not one interval period in. The gap this closes is not
+  // theoretical: a question someone left unanswered is invisible for the first
+  // 30 seconds of every launch, which reads as the question never being asked
+  // at all — no card, and no marker on the session that is waiting.
+  restorePending();
+  const restoreTimer = setInterval(restorePending, RESTORE_POLL_MS);
   return api;
 }
