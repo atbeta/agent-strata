@@ -190,10 +190,16 @@ html[data-theme="light"] {
 }
 
 @layer base {
+  /* The app owns every scrolling pane; the document itself must never
+     scroll. Without this, an absolutely positioned element whose static
+     position lands inside a scrolling pane (e.g. .sr-only) escapes the
+     pane's clip when its containing block sits above it, and the document
+     grows a scrollable blank region below the app. */
   html,
   body,
   #root {
     height: 100%;
+    overflow: hidden;
   }
   body {
     @apply bg-background text-foreground font-sans antialiased;

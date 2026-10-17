@@ -20,8 +20,12 @@ import { showsDot, type SessionStatus } from "@/session-status";
 export function SessionStatusMark(props: { status: SessionStatus; class?: string }) {
   const [local, rest] = splitProps(props, ["status", "class"]);
   const s = () => local.status;
+  /* relative keeps the sr-only label's containing block on this mark.
+     Without it an auto-offset absolute element picks a higher positioned
+     ancestor (the pane), skips the scroll container's clip, and leaks a 1px
+     box that extends the document's scroll height. */
   return (
-    <span class={cn("inline-flex shrink-0 items-center gap-1.5", local.class)} {...rest}>
+    <span class={cn("relative inline-flex shrink-0 items-center gap-1.5", local.class)} {...rest}>
       <Show when={showsDot(s())}>
         <span
           class={cn("h-1.5 w-1.5 rounded-full", s().tone.dot, s().pulse && "motion-safe:animate-pulse")}
