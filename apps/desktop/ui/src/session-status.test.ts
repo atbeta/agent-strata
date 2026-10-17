@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { sessionStatus, showsDot } from "./session-status";
+import { sessionStatus, showsMark } from "./session-status";
 
 /**
  * `GET /sessions` has always sent three status fields and the lists read two of
@@ -21,11 +21,11 @@ describe("session status", () => {
     expect(sessionStatus(row({ busy: true, needs_input: true })).kind).toBe("needs-input");
   });
 
-  test("busy is running, and only running breathes", () => {
+  test("busy is running, and running draws the moving mark without a word", () => {
     const s = sessionStatus(row({ busy: true, status: "active" }));
     expect(s.kind).toBe("running");
-    expect(s.pulse).toBe(true);
     expect(s.badge).toBe(false);
+    expect(showsMark(s)).toBe(true);
   });
 
   test("busy outranks a status left over from an earlier turn", () => {
@@ -43,13 +43,11 @@ describe("session status", () => {
     expect(s.tone.dot).toBe("bg-status-error");
   });
 
-  test("cancelled and completed keep a quiet dot and no word", () => {
+  test("cancelled and completed draw no mark and no word", () => {
     for (const status of ["cancelled", "completed"]) {
       const s = sessionStatus(row({ status }));
       expect(s.badge).toBe(false);
-      expect(s.pulse).toBe(false);
-      expect(showsDot(s)).toBe(true);
-      expect(s.tone.dot).toBe("bg-status-pending");
+      expect(showsMark(s)).toBe(false);
     }
   });
 
@@ -70,9 +68,10 @@ describe("session status", () => {
     expect(new Set(labels).size).toBe(labels.length);
   });
 
-  test("every state draws a dot, and only two of them also draw a word", () => {
-    // A row with nothing in front of the title has no status. Idle is the
-    // common case, so a list that marks only the loud states looks unmarked.
+  test("only the loud states draw a mark; quiet rows show nothing", () => {
+    // A row with nothing in front of the title has no status, and on a list of
+    // finished sessions that is most rows. Marks are reserved for the states
+    // that are actually asking for the eye: waiting, running, failed.
     const drawn = ["needs-input", "running", "failed"] as const;
     for (const kind of drawn) {
       const s = sessionStatus(
@@ -83,12 +82,15 @@ describe("session status", () => {
             : row({ status: "error" }),
       );
       expect(s.kind).toBe(kind);
-      expect(showsDot(s)).toBe(true);
+      expect(showsMark(s)).toBe(true);
     }
-    for (const s of [sessionStatus(row({ status: "completed" })), sessionStatus(row({}))]) {
-      expect(showsDot(s)).toBe(true);
+    for (const s of [
+      sessionStatus(row({ status: "completed" })),
+      sessionStatus(row({ status: "cancelled" })),
+      sessionStatus(row({})),
+    ]) {
+      expect(showsMark(s)).toBe(false);
       expect(s.badge).toBe(false);
-      expect(s.pulse).toBe(false);
     }
   });
 });

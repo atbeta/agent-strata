@@ -331,6 +331,34 @@ textarea {
   .tok-del     { @apply text-destructive; }
 }
 
+/* The busy session mark: a faint dot-matrix with a bright arc chasing the
+   perimeter ring. Each ring cell lights for about a third of the cycle and
+   the stagger is one sixteenth of the period per cell, so a six-cell comet
+   moves one cell per tick. Reduced-motion keeps the static faint grid — the
+   state still shows, the motion is not required to read it. */
+.status-busy {
+  color: var(--status-active);
+}
+.status-busy .cell {
+  opacity: 0.22;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .status-busy .cell-ring {
+    animation: status-busy-chase 1.6s linear infinite;
+    animation-delay: calc(var(--i) * -0.1s);
+  }
+}
+@keyframes status-busy-chase {
+  0%,
+  37.4% {
+    opacity: 1;
+  }
+  37.5%,
+  100% {
+    opacity: 0.22;
+  }
+}
+
 /* Rendered markdown (chat messages, tool summaries) — hand-rolled,
    shadcn-token-colored. These rules live in the components layer on purpose: an
    unlayered `.md` outranks the utility layer, so a caller passing `text-sm` would

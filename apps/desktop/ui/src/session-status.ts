@@ -40,8 +40,6 @@ export interface SessionStatus {
    * something from the reader get one.
    */
   badge: boolean;
-  /** Whether the dot breathes. Only while work is actually happening. */
-  pulse: boolean;
 }
 
 const PERMISSION: StatusTone = {
@@ -71,10 +69,10 @@ const MUTED: StatusTone = {
  *   - needs input, because the reader is the one holding the turn up;
  *   - failed, because it ended and nothing else on screen would say so.
  *
- * Running says itself with a breathing dot. Stopped, done and idle draw the
- * same quiet dot and no word: a row with nothing in front of the title has no
- * status at all, which on a list of finished sessions is every row. The word
- * stays for a screen reader.
+ * Running says itself with a moving mark. Stopped, done and idle draw nothing
+ * at all — a finished session is the common case on a list, and a mark on
+ * every row reads as noise, not information. The word stays for a screen
+ * reader.
  */
 export function sessionStatus(row: {
   status?: string;
@@ -84,26 +82,26 @@ export function sessionStatus(row: {
   // Waiting outranks running: a session that has stopped for a decision is the
   // one going nowhere, and a session that is both is waiting, not merely busy.
   if (row.needs_input) {
-    return { kind: "needs-input", label: "session.status.needsInput", tone: PERMISSION, badge: true, pulse: false };
+    return { kind: "needs-input", label: "session.status.needsInput", tone: PERMISSION, badge: true };
   }
   // `busy` before `status`: the projector clears `busy` on `session.ended`, so
   // an error from an earlier turn cannot outrank work happening right now.
   if (row.busy) {
-    return { kind: "running", label: "session.status.running", tone: ACTIVE, badge: false, pulse: true };
+    return { kind: "running", label: "session.status.running", tone: ACTIVE, badge: false };
   }
   switch (row.status) {
     case "error":
-      return { kind: "failed", label: "session.status.failed", tone: ERROR, badge: true, pulse: false };
+      return { kind: "failed", label: "session.status.failed", tone: ERROR, badge: true };
     case "cancelled":
-      return { kind: "stopped", label: "session.status.stopped", tone: MUTED, badge: false, pulse: false };
+      return { kind: "stopped", label: "session.status.stopped", tone: MUTED, badge: false };
     case "completed":
-      return { kind: "done", label: "session.status.done", tone: MUTED, badge: false, pulse: false };
+      return { kind: "done", label: "session.status.done", tone: MUTED, badge: false };
     default:
-      return { kind: "idle", label: "session.status.idle", tone: MUTED, badge: false, pulse: false };
+      return { kind: "idle", label: "session.status.idle", tone: MUTED, badge: false };
   }
 }
 
-/** Every state draws a dot. The quiet ones are how an idle row is told from a gap. */
-export function showsDot(_s: SessionStatus): boolean {
-  return true;
+/** Whether the state draws a visible mark — the two badges, or running's grid. */
+export function showsMark(s: SessionStatus): boolean {
+  return s.badge || s.kind === "running";
 }

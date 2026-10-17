@@ -3,7 +3,7 @@ import { Icon, type Name } from "./icons";
 import { t } from "./i18n";
 import { Tip } from "./tip";
 import { realWorkspace } from "./api";
-import { sessionStatus, showsDot } from "./session-status";
+import { sessionStatus, showsMark } from "./session-status";
 import { paneStatus } from "./pane-activity";
 import { ToggleIcon } from "./header-toggle";
 import { toggleClasses } from "./toggle-state";
@@ -182,7 +182,7 @@ function PaneHeader(props: {
             props.focused ? "h-5 bg-primary" : "h-5 bg-transparent"
           }`}
         />
-        <Show when={status() && showsDot(status()!)}>
+        <Show when={status() && showsMark(status()!)}>
           <SessionStatusMark status={status()!} class="shrink-0 self-center" />
         </Show>
         <DropdownMenu placement="bottom-start">
@@ -207,7 +207,7 @@ function PaneHeader(props: {
                 const label = s.title || s.summary.title || t("session.untitled");
                 return (
                   <DropdownMenuItem onSelect={() => props.onSelectSession(sid)}>
-                    <Show when={showsDot(st)} fallback={<span class="size-1.5 shrink-0" />}>
+                    <Show when={showsMark(st)} fallback={<span class="size-1.5 shrink-0" />}>
                       <SessionStatusMark status={st} class="shrink-0" />
                     </Show>
                     <span class="min-w-0 flex-1 truncate text-xs">{label}</span>
@@ -318,7 +318,7 @@ function EmptyPanePicker(props: {
                     onClick={() => props.onSelect(sid)}
                   >
                     <span class="flex min-w-0 flex-1 items-center gap-2">
-                      <Show when={showsDot(st)} fallback={<span class="size-1.5 shrink-0" />}>
+                      <Show when={showsMark(st)} fallback={<span class="size-1.5 shrink-0" />}>
                         <SessionStatusMark status={st} class="shrink-0" />
                       </Show>
                       <span class="truncate font-medium text-foreground">
