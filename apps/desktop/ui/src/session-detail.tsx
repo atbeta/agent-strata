@@ -87,8 +87,9 @@ import {
 } from "./pane-tree";
 import {
   contentW,
-  paneScrollMemory,
   paneWorkspace,
+  recallPaneScroll,
+  rememberPaneScroll,
   panelOpen,
   panelTab,
   setPanelOpen,
@@ -826,6 +827,66 @@ export function SessionDetail(props: {
   });
 
   /**
+   * Put the reader back where they were, when they come back.
+   *
+   * Scrolling up in a conversation, switching the pane to another one and
+   * switching back used to land at the bottom every time. The place was only
+   * ever looked up in the ref callback, and a ref runs once: switching the
+   * session in a pane does not remount the scroller, it changes what is inside
+   * it. So the second visit read nothing, found no position, and drew the
+   * conversation from the top — which for a transcript the reader had followed
+   * all the way down is the one place they are not looking.
+   *
+   * An effect, because "where they were" is a property of the session on
+   * screen, not of the element. It re-runs when that changes, which is the
+   * switch this is about.
+   *
+   * The wait is the other half and it cannot be skipped. `scrollTop` names a
+   * position in content that does not exist yet: applied straight away the
+   * browser clamps it to nothing while the signal keeps the number, `Virtual`
+   * windows on a position past the end of the session, and the pane draws no
+   * rows at all — a conversation with turns in it, showing blank. So it re-arms
+   * each frame until the scroller is tall enough to hold the position, and
+   * gives up rather than spin. Being pinned to the bottom is not a position to
+   * restore; the list keeps following on its own.
+   */
+  createEffect(() => {
+    const id = props.id;
+    const paneId = paneWorkspace().focusedPaneId;
+    const height = () => scroller?.clientHeight ?? 0;
+    const remembered = recallPaneScroll(paneId, id);
+    if (!remembered || remembered.pinned || remembered.scrollTop <= 0) return;
+    let tries = 0;
+    let frame = 0;
+    const restore = () => {
+      const el = scroller;
+      // The reader moved on, or the pane did, or we waited long enough.
+      if (
+        !el ||
+        frame === 0 ||
+        ++tries > 120 ||
+        paneWorkspace().focusedPaneId !== paneId ||
+        props.id !== id
+      ) {
+        frame = 0;
+        return;
+      }
+      if (el.scrollHeight < remembered.scrollTop + height()) {
+        frame = requestAnimationFrame(restore);
+        return;
+      }
+      frame = 0;
+      el.scrollTop = remembered.scrollTop;
+      setScrollTop(remembered.scrollTop);
+      setPinned(false);
+    };
+    frame = requestAnimationFrame(restore);
+    onCleanup(() => {
+      if (frame) cancelAnimationFrame(frame);
+    });
+  });
+
+  /**
    * A failed load used to be permanent.
    *
    * The view resource only refetches when its source changes, so one request
@@ -1393,24 +1454,50 @@ export function SessionDetail(props: {
               <div
                 ref={(el) => {
                   scroller = el;
-                  const memKey = `${paneWorkspace().focusedPaneId}:${props.id}`;
-                  queueMicrotask(() => {
-                    if (!el) return;
-                    setViewport(el.clientHeight);
-                    const remembered = paneScrollMemory.get(memKey);
-                    if (remembered && !remembered.pinned && remembered.scrollTop > 0) {
-                      el.scrollTop = remembered.scrollTop;
-                      setScrollTop(remembered.scrollTop);
-                      setPinned(false);
-                    }
-                  });
+                  if (!el) return;
+                  /**
+                   * The height is measured, not guessed.
+                   *
+                   * `viewport` is what `Virtual` windows its rows by, and it used
+                   * to be read once in a microtask on the assumption that layout
+                   * would be finished by then. On a pane that has just been
+                   * clicked it has not: the split re-rendered, this box was not
+                   * sized, `clientHeight` came back zero, and the window
+                   * collapsed to the overscan rows.
+                   */
+                  const measure = () => setViewport(el.clientHeight);
+                  const ro = new ResizeObserver(measure);
+                  ro.observe(el);
+                  measure();
+                  onCleanup(() => ro.disconnect());
                 }}
-                // overflow-x is stated, not left out. CSS turns a `visible`
-                // overflow-x into `auto` whenever overflow-y is a scroller, so
-                // any one row wider than the column grew a horizontal scrollbar
-                // that shrank the column — and windowing meant that row came and
-                // went while scrolling, so the whole transcript breathed in and
-                // out. Everything inside already scrolls or wraps on its own.
+                /**
+                 * Putting a reader back where they were.
+                 *
+                 * This is an effect rather than part of the ref callback because
+                 * a ref runs once, and switching the session in a pane does not
+                 * remount this element — the div stays, its contents change. A
+                 * reader who scrolls up in one conversation, switches to another
+                 * and switches back was therefore landing at the bottom of the
+                 * first every time, because the place they left was only ever
+                 * looked up on mount.
+                 *
+                 * Two things it must not do:
+                 *
+                 * Restore synchronously. `scrollTop` is a position in content
+                 * that does not exist yet — at this point `scrollHeight` is
+                 * zero, the browser clamps the assignment away, and only the
+                 * signal is left holding the number. `Virtual` windows on that
+                 * signal, `rowAt` walks off the end of a session that is not
+                 * that long, and the pane draws no rows at all: a conversation
+                 * with turns in it, showing blank. So it waits for rows, and
+                 * gives up rather than spin.
+                 *
+                 * Restore on every effect run. The rows arriving under it are
+                 * what make the position reachable, so the wait has to be
+                 * re-armed when the content changes height — otherwise a
+                 * transcript still streaming gives up before it is tall enough.
+                 */
                 class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
                 onScroll={(e) => {
                   const el = e.currentTarget;
@@ -1419,7 +1506,7 @@ export function SessionDetail(props: {
                   setViewport(el.clientHeight);
                   setPinned(isPinned);
                   setActiveTurn(list?.indexAtTop() ?? 0);
-                  paneScrollMemory.set(`${paneWorkspace().focusedPaneId}:${props.id}`, {
+                  rememberPaneScroll(paneWorkspace().focusedPaneId, props.id, {
                     scrollTop: el.scrollTop,
                     pinned: isPinned,
                   });

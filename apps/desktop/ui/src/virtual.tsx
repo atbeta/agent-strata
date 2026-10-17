@@ -208,6 +208,23 @@ export function Virtual<T>(props: VirtualProps<T>) {
     const top = pendingTop() ?? props.scrollTop;
     const first = rowAt(o, Math.max(0, top - overscan()));
     const last = Math.min(n - 1, rowAt(o, top + props.viewport + overscan()));
+    /**
+     * A window that starts past the last row renders nothing at all.
+     *
+     * `scrollTop` is a parent-supplied mirror of a scroller this list does not
+     * own, and a position taken from one session cannot be past the end of
+     * another: a pane that remembers where the reader was, and is handed the
+     * memory before its rows exist, reports a position in content that is not
+     * there yet. `rowAt` answers `n`, `last` answers `n - 1`, and the loop
+     * below runs zero times.
+     *
+     * The result was a conversation with turns in it drawing as an empty pane,
+     * and nothing on screen to say the list had lost its place. A window that
+     * cannot be placed falls back to the end of the session, which is where a
+     * reader who was anywhere near the bottom of the last conversation expects
+     * to land anyway.
+     */
+    if (first > last) return last >= 0 ? [last] : [];
     const out: number[] = [];
     for (let i = first; i <= last; i++) out.push(i);
     return out;

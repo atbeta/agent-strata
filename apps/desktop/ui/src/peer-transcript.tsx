@@ -26,7 +26,7 @@ import {
 } from "./view-cache";
 import { t } from "./i18n";
 import { clearPaneBusy, publishPaneBusy } from "./pane-activity";
-import { contentW, paneScrollMemory } from "./session-chrome";
+import { contentW, recallPaneScroll, rememberPaneScroll } from "./session-chrome";
 import { ContentSashes, LoadingTranscript } from "./content-sashes";
 import type { SessionRowSummary } from "./pane-stage";
 import { Button } from "@/components/ui/button";
@@ -51,8 +51,7 @@ export function PeerSessionTranscript(props: {
   onFocus: () => void;
   onOpenChild: (id: string) => void;
 }) {
-  const memKey = () => `${props.paneId}:${props.sessionId}`;
-  const savedScroll = paneScrollMemory.get(`${props.paneId}:${props.sessionId}`);
+  const savedScroll = recallPaneScroll(props.paneId, props.sessionId);
   const opening = peekView(props.sessionId);
   const [booting, setBooting] = createSignal(!opening);
   let filesKey: string | undefined = opening?.filesKey;
@@ -278,8 +277,49 @@ export function PeerSessionTranscript(props: {
     if (scroller) scroller.scrollTop = scroller.scrollHeight;
     setPinned(true);
     setActiveTurn(Math.max(0, turns().length - 1));
-    paneScrollMemory.set(memKey(), { scrollTop: scroller?.scrollTop ?? 0, pinned: true });
+    rememberPaneScroll(props.paneId, props.sessionId, {
+      scrollTop: scroller?.scrollTop ?? 0,
+      pinned: true,
+    });
   };
+
+  /**
+   * Put the reader back where they were in this session, once there are rows
+   * tall enough to hold the position.
+   *
+   * The wait is not a formality. `scrollTop` names a position in content that
+   * does not exist yet: applied straight away the browser clamps it away while
+   * the signal keeps the number, `Virtual` then windows on a position past the
+   * end of the session, and the pane draws nothing at all — a conversation with
+   * turns in it, showing blank. It re-arms each frame until the scroller can
+   * hold the position and gives up rather than spin.
+   */
+  createEffect(() => {
+    const id = props.sessionId;
+    const paneId = props.paneId;
+    const remembered = recallPaneScroll(paneId, id);
+    if (!remembered || remembered.pinned || remembered.scrollTop <= 0) return;
+    let tries = 0;
+    let frame = 0;
+    const restore = () => {
+      const el = scroller;
+      if (!el || frame === 0 || ++tries > 120 || props.sessionId !== id || props.paneId !== paneId) {
+        frame = 0;
+        return;
+      }
+      if (el.scrollHeight < remembered.scrollTop + el.clientHeight) {
+        frame = requestAnimationFrame(restore);
+        return;
+      }
+      frame = 0;
+      el.scrollTop = remembered.scrollTop;
+      setScrollTop(remembered.scrollTop);
+    };
+    frame = requestAnimationFrame(restore);
+    onCleanup(() => {
+      if (frame) cancelAnimationFrame(frame);
+    });
+  });
 
   return (
     <div class="relative flex min-h-0 flex-1 flex-col">
@@ -287,15 +327,37 @@ export function PeerSessionTranscript(props: {
       <div
         ref={(el) => {
           scroller = el;
-          queueMicrotask(() => {
-            if (!el) return;
-            setViewport(el.clientHeight);
-            const remembered = paneScrollMemory.get(memKey());
-            if (remembered && !remembered.pinned && remembered.scrollTop > 0) {
-              el.scrollTop = remembered.scrollTop;
-              setScrollTop(remembered.scrollTop);
-            }
-          });
+          if (!el) return;
+          /**
+           * Measured, not guessed.
+           *
+           * `viewport` decides which rows are mounted: `Virtual` computes its
+           * window from `props.viewport`, and its own `scrollerHeight` — which
+           * it does observe — is only used to decide whether to re-pin to the
+           * bottom. So this number is the whole of what a peer pane draws, and
+           * it used to be read exactly once, in a microtask, on the assumption
+           * that layout would be finished by then.
+           *
+           * It is not, for a pane that mounts while it is not the focused one.
+           * A pane that takes focus gets measured a moment later by whatever
+           * scrolls it, so it recovers and looks fine. A peer pane is mounted
+           * precisely when nothing is going to scroll it, so the reading stands
+           * at zero, `viewport` stays zero, and the window collapses to the
+           * overscan rows — a conversation with tools and text in it, showing
+           * blank. Waiting a frame longer would only move the race.
+           *
+           * Observed instead: every layout that changes this box updates it, and
+           * the first callback lands when the browser has actually sized it.
+           */
+          const measure = () => setViewport(el.clientHeight);
+          const ro = new ResizeObserver(measure);
+          ro.observe(el);
+          measure();
+          onCleanup(() => ro.disconnect());
+          // The restore itself is an effect below rather than part of this
+          // callback: a peer pane is re-created per session, but a ref still
+          // only runs on mount, and the point is to come back to a session
+          // after having left it.
         }}
         class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
         onScroll={(e) => {
@@ -305,7 +367,10 @@ export function PeerSessionTranscript(props: {
           setViewport(el.clientHeight);
           setPinned(isPinned);
           setActiveTurn(list?.indexAtTop() ?? 0);
-          paneScrollMemory.set(memKey(), { scrollTop: el.scrollTop, pinned: isPinned });
+          rememberPaneScroll(props.paneId, props.sessionId, {
+            scrollTop: el.scrollTop,
+            pinned: isPinned,
+          });
         }}
       >
         <div

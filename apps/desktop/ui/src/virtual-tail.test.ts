@@ -12,6 +12,100 @@ const read = (file: string) => readFileSync(join(import.meta.dir, file), "utf8")
  * below the fold. These hold the cases that broke it.
  */
 
+describe("a reader who leaves a conversation and comes back", () => {
+  /**
+   * Scrolling up in a conversation, switching the pane to another and switching
+   * back landed at the bottom every time — for a transcript the reader had
+   * followed all the way down, the one place they are not looking.
+   *
+   * The place was looked up in a ref callback, and a ref runs once. Switching
+   * the session in a pane does not remount the scroller; it changes what is
+   * inside it. So the second visit read nothing and started from the top.
+   */
+  const detail = read("session-detail.tsx");
+  const peer = read("peer-transcript.tsx");
+
+  test("the position is restored by an effect, not by the ref that runs once", () => {
+    for (const [name, src] of [["session-detail.tsx", detail], ["peer-transcript.tsx", peer]] as const) {
+      // The restore has to be inside a createEffect, so a session switch
+      // re-arms it. Read the effect itself, not a window around it.
+      const at = src.indexOf("const restore = () => {");
+      expect(at).toBeGreaterThan(-1);
+      const start = src.lastIndexOf("createEffect(() => {", at);
+      expect(start).toBeGreaterThan(-1);
+      const effect = src.slice(start, src.indexOf("\n  });", at));
+      expect(effect).toContain("recallPaneScroll");
+      // And it must not be back inside the ref, which is the version that only
+      // ever ran on mount.
+      expect(effect).not.toContain("ref={(el) =>");
+      // The frame it is waiting on has to be cancellable, or a pane the reader
+      // left keeps re-arming against a scroller that is no longer its own.
+      expect(effect).toContain("cancelAnimationFrame");
+      expect(effect).toContain("onCleanup");
+    }
+  });
+
+  test("a remembered position is keyed by the pane and the session together", () => {
+    // The same conversation read in two panes is two pieces of reading, and
+    // keyed on either half alone the other one overwrites it. The two
+    // transcripts used to spell this key out separately and disagreed about the
+    // pane, so it lives in one place now.
+    const chrome = read("session-chrome.ts");
+    expect(chrome).toContain("function scrollKey(paneId: string, sessionId: string)");
+    expect(chrome).toContain("return `${paneId}:${sessionId}`;");
+    expect(chrome).toContain("export function rememberPaneScroll");
+    expect(chrome).toContain("export function recallPaneScroll");
+    // Neither transcript may reach into the map itself any more.
+    for (const src of [detail, peer]) {
+      expect(src).not.toContain("paneScrollMemory");
+    }
+  });
+
+  test("being pinned to the bottom is not restored — the list keeps following", () => {
+    // A pinned position is the bottom of whatever is loaded. Restoring a
+    // remembered pixel offset from a moment when this session had less in it
+    // would drop the reader into the middle of a conversation they were
+    // following, and stop it following.
+    for (const src of [detail, peer]) {
+      expect(src).toContain("remembered.pinned || remembered.scrollTop <= 0");
+    }
+  });
+});
+
+describe("a window that cannot be placed still draws something", () => {
+  /**
+   * A pane showing a session with turns in it, drawing as an empty rectangle.
+   *
+   * `scrollTop` is a parent-supplied mirror of a scroller this list does not
+   * own, so a position belonging to one session can be past the end of another.
+   * That is not hypothetical: a pane that remembers where the reader was is
+   * handed the memory as it mounts, before its rows exist, and the number that
+   * comes back is a position in content that is not there yet.
+   *
+   * `rowAt` answered `n`, `last` answered `n - 1`, and the loop ran zero times —
+   * so the list rendered nothing and nothing on screen said it had lost its
+   * place. The reader saw a blank pane, not a scrolled one.
+   */
+  const rows = read("virtual.tsx").slice(
+    read("virtual.tsx").indexOf("const rows = createMemo"),
+  );
+
+  test("an inverted window falls back to the end of the list", () => {
+    expect(rows).toContain("if (first > last) return last >= 0 ? [last] : [];");
+    // After the guard, not instead of it: the loop still has to run.
+    expect(rows.indexOf("if (first > last)")).toBeLessThan(rows.indexOf("for (let i = first; i <= last; i++)"));
+  });
+
+  test("the guard is inside the window memo, where the rows are decided", () => {
+    // Pinned above the memo it would not see `first`/`last`; left in a caller
+    // it would have to be written again for every list.
+    const memoStart = rows.indexOf("const rows = createMemo");
+    const guard = rows.indexOf("if (first > last)");
+    expect(guard).toBeGreaterThan(memoStart);
+    expect(guard).toBeLessThan(rows.indexOf("const end = () =>"));
+  });
+});
+
 describe("at tail", () => {
   test("a list shorter than its scroller is at the tail", () => {
     // The case that broke the transcript. `scrollTop` is 0 because there is
