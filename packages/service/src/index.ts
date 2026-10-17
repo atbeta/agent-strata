@@ -307,8 +307,9 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   ) => {
     const conn = driverFor(sessionId);
     if (!conn) return;
-    if (decision === "reject") await conn.rejectQuestion?.(requestId);
-    else await conn.replyQuestion?.(requestId, answers ?? []);
+    const directory = directoryOf(sessionId);
+    if (decision === "reject") await conn.rejectQuestion?.(requestId, directory);
+    else await conn.replyQuestion?.(requestId, answers ?? [], directory);
   };
   const memory = connectionMemory(opts.db);
 

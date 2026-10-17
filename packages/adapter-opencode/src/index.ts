@@ -1334,9 +1334,9 @@ export function createIngestor(opts: {
   onSettled?: (requestId: string, decision: "allow" | "deny") => void;
   /** Same for a question answered on another client. */
   onQuestionSettled?: (requestId: string) => void;
-  reply: (requestID: string, reply: "once" | "always" | "reject", message?: string) => Promise<unknown>;
-  replyQuestion?: (requestID: string, answers: string[][]) => Promise<unknown>;
-  rejectQuestion?: (requestID: string) => Promise<unknown>;
+  reply: (requestID: string, reply: "once" | "always" | "reject", message?: string, directory?: string) => Promise<unknown>;
+  replyQuestion?: (requestID: string, answers: string[][], directory?: string) => Promise<unknown>;
+  rejectQuestion?: (requestID: string, directory?: string) => Promise<unknown>;
 }): { handle: (evt: Event) => void; stop: () => void } {
   const { mapper, sink } = opts;
 
@@ -1424,7 +1424,7 @@ export function createIngestor(opts: {
       ? evaluate(policy, { tool, input })
       : { decision: "ask" as const };
     if (d.decision === "allow") {
-      await opts.reply(p.id, "once");
+      await opts.reply(p.id, "once", undefined, s?.workspace);
       emitResolved(p.sessionID, {
         request_id: p.id, decision: "allow", by: "policy",
         scope: "once", rule_id: d.rule_id, reason: d.reason,
@@ -1432,7 +1432,7 @@ export function createIngestor(opts: {
       return;
     }
     if (d.decision === "deny") {
-      await opts.reply(p.id, "reject", d.reason);
+      await opts.reply(p.id, "reject", d.reason, s?.workspace);
       emitResolved(p.sessionID, {
         request_id: p.id, decision: "deny", by: "policy",
         scope: "once", rule_id: d.rule_id, reason: d.reason,
@@ -1451,13 +1451,13 @@ export function createIngestor(opts: {
     if (ans.external) return;
     if (ans.decision === "allow") {
       const scope = ans.scope === "always" ? "always" : "once";
-      await opts.reply(p.id, scope);
+      await opts.reply(p.id, scope, undefined, s.workspace);
       emitResolved(p.sessionID, {
         request_id: p.id, decision: "allow", by: "user", scope,
       });
       return;
     }
-    await opts.reply(p.id, "reject");
+    await opts.reply(p.id, "reject", undefined, s.workspace);
     emitResolved(p.sessionID, {
       request_id: p.id, decision: "deny", by: "user", scope: "once",
     });
@@ -1504,11 +1504,11 @@ export function createIngestor(opts: {
     const ans = await opts.onQuestion(req);
     if (ans.external) return;
     if (ans.decision === "reply") {
-      await opts.replyQuestion(p.id, ans.answers ?? []);
+      await opts.replyQuestion(p.id, ans.answers ?? [], s.workspace);
       emitQuestionResolved(p.sessionID, p.id, "reply", ans.answers);
       return;
     }
-    await opts.rejectQuestion(p.id);
+    await opts.rejectQuestion(p.id, s.workspace);
     emitQuestionResolved(p.sessionID, p.id, "reject");
   };
 
@@ -1623,8 +1623,8 @@ export async function connectOpencode(opts: {
   listSessions: () => Promise<{ id: string; title: string; directory: string }[]>;
   listWorkspaces: () => Promise<{ id: string; name?: string; directory: string }[]>;
   abort: (sessionID: string, directory?: string) => Promise<void>;
-  replyQuestion: (requestID: string, answers: string[][]) => Promise<void>;
-  rejectQuestion: (requestID: string) => Promise<void>;
+  replyQuestion: (requestID: string, answers: string[][], directory?: string) => Promise<void>;
+  rejectQuestion: (requestID: string, directory?: string) => Promise<void>;
   mcpConnect: (name: string, directory?: string) => Promise<void>;
   mcpDisconnect: (name: string, directory?: string) => Promise<void>;
   mcpAdd: (
@@ -1717,14 +1717,25 @@ export async function connectOpencode(opts: {
     onQuestion: opts.onQuestion,
     onSettled: opts.onSettled,
     onQuestionSettled: opts.onQuestionSettled,
-    reply: async (requestID, r, message) => {
-      await client.permission.reply({ requestID, reply: r, message });
+    reply: async (requestID, r, message, directory) => {
+      // The server scopes asks per project directory, so a reply aimed at the
+      // connection's default directory 404s on a session living elsewhere —
+      // and the SDK puts that in `error` rather than throwing. Checking it is
+      // what stops a failed reply from being reported as a granted permission.
+      const res = await client.permission.reply({
+        requestID,
+        reply: r,
+        message,
+        directory: directory ?? opts.directory,
+      });
+      if (res.error || res.data !== true)
+        throw new Error(`permission reply failed: ${JSON.stringify(res.error ?? res.data)}`);
     },
-    replyQuestion: async (requestID, answers) => {
-      await client.question.reply({ requestID, answers, directory: opts.directory });
+    replyQuestion: async (requestID, answers, directory) => {
+      await client.question.reply({ requestID, answers, directory: directory ?? opts.directory });
     },
-    rejectQuestion: async (requestID) => {
-      await client.question.reject({ requestID, directory: opts.directory });
+    rejectQuestion: async (requestID, directory) => {
+      await client.question.reject({ requestID, directory: directory ?? opts.directory });
     },
   });
 
@@ -2127,11 +2138,11 @@ export async function connectOpencode(opts: {
      * it. Answering after a restart goes through here instead, and says so in the
      * log — the projector reads the log, so that is what retires the card.
      */
-    async replyQuestion(requestId: string, answers: string[][]) {
-      await client.question.reply({ requestID: requestId, answers, directory: opts.directory });
+    async replyQuestion(requestId: string, answers: string[][], directory?: string) {
+      await client.question.reply({ requestID: requestId, answers, directory: directory ?? opts.directory });
     },
-    async rejectQuestion(requestId: string) {
-      await client.question.reject({ requestID: requestId, directory: opts.directory });
+    async rejectQuestion(requestId: string, directory?: string) {
+      await client.question.reject({ requestID: requestId, directory: directory ?? opts.directory });
     },
     async abort(sessionID: string, directory?: string) {
       await client.session.abort({ sessionID, directory: directory ?? opts.directory });

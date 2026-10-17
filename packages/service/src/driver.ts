@@ -157,8 +157,8 @@ export interface BackendDriver {
    * exists in the process that received the question. Answering one after a
    * restart goes through here instead.
    */
-  replyQuestion?(requestId: string, answers: string[][]): Promise<unknown>;
-  rejectQuestion?(requestId: string): Promise<unknown>;
+  replyQuestion?(requestId: string, answers: string[][], directory?: string): Promise<unknown>;
+  rejectQuestion?(requestId: string, directory?: string): Promise<unknown>;
   fork?(nativeId: string, messageId: string, directory?: string): Promise<{ casfId: string; nativeId: string }>;
   summarize?(
     nativeId: string,

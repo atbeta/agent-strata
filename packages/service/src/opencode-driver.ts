@@ -98,8 +98,8 @@ export async function connectOpencodeDriver(opts: {
     mcpAuthFinish: (name, code, directory, signal) => conn.mcpAuthFinish(name, code, directory, signal),
     revert: (nativeId, messageId, directory) => conn.revert(nativeId, messageId, directory),
     unrevert: (nativeId, directory) => conn.unrevert(nativeId, directory),
-    replyQuestion: (requestId, answers) => conn.replyQuestion(requestId, answers),
-    rejectQuestion: (requestId) => conn.rejectQuestion(requestId),
+    replyQuestion: (requestId, answers, directory) => conn.replyQuestion(requestId, answers, directory),
+    rejectQuestion: (requestId, directory) => conn.rejectQuestion(requestId, directory),
     async fork(nativeId, messageId, directory) {
       const created = await conn.fork(nativeId, messageId, directory);
       return { casfId: `${PREFIX}${created.id}`, nativeId: created.id };
