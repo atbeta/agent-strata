@@ -15,7 +15,7 @@ export type Name =
   | "chevron-right"
   | "pencil"
   | "archive"
-  | "trash"
+
   | "spark"
   | "gear"
   | "more"

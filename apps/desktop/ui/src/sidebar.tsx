@@ -2,7 +2,6 @@ import { createEffect, For, Show, createSignal } from "solid-js";
 import {
   archiveSession,
   backendLabel,
-  deleteSession,
   renameSession,
   type SessionRow,
   type StrataEvent,
@@ -166,13 +165,13 @@ export function Sidebar(props: {
                 {/* Revealed on section hover — one "+" per project, always on,
                     would be a rail of pluses down the rail. */}
                 <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  class="size-5 shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/section:opacity-100"
+                  variant="quiet"
+                  size="icon-2xs"
+                  class="size-4 shrink-0 text-muted-foreground/60 opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/section:opacity-100"
                   aria-label={t("action.newSession")}
                   onClick={() => props.onNewSession(group.dir)}
                 >
-                  <Icon name="plus" class="size-3" />
+                  <Icon name="plus" class="size-2.5" />
                 </Button>
               </Tip>
             ) : undefined
@@ -196,7 +195,6 @@ export function Sidebar(props: {
                   onOpen={() => props.onOpenSession(id)}
                   onRename={(title) => list().runAction(id, () => renameSession(id, title), false)}
                   onArchive={() => list().runAction(id, () => archiveSession(id), true)}
-                  onDelete={() => list().runAction(id, () => deleteSession(id), true)}
                   pinned={list().pins().includes(id)}
                   onTogglePin={() => list().togglePinned(id)}
                   onCompare={() => props.onStartCompare(id)}

@@ -645,10 +645,6 @@ export async function archiveSession(id: string): Promise<void> {
   await throwOnError(await fetch(api(`/sessions/${encodeURIComponent(id)}/archive`), { method: "POST" }));
 }
 
-export async function deleteSession(id: string): Promise<void> {
-  await throwOnError(await fetch(api(`/sessions/${encodeURIComponent(id)}`), { method: "DELETE" }));
-}
-
 export async function abortSession(id: string): Promise<void> {
   const res = await fetch(api(`/sessions/${encodeURIComponent(id)}/abort`), { method: "POST" });
   if (!res.ok) {

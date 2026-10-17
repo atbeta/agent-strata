@@ -8,14 +8,12 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
-  ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 
@@ -29,7 +27,6 @@ export function SessionListItem(props: {
   onOpen: () => void;
   onRename: (title: string) => Promise<void>;
   onArchive: () => Promise<void>;
-  onDelete: () => Promise<void>;
   /** Whether the row sits in the pinned group; the menu reads one of two words. */
   pinned: boolean;
   onTogglePin: () => void;
@@ -45,11 +42,10 @@ export function SessionListItem(props: {
 }) {
   const [editing, setEditing] = createSignal(false);
   const [draft, setDraft] = createSignal(props.title);
-  const [armed, setArmed] = createSignal(false);
   const [hot, setHot] = createSignal(false);
   const [menuOpen, setMenuOpen] = createSignal(false);
   let input: HTMLInputElement | undefined;
-  // Rename, archive, and delete stay behind one hover control. The menu is a
+  // Rename, archive, and the rest stay behind one hover control. The menu is a
   // portal, so it has to count as "still on the row" or the control disappears.
   const reveal = () => props.actions && (hot() || menuOpen());
 
@@ -69,10 +65,7 @@ export function SessionListItem(props: {
    * on the row itself. Both menus draw the same items — a row's actions should
    * not depend on which gesture found them.
    */
-  const menuItems = (
-    Item: typeof DropdownMenuItem,
-    Separator: typeof DropdownMenuSeparator,
-  ) => (
+  const menuItems = (Item: typeof DropdownMenuItem) => (
     <>
       <Item
         onSelect={() => {
@@ -105,28 +98,11 @@ export function SessionListItem(props: {
         <Icon name="archive" class="size-3.5 text-muted-foreground" />
         {t("sidebar.session.archive")}
       </Item>
-      <Separator />
-      <Item
-        class={armed() ? "text-destructive data-[highlighted]:text-destructive" : ""}
-        closeOnSelect={armed()}
-        onSelect={() => {
-          if (!armed()) {
-            setArmed(true);
-            return;
-          }
-          setArmed(false);
-          setMenuOpen(false);
-          void props.onDelete();
-        }}
-      >
-        <Icon name="trash" class={`size-3.5 ${armed() ? "" : "text-muted-foreground"}`} />
-        {armed() ? t("sidebar.session.deleteArmed") : t("sidebar.session.delete")}
-      </Item>
     </>
   );
 
   return (
-    <ContextMenu onOpenChange={(open) => !open && setArmed(false)}>
+    <ContextMenu>
       <ContextMenuTrigger class="contents" disabled={editing()}>
         <ListRow
           active={props.active}
@@ -192,14 +168,7 @@ export function SessionListItem(props: {
             >
               {props.time}
             </span>
-            <DropdownMenu
-              placement="bottom-end"
-              open={menuOpen()}
-              onOpenChange={(open) => {
-                setMenuOpen(open);
-                if (!open) setArmed(false);
-              }}
-            >
+            <DropdownMenu placement="bottom-end" open={menuOpen()} onOpenChange={setMenuOpen}>
               <DropdownMenuTrigger
                 class={`absolute right-1 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground ${
                   reveal() ? "" : "invisible pointer-events-none"
@@ -213,17 +182,14 @@ export function SessionListItem(props: {
                 <Icon name="more" class="size-3.5" />
               </DropdownMenuTrigger>
               <DropdownMenuContent class="min-w-40">
-                {menuItems(DropdownMenuItem, DropdownMenuSeparator)}
+                {menuItems(DropdownMenuItem)}
               </DropdownMenuContent>
             </DropdownMenu>
           </Show>
         </ListRow>
       </ContextMenuTrigger>
       <ContextMenuContent class="min-w-40">
-        {menuItems(
-          ContextMenuItem as unknown as typeof DropdownMenuItem,
-          ContextMenuSeparator as unknown as typeof DropdownMenuSeparator,
-        )}
+        {menuItems(ContextMenuItem as unknown as typeof DropdownMenuItem)}
       </ContextMenuContent>
     </ContextMenu>
   );

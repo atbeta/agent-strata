@@ -25,8 +25,6 @@ export default {
   "sidebar.session.unpin": "取消置顶",
   "sidebar.session.compare": "对比这个会话",
   "sidebar.session.archive": "归档",
-  "sidebar.session.delete": "删除",
-  "sidebar.session.deleteArmed": "再次点击以删除",
   "sidebar.sessionCount.one": "{n} 个会话",
   "sidebar.sessionCount.other": "{n} 个会话",
 

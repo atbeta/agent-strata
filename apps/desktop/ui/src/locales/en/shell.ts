@@ -24,8 +24,6 @@ export default {
   "sidebar.session.unpin": "Unpin",
   "sidebar.session.compare": "Compare this session",
   "sidebar.session.archive": "Archive",
-  "sidebar.session.delete": "Delete",
-  "sidebar.session.deleteArmed": "Click again to delete",
   "sidebar.sessionCount.one": "{n} session",
   "sidebar.sessionCount.other": "{n} sessions",
 
