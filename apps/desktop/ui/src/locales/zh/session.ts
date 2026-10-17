@@ -166,6 +166,7 @@ export default {
   "terminal.show": "终端",
   "terminal.hide": "隐藏终端",
   "terminal.new": "新建终端",
+  "terminal.tab": "终端 {n}",
   "terminal.close": "关闭终端",
   "terminal.closed": "终端已断开",
   "terminal.failed": "终端打不开",

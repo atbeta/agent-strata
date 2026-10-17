@@ -13,7 +13,7 @@ import {
 } from "./api";
 import { t } from "./i18n";
 
-export function TerminalPane(props: { sessionId: string }) {
+export function TerminalPane(props: { sessionId: string; onEmpty?: () => void }) {
   const [tabs, setTabs] = createSignal<PtySession[]>([]);
   const [active, setActive] = createSignal<string | undefined>();
   const [err, setErr] = createSignal("");
@@ -29,12 +29,24 @@ export function TerminalPane(props: { sessionId: string }) {
     return listed.sessions;
   };
 
+  /**
+   * The lowest free number among our own tab names. Backend-assigned titles
+   * (random suffixes) and externally created shells keep theirs — the number
+   * only answers "which tab is this" for the ones the pane itself made.
+   */
+  const nextTitle = () => {
+    let n = 1;
+    const titles = new Set(tabs().map((row) => row.title));
+    while (titles.has(t("terminal.tab", { n }))) n++;
+    return t("terminal.tab", { n });
+  };
+
   const create = async () => {
     if (opening) return;
     opening = true;
     setErr("");
     try {
-      const created = await openTerminal(props.sessionId);
+      const created = await openTerminal(props.sessionId, nextTitle());
       setTabs((rows) => [...rows.filter((row) => row.id !== created.id), created]);
       setActive(created.id);
     } catch (e) {
@@ -46,11 +58,12 @@ export function TerminalPane(props: { sessionId: string }) {
 
   const close = async (id: string) => {
     setErr("");
-    setTabs((rows) => {
-      const next = rows.filter((row) => row.id !== id);
-      if (active() === id) setActive(next[0]?.id);
-      return next;
-    });
+    const next = tabs().filter((row) => row.id !== id);
+    setTabs(next);
+    if (active() === id) setActive(next[0]?.id);
+    // Nothing left to show — an empty shell pane is chrome without content,
+    // so the panel folds itself away rather than waiting for a new tab.
+    if (next.length === 0) props.onEmpty?.();
     try {
       await closeTerminal(props.sessionId, id);
     } catch (e) {

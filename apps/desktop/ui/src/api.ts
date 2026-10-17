@@ -339,8 +339,8 @@ const DESKTOP_SERVICE = "http://127.0.0.1:7700";
 
 export const api = (p: string) => (inDesktopShell() ? `${DESKTOP_SERVICE}${p}` : `/api${p}`);
 
-export async function getJson<T>(p: string): Promise<T> {
-  const res = await fetch(api(p));
+export async function getJson<T>(p: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(api(p), init);
   if (!res.ok) throw new Error(t("api.err.service", { status: res.status }));
   return (await res.json()) as T;
 }
@@ -931,14 +931,17 @@ export interface PtySession {
 }
 
 export function listTerminals(sessionId: string): Promise<{ sessions: PtySession[] }> {
-  return getJson(`/sessions/${encodeURIComponent(sessionId)}/terminal`);
+  return getJson(`/sessions/${encodeURIComponent(sessionId)}/terminal`, { signal: AbortSignal.timeout(10_000) });
 }
 
-export async function openTerminal(sessionId: string): Promise<PtySession> {
+export async function openTerminal(sessionId: string, title?: string): Promise<PtySession> {
+  // No timeout meant a stuck spawn pinned the pane's `opening` latch forever
+  // and every later "+" press silently no-oped.
   const res = await fetch(api(`/sessions/${encodeURIComponent(sessionId)}/terminal`), {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: "{}",
+    body: JSON.stringify(title ? { title } : {}),
+    signal: AbortSignal.timeout(10_000),
   });
   const data = (await res.json().catch(() => ({}))) as PtySession & { error?: string };
   if (!res.ok) throw new Error(data.error ?? t("api.err.service", { status: res.status }));

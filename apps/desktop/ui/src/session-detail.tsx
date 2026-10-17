@@ -1616,7 +1616,7 @@ export function SessionDetail(props: {
           )}
         </Show>
         <Show when={terminalOn() && opencode()}>
-          <TerminalPane sessionId={props.id} />
+          <TerminalPane sessionId={props.id} onEmpty={() => setTerminalOn(false)} />
         </Show>
       </div>
 

@@ -164,6 +164,7 @@ export default {
   "terminal.show": "Terminal",
   "terminal.hide": "Hide terminal",
   "terminal.new": "New terminal",
+  "terminal.tab": "Terminal {n}",
   "terminal.close": "Close terminal",
   "terminal.closed": "Terminal disconnected",
   "terminal.failed": "The terminal could not be opened",
