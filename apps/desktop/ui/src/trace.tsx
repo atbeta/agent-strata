@@ -1,14 +1,22 @@
-import { createEffect, createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
-import { getJson, type StrataEvent } from "./api";
+import { createEffect, createMemo, createResource, createSignal, For, onCleanup, Show, type JSX } from "solid-js";
+import { fmtDuration, fmtUsd, getJson, type StrataEvent } from "./api";
 import { inDesktopShell } from "./shell";
 import { Md } from "./md";
 import { Tip } from "./tip";
 import { CopyButton, Payload } from "./payload";
-import { stamp, t } from "./i18n";
+import { num, stamp, t } from "./i18n";
 import { Icon } from "./icons";
 import { mergeUserBar, traceMaxOffset, tracePage, traceWindow } from "./trace-window";
 import { Button } from "@/components/ui/button";
 import { MiniTabs } from "@/components/ui/mini-tabs";
+
+export interface TraceUsage {
+  input: number;
+  output: number;
+  reasoning?: number;
+  cache_read?: number;
+  cache_write?: number;
+}
 
 export interface TraceBlock {
   key: string;
@@ -21,7 +29,14 @@ export interface TraceBlock {
    *  a JSON value becomes a tree, a string becomes highlighted text. */
   input?: unknown;
   result?: unknown;
-  detail?: string;
+  /** Measured duration, when the backend reported one. Kept as a number so the
+   *  strip can size a lane by it — this used to be scraped back out of a joined
+   *  display string with a regex. */
+  latencyMs?: number;
+  /** Token counts, kept split rather than summed: the cache columns are the
+   *  interesting ones and a total hides them. */
+  usage?: TraceUsage;
+  costUsd?: number;
   model?: string;
   tone: string;
   error?: boolean;
@@ -84,6 +99,27 @@ function pretty(value: unknown): string | undefined {
   }
 }
 
+/** A finite number, or nothing. A backend that sent null or a string gets dropped
+ *  rather than rendered as `NaN`. */
+function numOf(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function usageOf(value: unknown): TraceUsage | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const u = value as Record<string, unknown>;
+  const input = numOf(u.input);
+  const output = numOf(u.output);
+  if (input === undefined && output === undefined) return undefined;
+  return {
+    input: input ?? 0,
+    output: output ?? 0,
+    reasoning: numOf(u.reasoning),
+    cache_read: numOf(u.cache_read),
+    cache_write: numOf(u.cache_write),
+  };
+}
+
 export function traceBlocks(events: StrataEvent[]): TraceBlock[] {
   const blocks: TraceBlock[] = [];
   const tools = new Map<string, TraceBlock>();
@@ -118,13 +154,12 @@ export function traceBlocks(events: StrataEvent[]): TraceBlock[] {
       const spoken = textOf(d.content, "spoken");
       const thought = textOf(d.content, "thinking");
       const model = d.model ? String(d.model) : undefined;
-      const detail = [
-        model,
-        typeof d.latency_ms === "number" ? `${d.latency_ms} ms` : "",
-        typeof d.cost_usd === "number" && d.cost_usd > 0 ? `$${Number(d.cost_usd).toFixed(4)}` : "",
-      ]
-        .filter(Boolean)
-        .join(" · ");
+      // Each of these is its own field. They used to be joined into one "detail"
+      // string, which put the model id and the price under a label reading
+      // "Elapsed" and forced the strip to regex the milliseconds back out.
+      const latencyMs = numOf(d.latency_ms);
+      const usage = usageOf(d.usage);
+      const costUsd = numOf(d.cost_usd);
       const prev = assistants.get(id);
       if (prev) {
         prev.seq = e.seq;
@@ -132,7 +167,9 @@ export function traceBlocks(events: StrataEvent[]): TraceBlock[] {
         prev.preview = spoken || thought.slice(0, 280) || prev.preview;
         prev.quiet = !spoken;
         prev.model = model ?? prev.model;
-        prev.detail = detail || prev.detail;
+        if (latencyMs !== undefined) prev.latencyMs = latencyMs;
+        if (usage) prev.usage = usage;
+        if (costUsd !== undefined) prev.costUsd = costUsd;
         prev.tone = "bg-event-assistant";
         prev.title = model ? model.slice(model.indexOf("/") + 1) : prev.title;
       } else {
@@ -143,7 +180,9 @@ export function traceBlocks(events: StrataEvent[]): TraceBlock[] {
           lane: "assistant",
           title: model ? model.slice(model.indexOf("/") + 1) : "回复",
           preview: spoken || thought.slice(0, 280) || "reply",
-          detail: detail || undefined,
+          latencyMs,
+          usage,
+          costUsd,
           model,
           tone: "bg-event-assistant",
           quiet: !spoken,
@@ -177,9 +216,7 @@ export function traceBlocks(events: StrataEvent[]): TraceBlock[] {
         block.result = output;
         block.error = failed;
         if (failed) block.tone = "bg-status-error";
-        if (typeof d.latency_ms === "number") {
-          block.detail = [block.detail, `${d.latency_ms} ms`].filter(Boolean).join(" · ");
-        }
+        if (typeof d.latency_ms === "number") block.latencyMs = d.latency_ms;
       }
     }
   }
@@ -216,7 +253,7 @@ function layout(blocks: TraceBlock[]) {
     const t = Date.parse(b.ts);
     const gap = prev && Number.isFinite(t) ? t - prev : 0;
     const space = gap > 2_000 ? Math.min(18, Math.round(gap / 12_000)) : 0;
-    const ms = Number((b.detail ?? "").match(/(\d+)\s*ms/)?.[1] ?? 0);
+    const ms = b.latencyMs ?? 0;
     const width = b.lane === "user" ? 7 : Math.min(28, 9 + (ms > 4_000 ? 8 : ms > 800 ? 4 : 0));
     x += space;
     pos.set(b.key, { left: x, width });
@@ -501,6 +538,42 @@ export function TraceStrip(props: {
 
 type Tab = "overview" | "input" | "result" | "time";
 
+/**
+ * One labelled figure. The label must not wrap and the value must be allowed to
+ * shrink: a long mono value in a 320px drawer used to push its label onto two
+ * lines, which reads as a broken layout rather than as a long value.
+ */
+function Fact(props: { label: string; value: JSX.Element; class?: string }) {
+  return (
+    <div class={`flex items-baseline justify-between gap-4 py-2 ${props.class ?? ""}`}>
+      <dt class="shrink-0 text-xs text-muted-foreground">{props.label}</dt>
+      <dd class="min-w-0 truncate text-right font-mono text-xs tabular-nums">{props.value}</dd>
+    </div>
+  );
+}
+
+/** The token split, as rows. A single total hides the cache columns, which are
+ *  the ones that say whether the backend is actually reusing anything. */
+function TokenFacts(props: { usage: TraceUsage }) {
+  const parts = () => {
+    const u = props.usage;
+    const out: { label: string; value: number }[] = [];
+    if (u.input) out.push({ label: t("info.input"), value: u.input });
+    if (u.output) out.push({ label: t("info.output"), value: u.output });
+    if (u.reasoning) out.push({ label: t("info.reasoning"), value: u.reasoning });
+    if (u.cache_read) out.push({ label: t("info.cache_read"), value: u.cache_read });
+    if (u.cache_write) out.push({ label: t("info.cache_write"), value: u.cache_write });
+    return out;
+  };
+  const total = () => parts().reduce((sum, p) => sum + p.value, 0);
+  return (
+    <>
+      <Fact label={t("info.tokens")} value={num(total())} />
+      <For each={parts()}>{(part) => <Fact label={part.label} value={num(part.value)} />}</For>
+    </>
+  );
+}
+
 export function TraceDrawer(props: { block: TraceBlock; onClose: () => void }) {
   const [tab, setTab] = createSignal<Tab>("overview");
   createEffect(() => {
@@ -524,6 +597,9 @@ export function TraceDrawer(props: { block: TraceBlock; onClose: () => void }) {
     // which is a better answer than "Invalid Date".
     return Number.isNaN(at.getTime()) ? props.block.ts : stamp(at);
   };
+
+  const hasFacts = () =>
+    !!props.block.model || !!props.block.usage || props.block.costUsd !== undefined;
 
   return (
     <aside class="flex w-80 shrink-0 flex-col border-l border-border bg-card/30">
@@ -557,6 +633,24 @@ export function TraceDrawer(props: { block: TraceBlock; onClose: () => void }) {
       <div class="min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-4">
         <Show when={tab() === "overview"}>
           <Md text={props.block.preview} class="text-xs leading-[1.65]" />
+
+          {/* What the backend measured about this message, as its own fields.
+              It used to be one "detail" string glued together with · and printed
+              under 概述 as a footnote. */}
+          <Show when={hasFacts()}>
+            <dl class="mt-3 divide-y divide-border border-t border-border">
+              <Show when={props.block.model}>
+                <Fact label={t("info.model")} value={props.block.model!} />
+              </Show>
+              <Show when={props.block.usage}>
+                <TokenFacts usage={props.block.usage!} />
+              </Show>
+              <Show when={props.block.costUsd !== undefined}>
+                <Fact label={t("info.cost")} value={fmtUsd(props.block.costUsd!)} />
+              </Show>
+            </dl>
+          </Show>
+
           <Show when={props.block.result !== undefined}>
             <section class="mt-4">
               <h3 class="mb-1.5 text-2xs font-medium text-muted-foreground">
@@ -564,9 +658,6 @@ export function TraceDrawer(props: { block: TraceBlock; onClose: () => void }) {
               </h3>
               <Payload value={props.block.result} maxHeight="max-h-48" />
             </section>
-          </Show>
-          <Show when={props.block.detail}>
-            <p class="mt-3 font-mono text-2xs text-muted-foreground">{props.block.detail}</p>
           </Show>
         </Show>
         <Show when={tab() === "input"}>
@@ -576,16 +667,12 @@ export function TraceDrawer(props: { block: TraceBlock; onClose: () => void }) {
           <Block label={t("trace.section.result")} value={props.block.result} />
         </Show>
         <Show when={tab() === "time"}>
+          {/* Only the clock here. The model, the tokens and the price are facts
+              about the message, not about when it ran, and they live in 概述. */}
           <dl class="divide-y divide-border border-t border-border">
-            <div class="flex items-baseline justify-between gap-4 py-2">
-              <dt class="text-xs text-muted-foreground">{t("trace.field.started")}</dt>
-              <dd class="font-mono text-xs tabular-nums">{when()}</dd>
-            </div>
-            <Show when={props.block.detail}>
-              <div class="flex items-baseline justify-between gap-4 py-2">
-                <dt class="text-xs text-muted-foreground">{t("trace.field.elapsed")}</dt>
-                <dd class="font-mono text-xs tabular-nums">{props.block.detail}</dd>
-              </div>
+            <Fact label={t("trace.field.started")} value={when()} />
+            <Show when={props.block.latencyMs !== undefined}>
+              <Fact label={t("trace.field.elapsed")} value={fmtDuration(props.block.latencyMs!)} />
             </Show>
           </dl>
         </Show>

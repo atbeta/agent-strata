@@ -3,6 +3,7 @@ import {
   connectMcp,
   disconnectMcp,
   exportFileName,
+  fmtDuration,
   fmtUsd,
   fmtUsdFlat,
   opencodePath,
@@ -36,6 +37,38 @@ describe("a cost in dollars", () => {
     expect(fmtUsdFlat(0)).toBe("$0.00");
     expect(fmtUsdFlat(Number.NaN)).toBe("$0.00");
     expect(fmtUsdFlat(0.0013)).toBe("$0.00");
+  });
+});
+
+describe("a duration", () => {
+  test("stays in milliseconds where the sub-second calls are", () => {
+    expect(fmtDuration(0)).toBe("0 ms");
+    expect(fmtDuration(4)).toBe("4 ms");
+    expect(fmtDuration(812)).toBe("812 ms");
+    // A tool call is the reason a timing view exists, and `0.81 s` reads as noise.
+    expect(fmtDuration(999)).toBe("999 ms");
+  });
+
+  test("keeps a decimal so two nearby calls stay distinguishable", () => {
+    expect(fmtDuration(1_000)).toBe("1.00 s");
+    expect(fmtDuration(1_580)).toBe("1.58 s");
+    expect(fmtDuration(9_994)).toBe("9.99 s");
+    // Past ten seconds the hundredths are width spent on precision nobody reads.
+    expect(fmtDuration(12_340)).toBe("12.3 s");
+    expect(fmtDuration(59_400)).toBe("59.4 s");
+  });
+
+  test("past a minute it reads as a clock, with the seconds padded", () => {
+    expect(fmtDuration(60_000)).toBe("1 m 00 s");
+    expect(fmtDuration(158_000)).toBe("2 m 38 s");
+    expect(fmtDuration(604_000)).toBe("10 m 04 s");
+    expect(fmtDuration(3_600_000)).toBe("60 m 00 s");
+  });
+
+  test("a missing or nonsense measurement shows a dash rather than NaN", () => {
+    expect(fmtDuration(-1)).toBe("—");
+    expect(fmtDuration(Number.NaN)).toBe("—");
+    expect(fmtDuration(Number.POSITIVE_INFINITY)).toBe("—");
   });
 });
 

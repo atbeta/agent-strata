@@ -997,6 +997,22 @@ export function fmtUsdFlat(n: number): string {
   return `$${n.toFixed(2)}`;
 }
 
+/**
+ * A duration at a size you can read at a glance.
+ *
+ * Milliseconds alone go to five digits on any real model call, and seconds alone
+ * lose the sub-second tool calls that are the whole point of a timing view. Past
+ * ten seconds the hundredths stop paying for the width they take, and past a
+ * minute the figure wants to read as a clock rather than as a number.
+ */
+export function fmtDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "—";
+  if (ms < 1_000) return `${Math.round(ms)} ms`;
+  if (ms < 60_000) return `${(ms / 1_000).toFixed(ms < 10_000 ? 2 : 1)} s`;
+  const m = Math.floor(ms / 60_000);
+  return `${m} m ${String(Math.round((ms % 60_000) / 1_000)).padStart(2, "0")} s`;
+}
+
 /** Placeholder workspaces the adapter emits before a real directory is known. */
 export function realWorkspace(ws?: string | null): string | undefined {
   if (!ws || ws === "unknown" || ws === "no workspace") return undefined;
