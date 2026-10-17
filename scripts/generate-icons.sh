@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Regenerate every bundled icon from the two source SVGs:
-#   apps/desktop/src-tauri/icons/icon-source.svg  (Interlock icon)
-#   apps/desktop/src-tauri/icons/strata-mark.svg  (monochrome mark)
+# Regenerate every bundled icon from the source SVG:
+#   apps/desktop/src-tauri/icons/icon-source.svg  (Jade icon)
 # Requires local tools only: rsvg-convert, magick, iconutil. No network.
+# macOS/Linux only — on Windows use `bunx @tauri-apps/cli icon`, see BRANDING.md.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -51,8 +51,6 @@ render 256 "$SCRATCH/icon-256.png"
 magick "$SCRATCH/icon-256.png" -define icon:auto-resize=16,24,32,48,64,128,256 "$ICONS/icon.ico"
 
 # Public UI assets.
-mkdir -p "$PUBLIC/brand"
-cp "$ICONS/strata-mark.svg" "$PUBLIC/brand/strata-mark.svg"
 cp "$ICONS/icon-source.svg" "$PUBLIC/favicon.svg"
 render 32 "$PUBLIC/favicon.png"
 
