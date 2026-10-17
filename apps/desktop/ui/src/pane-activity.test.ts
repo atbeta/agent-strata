@@ -184,10 +184,63 @@ describe("focus you can find without hunting", () => {
     expect(header).toContain("font-medium");
   });
 
-  test("the rail is as tall as the header, so it reads as an edge", () => {
+  test("focus frames the pane rather than marking a spot inside it", () => {
+    // What it was: a twenty-pixel rail of accent beside the title, on a
+    // twenty-eight-pixel band, in a pane roughly a thousand pixels tall. That is
+    // a spot to inspect, and it was the only thing on screen saying which half
+    // of the window you were typing into. What it is now: an edge the length of
+    // the pane, over a surface stepped once across all of it — a region, which
+    // is what the reader is actually trying to locate.
     const stage = code("pane-stage.tsx");
-    const rail = stage.slice(stage.indexOf("w-0.5 shrink-0 rounded-full"));
-    expect(rail.slice(0, 160)).toContain("h-5 bg-primary");
-    expect(rail.slice(0, 160)).not.toContain("h-3");
+    expect(stage).not.toContain("rounded-full");
+    const section = stage.slice(stage.indexOf("data-pane-id={leaf.id}"));
+    expect(section).toContain('isFocused() ? "border-primary/45 bg-secondary/45"');
+    // Both states carry the border, so focus moves colour and nothing else —
+    // a pane must not gain or lose two pixels every time it is clicked.
+    // Unfocused is a visible `border-border`, not a transparent one: the edge is
+    // what makes a pane countable, and focus is then only a change of its
+    // colour.
+    expect(section).toContain('"border-border bg-background"');
+    expect(section).not.toContain("border-transparent");
+    expect(section).toContain("overflow-hidden rounded-md border transition-colors");
+  });
+
+  test("a pane is countable without asking which one has focus", () => {
+    // Two panes on a background they share with the app, divided by a
+    // four-pixel gutter holding a 7%-white hairline: there was nothing on
+    // screen saying a second pane existed, so the layout could not be read at a
+    // glance. The gutter now carries the separation and each pane states its
+    // own edge, which is also what makes the header testable — you can find the
+    // pane without first working out which pane is the focused one.
+    const stage = code("pane-stage.tsx");
+    const divider = stage.slice(stage.indexOf("role=\"separator\""));
+    // Ten pixels of real gutter, not four.
+    expect(divider).toContain("w-2.5 shrink-0 cursor-col-resize");
+    expect(divider).toContain("h-2.5 shrink-0 cursor-row-resize");
+    // The line is an affordance for the pointer, not the separator itself.
+    expect(divider).toContain("opacity-0");
+    expect(divider).toContain("group-hover:opacity-100");
+  });
+
+  test("the outside edge is padded like the inside one, so the panes read as cards", () => {
+    // The gutter existed only between panes, so the outermost ones were welded
+    // to the window while the inner ones had a channel. The padding is what
+    // puts the group on one field — and it is also the only reason a rounded
+    // corner has any background to be cut against.
+    const stage = code("pane-stage.tsx");
+    const root = stage.slice(stage.indexOf("min-h-[30vh]"));
+    expect(root.slice(0, 120)).toContain("overflow-hidden p-2.5");
+    expect(code("pane-stage.tsx")).toContain("flex-col overflow-hidden rounded-md border");
+  });
+
+  test("the unfocused pane is dimmer than the app behind it, not identical to it", () => {
+    // `bg-background/60` over a `bg-background` parent composites to exactly
+    // `bg-background`. The panes were not hard to tell apart, they were the
+    // same colour — and a focus cue painted on one of two identical surfaces
+    // has nothing to be brighter than.
+    const stage = code("pane-stage.tsx");
+    expect(stage.slice(stage.indexOf("data-pane-id={leaf.id}"))).not.toContain(
+      "bg-background/60",
+    );
   });
 });
