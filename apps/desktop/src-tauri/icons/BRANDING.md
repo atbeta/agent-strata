@@ -58,6 +58,24 @@ Windows.
 Whichever path runs, the five files named in `tauri.conf.json` → `bundle.icon`
 must exist afterwards.
 
+### Changing the icon while `tauri dev` is running
+
+`tauri-cli` watches the icons directory and relaunches on every change, but the
+relaunch is not a rebuild. `tauri-build` declares `rerun-if-changed` for
+`tauri.conf.json` only, never for the icon files, so cargo reports `Finished in
+0.2s`, relinks nothing, and hands back the same binary with the old resource
+still inside it.
+
+Nudge the file it does watch, then let tauri-cli rebuild:
+
+```sh
+touch src-tauri/tauri.conf.json
+```
+
+Check `target/debug/agent-strata-desktop.exe`'s mtime afterwards — if it did not
+move, the build script was skipped and `cargo clean -p agent-strata-desktop`
+is the next step.
+
 ## Updating the installed app
 
 The bundle icons are embedded into `Agent Strata.app` at build time
