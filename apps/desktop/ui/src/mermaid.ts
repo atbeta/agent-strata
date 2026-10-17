@@ -54,6 +54,95 @@ type MermaidApi = {
 };
 
 let loading: Promise<MermaidApi> | null = null;
+let apiInstance: MermaidApi | null = null;
+let initedTheme: "light" | "dark" | null = null;
+
+const themeMode = (): "light" | "dark" =>
+  document.documentElement.dataset.theme === "light" ? "light" : "dark";
+
+/**
+ * mermaid's base theme draws on white. A diagram pasted into a transcript on
+ * panels the opposite way is a rectangle of glare — or of ink — so the
+ * surface and the text are set to the app's own, per mode, and the node
+ * fills follow.
+ */
+function themeVariables(mode: "light" | "dark"): Record<string, string> {
+  if (mode === "light") {
+    return {
+      background: "transparent",
+      primaryColor: "hsl(240 8% 92%)",
+      primaryTextColor: "hsl(240 10% 12%)",
+      primaryBorderColor: "hsl(240 6% 76%)",
+      lineColor: "hsl(240 4% 42%)",
+      secondaryColor: "hsl(240 8% 88%)",
+      tertiaryColor: "hsl(240 8% 90%)",
+      textColor: "hsl(240 10% 12%)",
+      mainBkg: "hsl(240 8% 92%)",
+      nodeBorder: "hsl(240 6% 76%)",
+      clusterBkg: "hsl(240 8% 96%)",
+      clusterBorder: "hsl(240 6% 82%)",
+      edgeLabelBackground: "hsl(0 0% 100%)",
+      actorBkg: "hsl(240 8% 92%)",
+      actorBorder: "hsl(240 6% 76%)",
+      actorTextColor: "hsl(240 10% 12%)",
+      noteBkgColor: "hsl(45 70% 92%)",
+      noteTextColor: "hsl(45 30% 20%)",
+      noteBorderColor: "hsl(45 50% 72%)",
+    };
+  }
+  return {
+    background: "transparent",
+    primaryColor: "hsl(240 6% 18%)",
+    primaryTextColor: "hsl(240 12% 88%)",
+    primaryBorderColor: "hsl(240 6% 32%)",
+    lineColor: "hsl(240 8% 55%)",
+    secondaryColor: "hsl(240 6% 22%)",
+    tertiaryColor: "hsl(240 6% 20%)",
+    textColor: "hsl(240 12% 88%)",
+    mainBkg: "hsl(240 6% 18%)",
+    nodeBorder: "hsl(240 6% 32%)",
+    clusterBkg: "hsl(240 6% 15%)",
+    clusterBorder: "hsl(240 6% 30%)",
+    edgeLabelBackground: "hsl(240 8% 12%)",
+    actorBkg: "hsl(240 6% 18%)",
+    actorBorder: "hsl(240 6% 32%)",
+    actorTextColor: "hsl(240 12% 88%)",
+    noteBkgColor: "hsl(45 40% 20%)",
+    noteTextColor: "hsl(45 60% 88%)",
+    noteBorderColor: "hsl(45 40% 40%)",
+  };
+}
+
+function config(mode: "light" | "dark"): Record<string, unknown> {
+  return {
+    // The transcript is untrusted text: a message can be anything an agent
+    // wrote, or anything a prompt asked for. `strict` keeps mermaid from
+    // emitting raw HTML or script into the page, which is the difference
+    // between rendering a diagram and executing one.
+    securityLevel: "strict",
+    startOnLoad: false,
+    // A diagram that cannot be drawn is reported by the throw below, not by
+    // a picture of an error pasted into the page. Left on, mermaid builds a
+    // full illustrated error block and appends it to `document.body` — it
+    // lands outside the transcript entirely, so the reader gets a stray
+    // graphic at the foot of the window and the message that was supposed to
+    // explain it says nothing at all.
+    suppressErrorRendering: true,
+    // A diagram is measured against the text it draws, and a runaway one can
+    // ask for more than a window can hold. Refusing past a limit is a failed
+    // render, which is already a state this knows how to report.
+    maxTextSize: 50_000,
+    // A transcript is a document, not a slideshow. No transition, and no
+    // forced theme — the surrounding UI owns both.
+    theme: "base",
+    themeVariables: themeVariables(mode),
+    flowchart: { htmlLabels: false, useMaxWidth: true },
+    // Diagrams are read, often printed, and often exported. A font that
+    // does not exist falls back to something with a different baseline and
+    // the diagram no longer lines up with its own labels.
+    fontFamily: "inherit",
+  };
+}
 
 /**
  * The engine, once, or the promise of it.
@@ -67,56 +156,25 @@ function engine(): Promise<MermaidApi> {
   loading ??= import("mermaid")
     .then((mod) => {
       const api = (mod.default ?? mod) as unknown as MermaidApi;
-      api.initialize({
-        // The transcript is untrusted text: a message can be anything an agent
-        // wrote, or anything a prompt asked for. `strict` keeps mermaid from
-        // emitting raw HTML or script into the page, which is the difference
-        // between rendering a diagram and executing one.
-        securityLevel: "strict",
-        startOnLoad: false,
-        // A diagram that cannot be drawn is reported by the throw below, not by
-        // a picture of an error pasted into the page. Left on, mermaid builds a
-        // full illustrated error block and appends it to `document.body` — it
-        // lands outside the transcript entirely, so the reader gets a stray
-        // graphic at the foot of the window and the message that was supposed to
-        // explain it says nothing at all.
-        suppressErrorRendering: true,
-        // A diagram is measured against the text it draws, and a runaway one can
-        // ask for more than a window can hold. Refusing past a limit is a failed
-        // render, which is already a state this knows how to report.
-        maxTextSize: 50_000,
-        // A transcript is a document, not a slideshow. No transition, and no
-        // forced theme — the surrounding UI owns both.
-        theme: "base",
-        themeVariables: {
-          // mermaid's base theme draws on white. A diagram pasted into a dark
-          // transcript on white panels is a rectangle of glare, so the surface
-          // and the ink are set to the app's own and the node fills follow.
-          background: "transparent",
-          primaryColor: "hsl(240 6% 18%)",
-          primaryTextColor: "hsl(240 12% 88%)",
-          primaryBorderColor: "hsl(240 6% 32%)",
-          lineColor: "hsl(240 8% 55%)",
-          secondaryColor: "hsl(240 6% 22%)",
-          tertiaryColor: "hsl(240 6% 20%)",
-          textColor: "hsl(240 12% 88%)",
-          mainBkg: "hsl(240 6% 18%)",
-          nodeBorder: "hsl(240 6% 32%)",
-          clusterBkg: "hsl(240 6% 15%)",
-          clusterBorder: "hsl(240 6% 30%)",
-          edgeLabelBackground: "hsl(240 8% 12%)",
-          actorBkg: "hsl(240 6% 18%)",
-          actorBorder: "hsl(240 6% 32%)",
-          actorTextColor: "hsl(240 12% 88%)",
-          noteBkgColor: "hsl(45 40% 20%)",
-          noteTextColor: "hsl(45 60% 88%)",
-          noteBorderColor: "hsl(45 40% 40%)",
-        },
-        flowchart: { htmlLabels: false, useMaxWidth: true },
-        // Diagrams are read, often printed, and often exported. A font that
-        // does not exist falls back to something with a different baseline and
-        // the diagram no longer lines up with its own labels.
-        fontFamily: "inherit",
+      apiInstance = api;
+      initedTheme = themeMode();
+      api.initialize(config(initedTheme));
+      // The palette is baked into each SVG at render, so a theme switch has
+      // to re-render every block already drawn, not just the next one. The
+      // observer lives with the engine: no diagram ever drawn, nothing to
+      // retint.
+      new MutationObserver(() => {
+        const mode = themeMode();
+        if (!apiInstance || initedTheme === mode) return;
+        initedTheme = mode;
+        apiInstance.initialize(config(mode));
+        for (const block of document.querySelectorAll<HTMLElement>("pre[data-diagram]")) {
+          delete block.dataset.diagram;
+          void drawDiagram(block);
+        }
+      }).observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ["data-theme"],
       });
       return api;
     })
@@ -125,6 +183,7 @@ function engine(): Promise<MermaidApi> {
       // life of the window — the reader cannot recover from a block that never
       // gets another chance.
       loading = null;
+      apiInstance = null;
       throw err;
     });
   return loading;
@@ -163,6 +222,12 @@ export async function drawDiagram(block: HTMLElement): Promise<{ ok: boolean; re
   block.dataset.diagramPending = source;
   try {
     const api = await engine();
+    // The observer retints what is already drawn; a block that arrives in
+    // the gap between a flip and its repaint still needs current colours.
+    if (initedTheme !== themeMode()) {
+      initedTheme = themeMode();
+      api.initialize(config(initedTheme));
+    }
     const { svg } = await api.render(id, source);
     if (!svg) return { ok: false, reason: "empty" };
 
