@@ -526,16 +526,46 @@ fn main() {
                 }
             }
             app.manage(Sidecars::start());
+
+            // The page shows this window itself, after two frames, which is
+            // what keeps a black webview from flashing with a native title bar
+            // over it. `requestAnimationFrame` does not run while the window is
+            // off screen, though, and this window starts hidden — so that path
+            // cannot finish on its own and the window would never appear at
+            // all. Give the page its head start, then show the window here.
+            let window = app.get_webview_window("main");
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(1200));
+                if let Some(window) = window {
+                    // Fail open: a window that never appears is worse than one
+                    // that appears a frame early.
+                    if !window.is_visible().unwrap_or(false) {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }
+            });
+
             Ok(())
         })
         .build(tauri::generate_context!())
         .expect("error while building agent-strata")
-        .run(|app, event| {
-            if let tauri::RunEvent::Exit = event {
+        .run(|app, event| match event {
+            tauri::RunEvent::Exit => {
                 if let Some(sidecars) = app.try_state::<Sidecars>() {
                     sidecars.shutdown();
                 }
             }
+            // macOS sends this when the Dock icon is clicked while the app is
+            // already running. Unhandled, the click does nothing — which is
+            // indistinguishable from a window that never showed.
+            tauri::RunEvent::Reopen { .. } => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+            _ => {}
         });
 }
 
