@@ -4,6 +4,7 @@ import {
   createResource,
   createSignal,
   For,
+  on,
   onCleanup,
   onMount,
   Show,
@@ -168,10 +169,23 @@ export function SessionDetail(props: {
   sessions: SessionRowSummary[];
   onNewSession: () => void;
 }) {
-  createEffect(() => {
-    const id = props.id;
-    updatePaneWorkspace((ws) => assignSessionToWorkspace(ws, id));
-  });
+  // The route session belongs in the focused pane — but only when the route
+  // session *changes*.
+  //
+  // `updatePaneWorkspace` reads the pane signal to get the state it is updating,
+  // so a plain effect reading it becomes subscribed to the whole workspace. It
+  // then re-ran on every focus change, not just on the route, and stamped the
+  // session it was holding — which, on the frame you clicked another pane, was
+  // still the *previous* route. `assignSessionToWorkspace` answered rule 4 and
+  // replaced the focused pane's session in place, so the pane you had just
+  // clicked adopted the other conversation for a frame, and swapped back when
+  // the hashchange finally landed. `on` narrows the subscription to the one
+  // value this effect is actually about.
+  createEffect(
+    on(() => props.id, (id) => {
+      updatePaneWorkspace((ws) => assignSessionToWorkspace(ws, id));
+    }),
+  );
 
   const candidateSessionIds = () => props.sessions.map((s) => s.summary.session_id);
 
@@ -388,9 +402,9 @@ export function SessionDetail(props: {
     (id) => readSessionPolicy(id).catch(() => "unknown" as const),
   );
   const [autoAcceptErr, setAutoAcceptErr] = createSignal("");
-  const on = () => autoAccept() === "auto";
+  const autoAcceptOn = () => autoAccept() === "auto";
   const toggleAutoAccept = async () => {
-    const next = on() ? "inherit" : "auto";
+    const next = autoAcceptOn() ? "inherit" : "auto";
     setAutoAcceptErr("");
     // Flip the reader's own read first. The route is a local POST and the
     // answer is already known; waiting for it would make the button sit there
@@ -1264,13 +1278,13 @@ export function SessionDetail(props: {
                       autoAcceptErr() ||
                       (autoAccept() === "unknown"
                         ? t("header.autoAccept.broken")
-                        : t(on() ? "header.autoAccept.on" : "header.autoAccept.off"))
+                        : t(autoAcceptOn() ? "header.autoAccept.on" : "header.autoAccept.off"))
                     }
                   >
                     <PanelToggle
                       label={t("header.autoAccept")}
-                      on={on()}
-                      pressed={on()}
+                      on={autoAcceptOn()}
+                      pressed={autoAcceptOn()}
                       // Amber, like the permission cards: this toggle is the
                       // one in the row that changes what the agent may do
                       // without asking, so it should not read as "a panel is
@@ -1279,7 +1293,7 @@ export function SessionDetail(props: {
                       tone={
                         autoAcceptErr() || autoAccept() === "unknown"
                           ? "text-destructive"
-                          : on()
+                          : autoAcceptOn()
                             ? "text-event-permission"
                             : "text-muted-foreground"
                       }
@@ -1357,6 +1371,7 @@ export function SessionDetail(props: {
               <PaneStage
                 workspace={paneWorkspace()}
                 sessions={props.sessions}
+                transcriptSessionId={props.id}
                 onFocusPane={handleFocusPane}
                 onSelectPaneSession={handleSelectPaneSession}
                 onSplitPane={handleSplitPane}

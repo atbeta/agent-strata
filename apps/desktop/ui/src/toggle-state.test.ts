@@ -63,7 +63,10 @@ describe("the header row", () => {
     // default would be the same muted grey a panel toggle uses and this row
     // needs the amber to be the thing that stands out.
     expect(tone).toContain("text-muted-foreground");
-    expect(tone).toContain("on()");
+    // Named rather than `on`, which would shadow the Solid primitive the file
+    // imports for the pane-routing effect.
+    expect(tone).toContain("autoAcceptOn()");
+    expect(tone).not.toMatch(/(^|[^a-zA-Z])on\(\)/);
   });
 
   test("a tone replaces both states, so an unreadable switch can be neither", () => {
