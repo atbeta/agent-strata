@@ -148,6 +148,7 @@ export default {
   "settings.section.interface": "界面",
   "settings.section.opencode": "OpenCode",
   "settings.section.permission": "权限",
+  "settings.section.about": "关于",
   "settings.appearance": "外观",
   "settings.general": "常规",
   "settings.language": "语言",
@@ -216,4 +217,9 @@ export default {
   "settings.provider.confirm": "确认",
   "settings.provider.cancel": "取消",
   "settings.permission.title": "权限策略",
+  "settings.about.title": "应用",
+  "settings.about.tagline": "跨后端的 Agent 会话层，这里是它的桌面读端。",
+  "settings.about.version": "版本",
+  "settings.about.source": "源代码",
+  "settings.about.sourceHint": "问题与反馈都欢迎在这里提 issue。",
 } as const;

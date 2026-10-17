@@ -64,6 +64,9 @@ function width(ch: string) {
   return ch.codePointAt(0)! > 255 ? 2 : 1;
 }`;
 
+/** Where a question about this build should end up. */
+const SOURCE_URL = "https://github.com/atbeta/agent-strata";
+
 /**
  * A font picker that shows what is chosen. The dropdown carries the families
  * this computer actually has, and anything else is reached through one text
@@ -458,6 +461,53 @@ export function SettingsPage(props: { section?: string }) {
           to reach it, and the deep link is the section. */}
       <Group label={t("settings.permission.title")}>
         <PolicyEditor />
+      </Group>
+      </Show>
+
+      <Show when={section() === "about"}>
+      {/* The caption bar already carries the mark, but only at 24px and only
+          when the window draws its own title bar. This is the one surface that
+          states the build outright — the first thing anyone checks before
+          filing a bug — so the icon is worth showing at a readable size. */}
+      <Group label={t("settings.about.title")}>
+        <div class="flex items-center gap-4">
+          <img
+            src="/favicon.svg"
+            alt=""
+            draggable={false}
+            class="size-16 shrink-0 rounded-2xl"
+          />
+          <div class="min-w-0">
+            <div class="text-sm font-medium">Agent Strata</div>
+            <p class="mt-0.5 text-2xs leading-4 text-muted-foreground">
+              {t("settings.about.tagline")}
+            </p>
+          </div>
+        </div>
+
+        <div class="mt-5 divide-y divide-border">
+          {/* Mono because this is a build identifier, read against the tag
+              list — not a sentence. */}
+          <Row label={t("settings.about.version")} controlClass="w-40">
+            <span class="font-mono text-sm text-muted-foreground">v{__APP_VERSION__}</span>
+          </Row>
+
+          <Row
+            label={t("settings.about.source")}
+            hint={t("settings.about.sourceHint")}
+            controlClass="w-40"
+          >
+            <a
+              href={SOURCE_URL}
+              target="_blank"
+              rel="noreferrer"
+              class="inline-flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+            >
+              <Icon name="globe" class="size-3.5 shrink-0" />
+              <span class="truncate">atbeta/agent-strata</span>
+            </a>
+          </Row>
+        </div>
       </Group>
       </Show>
       </div>

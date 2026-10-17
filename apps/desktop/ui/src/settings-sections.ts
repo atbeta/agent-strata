@@ -11,6 +11,7 @@ export const SETTINGS_SECTIONS = [
   { id: "interface", label: "settings.section.interface" },
   { id: "opencode", label: "settings.section.opencode" },
   { id: "permission", label: "settings.section.permission" },
+  { id: "about", label: "settings.section.about" },
 ] as const satisfies readonly { id: string; label: MessageKey }[];
 
 export type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number]["id"];

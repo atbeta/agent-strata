@@ -150,6 +150,7 @@ export default {
   "settings.section.interface": "Interface",
   "settings.section.opencode": "OpenCode",
   "settings.section.permission": "Permissions",
+  "settings.section.about": "About",
   "settings.appearance": "Appearance",
   "settings.general": "General",
   "settings.language": "Language",
@@ -218,4 +219,9 @@ export default {
   "settings.provider.confirm": "Confirm",
   "settings.provider.cancel": "Cancel",
   "settings.permission.title": "Permission policy",
+  "settings.about.title": "Application",
+  "settings.about.tagline": "A cross-backend agent session layer — this is the desktop reader for it.",
+  "settings.about.version": "Version",
+  "settings.about.source": "Source",
+  "settings.about.sourceHint": "Questions and feedback are welcome as issues.",
 } as const;
