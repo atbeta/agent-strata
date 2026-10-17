@@ -107,7 +107,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -692,13 +691,9 @@ export function SessionDetail(props: {
   let searchPanelEl: HTMLDivElement | undefined;
   let searchTriggerEl: HTMLButtonElement | undefined;
   let toolsPanelEl: HTMLDivElement | undefined;
-  let moreMenuEl: HTMLDivElement | undefined;
+  let toolsTriggerEl: HTMLButtonElement | undefined;
   useDismiss(search.searchOpen, search.closeSearch, () => searchPanelEl, () => searchTriggerEl);
-  // The more-menu's portal is outside the panel in the DOM but not in spirit:
-  // without it, selecting Tools with the panel open dismisses it on the
-  // capture-phase pointerdown, then the select handler toggles it back on —
-  // a checked item that cannot be unchecked.
-  useDismiss(tools.toolsOpen, tools.closeTools, () => toolsPanelEl, () => moreMenuEl);
+  useDismiss(tools.toolsOpen, tools.closeTools, () => toolsPanelEl, () => toolsTriggerEl);
 
   /** One outline row per real prompt, rebuilt from the view already in hand. */
   const entries = createMemo(() => promptEntries(settled(view)?.turns ?? []));
@@ -1214,11 +1209,56 @@ export function SessionDetail(props: {
                     <Icon name="search" />
                   </PanelToggle>
                 </Tip>
-                  {/* Two controls stay out: find, because it is how the
-                      transcript is read, and the permission mode, because it
-                      changes what the agent may do without asking. Everything
-                      else folds into the trailing menu — seven same-shaped
-                      buttons read as a wall, not as options. */}
+                  <Show when={opencode()}>
+                    <Tip label={terminalOn() ? t("terminal.hide") : t("terminal.show")}>
+                      <PanelToggle
+                        label={terminalOn() ? t("terminal.hide") : t("terminal.show")}
+                        on={terminalOn()}
+                        pressed={terminalOn()}
+                        onClick={() => setTerminalOn((on) => !on)}
+                      >
+                        <Icon name="terminal" />
+                      </PanelToggle>
+                    </Tip>
+                  </Show>
+                  <Tip label={traceOn() ? t("trace.live") : t("trace.replay")}>
+                    <PanelToggle
+                      label={traceOn() ? t("trace.live") : t("trace.replay")}
+                      on={traceOn()}
+                      pressed={traceOn()}
+                      onClick={() => {
+                        if (traceOn()) {
+                          setTraceOn(false);
+                          setTraceBlock(null);
+                          setReplayPos(null);
+                        } else {
+                          setTraceOn(true);
+                        }
+                      }}
+                    >
+                      <Icon name="replay" />
+                    </PanelToggle>
+                  </Tip>
+                  <Show when={opencode()}>
+                    <Tip label={t("header.tools")}>
+                      <PanelToggle
+                        label={t("header.tools")}
+                        on={tools.toolsOpen()}
+                        pressed={tools.toolsOpen()}
+                        onClick={tools.toggleTools}
+                        bindRef={(el) => (toolsTriggerEl = el)}
+                      >
+                        <Icon name="mcp" />
+                      </PanelToggle>
+                    </Tip>
+                  </Show>
+                  {/* Two clusters: the four to the left open surfaces that
+                      inspect this transcript (find, terminal, trace, tools);
+                      the rest drive the session itself (permission mode,
+                      pane layout, and the menu of everything else). One
+                      hairline between them keeps the buttons from reading
+                      as a wall. */}
+                  <span class="mx-1 h-4 w-px shrink-0 bg-border" aria-hidden="true" />
                   <Tip
                     label={
                       autoAcceptErr() ||
@@ -1260,44 +1300,13 @@ export function SessionDetail(props: {
                         class="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                         aria-label={t("header.more")}
                       >
-                        <Icon name="more" />
+                        <Icon name="more" class="size-4.5" />
                       </DropdownMenuTrigger>
                     </Tip>
-                    <DropdownMenuContent ref={(el) => (moreMenuEl = el)}>
-                      <Show when={opencode()}>
-                        <DropdownMenuItem onSelect={() => setTerminalOn((on) => !on)}>
-                          <Icon name="terminal" class="size-3.5 text-muted-foreground" />
-                          <span class="flex-1">{t("terminal.show")}</span>
-                          <Show when={terminalOn()}>
-                            <Icon name="check" class="size-3.5 text-foreground" />
-                          </Show>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onSelect={tools.toggleTools}>
-                          <Icon name="plug" class="size-3.5 text-muted-foreground" />
-                          <span class="flex-1">{t("header.tools")}</span>
-                          <Show when={tools.toolsOpen()}>
-                            <Icon name="check" class="size-3.5 text-foreground" />
-                          </Show>
-                        </DropdownMenuItem>
-                      </Show>
-                      <DropdownMenuItem
-                        onSelect={() => {
-                          if (traceOn()) {
-                            setTraceOn(false);
-                            setTraceBlock(null);
-                            setReplayPos(null);
-                          } else {
-                            setTraceOn(true);
-                          }
-                        }}
-                      >
-                        <Icon name="replay" class="size-3.5 text-muted-foreground" />
-                        <span class="flex-1">{traceOn() ? t("trace.live") : t("trace.replay")}</span>
-                        <Show when={traceOn()}>
-                          <Icon name="check" class="size-3.5 text-foreground" />
-                        </Show>
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
+                    {/* One item today; the menu is the landing spot for
+                        low-frequency actions that have no state to show —
+                        toggles live in the row where their lit state reads. */}
+                    <DropdownMenuContent>
                       <DropdownMenuItem
                         onSelect={() =>
                           void downloadExport(v().session_id).catch((err) =>

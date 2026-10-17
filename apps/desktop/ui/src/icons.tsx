@@ -28,6 +28,7 @@ export type Name =
   | "check"
   | "undo"
   | "plug"
+  | "mcp"
   | "brain"
   | "stop"
   | "alert"
@@ -58,17 +59,14 @@ function Glyph(props: { class?: string; children: JSX.Element }) {
 }
 
 function glyphFor(name: Name, cls: string | undefined): JSX.Element {
-  // A run of events down a rail with the current position marked. Vertical on
-  // purpose: the horizontal variant read as a squashed progress bar and sat
-  // badly next to the taller toolbar glyphs.
+  // A clock hand inside a counter-clockwise arrow: replaying what already
+  // happened, which is what the trace drawer it opens shows.
   if (name === "replay")
     return (
       <Glyph class={cls}>
-        <path d="M4.5 2.6v10.8" />
-        <circle cx="4.5" cy="4" r="1.2" fill="currentColor" stroke="none" />
-        <circle cx="4.5" cy="8" r="1.2" fill="currentColor" stroke="none" />
-        <circle cx="4.5" cy="12" r="1.2" fill="currentColor" stroke="none" />
-        <path d="M8 4h4.8M8 8h4.8M8 12h4.8" />
+        <path d="M2.6 8A5.4 5.4 0 1 0 8 2.6 5.4 5.4 0 0 0 4.3 4.3L2.6 6" />
+        <path d="M2.6 2.8V6h3.2" />
+        <path d="M8 5.2V8l2.2 1.5" />
       </Glyph>
     );
   // A panel with a rail, matching the drawer it opens.
@@ -264,6 +262,20 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
         <path d="M4.2 5.8h7.6v3.6a3.8 3.8 0 0 1-3.8 3.8 3.8 3.8 0 0 1-3.8-3.8z" />
         <path d="M8 13.2v1.4" />
       </Glyph>
+    );
+  // The Model Context Protocol mark, verbatim from the spec's logo — a
+  // filled shape, unlike the stroke glyphs around it. "plug" stays for
+  // generic connection points; this one means MCP specifically.
+  if (name === "mcp")
+    return (
+      <svg
+        viewBox="0 0 24 24"
+        class={cls ?? "h-4 w-4"}
+        fill="currentColor"
+        stroke="none"
+      >
+        <path d="M13.85 0a4.16 4.16 0 0 0-2.95 1.217L1.456 10.66a.835.835 0 0 0 0 1.18.835.835 0 0 0 1.18 0l9.442-9.442a2.49 2.49 0 0 1 3.541 0 2.49 2.49 0 0 1 0 3.541L8.59 12.97l-.1.1a.835.835 0 0 0 0 1.18.835.835 0 0 0 1.18 0l.1-.098 7.03-7.034a2.49 2.49 0 0 1 3.542 0l.049.05a2.49 2.49 0 0 1 0 3.54l-8.54 8.54a1.96 1.96 0 0 0 0 2.755l1.753 1.753a.835.835 0 0 0 1.18 0 .835.835 0 0 0 0-1.18l-1.753-1.753a.266.266 0 0 1 0-.394l8.54-8.54a4.185 4.185 0 0 0 0-5.9l-.05-.05a4.16 4.16 0 0 0-2.95-1.218c-.2 0-.401.02-.6.048a4.17 4.17 0 0 0-1.17-3.552A4.16 4.16 0 0 0 13.85 0m0 3.333a.84.84 0 0 0-.59.245L6.275 10.56a4.186 4.186 0 0 0 0 5.902 4.186 4.186 0 0 0 5.902 0L19.16 9.48a.835.835 0 0 0 0-1.18.835.835 0 0 0-1.18 0l-6.985 6.984a2.49 2.49 0 0 1-3.54 0 2.49 2.49 0 0 1 0-3.54l6.983-6.985a.835.835 0 0 0 0-1.18.84.84 0 0 0-.59-.245" />
+      </svg>
     );
   // Two mirrored hemispheres with inner folds — the reasoning indicator.
   if (name === "brain")
