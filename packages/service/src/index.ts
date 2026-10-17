@@ -6,7 +6,7 @@ import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { openStore, type Store, type EventQuery } from "@agent-strata/store";
-import { projectSession, aggregate, type SessionView } from "@agent-strata/projector";
+import { projectSession, aggregate, emptySessionView, type SessionView } from "@agent-strata/projector";
 import { compareSessions, exportEvents } from "@agent-strata/core";
 import { autoAccept, evaluate, loadPolicy, type Policy } from "@agent-strata/policy";
 import { UnknownCommandError } from "@agent-strata/adapter-opencode";
@@ -80,6 +80,10 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   const conns = new Map<string, BackendDriver>();
   // casf session id -> driver id, filled as sessions are indexed or created
   const owners = new Map<string, string>();
+  /** The directory a session was created in, kept until its first event
+      lands — the view's `workspace` cannot come from events that do not
+      exist yet. */
+  const createdDirs = new Map<string, string>();
   // live policy: applies to every connection (hot-swapped via PUT /policy)
   let currentPolicy: Policy | undefined;
   const loadPolicyFile = (): Policy | undefined => {
@@ -189,9 +193,19 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     });
 
   const sessionView = (sessionId: string): SessionView => {
-    if (!live.has(sessionId)) return views.view(sessionId);
-    const stored = views.events(sessionId);
-    return projectSession([...stored, ...live.events(sessionId, stored.at(-1)?.seq ?? 0)]);
+    try {
+      if (!live.has(sessionId)) return views.view(sessionId);
+      const stored = views.events(sessionId);
+      return projectSession([...stored, ...live.events(sessionId, stored.at(-1)?.seq ?? 0)]);
+    } catch (e) {
+      // A session just created owns an id before its first event lands. That
+      // gap used to surface as a 500 and the reader painted its "service
+      // unreachable" frame for a beat on every new session.
+      if (e instanceof Error && e.message === "no events" && owners.has(sessionId)) {
+        return { ...emptySessionView(sessionId, sessionId.split(":")[0]!), workspace: createdDirs.get(sessionId) };
+      }
+      throw e;
+    }
   };
 
   const directoryOf = (casfId: string): string | undefined => {
@@ -546,16 +560,25 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         // served from the serialized body. Tail and replay reads slice the
         // projection themselves and never touch that body.
         if (!live.has(sid)) {
-          return new Response(views.viewBody(sid), {
-            headers: { "content-type": "application/json" },
-          });
+          try {
+            return new Response(views.viewBody(sid), {
+              headers: { "content-type": "application/json" },
+            });
+          } catch {
+            // Zero events yet — sessionView knows when that is a real session.
+            return json(sessionView(sid));
+          }
         }
         return json(sessionView(sid));
       }
       const n = Number(untilSeq);
-      return json(
-        projectSession(views.events(sid).filter((e) => e.seq <= n)),
-      );
+      try {
+        return json(
+          projectSession(views.events(sid).filter((e) => e.seq <= n)),
+        );
+      } catch {
+        return json(sessionView(sid));
+      }
     }
 
     const sessionSearch = path.match(/^\/sessions\/([^/]+)\/search$/);
@@ -604,6 +627,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       if (!conn.capabilities.prompt) return json({ error: "backend cannot create sessions" }, 400);
       const created = await conn.createSession({ title: body.title, directory: body.directory });
       owners.set(created.casfId, conn.id);
+      if (body.directory) createdDirs.set(created.casfId, body.directory);
       // The channel that hands the user a session is the one that owns it, so
       // another channel onto the same agent leaves this session alone.
       claims.claim(`${conn.agent}:${created.nativeId}`, created.casfId, conn.id);

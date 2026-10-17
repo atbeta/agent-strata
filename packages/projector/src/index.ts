@@ -178,6 +178,27 @@ function pathKey(path: string): string {
   return /^[A-Za-z]:\//.test(p) ? p.toLowerCase() : p;
 }
 
+/**
+ * A session that exists but has no events yet — the gap between "created" and
+ * the first durable event. `projectSession` cannot answer there (its identity
+ * fields come from the events), so callers that know the session is real hand
+ * the reader this shape instead of an error.
+ */
+export function emptySessionView(sessionId: string, backend: string): SessionView {
+  return {
+    session_id: sessionId,
+    backend,
+    status: "active",
+    busy: false,
+    turns: [],
+    orphans: [],
+    pending_permissions: [],
+    pending_questions: [],
+    files_changed: [],
+    totals: zeroTotals(),
+  };
+}
+
 export function projectSession(events: Event[]): SessionView {
   const sorted = [...events].sort((a, b) => a.seq - b.seq);
   if (sorted.length === 0) throw new Error("no events");
