@@ -89,14 +89,33 @@ export function useConnections(opts: {
    */
   const attaching = () => !connected() && launching();
 
-  const [connOpen, setConnOpen] = createSignal(false);
+  const [connOpen, setConnOpenRaw] = createSignal(false);
+  const [connErr, setConnErrRaw] = createSignal("");
+  let connErrTimer: ReturnType<typeof setTimeout> | undefined;
+  const setConnErr = (msg: string) => {
+    clearTimeout(connErrTimer);
+    setConnErrRaw(msg);
+    // The line sits outside the connect panel, so nothing else ever
+    // dismissed it — a dead attempt kept reading as the live state. It
+    // gets a shelf life while the panel is closed; inside the panel it is
+    // the answer to the form the reader just tried.
+    connErrTimer = msg
+      ? setTimeout(() => {
+          if (!connOpen()) setConnErrRaw("");
+        }, 12_000)
+      : undefined;
+  };
+  const setConnOpen = (open: boolean | ((v: boolean) => boolean)) => {
+    const next = typeof open === "function" ? open(connOpen()) : open;
+    setConnOpenRaw(next);
+    if (!next) setConnErr("");
+  };
   const [connUrl, setConnUrl] = createSignal("http://127.0.0.1:4096");
   const [connName, setConnName] = createSignal("");
   const [connKind, setConnKind] = createSignal<"opencode" | "acp">("opencode");
   const [connCmd, setConnCmd] = createSignal("opencode acp");
   const [connUser, setConnUser] = createSignal("");
   const [connPass, setConnPass] = createSignal("");
-  const [connErr, setConnErr] = createSignal("");
   const [connecting, setConnecting] = createSignal(false);
 
   const [newConn, setNewConn] = createSignal<string | null>(localStorage.getItem(NEW_CONN_KEY));
