@@ -5,28 +5,48 @@
 **玉色 / Jade.** Strata Core in cool jade: four subtly faceted, interlocking
 strata stacked on one upright dark tile.
 
-- Tile — `#14231E`, a 896-unit squircle (corner radius 224) inset 64 on every
-  side of the 1024 canvas, with a `#E3FFF5` hairline at 6% opacity tracing it
-  1.5 units inside. The icon carries its own backing, so it stays legible on
-  both light and dark surfaces and at 16px.
+- Tile — `#17332C`, an 896-unit squircle (corner radius 224) inset 64 on every
+  side of the 1024 canvas. The icon carries its own backing, so it stays legible
+  on both light and dark surfaces and at 16px.
 - Strata — a top face lighter than its left facet, each body one step darker
   than the one above it:
 
-  | body   | top face | left facet |
-  | ------ | -------- | ---------- |
-  | slab 1 | `#96CEBF` | `#A3D9CA` |
-  | slab 2 | `#6BB3A1` | `#75BEAB` |
-  | slab 3 | `#388C7B` | `#429786` |
-  | base   | `#29675C` | `#307367` |
+  | body   | top face | left facet | facet − top |
+  | ------ | -------- | ---------- | ----------- |
+  | slab 1 | `#8FC9B8` | `#C4E9DE` | 0.242 |
+  | slab 2 | `#5FAE99` | `#94D2C0` | 0.212 |
+  | slab 3 | `#2E7D6C` | `#5EAB98` | 0.174 |
+  | base   | `#12463B` | `#2F7C6C` | 0.113 |
 
-  The group is scaled 0.94 and nudged up, and the whole stack is drawn twice:
-  once as `#091713` at 50% offset 16 units down, for the drop shadow that keeps
-  the slabs apart from the tile.
+  The group is scaled 1.02, and the stack is drawn twice: once as `#091713` at
+  32% offset 12 units down, for the drop shadow that keeps the slabs apart from
+  the tile.
+
+### Why these numbers
+
+An icon that looks fine at 512px can be mush at 24px, and the taskbar is where
+this one has to survive. Three things were doing the damage in the first jade
+version:
+
+- **The facet contrast was sub-threshold.** Each left facet sat only 0.03–0.07
+  of relative luminance above its own body. At 24px that gap is below what a
+  pixel can carry, so all four slabs flattened into one silhouette. Every
+  facet step is now ≥ 0.11, and the steps between neighbouring bodies are
+  0.115–0.187, so the stack still reads as a stack at taskbar size.
+- **A 6%-opacity hairline.** The `#E3FFF5` outline around the tile was pure
+  noise: invisible as detail, but at small sizes it added a stray light edge
+  that read as a rendering artefact. Removed.
+- **A 50% drop shadow at 16px offset.** It doubled every edge and was most of
+  the "soft, blurry" quality. Halved and pulled in.
+
+The tile was also lifted from `#14231E` to `#17332C`. Against a dark taskbar the
+original was effectively black; a little more green lets the tile read as a
+tile instead of a hole.
 
 The earlier **Interlock** mark (pearl/ice/brand blue on a transparent field)
-is gone. Nothing referenced its monochrome variant, so no single-colour
-`strata-mark.svg` is produced any more — tinting a mark this faceted does not
-preserve it, and the caption bar uses the full-colour window icon instead.
+is gone, and so is any single-colour `strata-mark.svg` — nothing referenced it,
+and tinting a mark this faceted does not preserve it. The caption bar uses the
+full-colour window icon instead.
 
 ## Sources
 

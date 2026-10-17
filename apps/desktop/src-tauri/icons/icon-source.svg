@@ -1,21 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
   <title id="title">Agent Strata — Jade</title>
   <desc id="desc">Strata Core in cool jade. Four subtly faceted, interlocking strata on a dark squircle tile.</desc>
-  <path fill="#14231E" d="M288 64h448c124 0 224 100 224 224v448c0 124-100 224-224 224H288C164 960 64 860 64 736V288C64 164 164 64 288 64Z"/>
-  <path fill="none" stroke="#E3FFF5" stroke-opacity=".06" stroke-width="3" d="M288 65.5h448c123 0 222.5 99.5 222.5 222.5v448c0 123-99.5 222.5-222.5 222.5H288C165 958.5 65.5 859 65.5 736V288C65.5 165 165 65.5 288 65.5Z"/>
-  <g transform="translate(512 512) scale(.94) translate(-512 -561)">
-    <g fill="#091713" opacity=".5" transform="translate(0 16)">
+  <path fill="#17332C" d="M288 64h448c124 0 224 100 224 224v448c0 124-100 224-224 224H288C164 960 64 860 64 736V288C64 164 164 64 288 64Z"/>
+  <g transform="translate(512 512) scale(1.02) translate(-512 -561)">
+    <g fill="#091713" opacity=".32" transform="translate(0 12)">
       <path d="M512 202 806 349 708 398 512 300 316 398 218 349 512 202Z"/>
       <path d="m316 430 196 98 196-98 98 49-294 147-294-147 98-49Z"/>
       <path d="m316 560 196 98 196-98 98 49-294 147-294-147 98-49Z"/>
     </g>
-    <path fill="#96CEBF" d="M512 202 806 349 708 398 512 300 316 398 218 349 512 202Z"/>
-    <path fill="#A3D9CA" d="M512 202v98L316 398l-98-49 294-147Z"/>
-    <path fill="#6BB3A1" d="m316 430 196 98 196-98 98 49-294 147-294-147 98-49Z"/>
-    <path fill="#75BEAB" d="m316 430 196 98v98L218 479l98-49Z"/>
-    <path fill="#388C7B" d="m316 560 196 98 196-98 98 49-294 147-294-147 98-49Z"/>
-    <path fill="#429786" d="m316 560 196 98v98L218 609l98-49Z"/>
-    <path fill="#29675C" d="m218 609 98 49v66l196 98 196-98v-66l98-49v164L512 920 218 773V609Z"/>
-    <path fill="#307367" d="m218 609 98 49v66l196 98v98L218 773V609Z"/>
+    <path fill="#8FC9B8" d="M512 202 806 349 708 398 512 300 316 398 218 349 512 202Z"/>
+    <path fill="#C4E9DE" d="M512 202v98L316 398l-98-49 294-147Z"/>
+    <path fill="#5FAE99" d="m316 430 196 98 196-98 98 49-294 147-294-147 98-49Z"/>
+    <path fill="#94D2C0" d="m316 430 196 98v98L218 479l98-49Z"/>
+    <path fill="#2E7D6C" d="m316 560 196 98 196-98 98 49-294 147-294-147 98-49Z"/>
+    <path fill="#5EAB98" d="m316 560 196 98v98L218 609l98-49Z"/>
+    <path fill="#12463B" d="M218 609l98 49v66l196 98 196-98v-66l98-49v164L512 920 218 773V609Z"/>
+    <path fill="#2F7C6C" d="M218 609l98 49v66l196 98v98L218 773V609Z"/>
   </g>
 </svg>
