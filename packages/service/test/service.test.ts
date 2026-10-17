@@ -542,6 +542,49 @@ describe("agent-strata service", () => {
     svc.stop();
   });
 
+  test("a session on auto asks nothing when there is no shared policy", async () => {
+    // autoStance never ran when the shared document was missing: base &&
+    // stance short-circuited, the driver got undefined, and every ask
+    // surfaced. The switch looked on and did nothing — the case behind
+    // "not asking stopped working" with no rules configured.
+    const oc = fakeOpencode({ "/permission/p-solo/reply": () => Response.json(true) });
+    const svc = startService({ db: ":memory:", port: 0 });
+    const base = `http://127.0.0.1:${svc.port}`;
+    const asked = (id: string) =>
+      oc.seen.find((s) => s.path === `/permission/${id}/reply`);
+    const pendingIds = async () =>
+      (await fetch(`${base}/permissions`).then((r) => r.json())).pending.map(
+        (p: { request_id: string }) => p.request_id,
+      );
+
+    await fetch(`${base}/connect`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ baseUrl: oc.baseUrl, directory: "/repo" }),
+    });
+    await fetch(`${base}/sessions/opencode%3Ases_solo/policy`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode: "auto" }),
+    });
+
+    oc.push({
+      directory: "/repo",
+      payload: {
+        type: "permission.asked",
+        properties: {
+          id: "p-solo", sessionID: "ses_solo", permission: "bash", patterns: ["ls"], metadata: {}, always: [],
+        },
+      },
+    });
+    for (let i = 0; i < 30 && !asked("p-solo"); i++) await Bun.sleep(50);
+    expect(asked("p-solo")).toBeDefined();
+    expect(await pendingIds()).not.toContain("p-solo");
+
+    oc.stop();
+    svc.stop();
+  });
+
   test("a session on auto still obeys a deny rule, and is not persisted", async () => {
     const oc = fakeOpencode({ "/permission/p-rm/reply": () => Response.json(true) });
     const dir = `${import.meta.dir}/.tmp-${Bun.randomUUIDv7()}`;

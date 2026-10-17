@@ -368,7 +368,10 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     };
     const policy = (sessionID: string): Policy | undefined => {
       const base = shared();
-      return base && autoStance(sessionID) ? autoAccept(base) : base;
+      if (!autoStance(sessionID)) return base;
+      // No shared document means there is nothing to soften, not nothing to
+      // do — the stance still answers "do not ask me here".
+      return autoAccept(base ?? { version: 1, default: "ask", rules: [] });
     };
     let driver: BackendDriver;
     if (backend === "opencode") {
