@@ -560,6 +560,11 @@ fn main() {
             // macOS sends this when the Dock icon is clicked while the app is
             // already running. Unhandled, the click does nothing — which is
             // indistinguishable from a window that never showed.
+            //
+            // `RunEvent::Reopen` only exists on macOS — tauri gates the variant
+            // behind `#[cfg(target_os = "macos")]` — so the arm needs the same
+            // gate or Windows and Linux fail to compile on the missing variant.
+            #[cfg(target_os = "macos")]
             tauri::RunEvent::Reopen { .. } => {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.show();
