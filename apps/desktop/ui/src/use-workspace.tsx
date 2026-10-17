@@ -61,6 +61,14 @@ export function useWorkspace() {
     setDirDraft("");
   };
 
+  /** The desktop shell's directory chooser. Browsers can't reach the native
+      dialog, so the sidebar keeps the typed-path popover as its fallback. */
+  const pickDir = async () => {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const dir = await open({ directory: true });
+    if (typeof dir === "string") addDir(dir);
+  };
+
   return {
     wsList,
     refetchWs,
@@ -72,6 +80,7 @@ export function useWorkspace() {
     dirDraft,
     setDirDraft,
     addDir,
+    pickDir,
   };
 }
 

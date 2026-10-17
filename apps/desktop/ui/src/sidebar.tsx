@@ -13,7 +13,7 @@ import { Icon } from "./icons";
 import { Tip } from "./tip";
 import { CommandSearch } from "./search";
 import { openSessionInSplit } from "./session-chrome";
-import { hostsTrafficLights } from "./shell";
+import { hostsTrafficLights, inDesktopShell } from "./shell";
 import { sessionStatus } from "./session-status";
 import { explain } from "./errors";
 import type { SessionListCtl, SidebarGroup } from "./use-session-list";
@@ -314,44 +314,62 @@ export function Sidebar(props: {
         <div class="mb-0.5 flex items-center justify-between px-2 pb-0.5 pt-2.5">
           <span class="text-xs font-medium text-muted-foreground">{t("sidebar.projects")}</span>
           {/* Open a directory that has no sessions yet — the one place a
-              project the list does not already know can enter it. */}
-          <DropdownMenu
-            open={props.ws.dirOpen()}
-            onOpenChange={props.ws.setDirOpen}
-            gutter={4}
-            placement="bottom-end"
+              project the list does not already know can enter it. In the
+              desktop shell the button goes straight to the native picker; a
+              browser tab can't reach it, so it falls back to a typed path. */}
+          <Show
+            when={inDesktopShell()}
+            fallback={
+              <DropdownMenu
+                open={props.ws.dirOpen()}
+                onOpenChange={props.ws.setDirOpen}
+                gutter={4}
+                placement="bottom-end"
+              >
+                <Tip label={t("sidebar.project.openDirectory")}>
+                  <DropdownMenuTrigger class="grid size-5 place-items-center rounded text-muted-foreground/60 hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+                    <Icon name="folder-plus" class="size-3.5" />
+                  </DropdownMenuTrigger>
+                </Tip>
+                <DropdownMenuContent class="w-[276px]">
+                  <form
+                    class="px-2 py-1.5"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      props.ws.addDir(props.ws.dirDraft());
+                    }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                  >
+                    <TextField>
+                      <TextFieldLabel class="text-2xs font-medium text-muted-foreground">
+                        {t("sidebar.project.openDirectory")}
+                      </TextFieldLabel>
+                      <TextFieldInput
+                        size="sm"
+                        mono
+                        value={props.ws.dirDraft()}
+                        onChange={props.ws.setDirDraft}
+                        class="bg-background text-2xs"
+                        placeholder="/path/to/project"
+                        onKeyDown={(e) => e.stopPropagation()}
+                      />
+                    </TextField>
+                  </form>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            }
           >
             <Tip label={t("sidebar.project.openDirectory")}>
-              <DropdownMenuTrigger class="grid size-5 place-items-center rounded text-muted-foreground/60 hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
-                <Icon name="folder-plus" class="size-3.5" />
-              </DropdownMenuTrigger>
-            </Tip>
-            <DropdownMenuContent class="w-[276px]">
-              <form
-                class="px-2 py-1.5"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  props.ws.addDir(props.ws.dirDraft());
-                }}
-                onPointerDown={(e) => e.stopPropagation()}
+              <Button
+                variant="icon"
+                size="icon-2xs"
+                class="text-muted-foreground/60"
+                onClick={() => void props.ws.pickDir()}
               >
-                <TextField>
-                  <TextFieldLabel class="text-2xs font-medium text-muted-foreground">
-                    {t("sidebar.project.openDirectory")}
-                  </TextFieldLabel>
-                  <TextFieldInput
-                    size="sm"
-                    mono
-                    value={props.ws.dirDraft()}
-                    onChange={props.ws.setDirDraft}
-                    class="bg-background text-2xs"
-                    placeholder="/path/to/project"
-                    onKeyDown={(e) => e.stopPropagation()}
-                  />
-                </TextField>
-              </form>
-            </DropdownMenuContent>
-          </DropdownMenu>
+                <Icon name="folder-plus" class="size-3.5" />
+              </Button>
+            </Tip>
+          </Show>
         </div>
         <Show
           when={projectGroups().length > 0}

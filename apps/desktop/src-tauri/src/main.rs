@@ -508,6 +508,7 @@ async fn save_export(file_name: String, contents: Vec<u8>) -> Result<Option<Stri
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![save_export])
         .setup(|app| {
