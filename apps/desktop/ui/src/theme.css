@@ -43,6 +43,18 @@
   --cost-up: hsl(0 72% 55%);
   --cost-down: hsl(152 62% 52%);
   --cost-flat: hsl(218 14% 62%);
+  /* Categorical marks. A chart needs a palette, and every other colour in this
+     file carries a meaning — a green bar said a session was running and an amber
+     one said it had been cancelled, so a spend column painted in those read as a
+     status nobody reported. These five mean nothing on their own; all they owe
+     a reader is being distinguishable from the mark beside them. Ordered so
+     neighbouring slots are far apart on the wheel, which is what keeps a
+     two-segment bar from looking like one colour. */
+  --chart-1: hsl(217 91% 66%);
+  --chart-2: hsl(152 62% 50%);
+  --chart-3: hsl(33 90% 55%);
+  --chart-4: hsl(190 80% 52%);
+  --chart-5: hsl(262 66% 65%);
   --diff-add-fg: hsl(150 70% 62%);
   --diff-add-bg: hsl(150 60% 40% / 0.14);
   --diff-del-fg: hsl(0 76% 68%);
@@ -101,6 +113,14 @@ html[data-theme="light"] {
   --cost-up: hsl(0 72% 44%);
   --cost-down: hsl(152 55% 30%);
   --cost-flat: hsl(220 6% 42%);
+  /* Darker than the dark set by the same margin the rest of the domain tokens
+     use: a mark has to hold its own against a white surface, where the bright
+     dark-theme values wash out. */
+  --chart-1: hsl(217 80% 46%);
+  --chart-2: hsl(152 55% 32%);
+  --chart-3: hsl(28 80% 40%);
+  --chart-4: hsl(190 70% 32%);
+  --chart-5: hsl(262 48% 46%);
   --diff-add-fg: hsl(150 60% 28%);
   --diff-add-bg: hsl(150 60% 40% / 0.16);
   --diff-del-fg: hsl(0 70% 40%);
@@ -157,6 +177,11 @@ html[data-theme="light"] {
   --color-cost-up: var(--cost-up);
   --color-cost-down: var(--cost-down);
   --color-cost-flat: var(--cost-flat);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
 }
 
 @theme {
@@ -166,8 +191,15 @@ html[data-theme="light"] {
      is the default size and `text-2xs` replaces the off-scale 11px label. Going
      through named steps instead of `text-[13px]` keeps the whole UI retunable
      from this block. */
-  --font-sans: ui-sans-serif, system-ui, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", monospace;
+  /* The CJK faces in both stacks are not decoration. Every Latin family here is
+     Latin-only, so a Chinese character walks the whole list and lands on the
+     generic — and Chromium resolves generic `monospace` to SimSun on Windows,
+     which is why a label inside `font-mono` rendered as 宋体 while the same
+     label beside it did not. Naming a CJK sans first stops the walk there. */
+  --font-sans: ui-sans-serif, system-ui, "Segoe UI", "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "Cascadia Mono", Consolas,
+    "PingFang SC", "Microsoft YaHei", "Noto Sans Mono CJK SC", monospace;
   --font-terminal: var(--font-mono);
   --text-2xs: 0.6875rem;
   --text-xs: 0.75rem;
