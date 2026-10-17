@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   attachmentProblem,
+  builtinCommands,
   commandOf,
   commandParts,
   insertPick,
@@ -131,6 +132,20 @@ describe("what goes out", () => {
     const list = [{ name: "review" }, { name: "init" }, { name: "mcp-search:web" }, { name: "customize-opencode" }];
     expect(matchCommands(list, "i").map((c) => c.name)).toEqual(["init", "review", "customize-opencode"]);
     expect(matchCommands(list, "").map((c) => c.name)).toEqual(["review", "init", "mcp-search:web", "customize-opencode"]);
+  });
+
+  test("built-in commands follow what the session can do", () => {
+    expect(builtinCommands({})).toEqual(["export", "new"]);
+    expect(
+      builtinCommands({ summarize: true, revert: true, abort: true, fork: true, hasTurns: true, manage: true, share: true, terminal: true }),
+    ).toEqual(["compact", "undo", "interrupt", "fork", "rename", "share", "unshare", "terminal", "export", "new"]);
+  });
+
+  test("redo waits for a reverted state and fork waits for a turn", () => {
+    expect(builtinCommands({ revert: true })).toEqual(["undo", "export", "new"]);
+    expect(builtinCommands({ revert: true, reverted: true })).toEqual(["undo", "redo", "export", "new"]);
+    expect(builtinCommands({ fork: true })).toEqual(["export", "new"]);
+    expect(builtinCommands({ fork: true, hasTurns: true })).toEqual(["fork", "export", "new"]);
   });
 });
 

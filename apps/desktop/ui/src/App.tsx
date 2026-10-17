@@ -462,6 +462,7 @@ export function App() {
           <SessionDetail
             id={(route() as { id: string }).id}
             sessions={settled(list.data)?.sessions ?? []}
+            onNewSession={requestNewSession}
           />
         </Show>
         <Show when={route().name === "compare"}>

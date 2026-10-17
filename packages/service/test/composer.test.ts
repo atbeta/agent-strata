@@ -23,6 +23,10 @@ describe("the composer through strata", () => {
       if (command === "slow") await Bun.sleep(60_000);
       return Response.json({ info: { id: "msg_1", role: "assistant" }, parts: [] });
     },
+    "/session/ses_x/share": (_url, req) =>
+      req.method === "DELETE"
+        ? Response.json({ id: "ses_x" })
+        : Response.json({ id: "ses_x", share: { url: "https://opncd.ai/s/abc" } }),
   });
   let svc: ReturnType<typeof startService>;
   let base = "";
@@ -61,9 +65,11 @@ describe("the composer through strata", () => {
       abort: true,
       commands: true,
       attachments: true,
+      manage: true,
       revert: true,
       fork: true,
       summarize: true,
+      share: true,
       extension: "opencode",
     });
     expect(
@@ -125,6 +131,15 @@ describe("the composer through strata", () => {
       model: "anthropic/claude",
       parts: [{ type: "file", filename: "README.md", url: pathToFileURL(resolve("/repo/x", "README.md")).href }],
     });
+  });
+
+  test("share and unshare reach the backend's share endpoint", async () => {
+    const shared = await post(`${session}/share`, {});
+    expect(shared.status).toBe(200);
+    expect(await shared.json()).toEqual({ url: "https://opncd.ai/s/abc" });
+    const unshared = await fetch(`${base}${session}/unshare`, { method: "POST" });
+    expect(unshared.status).toBe(200);
+    expect(upstream.seen.some((s) => s.path === "/session/ses_x/share" && s.method === "DELETE")).toBe(true);
   });
 
   test("a long command is handed over without waiting for the reply", async () => {

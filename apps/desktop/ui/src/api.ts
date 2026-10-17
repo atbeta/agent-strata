@@ -280,16 +280,20 @@ export interface SessionCapabilities {
   abort?: boolean;
   commands?: boolean;
   attachments?: boolean;
+  /** rename, archive, delete */
+  manage?: boolean;
   revert?: boolean;
   fork?: boolean;
   summarize?: boolean;
+  share?: boolean;
   extension?: "opencode";
 }
 
 export interface CommandInfo {
   name: string;
   description?: string;
-  source?: "command" | "mcp" | "skill";
+  /** "builtin" marks a command this app runs itself; the rest come from the backend. */
+  source?: "command" | "mcp" | "skill" | "builtin";
   hints?: string[];
 }
 
@@ -680,6 +684,18 @@ export async function forkSession(id: string, messageId: string): Promise<string
 
 export async function summarizeSession(id: string): Promise<void> {
   await throwOnError(await fetch(api(`/sessions/${encodeURIComponent(id)}/summarize`), { method: "POST" }));
+}
+
+/** Publishes the session; resolves with its share URL when the backend hands one back. */
+export async function shareSession(id: string): Promise<string | undefined> {
+  const res = await fetch(api(`/sessions/${encodeURIComponent(id)}/share`), { method: "POST" });
+  await throwOnError(res);
+  const body = (await res.json().catch(() => ({}))) as { url?: string | null };
+  return body.url ?? undefined;
+}
+
+export async function unshareSession(id: string): Promise<void> {
+  await throwOnError(await fetch(api(`/sessions/${encodeURIComponent(id)}/unshare`), { method: "POST" }));
 }
 
 export async function respondQuestion(

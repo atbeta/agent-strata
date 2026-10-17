@@ -61,6 +61,7 @@ export async function connectOpencodeDriver(opts: {
       revert: true,
       fork: true,
       summarize: true,
+      share: true,
     },
     extension: opencodeExtension({
       baseUrl: opts.baseUrl,
@@ -104,6 +105,8 @@ export async function connectOpencodeDriver(opts: {
       return { casfId: `${PREFIX}${created.id}`, nativeId: created.id };
     },
     summarize: (nativeId, directory, model) => conn.summarize(nativeId, directory, model),
+    share: (nativeId, directory) => conn.share(nativeId, directory),
+    unshare: (nativeId, directory) => conn.unshare(nativeId, directory),
     listModels: () => conn.listModels(),
     listAgents: () => conn.listAgents(),
     listWorkspaces: () => conn.listWorkspaces(),

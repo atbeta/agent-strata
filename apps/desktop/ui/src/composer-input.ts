@@ -129,6 +129,41 @@ export function matchCommands<T extends { name: string }>(list: readonly T[], qu
   return [...list.filter((c) => name(c).startsWith(q)), ...list.filter((c) => !name(c).startsWith(q) && name(c).includes(q))];
 }
 
+/**
+ * Slash commands the app runs itself rather than handing to the backend.
+ *
+ * A CLI's `/` menu mixes these with the backend's prompt commands; the backend
+ * only ever lists the second kind, so without this table commands like
+ * `/compact` — a client-side action that calls the summarize endpoint — never
+ * appear at all. Each entry is gated on what the session can actually do.
+ */
+export function builtinCommands(c: {
+  summarize?: boolean;
+  revert?: boolean;
+  /** the session holds a reverted state `redo` can restore */
+  reverted?: boolean;
+  abort?: boolean;
+  fork?: boolean;
+  hasTurns?: boolean;
+  manage?: boolean;
+  share?: boolean;
+  terminal?: boolean;
+}): string[] {
+  const names: string[] = [];
+  if (c.summarize) names.push("compact");
+  if (c.revert) {
+    names.push("undo");
+    if (c.reverted) names.push("redo");
+  }
+  if (c.abort) names.push("interrupt");
+  if (c.fork && c.hasTurns) names.push("fork");
+  if (c.manage) names.push("rename");
+  if (c.share) names.push("share", "unshare");
+  if (c.terminal) names.push("terminal");
+  names.push("export", "new");
+  return names;
+}
+
 export function nextAgent(agents: readonly string[], current: string, step: 1 | -1): string | undefined {
   if (agents.length === 0) return undefined;
   const i = agents.indexOf(current);

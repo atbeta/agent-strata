@@ -626,9 +626,11 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         abort: c.abort,
         commands: c.commands === true,
         attachments: c.attachments === true,
+        manage: c.manage === true,
         ...(c.revert ? { revert: true } : {}),
         ...(c.fork ? { fork: true } : {}),
         ...(c.summarize ? { summarize: true } : {}),
+        ...(c.share ? { share: true } : {}),
         ...(conn.extension ? { extension: conn.extension.kind } : {}),
       });
     }
@@ -908,6 +910,26 @@ export function startService(opts: ServiceOpts = {}): RunningService {
           : undefined;
       try {
         await conn.summarize(native, directoryOf(casfId), model);
+        return json({ ok: true });
+      } catch (e) {
+        return json({ error: String(e) }, 502);
+      }
+    }
+
+    const sessionShare = path.match(/^\/sessions\/([^/]+)\/(share|unshare)$/);
+    if (sessionShare && req.method === "POST") {
+      const casfId = decodeURIComponent(sessionShare[1]!);
+      const action = sessionShare[2]!;
+      const conn = driverFor(casfId);
+      if (!conn) return json({ error: "no backend connected" }, 400);
+      const native = conn.nativeId(casfId);
+      if (!native) return json({ error: "session is not owned by a connected backend" }, 400);
+      owners.set(casfId, conn.id);
+      if (!conn.capabilities.share || !conn.share || !conn.unshare)
+        return json({ error: "backend cannot share sessions" }, 400);
+      try {
+        if (action === "share") return json({ url: (await conn.share(native, directoryOf(casfId))) ?? null });
+        await conn.unshare(native, directoryOf(casfId));
         return json({ ok: true });
       } catch (e) {
         return json({ error: String(e) }, 502);

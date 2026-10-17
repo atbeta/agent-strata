@@ -10,6 +10,7 @@ import {
   type JSX,
 } from "solid-js";
 import {
+  abortSession,
   api,
   downloadExport,
   fmtUsd,
@@ -21,18 +22,26 @@ import {
   readLsp,
   readVcs,
   realWorkspace,
+  renameSession,
   respondPermission,
   setSessionPolicy,
+  shareSession,
   readHead,
   readViewTail,
   revertSession,
   forkSession,
+  summarizeSession,
+  unshareSession,
   unrevertSession,
+  type CommandInfo,
   type OptionsResponse,
   type PendingAsk,
   type PendingQuestion,
   type SessionView,
 } from "./api";
+import { builtinCommands } from "./composer-input";
+import { copyText } from "./clipboard";
+import { messageText } from "./transcript-format";
 import { Icon } from "./icons";
 import { t } from "./i18n";
 import { settled } from "./resource";
@@ -151,6 +160,7 @@ function PanelToggle(props: {
 export function SessionDetail(props: {
   id: string;
   sessions: SessionRowSummary[];
+  onNewSession: () => void;
 }) {
   createEffect(() => {
     const id = props.id;
@@ -539,12 +549,110 @@ export function SessionDetail(props: {
     }
   };
 
+  /**
+   * Commands the slash menu shows on top of the backend's own: the session
+   * actions a CLI keyboard user expects (`/compact`, `/undo`, …), which the
+   * backend never lists because they are client actions over plain endpoints,
+   * not prompt templates. `commands()` still reports the backend list on its
+   * own for anything that wants it unmerged.
+   */
+  const BUILTIN_DESC: Record<string, () => string> = {
+    compact: () => t("cmd.compact"),
+    undo: () => t("cmd.undo"),
+    redo: () => t("cmd.redo"),
+    interrupt: () => t("cmd.interrupt"),
+    fork: () => t("cmd.fork"),
+    rename: () => t("cmd.rename"),
+    share: () => t("cmd.share"),
+    unshare: () => t("cmd.unshare"),
+    export: () => t("cmd.export"),
+    new: () => t("cmd.new"),
+    terminal: () => t("cmd.terminal"),
+  };
+  const slashCommands = createMemo((): CommandInfo[] | undefined => {
+    const c = caps();
+    if (!c?.connected) return undefined;
+    const v = settled(view);
+    const local = builtinCommands({
+      summarize: c.summarize,
+      revert: c.revert,
+      reverted: Boolean(v?.revert_turn_id),
+      abort: c.abort,
+      fork: c.fork,
+      hasTurns: (v?.turns.length ?? 0) > 0,
+      manage: c.manage,
+      share: c.share,
+      terminal: opencode(),
+    }).map((name): CommandInfo => ({ name, source: "builtin", description: BUILTIN_DESC[name]?.() }));
+    return [...local, ...(commands() ?? [])];
+  });
+
+  const runBuiltin = async (name: string, arg: string): Promise<void> => {
+    switch (name) {
+      case "compact":
+        await summarizeSession(props.id);
+        return;
+      case "undo": {
+        // The CLI's undo: stop a run in flight first so the revert lands on a
+        // settled session, then hand the text back to the composer rather than
+        // resending it — editing before resend is the whole point.
+        const last = [...(settled(view)?.turns ?? [])]
+          .reverse()
+          .find((turn) => !turn.reverted && turn.user && messageText(turn.user).trim() !== "");
+        if (!last) throw new Error(t("cmd.undo.none"));
+        if (composer.generating()) await abortSession(props.id);
+        await revertSession(props.id, last.turn_id);
+        composer.setDraft(messageText(last.user ?? []));
+        queueMicrotask(() => composer.autogrow());
+        return;
+      }
+      case "redo":
+        await unrevertSession(props.id);
+        return;
+      case "interrupt":
+        await composer.stop();
+        return;
+      case "fork": {
+        const last = settled(view)?.turns.at(-1);
+        if (!last) throw new Error(t("cmd.fork.none"));
+        const id = await forkSession(props.id, last.turn_id);
+        location.hash = `/session/${encodeURIComponent(id)}`;
+        return;
+      }
+      case "rename": {
+        const title = arg.trim();
+        if (!title) throw new Error(t("cmd.rename.missing"));
+        await renameSession(props.id, title);
+        return;
+      }
+      case "share": {
+        const url = await shareSession(props.id);
+        composer.setNotice(url && (await copyText(url)) ? t("cmd.share.copied") : url || t("cmd.share.done"));
+        return;
+      }
+      case "unshare":
+        await unshareSession(props.id);
+        composer.setNotice(t("cmd.share.removed"));
+        return;
+      case "export":
+        await downloadExport(props.id);
+        return;
+      case "terminal":
+        setTerminalOn((on) => !on);
+        return;
+      case "new":
+        props.onNewSession();
+        return;
+    }
+  };
+
   const composer = useSessionComposer({
     sessionId: () => props.id,
     view: () => settled(view),
     booting,
     caps,
-    commands,
+    commands: slashCommands,
+    onBuiltin: runBuiltin,
     options: () => settled(options),
     replayPos,
     refreshView: (full) => refreshView(full),

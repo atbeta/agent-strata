@@ -1646,6 +1646,8 @@ export async function connectOpencode(opts: {
     directory?: string,
     model?: { providerID: string; modelID: string },
   ) => Promise<void>;
+  share: (sessionID: string, directory?: string) => Promise<string | undefined>;
+  unshare: (sessionID: string, directory?: string) => Promise<void>;
   indexSessions: () => Promise<string[]>;
   refreshSessions: (guard?: OpencodeSyncGuard) => Promise<number>;
   rebuildSession: (sessionID: string, directory?: string) => Promise<number>;
@@ -2204,6 +2206,15 @@ export async function connectOpencode(opts: {
         directory: directory ?? opts.directory,
         ...(model ? { providerID: model.providerID, modelID: model.modelID } : {}),
       });
+    },
+    async share(sessionID: string, directory?: string) {
+      const r = await client.session.share({ sessionID, directory: directory ?? opts.directory });
+      if (r.error) throw new Error(errorMessage(r.error));
+      return r.data?.share?.url;
+    },
+    async unshare(sessionID: string, directory?: string) {
+      const r = await client.session.unshare({ sessionID, directory: directory ?? opts.directory });
+      if (r.error) throw new Error(errorMessage(r.error));
     },
     async updateSession(sessionID: string, patch: { title?: string; archived?: boolean }, directory?: string) {
       const r = await client.session.update({

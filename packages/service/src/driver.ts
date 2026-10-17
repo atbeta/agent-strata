@@ -76,6 +76,8 @@ export interface BackendCapabilities {
   revert?: boolean;
   fork?: boolean;
   summarize?: boolean;
+  /** publish a session to the backend's share service and take it down again */
+  share?: boolean;
 }
 
 /**
@@ -163,6 +165,9 @@ export interface BackendDriver {
     directory?: string,
     model?: { providerID: string; modelID: string },
   ): Promise<void>;
+  /** publish the session; resolves with the share URL when the backend hands one back */
+  share?(nativeId: string, directory?: string): Promise<string | undefined>;
+  unshare?(nativeId: string, directory?: string): Promise<void>;
   listModels(): Promise<ModelChoice[]>;
   listAgents(): Promise<{ name: string; mode?: string }[]>;
   /** projects the backend already knows, plus any directory the caller can open */

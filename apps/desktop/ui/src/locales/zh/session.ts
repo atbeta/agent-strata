@@ -234,6 +234,25 @@ export default {
   "composer.attachments.one": "1 个附件",
   "composer.attachments.other": "{n} 个附件",
 
+  // Slash commands this app runs itself — the backend only lists its own.
+  "cmd.compact": "压缩会话上下文",
+  "cmd.undo": "撤回上一条消息",
+  "cmd.redo": "恢复撤回的消息",
+  "cmd.interrupt": "停止当前运行",
+  "cmd.fork": "分叉此会话",
+  "cmd.rename": "重命名此会话：/rename <标题>",
+  "cmd.share": "分享此会话",
+  "cmd.unshare": "停止分享此会话",
+  "cmd.export": "导出会话记录",
+  "cmd.new": "新建会话",
+  "cmd.terminal": "开关终端",
+  "cmd.undo.none": "没有可撤回的消息",
+  "cmd.fork.none": "还没有内容可分叉",
+  "cmd.rename.missing": "用法：/rename <标题>",
+  "cmd.share.copied": "分享链接已复制",
+  "cmd.share.done": "已分享",
+  "cmd.share.removed": "已停止分享",
+
   // Pickers above the composer.
   "picker.model": "模型",
   "picker.effort": "思考强度",

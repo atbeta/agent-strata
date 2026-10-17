@@ -232,6 +232,25 @@ export default {
   "composer.attachments.one": "1 attachment",
   "composer.attachments.other": "{n} attachments",
 
+  // Slash commands this app runs itself — the backend only lists its own.
+  "cmd.compact": "Compact session context",
+  "cmd.undo": "Revert the last message",
+  "cmd.redo": "Restore the reverted message",
+  "cmd.interrupt": "Stop the current run",
+  "cmd.fork": "Fork this session",
+  "cmd.rename": "Rename this session: /rename <title>",
+  "cmd.share": "Share this session",
+  "cmd.unshare": "Stop sharing this session",
+  "cmd.export": "Export this transcript",
+  "cmd.new": "New session",
+  "cmd.terminal": "Toggle the terminal",
+  "cmd.undo.none": "Nothing to undo",
+  "cmd.fork.none": "Nothing to fork yet",
+  "cmd.rename.missing": "Usage: /rename <title>",
+  "cmd.share.copied": "Share link copied",
+  "cmd.share.done": "Session shared",
+  "cmd.share.removed": "Sharing stopped",
+
   // Pickers above the composer.
   "picker.model": "Model",
   "picker.effort": "Thinking effort",

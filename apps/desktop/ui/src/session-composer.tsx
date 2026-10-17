@@ -85,6 +85,8 @@ export function useSessionComposer(args: {
   booting: () => boolean;
   caps: () => SessionCapabilities | undefined;
   commands: () => CommandInfo[] | undefined;
+  /** runs a `source: "builtin"` entry; the backend owns the rest of the list */
+  onBuiltin: (name: string, args: string) => void | Promise<void>;
   options: () => OptionsResponse | undefined;
   replayPos: () => number | null;
   refreshView: (full?: boolean) => Promise<void>;
@@ -96,6 +98,8 @@ export function useSessionComposer(args: {
   const [histIndex, setHistIndex] = createSignal(-1);
   const [histSaved, setHistSaved] = createSignal("");
   const [sendErr, setSendErr] = createSignal("");
+  /** a one-line confirmation for a built-in command that succeeded quietly (share, …) */
+  const [notice, setNotice] = createSignal("");
   /**
    * When the backend last took a prompt off our hands.
    *
@@ -442,8 +446,22 @@ export function useSessionComposer(args: {
     setPicked([]);
     setAttachments([]);
     setAttachErr("");
+    setNotice("");
     setTrigger(undefined);
     if (draftEl) draftEl.style.height = "auto";
+    const named = commandOf(out.text, (args.commands() ?? []).map((c) => c.name));
+    if (named && (args.commands() ?? []).find((c) => c.name === named.name)?.source === "builtin") {
+      // A built-in acts on the session as it stands — it does not queue behind
+      // a run in progress, and it sends nothing the transcript would echo.
+      if (out.text) writeHistory(rememberPrompt(readHistory(), out.text));
+      setHistIndex(-1);
+      void Promise.resolve(args.onBuiltin(named.name, named.args)).catch((err) => {
+        setSendErr(explainSend(err instanceof Error ? err.message : "", t("err.send")));
+        // the command never left, so the draft gets it back like a failed send
+        if (!draft().trim()) setDraft(out.text);
+      });
+      return;
+    }
     if (generating()) {
       setQueued((q) => [...q, out]);
       setHistIndex(-1);
@@ -678,6 +696,7 @@ export function useSessionComposer(args: {
     setHistIndex(-1);
     setHistSaved("");
     setSendErr("");
+    setNotice("");
     closeHandover();
     setEcho(undefined);
     setStopping(false);
@@ -769,6 +788,8 @@ export function useSessionComposer(args: {
     setQueued,
     sendErr,
     setSendErr,
+    notice,
+    setNotice,
     echo,
     generating,
     canSend,
@@ -981,6 +1002,12 @@ export function SessionComposer(props: {
       </div>
       <Show when={c().sendErr()}>
         <p class="font-mono text-2xs text-destructive">{c().sendErr()}</p>
+      </Show>
+      <Show when={c().notice()}>
+        <p class="flex items-center gap-1.5 font-mono text-2xs text-muted-foreground">
+          <Icon name="check" class="size-3 shrink-0" />
+          {c().notice()}
+        </p>
       </Show>
       {/* The stop landed. Without this the button flips back to
           Send and the transcript shows a turn that simply ends,
