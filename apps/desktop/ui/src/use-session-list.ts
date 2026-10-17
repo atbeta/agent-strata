@@ -8,14 +8,24 @@ import {
 } from "./api";
 import { settled } from "./resource";
 import { holdRows, sameValue } from "./session-rows";
-import { dayBucket, fleetAttention, projectName, TIME_BUCKETS } from "./fleet";
+import { fleetAttention, projectName } from "./fleet";
 import { readPins, togglePin, writePins } from "./pins";
 import { t } from "./i18n";
 import { windowTitle } from "./permission-card";
 import { inDesktopShell } from "./shell";
 import { announceFinished, finishedSessions, readNotify, rememberBusy } from "./notify";
 
-export type SidebarGroup = { key: string; label: string; hint?: string; title?: string; rows: SessionRow[] };
+export type SidebarGroup = {
+  key: string;
+  label: string;
+  hint?: string;
+  title?: string;
+  rows: SessionRow[];
+  /** A real project directory — only project groups carry one. It is what a
+      group-level "+" aims a new session at, and what marks the group as
+      worth showing even while it holds no rows. */
+  dir?: string;
+};
 
 /**
  * The parent directory, abbreviated to `~` when it sits under a user home.
@@ -36,7 +46,8 @@ function dirHint(path: string): string {
  * title's waiting count.
  */
 export function useSessionList(opts: {
-  dir: () => string | undefined;
+  /** Project directories with no sessions yet — they still get a group. */
+  extraDirs: () => string[];
   clock: () => number;
   activeId: () => string | undefined;
 }) {
@@ -80,11 +91,7 @@ export function useSessionList(opts: {
     ),
   );
 
-  const sessions = () => {
-    const rows = library();
-    const dir = opts.dir();
-    return dir ? rows.filter((s) => sessionWorkspace(s) === dir) : rows;
-  };
+  const sessions = () => library();
 
   const busySeen = new Map<string, boolean>();
   let busyReady = false;
@@ -131,7 +138,7 @@ export function useSessionList(opts: {
 
   const buildGroups = (): SidebarGroup[] => {
     const rows = sessions();
-    if (rows.length === 0) return [];
+    if (rows.length === 0 && opts.extraDirs().length === 0) return [];
 
     // Three lanes, each row in exactly one: pinned first, then whatever is
     // running or waiting — the same set the fleet page calls "needs
@@ -158,50 +165,40 @@ export function useSessionList(opts: {
       out.push({ key: "__attention__", label: t("sidebar.group.attention"), rows: attention });
     }
 
-    if (!opts.dir()) {
-      const byWs = new Map<string, SessionRow[]>();
-      for (const s of rest) {
-        const ws = sessionWorkspace(s) ?? "";
-        const list = byWs.get(ws) ?? [];
-        list.push(s);
-        byWs.set(ws, list);
-      }
-      const sorted = [...byWs.entries()].sort((a, b) => {
-        const ta = new Date(a[1][0]?.summary.last_ts ?? 0).getTime();
-        const tb = new Date(b[1][0]?.summary.last_ts ?? 0).getTime();
-        return tb - ta;
-      });
-      // A hint exists to tell two same-named projects apart. Counting labels
-      // first means a unique project shows its name alone, and only the
-      // duplicates pay for the parent path.
-      const labelCounts = new Map<string, number>();
-      for (const [ws] of sorted) {
-        const label = ws ? projectName(ws) : "";
-        if (label) labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1);
-      }
-      out.push(
-        ...sorted.map(([ws, list]) => ({
-          key: ws || "none",
-          label: ws ? projectName(ws) : t("sidebar.project.none"),
-          hint: ws && (labelCounts.get(projectName(ws)) ?? 0) > 1 ? dirHint(ws) : undefined,
-          title: ws || undefined,
-          rows: list,
-        })),
-      );
-      return out;
-    }
-    const buckets = new Map<string, SessionRow[]>();
+    const byWs = new Map<string, SessionRow[]>();
     for (const s of rest) {
-      const bucket = dayBucket(s.summary.last_ts, opts.clock());
-      const list = buckets.get(bucket) ?? [];
+      const ws = sessionWorkspace(s) ?? "";
+      const list = byWs.get(ws) ?? [];
       list.push(s);
-      buckets.set(bucket, list);
+      byWs.set(ws, list);
+    }
+    const sorted = [...byWs.entries()].sort((a, b) => {
+      const ta = new Date(a[1][0]?.summary.last_ts ?? 0).getTime();
+      const tb = new Date(b[1][0]?.summary.last_ts ?? 0).getTime();
+      return tb - ta;
+    });
+    // A project with no sessions still gets a group — the service's workspace
+    // list and the reader's own additions are places work can start, and a
+    // "+" needs somewhere to point.
+    for (const dir of opts.extraDirs()) {
+      if (dir && !byWs.has(dir)) sorted.push([dir, []]);
+    }
+    // A hint exists to tell two same-named projects apart. Counting labels
+    // first means a unique project shows its name alone, and only the
+    // duplicates pay for the parent path.
+    const labelCounts = new Map<string, number>();
+    for (const [ws] of sorted) {
+      const label = ws ? projectName(ws) : "";
+      if (label) labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1);
     }
     out.push(
-      ...TIME_BUCKETS.filter((bucket) => buckets.has(bucket)).map((bucket) => ({
-        key: bucket,
-        label: t(bucket),
-        rows: buckets.get(bucket)!,
+      ...sorted.map(([ws, list]) => ({
+        key: ws || "none",
+        label: ws ? projectName(ws) : t("sidebar.project.none"),
+        hint: ws && (labelCounts.get(projectName(ws)) ?? 0) > 1 ? dirHint(ws) : undefined,
+        title: ws || undefined,
+        rows: list,
+        dir: ws || undefined,
       })),
     );
     return out;

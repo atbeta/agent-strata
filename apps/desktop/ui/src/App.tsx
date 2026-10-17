@@ -1,7 +1,6 @@
 import { createEffect, createResource, createSignal, onCleanup, onMount, Show } from "solid-js";
-import { api, getJson, realWorkspace, syncBackend, type StrataEvent } from "./api";
+import { api, getJson, syncBackend, type StrataEvent } from "./api";
 import { settled } from "./resource";
-import { projectName } from "./fleet";
 import { FleetView } from "./fleet-view";
 import { SessionDetail } from "./session-detail";
 import { CompareView } from "./compare";
@@ -33,8 +32,37 @@ export function App() {
   };
 
   const ws = useWorkspace();
-  const list = useSessionList({ dir: ws.currentDir, clock, activeId });
-  const conns = useConnections({ currentDir: ws.currentDir, onChanged: () => list.refetch() });
+  const list = useSessionList({ extraDirs: () => ws.projectDirs(), clock, activeId });
+  const conns = useConnections({ currentDir: () => ws.lastDir() ?? undefined, onChanged: () => list.refetch() });
+
+  /**
+   * Where an undirected "+" lands: the session being read first — the eye is
+   * already on that project — then the last place a session was made, then
+   * whatever the list's most recent row belongs to.
+   */
+  const defaultDir = () => {
+    const id = activeId();
+    const row = id ? list.library().find((s) => s.summary.session_id === id) : undefined;
+    if (row) {
+      const dir = list.sessionWorkspace(row);
+      if (dir) return dir;
+    }
+    const last = ws.lastDir();
+    if (last) return last;
+    for (const s of list.library()) {
+      const dir = list.sessionWorkspace(s);
+      if (dir) return dir;
+    }
+    return undefined;
+  };
+
+  /**
+   * The overview's project rows aim the sidebar at a group rather than
+   * navigate: there is no per-project page, and folding is the only focus the
+   * list has. Cleared by the sidebar once consumed so the same project can be
+   * pointed at twice.
+   */
+  const [focusDir, setFocusDir] = createSignal<string | undefined>(undefined);
 
   const [query, setQuery] = createSignal("");
   const [searchOpen, setSearchOpen] = createSignal(false);
@@ -57,16 +85,6 @@ export function App() {
     activeId,
     exists: (id) => list.library().some((s) => s.summary.session_id === id),
     chordHeld: () => chordHeld,
-  });
-
-  // First run with no stored pick: scope to wherever sessions already live.
-  createEffect(() => {
-    if (ws.workspace() !== null) return;
-    const row = (settled(list.data)?.sessions ?? []).find(
-      (s) => !s.parent && !s.archived && !s.deleted && realWorkspace(s.workspace ?? s.summary.workspace),
-    );
-    const dir = realWorkspace(row?.workspace ?? row?.summary.workspace);
-    if (dir) ws.chooseWorkspace(dir);
   });
 
   onMount(() => {
@@ -165,8 +183,8 @@ export function App() {
         e.preventDefault();
         return;
       }
-      if (ws.wsOpen()) {
-        ws.setWsOpen(false);
+      if (ws.dirOpen()) {
+        ws.setDirOpen(false);
         e.preventDefault();
         return;
       }
@@ -224,16 +242,18 @@ export function App() {
     });
   });
 
-  const newSession = async () => {
+  const newSession = async (dir?: string) => {
     list.setActionErr("");
+    const directory = dir ?? defaultDir();
     try {
       const res = await fetch(api("/sessions"), {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ directory: ws.currentDir(), connection_id: conns.newSessionConnection() }),
+        body: JSON.stringify({ directory, connection_id: conns.newSessionConnection() }),
       });
       const body = (await res.json()) as { id?: string; error?: string };
       if (body.id) {
+        ws.rememberDir(directory);
         list.refetch();
         location.hash = `/session/${encodeURIComponent(body.id)}`;
       } else {
@@ -248,12 +268,12 @@ export function App() {
     }
   };
 
-  const requestNewSession = () => {
+  const requestNewSession = (dir?: string) => {
     if (!conns.connected()) {
       conns.setConnOpen(true);
       return;
     }
-    void newSession();
+    void newSession(dir);
   };
 
   const openSession = (id: string) => {
@@ -263,6 +283,8 @@ export function App() {
       );
       return;
     }
+    const row = list.library().find((s) => s.summary.session_id === id);
+    ws.rememberDir(row ? list.sessionWorkspace(row) : undefined);
     location.hash = `/session/${encodeURIComponent(id)}`;
   };
 
@@ -404,20 +426,13 @@ export function App() {
         onOpenSession={openSession}
         onNewSession={requestNewSession}
         onOpenFleet={openFleet}
+        focusDir={focusDir}
+        clearFocusDir={() => setFocusDir(undefined)}
       />
 
       <main class="@container/main relative min-w-0 flex-1">
         <Show when={route().name === "fleet"}>
-          <PageShell
-            title={ws.currentDir() ? projectName(ws.currentDir()!) : t("fleet.scope.all")}
-            meta={
-              ws.currentDir() ? (
-                <span class="max-w-[28rem] truncate font-mono text-2xs text-muted-foreground" title={ws.currentDir()}>
-                  {ws.currentDir()}
-                </span>
-              ) : undefined
-            }
-          >
+          <PageShell title={t("fleet.scope.all")}>
             <Show
               when={conns.connected()}
               fallback={
@@ -450,10 +465,9 @@ export function App() {
             >
               <FleetView
                 sessions={list.sessions()}
-                scoped={ws.currentDir() !== undefined}
                 now={clock()}
                 onOpen={openSession}
-                onOpenProject={(dir) => ws.chooseWorkspace(dir)}
+                onOpenProject={(dir) => setFocusDir(dir)}
               />
             </Show>
           </PageShell>

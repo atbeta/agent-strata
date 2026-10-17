@@ -9,6 +9,8 @@ export type Name =
   | "columns"
   | "search"
   | "folder"
+  | "folder-open"
+  | "folder-plus"
   | "chevron"
   | "chevron-right"
   | "pencil"
@@ -117,6 +119,23 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
     return (
       <Glyph class={cls}>
         <path d="M2.5 5.2c0-.7.5-1.2 1.2-1.2h2.2l1.2 1.3H12.3c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H3.7c-.7 0-1.2-.5-1.2-1.2z" />
+      </Glyph>
+    );
+  if (name === "folder-open")
+    return (
+      <Glyph class={cls}>
+        {/* The closed folder's back half, cut where the flap covers it. */}
+        <path d="M2.5 12V5.2c0-.7.5-1.2 1.2-1.2h2.2l1.2 1.3h5.2c.7 0 1.2.5 1.2 1.2v.8" />
+        {/* The front flap: a parallelogram leaning right, its slant is what
+            reads as "open" at 16px. */}
+        <path d="M2.5 12l1.3-3.9c.2-.6.7-.9 1.3-.9h7.3c.7 0 1.2.7 1 1.4l-1.2 3.7c-.2.6-.7 1-1.3 1H3.6c-.7 0-1.2-.6-1.1-1.3z" />
+      </Glyph>
+    );
+  if (name === "folder-plus")
+    return (
+      <Glyph class={cls}>
+        <path d="M2.5 5.2c0-.7.5-1.2 1.2-1.2h2.2l1.2 1.3H12.3c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H3.7c-.7 0-1.2-.5-1.2-1.2z" />
+        <path d="M8 7.8v3.6M6.2 9.6h3.6" />
       </Glyph>
     );
   if (name === "chevron")

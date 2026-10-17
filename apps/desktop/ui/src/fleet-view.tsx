@@ -3,7 +3,6 @@ import { fmtUsd, fmtUsdFlat, realWorkspace, type SessionRow } from "./api";
 import { sessionStatus } from "./session-status";
 import { SessionStatusMark } from "@/components/ui/session-status";
 import {
-  fleetActivity,
   fleetAttention,
   fleetProjects,
   fleetRecent,
@@ -31,8 +30,6 @@ import { EmptyState } from "@/components/ui/empty-state";
  */
 export function FleetView(props: {
   sessions: SessionRow[];
-  /** A single directory is selected, so the right column is time rather than projects. */
-  scoped: boolean;
   now: number;
   onOpen: (id: string) => void;
   onOpenProject: (directory: string) => void;
@@ -41,22 +38,18 @@ export function FleetView(props: {
   const recent = () => fleetRecent(props.sessions);
   const attention = () => fleetAttention(props.sessions);
   const projects = () => fleetProjects(props.sessions);
-  const activity = () => fleetActivity(props.sessions, props.now);
   const tokens = () => totals().input + totals().output;
   const inPct = () => Math.round(shareOf(totals().input, tokens()));
 
   const projectSpend = () => projects().reduce((sum, p) => sum + p.cost, 0);
   const projectWhole = () =>
     projectSpend() > 0 ? projectSpend() : projects().reduce((sum, p) => sum + p.sessions, 0);
-  const activitySpend = () => activity().reduce((sum, b) => sum + b.cost, 0);
-  const activityWhole = () =>
-    activitySpend() > 0 ? activitySpend() : activity().reduce((sum, b) => sum + b.sessions, 0);
 
   return (
     <div class="flex h-full min-h-0 flex-col overflow-hidden">
       <div class="grid shrink-0 grid-cols-4 border-b border-border">
         <Stat label={t("fleet.overview.sessions")} value={num(totals().sessions)}>
-          <Show when={!props.scoped && totals().projects > 0}>
+          <Show when={totals().projects > 0}>
             <span class="truncate text-2xs text-muted-foreground">
               {tn("fleet.overview.projectCount", totals().projects)}
             </span>
@@ -109,7 +102,7 @@ export function FleetView(props: {
             <ul class="divide-y divide-border">
               <For each={recent()}>
                 {(s) => {
-                  const sub = () => recentSub(s, props.scoped);
+                  const sub = () => recentSub(s);
                   return (
                     <li>
                       <RowButton
@@ -167,55 +160,23 @@ export function FleetView(props: {
               </section>
             </Show>
 
-            <Show
-              when={!props.scoped}
-              fallback={
-                <section>
-                  <h2 class="px-5 pt-4 pb-2 text-2xs text-muted-foreground">{t("fleet.overview.activity")}</h2>
-                  <ul>
-                    <For each={activity()}>
-                      {(b) => (
-                        <li class="px-5 py-2.5">
-                          <div class="flex items-center gap-3">
-                            <span class="shrink-0 text-sm text-foreground">{t(b.key)}</span>
-                            <span class="min-w-0 flex-1">
-                              <Bar
-                                part={activitySpend() > 0 ? b.cost : b.sessions}
-                                whole={activityWhole()}
-                              />
-                            </span>
-                            <span class="w-8 shrink-0 text-right font-mono text-2xs tabular-nums text-muted-foreground">
-                              {num(b.sessions)}
-                            </span>
-                            <span class="shrink-0 text-right font-mono text-2xs tabular-nums text-muted-foreground">
-                              {fmtUsdFlat(b.cost)}
-                            </span>
-                          </div>
-                        </li>
-                      )}
-                    </For>
-                  </ul>
-                </section>
-              }
-            >
-              <section>
-                <h2 class="px-5 pt-4 pb-2 text-2xs text-muted-foreground">{t("fleet.overview.projects")}</h2>
-                <ul class="divide-y divide-border">
-                  <For each={projects()}>
-                    {(p) => (
-                      <li>
-                        <ProjectRow
-                          project={p}
-                          part={projectSpend() > 0 ? p.cost : p.sessions}
-                          whole={projectWhole()}
-                          onOpen={p.workspace ? () => props.onOpenProject(p.workspace!) : undefined}
-                        />
-                      </li>
-                    )}
-                  </For>
-                </ul>
-              </section>
-            </Show>
+            <section>
+              <h2 class="px-5 pt-4 pb-2 text-2xs text-muted-foreground">{t("fleet.overview.projects")}</h2>
+              <ul class="divide-y divide-border">
+                <For each={projects()}>
+                  {(p) => (
+                    <li>
+                      <ProjectRow
+                        project={p}
+                        part={projectSpend() > 0 ? p.cost : p.sessions}
+                        whole={projectWhole()}
+                        onOpen={p.workspace ? () => props.onOpenProject(p.workspace!) : undefined}
+                      />
+                    </li>
+                  )}
+                </For>
+              </ul>
+            </section>
           </aside>
         </div>
       </Show>
@@ -223,9 +184,7 @@ export function FleetView(props: {
   );
 }
 
-function recentSub(s: SessionRow, scoped: boolean): string {
-  const tokensOf = s.totals.input + s.totals.output;
-  if (scoped) return tokensOf > 0 ? `${num(tokensOf)} ${t("fleet.overview.tokens")}` : "";
+function recentSub(s: SessionRow): string {
   const ws = realWorkspace(s.workspace ?? s.summary.workspace);
   return ws ? projectName(ws) : t("sidebar.project.none");
 }

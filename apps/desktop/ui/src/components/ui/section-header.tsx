@@ -1,6 +1,6 @@
-import { Show } from "solid-js";
+import { Show, type JSX } from "solid-js";
 import { cn } from "@/lib/utils";
-import { Icon } from "@/icons";
+import { Icon, type Name } from "@/icons";
 
 /**
  * A sidebar group header: a label, how many rows it holds, and an optional
@@ -22,10 +22,22 @@ export function SectionHeader(props: {
   title?: string;
   open?: boolean;
   onToggle?: () => void;
+  /** `onToggle` normally draws a chevron; a group whose icon already says
+      open/closed (the project folder) can skip it. */
+  chevron?: boolean;
+  /** A glyph before the label — a folder for project groups, which can swap
+      between its open and closed shapes as `open` changes. */
+  icon?: Name;
+  /** An inline control at the row's right edge — a group-level action that is
+      not part of the fold toggle (a "+" to start a session in this project). */
+  action?: JSX.Element;
   class?: string;
 }) {
   const inner = () => (
     <>
+      <Show when={props.icon}>
+        {(name) => <Icon name={name()} class="size-3.5 shrink-0 text-muted-foreground/70" />}
+      </Show>
       <span class="shrink-0 truncate text-xs font-medium text-muted-foreground">
         {props.label}
       </span>
@@ -57,16 +69,19 @@ export function SectionHeader(props: {
           aria-expanded={props.open}
           onClick={() => props.onToggle!()}
         >
-          <Icon
-            name="chevron"
-            class={cn(
-              "size-3 shrink-0 text-muted-foreground/50 transition-transform group-hover/hdr:text-muted-foreground",
-              props.open === false && "-rotate-90",
-            )}
-          />
+          <Show when={props.chevron !== false}>
+            <Icon
+              name="chevron"
+              class={cn(
+                "size-3 shrink-0 text-muted-foreground/50 transition-transform group-hover/hdr:text-muted-foreground",
+                props.open === false && "-rotate-90",
+              )}
+            />
+          </Show>
           {inner()}
         </button>
       </Show>
+      <Show when={props.action}>{(a) => a()}</Show>
     </h2>
   );
 }

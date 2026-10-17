@@ -13,10 +13,7 @@ export default {
 
   // Projects
   "project.root": "根目录",
-  "project.rootHint": "文件系统根目录",
-  "sidebar.project.label": "项目",
-  "sidebar.project.all": "全部项目",
-  "sidebar.project.allHint": "此连接上的全部目录",
+  "sidebar.projects": "项目",
   "sidebar.project.none": "无项目",
   "sidebar.project.openDirectory": "打开目录",
 
@@ -38,12 +35,13 @@ export default {
   "sidebar.group.pinned": "置顶",
   "sidebar.group.attention": "需要关注",
   "sidebar.group.more": "还有 {n} 条",
+  "sidebar.group.empty": "还没有会话",
   "sidebar.filter.label": "筛选会话列表",
   "sidebar.filter.all": "全部",
   "sidebar.filter.attention": "需要关注",
 
   // Sidebar empty state
-  "sidebar.empty.inProject": "此项目中还没有会话。",
+  "sidebar.empty.none": "还没有会话。",
   "sidebar.empty.needBackend": "连接后端后即可看到会话。",
   "sidebar.empty.attention": "当前没有需要关注的会话。",
 

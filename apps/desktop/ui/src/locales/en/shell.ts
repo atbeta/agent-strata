@@ -12,10 +12,7 @@ export default {
 
   // Projects
   "project.root": "Root",
-  "project.rootHint": "filesystem root",
-  "sidebar.project.label": "Project",
-  "sidebar.project.all": "All projects",
-  "sidebar.project.allHint": "Every directory on this connection",
+  "sidebar.projects": "Projects",
   "sidebar.project.none": "No project",
   "sidebar.project.openDirectory": "Open directory",
 
@@ -38,12 +35,13 @@ export default {
   "sidebar.group.pinned": "Pinned",
   "sidebar.group.attention": "Needs attention",
   "sidebar.group.more": "{n} more",
+  "sidebar.group.empty": "No sessions yet",
   "sidebar.filter.label": "Filter sessions",
   "sidebar.filter.all": "All",
   "sidebar.filter.attention": "Needs attention",
 
   // Sidebar empty state
-  "sidebar.empty.inProject": "No sessions in this project yet.",
+  "sidebar.empty.none": "No sessions yet.",
   "sidebar.empty.needBackend": "Connect a backend to see sessions.",
   "sidebar.empty.attention": "Nothing needs attention right now.",
 

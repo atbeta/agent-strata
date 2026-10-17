@@ -1,4 +1,4 @@
-import { For, Show, createSignal } from "solid-js";
+import { createEffect, For, Show, createSignal } from "solid-js";
 import {
   archiveSession,
   backendLabel,
@@ -17,17 +17,22 @@ import { openSessionInSplit } from "./session-chrome";
 import { hostsTrafficLights } from "./shell";
 import { sessionStatus } from "./session-status";
 import { explain } from "./errors";
-import type { SessionListCtl } from "./use-session-list";
+import type { SessionListCtl, SidebarGroup } from "./use-session-list";
 import type { ConnectionsCtl } from "./use-connections";
 import { endpointHost, endpointShort, ConnectionsFooter } from "./use-connections";
 import type { WorkspaceCtl } from "./use-workspace";
-import { WorkspacePicker } from "./use-workspace";
 import { SessionListItem } from "./sidebar-row";
 import { Button } from "@/components/ui/button";
 import { RowButton } from "@/components/ui/row-button";
 import { SectionHeader } from "@/components/ui/section-header";
 import { MiniTabs } from "@/components/ui/mini-tabs";
 import { EmptyState } from "@/components/ui/empty-state";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { TextField, TextFieldInput, TextFieldLabel } from "@/components/ui/text-field";
 import { cn } from "./lib/utils";
 
 /** The search field's wiring lives in App; the sidebar only draws it. */
@@ -61,8 +66,12 @@ export function Sidebar(props: {
   activeId: () => string | undefined;
   clock: () => number;
   onOpenSession: (id: string) => void;
-  onNewSession: () => void;
+  onNewSession: (dir?: string) => void;
   onOpenFleet: () => void;
+  /** Set briefly to aim the list at a project group — uncollapse it and
+      scroll it into view, then cleared. The overview's project rows use it. */
+  focusDir?: () => string | undefined;
+  clearFocusDir?: () => void;
 }) {
   const list = () => props.list;
 
@@ -113,6 +122,104 @@ export function Sidebar(props: {
   /** Rows offered before a long group asks for the rest. */
   const PAGE = 10;
 
+  createEffect(() => {
+    const dir = props.focusDir?.();
+    if (!dir) return;
+    setCollapsed((s) => {
+      if (!s.has(dir)) return s;
+      const next = new Set(s);
+      next.delete(dir);
+      return next;
+    });
+    props.clearFocusDir?.();
+    // After the uncollapse settles, not before — the group may not be in the
+    // DOM on the frame the effect runs.
+    requestAnimationFrame(() => {
+      document.querySelector(`[data-group="${CSS.escape(dir)}"]`)?.scrollIntoView({ block: "nearest" });
+    });
+  });
+
+  /** Pinned and attention are lanes; projects are places. The label row and
+      its "+" sit between them. */
+  const metaGroups = () => list().groups().filter((g) => g.key.startsWith("__"));
+  const projectGroups = () => list().groups().filter((g) => !g.key.startsWith("__"));
+
+  const renderGroup = (group: SidebarGroup) => {
+    const rows = () => (expanded().has(group.key) ? group.rows : group.rows.slice(0, PAGE));
+    return (
+      <section
+        data-group={group.key}
+        class={cn("group/section", collapsed().has(group.key) ? "mb-0" : "mb-2")}
+      >
+        <SectionHeader
+          label={group.label}
+          count={group.rows.length}
+          hint={group.hint}
+          title={group.title}
+          icon={group.dir !== undefined ? (collapsed().has(group.key) ? "folder" : "folder-open") : undefined}
+          chevron={group.dir === undefined}
+          open={!collapsed().has(group.key)}
+          onToggle={() => setCollapsed((s) => flip(s, group.key))}
+          action={
+            group.dir !== undefined ? (
+              <Tip label={t("action.newSession")}>
+                {/* Revealed on section hover — one "+" per project, always on,
+                    would be a rail of pluses down the rail. */}
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  class="size-5 shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/section:opacity-100"
+                  aria-label={t("action.newSession")}
+                  onClick={() => props.onNewSession(group.dir)}
+                >
+                  <Icon name="plus" class="size-3" />
+                </Button>
+              </Tip>
+            ) : undefined
+          }
+        />
+        <Show when={!collapsed().has(group.key)}>
+          <Show when={group.dir !== undefined && group.rows.length === 0}>
+            <p class="px-2 py-1 text-2xs text-muted-foreground">{t("sidebar.group.empty")}</p>
+          </Show>
+          <For each={rows()}>
+            {(s) => {
+              const id = s.summary.session_id;
+              return (
+                <SessionListItem
+                  id={id}
+                  title={s.title ?? s.summary.title ?? t("common.untitled")}
+                  active={props.activeId() === id || props.compareSel.includes(id)}
+                  status={sessionStatus(s)}
+                  time={relTime(s.summary.last_ts, props.clock())}
+                  actions={!props.compareOn}
+                  onOpen={() => props.onOpenSession(id)}
+                  onRename={(title) => list().runAction(id, () => renameSession(id, title), false)}
+                  onArchive={() => list().runAction(id, () => archiveSession(id), true)}
+                  onDelete={() => list().runAction(id, () => deleteSession(id), true)}
+                  pinned={list().pins().includes(id)}
+                  onTogglePin={() => list().togglePinned(id)}
+                  onCompare={() => props.onStartCompare(id)}
+                  onSplitOpen={() => openSessionInSplit(id, "row")}
+                  instance={instanceOf(s)}
+                />
+              );
+            }}
+          </For>
+          <Show when={!expanded().has(group.key) && group.rows.length > PAGE}>
+            <RowButton
+              class="h-7 items-center px-2 text-2xs text-muted-foreground hover:bg-secondary/70"
+              onClick={() => setExpanded((s) => flip(s, group.key))}
+            >
+              <Icon name="chevron" class="size-2.5 rotate-90 text-muted-foreground/60" />
+              {t("sidebar.group.more", { n: group.rows.length - PAGE })}
+            </RowButton>
+          </Show>
+        </Show>
+      </section>
+    );
+  };
+
   return (
     <aside class="flex w-[300px] shrink-0 flex-col border-r border-border bg-background">
       {/* macOS hides its title bar and paints the traffic lights over the
@@ -125,46 +232,23 @@ export function Sidebar(props: {
       </Show>
       {/* The old header was a full row whose only content was a plus pushed
           to the right, so the corner under the wordmark was a blank band.
-          The plus sits on the search row instead. */}
-      <div class="flex items-start">
-        <div class="min-w-0 flex-1">
-          <CommandSearch
-            open={props.search.open}
-            query={props.search.query}
-            sessions={list().library()}
-            events={props.search.events}
-            searching={props.search.searching}
-            onOpenChange={props.search.onOpenChange}
-            onQuery={props.search.onQuery}
-            onOpenSession={props.search.onOpenSession}
-          />
-        </div>
-        <Tip
-          class="pt-2 pr-1.5"
-          label={props.conns.connected() ? t("action.newSession") : t("action.connectBackend")}
-        >
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            class="size-8 text-lg leading-none text-muted-foreground"
-            aria-label={props.conns.connected() ? t("action.newSession") : t("action.connectBackend")}
-            onClick={() => props.onNewSession()}
-          >
-            +
-          </Button>
-        </Tip>
-      </div>
-      <WorkspacePicker
-        ws={props.ws}
-        sessionCount={list().sessions().length}
-        options={() =>
-          props.ws.workspaceOptions(
-            settled(list().data)?.sessions ?? [],
-            list().sessionWorkspace,
-          )
-        }
-        actionErr={list().actionErr()}
+          New sessions now start from a project group's "+", which also says
+          where the session will live — the search row keeps the width. */}
+      <CommandSearch
+        open={props.search.open}
+        query={props.search.query}
+        sessions={list().library()}
+        events={props.search.events}
+        searching={props.search.searching}
+        onOpenChange={props.search.onOpenChange}
+        onQuery={props.search.onQuery}
+        onOpenSession={props.search.onOpenSession}
       />
+      <Show when={list().actionErr()}>
+        <p class="truncate px-3 pb-1.5 font-mono text-2xs text-destructive" title={list().actionErr()}>
+          {list().actionErr()}
+        </p>
+      </Show>
       <div class="border-t border-border px-1.5 pt-1 pb-1">
         <div class="flex items-center gap-1">
           <RowButton
@@ -225,76 +309,83 @@ export function Sidebar(props: {
             </Button>
           </div>
         </Show>
-        <For
-          each={list().groups().filter((group) => group.rows.length > 0)}
+        <For each={metaGroups()}>{renderGroup}</For>
+        {/* The attention lens collapses the list to one lane — a projects
+            label above nothing would just be a dangling header. */}
+        <Show when={!list().attentionOnly()}>
+        <div class="mb-0.5 flex items-center justify-between px-2 pb-0.5 pt-2.5">
+          <span class="text-xs font-medium text-muted-foreground">{t("sidebar.projects")}</span>
+          {/* Open a directory that has no sessions yet — the one place a
+              project the list does not already know can enter it. */}
+          <DropdownMenu
+            open={props.ws.dirOpen()}
+            onOpenChange={props.ws.setDirOpen}
+            gutter={4}
+            placement="bottom-end"
+          >
+            <Tip label={t("sidebar.project.openDirectory")}>
+              <DropdownMenuTrigger class="grid size-5 place-items-center rounded text-muted-foreground/60 hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+                <Icon name="folder-plus" class="size-3.5" />
+              </DropdownMenuTrigger>
+            </Tip>
+            <DropdownMenuContent class="w-[276px]">
+              <form
+                class="px-2 py-1.5"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  props.ws.addDir(props.ws.dirDraft());
+                }}
+                onPointerDown={(e) => e.stopPropagation()}
+              >
+                <TextField>
+                  <TextFieldLabel class="text-2xs font-medium text-muted-foreground">
+                    {t("sidebar.project.openDirectory")}
+                  </TextFieldLabel>
+                  <TextFieldInput
+                    size="sm"
+                    mono
+                    value={props.ws.dirDraft()}
+                    onChange={props.ws.setDirDraft}
+                    class="bg-background text-2xs"
+                    placeholder="/path/to/project"
+                    onKeyDown={(e) => e.stopPropagation()}
+                  />
+                </TextField>
+              </form>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+        <Show
+          when={projectGroups().length > 0}
           fallback={
-            <EmptyState
-              icon={list().data.error ? "alert" : "list"}
-              tone={list().data.error ? "danger" : "neutral"}
-              class="px-4 py-10"
-              title={
-                list().attentionOnly() && list().sessions().length > 0
-                  ? t("sidebar.empty.attention")
-                  : list().data.error
-                    ? explain(list().data.error)
-                    : settled(list().data)
-                      ? t("sidebar.empty.inProject")
-                      : t("sidebar.empty.needBackend")
-              }
-            />
+            <Show when={metaGroups().length === 0}>
+              <EmptyState
+                icon={list().data.error ? "alert" : "list"}
+                tone={list().data.error ? "danger" : "neutral"}
+                class="px-4 py-10"
+                title={
+                  list().attentionOnly() && list().sessions().length > 0
+                    ? t("sidebar.empty.attention")
+                    : list().data.error
+                      ? explain(list().data.error)
+                      : settled(list().data)
+                        ? t("sidebar.empty.none")
+                        : t("sidebar.empty.needBackend")
+                }
+                action={
+                  settled(list().data) && !list().data.error ? (
+                    <Button size="sm" variant="quiet" onClick={() => props.onNewSession()}>
+                      {t("action.newSession")}
+                    </Button>
+                  ) : undefined
+                }
+              />
+            </Show>
           }
         >
-          {(group) => {
-            const rows = () => (expanded().has(group.key) ? group.rows : group.rows.slice(0, PAGE));
-            return (
-            <section class={cn(collapsed().has(group.key) ? "mb-0" : "mb-2")}>
-              <SectionHeader
-                label={group.label}
-                count={group.rows.length}
-                hint={group.hint}
-                title={group.title}
-                open={!collapsed().has(group.key)}
-                onToggle={() => setCollapsed((s) => flip(s, group.key))}
-              />
-              <Show when={!collapsed().has(group.key)}>
-              <For each={rows()}>
-                {(s) => {
-                  const id = s.summary.session_id;
-                  return (
-                    <SessionListItem
-                      id={id}
-                      title={s.title ?? s.summary.title ?? t("common.untitled")}
-                      active={props.activeId() === id || props.compareSel.includes(id)}
-                      status={sessionStatus(s)}
-                      time={relTime(s.summary.last_ts, props.clock())}
-                      actions={!props.compareOn}
-                      onOpen={() => props.onOpenSession(id)}
-                      onRename={(title) => list().runAction(id, () => renameSession(id, title), false)}
-                      onArchive={() => list().runAction(id, () => archiveSession(id), true)}
-                      onDelete={() => list().runAction(id, () => deleteSession(id), true)}
-                      pinned={list().pins().includes(id)}
-                      onTogglePin={() => list().togglePinned(id)}
-                      onCompare={() => props.onStartCompare(id)}
-                      onSplitOpen={() => openSessionInSplit(id, "row")}
-                      instance={instanceOf(s)}
-                    />
-                  );
-                }}
-              </For>
-              <Show when={!expanded().has(group.key) && group.rows.length > PAGE}>
-                <RowButton
-                  class="h-7 items-center px-2 text-2xs text-muted-foreground hover:bg-secondary/70"
-                  onClick={() => setExpanded((s) => flip(s, group.key))}
-                >
-                  <Icon name="chevron" class="size-2.5 rotate-90 text-muted-foreground/60" />
-                  {t("sidebar.group.more", { n: group.rows.length - PAGE })}
-                </RowButton>
-              </Show>
-              </Show>
-            </section>
-            );
-          }}
-        </For>
+          <For each={projectGroups()}>{renderGroup}</For>
+        </Show>
+        </Show>
       </div>
       <ConnectionsFooter
         conns={props.conns}
