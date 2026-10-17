@@ -20,6 +20,8 @@ function askIcon(detail: PermissionView, tool: string): "terminal" | "pencil" | 
 
 export function AskCard(props: {
   ask: PendingAsk;
+  /** Set when the ask belongs to a session this one opened, and names it. */
+  from?: string;
   onRespond: (id: string, decision: "allow" | "deny", scope?: "once" | "always") => void;
 }) {
   const detail = () => permissionView(props.ask);
@@ -59,6 +61,11 @@ export function AskCard(props: {
         <Icon name={askIcon(detail(), props.ask.tool)} class="size-3.5 shrink-0 text-event-permission" />
         <span class="text-xs font-medium">{props.ask.tool}</span>
         <span class="text-2xs text-muted-foreground">{t("permission.wants_to_run")}</span>
+        <Show when={props.from}>
+          <span class="ml-auto min-w-0 truncate text-2xs text-muted-foreground">
+            {t("prompt.from_child", { name: props.from ?? "" })}
+          </span>
+        </Show>
       </div>
       <div class="px-3 py-2">{body()}</div>
       <div class="flex items-center justify-end gap-1.5 border-t border-border px-2 py-1.5">
@@ -86,7 +93,7 @@ export function AskCard(props: {
   );
 }
 
-export function QuestionCard(props: { q: PendingQuestion; onDone: () => void }) {
+export function QuestionCard(props: { q: PendingQuestion; from?: string; onDone: () => void }) {
   // `/questions` arrives through a blind cast, so nothing checks its shape. An
   // entry with no `questions` used to throw on the next line — during setup,
   // before the dock could draw its error bar — and take the whole prompt area
@@ -129,6 +136,11 @@ export function QuestionCard(props: { q: PendingQuestion; onDone: () => void }) 
 
   return (
     <div class="overflow-hidden rounded-lg border border-event-user/40 bg-card">
+      <Show when={props.from}>
+        <div class="border-b border-border bg-secondary/40 px-3 py-1.5 text-2xs text-muted-foreground">
+          {t("prompt.from_child", { name: props.from ?? "" })}
+        </div>
+      </Show>
       <Show
         when={groups.length > 0}
         fallback={

@@ -50,6 +50,7 @@ import { PromptNavigator } from "./prompt-navigator";
 import { promptAt, promptEntries } from "./prompt-outline";
 import { applyStreamingSnapshot, mergeViewTail, type StreamingSnapshot } from "./live";
 import { ECHO_TURN_ID } from "./prompt-echo";
+import { descendantSessions } from "./session-tree";
 import {
   filesKeyOf,
   peekView,
@@ -297,11 +298,27 @@ export function SessionDetail(props: {
   );
   const [asks, { refetch: refetchAsks }] = createResource(
     () => props.id,
-    async (id) => {
+    async () => {
       const r = await getJson<{ pending: PendingAsk[] }>("/permissions");
-      return r.pending.filter((p) => p.session_id === id);
+      return r.pending;
     },
   );
+  /**
+   * The sessions this one opened, which the sidebar does not show.
+   *
+   * Their prompts are the reader's to answer all the same: a subagent waiting
+   * on an ask stops the conversation they are in, and from here the run simply
+   * stops moving. Judged from the list, so a new subagent is picked up the
+   * moment it appears.
+   */
+  const descendants = createMemo(() => descendantSessions(props.sessions, props.id));
+  const mine = (sessionId: string) => sessionId === props.id || descendants().has(sessionId);
+  /** The subagent's own name, for a card that is not this session's. */
+  const asksFrom = (sessionId: string): string | undefined => {
+    if (sessionId === props.id) return undefined;
+    const row = props.sessions.find((s) => s.summary.session_id === sessionId);
+    return row?.title ?? row?.summary.title ?? undefined;
+  };
   const [hiddenAsks, setHiddenAsks] = createSignal<ReadonlySet<string>>(new Set());
   const unhideAsk = (request_id: string) =>
     setHiddenAsks((cur) => {
@@ -311,13 +328,14 @@ export function SessionDetail(props: {
     });
   const [questions, { refetch: refetchQuestions }] = createResource(
     () => props.id,
-    async (id) => {
+    async () => {
       const r = await getJson<{ pending: (PendingQuestion & { session_id: string })[] }>(
         "/questions",
       );
-      return r.pending.filter((p) => p.session_id === id);
+      return r.pending;
     },
   );
+  const openQuestions = () => (settled(questions) ?? []).filter((q) => mine(q.session_id ?? props.id));
   const [options, { refetch: refetchOptions }] = createResource(() =>
     getJson<OptionsResponse>("/options"),
   );
@@ -861,6 +879,7 @@ export function SessionDetail(props: {
       }
     }
     return (settled(asks) ?? []).filter((ask) => {
+      if (!mine(ask.session_id)) return false;
       if (hidden.has(ask.request_id) || decided.has(ask.request_id)) return false;
       if (ask.call_id && finished.has(ask.call_id)) return false;
       return true;
@@ -1420,14 +1439,16 @@ export function SessionDetail(props: {
                       {(p) => (
                         <AskCard
                           ask={p}
+                          from={asksFrom(p.session_id)}
                           onRespond={(id, decision, scope) => void respond(id, decision, scope)}
                         />
                       )}
                     </For>
-                    <For each={settled(questions) ?? []}>
+                    <For each={openQuestions()}>
                       {(q) => (
                         <QuestionCard
                           q={q}
+                          from={asksFrom(q.session_id ?? props.id)}
                           onDone={() => {
                             refetchQuestions();
                             void refreshView();

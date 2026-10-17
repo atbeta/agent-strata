@@ -81,6 +81,10 @@ export default {
   // as stuck rather than broken. The name has to say which thing failed.
   "prompt.load_failed": "没能加载待处理的提问。",
   "prompt.load_failed_hint": "服务正在等你的回答。重新加载一次；如果这里本来就是空的，那说明这条会话没有待处理的提问。",
+  // A prompt from a child session is not in the transcript above it, so the
+  // card has to name where it came from — otherwise it reads as belonging to
+  // the conversation on screen.
+  "prompt.from_child": "来自子会话 {name}",
   "session.empty": "空会话。写一条消息开始。",
   "session.empty_hint": "这个会话还没有任何对话。",
   "header.cost.tip": "已花费 {amount} — 打开上下文环查看明细",
@@ -88,7 +92,7 @@ export default {
   "header.branch.tip": "当前 Git 分支：{branch}",
   "header.tools": "MCP",
   "header.autoAccept": "本会话自动接受",
-  "header.autoAccept.on": "本会话不再询问权限 · 当前挂起的也会一并允许",
+  "header.autoAccept.on": "本会话及其子会话不再询问权限 · 当前挂起的也会一并允许",
   "header.autoAccept.off": "本会话自动接受权限",
   "header.autoAccept.broken": "读不到开关状态 —— 服务端可能还是旧版本，试试重建 sidecar",
   "header.autoAccept.err": "切换自动接受失败",

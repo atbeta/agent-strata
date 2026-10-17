@@ -81,6 +81,10 @@ export default {
   // as stuck rather than broken. The name has to say which thing failed.
   "prompt.load_failed": "Couldn't load the pending questions.",
   "prompt.load_failed_hint": "The service is still waiting for your answer. Load them again — or if there were none to begin with, this session has nothing pending.",
+  // A prompt from a child session is not in the transcript above it, so the
+  // card has to name where it came from — otherwise it reads as belonging to
+  // the conversation on screen.
+  "prompt.from_child": "From subagent {name}",
   "session.empty": "Empty session. Write a prompt to start.",
   "session.empty_hint": "Nothing has been said in this session yet.",
   "header.cost.tip": "{amount} so far — open the context ring for the breakdown",
@@ -88,7 +92,7 @@ export default {
   "header.branch.tip": "Current Git branch: {branch}",
   "header.tools": "MCP",
   "header.autoAccept": "Auto-accept",
-  "header.autoAccept.on": "This session stops asking · anything already pending is allowed too",
+  "header.autoAccept.on": "This session and its subagents stop asking · anything already pending is allowed too",
   "header.autoAccept.off": "Auto-accept permissions in this session",
   "header.autoAccept.broken": "cannot read the switch — the service is probably stale, rebuild the sidecar",
   "header.autoAccept.err": "could not switch auto-accept",

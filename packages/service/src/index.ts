@@ -213,6 +213,15 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     return matches.length === 1 ? matches[0] : undefined;
   };
 
+  const parentOf = (casfId: string): string | undefined => {
+    try {
+      return sessionView(casfId).parent_session_id;
+    } catch {
+      // a session with no events yet has no parent to read
+      return undefined;
+    }
+  };
+
   const settledAsks = new Map<string, "allow" | "deny">();
   const rememberAsk = (id: string, decision: "allow" | "deny") => {
     settledAsks.set(id, decision);
@@ -325,9 +334,26 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     // this session was left on auto, which softens the shared fallback rather
     // than replacing the document, so the reader's own rules still apply.
     const shared = explicit ? () => explicit : () => currentPolicy;
+    /**
+     * Whether this session was left on auto — or any session it descends from.
+     *
+     * A subagent is part of the conversation that opened it: the reader put
+     * *that* session on auto, and the work it delegated is the work they meant.
+     * Reading the stance from the child alone made the switch stop at the
+     * subagent, whose ask then waited in a session the sidebar hides — the run
+     * went nowhere and there was nothing on screen to answer.
+     */
+    const autoStance = (sessionID: string): boolean => {
+      let id: string | undefined = sessionID;
+      for (let hops = 0; id && hops < 8; hops++) {
+        if (autoSessions.has(id)) return true;
+        id = parentOf(id);
+      }
+      return false;
+    };
     const policy = (sessionID: string): Policy | undefined => {
       const base = shared();
-      return base && autoSessions.has(sessionID) ? autoAccept(base) : base;
+      return base && autoStance(sessionID) ? autoAccept(base) : base;
     };
     let driver: BackendDriver;
     if (backend === "opencode") {
@@ -427,9 +453,24 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       // forgets everything the moment the service restarts — and a question
       // someone is still looking at does not become answered because the app
       // was closed. The projector reads the event log, which remembers.
-      const questionSessions = new Set(
-        rows.flatMap(({ summary, view: v }) => v.pending_questions.map(() => summary.session_id)),
-      );
+      const waiting = new Set(askSessions);
+      for (const { summary, view: v } of rows) {
+        if (v.pending_questions.length > 0) waiting.add(summary.session_id);
+      }
+      // A session whose subagent is waiting is waiting too. The run the reader
+      // started is the run that cannot move, and the subagent's own row is not
+      // in the sidebar — leaving the parent out of it means a conversation
+      // nothing can advance draws as an ordinary idle row.
+      const parentRow = new Map(rows.map(({ summary, view: v }) => [summary.session_id, v.parent_session_id]));
+      const needsInput = new Set(waiting);
+      for (const sid of waiting) {
+        let up = parentRow.get(sid);
+        for (let hops = 0; up && hops < 8; hops++) {
+          if (needsInput.has(up)) break;
+          needsInput.add(up);
+          up = parentRow.get(up);
+        }
+      }
       const sessions = rows.map(({ summary, view: v }) => ({
         summary,
         status: v.status,
@@ -440,7 +481,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         parent: v.parent_session_id,
         archived: v.archived === true,
         deleted: v.deleted === true,
-        needs_input: askSessions.has(summary.session_id) || questionSessions.has(summary.session_id),
+        needs_input: needsInput.has(summary.session_id),
         // Which connection owns it, resolved the same way the per-session
         // commands resolve it, so a label in the UI cannot disagree with where
         // the prompt actually goes. Absent when no connected backend claims it.
