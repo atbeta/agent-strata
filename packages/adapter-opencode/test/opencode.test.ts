@@ -1576,6 +1576,100 @@ describe.skipIf(!(E2E && HAS_KEY))("opencode live e2e (deepseek)", () => {
   }, 180_000);
 });
 
+describe("the two opencode buses do not agree on when a session is idle", () => {
+  /**
+   * Measured against a live server, on one run in D:\Code\lector:
+   *
+   *   DIR     session.status  busy
+   *   GLOBAL  session.status  busy
+   *   ...
+   *   DIR     session.status  idle
+   *   DIR     session.idle    IDLE
+   *   GLOBAL  session.status  busy      <- still arriving, long after idle
+   *
+   * The global bus keeps carrying the state of a session that has already
+   * finished. A desktop session list has to follow every project, so it follows
+   * the global bus — and it then reads the last state that arrived, which for a
+   * busy project is a `busy` belonging to a run that ended. That is the whole of
+   * "the tools are still going and every list says idle": the projection is
+   * correct about the events it was given, and the events were wrong.
+   *
+   * The per-directory bus is in step with the run. So the global bus stays the
+   * one that discovers sessions, and the per-directory bus is the one allowed
+   * to say a session is idle.
+   */
+  test("a late busy on the global bus cannot undo the idle the project bus reported", async () => {
+    const { connectOpencode } = await import("../src/index");
+    const enc = new TextEncoder();
+    const sse = (chunks: string[]) =>
+      new ReadableStream<Uint8Array>({
+        start(ctrl) {
+          for (const c of chunks) ctrl.enqueue(enc.encode(`data: ${c}\n\n`));
+          // stays open
+        },
+      });
+
+    const created = (id: string) =>
+      `{"directory":"/repo","payload":{"id":"c-${id}","type":"session.created","properties":{"sessionID":"${id}","info":{"id":"${id}","directory":"/repo","title":"T","time":{"created":1,"updated":1}}}}}`;
+    const status = (id: string, ev: string, state: string) =>
+      `{"directory":"/repo","payload":{"id":"${ev}","type":"session.status","properties":{"sessionID":"${id}","status":{"type":"${state}"}}}}`;
+    const idle = (id: string, ev: string) =>
+      `{"directory":"/repo","payload":{"id":"${ev}","type":"session.idle","properties":{"sessionID":"${id}"}}}`;
+
+    const sid = "ses_race";
+    let globalSent = false;
+    const fakeFetch = async (input: Request | URL | string) => {
+      const req = input instanceof Request ? input : new Request(String(input));
+      const url = req.url;
+      if (url.includes("/project")) {
+        return Response.json([{ id: "p1", name: "repo", worktree: "/repo" }]);
+      }
+      // `/global/event` also contains `/event`, so it has to be tested first.
+      if (url.includes("/global/event")) {
+        if (globalSent) return Response.json([]);
+        globalSent = true;
+        // The global bus: the session appears and claims work, and then the
+        // per-directory bus takes over before the stream goes quiet.
+        return new Response(
+          sse([created(sid), status(sid, "g1", "busy")]),
+          { status: 200, headers: { "content-type": "text/event-stream" } },
+        );
+      }
+      if (url.includes("/event")) {
+        // The project bus: idle arrives promptly, then the global bus's stale
+        // busy lands afterwards.
+        return new Response(
+          sse([
+            status(sid, "d1", "busy"),
+            idle(sid, "d2"),
+            status(sid, "g-stale-busy", "busy"),
+          ]),
+          { status: 200, headers: { "content-type": "text/event-stream" } },
+        );
+      }
+      return Response.json([]);
+    };
+
+    const store = openStore(":memory:");
+    const conn = await connectOpencode({
+      baseUrl: "http://fake",
+      sink: store,
+      fetch: fakeFetch as typeof fetch,
+      connectTimeoutMs: 5_000,
+    });
+    // Let the project stream drain.
+    await Bun.sleep(400);
+    conn.stop();
+
+    const states = store
+      .read({ session_id: `opencode:${sid}` })
+      .filter((e) => e.type === "session.status")
+      .map((e) => (e as { data: { state: string } }).data.state);
+    expect(states.at(-1)).toBe("idle");
+    store.close();
+  });
+});
+
 describe("connectOpencode lifecycle", () => {
   test("stop() aborts the SSE fetch signal", async () => {
     const { connectOpencode } = await import("../src/index");

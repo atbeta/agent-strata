@@ -420,6 +420,13 @@ interface SessionState {
    * rather than a pause, and one still receiving events is a live turn.
    */
   lastTouch?: number;
+  /**
+   * A run has been seen to finish. Held until real work arrives — a turn the
+   * user sent — so that a claim still arriving on the global bus about a run
+   * that ended cannot put the session back to running. See the `session.idle`
+   * case for the measurement that made this necessary.
+   */
+  idleConfirmed?: boolean;
 }
 
 export class OpencodeMapper {
@@ -963,6 +970,12 @@ export class OpencodeMapper {
         // message carries `completed` — so this reads it off one shape.
         const clock = info.time as { completed?: number } | undefined;
         if (clock?.completed !== undefined) m.completed = clock.completed;
+        // A message is real work, and real work is what lifts a confirmed idle.
+        // A claim is not: the global bus keeps sending one about a run that has
+        // already ended, and treating that as the start of a new one is what put
+        // a finished session back to running for as long as the project kept
+        // working. See the `session.idle` case.
+        s.idleConfirmed = false;
         if (info.role === "user") {
           s.pendingUserMsgs.add(info.id);
           return out;
@@ -1174,6 +1187,31 @@ export class OpencodeMapper {
         out.push(...pre);
         const idle =
           evt.type === "session.idle" || evt.properties.status.type === "idle";
+        /**
+         * OpenCode serves two buses and they do not agree. `/event?directory=`
+         * follows one project and `/global/event` follows every project; a
+         * desktop session list has to take the global one or it would only know
+         * about the project it happened to be launched in. Measured on a live
+         * server, one run in D:\Code\lector read:
+         *
+         *   DIR     status busy
+         *   GLOBAL  status busy
+         *   ...
+         *   DIR     status idle
+         *   DIR     idle   IDLE
+         *   GLOBAL  status busy     <- the run is over and it keeps saying busy
+         *
+         * The global bus carries the state of a session that has already
+         * finished, so the last state to arrive is not the state of the run. A
+         * projection that is correct about every event it was given still reads
+         * idle forever while its tools are visibly working.
+         *
+         * So the buses are not interchangeable. An idle is taken as final, and
+         * only real work lifts it — a turn the user sent, a message the model
+         * produced. A bare claim does not, because a bare claim is exactly what
+         * the global bus keeps re-sending about a run that ended. The global
+         * bus keeps discovering sessions; it is no longer allowed to end them.
+         */
         if (idle) {
           for (const msgID of [...s.pendingUserMsgs]) this.flushUser(s, out, msgID);
           // a message that never finished is retired by the overlay at idle; a
@@ -1181,6 +1219,11 @@ export class OpencodeMapper {
           for (const [msgID, held] of this.held) if (held.s === s) this.held.delete(msgID);
           s.sawBusy = false;
           s.liveMsgs?.clear();
+          s.idleConfirmed = true;
+        } else if (s.idleConfirmed) {
+          // Stale: this run is over. Dropping it is what stops the last event to
+          // arrive from being the one the projection keeps.
+          return out;
         } else {
           // Remember that the backend claimed work, so a later completion with
           // no idle behind it is something we can correct rather than guess at.
@@ -1889,6 +1932,69 @@ export async function connectOpencode(opts: {
       dispatch(r.value);
     }
   };
+
+  /**
+   * One subscription per project, alongside the global one.
+   *
+   * The global bus is the only way to hear about a session in a project we were
+   * not launched in, so it stays. It is also the bus whose `session.status`
+   * cannot be trusted for idleness: measured live, it keeps carrying `busy` for
+   * a run that has already ended, long after the project bus reported idle. The
+   * last state to arrive is then not the state of the run, and a session whose
+   * tools are visibly working reads idle in every list.
+   *
+   * So each known project gets `/event?directory=…` as well, and that stream is
+   * in step with the work. Both feed the same dispatcher: the global bus still
+   * discovers sessions, transcripts and file changes arrive once however many
+   * buses carry them, and an idle is only believed when it comes from a bus
+   * that is watching that project.
+   *
+   * A project whose stream fails to open is not fatal — its sessions are still
+   * discovered and still run, they just fall back to trusting the global bus,
+   * which is what happened to every session before this existed.
+   */
+  const projectStreams = new Set<string>();
+  const watchProject = (directory: string) => {
+    if (abort.signal.aborted || projectStreams.has(directory)) return;
+    projectStreams.add(directory);
+    void (async () => {
+      let pause = 1_000;
+      for (;;) {
+        if (abort.signal.aborted) return;
+        let iter: AsyncIterator<unknown> | undefined;
+        try {
+          const opened = (await client.event.subscribe({ directory })) as {
+            stream: AsyncGenerator<unknown>;
+          };
+          iter = opened.stream[Symbol.asyncIterator]();
+          pause = 1_000;
+          for (;;) {
+            const r = await iter.next();
+            if (r.done || abort.signal.aborted) return;
+            dispatch(r.value);
+          }
+        } catch {
+          if (abort.signal.aborted) return;
+          await Bun.sleep(pause);
+          pause = Math.min(pause * 2, 30_000);
+        } finally {
+          void iter?.return?.(undefined)?.catch?.(() => {});
+        }
+      }
+    })();
+  };
+  const watchProjects = async () => {
+    try {
+      const r = await client.project.list();
+      for (const project of r.data ?? []) {
+        watchProject(project.worktree);
+        for (const sandbox of project.sandboxes ?? []) watchProject(sandbox);
+      }
+    } catch (err) {
+      console.error("opencode project list failed:", err);
+    }
+  };
+  void watchProjects();
   // Filled in once refreshSessions exists. A drop in the first tick has nothing to catch up yet.
   let catchUp: () => void = () => {};
   const quiet: AsyncIterator<unknown> = (async function* () {})();
