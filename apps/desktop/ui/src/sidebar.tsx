@@ -1,4 +1,4 @@
-import { For, Show } from "solid-js";
+import { For, Show, createSignal } from "solid-js";
 import {
   archiveSession,
   backendLabel,
@@ -94,6 +94,25 @@ export function Sidebar(props: {
     };
   };
 
+  /**
+   * Per-group visibility. `collapsed` hides a group entirely behind its
+   * header; `expanded` opens a long one past the first page of rows. Both are
+   * keyed by group key so a poll that rebuilds the groups keeps the reader's
+   * folds. Neither is persisted — they answer "what am I looking at right
+   * now", and a fold that survives restarts would hide sessions the reader
+   * forgot they tucked away.
+   */
+  const [collapsed, setCollapsed] = createSignal<Set<string>>(new Set());
+  const [expanded, setExpanded] = createSignal<Set<string>>(new Set());
+  const flip = (set: Set<string>, key: string) => {
+    const next = new Set(set);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    return next;
+  };
+  /** Rows offered before a long group asks for the rest. */
+  const PAGE = 10;
+
   return (
     <aside class="flex w-[300px] shrink-0 flex-col border-r border-border bg-background">
       {/* macOS hides its title bar and paints the traffic lights over the
@@ -165,9 +184,6 @@ export function Sidebar(props: {
                 groups read differently from the groups below it. */}
             <span class="flex items-baseline gap-1.5">
               <span class="truncate">{t("fleet.nav")}</span>
-              <span class="font-mono text-2xs text-muted-foreground/60 tabular-nums">
-                {list().sessions().length}
-              </span>
             </span>
           </RowButton>
           {/* The "only what is running" lens. It filters rather than sorts
@@ -228,14 +244,20 @@ export function Sidebar(props: {
             />
           }
         >
-          {(group) => (
-            <section class="mb-2">
+          {(group) => {
+            const rows = () => (expanded().has(group.key) ? group.rows : group.rows.slice(0, PAGE));
+            return (
+            <section class={cn(collapsed().has(group.key) ? "mb-0" : "mb-2")}>
               <SectionHeader
                 label={group.label}
                 count={group.rows.length}
                 hint={group.hint}
+                title={group.title}
+                open={!collapsed().has(group.key)}
+                onToggle={() => setCollapsed((s) => flip(s, group.key))}
               />
-              <For each={group.rows}>
+              <Show when={!collapsed().has(group.key)}>
+              <For each={rows()}>
                 {(s) => {
                   const id = s.summary.session_id;
                   return (
@@ -259,8 +281,19 @@ export function Sidebar(props: {
                   );
                 }}
               </For>
+              <Show when={!expanded().has(group.key) && group.rows.length > PAGE}>
+                <RowButton
+                  class="h-7 items-center px-2 text-2xs text-muted-foreground hover:bg-secondary/70"
+                  onClick={() => setExpanded((s) => flip(s, group.key))}
+                >
+                  <Icon name="chevron" class="size-2.5 rotate-90 text-muted-foreground/60" />
+                  {t("sidebar.group.more", { n: group.rows.length - PAGE })}
+                </RowButton>
+              </Show>
+              </Show>
             </section>
-          )}
+            );
+          }}
         </For>
       </div>
       <ConnectionsFooter

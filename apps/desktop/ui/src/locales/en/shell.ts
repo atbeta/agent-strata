@@ -37,6 +37,7 @@ export default {
   // word.
   "sidebar.group.pinned": "Pinned",
   "sidebar.group.attention": "Needs attention",
+  "sidebar.group.more": "{n} more",
   "sidebar.filter.label": "Filter sessions",
   "sidebar.filter.all": "All",
   "sidebar.filter.attention": "Needs attention",

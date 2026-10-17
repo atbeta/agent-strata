@@ -37,6 +37,7 @@ export default {
   // one the fleet page calls 需要关注, so both screens use the one word.
   "sidebar.group.pinned": "置顶",
   "sidebar.group.attention": "需要关注",
+  "sidebar.group.more": "还有 {n} 条",
   "sidebar.filter.label": "筛选会话列表",
   "sidebar.filter.all": "全部",
   "sidebar.filter.attention": "需要关注",

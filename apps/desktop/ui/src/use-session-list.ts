@@ -15,7 +15,19 @@ import { windowTitle } from "./permission-card";
 import { inDesktopShell } from "./shell";
 import { announceFinished, finishedSessions, readNotify, rememberBusy } from "./notify";
 
-export type SidebarGroup = { key: string; label: string; hint?: string; rows: SessionRow[] };
+export type SidebarGroup = { key: string; label: string; hint?: string; title?: string; rows: SessionRow[] };
+
+/**
+ * The parent directory, abbreviated to `~` when it sits under a user home.
+ * Shown only to disambiguate two projects that share a basename — for a
+ * unique label it would repeat what the row already says.
+ */
+function dirHint(path: string): string {
+  const sep = path.includes("\\") ? "\\" : "/";
+  const at = path.replace(/[/\\]+$/, "").lastIndexOf(sep);
+  const parent = at <= 0 ? sep : path.slice(0, at);
+  return parent.replace(/^\/Users\/[^/]+/, "~");
+}
 
 /**
  * The sidebar's session data: the /sessions resource, its workspace-scoped and
@@ -154,19 +166,27 @@ export function useSessionList(opts: {
         list.push(s);
         byWs.set(ws, list);
       }
+      const sorted = [...byWs.entries()].sort((a, b) => {
+        const ta = new Date(a[1][0]?.summary.last_ts ?? 0).getTime();
+        const tb = new Date(b[1][0]?.summary.last_ts ?? 0).getTime();
+        return tb - ta;
+      });
+      // A hint exists to tell two same-named projects apart. Counting labels
+      // first means a unique project shows its name alone, and only the
+      // duplicates pay for the parent path.
+      const labelCounts = new Map<string, number>();
+      for (const [ws] of sorted) {
+        const label = ws ? projectName(ws) : "";
+        if (label) labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1);
+      }
       out.push(
-        ...[...byWs.entries()]
-          .sort((a, b) => {
-            const ta = new Date(a[1][0]?.summary.last_ts ?? 0).getTime();
-            const tb = new Date(b[1][0]?.summary.last_ts ?? 0).getTime();
-            return tb - ta;
-          })
-          .map(([ws, list]) => ({
-            key: ws || "none",
-            label: ws ? projectName(ws) : t("sidebar.project.none"),
-            hint: ws || undefined,
-            rows: list,
-          })),
+        ...sorted.map(([ws, list]) => ({
+          key: ws || "none",
+          label: ws ? projectName(ws) : t("sidebar.project.none"),
+          hint: ws && (labelCounts.get(projectName(ws)) ?? 0) > 1 ? dirHint(ws) : undefined,
+          title: ws || undefined,
+          rows: list,
+        })),
       );
       return out;
     }
@@ -208,6 +228,7 @@ export function useSessionList(opts: {
         a.key === b.key &&
         a.label === b.label &&
         a.hint === b.hint &&
+        a.title === b.title &&
         a.rows.length === b.rows.length &&
         a.rows.every((row, i) => row === b.rows[i]),
     ),
