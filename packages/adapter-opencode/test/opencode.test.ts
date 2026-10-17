@@ -2377,7 +2377,7 @@ describe("what the user sent", () => {
   });
 
   test("the mapping version moved, so stored sessions are rebuilt", () => {
-    expect(OPENCODE_MAPPER_VERSION).toBe("opencode-6");
+    expect(OPENCODE_MAPPER_VERSION).toBe("opencode-7");
   });
 });
 
@@ -2398,6 +2398,33 @@ describe("a task tool names the child session it opened", () => {
     partUpdated({
       id, sessionID: sid, messageID: "a1", type: "tool", callID, tool, state,
     });
+
+  test("a child named one update after the call started still lands on it", () => {
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    m.handle(assistant());
+    const part = (metadata: object) =>
+      toolPart("ptask2", "c-late", "task", {
+        status: "running",
+        input: { description: "explore the repo" },
+        metadata,
+        time: { start: 21 },
+      });
+    // The part runs before the subagent session exists, so this first update
+    // has no id in it — which used to be the last chance to read one.
+    const started = m.handle(part({ model: { modelID: "m", providerID: "p" } }));
+    const first = started.find((e) => e.type === "tool.call")!;
+    expect(first.data).not.toHaveProperty("child_session_id");
+
+    const named = m.handle(part({ sessionId: "ses_kid" }));
+    const restated = named.find((e) => e.type === "tool.call")!;
+    expect(restated.data).toMatchObject({ call_id: "c-late", child_session_id: "opencode:ses_kid" });
+    // A restatement the store keeps, and the projector folds into one call.
+    expect(restated.id).not.toBe(first.id);
+
+    const again = m.handle(part({ sessionId: "ses_kid" }));
+    expect(again.filter((e) => e.type === "tool.call")).toHaveLength(0);
+  });
 
   test("copies sessionId onto the call and the result, and leaves other tools alone", () => {
     const m = new OpencodeMapper();

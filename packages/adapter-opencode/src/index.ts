@@ -269,7 +269,7 @@ export function promptFailure(err: unknown, text: string): string {
 }
 
 /** Bump when the mapping changes; stored sessions mapped by an older version are rebuilt. */
-export const OPENCODE_MAPPER_VERSION = "opencode-6";
+export const OPENCODE_MAPPER_VERSION = "opencode-7";
 
 /** The event types an import reproduces from OpenCode's own record of a session. */
 export const OPENCODE_REBUILT_TYPES: EventType[] = [
@@ -346,6 +346,8 @@ interface ToolTrack {
   deferred?: ToolPart;
   /** the newest state this part was seen in, so a stall check can tell a running tool from a waiting one */
   status?: string;
+  /** the child session this call opened, once any update has named one */
+  child?: string;
 }
 
 interface MsgState {
@@ -796,24 +798,50 @@ export class OpencodeMapper {
     const st = part.state;
     t.status = st.status;
     const child = taskChild(part.tool, st.status === "pending" ? undefined : st.metadata);
+    const callData = (childId?: string) => ({
+      turn_id: m.parentID ?? part.messageID,
+      call_id: part.callID,
+      tool: part.tool,
+      input: st.input,
+      order: t.order,
+      // `order` counts only within this message. Naming the message
+      // too is what lets a reader see a call beside the words that
+      // asked for it instead of in a pile at the end of the turn.
+      msg_id: part.messageID,
+      ...(childId ? { child_session_id: childId } : {}),
+    });
+    /**
+     * A task part is running before the session it opens exists, so its id
+     * arrives in a later update than the call itself. Reading it only at the
+     * first non-pending sighting dropped it: the card named no child for as
+     * long as the child was working, and the id came back with the result
+     * instead — the one moment there is nothing left to go and watch.
+     *
+     * The call is restated to carry it. A second `tool.call` for one call_id
+     * is an update rather than a second card: whichever event the projector
+     * meets first writes the call, and the other fills in the child.
+     */
+    if (st.status !== "pending" && child && child !== t.child) {
+      t.child = child;
+      if (t.emittedCall) {
+        out.push(
+          this.ev(
+            s,
+            "tool.call",
+            callData(child),
+            `opencode:${part.id}:tool.child`,
+            sourceTime(st.time.start || s.updated),
+          ),
+        );
+      }
+    }
     if (!t.emittedCall && st.status !== "pending") {
       t.emittedCall = true;
       out.push(
         this.ev(
           s,
           "tool.call",
-          {
-            turn_id: m.parentID ?? part.messageID,
-            call_id: part.callID,
-            tool: part.tool,
-            input: st.input,
-            order: t.order,
-            // `order` counts only within this message. Naming the message
-            // too is what lets a reader see a call beside the words that
-            // asked for it instead of in a pile at the end of the turn.
-            msg_id: part.messageID,
-            ...(child ? { child_session_id: child } : {}),
-          },
+          callData(child),
           `opencode:${part.id}:tool.call`,
           sourceTime(st.time.start || s.updated),
         ),

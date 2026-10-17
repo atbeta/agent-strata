@@ -85,6 +85,23 @@ describe("projector", () => {
     expect(v.turns[0]!.tool_calls[0]!.child_session_id).toBe("opencode:ses_kid");
   });
 
+  test("a call restated with the child it opened is an update, not a second card", () => {
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      mk("s", "tool.call", { turn_id: "t", call_id: "c1", tool: "task", input: {} }),
+      mk("s", "tool.call", {
+        turn_id: "t",
+        call_id: "c1",
+        tool: "task",
+        input: {},
+        child_session_id: "opencode:ses_kid",
+      }),
+    ]);
+    expect(v.turns[0]!.tool_calls.length).toBe(1);
+    expect(v.turns[0]!.tool_calls[0]!.child_session_id).toBe("opencode:ses_kid");
+    expect(v.totals.tool_calls).toBe(1);
+  });
+
   test("tool calls sort back into declaration order when the backend stamps it", () => {
     // Started out of order (c1 declared first but ran last), which is what a
     // backend running calls concurrently reports.

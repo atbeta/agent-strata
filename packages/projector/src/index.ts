@@ -306,6 +306,16 @@ export function projectSession(events: Event[]): SessionView {
         break;
       }
       case "tool.call": {
+        const known = calls.get(e.data.call_id);
+        // A call the mapper learned more about after writing it — a task tool
+        // names the session it opened one update after it starts running. The
+        // same call_id restated is that update, not a second card, and it is
+        // the only chance to attach the child while there is still something
+        // to go and watch.
+        if (known) {
+          if (e.data.child_session_id) known.child_session_id = e.data.child_session_id;
+          break;
+        }
         const t = getTurn(e.data.turn_id);
         const call: ToolCallView = {
           call_id: e.data.call_id,
