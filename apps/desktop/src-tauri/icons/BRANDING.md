@@ -2,51 +2,49 @@
 
 ## Concept
 
-**玉色 / Jade.** Strata Core in cool jade: four subtly faceted, interlocking
-strata stacked on one upright dark tile.
+**重叠 / Overlap.** Two satin frames on a slate tile, overlapping so the shared
+square glows green.
 
-- Tile — `#17332C`, an 896-unit squircle (corner radius 224) inset 64 on every
-  side of the 1024 canvas. The icon carries its own backing, so it stays legible
-  on both light and dark surfaces and at 16px.
-- Strata — a top face lighter than its left facet, each body one step darker
-  than the one above it:
-
-  | body   | top face | left facet | facet − top |
-  | ------ | -------- | ---------- | ----------- |
-  | slab 1 | `#8FC9B8` | `#C4E9DE` | 0.242 |
-  | slab 2 | `#5FAE99` | `#94D2C0` | 0.212 |
-  | slab 3 | `#2E7D6C` | `#5EAB98` | 0.174 |
-  | base   | `#12463B` | `#2F7C6C` | 0.113 |
-
-  The group is scaled 1.02, and the stack is drawn twice: once as `#091713` at
-  32% offset 12 units down, for the drop shadow that keeps the slabs apart from
-  the tile.
+- Tile — a 896-unit squircle (corner radius 208) inset 64 on every side of the
+  1024 canvas, carrying its own diagonal slate gradient `#39414C` → `#151920`
+  with a soft top sheen. The icon carries its own backing, so it stays legible on
+  both light and dark surfaces and at 16px.
+- Frames — two 176-unit squares at 50% offsets along the diagonal, drawn as
+  rounded-square outlines with `fill-rule="evenodd"`: a back frame in translucent
+  white at 34%/14%, a front frame in near-solid white `#FFFFFF` → `#CFD7E0` with a
+  drop shadow so it sits above rather than beside.
+- Overlap — the 176-unit square they share, filled with a jade gradient
+  `#9DF1CB` → `#3CB584`, lifted further by a top shine and backed by a soft
+  radial glow at 42%.
 
 ### Why these numbers
 
 An icon that looks fine at 512px can be mush at 24px, and the taskbar is where
-this one has to survive. Three things were doing the damage in the first jade
-version:
+this one has to survive. The earlier **Jade strata** mark was four faceted slabs
+stacked on a tile; BRANDING.md at that revision recorded what had to be raised
+for it to read at taskbar size — facet steps to ≥ 0.11, no 6%-opacity hairline,
+a halved shadow. Two of those findings carry over and are worth keeping:
 
-- **The facet contrast was sub-threshold.** Each left facet sat only 0.03–0.07
-  of relative luminance above its own body. At 24px that gap is below what a
-  pixel can carry, so all four slabs flattened into one silhouette. Every
-  facet step is now ≥ 0.11, and the steps between neighbouring bodies are
-  0.115–0.187, so the stack still reads as a stack at taskbar size.
-- **A 6%-opacity hairline.** The `#E3FFF5` outline around the tile was pure
-  noise: invisible as detail, but at small sizes it added a stray light edge
-  that read as a rendering artefact. Removed.
-- **A 50% drop shadow at 16px offset.** It doubled every edge and was most of
-  the "soft, blurry" quality. Halved and pulled in.
+- **A 6%-opacity hairline is noise.** Invisible as detail, but at small sizes it
+  adds a stray light edge that reads as a rendering artefact. The rim here is a
+  3-unit `url(#rim)` gradient peaking at 30% — present at 128px, gone by 32px,
+  which is the right way round for a rim.
+- **A large drop shadow doubles every edge at 16px.** The frame carries
+  `dy="14" stdDeviation="16"` at 45% opacity. That is enough to separate the front
+  frame from the back one and not enough to read as blur.
 
-The tile was also lifted from `#14231E` to `#17332C`. Against a dark taskbar the
-original was effectively black; a little more green lets the tile read as a
-tile instead of a hole.
+What changed is the silhouette, not the palette. Four slabs at a taskbar size
+were four thin parallelograms whose internal edges fell below what a pixel can
+carry. Two overlapping squares plus one lit square is three shapes with one
+strong relationship between them, and the relationship — that they *share*
+something — is the thing that survives reduction. Verified at 32px: both frames
+and the green overlap are individually readable, and the overlap still reads as
+an overlap rather than as two adjacent squares.
 
-The earlier **Interlock** mark (pearl/ice/brand blue on a transparent field)
-is gone, and so is any single-colour `strata-mark.svg` — nothing referenced it,
-and tinting a mark this faceted does not preserve it. The caption bar uses the
-full-colour window icon instead.
+The earlier **Interlock** mark (pearl/ice/brand blue on a transparent field) and
+the **Jade strata** mark are both gone, and so is any single-colour
+`strata-mark.svg` — nothing referenced it, and tinting a mark this faceted does
+not preserve it. The caption bar uses the full-colour window icon instead.
 
 ## Sources
 
