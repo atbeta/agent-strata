@@ -121,6 +121,7 @@ export function SessionInfo(props: {
   backend: string;
   status: string;
   workspace?: string;
+  branch?: string;
 }) {
   const contextLimit = () => {
     if (!props.context || props.context.percent == null || props.context.total <= 0) return null;
@@ -228,6 +229,9 @@ export function SessionInfo(props: {
         <InfoRow label={t("info.backend")} value={backendLabel(props.backend)} />
         <Show when={props.workspace}>
           <InfoRow label={t("info.workspace")} value={props.workspace!} mono title={props.workspace} />
+        </Show>
+        <Show when={props.branch}>
+          <InfoRow label={t("info.branch")} value={props.branch!} mono title={props.branch} />
         </Show>
         <InfoRow
           label={t("info.id")}

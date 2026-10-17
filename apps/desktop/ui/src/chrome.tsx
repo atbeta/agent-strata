@@ -1,7 +1,7 @@
 import { Show, createSignal, onCleanup, onMount, type JSX } from "solid-js";
 import { cn } from "./lib/utils";
 import { Button } from "./components/ui/button";
-import { inDesktopShell, drawsOwnTopStrip, usesCustomCaption } from "./shell";
+import { inDesktopShell, usesCustomCaption } from "./shell";
 import { t } from "./i18n";
 import { Tip } from "./tip";
 
@@ -135,21 +135,23 @@ export function CaptionButtons() {
 }
 
 /**
- * The window's own 44px strip, spanning every column.
+ * The window's own 44px strip, spanning every column — Windows only.
  *
  * The caption gets this row to itself rather than sharing the right edge of
  * one column: a drawer docked at the right would otherwise take the corner
  * away, and the buttons would drift inward. With its own row, no screen
  * header, drawer, or title strip can ever reach the top-right — there is
  * nothing below it to reach.
+ *
+ * macOS draws nothing here: its overlay traffic lights land in the sidebar's
+ * top-left corner, which lets every screen's own header reach the top edge
+ * instead of sitting under an empty band.
  */
 export function WindowCaptionBar() {
   return (
-    <Show when={drawsOwnTopStrip()}>
+    <Show when={usesCustomCaption()}>
       <div
-        class={`flex h-11 shrink-0 items-center gap-3 border-b border-border select-none ${
-          usesCustomCaption() ? "pl-5" : "pl-[76px]"
-        }`}
+        class="flex h-11 shrink-0 select-none items-center gap-3 border-b border-border pl-5"
         data-tauri-drag-region={inDesktopShell() ? "" : undefined}
       >
         <AppMark />

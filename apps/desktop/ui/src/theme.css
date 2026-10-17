@@ -338,7 +338,7 @@ textarea {
    design; that is what makes `.md` sizeable from the outside. */
 @layer components {
   .md {
-    @apply text-sm leading-[1.7] text-foreground/90;
+    @apply text-base leading-[1.7] text-foreground/90;
     word-break: break-word;
   }
   .md-bubble p { margin: 0; }
@@ -348,11 +348,11 @@ textarea {
   .md h1, .md h2, .md h3, .md h4 {
     @apply mb-2 mt-4 font-semibold text-foreground;
   }
-  /* A ladder that never collides with the 13px body. */
-  .md h1 { @apply text-xl; }
-  .md h2 { @apply text-lg; }
-  .md h3 { @apply text-base; }
-  .md h4 { @apply text-sm; }
+  /* A ladder that never collides with the 14px body. */
+  .md h1 { @apply text-2xl; }
+  .md h2 { @apply text-xl; }
+  .md h3 { @apply text-lg; }
+  .md h4 { @apply text-base; }
   .md ul, .md ol { @apply my-2.5 pl-5; }
   .md ul { list-style: disc; }
   .md ol { list-style: decimal; }

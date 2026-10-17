@@ -264,9 +264,9 @@ function OutputWell(props: { text: string; kind: ToolKind }) {
   return (
     <Show
       when={diff()}
-      fallback={<Code source={clean()} maxHeight="max-h-72" class="bg-background" />}
+      fallback={<Code source={clean()} maxHeight="max-h-72" class="bg-secondary/60" />}
     >
-      <pre class="max-h-72 overflow-auto rounded-md bg-background px-3 py-2 font-mono text-xs leading-5">
+      <pre class="max-h-72 overflow-auto rounded-md bg-secondary/60 px-3 py-2 font-mono text-xs leading-5">
         <For each={clean().split("\n")}>
           {(line) => <div class={`break-words whitespace-pre-wrap ${diffLineClass(line)}`}>{line || " "}</div>}
         </For>
@@ -309,11 +309,15 @@ function ToolCallCard(props: {
       return t("tool.status.needs_permission");
     return statusLabel(props.call.status);
   };
+  /* One quiet line, not a card: a transcript can hold a dozen of these in a
+     row, and giving each one a border and a fill turned the conversation into
+     a stack of chrome. The hanging indent under the icon carries the expanded
+     output the way a file tree carries its children. */
   return (
-    <div class={`overflow-hidden rounded-lg border bg-card ${denied() ? "border-destructive/35" : "border-border"}`}>
+    <div class="-ml-2">
       <Tip label={open() ? t("tool.output.hide") : t("tool.output.show")} class="w-full">
         <div
-          class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           role="button"
           tabIndex={0}
           aria-expanded={open()}
@@ -398,7 +402,7 @@ function ToolCallCard(props: {
         </div>
       </Tip>
       <Show when={open()}>
-        <div class="space-y-2 border-t border-border px-2.5 py-2">
+        <div class="ml-[15px] space-y-2 border-l border-border py-2 pl-3">
           <Show
             when={
               props.call.permission?.decision || props.call.status === "pending"
@@ -617,7 +621,7 @@ export function TurnBlock(props: {
             </Match>
             <Match when={row().kind === "tools" ? (row() as Extract<FlowRow, { kind: "tools" }>) : undefined}>
               {(r) => (
-                <div class="max-w-3xl space-y-1.5">
+                <div class="max-w-3xl space-y-1">
                   <For each={r().calls}>
                     {(call) => (
                       <ToolCallCard call={call} childOf={props.childOf} onOpenChild={props.onOpenChild} />

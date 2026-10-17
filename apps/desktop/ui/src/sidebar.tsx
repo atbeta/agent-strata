@@ -14,6 +14,7 @@ import { Icon } from "./icons";
 import { Tip } from "./tip";
 import { CommandSearch } from "./search";
 import { openSessionInSplit } from "./session-chrome";
+import { hostsTrafficLights } from "./shell";
 import { sessionStatus } from "./session-status";
 import { explain } from "./errors";
 import type { SessionListCtl } from "./use-session-list";
@@ -95,6 +96,14 @@ export function Sidebar(props: {
 
   return (
     <aside class="flex w-[300px] shrink-0 flex-col border-r border-border bg-background">
+      {/* macOS hides its title bar and paints the traffic lights over the
+          webview's top-left — this corner of the sidebar is where they land,
+          so the column gives them the 32px they sit in and the spot doubles
+          as drag space. Every other platform's shell keeps its own chrome
+          and the column starts at the window edge. */}
+      <Show when={hostsTrafficLights()}>
+        <div class="h-8 shrink-0 select-none" data-tauri-drag-region="" />
+      </Show>
       {/* The old header was a full row whose only content was a plus pushed
           to the right, so the corner under the wordmark was a blank band.
           The plus sits on the search row instead. */}

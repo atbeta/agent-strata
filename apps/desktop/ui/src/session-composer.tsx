@@ -90,6 +90,8 @@ export function useSessionComposer(args: {
   options: () => OptionsResponse | undefined;
   replayPos: () => number | null;
   refreshView: (full?: boolean) => Promise<void>;
+  /** the git branch, for the details popover — the header chip hides when narrow */
+  branch?: () => string | undefined;
 }) {
   const opencode = () => args.caps()?.extension === "opencode";
 
@@ -537,6 +539,7 @@ export function useSessionComposer(args: {
               backend={v().backend}
               status={v().status}
               workspace={v().workspace}
+              branch={args.branch?.()}
             />
           )}
         </Show>
@@ -941,7 +944,7 @@ export function SessionComposer(props: {
           </Show>
           <textarea
             ref={c().bindDraft}
-            class="max-h-56 w-full resize-none bg-transparent px-4 py-3 font-sans text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none"
+            class="max-h-56 w-full resize-none bg-transparent px-4 py-3 font-sans text-base leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none"
             rows={1}
             placeholder={placeholder()}
             aria-label={placeholder()}

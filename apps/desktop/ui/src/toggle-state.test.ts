@@ -31,20 +31,23 @@ describe("the header row", () => {
 
   test("every anchored panel names its trigger, so dismiss cannot fight its own open", () => {
     // Without the trigger in the inside-set, the press that dismisses and the
-    // press that reopens both arrive and the button reads as stuck.
+    // press that reopens both arrive and the button reads as stuck. The tools
+    // panel's opener is not a button but an item inside the more-menu's portal,
+    // so the menu body itself is what must count as inside.
     const src = detail();
     const search = src.slice(src.indexOf("useDismiss(search.searchOpen"), src.indexOf("useDismiss(tools.toolsOpen"));
-    const tools = src.slice(src.indexOf("useDismiss(tools.toolsOpen"), src.indexOf("useDismiss(tools.toolsOpen") + 200);
+    const tools = src.slice(src.indexOf("useDismiss(tools.toolsOpen"), src.indexOf("useDismiss(tools.toolsOpen") + 300);
     expect(search).toContain("searchPanelEl");
     expect(search).toContain("searchTriggerEl");
     expect(tools).toContain("toolsPanelEl");
-    expect(tools).toContain("toolsTriggerEl");
+    expect(tools).toContain("moreMenuEl");
   });
 
   test("both panels register their body so a press inside it is not a dismiss", () => {
     const src = detail();
     expect(src).toContain("<SearchPanel search={search} bindPanel={(el) => (searchPanelEl = el)} />");
-    expect(src).toContain("<McpToolsPanel tools={tools} bindPanel={(el) => (toolsPanelEl = el)} />");
+    expect(src).toContain("tools={tools}");
+    expect(src).toContain("bindPanel={(el) => (toolsPanelEl = el)}");
   });
 
   test("the shield is the one toggle whose open state is not just a panel", () => {

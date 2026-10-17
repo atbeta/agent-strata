@@ -6,6 +6,7 @@ import {
   disconnectMcp,
   finishMcpLogin,
   readMcp,
+  type LspServer,
   type McpServerStatus,
 } from "./api";
 import { t } from "./i18n";
@@ -200,6 +201,8 @@ export function McpToolsPanel(props: {
   tools: ReturnType<typeof useMcpTools>;
   /** the body counts as inside itself, so a dismiss elsewhere leaves it be */
   bindPanel: (el: HTMLDivElement | undefined) => void;
+  /** LSP health used to sit in the status bar; it reads here with the servers now */
+  lsp?: () => LspServer[] | undefined;
 }) {
   const m = () => props.tools;
   return (
@@ -381,6 +384,17 @@ export function McpToolsPanel(props: {
           </form>
         </Show>
       </div>
+      <Show when={props.lsp?.() !== undefined}>
+        <div
+          class={`border-t border-border px-3.5 py-2 text-2xs ${
+            props.lsp!()!.some((s) => s.status === "error") ? "text-destructive" : "text-muted-foreground"
+          }`}
+        >
+          {props.lsp!()!.some((s) => s.status === "error")
+            ? t("status.lspErr", { n: props.lsp!()!.filter((s) => s.status === "error").length })
+            : t("status.lsp", { n: props.lsp!()!.length })}
+        </div>
+      </Show>
     </div>
   );
 }

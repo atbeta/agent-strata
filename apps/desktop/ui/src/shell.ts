@@ -28,10 +28,10 @@ export function usesCustomCaption(): boolean {
 }
 
 /**
- * True when the shell draws its own top strip: Windows for the caption it
- * invents, macOS so the overlay traffic lights have a row to sit on. Linux and
- * the browser keep the OS title bar and need no strip of their own.
+ * macOS only: the overlay traffic lights land in the sidebar's top-left
+ * corner rather than on a strip of their own. Windows has its custom caption,
+ * Linux and the browser have the OS title bar — none of them reserve space.
  */
-export function drawsOwnTopStrip(): boolean {
-  return isMac() || usesCustomCaption();
+export function hostsTrafficLights(): boolean {
+  return isMac();
 }

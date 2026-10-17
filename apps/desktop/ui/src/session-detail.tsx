@@ -103,6 +103,13 @@ import { useMcpTools, McpToolsPanel } from "./session-tools";
 import { useSessionComposer, SessionComposer } from "./session-composer";
 import { SessionRail } from "./session-rail";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { EmptyState } from "@/components/ui/empty-state";
 import { DragBar } from "./chrome";
 import { clearPaneBusy, publishPaneBusy } from "./pane-activity";
@@ -656,6 +663,7 @@ export function SessionDetail(props: {
     options: () => settled(options),
     replayPos,
     refreshView: (full) => refreshView(full),
+    branch: () => settled(vcs)?.branch ?? undefined,
   });
 
   let tools: ReturnType<typeof useMcpTools>;
@@ -684,9 +692,13 @@ export function SessionDetail(props: {
   let searchPanelEl: HTMLDivElement | undefined;
   let searchTriggerEl: HTMLButtonElement | undefined;
   let toolsPanelEl: HTMLDivElement | undefined;
-  let toolsTriggerEl: HTMLButtonElement | undefined;
+  let moreMenuEl: HTMLDivElement | undefined;
   useDismiss(search.searchOpen, search.closeSearch, () => searchPanelEl, () => searchTriggerEl);
-  useDismiss(tools.toolsOpen, tools.closeTools, () => toolsPanelEl, () => toolsTriggerEl);
+  // The more-menu's portal is outside the panel in the DOM but not in spirit:
+  // without it, selecting Tools with the panel open dismisses it on the
+  // capture-phase pointerdown, then the select handler toggles it back on —
+  // a checked item that cannot be unchecked.
+  useDismiss(tools.toolsOpen, tools.closeTools, () => toolsPanelEl, () => moreMenuEl);
 
   /** One outline row per real prompt, rebuilt from the view already in hand. */
   const entries = createMemo(() => promptEntries(settled(view)?.turns ?? []));
@@ -1149,9 +1161,10 @@ export function SessionDetail(props: {
                       The chips beside it stop being offered any width at all
                       below 440px — a truncated chip renders one glyph and then
                       reads as corruption, and both are on screen elsewhere (the
-                      branch in the footer, the workspace in the sidebar). Before
-                      this the title reached 0px at the window's 960px minimum
-                      and the session you were reading had no name on screen. */}
+                      branch in the session-details popover, the workspace in
+                      the sidebar). Before this the title reached 0px at the
+                      window's 960px minimum and the session you were reading
+                      had no name on screen. */}
                   <h1
                     class="min-w-24 flex-1 truncate text-sm font-medium"
                     title={v().title ?? t("session.untitled")}
@@ -1201,55 +1214,11 @@ export function SessionDetail(props: {
                     <Icon name="search" />
                   </PanelToggle>
                 </Tip>
-                <Show when={opencode()}>
-                    <Tip label={terminalOn() ? t("terminal.hide") : t("terminal.show")}>
-                      <PanelToggle
-                        label={terminalOn() ? t("terminal.hide") : t("terminal.show")}
-                        on={terminalOn()}
-                        pressed={terminalOn()}
-                        onClick={() => setTerminalOn((on) => !on)}
-                      >
-                        <Icon name="terminal" />
-                      </PanelToggle>
-                    </Tip>
-                  </Show>
-                  <Tip label={traceOn() ? t("trace.live") : t("trace.replay")}>
-                    <PanelToggle
-                      label={traceOn() ? t("trace.live") : t("trace.replay")}
-                      on={traceOn()}
-                      pressed={traceOn()}
-                      onClick={() => {
-                        if (traceOn()) {
-                          setTraceOn(false);
-                          setTraceBlock(null);
-                          setReplayPos(null);
-                        } else {
-                          setTraceOn(true);
-                        }
-                      }}
-                    >
-                      <Icon name="replay" />
-                    </PanelToggle>
-                  </Tip>
-                  <Show when={opencode()}>
-                    <Tip label={t("header.tools")}>
-                      <PanelToggle
-                        label={t("header.tools")}
-                        on={tools.toolsOpen()}
-                        pressed={tools.toolsOpen()}
-                        onClick={tools.toggleTools}
-                        bindRef={(el) => (toolsTriggerEl = el)}
-                      >
-                        <Icon name="plug" />
-                      </PanelToggle>
-                    </Tip>
-                  </Show>
-                  {/* Two clusters: the four to the left open surfaces that
-                      inspect this transcript (find, terminal, trace, tools);
-                      the rest drive the session itself (permission mode,
-                      pane layout, export). One hairline between them keeps
-                      seven same-shaped buttons from reading as a wall. */}
-                  <span class="mx-1 h-4 w-px shrink-0 bg-border" aria-hidden="true" />
+                  {/* Two controls stay out: find, because it is how the
+                      transcript is read, and the permission mode, because it
+                      changes what the agent may do without asking. Everything
+                      else folds into the trailing menu — seven same-shaped
+                      buttons read as a wall, not as options. */}
                   <Tip
                     label={
                       autoAcceptErr() ||
@@ -1285,21 +1254,62 @@ export function SessionDetail(props: {
                     onSplit={(dir) => handleSplitPane(paneWorkspace().focusedPaneId, dir)}
                     onToggleZoom={() => handleToggleZoom(paneWorkspace().focusedPaneId)}
                   />
-                  <Tip label={t("header.export")}>
-                    <Button
-                      type="button"
-                      size="icon-sm"
-                      variant="icon"
-                      aria-label={t("header.export")}
-                      onClick={() =>
-                        void downloadExport(v().session_id).catch((err) =>
-                          composer.setSendErr(err instanceof Error ? err.message : t("err.network")),
-                        )
-                      }
-                    >
-                      <Icon name="download" />
-                    </Button>
-                  </Tip>
+                  <DropdownMenu placement="bottom-end">
+                    <Tip label={t("header.more")}>
+                      <DropdownMenuTrigger
+                        class="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                        aria-label={t("header.more")}
+                      >
+                        <Icon name="more" />
+                      </DropdownMenuTrigger>
+                    </Tip>
+                    <DropdownMenuContent ref={(el) => (moreMenuEl = el)}>
+                      <Show when={opencode()}>
+                        <DropdownMenuItem onSelect={() => setTerminalOn((on) => !on)}>
+                          <Icon name="terminal" class="size-3.5 text-muted-foreground" />
+                          <span class="flex-1">{t("terminal.show")}</span>
+                          <Show when={terminalOn()}>
+                            <Icon name="check" class="size-3.5 text-foreground" />
+                          </Show>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={tools.toggleTools}>
+                          <Icon name="plug" class="size-3.5 text-muted-foreground" />
+                          <span class="flex-1">{t("header.tools")}</span>
+                          <Show when={tools.toolsOpen()}>
+                            <Icon name="check" class="size-3.5 text-foreground" />
+                          </Show>
+                        </DropdownMenuItem>
+                      </Show>
+                      <DropdownMenuItem
+                        onSelect={() => {
+                          if (traceOn()) {
+                            setTraceOn(false);
+                            setTraceBlock(null);
+                            setReplayPos(null);
+                          } else {
+                            setTraceOn(true);
+                          }
+                        }}
+                      >
+                        <Icon name="replay" class="size-3.5 text-muted-foreground" />
+                        <span class="flex-1">{traceOn() ? t("trace.live") : t("trace.replay")}</span>
+                        <Show when={traceOn()}>
+                          <Icon name="check" class="size-3.5 text-foreground" />
+                        </Show>
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onSelect={() =>
+                          void downloadExport(v().session_id).catch((err) =>
+                            composer.setSendErr(err instanceof Error ? err.message : t("err.network")),
+                          )
+                        }
+                      >
+                        <Icon name="download" class="size-3.5 text-muted-foreground" />
+                        <span class="flex-1">{t("header.export")}</span>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </span>
               </header>
 
@@ -1308,7 +1318,7 @@ export function SessionDetail(props: {
               </Show>
 
               <Show when={tools.toolsOpen()}>
-                <McpToolsPanel tools={tools} bindPanel={(el) => (toolsPanelEl = el)} />
+                <McpToolsPanel tools={tools} lsp={lspServers} bindPanel={(el) => (toolsPanelEl = el)} />
               </Show>
 
               <Show when={traceOn()}>
@@ -1502,7 +1512,7 @@ export function SessionDetail(props: {
                   out of it. `max-h-[55vh]` on the scrollable region keeps both,
                   and the composer stays outside it, pinned where it is.
                 */}
-                <div class="shrink-0 bg-gradient-to-t from-background from-70% px-5 pb-4 pt-6">
+                <div class="shrink-0 bg-gradient-to-t from-background from-70% px-5 pb-5 pt-6">
                   <div class="mx-auto w-full space-y-2" style={{ "max-width": `${contentW()}px` }}>
                     {/* Pending asks and questions share the dock with the
                         composer, and the dock is `shrink-0` — four stacked
@@ -1598,22 +1608,6 @@ export function SessionDetail(props: {
         </Show>
         <Show when={terminalOn() && opencode()}>
           <TerminalPane sessionId={props.id} />
-        </Show>
-        <Show when={opencode()}>
-          <footer class="flex h-7 shrink-0 items-center gap-3 border-t border-border px-4 text-2xs text-muted-foreground">
-            <span class="truncate">{settled(vcs)?.branch ? t("status.branch", { branch: settled(vcs)!.branch! }) : t("status.noBranch")}</span>
-            <span class={lspServers()?.some((s) => s.status === "error") ? "text-destructive" : ""}>
-              {lspServers()?.some((s) => s.status === "error")
-                ? t("status.lspErr", { n: lspServers()!.filter((s) => s.status === "error").length })
-                : t("status.lsp", { n: lspServers()?.length ?? 0 })}
-            </span>
-            <span>
-              {t("status.mcp", {
-                on: tools.mcpServers().filter(([, s]) => s.status === "connected").length,
-                n: tools.mcpServers().length,
-              })}
-            </span>
-          </footer>
         </Show>
       </div>
 
