@@ -145,16 +145,22 @@ export async function drawDiagram(block: HTMLElement): Promise<{ ok: boolean; re
   const source = code.textContent ?? "";
   if (!source.trim()) return { ok: false };
 
-  // Already drawn, and the same diagram. Windowed lists rebuild their rows, and
-  // a rebuild that redrew every diagram it passed would be a cost paid on every
-  // scroll rather than once per message.
-  if (block.dataset.diagram === source) return { ok: true };
+  // Already drawn, and the same diagram — and the drawing still present. The
+  // flag alone is not enough: a holder that went away since (an unmounted row,
+  // a rebuilt message) must get its render back rather than an early ok.
+  if (
+    block.dataset.diagram === source &&
+    block.parentElement?.querySelector(":scope > .diagram-holder")?.hasChildNodes()
+  ) {
+    return { ok: true };
+  }
 
   // A render in flight for this source: the answer is coming, and replacing it
   // with a second attempt is how two diagrams end up fighting over one block.
   if (block.dataset.diagramPending === source) return { ok: true };
 
   const id = `mmd-${Math.random().toString(36).slice(2, 10)}`;
+  block.dataset.diagramPending = source;
   try {
     const api = await engine();
     const { svg } = await api.render(id, source);
@@ -173,6 +179,8 @@ export async function drawDiagram(block: HTMLElement): Promise<{ ok: boolean; re
   } catch (err) {
     sweepErrorArtifacts();
     return { ok: false, reason: reasonOf(err) };
+  } finally {
+    delete block.dataset.diagramPending;
   }
 }
 

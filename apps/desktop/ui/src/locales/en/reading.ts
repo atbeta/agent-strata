@@ -51,6 +51,8 @@ export default {
   "transcript.thought": "Thought",
   "transcript.stopped": "Generation stopped",
   "transcript.image": "image",
+  "transcript.toolRun.one": "Ran {n} tool",
+  "transcript.toolRun.other": "Ran {n} tools",
 
   "payload.copy": "Copy",
   "payload.copied": "Copied",

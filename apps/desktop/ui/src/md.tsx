@@ -105,6 +105,13 @@ function nodesFrom(markdown: string, finished: boolean): DocumentFragment {
 /**
  * Draw every diagram in a finished region.
  *
+ * Each diagram block is wrapped before the nodes go in: the paint loop counts
+ * the stable children it appended and reaps anything past that count on the
+ * next pass. A holder the draw inserts as a bare sibling of the block is a
+ * child it never counted — it survives until the next append and is dropped
+ * with the tail, leaving a drawn flag, a hidden source, and no diagram. The
+ * wrapper makes block, holder, and failure note one counted node.
+ *
  * The blocks are walked here, while the nodes are still in a fragment, and each
  * one is drawn once it is connected — a diagram engine measures its output
  * against the document, and a detached subtree measures against nothing, which
@@ -113,9 +120,14 @@ function nodesFrom(markdown: string, finished: boolean): DocumentFragment {
 function drawDiagrams(host: ParentNode) {
   const blocks = [...host.querySelectorAll("pre")].filter(isDiagramBlock);
   if (!blocks.length) return;
-  // The holder is inserted next to the block inside the fragment, so it moves
-  // with the block when the nodes are appended. `queueMicrotask` waits for that
-  // to have happened without making the caller await a render.
+  for (const block of blocks) {
+    const wrap = document.createElement("div");
+    wrap.className = "diagram-block";
+    block.replaceWith(wrap);
+    wrap.append(block);
+  }
+  // `queueMicrotask` waits for the fragment to have been appended without
+  // making the caller await a render.
   queueMicrotask(() => {
     for (const block of blocks) {
       if (!block.isConnected) continue;

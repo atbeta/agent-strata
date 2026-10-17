@@ -13,8 +13,8 @@ import { Icon } from "./icons";
 import { Md } from "./md";
 import { Tip } from "./tip";
 import { stripAnsi } from "./ansi";
-import { Code } from "./payload";
-import { t } from "./i18n";
+import { Code, CopyButton } from "./payload";
+import { t, tn } from "./i18n";
 import { readThinkingOpen } from "./thinking";
 import {
   assistantNotice,
@@ -121,40 +121,45 @@ function ThinkingBlock(props: { text: string; live?: boolean; scope?: string }) 
     setOpen(next);
   };
   return (
-    // `px-2.5` and `gap-2` are the tool card's own insets (below), not the
-    // transcript's. A thought row and a tool card are the same kind of thing —
-    // collapsed activity with a chevron — and they alternate down the stream, so
-    // their icons have to share one column. Sized identically but set at the
-    // content edge, the brain sat 11px left of every terminal.
-    <div class="my-2 px-2.5">
-      {/* `whitespace-normal` and `px-0` are load-bearing: the button base is
-          `whitespace-nowrap` with padding, which would clip the preview that
-          trails the label instead of truncating it. */}
-      <Button
-        variant="quiet"
-        class="h-auto max-w-full justify-start whitespace-normal px-0 text-left font-normal"
+    // Same shape as the tool row below — one hanging indent, one inset, one
+    // icon column. A thought and a tool call are both collapsed activity with
+    // a chevron and they alternate down the stream, so they share the row's
+    // exact geometry or the icon column drifts with every other line.
+    <div class="-ml-2">
+      <div
+        class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        role="button"
+        tabIndex={0}
         aria-expanded={open()}
         onClick={toggle}
+        onKeyDown={(e) => {
+          if (e.target !== e.currentTarget) return;
+          if (e.key !== "Enter" && e.key !== " ") return;
+          e.preventDefault();
+          toggle();
+        }}
       >
-        <Icon name="brain" class={`size-3.5 shrink-0 ${props.live ? "motion-safe:animate-pulse" : ""}`} />
-        <span class="shrink-0 font-medium">
+        <Icon
+          name="brain"
+          class={`size-3.5 shrink-0 ${props.live ? "text-status-active motion-safe:animate-pulse" : "text-muted-foreground"}`}
+        />
+        <span class="shrink-0 text-xs font-medium text-muted-foreground">
           {props.live ? t("transcript.thinking") : t("transcript.thought")}
         </span>
         <Show when={!open() && thinkingPreview(props.text)}>
-          <span class="min-w-0 truncate font-normal">{thinkingPreview(props.text)}</span>
+          <span class="min-w-0 truncate text-xs text-muted-foreground/70">{thinkingPreview(props.text)}</span>
         </Show>
         <span
-          class="inline-flex shrink-0 transition-transform"
+          class="ml-auto inline-flex shrink-0 text-muted-foreground transition-transform"
           style={{ transform: open() ? "none" : "rotate(-90deg)" }}
         >
           <Icon name="chevron" class="size-3" />
         </span>
-      </Button>
+      </div>
       <Show when={open()}>
-        <Md
-          class="mt-1.5 border-l border-border pl-3 text-sm leading-6 text-muted-foreground"
-          text={props.text}
-        />
+        <div class="ml-[22px] py-1.5">
+          <Md class="text-sm leading-6 text-muted-foreground" text={props.text} />
+        </div>
       </Show>
     </div>
   );
@@ -262,16 +267,21 @@ function OutputWell(props: { text: string; kind: ToolKind }) {
   const clean = () => stripAnsi(props.text);
   const diff = () => props.kind === "edit" && isDiff(clean());
   return (
-    <Show
-      when={diff()}
-      fallback={<Code source={clean()} maxHeight="max-h-72" class="bg-secondary/60" />}
-    >
-      <pre class="max-h-72 overflow-auto rounded-md bg-secondary/60 px-3 py-2 font-mono text-xs leading-5">
+    <div class="group relative">
+      <Show
+        when={diff()}
+        fallback={<Code source={clean()} maxHeight="max-h-72" />}
+      >
+        <pre class="max-h-72 overflow-auto rounded-md border border-border bg-secondary/40 px-3 py-2 font-mono text-xs leading-5">
         <For each={clean().split("\n")}>
           {(line) => <div class={`break-words whitespace-pre-wrap ${diffLineClass(line)}`}>{line || " "}</div>}
         </For>
       </pre>
-    </Show>
+      </Show>
+      <div class="absolute right-1.5 top-1.5">
+        <CopyButton text={clean()} />
+      </div>
+    </div>
   );
 }
 
@@ -290,8 +300,24 @@ function ToolCallCard(props: {
   const title = () => child()?.title || headline().title;
   const childBusy = () => child()?.busy === true;
   const childError = () => child()?.status === "error";
-  const stat = () => (props.call.output ? diffStat(props.call.output) : undefined);
+  // Same gate the well uses: only an edit whose output parses as a diff earns
+  // a change count. `ls -l` rows start with `-` too — counting them painted a
+  // fake "+0 −24" on a plain directory listing.
+  const stat = () => {
+    const out = props.call.output;
+    return out && headline().kind === "edit" && isDiff(stripAnsi(out)) ? diffStat(out) : undefined;
+  };
   const denied = () => props.call.permission?.decision === "deny" || props.call.status === "error";
+  // The row keeps one line and truncates; the well is where the full command
+  // belongs, echoing what the shell actually ran.
+  const command = () => {
+    if (headline().kind !== "shell") return undefined;
+    const c = props.call.input?.command;
+    if (typeof c !== "string") return undefined;
+    // A short single-line command already fits the row — echoing it again is
+    // noise. Only multiline or truncation-length commands earn the repeat.
+    return c.includes("\n") || c.length > 60 ? c : undefined;
+  };
   const [open, setOpen] = createSignal(props.call.status === "pending" || props.call.status === "error");
   createEffect(
     on(
@@ -331,9 +357,9 @@ function ToolCallCard(props: {
         >
           <Icon
             name={toolIcon(headline().kind)}
-            class={`size-3.5 shrink-0 ${denied() ? "text-destructive" : "text-event-tool"}`}
+            class={`size-3.5 shrink-0 ${denied() ? "text-destructive" : "text-muted-foreground"}`}
           />
-          <span class={`shrink-0 text-2xs font-medium ${denied() ? "text-destructive" : "text-muted-foreground"}`}>
+          <span class={`shrink-0 text-xs font-medium ${denied() ? "text-destructive" : "text-muted-foreground"}`}>
             {headline().verb}
           </span>
           {/* One line, always. Wrapping a long command was tried and is worse
@@ -402,7 +428,12 @@ function ToolCallCard(props: {
         </div>
       </Tip>
       <Show when={open()}>
-        <div class="ml-[15px] space-y-2 border-l border-border py-2 pl-3">
+        {/* Expanded content aligns under the row's text, past the icon and its
+            gap — a box carries the boundary now, so no rail is needed. */}
+        <div class="ml-[22px] space-y-2 pb-2">
+          <Show when={command()}>
+            <p class="break-words font-mono text-2xs leading-5 text-muted-foreground">{command()}</p>
+          </Show>
           <Show
             when={
               props.call.permission?.decision || props.call.status === "pending"
@@ -518,6 +549,63 @@ function AssistantMessage(props: {
   );
 }
 
+/**
+ * A settled run of calls folds behind one line once it outweighs the text it
+ * serves — four compact rows already cost more reading than the paragraph
+ * around them. A run that is still moving or ended in failure stays expanded:
+ * pending is live state and an error is the thing the reader came looking
+ * for. Expanded calls hang under the header's icon, same rail the output
+ * inside one call uses.
+ */
+function ToolRun(props: {
+  calls: ToolCallView[];
+  childOf?: (id: string) => ChildSession | undefined;
+  onOpenChild?: (id: string) => void;
+}) {
+  const foldable = () =>
+    props.calls.length > 3 &&
+    props.calls.every((c) => c.status === "ok" && c.permission?.decision !== "deny");
+  const [open, setOpen] = createSignal(!foldable());
+  return (
+    <div class="max-w-3xl space-y-1">
+      <Show when={foldable()}>
+        <div
+          class="-ml-2 flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          role="button"
+          tabIndex={0}
+          aria-expanded={open()}
+          onClick={() => setOpen((v) => !v)}
+          onKeyDown={(e) => {
+            if (e.key !== "Enter" && e.key !== " ") return;
+            e.preventDefault();
+            setOpen((v) => !v);
+          }}
+        >
+          <Icon name="wrench" class="size-3.5 shrink-0 text-muted-foreground" />
+          <span class="min-w-0 truncate text-xs font-medium text-muted-foreground">
+            {tn("transcript.toolRun", props.calls.length)}
+          </span>
+          <span
+            class="ml-auto inline-flex shrink-0 text-muted-foreground transition-transform"
+            style={{ transform: open() ? "none" : "rotate(-90deg)" }}
+          >
+            <Icon name="chevron" class="size-3" />
+          </span>
+        </div>
+      </Show>
+      <Show when={open()}>
+        <div class={foldable() ? "ml-[22px] space-y-1" : "space-y-1"}>
+          <For each={props.calls}>
+            {(call) => (
+              <ToolCallCard call={call} childOf={props.childOf} onOpenChild={props.onOpenChild} />
+            )}
+          </For>
+        </div>
+      </Show>
+    </div>
+  );
+}
+
 export function TurnBlock(props: {
   turn: Turn;
   /** the agent has been asked but has said nothing yet */
@@ -565,7 +653,7 @@ export function TurnBlock(props: {
   });
 
   return (
-    <div class={`space-y-3 ${props.turn.reverted ? "opacity-50" : ""}`}>
+    <div class={`space-y-2 ${props.turn.reverted ? "opacity-50" : ""}`}>
       <Show when={props.turn.user}>
         {(blocks) => (
           <MessageMenu
@@ -621,21 +709,15 @@ export function TurnBlock(props: {
             </Match>
             <Match when={row().kind === "tools" ? (row() as Extract<FlowRow, { kind: "tools" }>) : undefined}>
               {(r) => (
-                <div class="max-w-3xl space-y-1">
-                  <For each={r().calls}>
-                    {(call) => (
-                      <ToolCallCard call={call} childOf={props.childOf} onOpenChild={props.onOpenChild} />
-                    )}
-                  </For>
-                </div>
+                <ToolRun calls={r().calls} childOf={props.childOf} onOpenChild={props.onOpenChild} />
               )}
             </Match>
           </Switch>
         )}
       </Index>
       <Show when={props.awaiting?.()}>
-        <div class="flex max-w-3xl items-center gap-2 text-sm text-muted-foreground">
-          <Icon name="brain" class="size-3.5 shrink-0 motion-safe:animate-pulse" />
+        <div class="flex max-w-3xl items-center gap-2 text-xs font-medium text-muted-foreground">
+          <Icon name="brain" class="size-3.5 shrink-0 text-status-active motion-safe:animate-pulse" />
           {t("transcript.thinking")}
         </div>
       </Show>

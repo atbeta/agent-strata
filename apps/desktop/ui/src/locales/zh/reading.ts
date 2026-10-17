@@ -50,6 +50,8 @@ export default {
   "transcript.thought": "思考",
   "transcript.stopped": "已停止生成",
   "transcript.image": "图片",
+  "transcript.toolRun.one": "执行了 {n} 个工具",
+  "transcript.toolRun.other": "执行了 {n} 个工具",
 
   "payload.copy": "复制",
   "payload.copied": "已复制",
