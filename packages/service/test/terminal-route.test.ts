@@ -74,6 +74,22 @@ describe("a session terminal", () => {
 
   const posts = () => upstream.seen.filter((s) => s.method === "POST" && s.path === "/pty");
 
+  test("the listing carries the shells the backend will run", async () => {
+    const res = await fetch(`${base}/sessions/${encodeURIComponent(SESSION)}/terminal`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      sessions: { id: string }[];
+      shells: { name: string; path: string; acceptable: boolean }[];
+    };
+    expect(body.sessions.map((s) => s.id)).toEqual(["pty_1"]);
+    // Reported as it came, unacceptable entries included: the page has to be able
+    // to say a shell is missing rather than act as if it was never asked for.
+    expect(body.shells).toEqual([
+      { name: "pwsh", path: "C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe", acceptable: true },
+      { name: "nope", path: "C:/evil.exe", acceptable: false },
+    ]);
+  });
+
   test("a shell is created in the session workspace, and the password stays here", async () => {
     const res = await fetch(`${base}/sessions/${encodeURIComponent(SESSION)}/terminal`, {
       method: "POST",
@@ -157,5 +173,50 @@ describe("a session terminal", () => {
       method: "DELETE",
     });
     expect(res.status).toBe(404);
+  });
+});
+
+describe("a backend with no shell list", () => {
+  const upstream = fakeOpencode({
+    // An older opencode answers /pty/shells with nothing at all. The pane still
+    // has to show the terminals that are already running.
+    "/pty/shells": () => new Response("not found", { status: 404 }),
+    "/pty": (url) =>
+      Response.json([
+        { id: "pty_9", title: "shell", command: "", cwd: url.searchParams.get("directory"), status: "running", pid: 9 },
+      ]),
+  });
+  let svc: ReturnType<typeof startService>;
+  let base = "";
+
+  beforeAll(async () => {
+    svc = startService({ db: ":memory:", port: 0 });
+    base = `http://127.0.0.1:${svc.port}`;
+    await fetch(`${base}/connect`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ baseUrl: upstream.baseUrl, password: "s3cret" }),
+    });
+    svc.store.append([
+      makeEvent({
+        session_id: SESSION,
+        type: "session.started",
+        ts: "2026-01-01T00:00:00Z",
+        source: { backend: "opencode" },
+        data: { title: "x", workspace: "/repo/x" },
+      } as EventInput),
+    ]);
+  });
+  afterAll(() => {
+    svc.stop();
+    upstream.stop();
+  });
+
+  test("still lists its terminals, and offers no shells to choose from", async () => {
+    const res = await fetch(`${base}/sessions/${encodeURIComponent(SESSION)}/terminal`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { sessions: { id: string }[]; shells: unknown[] };
+    expect(body.sessions.map((s) => s.id)).toEqual(["pty_9"]);
+    expect(body.shells).toEqual([]);
   });
 });

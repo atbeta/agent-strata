@@ -170,6 +170,11 @@ export default {
   "terminal.close": "关闭终端",
   "terminal.closed": "终端已断开",
   "terminal.failed": "终端打不开",
+  // "+" 列出的是这个会话真正能跑的 shell，不是 PATH 上能找到的一切。
+  "terminal.shellBackend": "跟随后端",
+  "terminal.shellDefault": "默认（{name}）",
+  "terminal.shellFallback": "设为「{name}」的默认终端当前不可用，已改用后端默认。",
+  "terminal.shellDismiss": "知道了",
   "review.session": "本会话",
   "review.git": "未提交",
   "review.unified": "统一",

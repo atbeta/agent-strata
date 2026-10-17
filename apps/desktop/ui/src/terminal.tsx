@@ -1,6 +1,13 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import "@xterm/xterm/css/xterm.css";
 import {
@@ -10,13 +17,24 @@ import {
   resizeTerminal,
   terminalSocket,
   type PtySession,
+  type PtyShell,
 } from "./api";
+import {
+  markShellWarned,
+  readTerminalShell,
+  readWarnedShell,
+  resolveShell,
+  shellChoices,
+  shouldWarnFallback,
+} from "./terminal-shell";
 import { t } from "./i18n";
 
 export function TerminalPane(props: { sessionId: string; onEmpty?: () => void }) {
   const [tabs, setTabs] = createSignal<PtySession[]>([]);
   const [active, setActive] = createSignal<string | undefined>();
+  const [shells, setShells] = createSignal<PtyShell[]>([]);
   const [err, setErr] = createSignal("");
+  const [notice, setNotice] = createSignal("");
   const [ready, setReady] = createSignal(false);
   let host: HTMLDivElement | undefined;
   let opening = false;
@@ -26,6 +44,8 @@ export function TerminalPane(props: { sessionId: string; onEmpty?: () => void })
   const load = async () => {
     const listed = await listTerminals(props.sessionId);
     setTabs(listed.sessions);
+    setShells(listed.shells ?? []);
+    applyFallback(listed.shells ?? []);
     return listed.sessions;
   };
 
@@ -41,12 +61,28 @@ export function TerminalPane(props: { sessionId: string; onEmpty?: () => void })
     return t("terminal.tab", { n });
   };
 
-  const create = async () => {
+  /**
+   * The standing preference, checked against what this backend will actually
+   * run. A preference that has quietly stopped applying is the one case worth a
+   * word: say it once, then stay out of the way. The terminal still opens.
+   */
+  const applyFallback = (available: readonly PtyShell[]) => {
+    const stored = readTerminalShell();
+    if (!resolveShell(stored, available).fellBack) return;
+    if (!shouldWarnFallback(stored, readWarnedShell())) return;
+    markShellWarned(stored);
+    setNotice(t("terminal.shellFallback", { name: stored }));
+  };
+
+  /** What a plain "+" press should use. */
+  const defaultShell = () => resolveShell(readTerminalShell(), shells()).shell;
+
+  const create = async (shell?: string) => {
     if (opening) return;
     opening = true;
     setErr("");
     try {
-      const created = await openTerminal(props.sessionId, nextTitle());
+      const created = await openTerminal(props.sessionId, { title: nextTitle(), shell });
       setTabs((rows) => [...rows.filter((row) => row.id !== created.id), created]);
       setActive(created.id);
     } catch (e) {
@@ -80,7 +116,7 @@ export function TerminalPane(props: { sessionId: string; onEmpty?: () => void })
         const current = rows.find((row) => row.id === active());
         if (current) return;
         if (rows[0]) setActive(rows[0].id);
-        else void create();
+        else void create(defaultShell());
       })
       .catch(fail);
   });
@@ -173,19 +209,55 @@ export function TerminalPane(props: { sessionId: string; onEmpty?: () => void })
             </div>
           )}
         </For>
-        <Button
-          type="button"
-          variant="icon"
-          size="icon-xs"
-          aria-label={t("terminal.new")}
-          onClick={() => void create()}
-        >
-          +
-        </Button>
+        {/* Same bar, same 24px box, same hover as the close button above — a
+            bare "+" that opened a menu now has to look like the × it sits next
+            to, not like a button that happens to be elsewhere. */}
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            class="size-6 text-muted-foreground hover:bg-secondary hover:text-foreground"
+            aria-label={t("terminal.new")}
+          >
+            +
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuItem onSelect={() => void create(defaultShell())}>
+              {defaultShell()
+                ? t("terminal.shellDefault", { name: defaultShell()! })
+                : t("terminal.shellBackend")}
+            </DropdownMenuItem>
+            <Show when={shellChoices(shells()).length > 0}>
+              <DropdownMenuSeparator />
+              <For each={shellChoices(shells())}>
+                {(shell) => (
+                  <DropdownMenuItem
+                    class="font-mono text-xs"
+                    onSelect={() => void create(shell.name)}
+                  >
+                    {shell.name}
+                  </DropdownMenuItem>
+                )}
+              </For>
+            </Show>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <Show when={err()}>
           <p class="truncate px-2 text-2xs text-destructive">{err()}</p>
         </Show>
       </div>
+      <Show when={notice()}>
+        <div class="flex shrink-0 items-center gap-2 border-b border-border px-2 py-1">
+          <p class="min-w-0 flex-1 truncate text-2xs text-muted-foreground">{notice()}</p>
+          <Button
+            type="button"
+            variant="quiet"
+            size="xs"
+            class="shrink-0 text-2xs"
+            onClick={() => setNotice("")}
+          >
+            {t("terminal.shellDismiss")}
+          </Button>
+        </div>
+      </Show>
       <div
         ref={(el) => {
           host = el;

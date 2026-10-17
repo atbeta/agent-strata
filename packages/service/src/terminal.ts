@@ -11,6 +11,8 @@ export const PTY_ID = /^[\w.-]+$/;
 export interface PtyShell {
   name: string;
   path: string;
+  /** The backend's own verdict. Anything false here cannot be asked for by name,
+   *  and the list is reported as it came so the page can say why. */
   acceptable: boolean;
 }
 
@@ -149,7 +151,13 @@ export async function terminalRoute(
   const { directory, terminal } = owned;
   try {
     if (!hit.ptyId && req.method === "GET") {
-      return json({ sessions: await terminal.list(directory) });
+      const sessions = await terminal.list(directory);
+      // The shell list is a second upstream call, and this route is on the pane's
+      // path for every session switch. A backend without /pty/shells must not
+      // cost the reader their terminal list, so this one call degrades to "no
+      // choices" on its own instead of taking the whole response down with it.
+      const shells = await terminal.shells(directory).catch(() => [] as PtyShell[]);
+      return json({ sessions, shells });
     }
     if (!hit.ptyId && req.method === "POST") {
       const body = (await req.json().catch(() => ({}))) as { shell?: unknown; title?: unknown; cwd?: unknown };

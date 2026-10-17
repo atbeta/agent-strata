@@ -168,6 +168,12 @@ export default {
   "terminal.close": "Close terminal",
   "terminal.closed": "Terminal disconnected",
   "terminal.failed": "The terminal could not be opened",
+  // The "+" menu lists the shells this backend will actually run, not
+  // everything that happens to be on PATH.
+  "terminal.shellBackend": "Follow the backend",
+  "terminal.shellDefault": "Default ({name})",
+  "terminal.shellFallback": "The default terminal set to “{name}” is not available; using the backend default instead.",
+  "terminal.shellDismiss": "Got it",
   "review.session": "This session",
   "review.git": "Uncommitted",
   "review.unified": "Unified",

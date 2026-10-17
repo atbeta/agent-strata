@@ -926,17 +926,44 @@ export interface PtySession {
   status: "running" | "exited";
 }
 
-export function listTerminals(sessionId: string): Promise<{ sessions: PtySession[] }> {
+export interface PtyShell {
+  name: string;
+  /** Reported so the picker can show which binary would actually run. It is not
+   *  a capability: the service resolves the name to this path server-side. */
+  path: string;
+  /** Whether the backend will accept this name. False entries are reported
+   *  rather than hidden, so a shell that is installed but not offered has a
+   *  reason to show. */
+  acceptable: boolean;
+}
+
+export interface PtyListing {
+  sessions: PtySession[];
+  shells: PtyShell[];
+}
+
+export function listTerminals(sessionId: string): Promise<PtyListing> {
   return getJson(`/sessions/${encodeURIComponent(sessionId)}/terminal`, { signal: AbortSignal.timeout(10_000) });
 }
 
-export async function openTerminal(sessionId: string, title?: string): Promise<PtySession> {
+/**
+ * `shell` is a name from the listing above, never a path: the service resolves
+ * it against its own whitelist and refuses anything outside it, which is also
+ * why an unknown name is a 400 rather than something to retry.
+ */
+export async function openTerminal(
+  sessionId: string,
+  opts: { title?: string; shell?: string } = {},
+): Promise<PtySession> {
+  const body: { title?: string; shell?: string } = {};
+  if (opts.title) body.title = opts.title;
+  if (opts.shell) body.shell = opts.shell;
   // No timeout meant a stuck spawn pinned the pane's `opening` latch forever
   // and every later "+" press silently no-oped.
   const res = await fetch(api(`/sessions/${encodeURIComponent(sessionId)}/terminal`), {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(title ? { title } : {}),
+    body: JSON.stringify(body),
     signal: AbortSignal.timeout(10_000),
   });
   const data = (await res.json().catch(() => ({}))) as PtySession & { error?: string };

@@ -1,9 +1,17 @@
 import { createEffect, createMemo, createResource, createSignal, For, Show } from "solid-js";
 import {
+  listTerminals,
   readOpencodeLaunch,
   saveOpencodeMode,
   type OpencodeLaunchMode,
 } from "./api";
+import { readMru } from "./session-switch";
+import {
+  isShellAvailable,
+  readTerminalShell,
+  shellChoices,
+  writeTerminalShell,
+} from "./terminal-shell";
 import { LOCALES, LOCALE_LABEL, locale, setLocale, t, type Locale } from "./i18n";
 import { Icon } from "./icons";
 import { readTheme, saveTheme, type ThemeChoice } from "./theme";
@@ -132,6 +140,66 @@ function FontPicker(props: {
   );
 }
 
+/**
+ * Which shell a new terminal opens with.
+ *
+ * The choices are the backend's, not PATH's: it is the backend that decides
+ * what it will broker, and a binary it found but will not run is worse than one
+ * it never mentioned. The list is read through the session you were last in,
+ * because that is the only place a directory to ask about comes from — which is
+ * also why the control is honest about having nothing to show before the first
+ * session exists.
+ *
+ * A shell the backend has dropped is still shown, in its own name and in red.
+ * Silently swapping it would report a preference the reader never chose.
+ */
+function TerminalShellPicker(props: { label: string; value: string; onChange: (name: string) => void }) {
+  const [shells] = createResource(
+    () => readMru()[0],
+    async (sessionId) => (sessionId ? ((await listTerminals(sessionId)).shells ?? []) : []),
+  );
+
+  const available = () => shellChoices(shells() ?? []);
+  const chosen = () => (props.value === "" ? t("terminal.shellBackend") : props.value);
+  const missing = () => props.value !== "" && shells() !== undefined && !isShellAvailable(props.value, shells()!);
+
+  return (
+    <div class="w-full">
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          class="h-8 w-full justify-between gap-3 border border-border px-2.5 text-sm hover:bg-secondary/60"
+          aria-label={props.label}
+        >
+          <span class={`truncate ${props.value ? "font-mono text-xs" : ""} ${missing() ? "text-destructive" : ""}`}>
+            {chosen()}
+          </span>
+          <Icon name="chevron" class="size-3 shrink-0 text-muted-foreground" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent>
+          <DropdownMenuItem onSelect={() => props.onChange("")}>
+            {t("terminal.shellBackend")}
+          </DropdownMenuItem>
+          <Show when={available().length > 0}>
+            <DropdownMenuSeparator />
+            <For each={available()}>
+              {(shell) => (
+                <DropdownMenuItem class="font-mono text-xs" onSelect={() => props.onChange(shell.name)}>
+                  {shell.name}
+                </DropdownMenuItem>
+              )}
+            </For>
+          </Show>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <Show when={missing()}>
+        <p class="mt-1.5 text-2xs leading-4 text-destructive">
+          {t("settings.shell.missing", { name: props.value })}
+        </p>
+      </Show>
+    </div>
+  );
+}
+
 const CHOICES = (): { id: ThemeChoice; label: string }[] => [
   { id: "dark", label: t("settings.theme.dark") },
   { id: "light", label: t("settings.theme.light") },
@@ -149,6 +217,7 @@ export function SettingsPage(props: { section?: string }) {
   const [thinkingOpen, setThinkingOpen] = createSignal(readThinkingOpen());
   const [notifyOn, setNotifyOn] = createSignal(readNotify());
   const [notifyErr, setNotifyErr] = createSignal("");
+  const [shellDefault, setShellDefault] = createSignal(readTerminalShell());
 
   const patchFonts = (patch: Partial<FontChoice>) => {
     const next = { ...fonts(), ...patch };
@@ -450,6 +519,24 @@ export function SettingsPage(props: { section?: string }) {
             </a>
           </div>
         </Show>
+      </Group>
+
+      {/* Terminals are an opencode capability — the ACP adapter reports
+          `terminal: false` — so this sits with the rest of what only that backend
+          offers rather than pretending every session can open one. */}
+      <Group label={t("settings.shell.group")}>
+        <section class="divide-y divide-border">
+          <Row label={t("settings.shell.title")} hint={t("settings.shell.hint")}>
+            <TerminalShellPicker
+              label={t("settings.shell.title")}
+              value={shellDefault()}
+              onChange={(name) => {
+                setShellDefault(name);
+                writeTerminalShell(name);
+              }}
+            />
+          </Row>
+        </section>
       </Group>
 
       <ProviderSettings />
