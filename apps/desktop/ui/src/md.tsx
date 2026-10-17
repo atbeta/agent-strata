@@ -4,6 +4,8 @@ import DOMPurify from "dompurify";
 import { stripAnsi } from "./ansi";
 import { grammarFor, guessGrammar, tokenize, tokenizeDiff } from "./highlight";
 import { stableBoundary } from "./md-stream";
+import { drawDiagram, isDiagramBlock } from "./mermaid";
+import { t } from "./i18n";
 
 marked.setOptions({ gfm: true, breaks: true });
 
@@ -35,7 +37,7 @@ export function Md(props: { text: string; class?: string }) {
       // The new finished region includes the previous tail. Drop that tail
       // before appending, or the closed fence would sit after its own leftover.
       dropTail(host, stableCount);
-      const frag = nodesFrom(stable.slice(renderedStable.length));
+      const frag = nodesFrom(stable.slice(renderedStable.length), true);
       const count = frag.childNodes.length;
       host.append(frag);
       stableCount += count;
@@ -43,7 +45,7 @@ export function Md(props: { text: string; class?: string }) {
     }
 
     dropTail(host, stableCount);
-    if (tail.length > 0) host.append(nodesFrom(tail));
+    if (tail.length > 0) host.append(nodesFrom(tail, false));
   };
 
   /**
@@ -83,11 +85,65 @@ function dropTail(host: HTMLElement, stableCount: number) {
   while (host.childNodes.length > stableCount) host.lastChild!.remove();
 }
 
-function nodesFrom(markdown: string): DocumentFragment {
+/**
+ * Parse a slice of markdown into nodes.
+ *
+ * `finished` says whether this slice is a region no further token can change.
+ * It is what decides whether a diagram is drawn or left as source: a fence that
+ * is still arriving is not a diagram yet, it is half of one, and drawing it
+ * would mean parsing a source that is still being written and drawing it again
+ * on the next frame.
+ */
+function nodesFrom(markdown: string, finished: boolean): DocumentFragment {
   const tpl = document.createElement("template");
   tpl.innerHTML = DOMPurify.sanitize(marked.parse(markdown, { async: false }) as string);
   highlightCode(tpl.content);
+  if (finished) drawDiagrams(tpl.content);
   return tpl.content;
+}
+
+/**
+ * Draw every diagram in a finished region.
+ *
+ * The blocks are walked here, while the nodes are still in a fragment, and each
+ * one is drawn once it is connected — a diagram engine measures its output
+ * against the document, and a detached subtree measures against nothing, which
+ * is how a diagram ends up sized to zero.
+ */
+function drawDiagrams(host: ParentNode) {
+  const blocks = [...host.querySelectorAll("pre")].filter(isDiagramBlock);
+  if (!blocks.length) return;
+  // The holder is inserted next to the block inside the fragment, so it moves
+  // with the block when the nodes are appended. `queueMicrotask` waits for that
+  // to have happened without making the caller await a render.
+  queueMicrotask(() => {
+    for (const block of blocks) {
+      if (!block.isConnected) continue;
+      void drawDiagram(block).then((r) => {
+        if (r.ok || !r.reason) return;
+        noteDiagramFailure(block, r.reason);
+      });
+    }
+  });
+}
+
+/**
+ * Say why a diagram is not on screen, under the source that replaced it.
+ *
+ * The note is the difference between a reader knowing the diagram was rejected
+ * and a reader wondering whether the model drew one at all.
+ */
+function noteDiagramFailure(block: Element, reason: string) {
+  const parent = block.parentElement;
+  if (!parent) return;
+  let note = parent.querySelector<HTMLElement>(":scope > .diagram-note");
+  if (!note) {
+    note = document.createElement("p");
+    note.className = "diagram-note";
+    note.setAttribute("role", "note");
+    block.insertAdjacentElement("afterend", note);
+  }
+  note.textContent = `${t("diagram.failed")} ${reason}`;
 }
 
 /**

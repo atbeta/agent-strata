@@ -367,6 +367,29 @@ textarea {
     @apply block bg-transparent p-0 text-xs leading-relaxed;
     white-space: pre;
   }
+
+  /* A drawn diagram sits where its code block was, and keeps that block's box:
+     same margin, same radius, same hairline. A diagram that arrived in its own
+     chrome would read as a different kind of thing from everything else in the
+     transcript, and the transcript is one column of one conversation. */
+  .md .diagram-holder {
+    @apply my-3 flex justify-center overflow-x-auto rounded-lg border border-border bg-secondary/60 p-3;
+  }
+  .md .diagram-holder > svg {
+    @apply h-auto max-w-full;
+  }
+  /* A diagram carries its own colours, drawn by mermaid against `theme: base`.
+     Inheriting the transcript's text colour would tint half of it; keeping the
+     SVG's own fill is what makes the diagram read as a diagram. */
+  .md .diagram-holder > svg text {
+    font-family: inherit;
+  }
+
+  /* Why a diagram is showing as source instead. Quiet, and out of the way of
+     the source it is explaining. */
+  .md .diagram-note {
+    @apply mt-1 text-2xs text-destructive/90;
+  }
   .md blockquote {
     @apply my-2.5 border-l-2 border-border pl-3 text-muted-foreground;
   }

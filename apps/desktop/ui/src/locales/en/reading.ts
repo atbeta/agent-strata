@@ -65,4 +65,9 @@ export default {
   "json.summary.object": "{{shown}}",
   "json.summary.object.truncated": "{{shown}, …}",
   "json.summary.object.empty": "{}",
+
+  // Shown when a diagram could not be drawn. The sentence already says "this is
+  // mermaid source", so what follows is the engine's reason rather than a second
+  // statement that rendering failed — a reader needs the why, not the what.
+  "diagram.failed": "This is mermaid source that could not be drawn:",
 } as const;

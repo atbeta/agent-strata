@@ -124,6 +124,20 @@ Tool `input` and `result` arrive as raw event data and are rendered by `Payload`
 
 Wrapping is `break-words`, never `break-all`: breaking inside a word turns one long token into a column of fragments.
 
+### Diagrams in a transcript
+
+A ```mermaid fence is drawn rather than shown, and the engine is the heaviest thing this UI can pull in: roughly 0.6MB of shared core, gzipped, plus a chunk per diagram type. It is imported on the first block that needs one and never before, so a session with no diagram in it never pays for one — and a session that has one pays once.
+
+Three things about where that runs are worth stating, because each is a way it breaks quietly:
+
+- **Only a finished region is drawn.** A reply arrives as a longer string every token, and a fence that has not closed is half a diagram, not one. `stableBoundary` already draws the line between what has closed and what is still arriving, and only the closed side is handed over. Measured across a streamed message: nothing was parsed at steps 0–2, and the diagram appeared at step 3 when the fence closed.
+- **A drawn diagram is not drawn again.** The transcript is a windowed list, so a row unmounts on the way out and is rebuilt on the way back. The draw is keyed on the source, which makes the cost once per message rather than once per scroll.
+- **mermaid does not write into the page.** Its failure path appends an illustrated error block to `document.body` — outside the transcript, so the reader gets a stray graphic with nothing connecting it to the block that failed. Suppressed, with a sweep behind it.
+
+A diagram that cannot be drawn keeps its source and gains one line saying why. The source stays because dropping it loses something the reader can still read and copy; the line is there because a block that shows as code with no explanation reads as "the model drew nothing", not "the diagram was wrong". The reason is trimmed to the line and the text under the caret — mermaid ends every parse error with the full list of tokens it expected, which recites the grammar at someone who asked for a flowchart.
+
+The diagram's colours are set to the app's own rather than left to mermaid's default, which draws on white. Its base theme is for a light document, and a white rectangle in a dark transcript is glare. `securityLevel: strict` is set explicitly: a transcript is untrusted text, and the difference between rendering a diagram and executing one is that setting.
+
 ### The transcript and the dock
 
 They share one column, and the dock is `shrink-0` — so whatever the dock takes, the transcript does not get. The dock's cap therefore belongs to the dock, not to the cards inside it: a `max-h` on the card stack bounds the cards and leaves the dock's own padding and the composer outside it, which is how a session with one pending question measured 548px of a 900px window and left the conversation 232px of it. The transcript holds a `min-h` floor for the same reason. A conversation is the thing the reader came for, and a dock that grows past the floor scrolls instead of squeezing it.

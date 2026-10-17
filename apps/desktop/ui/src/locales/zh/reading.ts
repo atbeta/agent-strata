@@ -64,4 +64,8 @@ export default {
   "json.summary.object": "{{shown}}",
   "json.summary.object.truncated": "{{shown}, …}",
   "json.summary.object.empty": "{}",
+
+  // mermaid 画不出来时的说明。句子本身已经说了"这是一段源码"，所以后面接的
+  // 是引擎给的原因，不再重复"渲染失败"——读者要的是为什么，不是发生了什么。
+  "diagram.failed": "这是一段 mermaid 源码，未能绘制：",
 } as const;
