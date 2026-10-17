@@ -1489,15 +1489,18 @@ export function SessionDetail(props: {
                 />
               </Show>
               <Show when={!booting() && replayPos() === null && !pinned() && v().turns.length > 0}>
-                <Button
-                  type="button"
-                  variant="quiet"
-                  size="xs"
-                  class="surface-popover absolute bottom-4 left-1/2 z-20 h-auto -translate-x-1/2 rounded-full border border-border bg-popover px-3 py-1 shadow-md"
-                  onClick={jumpToLatest}
-                >
-                  {t("nav.latest")}
-                </Button>
+                <Tip label={t("nav.latest")}>
+                  <Button
+                    type="button"
+                    variant="quiet"
+                    size="xs"
+                    aria-label={t("nav.latest")}
+                    class="absolute bottom-4 left-1/2 z-20 grid size-9 -translate-x-1/2 place-items-center rounded-full bg-foreground p-0 text-background shadow-lg transition-opacity hover:bg-foreground/85 hover:text-background"
+                    onClick={jumpToLatest}
+                  >
+                    <Icon name="arrow-down" class="size-4" />
+                  </Button>
+                </Tip>
               </Show>
               </div>
                 )}

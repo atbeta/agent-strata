@@ -13,6 +13,7 @@ export type Name =
   | "folder-plus"
   | "chevron"
   | "chevron-right"
+  | "arrow-down"
   | "pencil"
   | "archive"
 
@@ -136,6 +137,13 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
       <Glyph class={cls}>
         <path d="M2.5 5.2c0-.7.5-1.2 1.2-1.2h2.2l1.2 1.3H12.3c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H3.7c-.7 0-1.2-.5-1.2-1.2z" />
         <path d="M8 7.8v3.6M6.2 9.6h3.6" />
+      </Glyph>
+    );
+  if (name === "arrow-down")
+    return (
+      <Glyph class={cls}>
+        <path d="M8 3v9.4" />
+        <path d="M4.2 8.6 8 12.4l3.8-3.8" />
       </Glyph>
     );
   if (name === "chevron")
