@@ -77,7 +77,9 @@ export function SessionListItem(props: {
         {t("sidebar.session.rename")}
       </Item>
       <Item onSelect={() => props.onTogglePin()}>
-        <Icon name="pin" class="size-3.5 text-muted-foreground" />
+        {/* The item is one action, so the icon says which action: a pin that
+            is already in means the click takes it out. */}
+        <Icon name={props.pinned ? "unpin" : "pin"} class="size-3.5 text-muted-foreground" />
         {t(props.pinned ? "sidebar.session.unpin" : "sidebar.session.pin")}
       </Item>
       {/* Compare belongs on the session rather than behind a global

@@ -43,12 +43,19 @@ export type Name =
   | "single-pane"
   | "maximize"
   | "minimize"
-  | "pin";
+  | "pin"
+  | "unpin";
 
-function Glyph(props: { class?: string; children: JSX.Element }) {
+/**
+ * `box` exists for the two glyphs that are lifted from an icon library instead
+ * of drawn here. Their upstream geometry is on a 24 grid and is reproduced
+ * verbatim rather than re-fitted onto ours — a re-fit is a redraw with extra
+ * steps, and a redraw is how we got a pushpin that read as a speck.
+ */
+function Glyph(props: { class?: string; box?: string; children: JSX.Element }) {
   return (
     <svg
-      viewBox="0 0 16 16"
+      viewBox={props.box ?? "0 0 16 16"}
       class={props.class ?? "h-4 w-4"}
       fill="none"
       stroke="currentColor"
@@ -381,12 +388,28 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
         <circle cx="8" cy="11" r=".6" fill="currentColor" stroke="none" />
       </Glyph>
     );
-  // A pushpin tipped down-left: square head, short needle to the page corner.
+  // Tabler `pin`, moved onto our 16 grid at 2/3 of its 24. It was drawn here
+  // before, as a diamond with a hairline needle — which at 12px is a smudge.
+  // The library's shape has a head with real width and a needle you can see.
   if (name === "pin")
     return (
       <Glyph class={cls}>
-        <path d="M9.7 2.3 13.7 6.3l-.8 2.3-2.5-.7-2.9 2.9-1.4-1.4 2.9-2.9-.7-2.5z" />
-        <path d="M6.4 10.2 3 13.6" />
+        <path d="M10 3l-2.67 2.67l-2.67 1l-1 1l4.67 4.67l1-1l1-2.67l2.67-2.67" />
+        <path d="M6 10l-3 3" />
+        <path d="M9.67 2.67l3.67 3.67" />
+      </Glyph>
+    );
+  // Remix `unpin-line`, verbatim on its own 24 grid. A pin crossed out says
+  // "currently pinned, this undoes it" in a way the same pin again does not.
+  // It is a fill icon, so the child overrides the stroke Glyph would set.
+  if (name === "unpin")
+    return (
+      <Glyph class={cls} box="0 0 24 24">
+        <path
+          fill="currentColor"
+          stroke="none"
+          d="m20.97 17.172l-1.414 1.414l-3.535-3.535l-.073.074l-.707 3.536l-1.415 1.414l-4.242-4.243l-4.95 4.95l-1.414-1.414l4.95-4.95l-4.243-4.243L5.34 8.761l3.536-.707l.073-.074l-3.536-3.536L6.828 3.03zM10.365 9.394l-.502.502l-2.822.565l6.5 6.5l.564-2.822l.502-.502zm8.411.074l-1.34 1.34l1.414 1.415l1.34-1.34l.707.707l1.415-1.415l-8.486-8.485l-1.414 1.414l.707.707l-1.34 1.34l1.414 1.415l1.34-1.34z"
+        />
       </Glyph>
     );
   return (
