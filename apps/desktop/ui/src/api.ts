@@ -638,6 +638,22 @@ export async function setSessionPolicy(id: string, mode: SessionPolicyMode): Pro
   if (!res.ok) throw new Error(t("api.err.service", { status: res.status }));
 }
 
+export async function setGoal(sessionId: string, text: string): Promise<void> {
+  await throwOnError(
+    await fetch(api(`/sessions/${encodeURIComponent(sessionId)}/goal`), {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text }),
+    }),
+  );
+}
+
+export async function clearGoal(sessionId: string): Promise<void> {
+  await throwOnError(
+    await fetch(api(`/sessions/${encodeURIComponent(sessionId)}/goal`), { method: "DELETE" }),
+  );
+}
+
 async function throwOnError(res: Response): Promise<void> {
   if (res.ok) return;
   const body = (await res.json().catch(() => ({}))) as { error?: string };

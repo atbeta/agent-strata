@@ -15,6 +15,7 @@ import { connectOpencodeDriver } from "./opencode-driver";
 import { LiveOverlay } from "./live";
 import { filesKeyOf, ViewCache } from "./views";
 import { makeEvent, type EventInput } from "@agent-strata/schema";
+import { goalContinuation, lastAssistantText, sessionAwaiting, shouldContinueGoal } from "./goal";
 import { connectAcpDriver } from "./acp-driver";
 import { bootPlan, REMEMBERED_PROBE_MS } from "./boot-connect";
 import { agentNameOf, connectionMemory, endpointOf, type ConnectBody } from "./connections";
@@ -128,9 +129,17 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   };
   const live = new LiveOverlay();
   const views = new ViewCache(store);
+  // A continuation already handed to the backend, waiting until that run shows
+  // as busy. Without it, the idle that accepted the prompt sends another one.
+  const goalKicked = new Set<string>();
+  // The user aborted. The idle that follows is them stopping, not the run ending.
+  const goalPaused = new Set<string>();
   store.subscribe((e) => {
     live.settle(e);
     broadcast(e);
+    if (e.type === "session.status" && e.data.state === "busy") goalKicked.delete(e.session_id);
+    if (e.type === "session.status" && e.data.state === "idle") considerGoal(e.session_id);
+    if (e.type === "permission.resolved" || e.type === "question.resolved") considerGoal(e.session_id);
   });
   const claims = new SessionClaims();
   // Every channel a backend writes through ends here, so this is the one place
@@ -295,6 +304,44 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     pendingQuestions.delete(requestId);
     q.resolve({ decision: "reply", external: true });
   };
+
+  const GOAL_MAX = 4_000;
+  function considerGoal(sessionId: string) {
+    let view: SessionView;
+    try {
+      view = sessionView(sessionId);
+    } catch {
+      return;
+    }
+    const pending =
+      sessionAwaiting(view) ||
+      [...pendingAsks.values()].some((ask) => ask.session_id === sessionId) ||
+      [...pendingQuestions.values()].some((q) => q.session_id === sessionId);
+    if (
+      !shouldContinueGoal({
+        goal: view.goal,
+        busy: view.busy,
+        status: view.status,
+        deleted: view.deleted,
+        archived: view.archived,
+        pending,
+        paused: goalPaused.has(sessionId),
+        kicked: goalKicked.has(sessionId),
+        lastAssistant: lastAssistantText(view.turns),
+      })
+    ) {
+      return;
+    }
+    const conn = driverFor(sessionId);
+    const native = conn?.nativeId(sessionId);
+    if (!conn || !native || !conn.capabilities.prompt || !view.goal) return;
+    const text = goalContinuation(view.goal);
+    goalKicked.add(sessionId);
+    void conn.prompt(native, [{ type: "text", text }], { directory: directoryOf(sessionId) }).catch((err) => {
+      goalKicked.delete(sessionId);
+      console.error("goal continuation failed:", err);
+    });
+  }
 
   /**
    * Which session is still waiting on this question, according to the log.
@@ -693,10 +740,12 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       }
       if (cmd === "abort" && req.method === "POST") {
         if (!conn.capabilities.abort) return json({ error: "backend cannot abort" }, 400);
+        goalPaused.add(casfId);
         try {
           await conn.abort(native, directory);
           return json({ ok: true });
         } catch (e) {
+          goalPaused.delete(casfId);
           return json({ error: String(e) }, 502);
         }
       }
@@ -729,6 +778,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
           return json({ error: "backend cannot take files or attachments" }, 400);
         if (parts.some((p) => p.type === "file_ref") && !(directory ?? conn.directory))
           return json({ error: "session has no workspace to read files from" }, 400);
+        goalPaused.delete(casfId);
         try {
           await conn.prompt(native, parts, {
             model: body?.model,
@@ -1122,6 +1172,57 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         autoSessions.delete(sid);
         broadcast({ type: "session.policy", session_id: sid, mode: "inherit" });
         return json({ ok: true, mode: "inherit", session_id: sid });
+      }
+    }
+
+    const sessionGoal = path.match(/^\/sessions\/([^/]+)\/goal$/);
+    if (sessionGoal) {
+      let sid: string;
+      try {
+        sid = decodeURIComponent(sessionGoal[1]!);
+      } catch {
+        return json({ error: "not found" }, 404);
+      }
+      if (store.lastSeq(sid) <= 0) return json({ error: "not found" }, 404);
+      if (req.method === "GET") {
+        let text: string | null = null;
+        try {
+          text = sessionView(sid).goal ?? null;
+        } catch {
+          text = null;
+        }
+        return json({ text, session_id: sid });
+      }
+      if (req.method === "DELETE") {
+        store.append([
+          makeEvent({
+            session_id: sid,
+            source: { backend: "desktop" },
+            type: "session.goal",
+            data: { text: null },
+          }) as EventInput,
+        ]);
+        goalPaused.delete(sid);
+        goalKicked.delete(sid);
+        return json({ ok: true, text: null, session_id: sid });
+      }
+      if (req.method === "PUT") {
+        const body = (await req.json().catch(() => null)) as { text?: unknown } | null;
+        const text = typeof body?.text === "string" ? body.text.trim() : "";
+        if (!text) return json({ error: "text required" }, 400);
+        if (text.length > GOAL_MAX) return json({ error: "text is too long" }, 400);
+        store.append([
+          makeEvent({
+            session_id: sid,
+            source: { backend: "desktop" },
+            type: "session.goal",
+            data: { text },
+          }) as EventInput,
+        ]);
+        goalPaused.delete(sid);
+        goalKicked.delete(sid);
+        considerGoal(sid);
+        return json({ ok: true, text, session_id: sid });
       }
     }
 

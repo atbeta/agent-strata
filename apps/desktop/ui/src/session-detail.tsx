@@ -103,6 +103,7 @@ import { AskCard, QuestionCard } from "./session-prompts";
 import { useSessionSearch, SearchPanel } from "./session-search";
 import { useMcpTools, McpToolsPanel } from "./session-tools";
 import { useSessionComposer, SessionComposer } from "./session-composer";
+import { GoalBar } from "./goal-bar";
 import { SessionRail } from "./session-rail";
 import { createEntranceLedger } from "./entrance";
 import { Button } from "@/components/ui/button";
@@ -1755,6 +1756,7 @@ const turns = () => shown().turns;
                         </Button>
                       </div>
                     </Show>
+                    <GoalBar sessionId={props.id} goal={v().goal} />
                     <SessionComposer
                       c={composer}
                       sessionId={() => props.id}

@@ -72,6 +72,7 @@ export function tailMatches(view: SessionView, tail: ViewTail): boolean {
   if (view.title !== tail.title || view.workspace !== tail.workspace) return false;
   if (view.revert_turn_id !== tail.revert_turn_id) return false;
   if ((view.parent_session_id ?? null) !== (tail.parent_session_id ?? null)) return false;
+  if ((view.goal ?? null) !== (tail.goal ?? null)) return false;
   if ((view.archived === true) !== (tail.archived === true)) return false;
   if ((view.deleted === true) !== (tail.deleted === true)) return false;
   if (JSON.stringify(view.orphans ?? []) !== JSON.stringify(tail.orphans ?? [])) return false;

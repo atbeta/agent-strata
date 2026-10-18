@@ -72,6 +72,10 @@ const data = {
     revert: z.object({ turn_id: z.string().min(1) }).nullable().optional(),
   }),
   "session.deleted": z.object({}),
+  // null clears. Kept out of adapter rebuilds: the backend has no copy of it.
+  "session.goal": z.object({
+    text: z.string().min(1).nullable(),
+  }),
   "session.compacted": z.object({
     message_id: z.string().min(1),
     auto: z.boolean().optional(),

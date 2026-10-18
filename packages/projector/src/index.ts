@@ -125,6 +125,8 @@ export interface SessionView {
   busy: boolean;
   /** the message the revert boundary names; absent when there is none */
   revert_turn_id?: string;
+  /** what this session is working toward; absent when nobody set one */
+  goal?: string;
   turns: Turn[];
   orphans: ToolCallView[];
   pending_permissions: PermissionInfo[];
@@ -272,6 +274,10 @@ export function projectSession(events: Event[]): SessionView {
       case "session.deleted":
         view.deleted = true;
         view.busy = false;
+        break;
+      case "session.goal":
+        if (e.data.text) view.goal = e.data.text;
+        else delete view.goal;
         break;
       case "turn.user": {
         const t = getTurn(e.data.turn_id);

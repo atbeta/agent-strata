@@ -411,6 +411,20 @@ describe("projector", () => {
     expect(gone.title).toBe("keep");
   });
 
+  test("a goal stays until a later event clears it", () => {
+    const set = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      mk("s", "session.goal", { text: "ship the fix" }),
+    ]);
+    expect(set.goal).toBe("ship the fix");
+    const cleared = projectSession([
+      mk("s2", "session.started", { workspace: "/w" }),
+      mk("s2", "session.goal", { text: "ship the fix" }),
+      mk("s2", "session.goal", { text: null }),
+    ]);
+    expect(cleared.goal).toBeUndefined();
+  });
+
   test("busy flag and pending questions follow the latest events", () => {
     const v = projectSession([
       mk("s", "session.started", { workspace: "/w" }),
