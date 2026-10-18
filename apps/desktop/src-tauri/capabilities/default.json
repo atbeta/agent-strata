@@ -10,6 +10,10 @@
     "core:window:allow-close",
     "core:window:allow-show",
     "core:window:allow-set-focus",
-    "dialog:default"
+    "dialog:default",
+    {
+      "identifier": "shell:allow-open",
+      "allow": [{ "url": "https://*" }, { "url": "http://*" }, { "url": "mailto:*" }]
+    }
   ]
 }

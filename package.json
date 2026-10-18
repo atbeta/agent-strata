@@ -13,5 +13,8 @@
   "devDependencies": {
     "@types/bun": "^1.2.0",
     "typescript": "5.5.4"
+  },
+  "dependencies": {
+    "@tauri-apps/plugin-shell": "^2.5.0"
   }
 }

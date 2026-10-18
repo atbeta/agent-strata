@@ -22,6 +22,7 @@ import { useConnections } from "./use-connections";
 import { useWorkspace } from "./use-workspace";
 import { useSessionSwitcher } from "./use-switcher";
 import { Sidebar } from "./sidebar";
+import { installExternalLinkHandler } from "./external-open";
 
 export function App() {
   const [route, setRoute] = createSignal<Route>(parseHash());
@@ -65,7 +66,6 @@ export function App() {
   const [focusDir, setFocusDir] = createSignal<string | undefined>(undefined);
 
   const [query, setQuery] = createSignal("");
-  const [searchOpen, setSearchOpen] = createSignal(false);
   const [results] = createResource(query, async (q) =>
     q.trim()
       ? (
@@ -90,6 +90,9 @@ export function App() {
   onMount(() => {
     const onHash = () => setRoute(parseHash());
     window.addEventListener("hashchange", onHash);
+    // Before anything else: a link clicked in the first frame must not be the
+    // one that empties the window.
+    const removeLinkHandler = installExternalLinkHandler();
     applyTheme(readTheme());
     applyFonts(readFonts());
     const scheme = window.matchMedia("(prefers-color-scheme: light)");
@@ -177,12 +180,6 @@ export function App() {
         return;
       }
       if (e.key !== "Escape") return;
-      if (searchOpen()) {
-        setSearchOpen(false);
-        setQuery("");
-        e.preventDefault();
-        return;
-      }
       if (ws.dirOpen()) {
         ws.setDirOpen(false);
         e.preventDefault();
@@ -225,6 +222,7 @@ export function App() {
     };
     window.addEventListener("contextmenu", onContextMenu);
     onCleanup(() => {
+      removeLinkHandler();
       scheme.removeEventListener("change", onScheme);
       window.removeEventListener("hashchange", onHash);
       window.removeEventListener("keydown", onKey, true);
@@ -333,13 +331,14 @@ export function App() {
   onCleanup(
     registerCommand({
       id: "app.search",
-      title: () => t("search.label"),
+      // One panel. `Ctrl K` used to open a search that found sessions and
+      // transcript but no commands, and `Ctrl Shift P` one that found commands
+      // and sessions but no transcript — so half the time you opened the wrong
+      // one, and the other half you did not know the other existed. Both
+      // chords now open the same list, which answers to all three.
+      title: () => t("palette.title"),
       chord: { key: "k" },
-      run: () =>
-        setSearchOpen((open) => {
-          if (open) setQuery("");
-          return !open;
-        }),
+      run: () => setPaletteOpen((open) => !open),
     }),
   );
   onCleanup(
@@ -403,18 +402,7 @@ export function App() {
         list={list}
         ws={ws}
         conns={conns}
-        search={{
-          open: searchOpen(),
-          query: query(),
-          events: settled(results),
-          searching: results.loading,
-          onOpenChange: (open) => {
-            setSearchOpen(open);
-            if (!open) setQuery("");
-          },
-          onQuery: setQuery,
-          onOpenSession: openSession,
-        }}
+        onOpenSearch={() => setPaletteOpen(true)}
         fleetActive={route().name === "fleet"}
         compareOn={compareOn()}
         compareSel={compareSel()}
@@ -499,14 +487,23 @@ export function App() {
       </div>
       <CommandPalette
         open={paletteOpen()}
+        query={query()}
+        onQuery={setQuery}
         sessions={list.sessions().map((s) => ({
           id: s.summary.session_id,
           title: s.title || s.summary.title || t("common.untitled"),
+          workspace: s.workspace ?? s.summary.workspace,
+          summary: { title: s.summary.title, workspace: s.summary.workspace },
         }))}
+        events={settled(results)}
+        searching={results.loading}
         onOpenSession={(id) => {
           location.hash = `/session/${encodeURIComponent(id)}`;
         }}
-        onClose={() => setPaletteOpen(false)}
+        onClose={() => {
+          setPaletteOpen(false);
+          setQuery("");
+        }}
       />
       <SessionSwitcher
         open={switcher.switchOpen()}
