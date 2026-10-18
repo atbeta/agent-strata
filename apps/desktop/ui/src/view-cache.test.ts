@@ -6,6 +6,9 @@ const view = (turns: string[]): SessionView => ({
   session_id: "s",
   backend: "opencode",
   status: "active",
+  busy: false,
+  orphans: [],
+  pending_questions: [],
   turns: turns.map((turn_id) => ({
     turn_id,
     user: [{ type: "text", text: turn_id }],

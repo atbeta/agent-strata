@@ -38,6 +38,9 @@ export default defineConfig({
   },
   server: {
     port: 5178,
+    fs: {
+      allow: [fileURLToPath(new URL("../../..", import.meta.url))],
+    },
     proxy: {
       "/api": {
         target: service,

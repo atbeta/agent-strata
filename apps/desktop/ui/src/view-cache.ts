@@ -1,4 +1,7 @@
 import type { SessionView, ViewTail } from "./api";
+import { filesKeyOf } from "../../../../packages/projector/src/files-key";
+
+export { filesKeyOf };
 
 const CAPACITY = 4;
 
@@ -49,14 +52,6 @@ export const peekView = (id: string) => sessionViews.peek(id);
 export const rememberView = (id: string, view: SessionView, filesKey?: string) =>
   sessionViews.remember(id, view, filesKey);
 
-const flag = (v: object, key: string) => (v as Record<string, unknown>)[key] === true;
-const field = (v: object, key: string) => (v as Record<string, unknown>)[key];
-
-/** Same formula as the service's filesKeyOf: the count of file records. */
-export function filesKeyOf(view: Pick<SessionView, "files_changed">): string {
-  return `${view.files_changed.length}:${view.files_changed.reduce((n, f) => n + f.count, 0)}`;
-}
-
 /** A tail response drawn as the whole transcript until the full view arrives. */
 export function viewFromTail(tail: ViewTail): SessionView {
   const { turn_offset: _offset, prev_turn_id: _prev, files_key: _key, files_changed, ...rest } = tail;
@@ -77,9 +72,9 @@ export function tailMatches(view: SessionView, tail: ViewTail): boolean {
   if (view.title !== tail.title || view.workspace !== tail.workspace) return false;
   if (view.revert_turn_id !== tail.revert_turn_id) return false;
   if ((view.parent_session_id ?? null) !== (tail.parent_session_id ?? null)) return false;
-  if (flag(view, "archived") !== flag(tail, "archived")) return false;
-  if (flag(view, "deleted") !== flag(tail, "deleted")) return false;
-  if (JSON.stringify(field(view, "orphans") ?? []) !== JSON.stringify(field(tail, "orphans") ?? [])) return false;
+  if ((view.archived === true) !== (tail.archived === true)) return false;
+  if ((view.deleted === true) !== (tail.deleted === true)) return false;
+  if (JSON.stringify(view.orphans ?? []) !== JSON.stringify(tail.orphans ?? [])) return false;
   if (JSON.stringify(view.totals) !== JSON.stringify(tail.totals)) return false;
   if (JSON.stringify(view.pending_permissions) !== JSON.stringify(tail.pending_permissions)) return false;
   if (JSON.stringify(view.pending_questions ?? []) !== JSON.stringify(tail.pending_questions ?? [])) return false;

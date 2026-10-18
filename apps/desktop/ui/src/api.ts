@@ -1,6 +1,28 @@
 import { inDesktopShell } from "./shell";
 import { t } from "./i18n";
 import type { MessageKey } from "./locales/zh";
+import type {
+  FileChangeView,
+  FileEditView,
+  PermissionInfo,
+  QuestionOption,
+  QuestionPrompt,
+  SessionView,
+  ToolCallView,
+  Turn,
+} from "../../../../packages/projector/src/index";
+
+export type { ContentBlock } from "../../../../packages/schema/src/index";
+export type {
+  FileChangeView as FileChange,
+  FileEditView as FileEdit,
+  PermissionInfo as PendingPermission,
+  QuestionOption,
+  QuestionPrompt as PendingQuestion,
+  SessionView,
+  ToolCallView,
+  Turn,
+};
 
 export interface SessionRow {
   summary: {
@@ -52,129 +74,6 @@ export interface SearchHit {
   turn_id: string | null;
   call_id: string | null;
   snippet: string;
-}
-
-export type ContentBlock =
-  | { type: "text"; text: string }
-  | { type: "thinking"; text: string }
-  | { type: "image"; mime: string; data?: string; uri?: string }
-  | { type: "file_ref"; path: string; range?: { start: number; end: number } };
-
-export interface ToolCallView {
-  call_id: string;
-  tool: string;
-  input: Record<string, unknown>;
-  status: "pending" | "ok" | "error" | "interrupted";
-  output?: string;
-  latency_ms?: number;
-  permission?: {
-    request_id: string;
-    decision?: "allow" | "deny";
-    by?: "user" | "policy" | "auto";
-    rule_id?: string;
-    reason?: string;
-  };
-  /** Declaration order among the calls of this assistant message, starting at 0. */
-  order?: number;
-  /** The assistant message this call belongs to, when the backend names one. */
-  msg_id?: string;
-  /** CASF id of the child session a task tool opened. */
-  child_session_id?: string;
-}
-
-export interface Turn {
-  turn_id: string;
-  user?: ContentBlock[];
-  assistant: {
-    content: ContentBlock[];
-    msg_id?: string;
-    partial?: boolean;
-    model?: string;
-    usage?: {
-      input: number;
-      output: number;
-      reasoning?: number;
-      cache_read?: number;
-      cache_write?: number;
-    };
-    cost_usd?: number;
-    latency_ms?: number;
-    error?: string;
-  }[];
-  tool_calls: ToolCallView[];
-  reverted?: boolean;
-  /** a divider after this turn */
-  compaction?: boolean;
-}
-
-export interface PendingPermission {
-  request_id: string;
-  decision?: "allow" | "deny";
-  by?: "user" | "policy" | "auto";
-  rule_id?: string;
-  reason?: string;
-}
-
-export interface QuestionOption {
-  label: string;
-  description: string;
-}
-
-export interface PendingQuestion {
-  request_id: string;
-  questions: {
-    question: string;
-    header: string;
-    options: QuestionOption[];
-    multiple?: boolean;
-    custom?: boolean;
-  }[];
-}
-
-export interface FileEdit {
-  change: "add" | "modify" | "delete";
-  additions: number;
-  deletions: number;
-  /** absent when no tool call explains this change — usually a shell command */
-  diff?: string;
-  call_id?: string;
-  /** index into SessionView.turns, -1 when the turn is not in this session */
-  turn_index: number;
-  whole_file?: boolean;
-}
-
-export interface FileChange {
-  path: string;
-  change: "add" | "modify" | "delete";
-  count: number;
-  /** summed across every recorded change, so a lower bound when unexplained */
-  additions: number;
-  deletions: number;
-  edits: FileEdit[];
-  /** at least one recorded change has no diff to show */
-  unexplained: boolean;
-}
-
-export interface SessionView {
-  session_id: string;
-  backend: string;
-  workspace?: string;
-  title?: string;
-  /** set when this session was opened by a parent; the header links back */
-  parent_session_id?: string;
-  status: string;
-  busy?: boolean;
-  revert_turn_id?: string;
-  turns: Turn[];
-  pending_permissions: PendingPermission[];
-  pending_questions?: PendingQuestion[];
-  plan?: { content: string; status: "pending" | "in_progress" | "completed" }[];
-  files_changed: FileChange[];
-  totals: SessionRow["totals"] & {
-    reasoning: number;
-    tool_errors: number;
-    permissions_denied: number;
-  };
 }
 
 /** The last turns of a session's view, and where they sit in the whole. */

@@ -558,3 +558,5 @@ export function aggregate(views: SessionView[]): {
   }
   return { by_backend, by_model, total };
 }
+
+export { filesKeyOf } from "./files-key";

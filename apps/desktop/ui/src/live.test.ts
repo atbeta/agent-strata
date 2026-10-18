@@ -6,6 +6,9 @@ const base = (): SessionView => ({
   session_id: "s",
   backend: "opencode",
   status: "active",
+  busy: false,
+  orphans: [],
+  pending_questions: [],
   turns: [
     {
       turn_id: "u1",
