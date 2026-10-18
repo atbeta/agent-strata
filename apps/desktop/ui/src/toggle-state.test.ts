@@ -113,7 +113,10 @@ describe("the header row", () => {
     const pane = read("pane-stage.tsx");
     expect(pane).toContain('from "./toggle-state"');
     expect(pane).not.toContain('props.zoomed ? "bg-secondary text-foreground"');
-    expect(read("search.tsx")).toContain('from "./toggle-state"');
+    // The sidebar row no longer has two states to share. It was a toggle only
+    // because the search overlay it opened was open or shut; with one panel
+    // there is one button, and it has no lit state to carry.
+    expect(read("sidebar.tsx")).not.toContain('from "./toggle-state"');
   });
 });
 
@@ -124,7 +127,7 @@ describe("what else in the app still spends the hover background on a state", ()
     // is the primary signal and a hovered row reads as a different visual from a
     // selected one. They are left alone on purpose, so this says what is
     // deliberately still there rather than sweeping the string out.
-    for (const f of ["session-detail.tsx", "search.tsx"]) {
+    for (const f of ["session-detail.tsx", "sidebar.tsx"]) {
       expect(read(f)).not.toContain('"bg-secondary text-foreground"');
     }
     // pane-stage.tsx now has one too, and it is the focused pane header: a

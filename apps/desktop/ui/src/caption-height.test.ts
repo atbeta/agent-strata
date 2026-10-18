@@ -44,14 +44,12 @@ describe("the top row is one height", () => {
     expect(found).toHaveLength(5);
   });
 
-  test("nothing else in the app borrows the header height for an input", () => {
-    // The search field and the command palette are text inputs, not rows in
-    // this column. They are taller on purpose and must not be dragged down
-    // with the headers — a 36px input loses its own padding.
-    for (const file of ["search.tsx", "palette.tsx"]) {
-      const src = read(file);
-      expect(src, `${file} keeps its own input height`).toMatch(/\bh-11\b/);
-    }
+  test("the panel's input is not a row in this column", () => {
+    // It is a field, not a header: taller on purpose, and it must not be dragged
+    // down with the rows — a 36px input loses the padding that makes it read as
+    // one. It is the only one left; the search overlay that shared it went when
+    // the two panels became one.
+    expect(read("palette.tsx")).toMatch(/class="h-11 px-3"/);
   });
 
   test("the caption buttons fill the row rather than carrying a height of their own", () => {
