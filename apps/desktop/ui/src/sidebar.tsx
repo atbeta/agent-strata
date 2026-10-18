@@ -11,7 +11,6 @@ import { relTime } from "./fleet";
 import { t } from "./i18n";
 import { Icon } from "./icons";
 import { Tip } from "./tip";
-import { CommandSearch } from "./search";
 import { openSessionInSplit } from "./session-chrome";
 import { hostsTrafficLights, inDesktopShell } from "./shell";
 import { sessionStatus } from "./session-status";
@@ -45,6 +44,11 @@ export type SidebarSearch = {
   onOpenSession: (id: string) => void;
 };
 
+/** The shortcut as the platform spells it — `⌘K` on a Mac, `Ctrl K` elsewhere. */
+function searchShortcut(): string {
+  return /Mac|iPhone|iPad/i.test(navigator.userAgent) ? "⌘K" : "Ctrl K";
+}
+
 /**
  * The whole left rail: search + new session, the project picker, the fleet
  * row with its attention lens, the grouped session list, and the connections
@@ -55,7 +59,7 @@ export function Sidebar(props: {
   list: SessionListCtl;
   ws: WorkspaceCtl;
   conns: ConnectionsCtl;
-  search: SidebarSearch;
+  onOpenSearch: () => void;
   fleetActive: boolean;
   compareOn: boolean;
   compareSel: string[];
@@ -232,16 +236,23 @@ export function Sidebar(props: {
           to the right, so the corner under the wordmark was a blank band.
           New sessions now start from a project group's "+", which also says
           where the session will live — the search row keeps the width. */}
-      <CommandSearch
-        open={props.search.open}
-        query={props.search.query}
-        sessions={list().library()}
-        events={props.search.events}
-        searching={props.search.searching}
-        onOpenChange={props.search.onOpenChange}
-        onQuery={props.search.onQuery}
-        onOpenSession={props.search.onOpenSession}
-      />
+      {/* One panel now, so this row opens it. It stays because the shortcut is
+          written on it and nowhere else — removing the row to reach for the
+          keyboard would take away how anyone finds the thing that finds
+          everything else. */}
+      <div class="px-1.5 pt-2">
+        <RowButton
+          class="h-8 items-center px-2 text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+          aria-label={t("palette.title")}
+          onClick={props.onOpenSearch}
+        >
+          <Icon name="search" class="size-3.5 shrink-0" />
+          <span>{t("search.label")}</span>
+          <kbd class="ml-auto font-mono text-2xs text-muted-foreground/80">
+            {searchShortcut()}
+          </kbd>
+        </RowButton>
+      </div>
       <Show when={list().actionErr()}>
         <p class="truncate px-3 pb-1.5 font-mono text-2xs text-destructive" title={list().actionErr()}>
           {list().actionErr()}

@@ -21,6 +21,9 @@ export interface KeyLike {
   repeat: boolean;
 }
 
+/** Where a command sits in the palette. Derived from the id, never written. */
+export type CommandGroup = "app" | "session" | "pane";
+
 export interface AppCommand {
   id: string;
   title: () => string;
@@ -31,6 +34,27 @@ export interface AppCommand {
   listed?: boolean;
   run: () => void;
 }
+
+/**
+ * The group a command belongs to, read off its id.
+ *
+ * Every command has always been registered as `app.something`,
+ * `session.something` or `pane.something`, so the grouping was already there —
+ * written into every id and read by nobody. A palette that lists "switch
+ * session" above "split pane" above "new session" with no order is a wall to
+ * read, and the reader has to already know the app to know where to look.
+ *
+ * Derived rather than declared, because a declared group is one more thing to
+ * remember at every registration and the one place it could be wrong is a new
+ * command whose group was simply not filled in.
+ */
+export function commandGroup(cmd: AppCommand): CommandGroup | undefined {
+  const prefix = cmd.id.split(".")[0];
+  return prefix === "app" || prefix === "session" || prefix === "pane" ? prefix : undefined;
+}
+
+/** Group order in the palette: what the window is, then the session, then the panes. */
+export const GROUP_ORDER: readonly CommandGroup[] = ["app", "session", "pane"];
 
 const registry = new Map<string, AppCommand>();
 const [revision, setRevision] = createSignal(0);
