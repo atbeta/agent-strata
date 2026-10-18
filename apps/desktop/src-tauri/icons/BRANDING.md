@@ -7,8 +7,11 @@ square glows green.
 
 - Tile — a 896-unit squircle (corner radius 208) inset 64 on every side of the
   1024 canvas, carrying its own diagonal slate gradient `#39414C` → `#151920`
-  with a soft top sheen. The icon carries its own backing, so it stays legible on
-  both light and dark surfaces and at 16px.
+  with a 4% top sheen. The icon carries its own backing, so it stays legible on
+  both light and dark surfaces and at 16px — which is also why it does not
+  disappear into a dark taskbar. It will still read lighter along the top than
+  the surface behind it; that is the backing doing its job, and it is bounded
+  well below the point where it reads as a line.
 - Frames — two 176-unit squares at 50% offsets along the diagonal, drawn as
   rounded-square outlines with `fill-rule="evenodd"`: a back frame in translucent
   white at 34%/14%, a front frame in near-solid white `#FFFFFF` → `#CFD7E0` with a
@@ -26,9 +29,21 @@ for it to read at taskbar size — facet steps to ≥ 0.11, no 6%-opacity hairli
 a halved shadow. Two of those findings carry over and are worth keeping:
 
 - **A 6%-opacity hairline is noise.** Invisible as detail, but at small sizes it
-  adds a stray light edge that reads as a rendering artefact. The rim here is a
-  3-unit `url(#rim)` gradient peaking at 30% — present at 128px, gone by 32px,
-  which is the right way round for a rim.
+  adds a stray light edge that reads as a rendering artefact.
+- **The same goes for a top sheen, and this one had to be learned the hard
+  way.** `sheen` started at 11% white and was measured, on a real taskbar, at
+  R=78 on the tile's top row against a R=28 taskbar — a 2.8× step across a
+  single hard pixel, which read as a bright band ruled around the icon. It is
+  4% now, which puts the top at R=64. The lesson is the one above applied to a
+  gradient rather than a stroke: on a 30px icon, anything pressed against the
+  top edge stops being a sheen and becomes a line.
+- **The rim is dropped at taskbar size, not faded out.** It is a 3-unit stroke
+  at 30% peaking, and it is measured at 3.5% alpha at 128px and **absent**
+  below that — the rasteriser discards a sub-pixel stroke rather than
+  distributing it. That is the outcome we want, but not the mechanism: nothing
+  about the gradient is doing the fading. Do not "restore" it at small sizes
+  without re-measuring, because the failure mode is the stroke snapping to a
+  full pixel and getting *more* visible, not less.
 - **A large drop shadow doubles every edge at 16px.** The frame carries
   `dy="14" stdDeviation="16"` at 45% opacity. That is enough to separate the front
   frame from the back one and not enough to read as blur.
