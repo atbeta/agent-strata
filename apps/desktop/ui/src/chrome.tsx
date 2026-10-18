@@ -151,7 +151,7 @@ export function WindowCaptionBar() {
   return (
     <Show when={usesCustomCaption()}>
       <div
-        class="flex h-11 shrink-0 select-none items-center gap-3 border-b border-border pl-5"
+        class="flex h-9 shrink-0 select-none items-center gap-3 border-b border-border pl-5"
         data-tauri-drag-region={inDesktopShell() ? "" : undefined}
       >
         <AppMark />
@@ -197,7 +197,7 @@ export function AppMark() {
 export function DragBar(props: { class?: string; children?: JSX.Element }) {
   return (
     <div
-      class={`flex h-11 shrink-0 items-center gap-3 border-b border-border px-5 select-none ${
+      class={`flex h-9 shrink-0 items-center gap-3 border-b border-border px-5 select-none ${
         props.class ?? ""
       }`}
       data-tauri-drag-region={inDesktopShell() ? "" : undefined}

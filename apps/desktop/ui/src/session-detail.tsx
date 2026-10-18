@@ -1239,7 +1239,7 @@ export function SessionDetail(props: {
           {(v) => (
             <>
               <header
-                class="@container flex h-11 shrink-0 items-center gap-2 border-b border-border px-4 select-none"
+                class="@container flex h-9 shrink-0 items-center gap-2 border-b border-border px-4 select-none"
                 data-tauri-drag-region={inDesktopShell() ? "" : undefined}
               >
                 <div class="flex min-w-0 flex-1 items-baseline gap-2">
@@ -1395,7 +1395,7 @@ export function SessionDetail(props: {
                         )
                       }
                     >
-                      <Icon name="download" class="size-3.5 text-muted-foreground" />
+                      <Icon name="export" class="size-4 text-muted-foreground" />
                     </Button>
                   </Tip>
                   {/*

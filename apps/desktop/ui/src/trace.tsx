@@ -604,7 +604,7 @@ export function TraceDrawer(props: { block: TraceBlock; onClose: () => void }) {
   return (
     <aside class="flex w-80 shrink-0 flex-col border-l border-border bg-card/30">
       <div
-        class="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3 select-none"
+        class="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3 select-none"
         data-tauri-drag-region={inDesktopShell() ? "" : undefined}
       >
         <span
