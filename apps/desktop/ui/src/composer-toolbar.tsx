@@ -18,6 +18,13 @@ export function ComposerToolbar(props: {
   model?: () => JSX.Element;
   effort?: () => JSX.Element;
   onAttach?: () => void;
+  /**
+   * The auto-accept switch, next to attach and for the same reason: both are
+   * about what happens when this message goes out, and the reader is already
+   * looking here. It was in the header, where the eye goes to inspect a
+   * transcript, which is not a question this answers.
+   */
+  permission?: () => JSX.Element;
   generating: boolean;
   stopping: boolean;
   canSend: boolean;
@@ -43,6 +50,7 @@ export function ComposerToolbar(props: {
           </Tip>
         )}
       </Show>
+      {props.permission?.()}
       {props.context()}
       <span class="composer-wide-slot">{props.agent?.()}</span>
       <div class="ml-auto flex min-w-0 items-center gap-1">

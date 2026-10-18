@@ -6,6 +6,7 @@ import {
   onCleanup,
   onMount,
   Show,
+  type JSX,
 } from "solid-js";
 import {
   abortSession,
@@ -851,6 +852,15 @@ export function SessionComposer(props: {
   sessionId: () => string;
   plan: SessionView["plan"];
   title: string | undefined;
+  /**
+   * The auto-accept switch, owned by the session above and rendered here.
+   *
+   * A slot rather than state of its own, because the switch is a property of
+   * the session and not of the composer: two panes have two composers and one
+   * session each, and a composer that owned the state would show the wrong one
+   * the moment a pane took focus.
+   */
+  permission?: () => JSX.Element;
 }) {
   const c = () => props.c;
   const placeholder = () =>
@@ -995,6 +1005,7 @@ export function SessionComposer(props: {
             model={c().modelAvailable() ? c().modelSlot : undefined}
             effort={c().effortVariants() > 0 ? c().effortSlot : undefined}
             onAttach={c().canAttach() ? c().openFilePicker : undefined}
+            permission={props.permission}
             generating={c().generating()}
             stopping={c().stopping()}
             canSend={c().canSend()}

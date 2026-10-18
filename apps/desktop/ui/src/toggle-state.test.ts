@@ -69,6 +69,32 @@ describe("the header row", () => {
     expect(tone).not.toMatch(/(^|[^a-zA-Z])on\(\)/);
   });
 
+  test("the shield sits in the composer, beside the button it changes the meaning of", () => {
+    // It answers whether *this message* goes out allowed to run without asking,
+    // and the send button is right there. In the header it was one icon among
+    // eight that all inspect a transcript, which is not the question it answers,
+    // and the row had grown crowded enough to need the split removed from it.
+    const detail = read("session-detail.tsx");
+    const composer = read("composer-toolbar.tsx");
+
+    // Handed down as a slot: the switch is a property of the session, and two
+    // panes have two composers, so a composer that owned the state would show
+    // the wrong one the moment a pane took focus.
+    expect(detail).toContain("permission={autoAcceptToggle}");
+    expect(composer).toContain("permission?: () => JSX.Element;");
+    expect(composer).toContain("{props.permission?.()}");
+
+    // Next to attach — both are about what happens when the message goes out.
+    const toolbar = composer.slice(composer.indexOf("composer-toolbar"));
+    expect(toolbar.indexOf("props.permission")).toBeGreaterThan(-1);
+    expect(toolbar.indexOf("props.permission")).toBeLessThan(toolbar.indexOf("props.context()"));
+    expect(toolbar.indexOf("composer.attach")).toBeLessThan(toolbar.indexOf("props.permission"));
+
+    // And gone from the header, so there is one place that answers the question.
+    const header = detail.slice(detail.indexOf("<header"), detail.indexOf("</header>"));
+    expect(header).not.toContain('<Icon name="shield"');
+  });
+
   test("a tone replaces both states, so an unreadable switch can be neither", () => {
     // `on` is false when the switch cannot be read, so a tone that only
     // decorated the lit state would have left the alarming one drawn as an
