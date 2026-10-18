@@ -46,11 +46,20 @@ export type SessionRowSummary = {
   needs_input?: boolean;
 };
 
+/**
+ * The button names the feature; the menu items name the presets.
+ *
+ * One pane showed a divided rectangle, which is a drawing of the thing rather
+ * than a name for it — and it was wrong for the commonest state, which is one
+ * pane and nothing divided. The trigger is the layout feature itself, so it
+ * wears the library's `layout`: a narrow column beside a wide one, which is
+ * the shape these panes actually take.
+ */
 function presetIcon(preset: LayoutPreset | "custom"): Name {
   if (preset === "cols-2") return "split-row";
   if (preset === "rows-2") return "split-col";
   if (preset === "grid-4" || preset === "custom") return "grid";
-  return "split-row";
+  return "layout";
 }
 
 function folderLabel(ws: string | null | undefined): string | undefined {

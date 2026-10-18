@@ -44,22 +44,30 @@ export type Name =
   | "maximize"
   | "minimize"
   | "pin"
-  | "unpin";
+  | "unpin"
+  | "export"
+  | "layout";
 
 /**
- * `box` exists for the two glyphs that are lifted from an icon library instead
- * of drawn here. Their upstream geometry is on a 24 grid and is reproduced
+ * `box` exists for the glyphs that are lifted from an icon library instead of
+ * drawn here. Their upstream geometry is on a 24 grid and is reproduced
  * verbatim rather than re-fitted onto ours — a re-fit is a redraw with extra
  * steps, and a redraw is how we got a pushpin that read as a speck.
+ *
+ * `weight` follows from that. A 24-grid icon is scaled down by 16/24 to reach
+ * the same rendered size, so a `stroke-width` kept at ours thins to two thirds
+ * and the glyph reads lighter than every mark drawn on the 16 grid beside it.
+ * Widening it by the same factor puts it back: the library drew it for its own
+ * box, so the pen is scaled with the drawing.
  */
-function Glyph(props: { class?: string; box?: string; children: JSX.Element }) {
+function Glyph(props: { class?: string; box?: string; weight?: string; children: JSX.Element }) {
   return (
     <svg
       viewBox={props.box ?? "0 0 16 16"}
       class={props.class ?? "h-4 w-4"}
       fill="none"
       stroke="currentColor"
-      stroke-width="1.5"
+      stroke-width={props.weight ?? "1.5"}
       stroke-linecap="round"
       stroke-linejoin="round"
     >
@@ -93,6 +101,34 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
         <path d="M8 2.5v7" />
         <path d="M5.2 7.2 8 10l2.8-2.8" />
         <path d="M3.5 13.5h9" />
+      </Glyph>
+    );
+  /**
+   * Lucide `square-arrow-out-up-right` (24 grid, verbatim). A box with its
+   * top-right corner open and an arrow leaving through the gap — which reads as
+   * "this leaves the app", where a tray with a down arrow read as "this comes
+   * down here", the opposite direction of the same idea.
+   */
+  if (name === "export")
+    return (
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6" />
+        <path d="m21 3-9 9" />
+        <path d="M15 3h6v6" />
+      </Glyph>
+    );
+  /**
+   * Tabler `layout` (24 grid, verbatim): a narrow left column split in two
+   * beside one tall pane. The pane layouts in this app are one narrow side and
+   * one wide side, so the icon that names the feature is that shape rather than
+   * the plain divided rectangle the old hand-drawn marks were.
+   */
+  if (name === "layout")
+    return (
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M4 6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v1a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6" />
+        <path d="M4 15a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-3" />
+        <path d="M14 6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2V6" />
       </Glyph>
     );
   if (name === "link")
@@ -404,7 +440,7 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
   // It is a fill icon, so the child overrides the stroke Glyph would set.
   if (name === "unpin")
     return (
-      <Glyph class={cls} box="0 0 24 24">
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
         <path
           fill="currentColor"
           stroke="none"
