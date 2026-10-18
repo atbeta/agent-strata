@@ -1157,6 +1157,50 @@ export function SessionDetail(props: {
     }),
   );
 
+  /**
+   * The auto-accept switch.
+   *
+   * It lives in the composer's footer now, beside attach, because that is the
+   * question it answers: it decides whether what this message goes out is
+   * allowed to run without stopping to ask. The eye is already there, next to
+   * the send button the reader is about to press, so "is this one going to ask
+   * me?" is answerable before they press it rather than after they scroll back
+   * up to a header icon.
+   *
+   * Amber when it is on, like the permission cards it stands for. Red when the
+   * state cannot be read — a switch that might be on and reads as off is the one
+   * state worth interrupting the reader for. Unlit when it is off, because off
+   * is the ordinary case and should not compete with the send button.
+   */
+  const autoAcceptToggle = () => (
+    <Tip
+      label={
+        autoAcceptErr() ||
+        (autoAccept() === "unknown"
+          ? t("header.autoAccept.broken")
+          : t(autoAcceptOn() ? "header.autoAccept.on" : "header.autoAccept.off"))
+      }
+    >
+      <Button
+        type="button"
+        size="icon-sm"
+        variant="icon"
+        aria-pressed={autoAcceptOn()}
+        aria-label={t("header.autoAccept")}
+        class={`shrink-0 transition-colors ${
+          autoAcceptErr() || autoAccept() === "unknown"
+            ? "text-destructive"
+            : autoAcceptOn()
+              ? "text-event-permission"
+              : "text-muted-foreground"
+        }`}
+        onClick={() => void toggleAutoAccept()}
+      >
+        <Icon name="shield" class="size-4" />
+      </Button>
+    </Tip>
+  );
+
   return (
     <div class="flex h-full min-h-0">
       <div class="@container/session relative flex min-w-0 flex-1 flex-col">
@@ -1329,71 +1373,52 @@ export function SessionDetail(props: {
                   </Show>
                   {/* Two clusters: the four to the left open surfaces that
                       inspect this transcript (find, terminal, trace, tools);
-                      the rest drive the session itself (permission mode,
-                      pane layout, and the menu of everything else). One
-                      hairline between them keeps the buttons from reading
-                      as a wall. */}
+                      the rest drive the session itself (pane layout, export,
+                      and the changes-and-files panel). One hairline between
+                      them keeps the buttons from reading as a wall. */}
                   <span class="mx-1 h-4 w-px shrink-0 bg-border" aria-hidden="true" />
-                  <Tip
-                    label={
-                      autoAcceptErr() ||
-                      (autoAccept() === "unknown"
-                        ? t("header.autoAccept.broken")
-                        : t(autoAcceptOn() ? "header.autoAccept.on" : "header.autoAccept.off"))
-                    }
-                  >
-                    <PanelToggle
-                      label={t("header.autoAccept")}
-                      on={autoAcceptOn()}
-                      pressed={autoAcceptOn()}
-                      // Amber, like the permission cards: this toggle is the
-                      // one in the row that changes what the agent may do
-                      // without asking, so it should not read as "a panel is
-                      // showing". Red when the state cannot be read, which is
-                      // neither — and unlit, because it is not enabled.
-                      tone={
-                        autoAcceptErr() || autoAccept() === "unknown"
-                          ? "text-destructive"
-                          : autoAcceptOn()
-                            ? "text-event-permission"
-                            : "text-muted-foreground"
-                      }
-                      onClick={() => void toggleAutoAccept()}
-                    >
-                      <Icon name="shield" />
-                    </PanelToggle>
-                  </Tip>
                   <LayoutSwitcher
                     workspace={paneWorkspace()}
                     onPreset={handleSelectPreset}
                     onSplit={(dir) => handleSplitPane(paneWorkspace().focusedPaneId, dir)}
                     onToggleZoom={() => handleToggleZoom(paneWorkspace().focusedPaneId)}
                   />
-                  <DropdownMenu placement="bottom-end">
-                    <Tip label={t("header.more")}>
-                      <DropdownMenuTrigger
-                        class="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                        aria-label={t("header.more")}
-                      >
-                        <Icon name="more" class="size-4.5" />
-                      </DropdownMenuTrigger>
-                    </Tip>
-                    {/* One item today; the menu is the landing spot for
-                        low-frequency actions that have no state to show —
-                        toggles live in the row where their lit state reads. */}
-                    <DropdownMenuContent>
-                      <DropdownMenuItem
-                        onSelect={() =>
-                          void downloadExport(v().session_id).catch((err) =>
-                            composer.setSendErr(err instanceof Error ? err.message : t("err.network")),
-                          )
-                        }
-                      >
-                        <Icon name="download" class="size-3.5 text-muted-foreground" />
-                        <span class="flex-1">{t("header.export")}</span>
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  <Tip label={t("header.export")}>
+                    <Button
+                      type="button"
+                      variant="icon"
+                      size="icon-sm"
+                      aria-label={t("header.export")}
+                      onClick={() =>
+                        void downloadExport(v().session_id).catch((err) =>
+                          composer.setSendErr(err instanceof Error ? err.message : t("err.network")),
+                        )
+                      }
+                    >
+                      <Icon name="download" class="size-3.5 text-muted-foreground" />
+                    </Button>
+                  </Tip>
+                  {/*
+                   * The changes-and-files panel opens from here rather than from
+                   * a strip on the right edge.
+                   *
+                   * That strip was 24 pixels wide and permanently on screen, and
+                   * all it ever said was that something optional existed on the
+                   * other side of it. It held a 288px panel's worth of visual
+                   * weight to advertise 288px. A button in this row says the
+                   * same thing from where the reader's eye already is, and the
+                   * reading column gets a hairline back.
+                   */}
+                  <Tip label={t(panelOpen() ? "panel.hide" : "panel.show")}>
+                    <PanelToggle
+                      label={t(panelOpen() ? "panel.hide" : "panel.show")}
+                      on={panelOpen()}
+                      pressed={panelOpen()}
+                      onClick={togglePanel}
+                    >
+                      <Icon name="files" />
+                    </PanelToggle>
+                  </Tip>
                 </span>
               </header>
 
@@ -1713,6 +1738,7 @@ export function SessionDetail(props: {
                       sessionId={() => props.id}
                       plan={v().plan}
                       title={v().title}
+                      permission={autoAcceptToggle}
                     />
                   </div>
                 </div>
@@ -1746,7 +1772,6 @@ export function SessionDetail(props: {
             tab={panelTab}
             onSelectTab={selectTab}
             onClose={closePanel}
-            onOpen={() => openPanel()}
             onJumpToTurn={(i) => {
               if (i >= 0) list?.scrollToIndex(i);
             }}

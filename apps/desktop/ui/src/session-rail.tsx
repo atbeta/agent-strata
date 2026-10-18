@@ -39,7 +39,6 @@ export function SessionRail(props: {
   tab: () => SidePanelTab;
   onSelectTab: (tab: SidePanelTab) => void;
   onClose: () => void;
-  onOpen: () => void;
   /** scroll the transcript to a turn index, -1 leaves it alone */
   onJumpToTurn: (turnIndex: number) => void;
   /** drop a review comment into the composer draft */
@@ -112,38 +111,7 @@ export function SessionRail(props: {
   const toggleFile = (path: string) => setOpenFile(openFile() === path ? null : path);
 
   return (
-    <Show
-      when={props.open()}
-      fallback={
-        /* The rail's collapsed form: one slim strip the right edge owns itself.
-           The header used to carry this toggle among the session's own actions,
-           where a button that opens a rail read identical to buttons that act on
-           the transcript. Now the edge is the switch — click it anywhere to
-           open, and the open rail's own header closes it back. The top cell is
-           the same h-11 row the open rail and the main header both draw, so the
-           hairline and the icon land on the same line as the buttons beside
-           them. The count is the same one the rail header shows while open. */
-        <Button
-          type="button"
-          variant="icon"
-          class="h-full w-6 shrink-0 flex-col justify-start gap-1 rounded-none border-l border-border bg-card p-0"
-          aria-label={t("panel.show")}
-          aria-expanded="false"
-          onClick={props.onOpen}
-        >
-          <span class="flex h-11 w-full shrink-0 items-center justify-center border-b border-border">
-            <Tip label={t("panel.show")}>
-              <Icon name="files" class="size-3.5" />
-            </Tip>
-          </span>
-          <Show when={changeCount() > 0}>
-            <span class="select-none font-mono text-2xs text-muted-foreground tabular-nums">
-              {changeCount()}
-            </span>
-          </Show>
-        </Button>
-      }
-    >
+    <Show when={props.open()}>
       <aside
         class="relative flex shrink-0 flex-col border-l border-border"
         style={{ width: `${railWidth()}px` }}
