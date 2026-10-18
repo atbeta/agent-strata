@@ -502,7 +502,7 @@ function AssistantMessage(props: {
         text={text}
         onFork={forkable() ? () => props.onFork!(props.message.msg_id!) : undefined}
       >
-      <div class="transcript-message max-w-3xl" data-message-role="assistant">
+      <div class="transcript-message rise-in max-w-3xl" data-message-role="assistant">
         <div class="relative">
           <BlockText
             blocks={props.message.content}
@@ -566,8 +566,12 @@ function ToolRun(props: {
     props.calls.length > 3 &&
     props.calls.every((c) => c.status === "ok" && c.permission?.decision !== "deny");
   const [open, setOpen] = createSignal(!foldable());
+  // A run is live while a call is still `pending` — that is the backend's word
+  // for a call it has not finished, and `ok`/`error`/`interrupted` are all ways
+  // of saying it is over.
+  const live = () => props.calls.some((c) => c.status === "pending");
   return (
-    <div class="max-w-3xl space-y-1">
+    <div class={`max-w-3xl space-y-1 ${live() ? "tool-live-in" : ""}`}>
       <Show when={foldable()}>
         <div
           class="-ml-2 flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
@@ -595,11 +599,24 @@ function ToolRun(props: {
       </Show>
       <Show when={open()}>
         <div class={foldable() ? "ml-[22px] space-y-1" : "space-y-1"}>
-          <For each={props.calls}>
+          {/*
+           * `<Index>`, not `<For>`. A run is built while it works — calls arrive
+           * one at a time — and `<For>` maps by identity, so it tore down and
+           * rebuilt every card each time the array changed. That reset each
+           * card's internal state, and it would have replayed their entrance on
+           * every arrival, which is a strobe rather than a transition.
+           * `<Index>` maps by position: a new call adds one node and the rest
+           * are left alone.
+           */}
+          <Index each={props.calls}>
             {(call) => (
-              <ToolCallCard call={call} childOf={props.childOf} onOpenChild={props.onOpenChild} />
+              <ToolCallCard
+                call={call()}
+                childOf={props.childOf}
+                onOpenChild={props.onOpenChild}
+              />
             )}
-          </For>
+          </Index>
         </div>
       </Show>
     </div>
