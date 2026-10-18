@@ -90,8 +90,55 @@ describe("the transcript's flow is positioned so motion is possible", () => {
       expect(body).not.toContain("infinite");
     }
     expect(theme).toContain("animation: rise-in 0.16s ease-out both;");
-    // Four pixels. A reader should not be able to catch a block travelling.
+    // Two pixels. A reader should not be able to catch a block travelling.
     const at = theme.indexOf("@keyframes rise-in");
-    expect(theme.slice(at, at + 160)).toContain("translateY(4px)");
+    expect(theme.slice(at, at + 160)).toContain("translateY(2px)");
+  });
+
+  /**
+   * The entrance is decided per turn, not held by the element.
+   *
+   * It was on the assistant message, and a reader switching sessions saw
+   * thoughts jump upward; moving it to the turn root did not fix it either. The
+   * window mounts rows as it scrolls and rebuilds the whole column on a switch,
+   * so whatever node carries the class is replaced by navigation — and a CSS
+   * animation belongs to the element, so it starts over. The probe agreed: on a
+   * switch, `rise-in` was running on every rendered turn from the first frame.
+   *
+   * So the class is now a question asked of the ledger rather than a fact about
+   * the node: a turn animates the first time it appears in a conversation the
+   * reader is already in, and never again.
+   */
+  test("the entrance is asked of the ledger, not carried by the node", () => {
+    const src = transcript();
+    const turnRoot = src.slice(
+      Math.max(0, src.indexOf("props.turn.reverted ?") - 120),
+      src.indexOf("props.turn.reverted ?") + 80,
+    );
+    // Conditional, so a row that is merely being mounted gets no animation.
+    expect(turnRoot).toContain('props.entering?.() ? "rise-in " : ""');
+    // And still nothing on the assistant message, which is rebuilt as content
+    // streams in and as the window moves.
+    const message = src.slice(src.indexOf('data-message-role="assistant"'));
+    expect(message.slice(0, 200)).not.toContain("rise-in");
+  });
+
+  test("every host of a turn asks the ledger which turns may move in", () => {
+    // A split pane is still a reader. Leaving the peer transcript out would put
+    // the same shimmer back the moment the column is split.
+    for (const file of ["session-detail.tsx", "peer-transcript.tsx"]) {
+      const src = require("node:fs").readFileSync(
+        require("node:path").join(import.meta.dir, file),
+        "utf8",
+      ) as string;
+      expect(src).toContain("createEntranceLedger()");
+      expect(src).toContain("entrance.arriving(");
+      expect(src).toContain("entering={() => shown().arriving.has(turn().turn_id)}");
+      // Keyed on the session the data says it is. The route's id changes before
+      // the view lands, so keying on it would baseline the conversation being
+      // left as the one being opened — the whole column, animating, on switch.
+      expect(src).toContain('entrance.arriving(v?.session_id ?? ""');
+      expect(src).not.toContain("entrance.arriving(props.");
+    }
   });
 });

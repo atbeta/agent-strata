@@ -502,7 +502,7 @@ function AssistantMessage(props: {
         text={text}
         onFork={forkable() ? () => props.onFork!(props.message.msg_id!) : undefined}
       >
-      <div class="transcript-message rise-in max-w-3xl" data-message-role="assistant">
+      <div class="transcript-message max-w-3xl" data-message-role="assistant">
         <div class="relative">
           <BlockText
             blocks={props.message.content}
@@ -625,6 +625,13 @@ function ToolRun(props: {
 
 export function TurnBlock(props: {
   turn: Turn;
+  /**
+   * Whether this turn arrived while the reader was already in this session.
+   * Anything built in one pass — opening a conversation, switching to one, or
+   * scrolling a long one back into view — is not arriving, and must paint
+   * still. See `entrance.ts`.
+   */
+  entering?: () => boolean;
   /** the agent has been asked but has said nothing yet */
   awaiting?: () => boolean;
   childOf?: (id: string) => ChildSession | undefined;
@@ -670,7 +677,9 @@ export function TurnBlock(props: {
   });
 
   return (
-    <div class={`space-y-2 ${props.turn.reverted ? "opacity-50" : ""}`}>
+    <div
+      class={`${props.entering?.() ? "rise-in " : ""}space-y-2 ${props.turn.reverted ? "opacity-50" : ""}`}
+    >
       <Show when={props.turn.user}>
         {(blocks) => (
           <MessageMenu

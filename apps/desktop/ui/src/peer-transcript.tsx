@@ -9,6 +9,7 @@ import {
 } from "solid-js";
 import { getJson, readHead, readViewTail, type SessionView } from "./api";
 import { settled } from "./resource";
+import { createEntranceLedger } from "./entrance";
 import { planVisible } from "./plan-progress";
 import { PlanStrip } from "./plan-strip";
 import { TurnBlock } from "./transcript";
@@ -259,7 +260,22 @@ export function PeerSessionTranscript(props: {
     });
   });
 
-  const turns = () => settled(view)?.turns ?? [];
+  /**
+ * The column, and which of its turns may move in — the same ledger the main
+ * transcript keeps, for the same reason: a split pane is still a reader, and
+ * switching the session under it must not set the whole column moving.
+ *
+ * Keyed on the view's own session, not on the prop: the id changes before the
+ * data does, and a ledger that reset on the id would baseline the new
+ * conversation on the one being left.
+ */
+const entrance = createEntranceLedger();
+const shown = createMemo(() => {
+  const v = settled(view);
+  const t = v?.turns ?? [];
+  return { turns: t, arriving: entrance.arriving(v?.session_id ?? "", t.map((x) => x.turn_id)) };
+});
+const turns = () => shown().turns;
   const entries = createMemo(() => promptEntries(turns()));
   const showNav = () => !booting() && entries().length >= 2;
   const activeEntry = () => (pinned() ? entries().at(-1) : promptAt(entries(), activeTurn()));
@@ -412,6 +428,7 @@ export function PeerSessionTranscript(props: {
                   <div data-turn-id={turn().turn_id}>
                     <TurnBlock
                       turn={turn()}
+                      entering={() => shown().arriving.has(turn().turn_id)}
                       awaiting={() => false}
                       childOf={childOf}
                       onOpenChild={props.onOpenChild}

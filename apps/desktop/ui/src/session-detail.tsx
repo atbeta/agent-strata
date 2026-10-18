@@ -104,6 +104,7 @@ import { useSessionSearch, SearchPanel } from "./session-search";
 import { useMcpTools, McpToolsPanel } from "./session-tools";
 import { useSessionComposer, SessionComposer } from "./session-composer";
 import { SessionRail } from "./session-rail";
+import { createEntranceLedger } from "./entrance";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -784,7 +785,27 @@ export function SessionDetail(props: {
     return last;
   });
 
-  const turns = createMemo(() => composer.decorateTurns(settled(view)?.turns ?? []));
+  /**
+ * The column the reader is looking at, and which of its turns may move in.
+ *
+ * Both come from one memo on purpose. The ledger advances as this runs, so
+ * putting it in an effect would let the rows be built before the reader was told
+ * which of them were new — and nothing would ever animate. Asking inside a memo
+ * that has already settled on what to render is what makes the column agree
+ * with itself.
+ *
+ * The ledger is keyed on the session the *view* says it is, not on `props.id`.
+ * The id changes a beat before the data does, so a ledger that reset on the id
+ * would take the conversation being left as the baseline for the one being
+ * opened, and announce all of it as newly arrived.
+ */
+const entrance = createEntranceLedger();
+const shown = createMemo(() => {
+  const v = settled(view);
+  const t = composer.decorateTurns(v?.turns ?? []);
+  return { turns: t, arriving: entrance.arriving(v?.session_id ?? "", t.map((x) => x.turn_id)) };
+});
+const turns = () => shown().turns;
 
   // When focus switches between panes (or sidebar sessions) without unmounting
   // `SessionDetail`, swap per-session transient state and paint any cached view
@@ -1592,6 +1613,7 @@ export function SessionDetail(props: {
                         <div data-turn-id={turn().turn_id}>
                           <TurnBlock
                             turn={turn()}
+                            entering={() => shown().arriving.has(turn().turn_id)}
                             awaiting={() =>
                               turn().turn_id === ECHO_TURN_ID || lastSilentTurn() === turn()
                             }

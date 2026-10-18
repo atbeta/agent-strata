@@ -594,15 +594,23 @@ textarea {
    * token by token, a tool card landing, a new turn opening: all of it was
    * instantaneous, so a conversation grew in hard steps under the eye.
    *
-   * Two properties and four pixels. The travel is small enough that a reader
-   * cannot catch it moving, and it exists to stop each block from snapping into
-   * place rather than to be looked at. Nothing here loops; every animation runs
-   * once, when a block first appears, and `fade-in`'s 0.08s is the ceiling.
+   * Two properties and two pixels.
    *
-   * Safe to put on streaming content because the flow is rendered with `<Index>`,
-   * which maps by position: a block arriving at the end creates one node and
-   * leaves the rest alone, so this runs once per block instead of replaying on
-   * every token. On a `<For>` the same rule would strobe.
+   * Nothing about where this class sits can keep it honest. It was on the
+   * assistant message first, and the reader saw thoughts jump upward every time
+   * they switched sessions; moving it to the turn root did not help either,
+   * because the window mounts and unmounts rows as it scrolls and rebuilds the
+   * whole column on a switch. A CSS animation belongs to the element, so
+   * wherever it lives it starts over — the probe showed every rendered turn
+   * running its entrance from the first frame of the switch.
+   *
+   * So the class is only on a turn that actually arrived while the reader was
+   * already in the conversation, which `entrance.ts` decides by turn identity
+   * rather than by anything the element can know. Everything the reader did to
+   * get there — opening, switching, scrolling back — paints still.
+   *
+   * Two pixels because at that size the reader is meant to notice that the block
+   * arrived and not that it moved.
    */
   .rise-in {
     animation: rise-in 0.16s ease-out both;
@@ -610,7 +618,7 @@ textarea {
   @keyframes rise-in {
     from {
       opacity: 0;
-      transform: translateY(4px);
+      transform: translateY(2px);
     }
   }
 
