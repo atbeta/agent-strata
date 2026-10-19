@@ -59,6 +59,7 @@ import {
 } from "./composer-input";
 import { AttachmentStrip, ComposerMenu, type MenuItem } from "./composer-menu";
 import { ContextRing, SessionInfo } from "./session-info";
+import { estimateSessionContextBreakdown } from "./session-context-breakdown";
 import { paneWorkspace } from "./session-chrome";
 import { Button } from "@/components/ui/button";
 import { Picker } from "@/components/ui/picker";
@@ -115,6 +116,7 @@ export function useSessionComposer(args: {
    */
   const [handover, setHandover] = createSignal<number>();
   const [modelSel, setModelSel] = createSignal("");
+  const [detailsOpen, setDetailsOpen] = createSignal(false);
   const [agentSel, setAgentSel] = createSignal("");
   const [variantSel, setVariantSel] = createSignal("");
   const [modelTouched, setModelTouched] = createSignal(false);
@@ -562,8 +564,16 @@ export function useSessionComposer(args: {
    * once inside the compact popover — and one element cannot be both.
    */
   const contextSlot = () => (
-    <Popover gutter={8} placement="top-start">
-      <Tip label={contextLabel(context()?.total ?? 0, context()?.percent ?? null)}>
+    <Popover
+      open={detailsOpen()}
+      onOpenChange={setDetailsOpen}
+      gutter={8}
+      placement="top-start"
+    >
+      <Tip
+        label={contextLabel(context()?.total ?? 0, context()?.percent ?? null)}
+        disabled={detailsOpen()}
+      >
         <PopoverTrigger
           class="grid size-8 place-items-center transition-colors hover:bg-secondary"
           aria-label={t("composer.details")}
@@ -571,16 +581,19 @@ export function useSessionComposer(args: {
           <ContextRing percent={context()?.percent ?? null} />
         </PopoverTrigger>
       </Tip>
-      <PopoverContent>
+      <PopoverContent aria-label={t("info.session")}>
         <Show when={args.view()}>
           {(v) => (
             <SessionInfo
               id={args.sessionId()}
               totals={v().totals}
               context={context()}
+              breakdown={estimateSessionContextBreakdown(v().turns, context()?.input ?? 0)}
               model={modelSel()}
               backend={v().backend}
               status={v().status}
+              busy={v().busy}
+              needsInput={v().pending_permissions.length > 0 || v().pending_questions.length > 0}
               workspace={v().workspace}
               branch={args.branch?.()}
             />

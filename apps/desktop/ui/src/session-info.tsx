@@ -1,14 +1,10 @@
-import { createSignal, Show, type JSX } from "solid-js";
-import {
-  backendLabel,
-  fmtUsd,
-  STATUS_DOT,
-  STATUS_LABEL,
-  type SessionView,
-} from "./api";
+import { createSignal, For, Show, type JSX } from "solid-js";
+import { backendLabel, fmtUsd, type SessionView } from "./api";
 import { Icon } from "./icons";
 import { compactNum, num, t } from "./i18n";
 import { copyText } from "./clipboard";
+import { sessionStatus, showsMark, type SessionStatus } from "./session-status";
+import type { ContextBreakdownKey, ContextBreakdownSegment } from "./session-context-breakdown";
 import { Button } from "@/components/ui/button";
 
 export function ContextRing(props: { percent: number | null }) {
@@ -60,10 +56,78 @@ function ContextBar(props: { percent: number | null }) {
 }
 
 /**
- * A label on the left, a value on the right. `value` is an element rather than
- * a string because the status is a dot with a word beside it, not a word — and
- * because a value this card shows has to be allowed to truncate rather than
- * push the label off the row: a model id is longer than the panel is wide.
+ * The four buckets keep the transcript's own colours — user, assistant, tool —
+ * so a reader can connect a share to the kind of row it came from. `other` is
+ * deliberately the only grey one: it is the part of the request the log does
+ * not hold (system prompt, tool definitions, overhead), not a fourth kind of
+ * message.
+ */
+const BREAKDOWN_FILL: Record<ContextBreakdownKey, string> = {
+  user: "bg-event-user",
+  assistant: "bg-event-assistant",
+  tool: "bg-event-tool",
+  other: "bg-muted-foreground/60",
+};
+
+function breakdownLabel(key: ContextBreakdownKey): string {
+  if (key === "user") return t("info.breakdown.user");
+  if (key === "assistant") return t("info.breakdown.assistant");
+  if (key === "tool") return t("info.breakdown.tool");
+  return t("info.breakdown.other");
+}
+
+/**
+ * A composition bar for the input side of the last request. Percentages are of
+ * `input`, not of the context total — the same denominator OpenCode's desktop
+ * uses — so the segments always add up to the number on the right.
+ */
+function ContextBreakdown(props: { segments: ContextBreakdownSegment[]; input: number }) {
+  return (
+    <Show when={props.segments.length > 0}>
+      <div class="mt-2.5 border-t border-border/60 pt-2">
+        <div class="flex items-baseline justify-between gap-3">
+          <span class="text-2xs text-muted-foreground" title={t("info.breakdown.note")}>
+            {t("info.breakdown")}
+          </span>
+          <span class="font-mono text-2xs tabular-nums text-muted-foreground">
+            {t("info.breakdown.input", { n: num(props.input) })}
+          </span>
+        </div>
+        <div class="mt-1.5 flex h-1.5 w-full overflow-hidden rounded-full bg-border" aria-hidden="true">
+          <For each={props.segments}>
+            {(segment) => (
+              <span
+                class={`h-full shrink-0 ${BREAKDOWN_FILL[segment.key]}`}
+                style={{ width: `${segment.width}%` }}
+              />
+            )}
+          </For>
+        </div>
+        <div class="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1">
+          <For each={props.segments}>
+            {(segment) => (
+              <span class="inline-flex min-w-0 items-center gap-1 text-2xs text-muted-foreground">
+                <span
+                  class={`size-1.5 shrink-0 rounded-full ${BREAKDOWN_FILL[segment.key]}`}
+                  aria-hidden="true"
+                />
+                <span class="truncate">{breakdownLabel(segment.key)}</span>
+                <span class="tabular-nums text-muted-foreground/70">
+                  {segment.percent < 0.1 ? "<0.1" : segment.percent}%
+                </span>
+              </span>
+            )}
+          </For>
+        </div>
+      </div>
+    </Show>
+  );
+}
+
+/**
+ * A label on the left, a value on the right. The value is allowed to truncate
+ * rather than push the label off the row — a model id or a workspace path is
+ * longer than the panel is wide — and the full text stays on `title`.
  */
 function InfoRow(props: {
   label: string;
@@ -85,24 +149,43 @@ function InfoRow(props: {
   );
 }
 
-/** A band of related rows. The rule above it is what groups the card. */
-function InfoGroup(props: { label: string; children: JSX.Element }) {
+/**
+ * A band of related rows. These two bands need no caption: every row names
+ * what it is, and "用量" over a list that starts with 模型 and ends with
+ * 工具调用 told the reader nothing the rows did not. Only the band that opens
+ * a new kind of fact (identity, after the numbers) draws a rule; the context
+ * card's own edge already closes the block above the first one.
+ */
+function InfoGroup(props: { divided?: boolean; children: JSX.Element }) {
   return (
-    <section class="mt-2.5 border-t border-border pt-2.5">
-      <div class="mb-0.5 text-2xs tracking-wide text-muted-foreground/70">{props.label}</div>
-      <div class="divide-y divide-border/60">{props.children}</div>
+    <section
+      class={
+        props.divided === false
+          ? "mt-2.5"
+          : "mt-2.5 border-t border-border pt-2.5"
+      }
+    >
+      {props.children}
     </section>
   );
 }
 
-/** A status, as the rest of the app draws one: a dot and the word beside it. */
-function StatusValue(props: { status: string }) {
-  const key = () => STATUS_LABEL[props.status];
-  const dot = () => STATUS_DOT[props.status] ?? "bg-status-pending";
+/** A status, as the rest of the app draws one: a mark and the word beside it.
+ *  The word is always spelled out here because the panel has the room; only
+ *  the two states that ask something of the reader take a colour. */
+function StatusValue(props: { status: SessionStatus }) {
+  const tone = () =>
+    props.status.kind === "failed"
+      ? "text-status-error"
+      : props.status.kind === "needs-input"
+        ? "text-event-permission"
+        : "text-muted-foreground";
   return (
-    <span class="inline-flex items-center gap-1.5">
-      <span class={`size-1.5 shrink-0 rounded-full ${dot()}`} />
-      <span class="truncate">{key() ? t(key()!) : props.status}</span>
+    <span class="inline-flex min-w-0 items-center gap-1.5">
+      <Show when={showsMark(props.status)}>
+        <span class={`size-1.5 shrink-0 rounded-full ${props.status.tone.dot}`} />
+      </Show>
+      <span class={`truncate ${tone()}`}>{t(props.status.label)}</span>
     </span>
   );
 }
@@ -116,15 +199,31 @@ function StatusValue(props: { status: string }) {
 export function SessionInfo(props: {
   id: string;
   totals: SessionView["totals"];
-  context: { total: number; percent: number | null } | undefined;
+  context: { total: number; percent: number | null; input: number } | undefined;
+  /** Estimated input composition; empty when the last step spent no input. */
+  breakdown?: ContextBreakdownSegment[];
   model: string;
   backend: string;
   status: string;
+  /** Live generation, so the header says "running" when it is, not when the
+   *  backend last wrote a status. */
+  busy?: boolean;
+  needsInput?: boolean;
   workspace?: string;
   branch?: string;
 }) {
+  const state = () =>
+    sessionStatus({ status: props.status, busy: props.busy, needs_input: props.needsInput });
   const contextLimit = () => {
-    if (!props.context || props.context.percent == null || props.context.total <= 0) return null;
+    // A session that has sent tokens but rounds to 0% has no window to infer:
+    // dividing by it would print an infinite limit.
+    if (
+      !props.context ||
+      props.context.percent == null ||
+      props.context.percent <= 0 ||
+      props.context.total <= 0
+    )
+      return null;
     return Math.round(props.context.total / (props.context.percent / 100));
   };
   const [idCopied, setIdCopied] = createSignal(false);
@@ -155,34 +254,47 @@ export function SessionInfo(props: {
   };
 
   return (
-    <div class="w-72">
-      <div class="mb-2 text-sm font-medium">{t("info.session")}</div>
+    <div class="w-80">
+      <div class="mb-2.5 flex items-center justify-between gap-3">
+        <span class="text-sm font-medium">{t("info.session")}</span>
+        <span class="text-2xs">
+          <StatusValue status={state()} />
+        </span>
+      </div>
 
-      <div class="rounded-md border border-border bg-secondary/40 p-2.5">
-        <div class="flex items-baseline justify-between">
+      <div class="rounded-lg border border-border bg-secondary/40 p-3">
+        <div class="flex items-baseline justify-between gap-3">
           <span class="text-xs text-muted-foreground">{t("info.context")}</span>
           <span class="font-mono text-xs tabular-nums text-foreground">
             {props.context
               ? props.context.percent == null
-                ? `${num(props.context.total)} tok`
+                ? `${num(props.context.total)} tokens`
                 : `${props.context.percent}%`
               : "—"}
           </span>
         </div>
-        <div class="mt-2">
-          <ContextBar percent={props.context?.percent ?? null} />
-        </div>
-        <div class="mt-1.5 flex items-baseline justify-between text-2xs text-muted-foreground">
-          <span>
-            {props.context ? `${num(props.context.total)} tokens` : t("info.context.none")}
-          </span>
-          <Show when={contextLimit()}>
-            <span class="font-mono">{t("info.context.of", { n: num(contextLimit()!) })}</span>
-          </Show>
-        </div>
+        {/* A percentage is the bar's reason to exist. With no reported window
+            (a backend that sends tokens but no limit) an empty track reads as
+            "none used", which is the opposite of 148k tokens. Spelled out,
+            there is nothing to misread. */}
+        <Show when={props.context?.percent != null}>
+          <div class="mt-2">
+            <ContextBar percent={props.context!.percent} />
+          </div>
+          <div class="mt-1.5 flex items-baseline justify-between gap-3 text-2xs text-muted-foreground">
+            <span>{num(props.context!.total)} tokens</span>
+            <Show when={contextLimit()}>
+              <span class="font-mono">{t("info.context.of", { n: num(contextLimit()!) })}</span>
+            </Show>
+          </div>
+        </Show>
+        <Show when={!props.context || props.context.total <= 0}>
+          <div class="mt-1 text-2xs text-muted-foreground">{t("info.context.none")}</div>
+        </Show>
+        <ContextBreakdown segments={props.breakdown ?? []} input={props.context?.input ?? 0} />
       </div>
 
-      <InfoGroup label={t("info.group.usage")}>
+      <InfoGroup divided={false}>
         <InfoRow label={t("info.model")} value={props.model || "—"} mono title={props.model} />
         <InfoRow label={t("info.cost")} value={fmtUsd(props.totals.cost_usd)} mono />
         {/* A cache-read count runs to nine digits. Spelled out it is the
@@ -224,8 +336,7 @@ export function SessionInfo(props: {
         />
       </InfoGroup>
 
-      <InfoGroup label={t("info.group.identity")}>
-        <InfoRow label={t("info.status")} value={<StatusValue status={props.status} />} />
+      <InfoGroup>
         <InfoRow label={t("info.backend")} value={backendLabel(props.backend)} />
         <Show when={props.workspace}>
           <InfoRow label={t("info.workspace")} value={props.workspace!} mono title={props.workspace} />
@@ -233,28 +344,41 @@ export function SessionInfo(props: {
         <Show when={props.branch}>
           <InfoRow label={t("info.branch")} value={props.branch!} mono title={props.branch} />
         </Show>
-        <InfoRow
-          label={t("info.id")}
-          value={
-            <Button
-              type="button"
-              variant="quiet"
-              size="xs"
-              class="h-auto max-w-full px-0 py-0"
-              title={props.id}
-              aria-label={t("info.id.copy")}
-              onClick={() => void copyId()}
-            >
-              <Icon name={idCopied() ? "check" : "copy"} class="size-3 shrink-0 text-muted-foreground" />
+        {/* The id is the one row here that does something, so it is a row-shaped
+            target with a hover fill and an inset ring, not a link-sized text
+            button. Full width means the affordance reaches the eye before the
+            pointer does, and the ring lands on the row instead of on 16px of
+            mono text. */}
+        <div class="-mx-1.5">
+          <Button
+            type="button"
+            variant="quiet"
+            size="xs"
+            class="group h-auto w-full justify-between gap-3 px-1.5 py-1 text-xs text-foreground hover:bg-secondary/60 focus-visible:ring-2 focus-visible:ring-inset"
+            title={props.id}
+            aria-label={t("info.id.copy")}
+            onClick={() => void copyId()}
+          >
+            <span class="shrink-0 text-muted-foreground">{t("info.id")}</span>
+            <span class="flex min-w-0 items-center gap-1.5 font-mono">
               <span class="truncate">
                 <span class="text-muted-foreground">{idParts()[0]}</span>
                 {idParts()[1]}
               </span>
-            </Button>
-          }
-          mono
-          title={props.id}
-        />
+              <Icon
+                name={idCopied() ? "check" : "copy"}
+                class={`size-3 shrink-0 ${
+                  idCopied()
+                    ? "text-status-active"
+                    : "text-muted-foreground/70 group-hover:text-foreground"
+                }`}
+              />
+            </span>
+          </Button>
+          <span class="sr-only" aria-live="polite">
+            {idCopied() ? t("info.id.copied") : ""}
+          </span>
+        </div>
       </InfoGroup>
     </div>
   );

@@ -277,11 +277,16 @@ export default {
 
   // The context popover.
   "info.session": "会话",
-  "info.group.usage": "用量",
-  "info.group.identity": "归属",
   "info.context": "上下文",
   "info.context.none": "未报告用量",
   "info.context.of": "共 {n}",
+  "info.breakdown": "上下文细分",
+  "info.breakdown.input": "输入 {n}",
+  "info.breakdown.note": "按字符数估算的本次输入构成；“其他”包含系统提示词、工具定义与开销。",
+  "info.breakdown.user": "用户",
+  "info.breakdown.assistant": "助手",
+  "info.breakdown.tool": "工具调用",
+  "info.breakdown.other": "其他",
   "info.model": "模型",
   "info.cost": "花费",
   "info.input": "输入",
@@ -298,6 +303,7 @@ export default {
   "info.branch": "分支",
   "info.id": "会话 ID",
   "info.id.copy": "复制会话 ID",
+  "info.id.copied": "已复制",
 
   // Context label on the ring trigger.
   "context.none": "上下文中 {n} tokens",

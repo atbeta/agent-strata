@@ -1,4 +1,4 @@
-import { createRenderEffect, createSignal, onCleanup, Show, type JSX } from "solid-js";
+import { createEffect, createRenderEffect, createSignal, onCleanup, Show, type JSX } from "solid-js";
 import { Portal } from "solid-js/web";
 
 const PAD = 8;
@@ -32,6 +32,8 @@ const MAX_W = 448;
 export function Tip(props: {
   label: string;
   class?: string;
+  /** Suppress the bubble while the trigger's own panel is open. */
+  disabled?: boolean;
   children: JSX.Element;
 }) {
   const [anchor, setAnchor] = createSignal<DOMRect | null>(null);
@@ -42,6 +44,13 @@ export function Tip(props: {
   let wrap: HTMLSpanElement | undefined;
 
   const hide = () => setAnchor(null);
+
+  // A panel that opens over the trigger does not want the hover label sitting
+  // on top of it. Hiding on the flag is also what lets a disabled tip stay
+  // hidden while the pointer never leaves the trigger.
+  createEffect(() => {
+    if (props.disabled) hide();
+  });
 
   const place = (el: HTMLElement) => {
     // Prefer the wrapper's own box, but fall through to the child when the
@@ -98,10 +107,12 @@ export function Tip(props: {
       ref={wrap}
       class={`inline-flex ${props.class ?? ""}`}
       onMouseEnter={(e) => {
+        if (props.disabled) return;
         place(e.currentTarget);
         document.addEventListener("pointermove", watch, true);
       }}
       onFocusIn={(e) => {
+        if (props.disabled) return;
         place(e.currentTarget);
         document.addEventListener("pointermove", watch, true);
       }}

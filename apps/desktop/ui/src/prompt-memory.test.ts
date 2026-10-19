@@ -16,13 +16,14 @@ describe("sessionContext", () => {
       ],
       1_000,
     );
-    expect(ctx).toEqual({ total: 850, percent: 85 });
+    expect(ctx).toEqual({ total: 850, percent: 85, input: 800 });
   });
 
   test("percent stays unset when the model publishes no window", () => {
     expect(sessionContext([{ assistant: [{ usage: usage(10, { output: 5 }) }] }])).toEqual({
       total: 15,
       percent: null,
+      input: 10,
     });
   });
 

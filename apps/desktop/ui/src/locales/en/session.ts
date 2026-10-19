@@ -276,11 +276,16 @@ export default {
 
   // The context popover.
   "info.session": "Session",
-  "info.group.usage": "Usage",
-  "info.group.identity": "Origin",
   "info.context": "Context",
   "info.context.none": "no usage reported",
   "info.context.of": "of {n}",
+  "info.breakdown": "Context breakdown",
+  "info.breakdown.input": "Input {n}",
+  "info.breakdown.note": "Approximate composition of this request's input tokens; \"Other\" covers the system prompt, tool definitions and overhead.",
+  "info.breakdown.user": "User",
+  "info.breakdown.assistant": "Assistant",
+  "info.breakdown.tool": "Tool calls",
+  "info.breakdown.other": "Other",
   "info.model": "Model",
   "info.cost": "Cost",
   "info.input": "Input",
@@ -297,6 +302,7 @@ export default {
   "info.branch": "Branch",
   "info.id": "Session ID",
   "info.id.copy": "Copy session ID",
+  "info.id.copied": "Copied",
 
   // Context label on the ring trigger.
   "context.none": "{n} tokens in context",

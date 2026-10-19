@@ -18,6 +18,9 @@ export interface SessionContext {
   total: number;
   /** null when the model has no published context window */
   percent: number | null;
+  /** Uncached prompt tokens of the same message — the denominator the
+   *  breakdown divides by, and not the same number as `total`. */
+  input: number;
 }
 
 export function sessionContext(turns: ContextTurn[], limit?: number): SessionContext | undefined {
@@ -30,7 +33,7 @@ export function sessionContext(turns: ContextTurn[], limit?: number): SessionCon
         usage.input + usage.output + (usage.reasoning ?? 0) + (usage.cache_read ?? 0) + (usage.cache_write ?? 0);
       if (total <= 0) continue;
       const percent = limit && limit > 0 ? Math.round((total / limit) * 100) : null;
-      return { total, percent };
+      return { total, percent, input: usage.input };
     }
   }
   return undefined;
