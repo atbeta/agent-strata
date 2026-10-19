@@ -577,8 +577,17 @@ export async function forkSession(id: string, messageId: string): Promise<string
   return data.id;
 }
 
-export async function summarizeSession(id: string): Promise<void> {
-  await throwOnError(await fetch(api(`/sessions/${encodeURIComponent(id)}/summarize`), { method: "POST" }));
+export async function summarizeSession(
+  id: string,
+  model?: { providerID: string; modelID: string },
+): Promise<void> {
+  await throwOnError(
+    await fetch(api(`/sessions/${encodeURIComponent(id)}/summarize`), {
+      method: "POST",
+      headers: model ? { "content-type": "application/json" } : undefined,
+      body: model ? JSON.stringify({ model }) : undefined,
+    }),
+  );
 }
 
 /** Publishes the session; resolves with its share URL when the backend hands one back. */

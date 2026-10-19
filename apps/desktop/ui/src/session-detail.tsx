@@ -592,6 +592,7 @@ export function SessionDetail(props: {
    */
   const BUILTIN_DESC: Record<string, () => string> = {
     compact: () => t("cmd.compact"),
+    summarize: () => t("cmd.compact"),
     undo: () => t("cmd.undo"),
     redo: () => t("cmd.redo"),
     interrupt: () => t("cmd.interrupt"),
@@ -624,8 +625,13 @@ export function SessionDetail(props: {
   const runBuiltin = async (name: string, arg: string): Promise<void> => {
     switch (name) {
       case "compact":
-        await summarizeSession(props.id);
+      case "summarize": {
+        const sel = composer.modelSel();
+        const slash = sel.indexOf("/");
+        const model = slash > 0 ? { providerID: sel.slice(0, slash), modelID: sel.slice(slash + 1) } : undefined;
+        await summarizeSession(props.id, model);
         return;
+      }
       case "undo": {
         // The CLI's undo: stop a run in flight first so the revert lands on a
         // settled session, then hand the text back to the composer rather than

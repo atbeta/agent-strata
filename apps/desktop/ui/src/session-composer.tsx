@@ -44,6 +44,8 @@ import {
   commandParts,
   insertPick,
   matchCommands,
+  slashMenuEnter,
+  slashRowSelect,
   MAX_ATTACHMENTS,
   stepAgent,
   promptParts,
@@ -241,6 +243,15 @@ export function useSessionComposer(args: {
       draftEl?.setSelectionRange(next.caret, next.caret);
       draftEl?.focus();
     });
+  };
+
+  /** The row Enter would use. A menu still catching up to the query falls back to the first match. */
+  const commandHighlight = () => {
+    const tr = trigger();
+    if (tr?.kind !== "command") return undefined;
+    const list = menuList();
+    if (list.kind === "command" && list.query === tr.query) return menuItems()[menuActive()]?.value;
+    return matchCommands(args.commands() ?? [], tr.query)[0]?.name;
   };
 
   let attachSeq = 0;
@@ -473,6 +484,37 @@ export function useSessionComposer(args: {
     void deliver(out);
   };
   const canSend = () => Boolean(draft().trim()) || attachments().length > 0;
+
+  const runSlash = (name: string, slashArgs: string) => {
+    setDraft(slashArgs ? `/${name} ${slashArgs}` : `/${name}`);
+    send();
+  };
+
+  const chooseRow = (i: number) => {
+    const item = menuItems()[i];
+    if (trigger()?.kind === "command" && item) {
+      const decision = slashRowSelect({ name: item.value, commands: args.commands() ?? [] });
+      if (decision.action === "run") {
+        runSlash(decision.name, decision.args);
+        return;
+      }
+    }
+    pick(i);
+  };
+
+  // Enter confirmed an IME composition. A finished slash command runs once the
+  // text is committed; an ordinary message waits for a real Enter.
+  let imeEnter = false;
+  const finishComposition = () => {
+    if (!imeEnter) return;
+    imeEnter = false;
+    const decision = slashMenuEnter({
+      draft: draft(),
+      highlighted: commandHighlight(),
+      commands: args.commands() ?? [],
+    });
+    if (decision.action === "run") runSlash(decision.name, decision.args);
+  };
 
   // A follow-up typed while the agent is running waits here, then goes out
   // on the next idle. deliver() opens the handover in the same turn, so this
@@ -718,8 +760,13 @@ export function useSessionComposer(args: {
   };
 
   const onKeyDown = (e: KeyboardEvent & { currentTarget: HTMLTextAreaElement }) => {
-    // 229: the key went to the IME, which some webviews report without isComposing
-    if (e.isComposing || e.keyCode === 229) return;
+    // 229: the key went to the IME, which some webviews report without isComposing.
+    // Enter is the exception: a finished slash command has to run on that key
+    // even when the webview stamps it 229, as long as composition is over.
+    if (e.isComposing || (e.keyCode === 229 && e.key !== "Enter")) {
+      if (e.key === "Enter") imeEnter = true;
+      return;
+    }
     if (menuOpen()) {
       const n = menuItems().length;
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -729,14 +776,28 @@ export function useSessionComposer(args: {
       }
       if (e.key === "Enter" && !e.shiftKey && n) {
         e.preventDefault();
-        const tr = trigger();
-        if (tr?.kind === "command" && menuItems()[menuActive()]?.value === tr.query) send();
-        else pick(menuActive());
+        if (trigger()?.kind === "command") {
+          const decision = slashMenuEnter({
+            draft: draft(),
+            highlighted: commandHighlight(),
+            commands: args.commands() ?? [],
+          });
+          if (decision.action === "run") {
+            runSlash(decision.name, decision.args);
+            return;
+          }
+          if (decision.action === "insert") {
+            const i = menuItems().findIndex((item) => item.value === decision.name);
+            pick(i >= 0 ? i : menuActive());
+            return;
+          }
+        }
+        pick(menuActive());
         return;
       }
       if (e.key === "Tab" && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
-        if (n && !e.shiftKey) pick(menuActive());
+        if (n && !e.shiftKey) chooseRow(menuActive());
         return;
       }
       if (e.key === "Escape") {
@@ -815,6 +876,8 @@ export function useSessionComposer(args: {
     setTrigger,
     setHistIndex,
     pick,
+    chooseRow,
+    finishComposition,
     track,
     autogrow,
     citeLine,
@@ -881,7 +944,7 @@ export function SessionComposer(props: {
             items={c().menuItems()}
             active={c().menuActive()}
             hint={c().menuHint()}
-            onPick={c().pick}
+            onPick={c().chooseRow}
             onHover={c().setMenuActive}
           />
         </Show>
@@ -970,7 +1033,10 @@ export function SessionComposer(props: {
               c().autogrow();
               if (!e.isComposing) c().track();
             }}
-            onCompositionEnd={c().track}
+            onCompositionEnd={() => {
+              c().track();
+              c().finishComposition();
+            }}
             onClick={c().track}
             onBlur={() => c().setTrigger(undefined)}
             onKeyUp={(e) => {
