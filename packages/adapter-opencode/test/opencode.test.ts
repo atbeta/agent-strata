@@ -347,6 +347,38 @@ describe("OpencodeMapper", () => {
     expect(third?.id).not.toBe(first?.id);
   });
 
+  test("a staged revert marks the boundary and a clear lifts it", () => {
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    const staged = m.handle({
+      id: "rv1",
+      type: "session.next.revert.staged",
+      properties: { sessionID: sid, timestamp: 2, revert: { messageID: "u1" } },
+    } as unknown as Event);
+    expect(staged.find((e) => e.type === "session.updated")?.data).toMatchObject({
+      revert: { turn_id: "u1" },
+    });
+    const cleared = m.handle({
+      id: "rv2",
+      type: "session.revert.cleared",
+      properties: { sessionID: sid, timestamp: 3 },
+    } as unknown as Event);
+    expect(cleared.find((e) => e.type === "session.updated")?.data).toMatchObject({ revert: null });
+  });
+
+  test("a revert payload carried in data still names the message", () => {
+    const evt = normalizeOpencodeEvent({
+      type: "session.revert.staged",
+      data: { sessionID: sid, revert: { messageID: "u1" } },
+    });
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    const out = evt ? m.handle(evt) : [];
+    expect(out.find((e) => e.type === "session.updated")?.data).toMatchObject({
+      revert: { turn_id: "u1" },
+    });
+  });
+
   test("session.created that already has a revert records it", () => {
     const m = new OpencodeMapper();
     const out = m.handle({
