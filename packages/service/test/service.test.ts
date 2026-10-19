@@ -1042,6 +1042,81 @@ describe("agent-strata service", () => {
     svc.stop();
   });
 
+  test("a current OpenCode stages a revert, and a refusal is not a silent ok", async () => {
+    const oc = fakeOpencode({
+      "/api/session/ses_x/revert/stage": () => Response.json({ data: { messageID: "msg_1" } }),
+    });
+    const svc = startService({ db: ":memory:", port: 0 });
+    const base = `http://127.0.0.1:${svc.port}`;
+    await fetch(`${base}/connect`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ baseUrl: oc.baseUrl, directory: "/repo" }),
+    });
+    svc.store.append([
+      ev("opencode:ses_x", "session.started", { title: "x", workspace: "/repo" }, "2026-01-01T00:00:00Z"),
+    ]);
+    const sid = encodeURIComponent("opencode:ses_x");
+    const revert = await fetch(`${base}/sessions/${sid}/revert`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message_id: "msg_1" }),
+    });
+    expect(revert.status).toBe(200);
+    const staged = oc.seen.filter((s) => s.path === "/api/session/ses_x/revert/stage");
+    expect(staged).toHaveLength(1);
+    expect(JSON.parse(staged[0]!.body)).toEqual({ messageID: "msg_1" });
+    expect(oc.seen.some((s) => s.path === "/session/ses_x/revert")).toBe(false);
+    oc.stop();
+    svc.stop();
+
+    const refused = fakeOpencode({
+      "/api/session/ses_x/revert/stage": () => Response.json({ message: "session is busy" }, { status: 409 }),
+      "/session/ses_x/revert": () => Response.json(true),
+    });
+    const svc2 = startService({ db: ":memory:", port: 0 });
+    const base2 = `http://127.0.0.1:${svc2.port}`;
+    await fetch(`${base2}/connect`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ baseUrl: refused.baseUrl, directory: "/repo" }),
+    });
+    svc2.store.append([
+      ev("opencode:ses_x", "session.started", { title: "x", workspace: "/repo" }, "2026-01-01T00:00:00Z"),
+    ]);
+    const denied = await fetch(`${base2}/sessions/${sid}/revert`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message_id: "msg_1" }),
+    });
+    expect(denied.status).toBe(502);
+    expect(JSON.stringify(await denied.json())).toContain("session is busy");
+    expect(refused.seen.some((s) => s.path === "/session/ses_x/revert")).toBe(false);
+    refused.stop();
+    svc2.stop();
+
+    const restored = fakeOpencode({
+      "/api/session/ses_x/revert": (_url, req) =>
+        req.method === "DELETE" ? new Response(null, { status: 204 }) : Response.json({ error: "not found" }, { status: 404 }),
+    });
+    const svc3 = startService({ db: ":memory:", port: 0 });
+    const base3 = `http://127.0.0.1:${svc3.port}`;
+    await fetch(`${base3}/connect`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ baseUrl: restored.baseUrl, directory: "/repo" }),
+    });
+    svc3.store.append([
+      ev("opencode:ses_x", "session.started", { title: "x", workspace: "/repo" }, "2026-01-01T00:00:00Z"),
+    ]);
+    const undo = await fetch(`${base3}/sessions/${sid}/unrevert`, { method: "POST" });
+    expect(undo.status).toBe(200);
+    expect(restored.seen.some((s) => s.path === "/api/session/ses_x/revert" && s.method === "DELETE")).toBe(true);
+    expect(restored.seen.some((s) => s.path === "/session/ses_x/unrevert")).toBe(false);
+    restored.stop();
+    svc3.stop();
+  });
+
   test("an OpenCode session can connect and disconnect an MCP server", async () => {
     const oc = fakeOpencode({
       "/mcp/srv/connect": () => Response.json({ status: "connected" }),

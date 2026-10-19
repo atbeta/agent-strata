@@ -1165,9 +1165,18 @@ const turns = () => shown().turns;
   };
 
   const revertTurn = (turnId: string) => {
-    void revertSession(props.id, turnId).catch((err) =>
-      composer.setSendErr(err instanceof Error ? err.message : t("err.network")),
-    );
+    const turn = (settled(view)?.turns ?? []).find((item) => item.turn_id === turnId);
+    const text = turn?.user ? messageText(turn.user) : "";
+    void (async () => {
+      // A busy session refuses the stage. Stop it first, the same way /undo does,
+      // then hand the withdrawn prompt back so the reader can send it again.
+      if (composer.generating()) await abortSession(props.id);
+      await revertSession(props.id, turnId);
+      if (text.trim()) {
+        composer.setDraft(text);
+        queueMicrotask(() => composer.autogrow());
+      }
+    })().catch((err) => composer.setSendErr(err instanceof Error ? err.message : t("err.network")));
   };
 
   const forkTurn = (turnId: string) => {

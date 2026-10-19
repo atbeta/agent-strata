@@ -889,6 +889,39 @@ export class OpencodeMapper {
     return out;
   }
 
+  /**
+   * Current OpenCode stages a revert on its own event, not on `session.updated`.
+   * The boundary is the same fact either way: this message and everything after
+   * it is withdrawn until the reader restores it.
+   */
+  private revertBoundary(evt: Event): EventInput[] | undefined {
+    const type = evt.type as string;
+    const staged = type === "session.next.revert.staged" || type === "session.revert.staged";
+    const cleared = type === "session.next.revert.cleared" || type === "session.revert.cleared";
+    if (!staged && !cleared) return undefined;
+    const props =
+      "properties" in evt && evt.properties && typeof evt.properties === "object"
+        ? (evt.properties as { sessionID?: unknown; revert?: { messageID?: unknown } })
+        : undefined;
+    const sessionID = typeof props?.sessionID === "string" ? props.sessionID : undefined;
+    if (!sessionID) return [];
+    const messageID = typeof props?.revert?.messageID === "string" ? props.revert.messageID : undefined;
+    if (staged && !messageID) return [];
+    const { s, out } = this.ensureSession(sessionID);
+    const meta = this.syncMeta(
+      s,
+      {
+        title: s.title,
+        directory: s.workspace,
+        time: s.archived ? { archived: s.updated ?? Date.now() } : undefined,
+        ...(messageID ? { revert: { messageID } } : {}),
+      },
+      "updated",
+    );
+    if (meta) out.push(meta);
+    return out;
+  }
+
   handle(evt: Event): EventInput[] {
     const out: EventInput[] = [];
     const props = "properties" in evt ? evt.properties : undefined;
@@ -898,6 +931,9 @@ export class OpencodeMapper {
       const known = this.sessions.get(sessionID);
       if (known) known.lastTouch = this.now();
     }
+
+    const boundary = this.revertBoundary(evt);
+    if (boundary) return boundary;
 
     switch (evt.type) {
       case "session.created": {
@@ -2303,10 +2339,43 @@ export async function connectOpencode(opts: {
       }
     },
     async revert(sessionID: string, messageID: string, directory?: string) {
-      await client.session.revert({ sessionID, messageID, directory: directory ?? opts.directory });
+      // Current servers stage a boundary at /api/session/:id/revert/stage.
+      // A 404 on that route means this server still answers the older
+      // POST /session/:id/revert. Any other status is the revert itself.
+      const staged = await client.v2.session.revert.stage({ sessionID, messageID });
+      if (!staged.error) return;
+      if (staged.response.status !== 404) throw new Error(errorMessage(staged.error));
+      const legacy = await client.session.revert({
+        sessionID,
+        messageID,
+        directory: directory ?? opts.directory,
+      });
+      if (legacy.error) throw new Error(errorMessage(legacy.error));
     },
     async unrevert(sessionID: string, directory?: string) {
-      await client.session.unrevert({ sessionID, directory: directory ?? opts.directory });
+      const cleared = await client.v2.session.revert.clear({ sessionID });
+      if (!cleared.error) return;
+      if (cleared.response.status !== 404) throw new Error(errorMessage(cleared.error));
+      // Newer servers clear with DELETE /api/session/:id/revert. The SDK this
+      // build speaks still posts /revert/clear, so a 404 tries the delete
+      // before the legacy unrevert route.
+      const base = opts.baseUrl.replace(/\/+$/, "");
+      const deleted = await rawFetch(
+        new Request(`${base}/api/session/${encodeURIComponent(sessionID)}/revert`, {
+          method: "DELETE",
+          headers:
+            opts.username !== undefined || opts.password !== undefined
+              ? { authorization: `Basic ${btoa(`${opts.username ?? ""}:${opts.password ?? ""}`)}` }
+              : {},
+        }),
+      );
+      if (deleted.ok) return;
+      if (deleted.status !== 404) {
+        const text = (await deleted.text()).trim();
+        throw new Error(text && text.length <= 300 ? text : "revert clear failed");
+      }
+      const legacy = await client.session.unrevert({ sessionID, directory: directory ?? opts.directory });
+      if (legacy.error) throw new Error(errorMessage(legacy.error));
     },
     async fork(sessionID: string, messageID: string, directory?: string) {
       const r = await client.session.fork({ sessionID, messageID, directory: directory ?? opts.directory });
