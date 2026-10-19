@@ -3,6 +3,7 @@ import { createMemo, type JSX } from "solid-js";
 export type Name =
   | "replay"
   | "files"
+  | "page"
   | "download"
   | "link"
   | "shield"
@@ -93,6 +94,18 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
       <Glyph class={cls}>
         <rect x="2.5" y="3" width="11" height="10" rx="1.5" />
         <path d="M9.5 3v10" />
+      </Glyph>
+    );
+  // A sheet with a folded corner and two lines of text. Reading a file is a
+  // document; the files glyph above is the drawer, and at 14px the two must
+  // not be the same picture.
+  if (name === "page")
+    return (
+      <Glyph class={cls}>
+        <path d="M4 2.4h5.2L12 5.2V13.6H4z" />
+        <path d="M9.2 2.6V5.2H12" />
+        <path d="M6 8.2h4" />
+        <path d="M6 10.6h4" />
       </Glyph>
     );
   if (name === "download")

@@ -75,6 +75,26 @@ export function toolKind(name: string): ToolKind {
   return KINDS[name.toLowerCase()] ?? "generic";
 }
 
+/**
+ * The mark beside a tool call.
+ *
+ * Kind is not always enough: glob and grep are both searches, and only the
+ * name says whether the picture is a folder of files or a glass over text.
+ */
+export function toolIcon(
+  tool: string,
+): "terminal" | "page" | "pencil" | "folder" | "search" | "globe" | "list" | "fork" | "wrench" {
+  const kind = toolKind(tool);
+  if (kind === "shell") return "terminal";
+  if (kind === "read") return "page";
+  if (kind === "edit") return "pencil";
+  if (kind === "search") return tool.toLowerCase() === "glob" ? "folder" : "search";
+  if (kind === "web") return "globe";
+  if (kind === "todo") return "list";
+  if (kind === "task") return "fork";
+  return "wrench";
+}
+
 function field(input: Record<string, unknown>, keys: string[]): string | undefined {
   for (const key of keys) {
     const value = input[key];

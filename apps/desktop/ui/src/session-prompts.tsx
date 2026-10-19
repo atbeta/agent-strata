@@ -6,16 +6,16 @@ import { DiffBlock } from "./diff";
 import { JsonView } from "./json-view";
 import { permissionView, type PermissionView } from "./permission-card";
 import { t } from "./i18n";
+import { toolIcon } from "./transcript-format";
 import { Button } from "@/components/ui/button";
 import { ChoiceCard } from "@/components/ui/choice-card";
 import { TextFieldInput } from "@/components/ui/text-field";
 
-function askIcon(detail: PermissionView, tool: string): "terminal" | "pencil" | "globe" | "files" | "wrench" {
+function askIcon(detail: PermissionView, tool: string): ReturnType<typeof toolIcon> {
   if (detail.kind === "command") return "terminal";
   if (detail.kind === "diff") return "pencil";
   if (detail.kind === "url") return "globe";
-  if (tool === "read") return "files";
-  return "wrench";
+  return toolIcon(tool);
 }
 
 export function AskCard(props: {
