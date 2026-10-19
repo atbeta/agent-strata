@@ -1,7 +1,7 @@
 /** Every string the reading pane owns: thinking blocks, tool cards, payloads, JSON trees. */
 export default {
   // Tool verbs. What gets translated is the word on screen, not the tool name:
-  // an unknown tool falls back to the raw `call.tool` and never reaches here.
+  // an unknown tool falls back to `call.tool` capitalised and never reaches here.
   // Bash/Read/Write stay as typed in both languages — a literal gloss of a
   // command the reader just ran is harder to recognise, not easier.
   "tool.verb.bash": "Bash",
@@ -13,15 +13,18 @@ export default {
   "tool.verb.fetch": "Fetch",
   "tool.verb.plan": "Plan",
   "tool.verb.task": "Subagent",
+  "tool.verb.question": "Question",
 
   "tool.search.in": "in {path}",
   "plan.items.one": "{n} item",
   "plan.items.other": "{n} items",
 
-  // Durations are units, so both languages are byte-identical: `840ms`, `1.5s`, `12s`.
+  // Durations are units, so both languages are byte-identical: `840ms`, `1.5s`, `12s`, `2m 05s`.
   "latency.ms": "{n}ms",
   "latency.s.tenth": "{n}s",
   "latency.s": "{n}s",
+  "latency.m": "{m}m {s}s",
+  "latency.h": "{h}h {m}m",
 
   "status.running": "Running",
   "status.failed": "Failed",

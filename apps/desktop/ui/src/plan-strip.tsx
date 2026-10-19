@@ -20,7 +20,13 @@ import { Button } from "@/components/ui/button";
  * `keyed` routing rebuilds `SessionDetail` per session, so this initialiser
  * runs again for each one, which is exactly what a per-session read needs.
  */
-export function PlanStrip(props: { sessionId: string; plan: readonly PlanItem[]; generating: boolean }) {
+export function PlanStrip(props: {
+  sessionId: string;
+  plan: readonly PlanItem[];
+  generating: boolean;
+  /** another strip sits above this one — keep the seam, drop the rounding */
+  stacked?: boolean;
+}) {
   const progress = () => planProgress(props.plan);
   const [choice, setChoice] = createSignal<boolean | undefined>(readPlanChoice(props.sessionId));
   /** No choice yet means the plan gets to decide, and only a toggle outranks it. */
@@ -31,7 +37,11 @@ export function PlanStrip(props: { sessionId: string; plan: readonly PlanItem[];
     writePlanChoice(props.sessionId, next);
   };
   return (
-    <div class="rounded-t-2xl border border-b-0 border-input bg-secondary/70 px-3 pb-4 pt-2">
+    <div
+      class={`border border-b-0 bg-secondary/70 px-3 pb-4 pt-2 ${
+        props.stacked ? "border-input border-t-input/60" : "rounded-t-2xl border-input"
+      }`}
+    >
       <Button
         type="button"
         variant="quiet"
@@ -52,7 +62,7 @@ export function PlanStrip(props: { sessionId: string; plan: readonly PlanItem[];
         />
       </Button>
       <Show when={open()}>
-        <ul class="mt-1.5 max-h-[40vh] space-y-1 overflow-y-auto text-sm">
+        <ul class="expand-in mt-1.5 max-h-[40vh] space-y-1 overflow-y-auto text-sm">
           <For each={props.plan}>
             {(item) => (
               <li class="flex gap-2 px-1">

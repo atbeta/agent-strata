@@ -62,6 +62,8 @@ Patterns with one consumer live next to it rather than in `components/ui`: `Pane
 
 Linear keeps the sidebar and the document on the same background. Separation is a 1px border at about 8% white, not a second gray panel. Selection is a soft fill. Section labels are 11px and sentence case. The accent color appears on the primary action, not on every border.
 
+Light mode is the one exception to the shared surface: it tints the sidebar (`--sidebar`, ~96.5% lightness against the 99% window) because on a near-white window the hairline alone does not separate the columns; dark keeps one surface.
+
 OpenCode Desktop puts sessions in a left rail and the composer at the bottom of the conversation. On macOS the native title is hidden and traffic lights sit in the top of the sidebar (`titleBarStyle: Overlay`). On Windows the desktop app is frameless and draws its own title bar. Linux still ships the native title bar; that is a known gap in OpenCode, not a pattern to copy.
 
 ## Window chrome

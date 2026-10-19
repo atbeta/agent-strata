@@ -12,6 +12,7 @@
 :root {
   color-scheme: dark;
   --background: hsl(240 6% 6.5%);
+  --sidebar: var(--background);
   --foreground: hsl(240 10% 93%);
   --card: hsl(240 5% 9%);
   --card-foreground: hsl(240 10% 93%);
@@ -82,6 +83,7 @@
 html[data-theme="light"] {
   color-scheme: light;
   --background: hsl(240 20% 99%);
+  --sidebar: hsl(240 9% 96.5%);
   --foreground: hsl(240 10% 12%);
   --card: hsl(0 0% 100%);
   --card-foreground: hsl(240 10% 12%);
@@ -142,6 +144,7 @@ html[data-theme="light"] {
 
 @theme inline {
   --color-background: var(--background);
+  --color-sidebar: var(--sidebar);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
@@ -619,6 +622,19 @@ textarea {
     from {
       opacity: 0;
       transform: translateY(2px);
+    }
+  }
+
+  /* The user-initiated reveal of a collapsed row's body — a thinking block
+     opened, a tool card's payload, the plan list. Distinct from `rise-in`,
+     which is reserved for turns that arrive. */
+  .expand-in {
+    animation: expand-in 0.14s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  @keyframes expand-in {
+    from {
+      opacity: 0;
+      transform: translateY(-2px);
     }
   }
 

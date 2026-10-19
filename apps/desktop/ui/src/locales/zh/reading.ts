@@ -1,8 +1,8 @@
 /** 读会话这一屏的所有文案：思考块、工具调用卡、载荷框和 JSON 树。 */
 export default {
   // 工具动词。翻译的是"显示用的那个词"，不是工具本身的名字——未知工具
-  // 走的是原样回显 `call.tool`，那条路径不经过这里。Bash/Read/Write 这类
-  // 词在中文界面里仍然是读者天天敲的术语，硬译反而更难认。
+  // 走的是 `call.tool` 首字母大写回显，那条路径不经过这里。Bash/Read/Write
+  // 这类词在中文界面里仍然是读者天天敲的术语，硬译反而更难认。
   "tool.verb.bash": "Bash",
   "tool.verb.read": "Read",
   "tool.verb.write": "Write",
@@ -12,15 +12,18 @@ export default {
   "tool.verb.fetch": "Fetch",
   "tool.verb.plan": "计划",
   "tool.verb.task": "子会话",
+  "tool.verb.question": "提问",
 
   "tool.search.in": "在 {path} 中",
   "plan.items.one": "{n} 项",
   "plan.items.other": "{n} 项",
 
-  // 耗时是单位，两种语言必须一模一样：`840ms`、`1.5s`、`12s`。
+  // 耗时是单位，两种语言必须一模一样：`840ms`、`1.5s`、`12s`、`2m 05s`。
   "latency.ms": "{n}ms",
   "latency.s.tenth": "{n}s",
   "latency.s": "{n}s",
+  "latency.m": "{m}m {s}s",
+  "latency.h": "{h}h {m}m",
 
   "status.running": "运行中",
   "status.failed": "失败",

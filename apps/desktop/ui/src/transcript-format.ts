@@ -157,8 +157,18 @@ export function toolHeadline(call: Pick<ToolCallView, "tool" | "input">): ToolHe
       title: field(input, ["description", "subagent_type", "agent"]) ?? call.tool,
     };
   }
+  if (call.tool.toLowerCase() === "question") {
+    const first = Array.isArray(input.questions) ? input.questions[0] : undefined;
+    const title =
+      first && typeof first === "object"
+        ? field(first as Record<string, unknown>, ["header", "question"])
+        : undefined;
+    return { kind, verb: t("tool.verb.question"), title: title ?? "" };
+  }
   const description = field(input, ["description", "prompt", "title"]);
-  return { kind, verb: call.tool, title: description ?? path ?? command ?? pattern ?? "" };
+  // An unknown tool still gets the leading capital the named verbs carry.
+  const verb = call.tool ? call.tool[0]!.toUpperCase() + call.tool.slice(1) : "";
+  return { kind, verb, title: description ?? path ?? command ?? pattern ?? "" };
 }
 
 export function isDiff(text: string): boolean {
@@ -216,14 +226,26 @@ export function thinkingPreview(text: string): string {
   return clipToWidth(text.replace(/\s+/g, " ").trim(), 88);
 }
 
-/** Milliseconds and seconds are units: `840ms`, `1.5s`, `12s` in every language. */
+/** Milliseconds and seconds are units: `840ms`, `1.5s`, `12s`, `2m 05s`, `10h 15m` in every language. */
 export function fmtLatency(ms: number | undefined): string | undefined {
   if (ms == null || !Number.isFinite(ms)) return undefined;
   if (ms < 1000) return t("latency.ms", { n: Math.round(ms) });
   const seconds = ms / 1000;
-  return seconds < 10
-    ? t("latency.s.tenth", { n: seconds.toFixed(1) })
-    : t("latency.s", { n: Math.round(seconds) });
+  if (seconds < 10) return t("latency.s.tenth", { n: seconds.toFixed(1) });
+  if (seconds < 60) return t("latency.s", { n: Math.round(seconds) });
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60)
+    return t("latency.m", { m: minutes, s: String(Math.floor(seconds % 60)).padStart(2, "0") });
+  return t("latency.h", { h: Math.floor(minutes / 60), m: String(minutes % 60).padStart(2, "0") });
+}
+
+/**
+ * A call whose "latency" is the reader deciding, not the tool running. The
+ * number beside such a row measures how long a person took to answer, which
+ * is not a speed anybody tuned.
+ */
+export function isInteractiveTool(tool: string): boolean {
+  return ["question", "ask", "askuserquestion", "ask_user_question"].includes(tool.toLowerCase());
 }
 
 export function statusLabel(status: ToolCallView["status"]): string | undefined {

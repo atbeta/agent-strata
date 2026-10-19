@@ -14,6 +14,7 @@ import { PageShell, WindowCaptionBar } from "./chrome";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { t } from "./i18n";
+import { displayTitle } from "./session-title";
 import { isStreamingSnapshotMessage } from "./live";
 import { parseHash, type Route } from "./routes";
 import { explain } from "./errors";
@@ -491,7 +492,7 @@ export function App() {
         onQuery={setQuery}
         sessions={list.sessions().map((s) => ({
           id: s.summary.session_id,
-          title: s.title || s.summary.title || t("common.untitled"),
+          title: displayTitle(s.title || s.summary.title) ?? t("common.untitled"),
           workspace: s.workspace ?? s.summary.workspace,
           summary: { title: s.summary.title, workspace: s.summary.workspace },
         }))}

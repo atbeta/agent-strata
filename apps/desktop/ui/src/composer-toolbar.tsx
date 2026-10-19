@@ -25,6 +25,8 @@ export function ComposerToolbar(props: {
    * transcript, which is not a question this answers.
    */
   permission?: () => JSX.Element;
+  /** The session goal button, in the same left cluster as attach and permission. */
+  goal?: () => JSX.Element;
   generating: boolean;
   stopping: boolean;
   canSend: boolean;
@@ -51,6 +53,7 @@ export function ComposerToolbar(props: {
         )}
       </Show>
       {props.permission?.()}
+      {props.goal?.()}
       {props.context()}
       <span class="composer-wide-slot">{props.agent?.()}</span>
       <div class="ml-auto flex min-w-0 items-center gap-1">
@@ -115,7 +118,12 @@ export function ComposerToolbar(props: {
             <Button
               type="button"
               size="icon-sm"
-              class="surface-action shrink-0 transition-opacity motion-safe:active:scale-95"
+              variant={props.canSend ? "default" : "secondary"}
+              class={
+                props.canSend
+                  ? "surface-action shrink-0 transition-opacity motion-safe:active:scale-95"
+                  : "shrink-0 text-muted-foreground shadow-none transition-opacity disabled:opacity-100"
+              }
               disabled={!props.canSend}
               aria-label={props.canSend ? t("composer.send") : t("composer.type")}
               onClick={() => props.onSend()}

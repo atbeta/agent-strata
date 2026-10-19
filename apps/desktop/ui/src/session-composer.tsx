@@ -21,9 +21,11 @@ import {
 } from "./api";
 import { Icon } from "./icons";
 import { num, t, tn } from "./i18n";
+import { displayTitle } from "./session-title";
 import { Tip } from "./tip";
 import { planVisible } from "./plan-progress";
 import { PlanStrip } from "./plan-strip";
+import { GoalButton, GoalStrip, useGoal } from "./goal-bar";
 import { runInProgress, SEND_GRACE_MS } from "./live";
 import { stopConfirmed } from "./stop-verdict";
 import { ComposerToolbar } from "./composer-toolbar";
@@ -937,13 +939,16 @@ export function SessionComposer(props: {
    * the moment a pane took focus.
    */
   permission?: () => JSX.Element;
+  /** the session's goal, shown as a strip on top of the composer and edited from the toolbar */
+  goal?: string;
 }) {
   const c = () => props.c;
+  const g = useGoal(props.sessionId, () => props.goal);
   const placeholder = () =>
     paneWorkspace().mode === "multiplex"
       ? c().generating()
-        ? t("pane.composer.queue_target", { title: props.title ?? t("session.untitled") })
-        : t("pane.composer.target", { title: props.title ?? t("session.untitled") })
+        ? t("pane.composer.queue_target", { title: displayTitle(props.title) ?? t("session.untitled") })
+        : t("pane.composer.target", { title: displayTitle(props.title) ?? t("session.untitled") })
       : c().generating()
         ? t("composer.placeholder.queue")
         : t("composer.placeholder.message");
@@ -961,13 +966,19 @@ export function SessionComposer(props: {
             onHover={c().setMenuActive}
           />
         </Show>
+        <GoalStrip g={g} />
         <Show when={planVisible(props.plan, c().generating())}>
-          <PlanStrip sessionId={props.sessionId()} plan={props.plan!} generating={c().generating()} />
+          <PlanStrip
+            sessionId={props.sessionId()}
+            plan={props.plan!}
+            generating={c().generating()}
+            stacked={Boolean(g.shown())}
+          />
         </Show>
         <Show when={c().queued().length > 0}>
           <div
             class={`border border-b-0 bg-secondary/70 px-3 pb-4 pt-2 ${
-              planVisible(props.plan, c().generating())
+              planVisible(props.plan, c().generating()) || g.shown()
                 ? "border-input border-t-input/60"
                 : "rounded-t-2xl border-input"
             }`}
@@ -1013,7 +1024,7 @@ export function SessionComposer(props: {
           </div>
         </Show>
         <div
-          class={`@container/composer surface-composer rounded-2xl border border-transparent bg-card transition-colors focus-within:border-ring ${c().queued().length > 0 || planVisible(props.plan, c().generating()) ? "-mt-2" : ""}`}
+          class={`@container/composer surface-composer rounded-2xl border border-transparent bg-card transition-colors focus-within:border-ring/50 ${c().queued().length > 0 || planVisible(props.plan, c().generating()) || g.shown() ? "-mt-2" : ""}`}
           onDragOver={(e) => {
             if (!c().canAttach() || !e.dataTransfer?.types.includes("Files")) return;
             e.preventDefault();
@@ -1085,6 +1096,7 @@ export function SessionComposer(props: {
             effort={c().effortVariants() > 0 ? c().effortSlot : undefined}
             onAttach={c().canAttach() ? c().openFilePicker : undefined}
             permission={props.permission}
+            goal={() => <GoalButton g={g} />}
             generating={c().generating()}
             stopping={c().stopping()}
             canSend={c().canSend()}

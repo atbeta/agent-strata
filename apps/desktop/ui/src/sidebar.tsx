@@ -9,6 +9,7 @@ import {
 import { settled } from "./resource";
 import { relTime } from "./fleet";
 import { t } from "./i18n";
+import { displayTitle } from "./session-title";
 import { Icon } from "./icons";
 import { Tip } from "./tip";
 import { openSessionInSplit } from "./session-chrome";
@@ -191,7 +192,7 @@ export function Sidebar(props: {
               return (
                 <SessionListItem
                   id={id}
-                  title={s.title ?? s.summary.title ?? t("common.untitled")}
+                  title={displayTitle(s.title ?? s.summary.title) ?? t("common.untitled")}
                   active={props.activeId() === id || props.compareSel.includes(id)}
                   status={sessionStatus(s)}
                   time={relTime(s.summary.last_ts, props.clock())}
@@ -210,7 +211,7 @@ export function Sidebar(props: {
           </For>
           <Show when={!expanded().has(group.key) && group.rows.length > PAGE}>
             <RowButton
-              class="h-7 items-center px-2 text-2xs text-muted-foreground hover:bg-secondary/70"
+              class="h-7 items-center px-2 text-2xs text-muted-foreground hover:bg-accent/70"
               onClick={() => setExpanded((s) => flip(s, group.key))}
             >
               <Icon name="chevron" class="size-2.5 rotate-90 text-muted-foreground/60" />
@@ -223,7 +224,7 @@ export function Sidebar(props: {
   };
 
   return (
-    <aside class="flex w-[300px] shrink-0 flex-col border-r border-border bg-background">
+    <aside class="flex w-[300px] shrink-0 flex-col border-r border-border bg-sidebar">
       {/* macOS hides its title bar and paints the traffic lights over the
           webview's top-left — this corner of the sidebar is where they land,
           so the column gives them the 32px they sit in and the spot doubles
@@ -242,7 +243,7 @@ export function Sidebar(props: {
           everything else. */}
       <div class="px-1.5 pt-2">
         <RowButton
-          class="h-8 items-center px-2 text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+          class="h-8 items-center px-2 text-muted-foreground hover:bg-accent/60 hover:text-foreground"
           aria-label={t("palette.title")}
           onClick={props.onOpenSearch}
         >
@@ -265,7 +266,7 @@ export function Sidebar(props: {
               "h-8 min-w-0 flex-1 items-center px-2",
               props.fleetActive
                 ? "bg-accent text-foreground"
-                : "text-foreground/80 hover:bg-secondary/70",
+                : "text-foreground/80 hover:bg-accent/70",
             )}
             aria-current={props.fleetActive ? "page" : undefined}
             onClick={() => props.onOpenFleet()}
@@ -294,7 +295,7 @@ export function Sidebar(props: {
           />
         </div>
       </div>
-      <div class="min-h-0 flex-1 overflow-y-auto px-1.5 py-1">
+      <div class="min-h-0 flex-1 overflow-y-auto px-1.5 pb-4 pt-1 [mask-image:linear-gradient(to_bottom,black_calc(100%-16px),transparent)]">
         {/* Compare is a mode of the list and it says so at the top of the
             list. The hint used to live inside the connect panel, so entering
             compare mode from anywhere else showed nothing at all: the rows
@@ -338,7 +339,7 @@ export function Sidebar(props: {
                 placement="bottom-end"
               >
                 <Tip label={t("sidebar.project.openDirectory")}>
-                  <DropdownMenuTrigger class="grid size-5 place-items-center rounded text-muted-foreground/60 hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+                  <DropdownMenuTrigger class="grid size-5 place-items-center rounded text-muted-foreground/60 hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
                     <Icon name="folder-plus" class="size-3.5" />
                   </DropdownMenuTrigger>
                 </Tip>

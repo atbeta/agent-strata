@@ -1,6 +1,7 @@
 import { For, Show, createSignal, type JSX } from "solid-js";
 import { Icon, type Name } from "./icons";
 import { t } from "./i18n";
+import { displayTitle } from "./session-title";
 import { Tip } from "./tip";
 import { realWorkspace } from "./api";
 import { sessionStatus, showsMark } from "./session-status";
@@ -237,7 +238,7 @@ function PaneHeader(props: {
   const title = () => {
     if (!props.leaf.sessionId) return t("pane.empty.title");
     const r = row();
-    return r?.title || r?.summary.title || t("session.untitled");
+    return displayTitle(r?.title || r?.summary.title) ?? t("session.untitled");
   };
   const wsName = () => {
     const r = row();
@@ -283,7 +284,7 @@ function PaneHeader(props: {
                 {(s) => {
                   const sid = s.summary.session_id;
                   const st = sessionStatus(s);
-                  const label = pickerLabel(s, t("session.untitled"));
+                  const label = displayTitle(pickerLabel(s, t("session.untitled"))) ?? t("session.untitled");
                   return (
                     <DropdownMenuItem onSelect={() => props.onSelectSession(sid)}>
                       <Show when={showsMark(st)} fallback={<span class="size-1.5 shrink-0" />}>
@@ -407,7 +408,7 @@ function EmptyPanePicker(props: {
                         <SessionStatusMark status={st} class="shrink-0" />
                       </Show>
                       <span class="truncate font-medium text-foreground">
-                        {s.title || s.summary.title || t("session.untitled")}
+                        {displayTitle(s.title || s.summary.title) ?? t("session.untitled")}
                       </span>
                     </span>
                     <Show when={ws}>

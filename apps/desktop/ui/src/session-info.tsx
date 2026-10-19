@@ -4,11 +4,17 @@ import { Icon } from "./icons";
 import { compactNum, num, t } from "./i18n";
 import { copyText } from "./clipboard";
 import { sessionStatus, showsMark, type SessionStatus } from "./session-status";
+import { pieSectorPath } from "./context-pie";
 import type { ContextBreakdownKey, ContextBreakdownSegment } from "./session-context-breakdown";
 import { Button } from "@/components/ui/button";
 
+/**
+ * Context use as a pie gauge rather than a stroked ring: a thin outline for
+ * the whole and a filled wedge for the share. The old arc spent its first
+ * dozen percent looking like a spinner — a stroke that barely starts is the
+ * shape busy indicators are made of, and this is a measure, not motion.
+ */
 export function ContextRing(props: { percent: number | null }) {
-  const length = 2 * Math.PI * 6;
   // Read props inside JSX. A const captured on first run stays at 0, because
   // the context window arrives after the transcript.
   const tone = () =>
@@ -21,18 +27,13 @@ export function ContextRing(props: { percent: number | null }) {
           : "text-foreground";
   return (
     <svg viewBox="0 0 16 16" class={`size-4 ${tone()}`} aria-hidden="true">
-      <circle cx="8" cy="8" r="6" fill="none" class="stroke-border" stroke-width="2" />
-      <circle
-        cx="8"
-        cy="8"
-        r="6"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-dasharray={`${(Math.max(0, Math.min(100, props.percent ?? 0)) / 100) * length} ${length}`}
-        transform="rotate(-90 8 8)"
-      />
+      <circle cx="8" cy="8" r="6.75" fill="none" stroke="currentColor" stroke-opacity="0.35" stroke-width="1.25" />
+      <Show when={props.percent != null && props.percent >= 99.5}>
+        <circle cx="8" cy="8" r="4.75" fill="currentColor" />
+      </Show>
+      <Show when={props.percent != null && props.percent >= 0.5 && props.percent < 99.5}>
+        <path d={pieSectorPath(props.percent!, 4.75)} fill="currentColor" />
+      </Show>
     </svg>
   );
 }

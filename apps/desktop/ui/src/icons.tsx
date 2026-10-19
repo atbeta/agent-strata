@@ -36,6 +36,7 @@ export type Name =
   | "brain"
   | "stop"
   | "alert"
+  | "target"
   | "plus"
   | "x"
   | "split-row"
@@ -346,19 +347,18 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
         <path d="M8 13.2v1.4" />
       </Glyph>
     );
-  // The Model Context Protocol mark, verbatim from the spec's logo — a
-  // filled shape, unlike the stroke glyphs around it. "plug" stays for
-  // generic connection points; this one means MCP specifically.
+  // The official MCP mark, in its stroked form — the filled silhouette it
+  // replaced weighed twice what every glyph around it does. Drawn on the
+  // mark's own grid, with the pen scaled (see `box`/`weight` on `Glyph`) to
+  // match the 16-grid stroke it sits beside. "plug" stays for generic
+  // connection points; this one means MCP specifically.
   if (name === "mcp")
     return (
-      <svg
-        viewBox="0 0 24 24"
-        class={cls ?? "h-4 w-4"}
-        fill="currentColor"
-        stroke="none"
-      >
-        <path d="M13.85 0a4.16 4.16 0 0 0-2.95 1.217L1.456 10.66a.835.835 0 0 0 0 1.18.835.835 0 0 0 1.18 0l9.442-9.442a2.49 2.49 0 0 1 3.541 0 2.49 2.49 0 0 1 0 3.541L8.59 12.97l-.1.1a.835.835 0 0 0 0 1.18.835.835 0 0 0 1.18 0l.1-.098 7.03-7.034a2.49 2.49 0 0 1 3.542 0l.049.05a2.49 2.49 0 0 1 0 3.54l-8.54 8.54a1.96 1.96 0 0 0 0 2.755l1.753 1.753a.835.835 0 0 0 1.18 0 .835.835 0 0 0 0-1.18l-1.753-1.753a.266.266 0 0 1 0-.394l8.54-8.54a4.185 4.185 0 0 0 0-5.9l-.05-.05a4.16 4.16 0 0 0-2.95-1.218c-.2 0-.401.02-.6.048a4.17 4.17 0 0 0-1.17-3.552A4.16 4.16 0 0 0 13.85 0m0 3.333a.84.84 0 0 0-.59.245L6.275 10.56a4.186 4.186 0 0 0 0 5.902 4.186 4.186 0 0 0 5.902 0L19.16 9.48a.835.835 0 0 0 0-1.18.835.835 0 0 0-1.18 0l-6.985 6.984a2.49 2.49 0 0 1-3.54 0 2.49 2.49 0 0 1 0-3.54l6.983-6.985a.835.835 0 0 0 0-1.18.84.84 0 0 0-.59-.245" />
-      </svg>
+      <Glyph class={cls} box="10 10 160 160" weight="14">
+        <path d="M23.5996 85.2532L86.2021 22.6507C94.8457 14.0071 108.86 14.0071 117.503 22.6507C126.147 31.2942 126.147 45.3083 117.503 53.9519L70.2254 101.23" />
+        <path d="M70.8789 100.578L117.504 53.952C126.148 45.3083 140.163 45.3083 148.806 53.952L149.132 54.278C157.776 62.9216 157.776 76.9357 149.132 85.5792L92.5139 142.198C89.6327 145.079 89.6327 149.75 92.5139 152.631L104.14 164.257" />
+        <path d="M101.853 38.3013L55.553 84.6011C46.9094 93.2447 46.9094 107.258 55.553 115.902C64.1966 124.546 78.2106 124.546 86.8543 115.902L133.154 69.6025" />
+      </Glyph>
     );
   // Two mirrored hemispheres with inner folds — the reasoning indicator.
   if (name === "brain")
@@ -435,6 +435,15 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
         <circle cx="8" cy="8" r="5.5" />
         <path d="M8 4.5v4" />
         <circle cx="8" cy="11" r=".6" fill="currentColor" stroke="none" />
+      </Glyph>
+    );
+  // Concentric rings with a filled centre: the mark a session goal is aimed at.
+  if (name === "target")
+    return (
+      <Glyph class={cls}>
+        <circle cx="8" cy="8" r="5.5" />
+        <circle cx="8" cy="8" r="2.75" />
+        <circle cx="8" cy="8" r="0.6" fill="currentColor" stroke="none" />
       </Glyph>
     );
   // Tabler `pin`, moved onto our 16 grid at 2/3 of its 24. It was drawn here

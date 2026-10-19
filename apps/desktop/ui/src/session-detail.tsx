@@ -46,6 +46,7 @@ import { copyText } from "./clipboard";
 import { messageText } from "./transcript-format";
 import { Icon } from "./icons";
 import { t } from "./i18n";
+import { displayTitle } from "./session-title";
 import { settled } from "./resource";
 import { inDesktopShell, shellPlatform } from "./shell";
 import { Tip } from "./tip";
@@ -114,7 +115,6 @@ import { AskCard, QuestionCard } from "./session-prompts";
 import { useSessionSearch, SearchPanel } from "./session-search";
 import { useMcpTools, McpToolsPanel } from "./session-tools";
 import { useSessionComposer, SessionComposer } from "./session-composer";
-import { GoalBar } from "./goal-bar";
 import { SessionRail } from "./session-rail";
 import { createEntranceLedger } from "./entrance";
 import { Button } from "@/components/ui/button";
@@ -1369,9 +1369,9 @@ const turns = () => shown().turns;
                       had no name on screen. */}
                   <h1
                     class="min-w-24 flex-1 truncate text-sm font-medium"
-                    title={v().title ?? t("session.untitled")}
+                    title={displayTitle(v().title) ?? t("session.untitled")}
                   >
-                    {v().title ?? t("session.untitled")}
+                    {displayTitle(v().title) ?? t("session.untitled")}
                   </h1>
                   <Show when={realWorkspace(v().workspace)}>
                     {(ws) => (
@@ -1396,15 +1396,18 @@ const turns = () => shown().turns;
                       </Tip>
                     )}
                   </Show>
-                </div>
-                <span class="flex shrink-0 items-center gap-0.5">
                   <Show when={v().totals.cost_usd > 0}>
-                    <Tip label={t("header.cost.tip", { amount: fmtUsd(v().totals.cost_usd) })}>
-                      <span class="mr-1 font-mono text-2xs text-muted-foreground tabular-nums">
+                    <Tip
+                      label={t("header.cost.tip", { amount: fmtUsd(v().totals.cost_usd) })}
+                      class="@max-[440px]:hidden"
+                    >
+                      <span class="shrink-0 font-mono text-2xs text-muted-foreground tabular-nums">
                         {fmtUsd(v().totals.cost_usd)}
                       </span>
                     </Tip>
                   </Show>
+                </div>
+                <span class="flex shrink-0 items-center gap-0.5">
                   <Tip label={t("session.search.tip", { shortcut: findKey() })}>
                   <PanelToggle
                     label={t("session.search.label")}
@@ -1642,12 +1645,10 @@ const turns = () => shown().turns;
                 }}
               >
                 <div
-                  class={
-                    showNav()
-                      ? "mx-auto w-full py-4 pl-11 pr-5"
-                      : "mx-auto w-full px-5 py-4"
-                  }
-                  style={{ "max-width": `${contentW()}px` }}
+                  class={showNav() ? "mx-auto w-full px-11 py-4" : "mx-auto w-full px-5 py-4"}
+                  style={{
+                    "max-width": `calc(${contentW()}px + ${showNav() ? "5.5rem" : "2.5rem"})`,
+                  }}
                 >
                   <Show
                     when={!booting() && !(importing() && turns().length === 0)}
@@ -1842,13 +1843,13 @@ const turns = () => shown().turns;
                         </Button>
                       </div>
                     </Show>
-                    <GoalBar sessionId={props.id} goal={v().goal} />
                     <SessionComposer
                       c={composer}
                       sessionId={() => props.id}
                       plan={v().plan}
                       title={v().title}
                       permission={autoAcceptToggle}
+                      goal={v().goal}
                     />
                   </div>
                 </div>

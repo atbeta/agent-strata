@@ -24,6 +24,7 @@ import {
   fmtLatency,
   hasMessageContent,
   isDiff,
+  isInteractiveTool,
   messageText,
   permissionLabel,
   statusLabel,
@@ -148,7 +149,7 @@ function ThinkingBlock(props: { text: string; live?: boolean; scope?: string }) 
         </span>
       </RowButton>
       <Show when={open()}>
-        <div class="ml-[22px] py-1.5">
+        <div class="expand-in ml-[22px] py-1.5">
           <Md class="text-sm leading-6 text-muted-foreground" text={props.text} />
         </div>
       </Show>
@@ -370,7 +371,9 @@ function ToolCallCard(props: {
               {label()}
             </span>
           </Show>
-          <Show when={!label() && fmtLatency(props.call.latency_ms)}>
+          {/* Interactive tools wait on the reader, so their latency is a
+              person's pause, not a runtime — there is nothing to report. */}
+          <Show when={!label() && !isInteractiveTool(props.call.tool) && fmtLatency(props.call.latency_ms)}>
             <span class="shrink-0 font-mono text-2xs text-muted-foreground tabular-nums">
               {fmtLatency(props.call.latency_ms)}
             </span>
@@ -404,7 +407,7 @@ function ToolCallCard(props: {
       <Show when={open()}>
         {/* Expanded content aligns under the row's text, past the icon and its
             gap — a box carries the boundary now, so no rail is needed. */}
-        <div class="ml-[22px] space-y-2 pb-2">
+        <div class="expand-in ml-[22px] space-y-2 pb-2">
           <Show when={command()}>
             <p class="break-words font-mono text-2xs leading-5 text-muted-foreground">{command()}</p>
           </Show>
@@ -476,7 +479,7 @@ function AssistantMessage(props: {
         text={text}
         onFork={forkable() ? () => props.onFork!(props.message.msg_id!) : undefined}
       >
-      <div class="transcript-message max-w-3xl" data-message-role="assistant">
+      <div class="transcript-message" data-message-role="assistant">
         <div class="relative">
           <BlockText
             blocks={props.message.content}
@@ -545,7 +548,7 @@ function ToolRun(props: {
   // of saying it is over.
   const live = () => props.calls.some((c) => c.status === "pending");
   return (
-    <div class={`max-w-3xl space-y-1 ${live() ? "tool-live-in" : ""}`}>
+    <div class={`space-y-1 ${live() ? "tool-live-in" : ""}`}>
       <Show when={foldable()}>
         <RowButton
           class="-ml-2 text-xs focus-visible:ring-inset"
@@ -565,7 +568,7 @@ function ToolRun(props: {
         </RowButton>
       </Show>
       <Show when={open()}>
-        <div class={foldable() ? "ml-[22px] space-y-1" : "space-y-1"}>
+        <div class={`expand-in ${foldable() ? "ml-[22px] " : ""}space-y-1`}>
           {/*
            * `<Index>`, not `<For>`. A run is built while it works — calls arrive
            * one at a time — and `<For>` maps by identity, so it tore down and
@@ -709,7 +712,7 @@ export function TurnBlock(props: {
         )}
       </Index>
       <Show when={props.awaiting?.()}>
-        <div class="flex max-w-3xl items-center gap-2 text-xs font-medium text-muted-foreground">
+        <div class="flex items-center gap-2 text-xs font-medium text-muted-foreground">
           <Icon name="brain" class="size-3.5 shrink-0 text-status-active motion-safe:animate-pulse" />
           {t("transcript.thinking")}
         </div>

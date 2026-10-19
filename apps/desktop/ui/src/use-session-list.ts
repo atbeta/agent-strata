@@ -11,6 +11,7 @@ import { holdRows, sameValue } from "./session-rows";
 import { fleetAttention, projectName } from "./fleet";
 import { readPins, togglePin, writePins } from "./pins";
 import { t } from "./i18n";
+import { displayTitle } from "./session-title";
 import { windowTitle } from "./permission-card";
 import { inDesktopShell } from "./shell";
 import { announceFinished, finishedSessions, readNotify, rememberBusy } from "./notify";
@@ -100,7 +101,7 @@ export function useSessionList(opts: {
       .filter((s) => !s.archived && !s.deleted)
       .map((s) => ({
         id: s.summary.session_id,
-        title: s.title || s.summary.title || t("session.untitled"),
+        title: displayTitle(s.title || s.summary.title) ?? t("session.untitled"),
         busy: s.busy === true,
       }));
     if (!busyReady) {

@@ -17,6 +17,7 @@ const {
   diffStat,
   fmtLatency,
   hasMessageContent,
+  isInteractiveTool,
   messageText,
   permissionLabel,
   statusLabel,
@@ -124,13 +125,39 @@ describe("tool headlines", () => {
     });
   });
 
-  test("an unrecognised tool keeps its raw name in both languages", () => {
-    // The fallback is the backend's identifier, not a word we chose to write.
+  test("a question tool reads as a question and titles from its first entry", () => {
     withLocale("en", () => {
-      expect(toolHeadline({ tool: "browser_use", input: {} }).verb).toBe("browser_use");
+      expect(
+        toolHeadline({
+          tool: "question",
+          input: { questions: [{ header: "Pick a style", question: "Which layout should the pane use?" }] },
+        }),
+      ).toEqual({ kind: "generic", verb: "Question", title: "Pick a style" });
+      // No header falls back to the question itself; no usable text leaves "".
+      expect(
+        toolHeadline({ tool: "Question", input: { questions: [{ question: "Which layout?" }] } }).title,
+      ).toBe("Which layout?");
+      expect(toolHeadline({ tool: "question", input: { questions: [] } }).title).toBe("");
+      expect(toolHeadline({ tool: "question", input: {} }).title).toBe("");
     });
     withLocale("zh", () => {
-      expect(toolHeadline({ tool: "browser_use", input: {} }).verb).toBe("browser_use");
+      expect(toolHeadline({ tool: "question", input: { questions: [{ header: "选样式" }] } })).toEqual({
+        kind: "generic",
+        verb: "提问",
+        title: "选样式",
+      });
+    });
+  });
+
+  test("an unrecognised tool keeps its name capitalised in both languages", () => {
+    // The fallback is the backend's identifier with the same leading capital
+    // the named verbs carry — `browser_use` next to `Bash` reads `Browser_use`.
+    withLocale("en", () => {
+      expect(toolHeadline({ tool: "browser_use", input: {} }).verb).toBe("Browser_use");
+      expect(toolHeadline({ tool: "Foo", input: {} }).verb).toBe("Foo");
+    });
+    withLocale("zh", () => {
+      expect(toolHeadline({ tool: "browser_use", input: {} }).verb).toBe("Browser_use");
     });
   });
 });
@@ -182,12 +209,41 @@ describe("diff and labels", () => {
       expect(fmtLatency(840)).toBe("840ms");
       expect(fmtLatency(1500)).toBe("1.5s");
       expect(fmtLatency(12000)).toBe("12s");
+      expect(fmtLatency(125000)).toBe("2m 05s");
+      expect(fmtLatency(36923000)).toBe("10h 15m");
     });
     withLocale("zh", () => {
       expect(fmtLatency(840)).toBe("840ms");
       expect(fmtLatency(1500)).toBe("1.5s");
       expect(fmtLatency(12000)).toBe("12s");
+      expect(fmtLatency(125000)).toBe("2m 05s");
+      expect(fmtLatency(36923000)).toBe("10h 15m");
     });
+  });
+
+  test("latency climbs ms → tenths → seconds → minutes → hours", () => {
+    withLocale("en", () => {
+      expect(fmtLatency(999)).toBe("999ms");
+      expect(fmtLatency(1500)).toBe("1.5s");
+      expect(fmtLatency(59000)).toBe("59s");
+      // Minutes and hours floor the lower unit and zero-pad it: a remainder
+      // that looks like rounding (`59.9s`) still reads `59s`.
+      expect(fmtLatency(60000)).toBe("1m 00s");
+      expect(fmtLatency(125000)).toBe("2m 05s");
+      expect(fmtLatency(3599000)).toBe("59m 59s");
+      expect(fmtLatency(3600000)).toBe("1h 00m");
+      expect(fmtLatency(36923000)).toBe("10h 15m");
+      expect(fmtLatency(undefined)).toBeUndefined();
+    });
+  });
+
+  test("tools that wait on the reader count as interactive", () => {
+    for (const tool of ["question", "ask", "askuserquestion", "ask_user_question", "Question", "ASK"]) {
+      expect(isInteractiveTool(tool)).toBe(true);
+    }
+    for (const tool of ["bash", "read", "task", "browser_use", ""]) {
+      expect(isInteractiveTool(tool)).toBe(false);
+    }
   });
 
   test("call status reads in the window's language", () => {

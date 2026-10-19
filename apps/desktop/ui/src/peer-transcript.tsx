@@ -445,12 +445,10 @@ const turns = () => shown().turns;
         }}
       >
         <div
-          class={
-            showNav()
-              ? "mx-auto w-full py-4 pl-11 pr-5"
-              : "mx-auto w-full px-5 py-4"
-          }
-          style={{ "max-width": `${contentW()}px` }}
+          class={showNav() ? "mx-auto w-full px-11 py-4" : "mx-auto w-full px-5 py-4"}
+          style={{
+            "max-width": `calc(${contentW()}px + ${showNav() ? "5.5rem" : "2.5rem"})`,
+          }}
         >
           <Show when={!booting()} fallback={<LoadingTranscript />}>
             <Show

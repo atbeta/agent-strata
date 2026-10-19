@@ -23,6 +23,7 @@ import {
   type TrendPoint,
 } from "./fleet";
 import { compactNum, num, t, tn } from "./i18n";
+import { displayTitle } from "./session-title";
 import { RowButton } from "@/components/ui/row-button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ChoiceCard } from "@/components/ui/choice-card";
@@ -181,7 +182,7 @@ export function FleetView(props: {
                               <SessionStatusMark status={sessionStatus(s)} class="mt-1" />
                               <span class="min-w-0 flex-1">
                                 <span class="block truncate text-sm text-foreground">
-                                  {s.title ?? s.summary.title ?? t("common.untitled")}
+                                  {displayTitle(s.title ?? s.summary.title) ?? t("common.untitled")}
                                 </span>
                                 <Show when={sub()}>
                                   <span class="mt-0.5 block truncate text-2xs text-muted-foreground">
@@ -275,7 +276,7 @@ function AttentionBanner(props: { rows: SessionRow[]; onOpen: (id: string) => vo
               onClick={() => props.onOpen(s.summary.session_id)}
             >
               <SessionStatusMark status={sessionStatus(s)} />
-              <span class="min-w-0 truncate">{s.title ?? s.summary.title ?? t("common.untitled")}</span>
+              <span class="min-w-0 truncate">{displayTitle(s.title ?? s.summary.title) ?? t("common.untitled")}</span>
             </RowButton>
           )}
         </For>

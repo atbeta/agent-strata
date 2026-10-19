@@ -2,6 +2,7 @@ import { createEffect, createSignal } from "solid-js";
 import type { SessionRow } from "./api";
 import { readMru, recentOrder, stepIndex, touchMru, writeMru } from "./session-switch";
 import { t } from "./i18n";
+import { displayTitle } from "./session-title";
 
 /**
  * The ⌃⇥ / ⌘⇥-style session switcher: MRU ordering, the chord-held overlay,
@@ -24,7 +25,7 @@ export function useSessionSwitcher(opts: {
   const switchSource = () =>
     opts.sessions().map((s) => ({
       id: s.summary.session_id,
-      title: s.title || s.summary.title || t("common.untitled"),
+      title: displayTitle(s.title || s.summary.title) ?? t("common.untitled"),
       lastTs: Date.parse(s.summary.last_ts) || 0,
     }));
 
