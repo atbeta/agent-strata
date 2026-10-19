@@ -1,6 +1,7 @@
 import { createEffect, createSignal, Show } from "solid-js";
 import { clearGoal, setGoal } from "./api";
 import { Button } from "./components/ui/button";
+import { TextFieldInput } from "./components/ui/text-field";
 import { t } from "./i18n";
 
 /** Set or clear the goal the service continues when this session goes idle. */
@@ -55,9 +56,10 @@ export function GoalBar(props: { sessionId: string; goal?: string }) {
       <Show
         when={shown() || editing()}
         fallback={
-          <button
+          <Button
             type="button"
-            class="text-2xs text-muted-foreground hover:text-foreground"
+            size="xs"
+            variant="quiet"
             onClick={() => {
               setDraft("");
               setErr("");
@@ -65,7 +67,7 @@ export function GoalBar(props: { sessionId: string; goal?: string }) {
             }}
           >
             {t("goal.set")}
-          </button>
+          </Button>
         }
       >
         <Show
@@ -77,9 +79,11 @@ export function GoalBar(props: { sessionId: string; goal?: string }) {
                 {" "}
                 {shown()}
               </p>
-              <button
+              <Button
                 type="button"
-                class="shrink-0 text-2xs text-muted-foreground hover:text-foreground"
+                size="xs"
+                variant="quiet"
+                class="shrink-0"
                 onClick={() => {
                   setDraft(shown() ?? "");
                   setErr("");
@@ -87,15 +91,17 @@ export function GoalBar(props: { sessionId: string; goal?: string }) {
                 }}
               >
                 {t("goal.edit")}
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
-                class="shrink-0 text-2xs text-muted-foreground hover:text-foreground"
+                size="xs"
+                variant="quiet"
+                class="shrink-0"
                 disabled={busy()}
                 onClick={() => void remove()}
               >
                 {t("goal.clear")}
-              </button>
+              </Button>
             </div>
           }
         >
@@ -106,8 +112,10 @@ export function GoalBar(props: { sessionId: string; goal?: string }) {
               void save();
             }}
           >
-            <input
-              class="min-w-0 flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+            <TextFieldInput
+              bare
+              size="sm"
+              class="min-w-0 flex-1"
               value={draft()}
               placeholder={t("goal.placeholder")}
               aria-label={t("goal.label")}
