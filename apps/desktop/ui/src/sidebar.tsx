@@ -183,7 +183,7 @@ export function Sidebar(props: {
         />
         <Show when={!collapsed().has(group.key)}>
           <Show when={group.dir !== undefined && group.rows.length === 0}>
-            <p class="px-2 py-1 text-2xs text-muted-foreground">{t("sidebar.group.empty")}</p>
+            <EmptyState layout="inline" title={t("sidebar.group.empty")} class="px-2 py-1" />
           </Show>
           <For each={rows()}>
             {(s) => {

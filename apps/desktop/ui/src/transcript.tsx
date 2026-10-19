@@ -1,6 +1,8 @@
 import { createEffect, createMemo, createSignal, For, Index, Match, on, onCleanup, onMount, Show, Switch, type JSX } from "solid-js";
 import type { ContentBlock, ToolCallView, Turn } from "./api";
 import { Button } from "@/components/ui/button";
+import { ListRow } from "@/components/ui/list-row";
+import { RowButton } from "@/components/ui/row-button";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -127,19 +129,7 @@ function ThinkingBlock(props: { text: string; live?: boolean; scope?: string }) 
     // a chevron and they alternate down the stream, so they share the row's
     // exact geometry or the icon column drifts with every other line.
     <div class="-ml-2">
-      <div
-        class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-        role="button"
-        tabIndex={0}
-        aria-expanded={open()}
-        onClick={toggle}
-        onKeyDown={(e) => {
-          if (e.target !== e.currentTarget) return;
-          if (e.key !== "Enter" && e.key !== " ") return;
-          e.preventDefault();
-          toggle();
-        }}
-      >
+      <RowButton class="text-xs focus-visible:ring-inset" aria-expanded={open()} onClick={toggle}>
         <Icon
           name="brain"
           class={`size-3.5 shrink-0 ${props.live ? "text-status-active motion-safe:animate-pulse" : "text-muted-foreground"}`}
@@ -156,7 +146,7 @@ function ThinkingBlock(props: { text: string; live?: boolean; scope?: string }) 
         >
           <Icon name="chevron" class="size-3" />
         </span>
-      </div>
+      </RowButton>
       <Show when={open()}>
         <div class="ml-[22px] py-1.5">
           <Md class="text-sm leading-6 text-muted-foreground" text={props.text} />
@@ -333,18 +323,10 @@ function ToolCallCard(props: {
   return (
     <div class="-ml-2">
       <Tip label={open() ? t("tool.output.hide") : t("tool.output.show")} class="w-full">
-        <div
-          class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-          role="button"
-          tabIndex={0}
-          aria-expanded={open()}
-          onClick={() => setOpen((v) => !v)}
-          onKeyDown={(e) => {
-            if (e.target !== e.currentTarget) return;
-            if (e.key !== "Enter" && e.key !== " ") return;
-            e.preventDefault();
-            setOpen((v) => !v);
-          }}
+        <ListRow
+          class="h-auto py-1.5 text-xs hover:bg-secondary/60 focus-visible:ring-inset"
+          expanded={open()}
+          onOpen={() => setOpen((v) => !v)}
         >
           <Icon
             name={toolIcon(props.call.tool)}
@@ -400,6 +382,7 @@ function ToolCallCard(props: {
                 variant="quiet"
                 size="sm"
                 class="h-auto shrink-0 px-0"
+                data-row-menu=""
                 onClick={(e) => {
                   e.stopPropagation();
                   props.onOpenChild?.(id());
@@ -416,7 +399,7 @@ function ToolCallCard(props: {
           >
             <Icon name="chevron" class="size-3" />
           </span>
-        </div>
+        </ListRow>
       </Tip>
       <Show when={open()}>
         {/* Expanded content aligns under the row's text, past the icon and its
@@ -564,17 +547,10 @@ function ToolRun(props: {
   return (
     <div class={`max-w-3xl space-y-1 ${live() ? "tool-live-in" : ""}`}>
       <Show when={foldable()}>
-        <div
-          class="-ml-2 flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-          role="button"
-          tabIndex={0}
+        <RowButton
+          class="-ml-2 text-xs focus-visible:ring-inset"
           aria-expanded={open()}
           onClick={() => setOpen((v) => !v)}
-          onKeyDown={(e) => {
-            if (e.key !== "Enter" && e.key !== " ") return;
-            e.preventDefault();
-            setOpen((v) => !v);
-          }}
         >
           <Icon name="wrench" class="size-3.5 shrink-0 text-muted-foreground" />
           <span class="min-w-0 truncate text-xs font-medium text-muted-foreground">
@@ -586,7 +562,7 @@ function ToolRun(props: {
           >
             <Icon name="chevron" class="size-3" />
           </span>
-        </div>
+        </RowButton>
       </Show>
       <Show when={open()}>
         <div class={foldable() ? "ml-[22px] space-y-1" : "space-y-1"}>

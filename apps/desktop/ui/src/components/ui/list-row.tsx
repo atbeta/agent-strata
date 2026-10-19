@@ -19,6 +19,8 @@ import { cn } from "@/lib/utils";
  */
 export function ListRow(props: {
   active?: boolean;
+  /** A disclosure row announces whether it is open. Omitted on a row that only navigates. */
+  expanded?: boolean;
   onOpen: () => void;
   /** True while an inline editor owns the row; it must not also activate it. */
   disabled?: boolean;
@@ -35,6 +37,7 @@ export function ListRow(props: {
       role="button"
       tabIndex={0}
       aria-current={props.active ? "true" : undefined}
+      aria-expanded={props.expanded}
       class={cn(
         "relative flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left",
         "transition-colors",

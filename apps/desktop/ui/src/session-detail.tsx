@@ -1728,10 +1728,10 @@ const turns = () => shown().turns;
                 <Tip label={t("nav.latest")}>
                   <Button
                     type="button"
-                    variant="quiet"
-                    size="xs"
+                    variant="secondary"
+                    size="icon"
                     aria-label={t("nav.latest")}
-                    class="absolute bottom-4 left-1/2 z-20 grid size-9 -translate-x-1/2 place-items-center rounded-full bg-foreground p-0 text-background shadow-lg transition-opacity hover:bg-foreground/85 hover:text-background"
+                    class="surface-popover absolute bottom-4 left-1/2 z-20 -translate-x-1/2"
                     onClick={jumpToLatest}
                   >
                     <Icon name="arrow-down" class="size-4" />

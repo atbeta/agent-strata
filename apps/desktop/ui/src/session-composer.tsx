@@ -565,7 +565,7 @@ export function useSessionComposer(args: {
     <Popover gutter={8} placement="top-start">
       <Tip label={contextLabel(context()?.total ?? 0, context()?.percent ?? null)}>
         <PopoverTrigger
-          class="grid h-8 w-8 place-items-center rounded-full transition-colors hover:bg-secondary"
+          class="grid size-8 place-items-center transition-colors hover:bg-secondary"
           aria-label={t("composer.details")}
         >
           <ContextRing percent={context()?.percent ?? null} />
