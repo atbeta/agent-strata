@@ -28,6 +28,7 @@ import {
   thinkingPreview,
   todoItems,
   toolHeadline,
+  toolIcon,
   type ToolKind,
 } from "./transcript-format";
 import { MessageActions } from "./message-actions";
@@ -240,16 +241,6 @@ export function BlockText(props: { blocks: ContentBlock[]; tight?: boolean; live
   );
 }
 
-function toolIcon(kind: ToolKind): "terminal" | "files" | "pencil" | "search" | "globe" | "list" | "wrench" {
-  if (kind === "shell") return "terminal";
-  if (kind === "read") return "files";
-  if (kind === "edit") return "pencil";
-  if (kind === "search") return "search";
-  if (kind === "web") return "globe";
-  if (kind === "todo") return "list";
-  return "wrench";
-}
-
 function diffLineClass(line: string): string {
   if (line.startsWith("+") && !line.startsWith("+++")) return "text-status-active";
   if (line.startsWith("-") && !line.startsWith("---")) return "text-destructive";
@@ -356,7 +347,7 @@ function ToolCallCard(props: {
           }}
         >
           <Icon
-            name={toolIcon(headline().kind)}
+            name={toolIcon(props.call.tool)}
             class={`size-3.5 shrink-0 ${denied() ? "text-destructive" : "text-muted-foreground"}`}
           />
           <span class={`shrink-0 text-xs font-medium ${denied() ? "text-destructive" : "text-muted-foreground"}`}>

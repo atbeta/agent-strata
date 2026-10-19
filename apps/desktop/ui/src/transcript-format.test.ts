@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 /**
  * `i18n` stamps `document.documentElement.lang` while its module is evaluated,
@@ -21,6 +23,7 @@ const {
   thinkingPreview,
   todoItems,
   toolHeadline,
+  toolIcon,
   toolKind,
 } = await import("./transcript-format");
 
@@ -235,6 +238,48 @@ describe("diff and labels", () => {
     withLocale("zh", () => {
       expect(permissionLabel({ request_id: "r", decision: "deny" })).toBe("已拒绝");
     });
+  });
+});
+
+describe("tool call icons", () => {
+  test("read is a document, not the files drawer", () => {
+    expect(toolIcon("read")).toBe("page");
+    expect(toolIcon("view")).toBe("page");
+    expect(toolIcon("Read")).toBe("page");
+  });
+
+  test("a name search is a folder and a content search keeps the glass", () => {
+    expect(toolIcon("glob")).toBe("folder");
+    expect(toolIcon("Glob")).toBe("folder");
+    expect(toolIcon("grep")).toBe("search");
+    expect(toolIcon("search")).toBe("search");
+  });
+
+  test("a subagent is a fork, and an unknown tool stays a wrench", () => {
+    expect(toolIcon("task")).toBe("fork");
+    expect(toolIcon("Task")).toBe("fork");
+    expect(toolIcon("browser_use")).toBe("wrench");
+  });
+
+  test("the remaining kinds keep the mark that matches the action", () => {
+    expect(toolIcon("bash")).toBe("terminal");
+    expect(toolIcon("execute")).toBe("terminal");
+    expect(toolIcon("edit")).toBe("pencil");
+    expect(toolIcon("write")).toBe("pencil");
+    expect(toolIcon("webfetch")).toBe("globe");
+    expect(toolIcon("websearch")).toBe("globe");
+    expect(toolIcon("todowrite")).toBe("list");
+  });
+
+  test("the transcript row and the permission card both ask for that mark", () => {
+    const transcript = readFileSync(join(import.meta.dir, "transcript.tsx"), "utf8");
+    const prompts = readFileSync(join(import.meta.dir, "session-prompts.tsx"), "utf8");
+    const icons = readFileSync(join(import.meta.dir, "icons.tsx"), "utf8");
+    expect(transcript).toContain("toolIcon(props.call.tool)");
+    expect(transcript).not.toContain('return "files"');
+    expect(prompts).toContain("return toolIcon(tool)");
+    expect(prompts).not.toContain('return "files"');
+    expect(icons).toContain('name === "page"');
   });
 });
 
