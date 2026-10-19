@@ -1,4 +1,5 @@
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, type JSX } from "solid-js";
+import { createEffect, createMemo, createRenderEffect, createSignal, For, on, onCleanup, onMount, type JSX } from "solid-js";
+import { pinScroll } from "./transcript-layout";
 import { atTail, scrollTopForRow, scrollTopToCentreRow } from "./virtual-tail";
 
 /**
@@ -44,6 +45,21 @@ export interface VirtualProps<T> {
   overscan?: number;
   /** The scrolling ancestor, for scrollTop correction when measurements land. */
   scroller?: () => HTMLElement | undefined;
+  /**
+   * Which pane and session this list is painting. Changing it reloads `seed`
+   * and `follow` before the next paint, so a switch does not draw the previous
+   * list's rows at the next list's guessed heights.
+   */
+  layoutKey?: string;
+  /** Row heights already known for `layoutKey`. */
+  seed?: ReadonlyMap<string, number>;
+  /** Follow the tail. Read again only when `layoutKey` changes. */
+  follow?: boolean;
+  /**
+   * A row was measured. `key` is the layout this list adopted, so a measurement
+   * from a list that is leaving cannot land on the one that just took its place.
+   */
+  onHeight?: (key: string, id: string, height: number) => void;
   /** Receives the imperative handle once the list is mounted. */
   api?: (a: VirtualApi) => void;
   /**
@@ -89,8 +105,23 @@ export function Virtual<T>(props: VirtualProps<T>) {
    * measurements are still landing, so a comparison against it flips to "not at
    * the bottom" the instant the end of the list moves, and the list then sticks
    * where it happened to be when it lost the flag.
+   *
+   * It starts from the caller's reading. A list that always began by following
+   * yanked a reader who had scrolled up back to the bottom, and then the
+   * restore put them where they had been — the column jumped twice.
    */
-  const [following, setFollowing] = createSignal(true);
+  const [following, setFollowing] = createSignal(props.follow !== false);
+  /** Layout key adopted by the render effect below. Measurements are stored under it. */
+  let activeKey = props.layoutKey ?? "";
+  const publish = (next: Map<string, number>) => {
+    const prev = measured();
+    setMeasured(next);
+    const cb = props.onHeight;
+    if (!cb || !activeKey) return;
+    for (const [id, height] of next) {
+      if (prev.get(id) !== height) cb(activeKey, id, height);
+    }
+  };
   /**
    * Element → the row it was bound to. `For` keeps a node when `rows()` still
    * holds its index, so on a session switch the same element renders a new
@@ -105,6 +136,29 @@ export function Virtual<T>(props: VirtualProps<T>) {
    * reader scrolls again. See `rows()`.
    */
   const [pendingTop, setPendingTop] = createSignal<number | undefined>(undefined);
+
+  /**
+   * Adopt the remembered heights before anything paints.
+   *
+   * A render effect runs in the same turn as the render that sees the new key,
+   * ahead of the DOM. A plain effect would let the first paint use the empty
+   * map, and an empty map is the 100px guess: rows stacked, then a jump when
+   * the real heights arrive. `on` keeps the seed and the follow flag out of
+   * the dependency set, so a later measurement does not reload the map it just
+   * wrote.
+   */
+  createRenderEffect(
+    on(
+      () => props.layoutKey,
+      (key) => {
+        activeKey = key ?? "";
+        setMeasured(new Map(props.seed));
+        setFollowing(props.follow !== false);
+        setPendingTop(undefined);
+      },
+      { defer: false },
+    ),
+  );
 
   /**
    * Built before the JSX, not in onMount. Element refs run while the returned
@@ -148,7 +202,7 @@ export function Virtual<T>(props: VirtualProps<T>) {
       if (i !== undefined && o[i]! + prevH <= top) correction += h - prevH;
     }
     if (!changed) return;
-    setMeasured(next);
+    publish(next);
     // While following, the effect above re-pins using the new extent. The
     // per-row correction is for a reader who has scrolled away, where the
     // content they are reading must not move underneath them.
@@ -292,8 +346,12 @@ export function Virtual<T>(props: VirtualProps<T>) {
     scrollerHeight();
     const total = end();
     const el = props.scroller?.();
-    if (!el || !total) return;
-    if (following()) el.scrollTop = Math.max(0, total - el.clientHeight);
+    if (!el || !total || !following()) return;
+    // A height of 0 is the frame before layout. Pinning against it parks the
+    // reader at the extent, and the frame that grows the box pulls them back
+    // by the whole viewport.
+    const top = pinScroll(total, el.clientHeight);
+    if (top !== undefined) el.scrollTop = top;
   });
 
   const onScroll = () => {
@@ -379,7 +437,7 @@ export function Virtual<T>(props: VirtualProps<T>) {
         next ??= new Map(measured());
         next.set(key, h);
       }
-      if (next) setMeasured(next);
+      if (next) publish(next);
     });
   });
 
