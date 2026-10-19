@@ -2318,11 +2318,12 @@ export async function connectOpencode(opts: {
       directory?: string,
       model?: { providerID: string; modelID: string },
     ) {
-      await client.session.summarize({
+      const r = await client.session.summarize({
         sessionID,
         directory: directory ?? opts.directory,
         ...(model ? { providerID: model.providerID, modelID: model.modelID } : {}),
       });
+      if (r.error) throw new Error(errorMessage(r.error));
     },
     async share(sessionID: string, directory?: string) {
       const r = await client.session.share({ sessionID, directory: directory ?? opts.directory });

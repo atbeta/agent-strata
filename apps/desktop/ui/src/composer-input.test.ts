@@ -1,9 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   attachmentProblem,
   builtinCommands,
   commandOf,
   commandParts,
+  slashMenuEnter,
+  slashRowSelect,
   insertPick,
   MAX_ATTACHMENTS,
   matchCommands,
@@ -117,6 +121,7 @@ describe("what goes out", () => {
     expect(commandOf("/init", ["init"])).toEqual({ name: "init", args: "" });
     expect(commandOf("/nope x", ["init"])).toBeUndefined();
     expect(commandOf("say /init", ["init"])).toBeUndefined();
+    expect(commandOf("/Compact", ["compact"])).toEqual({ name: "compact", args: "" });
   });
 
   test("a command takes the files the draft still mentions, without mentions, and the attachments", () => {
@@ -138,7 +143,7 @@ describe("what goes out", () => {
     expect(builtinCommands({})).toEqual(["export", "new"]);
     expect(
       builtinCommands({ summarize: true, revert: true, abort: true, fork: true, hasTurns: true, manage: true, share: true, terminal: true }),
-    ).toEqual(["compact", "undo", "interrupt", "fork", "rename", "share", "unshare", "terminal", "export", "new"]);
+    ).toEqual(["compact", "summarize", "undo", "interrupt", "fork", "rename", "share", "unshare", "terminal", "export", "new"]);
   });
 
   test("redo waits for a reverted state and fork waits for a turn", () => {
@@ -146,6 +151,81 @@ describe("what goes out", () => {
     expect(builtinCommands({ revert: true, reverted: true })).toEqual(["undo", "redo", "export", "new"]);
     expect(builtinCommands({ fork: true })).toEqual(["export", "new"]);
     expect(builtinCommands({ fork: true, hasTurns: true })).toEqual(["fork", "export", "new"]);
+  });
+});
+
+describe("enter on a slash command", () => {
+  const commands = [
+    { name: "compact", source: "builtin" as const },
+    { name: "summarize", source: "builtin" as const },
+    { name: "rename", source: "builtin" as const },
+    { name: "export", source: "builtin" as const },
+    { name: "init", source: "command" as const },
+  ];
+
+  test("a finished /compact runs, whichever row is highlighted", () => {
+    expect(slashMenuEnter({ draft: "/compact", highlighted: "export", commands })).toEqual({
+      action: "run",
+      name: "compact",
+      args: "",
+    });
+    expect(slashMenuEnter({ draft: "/Compact", highlighted: "compact", commands })).toEqual({
+      action: "run",
+      name: "compact",
+      args: "",
+    });
+    expect(slashMenuEnter({ draft: "/summarize", commands })).toEqual({
+      action: "run",
+      name: "summarize",
+      args: "",
+    });
+  });
+
+  test("enter on the highlighted no-argument command runs it before the name is finished", () => {
+    expect(slashMenuEnter({ draft: "/comp", highlighted: "compact", commands })).toEqual({
+      action: "run",
+      name: "compact",
+      args: "",
+    });
+  });
+
+  test("a command that still wants words is completed, and a finished server command runs", () => {
+    expect(slashMenuEnter({ draft: "/in", highlighted: "init", commands })).toEqual({
+      action: "insert",
+      name: "init",
+    });
+    expect(slashMenuEnter({ draft: "/init", highlighted: "export", commands })).toEqual({
+      action: "run",
+      name: "init",
+      args: "",
+    });
+    expect(slashMenuEnter({ draft: "/init be brief", highlighted: "export", commands })).toEqual({
+      action: "run",
+      name: "init",
+      args: "be brief",
+    });
+    expect(slashMenuEnter({ draft: "/rename", highlighted: "rename", commands })).toEqual({
+      action: "insert",
+      name: "rename",
+    });
+    expect(slashMenuEnter({ draft: "/rename Notes", highlighted: "export", commands })).toEqual({
+      action: "run",
+      name: "rename",
+      args: "Notes",
+    });
+  });
+
+  test("an unknown line is a normal prompt, and choosing a row follows the same rule", () => {
+    expect(slashMenuEnter({ draft: "/nope", commands })).toEqual({ action: "prompt" });
+    expect(slashRowSelect({ name: "compact", commands })).toEqual({ action: "run", name: "compact", args: "" });
+    expect(slashRowSelect({ name: "init", commands })).toEqual({ action: "insert", name: "init" });
+    expect(slashRowSelect({ name: "rename", commands })).toEqual({ action: "insert", name: "rename" });
+  });
+
+  test("the composer asks that decision on enter", () => {
+    const src = readFileSync(join(import.meta.dir, "session-composer.tsx"), "utf8");
+    expect(src).toContain("slashMenuEnter(");
+    expect(src).not.toContain('menuItems()[menuActive()]?.value === tr.query');
   });
 });
 

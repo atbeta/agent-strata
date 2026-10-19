@@ -119,8 +119,57 @@ export function commandParts(draft: string, picked: readonly string[], attachmen
 
 export function commandOf(draft: string, names: readonly string[]): { name: string; args: string } | undefined {
   const m = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(draft.trim());
-  if (!m || !names.includes(m[1]!)) return undefined;
-  return { name: m[1]!, args: (m[2] ?? "").trim() };
+  if (!m) return undefined;
+  const typed = m[1]!.toLowerCase();
+  const name = names.find((n) => n.toLowerCase() === typed);
+  if (!name) return undefined;
+  return { name, args: (m[2] ?? "").trim() };
+}
+
+export interface SlashEntry {
+  name: string;
+  source?: "builtin" | "command" | "mcp" | "skill";
+}
+
+/** Built-ins that cannot run until the reader has typed an argument. */
+function needsArgument(entry: SlashEntry): boolean {
+  return entry.source === "builtin" && entry.name.toLowerCase() === "rename";
+}
+
+/**
+ * Enter while a slash command is being typed.
+ *
+ * A finished name runs even when the highlighted row is a different command,
+ * so `/compact` does not get rewritten into whatever sits on the first row.
+ * A prefix runs only when that row is a built-in that takes no argument;
+ * anything that still wants words is completed instead.
+ */
+export function slashMenuEnter(input: {
+  draft: string;
+  highlighted?: string;
+  commands: readonly SlashEntry[];
+}): { action: "run"; name: string; args: string } | { action: "insert"; name: string } | { action: "prompt" } {
+  const typed = commandOf(input.draft, input.commands.map((c) => c.name));
+  if (typed) {
+    const entry = input.commands.find((c) => c.name === typed.name);
+    if (entry && needsArgument(entry) && !typed.args) return { action: "insert", name: typed.name };
+    return { action: "run", name: typed.name, args: typed.args };
+  }
+  if (input.highlighted) {
+    const entry = input.commands.find((c) => c.name === input.highlighted);
+    if (entry?.source === "builtin" && !needsArgument(entry)) return { action: "run", name: entry.name, args: "" };
+    return { action: "insert", name: input.highlighted };
+  }
+  return { action: "prompt" };
+}
+
+/** Click or Tab on a slash row: a built-in with no argument runs, the rest is inserted. */
+export function slashRowSelect(input: { name: string; commands: readonly SlashEntry[] }):
+  | { action: "run"; name: string; args: string }
+  | { action: "insert"; name: string } {
+  const entry = input.commands.find((c) => c.name === input.name);
+  if (entry?.source === "builtin" && !needsArgument(entry)) return { action: "run", name: entry.name, args: "" };
+  return { action: "insert", name: input.name };
 }
 
 export function matchCommands<T extends { name: string }>(list: readonly T[], query: string): T[] {
@@ -150,7 +199,7 @@ export function builtinCommands(c: {
   terminal?: boolean;
 }): string[] {
   const names: string[] = [];
-  if (c.summarize) names.push("compact");
+  if (c.summarize) names.push("compact", "summarize");
   if (c.revert) {
     names.push("undo");
     if (c.reverted) names.push("redo");

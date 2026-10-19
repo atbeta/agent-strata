@@ -1020,6 +1020,28 @@ describe("agent-strata service", () => {
     svc.stop();
   });
 
+  test("a failed summarize is reported instead of a silent ok", async () => {
+    const oc = fakeOpencode({
+      "/session/ses_x/summarize": () => Response.json({ message: "model refused" }, { status: 400 }),
+    });
+    const svc = startService({ db: ":memory:", port: 0 });
+    const base = `http://127.0.0.1:${svc.port}`;
+    await fetch(`${base}/connect`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ baseUrl: oc.baseUrl, directory: "/repo" }),
+    });
+    svc.store.append([
+      ev("opencode:ses_x", "session.started", { title: "x", workspace: "/repo" }, "2026-01-01T00:00:00Z"),
+    ]);
+    const sid = encodeURIComponent("opencode:ses_x");
+    const summarize = await fetch(`${base}/sessions/${sid}/summarize`, { method: "POST" });
+    expect(summarize.status).toBe(502);
+    expect(JSON.stringify(await summarize.json())).toContain("model refused");
+    oc.stop();
+    svc.stop();
+  });
+
   test("an OpenCode session can connect and disconnect an MCP server", async () => {
     const oc = fakeOpencode({
       "/mcp/srv/connect": () => Response.json({ status: "connected" }),
