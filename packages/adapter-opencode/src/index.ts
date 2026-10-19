@@ -74,19 +74,6 @@ export function normalizeOpencodeEvent(raw: unknown): Event | undefined {
   return evt as unknown as Event;
 }
 
-function eventSessionID(evt: Event): string | undefined {
-  if (!("properties" in evt) || !evt.properties || typeof evt.properties !== "object") return undefined;
-  const id = (evt.properties as { sessionID?: unknown }).sessionID;
-  return typeof id === "string" ? id : undefined;
-}
-
-/** `/global/event` wraps the payload and names the project directory beside it. */
-function eventDirectory(raw: unknown): string | undefined {
-  if (!raw || typeof raw !== "object") return undefined;
-  const dir = (raw as { directory?: unknown }).directory;
-  return typeof dir === "string" && dir.length > 0 ? dir : undefined;
-}
-
 // OpenCode clocks are unix milliseconds. Fixture and synthetic values below
 // this are not real instants, so those events keep the ingest clock.
 function sourceTime(ms?: number): string | undefined {
@@ -1416,13 +1403,23 @@ export function createIngestor(opts: {
   reply: (requestID: string, reply: "once" | "always" | "reject", message?: string, directory?: string) => Promise<unknown>;
   replyQuestion?: (requestID: string, answers: string[][], directory?: string) => Promise<unknown>;
   rejectQuestion?: (requestID: string, directory?: string) => Promise<unknown>;
-}): { handle: (evt: Event) => void; stop: () => void } {
+}): {
+  handle: (evt: Event) => void;
+  handleBatch: (events: Event[]) => void;
+  stop: () => void;
+} {
   const { mapper, sink } = opts;
 
+  // Set while a snapshot is mapped, so its durable events share one append.
+  // A partial still publishes immediately; it is not part of that write.
+  let batch: EventInput[] | null = null;
   const emit = (evts: EventInput[]) => {
     const live = evts.filter(isStreamingSnapshot);
     const durable = live.length ? evts.filter((e) => !isStreamingSnapshot(e)) : evts;
-    if (durable.length) sink.append(durable);
+    if (durable.length) {
+      if (batch) batch.push(...durable);
+      else sink.append(durable);
+    }
     if (live.length) sink.publish?.(live);
   };
 
@@ -1598,42 +1595,60 @@ export function createIngestor(opts: {
    */
   const inflightPrompts = new Set<string>();
 
+  const handle = (evt: Event) => {
+    emit(mapper.handle(evt));
+    // Unmarked, a session watched from its creation reads as stale to every
+    // later sync, which then rebuilds it in the middle of a reply.
+    if (evt.type === "session.created" && !evt.id.startsWith("import:")) {
+      sink.markMapped?.(`opencode:${evt.properties.sessionID}`, OPENCODE_MAPPER_VERSION);
+    }
+    scheduleFlush();
+    scheduleSettle();
+    if (evt.type === "permission.asked") {
+      const key = `perm:${evt.properties.id}`;
+      if (!inflightPrompts.has(key)) {
+        inflightPrompts.add(key);
+        void handlePermission(evt).catch((err) =>
+          console.error("opencode permission handling error:", err),
+        );
+      }
+    }
+    if (evt.type === "permission.replied") {
+      inflightPrompts.delete(`perm:${evt.properties.requestID}`);
+      const reply = evt.properties.reply;
+      opts.onSettled?.(evt.properties.requestID, reply === "reject" ? "deny" : "allow");
+    }
+    if (evt.type === "question.asked") {
+      const key = `q:${evt.properties.id}`;
+      if (!inflightPrompts.has(key)) {
+        inflightPrompts.add(key);
+        void handleQuestion(evt).catch((err) =>
+          console.error("opencode question handling error:", err),
+        );
+      }
+    }
+    if (evt.type === "question.replied" || evt.type === "question.rejected") {
+      inflightPrompts.delete(`q:${evt.properties.requestID}`);
+      opts.onQuestionSettled?.(evt.properties.requestID);
+    }
+  };
+
   return {
-    handle(evt: Event) {
-      emit(mapper.handle(evt));
-      // Unmarked, a session watched from its creation reads as stale to every
-      // later sync, which then rebuilds it in the middle of a reply.
-      if (evt.type === "session.created" && !evt.id.startsWith("import:")) {
-        sink.markMapped?.(`opencode:${evt.properties.sessionID}`, OPENCODE_MAPPER_VERSION);
-      }
-      scheduleFlush();
-      scheduleSettle();
-      if (evt.type === "permission.asked") {
-        const key = `perm:${evt.properties.id}`;
-        if (!inflightPrompts.has(key)) {
-          inflightPrompts.add(key);
-          void handlePermission(evt).catch((err) =>
-            console.error("opencode permission handling error:", err),
-          );
-        }
-      }
-      if (evt.type === "permission.replied") {
-        inflightPrompts.delete(`perm:${evt.properties.requestID}`);
-        const reply = evt.properties.reply;
-        opts.onSettled?.(evt.properties.requestID, reply === "reject" ? "deny" : "allow");
-      }
-      if (evt.type === "question.asked") {
-        const key = `q:${evt.properties.id}`;
-        if (!inflightPrompts.has(key)) {
-          inflightPrompts.add(key);
-          void handleQuestion(evt).catch((err) =>
-            console.error("opencode question handling error:", err),
-          );
-        }
-      }
-      if (evt.type === "question.replied" || evt.type === "question.rejected") {
-        inflightPrompts.delete(`q:${evt.properties.requestID}`);
-        opts.onQuestionSettled?.(evt.properties.requestID);
+    handle,
+    /**
+     * Map a whole snapshot, then store its durable events in one append.
+     * The mapper still runs in order. A throw keeps whatever was mapped so
+     * far: the mapper has already remembered it, and a retry must not drop
+     * the rows that match that memory.
+     */
+    handleBatch(events: Event[]) {
+      const buf: EventInput[] = [];
+      batch = buf;
+      try {
+        for (const evt of events) handle(evt);
+      } finally {
+        batch = null;
+        if (buf.length) sink.append(buf);
       }
     },
     stop() {
@@ -1892,7 +1907,6 @@ export async function connectOpencode(opts: {
     importedRevision.set(sessionID, rev);
     opts.sink.markRevision?.(`opencode:${sessionID}`, rev);
   };
-  const importTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const sessionInfo = async (sessionID: string, directory?: string): Promise<Session> => {
     const sess = await client.session.get({ sessionID, directory: directory ?? opts.directory });
     if (!sess.data) throw new Error(`session ${sessionID} not found`);
@@ -1903,21 +1917,30 @@ export async function connectOpencode(opts: {
     const msgs = await client.session.messages({ sessionID, directory: directory ?? opts.directory });
     return snapshotEvents(sessionID, info, msgs.data ?? []);
   };
-  const importSession = async (
+  const fetchSnapshot = async (
     sessionID: string,
     directory?: string,
     options: { force?: boolean } = {},
-  ): Promise<boolean> => {
+  ): Promise<{ updated: number; events: Event[] } | null> => {
     const info = await sessionInfo(sessionID, directory);
     // The session doc carries its own revision. An unchanged one means the
     // messages fetch — the expensive part, the whole transcript — would replay
     // exactly what the store already holds, so a click on a session the
     // listener already imported costs one small GET instead.
     const updated = info.time?.updated ?? info.time?.created ?? 0;
-    if (!options.force && knownRevision(sessionID) === updated) return false;
+    if (!options.force && knownRevision(sessionID) === updated) return null;
     const msgs = await client.session.messages({ sessionID, directory: directory ?? opts.directory });
-    for (const evt of snapshotEvents(sessionID, info, msgs.data ?? [])) ingestor.handle(evt);
-    noteRevision(sessionID, updated);
+    return { updated, events: snapshotEvents(sessionID, info, msgs.data ?? []) };
+  };
+  const importSession = async (
+    sessionID: string,
+    directory?: string,
+    options: { force?: boolean } = {},
+  ): Promise<boolean> => {
+    const snap = await fetchSnapshot(sessionID, directory, options);
+    if (!snap) return false;
+    ingestor.handleBatch(snap.events);
+    noteRevision(sessionID, snap.updated);
     return true;
   };
   const rebuildSession = async (sessionID: string, directory?: string): Promise<number> => {
@@ -1932,26 +1955,12 @@ export async function connectOpencode(opts: {
   const dispatch = (raw: unknown) => {
     const evt = normalizeOpencodeEvent(raw);
     if (!evt) return;
+    // The live bus already carries the parts. Re-reading the whole transcript
+    // after every status ran on this same thread, one transaction per part,
+    // for as long as a reply lasted. A session whose revision moved is
+    // imported by sync and by the reconnect catch-up; a mapper change
+    // rebuilds. A live event does not schedule that read.
     ingestor.handle(evt);
-    const type = evt.type;
-    const sessionID = eventSessionID(evt);
-    const directory = eventDirectory(raw);
-    if (
-      sessionID &&
-      (type.startsWith("session.next.") || type === "session.idle" || type === "session.status")
-    ) {
-      const prev = importTimers.get(sessionID);
-      if (prev) clearTimeout(prev);
-      importTimers.set(
-        sessionID,
-        setTimeout(() => {
-          importTimers.delete(sessionID);
-          void importSession(sessionID, directory, { force: true }).catch((err) =>
-            console.error("import session failed:", err),
-          );
-        }, 400),
-      );
-    }
     if (!opts.onEvent) return;
     try {
       opts.onEvent(evt);
@@ -2138,8 +2147,6 @@ export async function connectOpencode(opts: {
       abort.abort();
       ingestor.stop();
       clearInterval(restoreTimer);
-      for (const timer of importTimers.values()) clearTimeout(timer);
-      importTimers.clear();
       void loop;
     },
     async createSession(sessOpts?: { title?: string; directory?: string }) {
@@ -2569,22 +2576,60 @@ export async function connectOpencode(opts: {
       let imported = 0;
       let done = 0;
       guard?.progress?.(0, found.length);
-      await mapLimit(found, SYNC_CONCURRENCY, async ({ info, directory }) => {
-        const updated = info.time?.updated ?? info.time?.created ?? 0;
-        try {
-          if (knownRevision(info.id) !== updated) {
-            if (guard?.stale?.(`opencode:${info.id}`)) await rebuildSession(info.id, directory);
-            else await importSession(info.id, directory);
-            noteRevision(info.id, updated);
-            imported += 1;
-          }
-        } catch (err) {
-          console.error(`sync session ${info.id} failed:`, err);
-        }
+      const tick = () => {
         done += 1;
         // One broadcast per session would turn a steady-state poll into a
         // stream of its own; the UI only needs landmarks.
         if (done % 8 === 0 || done === found.length) guard?.progress?.(done, found.length);
+      };
+      // Message bodies overlap, up to SYNC_CONCURRENCY. The write does not:
+      // one transcript is one synchronous transaction, and the next waits
+      // until the event loop has had a turn, so a view or a list can get in
+      // between sessions. A body is released once its write finishes.
+      let write = Promise.resolve();
+      const turn = (fn: () => Promise<void>) => {
+        const run = write.then(async () => {
+          try {
+            await fn();
+          } finally {
+            // Bun.sleep(0) resumes before timers and sockets already waiting.
+            // A macrotask is what lets a view request in between transcripts.
+            await new Promise((resolve) => setTimeout(resolve, 0));
+          }
+        });
+        write = run.then(
+          () => {},
+          () => {},
+        );
+        return run;
+      };
+      await mapLimit(found, SYNC_CONCURRENCY, async ({ info, directory }) => {
+        const updated = info.time?.updated ?? info.time?.created ?? 0;
+        if (knownRevision(info.id) === updated) {
+          tick();
+          return;
+        }
+        try {
+          if (guard?.stale?.(`opencode:${info.id}`)) {
+            await turn(async () => {
+              await rebuildSession(info.id, directory);
+              noteRevision(info.id, updated);
+              imported += 1;
+            });
+          } else {
+            const snap = await fetchSnapshot(info.id, directory);
+            if (snap) {
+              await turn(async () => {
+                ingestor.handleBatch(snap.events);
+                noteRevision(info.id, snap.updated);
+                imported += 1;
+              });
+            }
+          }
+        } catch (err) {
+          console.error(`sync session ${info.id} failed:`, err);
+        }
+        tick();
       });
       return imported;
     },

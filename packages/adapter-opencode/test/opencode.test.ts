@@ -2656,6 +2656,213 @@ describe("importSession revision", () => {
       store.close();
     }
   });
+
+  test("a transcript lands in one append", async () => {
+    const { connectOpencode } = await import("../src/index");
+    const enc = new TextEncoder();
+    const info = {
+      id: "ses_batch",
+      title: "T",
+      directory: dir,
+      time: { created: 1, updated: 7 },
+    };
+    const tokens = { input: 1, output: 1, reasoning: 0, cache: { read: 0, write: 0 } };
+    const messages = [
+      {
+        info: { id: "u1", sessionID: "ses_batch", role: "user", time: { created: 10 } },
+        parts: [{ id: "p1", sessionID: "ses_batch", messageID: "u1", type: "text", text: "hi" }],
+      },
+      {
+        info: {
+          id: "a1", sessionID: "ses_batch", role: "assistant", parentID: "u1",
+          time: { created: 20, completed: 30 }, providerID: "p", modelID: "m",
+          cost: 0, tokens, finish: "stop",
+        },
+        parts: [{ id: "p2", sessionID: "ses_batch", messageID: "a1", type: "text", text: "ok" }],
+      },
+    ];
+    const fakeFetch = async (input: Request | URL | string) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.includes("/session/ses_batch/message")) return Response.json(messages);
+      if (url.includes("/session/ses_batch")) return Response.json(info);
+      if (url.includes("/event")) {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(ctrl) {
+              ctrl.enqueue(enc.encode('data: {"type":"server.connected","properties":{}}\n\n'));
+            },
+          }),
+          { status: 200, headers: { "content-type": "text/event-stream" } },
+        );
+      }
+      return new Response("{}", { status: 404 });
+    };
+    const store = openStore(":memory:");
+    let appends = 0;
+    const conn = await connectOpencode({
+      baseUrl: "http://fake",
+      sink: {
+        append(events) {
+          appends += 1;
+          return store.append(events);
+        },
+        sessionRevision: (id) => store.sessionRevision(id),
+        markRevision: (id, rev) => store.markRevision(id, rev),
+      },
+      fetch: fakeFetch as typeof fetch,
+      connectTimeoutMs: 5_000,
+    });
+    try {
+      expect(await conn.importSession("ses_batch", dir)).toBe(true);
+      expect(appends).toBe(1);
+      const types = store.read({ session_id: "opencode:ses_batch" }).map((e) => e.type);
+      expect(types).toContain("turn.user");
+      expect(types).toContain("turn.assistant");
+    } finally {
+      conn.stop();
+      store.close();
+    }
+  });
+});
+
+describe("sync stays off the live path", () => {
+  test("a status, an idle and a session.next do not reread the transcript", async () => {
+    const { connectOpencode } = await import("../src/index");
+    const enc = new TextEncoder();
+    const sse = (chunks: string[]) =>
+      new ReadableStream<Uint8Array>({
+        start(ctrl) {
+          for (const c of chunks) ctrl.enqueue(enc.encode(`data: ${c}\n\n`));
+        },
+      });
+    const frame = (type: string, id: string) =>
+      JSON.stringify({
+        directory: "/repo",
+        payload: { id, type, properties: { sessionID: "ses_live", status: { type: "busy" } } },
+      });
+    let messageCalls = 0;
+    const fakeFetch = async (input: Request | URL | string) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.includes("/message")) {
+        messageCalls += 1;
+        return Response.json([]);
+      }
+      if (url.includes("/global/event") || url.includes("/event")) {
+        return new Response(
+          sse([
+            '{"type":"server.connected","properties":{}}',
+            frame("session.status", "st1"),
+            frame("session.idle", "id1"),
+            frame("session.next.step", "n1"),
+          ]),
+          { status: 200, headers: { "content-type": "text/event-stream" } },
+        );
+      }
+      return Response.json([]);
+    };
+    const store = openStore(":memory:");
+    const conn = await connectOpencode({
+      baseUrl: "http://fake",
+      sink: store,
+      fetch: fakeFetch as typeof fetch,
+      connectTimeoutMs: 5_000,
+    });
+    try {
+      // Longer than the old 400ms forced reimport.
+      await Bun.sleep(600);
+      expect(messageCalls).toBe(0);
+    } finally {
+      conn.stop();
+      store.close();
+    }
+  });
+
+  test("two changed sessions are written one at a time, with a turn of the event loop between them", async () => {
+    const { connectOpencode } = await import("../src/index");
+    const enc = new TextEncoder();
+    const tokens = { input: 1, output: 1, reasoning: 0, cache: { read: 0, write: 0 } };
+    const info = (id: string, updated: number) => ({
+      id,
+      title: id,
+      directory: "/repo",
+      time: { created: 1, updated },
+    });
+    const messages = (id: string) => [
+      {
+        info: { id: `${id}-u`, sessionID: id, role: "user", time: { created: 10 } },
+        parts: [{ id: `${id}-p`, sessionID: id, messageID: `${id}-u`, type: "text", text: "hi" }],
+      },
+      {
+        info: {
+          id: `${id}-a`, sessionID: id, role: "assistant", parentID: `${id}-u`,
+          time: { created: 20, completed: 30 }, providerID: "p", modelID: "m",
+          cost: 0, tokens, finish: "stop",
+        },
+        parts: [{ id: `${id}-ap`, sessionID: id, messageID: `${id}-a`, type: "text", text: "ok" }],
+      },
+    ];
+    const fakeFetch = async (input: Request | URL | string) => {
+      const url = input instanceof Request ? input.url : String(input);
+      const path = new URL(url).pathname;
+      if (path === "/session") {
+        return Response.json([info("ses_a", 10), info("ses_b", 11)]);
+      }
+      if (path.endsWith("/message")) {
+        const id = path.split("/")[2]!;
+        return Response.json(messages(id));
+      }
+      if (path.endsWith("/children")) return Response.json([]);
+      if (path.startsWith("/session/")) {
+        const id = path.split("/")[2]!;
+        return Response.json(info(id, id === "ses_a" ? 10 : 11));
+      }
+      if (url.includes("/event")) {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(ctrl) {
+              ctrl.enqueue(enc.encode('data: {"type":"server.connected","properties":{}}\n\n'));
+            },
+          }),
+          { status: 200, headers: { "content-type": "text/event-stream" } },
+        );
+      }
+      return Response.json([]);
+    };
+    const store = openStore(":memory:");
+    let transcripts = 0;
+    let turn = false;
+    let yieldedBeforeSecond = false;
+    const conn = await connectOpencode({
+      baseUrl: "http://fake",
+      sink: {
+        append(events) {
+          const heavy = events.some((e) => e.type === "turn.user" || e.type === "turn.assistant");
+          if (heavy) {
+            transcripts += 1;
+            if (transcripts === 1) setTimeout(() => {
+              turn = true;
+            }, 0);
+            // A timer queued by the first write has run only if that write
+            // gave the event loop a turn before this one started.
+            if (transcripts === 2) yieldedBeforeSecond = turn;
+          }
+          return store.append(events);
+        },
+        sessionRevision: (id) => store.sessionRevision(id),
+        markRevision: (id, rev) => store.markRevision(id, rev),
+      },
+      fetch: fakeFetch as typeof fetch,
+      connectTimeoutMs: 5_000,
+    });
+    try {
+      await conn.refreshSessions();
+    } finally {
+      conn.stop();
+      store.close();
+    }
+    expect(transcripts).toBe(2);
+    expect(yieldedBeforeSecond).toBe(true);
+  });
 });
 
 describe("pickable providers", () => {
