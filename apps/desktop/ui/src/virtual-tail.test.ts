@@ -27,14 +27,20 @@ describe("a reader who leaves a conversation and comes back", () => {
 
   test("the position is restored by an effect, not by the ref that runs once", () => {
     for (const [name, src] of [["session-detail.tsx", detail], ["peer-transcript.tsx", peer]] as const) {
-      // The restore has to be inside a createEffect, so a session switch
-      // re-arms it. Read the effect itself, not a window around it.
+      // The place is decided before paint, from the row the reader was on.
+      // A pixel remembered against guessed heights is what slides the column.
+      const placed = src.indexOf("placeReading({");
+      expect(placed).toBeGreaterThan(-1);
+      const placeEffect = src.slice(src.lastIndexOf("createRenderEffect(() => {", placed), placed + 400);
+      expect(placeEffect).toContain("recallPaneScroll");
+      // The DOM write still has to be inside a createEffect, so a session
+      // switch re-arms it. Read the effect itself, not a window around it.
       const at = src.indexOf("const restore = () => {");
       expect(at).toBeGreaterThan(-1);
       const start = src.lastIndexOf("createEffect(() => {", at);
       expect(start).toBeGreaterThan(-1);
       const effect = src.slice(start, src.indexOf("\n  });", at));
-      expect(effect).toContain("recallPaneScroll");
+      expect(effect).toContain("heldTop");
       // And it must not be back inside the ref, which is the version that only
       // ever ran on mount.
       expect(effect).not.toContain("ref={(el) =>");
@@ -61,14 +67,15 @@ describe("a reader who leaves a conversation and comes back", () => {
     }
   });
 
-  test("being pinned to the bottom is not restored — the list keeps following", () => {
-    // A pinned position is the bottom of whatever is loaded. Restoring a
-    // remembered pixel offset from a moment when this session had less in it
-    // would drop the reader into the middle of a conversation they were
-    // following, and stop it following.
+  test("being pinned keeps following while the tail is still written", () => {
+    // A pinned position is the bottom of whatever is loaded now. The retry
+    // writes that tail, and it must not clear the flag: clearing it is what
+    // left the reader in the middle once the next row was measured.
     for (const src of [detail, peer]) {
-      expect(src).toContain("remembered.pinned || remembered.scrollTop <= 0");
+      expect(src).toContain("if (heldTop <= 0) return");
+      expect(src).not.toContain("heldPinned || heldTop");
     }
+    expect(detail).toContain("if (!heldPinned) setPinned(false)");
   });
 });
 

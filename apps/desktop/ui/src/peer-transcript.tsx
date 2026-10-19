@@ -1,6 +1,7 @@
 import {
   createEffect,
   createMemo,
+  createRenderEffect,
   createResource,
   createSignal,
   onCleanup,
@@ -28,6 +29,16 @@ import {
 import { t } from "./i18n";
 import { clearPaneBusy, publishPaneBusy } from "./pane-activity";
 import { contentW, recallPaneScroll, rememberPaneScroll } from "./session-chrome";
+import {
+  ROW_ESTIMATE,
+  ROW_GAP,
+  layoutKey,
+  placeReading,
+  readRowHeights,
+  readingFromScroll,
+  rememberReading,
+  writeRowHeight,
+} from "./transcript-layout";
 import { ContentSashes, LoadingTranscript } from "./content-sashes";
 import type { SessionRowSummary } from "./pane-stage";
 import { Button } from "@/components/ui/button";
@@ -270,8 +281,13 @@ export function PeerSessionTranscript(props: {
  * conversation on the one being left.
  */
 const entrance = createEntranceLedger();
-const shown = createMemo(() => {
+const displayed = createMemo(() => {
   const v = settled(view);
+  if (v?.session_id === props.sessionId) return v;
+  return peekView(props.sessionId)?.view;
+});
+const shown = createMemo(() => {
+  const v = displayed();
   const t = v?.turns ?? [];
   return { turns: t, arriving: entrance.arriving(v?.session_id ?? "", t.map((x) => x.turn_id)) };
 });
@@ -293,6 +309,8 @@ const turns = () => shown().turns;
     if (scroller) scroller.scrollTop = scroller.scrollHeight;
     setPinned(true);
     setActiveTurn(Math.max(0, turns().length - 1));
+    const key = layoutKey(props.paneId, props.sessionId);
+    rememberReading(key, { pinned: true });
     rememberPaneScroll(props.paneId, props.sessionId, {
       scrollTop: scroller?.scrollTop ?? 0,
       pinned: true,
@@ -300,21 +318,47 @@ const turns = () => shown().turns;
   };
 
   /**
-   * Put the reader back where they were in this session, once there are rows
-   * tall enough to hold the position.
-   *
-   * The wait is not a formality. `scrollTop` names a position in content that
-   * does not exist yet: applied straight away the browser clamps it away while
-   * the signal keeps the number, `Virtual` then windows on a position past the
-   * end of the session, and the pane draws nothing at all — a conversation with
-   * turns in it, showing blank. It re-arms each frame until the scroller can
-   * hold the position and gives up rather than spin.
+   * Open on the layout this pane already measured. See the focused transcript:
+   * the row and the heights have to be in place before the first paint, or the
+   * column stacks on the 100px guess and then jumps.
    */
+  let adoptedLayout = "";
+  let heldTop = 0;
+  let placing = false;
+  const [placedTick, setPlacedTick] = createSignal(0);
+  const placeScroller = (el: HTMLElement, top: number) => {
+    if (el.scrollHeight < top) return false;
+    if (el.scrollTop === top) return true;
+    placing = true;
+    el.scrollTop = top;
+    placing = false;
+    return true;
+  };
+  createRenderEffect(() => {
+    const paneId = props.paneId;
+    const id = props.sessionId;
+    const viewNow = displayed();
+    if (viewNow?.session_id !== id) return;
+    const key = layoutKey(paneId, id);
+    if (key === adoptedLayout) return;
+    adoptedLayout = key;
+    const placed = placeReading({
+      key,
+      ids: turns().map((turn) => turn.turn_id),
+      viewport: viewport(),
+      fallback: recallPaneScroll(paneId, id),
+    });
+    heldTop = placed.scrollTop;
+    setPinned(placed.pinned);
+    setScrollTop(placed.scrollTop);
+    setPlacedTick((n) => n + 1);
+  });
   createEffect(() => {
+    placedTick();
     const id = props.sessionId;
     const paneId = props.paneId;
-    const remembered = recallPaneScroll(paneId, id);
-    if (!remembered || remembered.pinned || remembered.scrollTop <= 0) return;
+    if (adoptedLayout !== layoutKey(paneId, id)) return;
+    if (heldTop <= 0) return;
     let tries = 0;
     let frame = 0;
     const restore = () => {
@@ -323,13 +367,12 @@ const turns = () => shown().turns;
         frame = 0;
         return;
       }
-      if (el.scrollHeight < remembered.scrollTop + el.clientHeight) {
+      if (!placeScroller(el, heldTop)) {
         frame = requestAnimationFrame(restore);
         return;
       }
       frame = 0;
-      el.scrollTop = remembered.scrollTop;
-      setScrollTop(remembered.scrollTop);
+      setScrollTop(heldTop);
     };
     frame = requestAnimationFrame(restore);
     onCleanup(() => {
@@ -344,6 +387,7 @@ const turns = () => shown().turns;
         ref={(el) => {
           scroller = el;
           if (!el) return;
+          if (heldTop > 0) placeScroller(el, heldTop);
           /**
            * Measured, not guessed.
            *
@@ -377,12 +421,23 @@ const turns = () => shown().turns;
         }}
         class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
         onScroll={(e) => {
+          if (placing) return;
           const el = e.currentTarget;
           const isPinned = el.scrollHeight - el.scrollTop - el.clientHeight < 96;
           setScrollTop(el.scrollTop);
           setViewport(el.clientHeight);
           setPinned(isPinned);
           setActiveTurn(list?.indexAtTop() ?? 0);
+          const key = layoutKey(props.paneId, props.sessionId);
+          rememberReading(
+            key,
+            readingFromScroll(
+              key,
+              el.scrollTop,
+              isPinned,
+              turns().map((turn) => turn.turn_id),
+            ),
+          );
           rememberPaneScroll(props.paneId, props.sessionId, {
             scrollTop: el.scrollTop,
             pinned: isPinned,
@@ -414,8 +469,12 @@ const turns = () => shown().turns;
               <Virtual
                 items={turns()}
                 id={(turn) => turn.turn_id}
-                estimate={100}
-                gap={32}
+                estimate={ROW_ESTIMATE}
+                gap={ROW_GAP}
+                layoutKey={layoutKey(props.paneId, props.sessionId)}
+                seed={readRowHeights(layoutKey(props.paneId, props.sessionId))}
+                follow={pinned()}
+                onHeight={(key, turnId, height) => writeRowHeight(key, turnId, height)}
                 scrollTop={scrollTop()}
                 viewport={viewport()}
                 scroller={() => scroller}

@@ -1,6 +1,7 @@
 import {
   createEffect,
   createMemo,
+  createRenderEffect,
   createResource,
   createSignal,
   For,
@@ -56,6 +57,16 @@ import { TerminalPane } from "./terminal";
 import { TurnBlock } from "./transcript";
 import { Virtual, type VirtualApi } from "./virtual";
 import { JUMP_GAP } from "./virtual-tail";
+import {
+  ROW_ESTIMATE,
+  ROW_GAP,
+  layoutKey,
+  placeReading,
+  readRowHeights,
+  readingFromScroll,
+  rememberReading,
+  writeRowHeight,
+} from "./transcript-layout";
 import { PromptNavigator } from "./prompt-navigator";
 import { promptAt, promptEntries } from "./prompt-outline";
 import { applyStreamingSnapshot, mergeViewTail, type StreamingSnapshot } from "./live";
@@ -801,8 +812,20 @@ export function SessionDetail(props: {
  * opened, and announce all of it as newly arrived.
  */
 const entrance = createEntranceLedger();
-const shown = createMemo(() => {
+/**
+ * The view on screen. The resource keeps the previous session until the next
+ * fetch resolves, and the route changes before that fetch does. A list painted
+ * from the stale view is the wrong conversation at the wrong heights. The
+ * cache already has the session the pane was showing, so use that until the
+ * resource catches up.
+ */
+const displayed = createMemo(() => {
   const v = settled(view);
+  if (v?.session_id === props.id) return v;
+  return peekView(props.id)?.view;
+});
+const shown = createMemo(() => {
+  const v = displayed();
   const t = composer.decorateTurns(v?.turns ?? []);
   return { turns: t, arriving: entrance.arriving(v?.session_id ?? "", t.map((x) => x.turn_id)) };
 });
@@ -849,40 +872,67 @@ const turns = () => shown().turns;
   });
 
   /**
-   * Put the reader back where they were, when they come back.
+   * Open this pane on the layout it already had.
    *
-   * Scrolling up in a conversation, switching the pane to another one and
-   * switching back used to land at the bottom every time. The place was only
-   * ever looked up in the ref callback, and a ref runs once: switching the
-   * session in a pane does not remount the scroller, it changes what is inside
-   * it. So the second visit read nothing, found no position, and drew the
-   * conversation from the top — which for a transcript the reader had followed
-   * all the way down is the one place they are not looking.
+   * Focusing a pane mounts a new list. The list has to be told, before it
+   * paints, which row the reader was on and how tall the rows already measured
+   * are. A pixel remembered from the previous list points somewhere else once
+   * the heights change, and a list that starts at scroll 0 paints the top and
+   * then jumps.
    *
-   * An effect, because "where they were" is a property of the session on
-   * screen, not of the element. It re-runs when that changes, which is the
-   * switch this is about.
+   * A render effect so the signal the list reads is already the right number
+   * on the render that mounts it. The frame loop below only retries the DOM
+   * write: until the rows exist the browser clamps the assignment away, and
+   * the signal would be the only copy of the position left.
    *
-   * The wait is the other half and it cannot be skipped. `scrollTop` names a
-   * position in content that does not exist yet: applied straight away the
-   * browser clamps it to nothing while the signal keeps the number, `Virtual`
-   * windows on a position past the end of the session, and the pane draws no
-   * rows at all — a conversation with turns in it, showing blank. So it re-arms
-   * each frame until the scroller is tall enough to hold the position, and
-   * gives up rather than spin. Being pinned to the bottom is not a position to
-   * restore; the list keeps following on its own.
+   * Being pinned is not a pixel to restore. The list follows the tail itself,
+   * and a pixel from a shorter transcript would drop the reader in the middle.
    */
+  let adoptedLayout = "";
+  let heldTop = 0;
+  let heldPinned = true;
+  let placing = false;
+  const [placedTick, setPlacedTick] = createSignal(0);
+  const placeScroller = (el: HTMLElement, top: number) => {
+    if (el.scrollHeight < top) return false;
+    if (el.scrollTop === top) return true;
+    placing = true;
+    el.scrollTop = top;
+    placing = false;
+    return true;
+  };
+  createRenderEffect(() => {
+    const paneId = paneWorkspace().focusedPaneId;
+    const id = props.id;
+    const viewNow = displayed();
+    if (viewNow?.session_id !== id) return;
+    const key = layoutKey(paneId, id);
+    if (key === adoptedLayout) return;
+    adoptedLayout = key;
+    const placed = placeReading({
+      key,
+      ids: turns().map((turn) => turn.turn_id),
+      viewport: viewport(),
+      fallback: recallPaneScroll(paneId, id),
+    });
+    heldTop = placed.scrollTop;
+    heldPinned = placed.pinned;
+    setPinned(placed.pinned);
+    setScrollTop(placed.scrollTop);
+    setPlacedTick((n) => n + 1);
+  });
   createEffect(() => {
+    placedTick();
     const id = props.id;
     const paneId = paneWorkspace().focusedPaneId;
-    const height = () => scroller?.clientHeight ?? 0;
-    const remembered = recallPaneScroll(paneId, id);
-    if (!remembered || remembered.pinned || remembered.scrollTop <= 0) return;
+    // Re-arm when the pane or the session changes. The position itself lives
+    // in `heldTop`, set above, so a reader scrolling does not re-trigger this.
+    if (adoptedLayout !== layoutKey(paneId, id)) return;
+    if (heldTop <= 0) return;
     let tries = 0;
     let frame = 0;
     const restore = () => {
       const el = scroller;
-      // The reader moved on, or the pane did, or we waited long enough.
       if (
         !el ||
         frame === 0 ||
@@ -893,14 +943,15 @@ const turns = () => shown().turns;
         frame = 0;
         return;
       }
-      if (el.scrollHeight < remembered.scrollTop + height()) {
+      if (!placeScroller(el, heldTop)) {
         frame = requestAnimationFrame(restore);
         return;
       }
       frame = 0;
-      el.scrollTop = remembered.scrollTop;
-      setScrollTop(remembered.scrollTop);
-      setPinned(false);
+      setScrollTop(heldTop);
+      // A pinned reader stays with the tail. Clearing the flag here is what
+      // made the next measurement leave them in the middle of the transcript.
+      if (!heldPinned) setPinned(false);
     };
     frame = requestAnimationFrame(restore);
     onCleanup(() => {
@@ -1502,6 +1553,10 @@ const turns = () => shown().turns;
                 ref={(el) => {
                   scroller = el;
                   if (!el) return;
+                  // The signal is already the remembered position. Write it
+                  // before paint when the rows are tall enough to hold it;
+                  // otherwise the frame loop below keeps trying.
+                  if (heldTop > 0) placeScroller(el, heldTop);
                   /**
                    * The height is measured, not guessed.
                    *
@@ -1547,13 +1602,25 @@ const turns = () => shown().turns;
                  */
                 class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
                 onScroll={(e) => {
+                  if (placing) return;
                   const el = e.currentTarget;
                   const isPinned = el.scrollHeight - el.scrollTop - el.clientHeight < 96;
                   setScrollTop(el.scrollTop);
                   setViewport(el.clientHeight);
                   setPinned(isPinned);
                   setActiveTurn(list?.indexAtTop() ?? 0);
-                  rememberPaneScroll(paneWorkspace().focusedPaneId, props.id, {
+                  const paneId = paneWorkspace().focusedPaneId;
+                  const key = layoutKey(paneId, props.id);
+                  rememberReading(
+                    key,
+                    readingFromScroll(
+                      key,
+                      el.scrollTop,
+                      isPinned,
+                      turns().map((turn) => turn.turn_id),
+                    ),
+                  );
+                  rememberPaneScroll(paneId, props.id, {
                     scrollTop: el.scrollTop,
                     pinned: isPinned,
                   });
@@ -1600,8 +1667,12 @@ const turns = () => shown().turns;
                     <Virtual
                       items={turns()}
                       id={(t) => t.turn_id}
-                      estimate={100}
-                      gap={32}
+                      estimate={ROW_ESTIMATE}
+                      gap={ROW_GAP}
+                      layoutKey={layoutKey(paneWorkspace().focusedPaneId, props.id)}
+                      seed={readRowHeights(layoutKey(paneWorkspace().focusedPaneId, props.id))}
+                      follow={pinned()}
+                      onHeight={(key, turnId, height) => writeRowHeight(key, turnId, height)}
                       scrollTop={scrollTop()}
                       viewport={viewport()}
                       scroller={() => scroller}
