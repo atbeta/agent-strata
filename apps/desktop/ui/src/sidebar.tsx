@@ -17,6 +17,7 @@ import { hostsTrafficLights, inDesktopShell } from "./shell";
 import { sessionStatus } from "./session-status";
 import { explain } from "./errors";
 import type { SessionListCtl, SidebarGroup } from "./use-session-list";
+import { ProjectLensMenu } from "./project-lens";
 import type { ConnectionsCtl } from "./use-connections";
 import { endpointHost, endpointShort, ConnectionsFooter } from "./use-connections";
 import { sidebarEmptyKind } from "./connection-status";
@@ -144,10 +145,14 @@ export function Sidebar(props: {
     });
   });
 
-  /** Pinned and attention are lanes; projects are places. The label row and
-      its "+" sit between them. */
+  /** Pinned and attention are lanes; projects and days are places. The label
+      row and its "+" sit between them. */
   const metaGroups = () => list().groups().filter((g) => g.key.startsWith("__"));
-  const projectGroups = () => list().groups().filter((g) => !g.key.startsWith("__"));
+  const sectionGroups = () => list().groups().filter((g) => !g.key.startsWith("__"));
+
+  /** What the section is called: the places, or the days they are cut by. */
+  const sectionLabel = () =>
+    list().lens().groupBy === "day" ? t("sidebar.recent") : t("sidebar.projects");
 
   const renderGroup = (group: SidebarGroup) => {
     const rows = () => (expanded().has(group.key) ? group.rows : group.rows.slice(0, PAGE));
@@ -325,113 +330,145 @@ export function Sidebar(props: {
             label above nothing would just be a dangling header. */}
         <Show when={!list().attentionOnly()}>
         <div class="mb-0.5 flex items-center justify-between px-2 pb-0.5 pt-2.5">
-          <span class="text-xs font-medium text-muted-foreground">{t("sidebar.projects")}</span>
-          {/* Open a directory that has no sessions yet — the one place a
+          <span class="text-xs font-medium text-muted-foreground">{sectionLabel()}</span>
+          <div class="flex items-center gap-0.5">
+            {/* The lens on this section, and the directory that adds to it.
+                Both are about which projects are here, so they sit together. */}
+            <ProjectLensMenu list={props.list} />
+            {/* Open a directory that has no sessions yet — the one place a
               project the list does not already know can enter it. In the
               desktop shell the button goes straight to the native picker; a
               browser tab can't reach it, so it falls back to a typed path. */}
-          <Show
-            when={inDesktopShell()}
-            fallback={
-              <DropdownMenu
-                open={props.ws.dirOpen()}
-                onOpenChange={props.ws.setDirOpen}
-                gutter={4}
-                placement="bottom-end"
-              >
-                <Tip label={t("sidebar.project.openDirectory")}>
-                  <DropdownMenuTrigger class="grid size-5 place-items-center rounded text-muted-foreground/60 hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
-                    <Icon name="folder-plus" class="size-3.5" />
-                  </DropdownMenuTrigger>
-                </Tip>
-                <DropdownMenuContent class="w-[276px]">
-                  <form
-                    class="px-2 py-1.5"
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      props.ws.addDir(props.ws.dirDraft());
-                    }}
-                    onPointerDown={(e) => e.stopPropagation()}
-                  >
-                    <TextField>
-                      <TextFieldLabel class="text-2xs font-medium text-muted-foreground">
-                        {t("sidebar.project.openDirectory")}
-                      </TextFieldLabel>
-                      <TextFieldInput
-                        size="sm"
-                        mono
-                        value={props.ws.dirDraft()}
-                        onChange={props.ws.setDirDraft}
-                        class="bg-background text-2xs"
-                        placeholder="/path/to/project"
-                        onKeyDown={(e) => e.stopPropagation()}
-                      />
-                    </TextField>
-                  </form>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            }
-          >
-            <Tip label={t("sidebar.project.openDirectory")}>
-              <Button
-                variant="icon"
-                size="icon-2xs"
-                class="text-muted-foreground/60"
-                onClick={() => void props.ws.pickDir()}
-              >
-                <Icon name="folder-plus" class="size-3.5" />
-              </Button>
-            </Tip>
-          </Show>
+            <Show
+              when={inDesktopShell()}
+              fallback={
+                <DropdownMenu
+                  open={props.ws.dirOpen()}
+                  onOpenChange={props.ws.setDirOpen}
+                  gutter={4}
+                  placement="bottom-end"
+                >
+                  <Tip label={t("sidebar.project.openDirectory")}>
+                    <DropdownMenuTrigger class="grid size-5 place-items-center rounded text-muted-foreground/60 hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+                      <Icon name="folder-plus" class="size-3.5" />
+                    </DropdownMenuTrigger>
+                  </Tip>
+                  <DropdownMenuContent class="w-[276px]">
+                    <form
+                      class="px-2 py-1.5"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        props.ws.addDir(props.ws.dirDraft());
+                      }}
+                      onPointerDown={(e) => e.stopPropagation()}
+                    >
+                      <TextField>
+                        <TextFieldLabel class="text-2xs font-medium text-muted-foreground">
+                          {t("sidebar.project.openDirectory")}
+                        </TextFieldLabel>
+                        <TextFieldInput
+                          size="sm"
+                          mono
+                          value={props.ws.dirDraft()}
+                          onChange={props.ws.setDirDraft}
+                          class="bg-background text-2xs"
+                          placeholder="/path/to/project"
+                          onKeyDown={(e) => e.stopPropagation()}
+                        />
+                      </TextField>
+                    </form>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              }
+            >
+              <Tip label={t("sidebar.project.openDirectory")}>
+                <Button
+                  variant="icon"
+                  size="icon-2xs"
+                  class="text-muted-foreground/60"
+                  onClick={() => void props.ws.pickDir()}
+                >
+                  <Icon name="folder-plus" class="size-3.5" />
+                </Button>
+              </Tip>
+            </Show>
+          </div>
         </div>
         <Show
-          when={projectGroups().length > 0}
+          when={sectionGroups().length > 0}
           fallback={
-            <Show when={metaGroups().length === 0}>
-              {(() => {
-                const kind = sidebarEmptyKind({
-                  phase: props.conns.phase(),
-                  listSettled: settled(list().data) !== undefined,
-                  listError: Boolean(list().data.error),
-                });
-                if (kind === "hidden") return null;
-                const attention = list().attentionOnly() && list().sessions().length > 0;
-                const danger = kind === "listError" || kind === "failed" || kind === "unreachable";
-                const title = attention
-                  ? t("sidebar.empty.attention")
-                  : kind === "listError"
-                    ? explain(list().data.error)
-                    : kind === "connecting"
-                      ? t("sidebar.backend.connecting")
-                      : kind === "failed"
-                        ? t("sidebar.backend.failed")
-                        : kind === "missing"
-                          ? t("sidebar.backend.missing")
-                          : kind === "unreachable"
-                            ? t("error.serviceUnreachable")
-                            : kind === "needBackend"
-                              ? t("sidebar.empty.needBackend")
-                              : t("sidebar.empty.none");
-                return (
-                  <EmptyState
-                    icon={danger ? "alert" : kind === "connecting" ? "plug" : "list"}
-                    tone={danger ? "danger" : "neutral"}
-                    class="px-4 py-10"
-                    title={title}
-                    action={
-                      kind === "none" && !attention ? (
-                        <Button size="sm" variant="quiet" onClick={() => props.onNewSession()}>
-                          {t("action.newSession")}
-                        </Button>
-                      ) : undefined
-                    }
-                  />
-                );
-              })()}
+            <Show
+              when={list().lensActive()}
+              fallback={
+                <Show when={metaGroups().length === 0}>
+                  {(() => {
+                    const kind = sidebarEmptyKind({
+                      phase: props.conns.phase(),
+                      listSettled: settled(list().data) !== undefined,
+                      listError: Boolean(list().data.error),
+                    });
+                    if (kind === "hidden") return null;
+                    const attention = list().attentionOnly() && list().sessions().length > 0;
+                    const danger = kind === "listError" || kind === "failed" || kind === "unreachable";
+                    const title = attention
+                      ? t("sidebar.empty.attention")
+                      : kind === "listError"
+                        ? explain(list().data.error)
+                        : kind === "connecting"
+                          ? t("sidebar.backend.connecting")
+                          : kind === "failed"
+                            ? t("sidebar.backend.failed")
+                            : kind === "missing"
+                              ? t("sidebar.backend.missing")
+                              : kind === "unreachable"
+                                ? t("error.serviceUnreachable")
+                                : kind === "needBackend"
+                                  ? t("sidebar.empty.needBackend")
+                                  : t("sidebar.empty.none");
+                    return (
+                      <EmptyState
+                        icon={danger ? "alert" : kind === "connecting" ? "plug" : "list"}
+                        tone={danger ? "danger" : "neutral"}
+                        class="px-4 py-10"
+                        title={title}
+                        action={
+                          kind === "none" && !attention ? (
+                            <Button size="sm" variant="quiet" onClick={() => props.onNewSession()}>
+                              {t("action.newSession")}
+                            </Button>
+                          ) : undefined
+                        }
+                      />
+                    );
+                  })()}
+                </Show>
+              }
+            >
+              {/* The projects are there; the lens is what is not letting them
+                  through. Saying "no sessions" here would be a lie about the
+                  list, so the sentence names the lens and offers the way out.
+                  With lanes above it, the sentence stays quiet — the lanes
+                  are the list, and this is only a note under them. */}
+              <EmptyState
+                icon={metaGroups().length > 0 ? undefined : "sliders"}
+                layout={metaGroups().length > 0 ? "inline" : "panel"}
+                tone="neutral"
+                class={metaGroups().length > 0 ? "px-2 py-3" : "px-4 py-10"}
+                title={
+                  list().lens().groupBy === "day"
+                    ? t("sidebar.recent.empty")
+                    : t("sidebar.project.filter.noMatch")
+                }
+                action={
+                  <Button size="sm" variant="quiet" onClick={() => list().clearLens()}>
+                    {t("sidebar.project.filter.reset")}
+                  </Button>
+                }
+              />
             </Show>
           }
         >
-          <For each={projectGroups()}>{renderGroup}</For>
+          <For each={sectionGroups()}>{renderGroup}</For>
         </Show>
         </Show>
       </div>

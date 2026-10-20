@@ -8,8 +8,23 @@ import {
 } from "./api";
 import { settled } from "./resource";
 import { holdRows, sameValue } from "./session-rows";
-import { fleetAttention, projectName } from "./fleet";
+import { fleetAttention, projectName, dayKey } from "./fleet";
 import { readPins, togglePin, writePins } from "./pins";
+import {
+  dayLabel,
+  groupVisible,
+  lensActive,
+  lensTypes,
+  NO_LENS,
+  readLens,
+  sessionVisible,
+  writeLens,
+  type GroupBy,
+  type LensSession,
+  type PeriodLens,
+  type ProjectLens,
+  type StatusLens,
+} from "./project-view";
 import { t } from "./i18n";
 import { displayTitle } from "./session-title";
 import { windowTitle } from "./permission-card";
@@ -49,6 +64,8 @@ function dirHint(path: string): string {
 export function useSessionList(opts: {
   /** Project directories with no sessions yet — they still get a group. */
   extraDirs: () => string[];
+  /** The project the reader is standing in — a lens never takes it away. */
+  keepDir?: () => string | undefined;
   clock: () => number;
   activeId: () => string | undefined;
 }) {
@@ -134,9 +151,52 @@ export function useSessionList(opts: {
     writePins(next);
   };
 
+  /**
+   * The lens on the project section.
+   *
+   * It answers "which projects am I looking at, and how", which the attention
+   * lens above cannot: that one collapses the whole list into one lane and
+   * takes the project structure with it. This one keeps the structure and
+   * narrows what is inside it — by name, by backend, by status, by age, and by
+   * the way the list is cut up.
+   */
+  const [lens, setLensRaw] = createSignal<ProjectLens>(readLens());
+  const setLens = (next: ProjectLens) => {
+    setLensRaw(next);
+    writeLens(next);
+  };
+  const patchLens = (part: Partial<ProjectLens>) => setLens({ ...lens(), ...part });
+  const setQuery = (query: string) => patchLens({ query });
+  const setHideEmpty = (hideEmpty: boolean) => patchLens({ hideEmpty });
+  const setGroupBy = (groupBy: GroupBy) => patchLens({ groupBy });
+  const setStatus = (status: StatusLens) => patchLens({ status });
+  const setPeriod = (period: PeriodLens) => patchLens({ period });
+  const setType = (type: string) => patchLens({ type });
+  const clearLens = () => setLens(NO_LENS);
+
+  /** The backends the list holds — what the type menu offers. */
+  const types = () => lensTypes(sessions().map((s) => s.summary.backend));
+
   /** The attention set, filter included — pinned rows count when they run. */
   const attentionRows = () => fleetAttention(sessions());
 
+  /** A session, as the lens looks at it. */
+  const lensSession = (s: SessionRow): LensSession => ({
+    title: s.title ?? s.summary.title,
+    backend: s.summary.backend,
+    lastTs: s.summary.last_ts,
+    busy: s.busy === true,
+    needsInput: s.needs_input === true,
+  });
+
+  /**
+   * The groups under the header, cut up the way the reader asked.
+   *
+   * Two ways to cut the same sessions up: by the place they live, or by the
+   * day they last ran. The first keeps the project's own shape — a "+" can
+   * aim a new session at it. The second keeps the shape of a diary, and has
+   * no place to aim at, because a day is not a directory.
+   */
   const buildGroups = (): SidebarGroup[] => {
     const rows = sessions();
     if (rows.length === 0 && opts.extraDirs().length === 0) return [];
@@ -166,6 +226,25 @@ export function useSessionList(opts: {
       out.push({ key: "__attention__", label: t("sidebar.group.attention"), rows: attention });
     }
 
+    // The lens narrows the projects, not the lanes above them: a pin is the
+    // reader's own choice and the attention set is the work that is moving,
+    // and neither of them is a project the reader has to find.
+    const now = opts.clock();
+    const lensNow = lens();
+    out.push(
+      ...(lensNow.groupBy === "day"
+        ? dayGroups(rest, lensNow, now)
+        : projectGroups(rest, lensNow, now)),
+    );
+    return out;
+  };
+
+  /** The same sessions, cut up by the place they live. */
+  const projectGroups = (
+    rest: SessionRow[],
+    lensNow: ProjectLens,
+    now: number,
+  ): SidebarGroup[] => {
     const byWs = new Map<string, SessionRow[]>();
     for (const s of rest) {
       const ws = sessionWorkspace(s) ?? "";
@@ -192,17 +271,62 @@ export function useSessionList(opts: {
       const label = ws ? projectName(ws) : "";
       if (label) labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1);
     }
-    out.push(
-      ...sorted.map(([ws, list]) => ({
+    const groups = sorted.map(([ws, list]) => {
+      const label = ws ? projectName(ws) : t("sidebar.project.none");
+      const project = { label, path: ws };
+      const rows = list.filter((s) => sessionVisible(lensNow, lensSession(s), project, now));
+      return {
         key: ws || "none",
-        label: ws ? projectName(ws) : t("sidebar.project.none"),
+        label,
         hint: ws && (labelCounts.get(projectName(ws)) ?? 0) > 1 ? dirHint(ws) : undefined,
         title: ws || undefined,
-        rows: list,
+        rows,
         dir: ws || undefined,
-      })),
-    );
-    return out;
+        total: list.length,
+      };
+    });
+    return groups
+      .filter((group) =>
+        groupVisible(
+          lensNow,
+          { rows: group.rows.length, total: group.total, path: group.title ?? "" },
+          opts.keepDir?.(),
+        ),
+      )
+      .map(({ total: _total, ...group }) => group);
+  };
+
+  /** The same sessions, cut up by the day they last ran. */
+  const dayGroups = (rest: SessionRow[], lensNow: ProjectLens, now: number): SidebarGroup[] => {
+    const byDay = new Map<string, SessionRow[]>();
+    for (const s of rest) {
+      const ts = new Date(s.summary.last_ts).getTime();
+      if (!Number.isFinite(ts)) continue;
+      const day = dayKey(ts);
+      const list = byDay.get(day) ?? [];
+      list.push(s);
+      byDay.set(day, list);
+    }
+    const groups = [...byDay.entries()]
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .map(([day, list]) => {
+        const rows = list.filter((s) => {
+          const ws = sessionWorkspace(s) ?? "";
+          const project = { label: ws ? projectName(ws) : t("sidebar.project.none"), path: ws };
+          return sessionVisible(lensNow, lensSession(s), project, now);
+        });
+        return {
+          key: `day:${day}`,
+          label: dayLabel(day, now),
+          rows,
+          total: list.length,
+        };
+      });
+    return groups
+      .filter((group) =>
+        groupVisible(lensNow, { rows: group.rows.length, total: group.total, path: "" }),
+      )
+      .map(({ total: _total, ...group }) => group);
   };
 
   /**
@@ -256,6 +380,16 @@ export function useSessionList(opts: {
     attentionOnly,
     setAttentionOnly,
     attentionRows,
+    lens,
+    lensActive: () => lensActive(lens()),
+    setQuery,
+    setHideEmpty,
+    setGroupBy,
+    setStatus,
+    setPeriod,
+    setType,
+    clearLens,
+    types,
     groups,
     actionErr,
     setActionErr,

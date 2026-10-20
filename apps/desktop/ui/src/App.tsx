@@ -32,7 +32,12 @@ export function App() {
   };
 
   const ws = useWorkspace();
-  const list = useSessionList({ extraDirs: () => ws.projectDirs(), clock, activeId });
+  const list = useSessionList({
+    extraDirs: () => ws.projectDirs(),
+    keepDir: () => ws.lastDir() ?? undefined,
+    clock,
+    activeId,
+  });
   const conns = useConnections({ currentDir: () => ws.lastDir() ?? undefined, onChanged: () => list.refetch() });
 
   /**

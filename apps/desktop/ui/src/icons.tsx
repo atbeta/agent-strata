@@ -13,6 +13,8 @@ export type Name =
   | "folder"
   | "folder-open"
   | "folder-plus"
+  | "filter"
+  | "sliders"
   | "chevron"
   | "chevron-right"
   | "arrow-down"
@@ -202,6 +204,28 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
       <Glyph class={cls}>
         <path d="M2.5 5.2c0-.7.5-1.2 1.2-1.2h2.2l1.2 1.3H12.3c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H3.7c-.7 0-1.2-.5-1.2-1.2z" />
         <path d="M8 7.8v3.6M6.2 9.6h3.6" />
+      </Glyph>
+    );
+  if (name === "filter")
+    return (
+      <Glyph class={cls}>
+        {/* A funnel, drawn open: the wide mouth at the top and the stem that
+            narrows to a point. The mouth is the part that has to read first —
+            it is the shape the eye recognises as "narrowing this down". */}
+        <path d="M2.6 3.4h10.8L9.5 7.9v4.2l-3 1.5V7.9z" />
+      </Glyph>
+    );
+  if (name === "sliders")
+    return (
+      <Glyph class={cls}>
+        {/* Two rails with a knob on each — a mixer, and the shape of a thing
+            whose settings are turned rather than chosen. The knobs are filled:
+            an outlined circle this small reads as a speck next to the pen
+            weight of every other mark on the row. */}
+        <path d="M2.6 5.2h10.8" />
+        <path d="M2.6 10.8h10.8" />
+        <circle cx="6.2" cy="5.2" r="1.9" fill="currentColor" stroke="none" />
+        <circle cx="9.8" cy="10.8" r="1.9" fill="currentColor" stroke="none" />
       </Glyph>
     );
   if (name === "arrow-down")
