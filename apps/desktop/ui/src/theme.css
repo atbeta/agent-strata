@@ -568,13 +568,16 @@ textarea {
       transform: scale(0.97) translateY(-2px);
     }
   }
+  /* Command overlays (Ctrl+K and the session switcher) share this entrance.
+     The reader asked for the surface, so it arrives with the backdrop rather
+     than sliding in after the scrim is already there. */
   .dialog-pop {
-    animation: dialog-pop 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+    animation: dialog-pop 0.08s ease-out;
   }
   @keyframes dialog-pop {
     from {
       opacity: 0;
-      transform: translateY(-6px) scale(0.985);
+      transform: translateY(-3px) scale(0.99);
     }
   }
   .fade-in {
