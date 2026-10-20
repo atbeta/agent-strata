@@ -14,9 +14,11 @@ import {
 import {
   abortSession,
   api,
+  backendLabel,
   downloadExport,
   fmtUsd,
   getJson,
+  handoffSession,
   importSession,
   readCapabilities,
   readCommands,
@@ -36,12 +38,13 @@ import {
   unshareSession,
   unrevertSession,
   type CommandInfo,
+  type Connection,
   type OptionsResponse,
   type PendingAsk,
   type PendingQuestion,
   type SessionView,
 } from "./api";
-import { builtinCommands } from "./composer-input";
+import { builtinCommands, handoffTargets, resolveHandoff } from "./composer-input";
 import { copyText } from "./clipboard";
 import { messageText } from "./transcript-format";
 import { Icon } from "./icons";
@@ -182,6 +185,7 @@ export function SessionDetail(props: {
   id: string;
   sessions: SessionRowSummary[];
   onNewSession: () => void;
+  connections?: Connection[];
 }) {
   // The route session belongs in the focused pane — but only when the route
   // session *changes*.
@@ -604,22 +608,51 @@ export function SessionDetail(props: {
     new: () => t("cmd.new"),
     terminal: () => t("cmd.terminal"),
   };
+  const targets = createMemo(() => {
+    // Until capabilities answer, the owner is unknown, and the menu would
+    // offer the backend that is already driving the session.
+    if (caps.state === "unresolved" || caps.state === "pending") return [];
+    return handoffTargets(
+      (props.connections ?? []).map((connection) => ({
+        id: connection.id,
+        label: connection.name?.trim() || backendLabel(connection.backend),
+        detail: connection.baseUrl,
+        prompt: connection.capabilities?.prompt === true,
+      })),
+      caps()?.connection_id,
+    );
+  });
   const slashCommands = createMemo((): CommandInfo[] | undefined => {
     const c = caps();
-    if (!c?.connected) return undefined;
+    // A stored session whose backend is gone can still be handed off. The
+    // slash menu used to wait until a backend was driving this session, which
+    // hid the one command that exists for that case.
+    const receiving = targets();
+    if (!c?.connected && receiving.length === 0) return undefined;
     const v = settled(view);
     const local = builtinCommands({
-      summarize: c.summarize,
-      revert: c.revert,
+      summarize: c?.summarize,
+      revert: c?.revert,
       reverted: Boolean(v?.revert_turn_id),
-      abort: c.abort,
-      fork: c.fork,
+      abort: c?.abort,
+      fork: c?.fork,
+      handoff: receiving.length > 0,
       hasTurns: (v?.turns.length ?? 0) > 0,
-      manage: c.manage,
-      share: c.share,
+      manage: c?.manage,
+      share: c?.share,
       terminal: opencode(),
-    }).map((name): CommandInfo => ({ name, source: "builtin", description: BUILTIN_DESC[name]?.() }));
-    return [...local, ...(commands() ?? [])];
+    }).map((name): CommandInfo => ({
+      name,
+      source: "builtin",
+      description:
+        name === "handoff"
+          ? receiving.length === 1
+            ? t("cmd.handoff.one", { name: receiving[0]!.label })
+            : t("cmd.handoff.many", { names: receiving.map((target) => target.label).join(", ") })
+          : BUILTIN_DESC[name]?.(),
+      argument: name === "handoff" && receiving.length !== 1,
+    }));
+    return [...local, ...(c?.connected ? (commands() ?? []) : [])];
   });
 
   const runBuiltin = async (name: string, arg: string): Promise<void> => {
@@ -652,6 +685,20 @@ export function SessionDetail(props: {
       case "interrupt":
         await composer.stop();
         return;
+      case "handoff": {
+        const list = targets();
+        const target = resolveHandoff(list, arg);
+        if (!target) {
+          throw new Error(
+            list.length === 0
+              ? t("cmd.handoff.none")
+              : t("cmd.handoff.missing", { names: list.map((item) => item.label).join(", ") }),
+          );
+        }
+        const id = await handoffSession(props.id, target.id);
+        location.hash = `/session/${encodeURIComponent(id)}`;
+        return;
+      }
       case "fork": {
         const last = settled(view)?.turns.at(-1);
         if (!last) throw new Error(t("cmd.fork.none"));

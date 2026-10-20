@@ -4,6 +4,8 @@ import { join } from "node:path";
 import {
   attachmentProblem,
   builtinCommands,
+  handoffTargets,
+  resolveHandoff,
   commandOf,
   commandParts,
   slashMenuEnter,
@@ -151,6 +153,34 @@ describe("what goes out", () => {
     expect(builtinCommands({ revert: true, reverted: true })).toEqual(["undo", "redo", "export", "new"]);
     expect(builtinCommands({ fork: true })).toEqual(["export", "new"]);
     expect(builtinCommands({ fork: true, hasTurns: true })).toEqual(["fork", "export", "new"]);
+    expect(builtinCommands({ handoff: true })).toEqual(["handoff", "export", "new"]);
+  });
+});
+
+describe("who can receive a handoff", () => {
+  const codex = { id: "acp:codex:1", label: "Codex", detail: "acp://codex", prompt: true };
+  const opencode = { id: "opencode:http://127.0.0.1:4096", label: "OpenCode", detail: "http://127.0.0.1:4096", prompt: true };
+
+  test("drops the backend that already runs the session, and one that cannot prompt", () => {
+    expect(handoffTargets([codex, opencode, { ...opencode, id: "dead", prompt: false }], opencode.id)).toEqual([
+      { id: codex.id, label: "Codex" },
+    ]);
+  });
+
+  test("two backends with the same name keep the address", () => {
+    const other = { ...codex, id: "acp:codex:2", detail: "acp://codex --other" };
+    expect(handoffTargets([codex, other], undefined).map((t) => t.label)).toEqual([
+      "Codex acp://codex",
+      "Codex acp://codex --other",
+    ]);
+  });
+
+  test("an empty argument means the only backend, and a name picks one of several", () => {
+    const targets = handoffTargets([codex, opencode], undefined);
+    expect(resolveHandoff(targets, "")).toBeUndefined();
+    expect(resolveHandoff([targets[0]!], "")).toEqual(targets[0]);
+    expect(resolveHandoff(targets, "codex")?.id).toBe(codex.id);
+    expect(resolveHandoff(targets, "nope")).toBeUndefined();
   });
 });
 
@@ -212,6 +242,13 @@ describe("enter on a slash command", () => {
       action: "run",
       name: "rename",
       args: "Notes",
+    });
+    const handoff = [{ name: "handoff", source: "builtin" as const, argument: true }];
+    expect(slashMenuEnter({ draft: "/handoff", commands: handoff })).toEqual({ action: "insert", name: "handoff" });
+    expect(slashMenuEnter({ draft: "/handoff Codex", commands: handoff })).toEqual({
+      action: "run",
+      name: "handoff",
+      args: "Codex",
     });
   });
 

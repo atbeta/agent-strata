@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { makeEvent, type EventInput } from "@agent-strata/schema";
 import { openStore } from "@agent-strata/store";
 import { projectSession } from "@agent-strata/projector";
-import { compareSessions, exportEvents } from "../src/index";
+import { BRIEFING_MAX_CHARS, compareSessions, exportEvents, sessionBriefing } from "../src/index";
 
 const mk = (session_id: string, type: string, data: object, ts: string, backend = "test"): EventInput =>
   makeEvent({
@@ -133,5 +133,105 @@ describe("compareSessions", () => {
     expect(extra.a_turn).toBeNull();
     expect(extra.b_turn!.turn_id).toBe("t2");
     s.close();
+  });
+});
+
+describe("sessionBriefing", () => {
+  const huge = "Z".repeat(20_000);
+
+  const briefed = () => {
+    const s = openStore(":memory:");
+    s.append([
+      mk("a", "session.started", { workspace: "/repo", title: "auth" }, "2026-01-01T00:00:00Z", "opencode"),
+      mk("a", "session.goal", { text: "ship the auth fix" }, "2026-01-01T00:00:01Z"),
+      mk("a", "plan.updated", {
+        entries: [
+          { content: "write the test", status: "completed" },
+          { content: "patch the check", status: "in_progress" },
+          { content: "ask for review", status: "pending" },
+        ],
+      }, "2026-01-01T00:00:02Z"),
+      mk("a", "turn.user", { turn_id: "t1", content: [{ type: "text", text: "fix login" }] }, "2026-01-01T00:00:03Z"),
+      mk("a", "tool.call", {
+        turn_id: "t1",
+        call_id: "c1",
+        tool: "bash",
+        input: { command: "INPUT_SENTINEL_do_not_copy" },
+      }, "2026-01-01T00:00:04Z"),
+      mk("a", "tool.result", {
+        call_id: "c1",
+        status: "ok",
+        output: `OUTPUT_SENTINEL_do_not_copy ${huge}`,
+      }, "2026-01-01T00:00:05Z"),
+      mk("a", "file.changed", {
+        path: "src/auth.ts",
+        change: "modify",
+        diff: `DIFF_SENTINEL_do_not_copy\n${huge}`,
+        call_id: "c1",
+      }, "2026-01-01T00:00:06Z"),
+      mk("a", "turn.assistant", {
+        turn_id: "t1",
+        content: [
+          { type: "thinking", text: "THINKING_SENTINEL_do_not_copy" },
+          { type: "text", text: "the key is sk-abcdefghijklmnopqrstuvwx" },
+        ],
+      }, "2026-01-01T00:00:07Z"),
+      mk("a", "turn.user", { turn_id: "t2", content: [{ type: "text", text: "REVERTED_SENTINEL" }] }, "2026-01-01T00:00:08Z"),
+      mk("a", "session.updated", { revert: { turn_id: "t2" } }, "2026-01-01T00:00:09Z"),
+      mk("a", "question.asked", {
+        request_id: "q1",
+        questions: [{ question: "Which database?", header: "db", options: [{ label: "sqlite", description: "local" }] }],
+      }, "2026-01-01T00:00:10Z"),
+    ]);
+    const view = projectSession(s.read({ session_id: "a" }));
+    s.close();
+    return sessionBriefing(view);
+  };
+
+  test("keeps the goal, the open plan, the files and the recent words", () => {
+    const text = briefed();
+    expect(text).toContain("ship the auth fix");
+    expect(text).toContain("patch the check");
+    expect(text).toContain("ask for review");
+    expect(text).toContain("src/auth.ts");
+    expect(text).toContain("fix login");
+    expect(text).toContain("Which database?");
+    expect(text).toContain("opencode");
+    expect(text).toContain("/repo");
+  });
+
+  test("leaves out tool bodies, diffs, thoughts, reverted turns and secrets", () => {
+    const text = briefed();
+    expect(text).not.toContain("OUTPUT_SENTINEL_do_not_copy");
+    expect(text).not.toContain("INPUT_SENTINEL_do_not_copy");
+    expect(text).not.toContain("DIFF_SENTINEL_do_not_copy");
+    expect(text).not.toContain("THINKING_SENTINEL_do_not_copy");
+    expect(text).not.toContain("REVERTED_SENTINEL");
+    expect(text).not.toContain("sk-abcdefghijklmnopqrstuvwx");
+    expect(text).toContain("[redacted]");
+    expect(text.length).toBeLessThanOrEqual(BRIEFING_MAX_CHARS);
+  });
+
+  test("a long transcript keeps the latest turn and stays inside the cap", () => {
+    const s = openStore(":memory:");
+    const events: EventInput[] = [
+      mk("a", "session.started", { workspace: "/repo", title: "long" }, "2026-01-01T00:00:00Z"),
+    ];
+    for (let i = 0; i < 40; i++) {
+      const ts = `2026-01-01T01:${String(i).padStart(2, "0")}:00Z`;
+      events.push(
+        mk("a", "turn.user", {
+          turn_id: `t${i}`,
+          content: [{ type: "text", text: `TURN_${i}_START ${"word ".repeat(400)} TURN_${i}_END` }],
+        }, ts),
+      );
+    }
+    s.append(events);
+    const text = sessionBriefing(projectSession(s.read({ session_id: "a" })));
+    s.close();
+    expect(text.length).toBeLessThanOrEqual(BRIEFING_MAX_CHARS);
+    expect(text).toContain("TURN_39_START");
+    expect(text).not.toContain("TURN_0_START");
+    expect(text).toContain("Earlier turns are not included");
   });
 });

@@ -196,6 +196,8 @@ export type CommandPart =
 
 export interface SessionCapabilities {
   connected: boolean;
+  /** the connection driving this session, when one is */
+  connection_id?: string;
   prompt?: boolean;
   abort?: boolean;
   commands?: boolean;
@@ -214,6 +216,8 @@ export interface CommandInfo {
   description?: string;
   /** "builtin" marks a command this app runs itself; the rest come from the backend. */
   source?: "command" | "mcp" | "skill" | "builtin";
+  /** the command cannot run until the reader types something after the name */
+  argument?: boolean;
   hints?: string[];
 }
 
@@ -585,6 +589,18 @@ export async function revertSession(id: string, messageId: string): Promise<void
 
 export async function unrevertSession(id: string): Promise<void> {
   await throwOnError(await fetch(api(`/sessions/${encodeURIComponent(id)}/unrevert`), { method: "POST" }));
+}
+
+/** Opens a new session on another connection, with this session's briefing as its first prompt. */
+export async function handoffSession(id: string, connectionId: string): Promise<string> {
+  const res = await fetch(api(`/sessions/${encodeURIComponent(id)}/handoff`), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ connection_id: connectionId }),
+  });
+  await throwOnError(res);
+  const data = (await res.json()) as { id: string };
+  return data.id;
 }
 
 export async function forkSession(id: string, messageId: string): Promise<string> {

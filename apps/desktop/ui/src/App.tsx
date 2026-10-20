@@ -441,6 +441,7 @@ export function App() {
           <SessionDetail
             id={(route() as { id: string }).id}
             sessions={settled(list.data)?.sessions ?? []}
+            connections={settled(conns.conns)?.connections ?? []}
             onNewSession={requestNewSession}
           />
         </Show>

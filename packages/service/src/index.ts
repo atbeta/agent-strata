@@ -7,7 +7,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { openStore, type Store, type EventQuery } from "@agent-strata/store";
 import { projectSession, aggregate, emptySessionView, type SessionView } from "@agent-strata/projector";
-import { compareSessions, exportEvents } from "@agent-strata/core";
+import { compareSessions, exportEvents, sessionBriefing } from "@agent-strata/core";
 import { autoAccept, evaluate, loadPolicy, type Policy } from "@agent-strata/policy";
 import { UnknownCommandError } from "@agent-strata/adapter-opencode";
 import type { BackendDriver, BackendSink, ModelChoice, PromptPart } from "./driver";
@@ -736,6 +736,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       const c = conn.capabilities;
       return json({
         connected: true,
+        connection_id: conn.id,
         prompt: c.prompt,
         abort: c.abort,
         commands: c.commands === true,
@@ -1000,6 +1001,40 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         const created = await conn.fork(native, messageId, directoryOf(casfId));
         owners.set(created.casfId, conn.id);
         claims.claim(`${conn.agent}:${created.nativeId}`, created.casfId, conn.id);
+        return json({ id: created.casfId });
+      } catch (e) {
+        return json({ error: String(e) }, 502);
+      }
+    }
+
+    const sessionHandoff = path.match(/^\/sessions\/([^/]+)\/handoff$/);
+    if (sessionHandoff && req.method === "POST") {
+      const casfId = decodeURIComponent(sessionHandoff[1]!);
+      let view: SessionView;
+      try {
+        view = sessionView(casfId);
+      } catch (e) {
+        if (e instanceof Error && e.message === "no events") return json({ error: "session not found" }, 404);
+        throw e;
+      }
+      const body = (await req.json().catch(() => null)) as { connection_id?: unknown } | null;
+      const connectionId = typeof body?.connection_id === "string" ? body.connection_id : "";
+      if (!connectionId) return json({ error: "connection_id required" }, 400);
+      const target = conns.get(connectionId);
+      if (!target) return json({ error: "no such connection" }, 400);
+      if (!target.capabilities.prompt) return json({ error: "backend cannot prompt" }, 400);
+      if (owners.get(casfId) === target.id) {
+        return json({ error: "this session already runs on that backend" }, 400);
+      }
+      const titleBase = view.title?.trim() || "session";
+      const title = `Handoff: ${titleBase.length > 60 ? `${titleBase.slice(0, 59)}…` : titleBase}`;
+      const directory = directoryOf(casfId);
+      try {
+        const created = await target.createSession({ title, directory });
+        owners.set(created.casfId, target.id);
+        if (directory) createdDirs.set(created.casfId, directory);
+        claims.claim(`${target.agent}:${created.nativeId}`, created.casfId, target.id);
+        await target.prompt(created.nativeId, [{ type: "text", text: sessionBriefing(view) }], { directory });
         return json({ id: created.casfId });
       } catch (e) {
         return json({ error: String(e) }, 502);

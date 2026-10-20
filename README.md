@@ -22,7 +22,7 @@ Cross-backend agent session layer: one canonical event format (CASF v0) that Ope
 | `@agent-strata/adapter-acp` | ACP (ndjson subprocess) adapter: `AcpRecorder` + `connectAcpAgent` |
 | `@agent-strata/core` | Event-log consumers: `exportEvents` (CASF JSONL + redaction), `compareSessions` (per-turn two-agent diff) |
 | `@agent-strata/adapter-opencode` | opencode v1 event-stream adapter: `OpencodeMapper` + `connectOpencode` |
-| `@agent-strata/service` | Local HTTP/SSE service over the layer: sessions/views/events query, compare, CASF export, live `/stream`, `/connect` for OpenCode (`baseUrl`) and ACP agents (`backend: "acp"`, `command`, `args`) — the desktop UI's backend |
+| `@agent-strata/service` | Local HTTP/SSE service over the layer: sessions/views/events query, compare, CASF export, a one-way handoff (`POST /sessions/:id/handoff`) that opens the briefing as a new session on another connected backend, live `/stream`, `/connect` for OpenCode (`baseUrl`) and ACP agents (`backend: "acp"`, `command`, `args`) — the desktop UI's backend |
 
 ## Apps
 

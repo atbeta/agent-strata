@@ -59,7 +59,13 @@ describe("the composer through strata", () => {
   });
 
   test("a session says what its backend's composer can do", async () => {
-    expect(await fetch(`${base}${session}/capabilities`).then((r) => r.json())).toEqual({
+    const caps = (await fetch(`${base}${session}/capabilities`).then((r) => r.json())) as {
+      connection_id?: string;
+    };
+    expect(typeof caps.connection_id).toBe("string");
+    expect(caps.connection_id!.length).toBeGreaterThan(0);
+    const { connection_id: _owner, ...rest } = caps;
+    expect(rest).toEqual({
       connected: true,
       prompt: true,
       abort: true,

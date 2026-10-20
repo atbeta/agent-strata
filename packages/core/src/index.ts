@@ -1,4 +1,5 @@
 import { DEFAULT_SECRET_PATTERNS, redact, type Event } from "@agent-strata/schema";
+export { BRIEFING_MAX_CHARS, sessionBriefing } from "./briefing";
 import type { Store } from "@agent-strata/store";
 import type { SessionView, Totals, Turn } from "@agent-strata/projector";
 

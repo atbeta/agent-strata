@@ -129,11 +129,52 @@ export function commandOf(draft: string, names: readonly string[]): { name: stri
 export interface SlashEntry {
   name: string;
   source?: "builtin" | "command" | "mcp" | "skill";
+  /** the command cannot run until the reader types something after the name */
+  argument?: boolean;
 }
 
 /** Built-ins that cannot run until the reader has typed an argument. */
 function needsArgument(entry: SlashEntry): boolean {
-  return entry.source === "builtin" && entry.name.toLowerCase() === "rename";
+  return entry.argument === true || (entry.source === "builtin" && entry.name.toLowerCase() === "rename");
+}
+
+export interface HandoffCandidate {
+  id: string;
+  label: string;
+  /** shown beside a label that would otherwise name two backends */
+  detail: string;
+  prompt: boolean;
+}
+
+export interface HandoffTarget {
+  id: string;
+  label: string;
+}
+
+/**
+ * Backends that can open a session and are not the one already driving this one.
+ *
+ * A handoff is a new session. The connection that owns the source is not a
+ * destination: continuing there is a prompt, which the composer already sends.
+ */
+export function handoffTargets(connections: readonly HandoffCandidate[], ownerId: string | undefined): HandoffTarget[] {
+  const eligible = connections.filter((connection) => connection.prompt && connection.id !== ownerId);
+  const counts = new Map<string, number>();
+  for (const connection of eligible) counts.set(connection.label, (counts.get(connection.label) ?? 0) + 1);
+  return eligible.map((connection) => ({
+    id: connection.id,
+    label: (counts.get(connection.label) ?? 0) > 1 ? `${connection.label} ${connection.detail}` : connection.label,
+  }));
+}
+
+/** The backend a `/handoff` argument names. An empty argument means the only one. */
+export function resolveHandoff(targets: readonly HandoffTarget[], arg: string): HandoffTarget | undefined {
+  const query = arg.trim().toLowerCase();
+  if (!query) return targets.length === 1 ? targets[0] : undefined;
+  const exact = targets.filter((target) => target.id.toLowerCase() === query || target.label.toLowerCase() === query);
+  if (exact.length === 1) return exact[0];
+  const partial = targets.filter((target) => target.label.toLowerCase().includes(query));
+  return partial.length === 1 ? partial[0] : undefined;
 }
 
 /**
@@ -193,6 +234,8 @@ export function builtinCommands(c: {
   reverted?: boolean;
   abort?: boolean;
   fork?: boolean;
+  /** some other connected backend can open a session */
+  handoff?: boolean;
   hasTurns?: boolean;
   manage?: boolean;
   share?: boolean;
@@ -206,6 +249,7 @@ export function builtinCommands(c: {
   }
   if (c.abort) names.push("interrupt");
   if (c.fork && c.hasTurns) names.push("fork");
+  if (c.handoff) names.push("handoff");
   if (c.manage) names.push("rename");
   if (c.share) names.push("share", "unshare");
   if (c.terminal) names.push("terminal");
