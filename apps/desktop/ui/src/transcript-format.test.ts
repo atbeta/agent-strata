@@ -177,30 +177,36 @@ describe("diff and labels", () => {
         "Denied by you — outside the workspace",
       );
     });
-    expect(thinkingPreview("  first line\nsecond")).toBe("first line second");
+    // Collapsed thinking follows the latest line, not the opening one.
+    expect(thinkingPreview("  first line\nsecond")).toBe("second");
+    expect(thinkingPreview("first\n\n  latest  \n")).toBe("latest");
   });
 
-  test("a thinking preview is cut by displayed width, not by character count", () => {
+  test("a thinking preview is the end of the latest line, cut by displayed width", () => {
     const wide = (n: number) => "字".repeat(n);
     const narrow = (n: number) => "a".repeat(n);
-    // Same character budget, half the width: CJK is cut near twice as early.
-    expect(thinkingPreview(wide(89))).toBe(`${wide(44)}…`);
-    expect(thinkingPreview(narrow(89))).toBe(`${narrow(88)}…`);
+    // Same character budget, half the width: CJK is cut near twice as early,
+    // and the cut keeps the end so a growing line keeps changing.
+    expect(thinkingPreview(wide(89))).toBe(`…${wide(44)}`);
+    expect(thinkingPreview(narrow(89))).toBe(`…${narrow(88)}`);
     // Inside the budget neither is touched.
     expect(thinkingPreview(wide(44))).toBe(wide(44));
     expect(thinkingPreview(narrow(88))).toBe(narrow(88));
+    const full = narrow(100);
+    expect(thinkingPreview(full + "z").endsWith("z")).toBe(true);
+    expect(thinkingPreview(full)).not.toBe(thinkingPreview(full + "z"));
   });
 
-  test("a cut thinking preview prefers a word boundary", () => {
-    // The last space sits 18 columns back — inside the quarter-width backstop —
-    // so the cut backs off to it rather than landing mid-token.
-    const near = `${"a".repeat(70)} ${"b".repeat(30)}`;
-    expect(thinkingPreview(near)).toBe(`${"a".repeat(70)}…`);
-    // Same shape, but the space is 38 back: too far to give up the content.
-    const far = `${"a".repeat(50)} ${"b".repeat(60)}`;
-    expect(thinkingPreview(far)).toBe(`${"a".repeat(50)} ${"b".repeat(37)}…`);
+  test("a cut thinking preview prefers a word boundary near the newest text", () => {
+    // The window opens a few letters into a word and a space sits inside the
+    // quarter-width backstop, so the preview starts at the next word.
+    const near = `${"w".repeat(20)} ${"v".repeat(80)}`;
+    expect(thinkingPreview(near)).toBe(`…${"v".repeat(80)}`);
+    // The space is further back than that: jumping to it would drop the line.
+    const far = `${"w".repeat(70)} ${"v".repeat(30)}`;
+    expect(thinkingPreview(far)).toBe(`…${"w".repeat(57)} ${"v".repeat(30)}`);
     // One enormous unbreakable token still gets cut rather than overflowing.
-    expect(thinkingPreview(`see ${"y".repeat(200)}`)).toBe(`see ${"y".repeat(84)}…`);
+    expect(thinkingPreview(`see ${"y".repeat(200)}`)).toBe(`…${"y".repeat(88)}`);
   });
 
   test("units are the same number in both languages", () => {

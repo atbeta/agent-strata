@@ -197,33 +197,47 @@ export function diffStat(text: string): { add: number; del: number } | undefined
 const WIDE = /[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE6F\uFF00-\uFF60\uFFE0-\uFFE6]/;
 
 /**
- * Cut to a width the reader can see, not to a character count.
+ * Keep the end of a line, within a width the reader can see.
  *
- * Counting characters gave a Chinese preview half the room of an English one —
- * a CJK glyph is about twice as wide — and Chinese is the language where a
- * short preview hurts most. Cutting also prefers a word boundary, because a
- * preview ending mid-token (`git log --oneline "origi…`) reads as a corrupted
- * string rather than a clipped one. The backstop keeps the break from marching
- * so far left that the preview says less than it had room for.
+ * The collapsed thought follows whatever was just written. Cutting from the
+ * start froze the row on the opening words once they filled it, so a long
+ * thought looked stopped. Counting characters gave a Chinese line half the
+ * room of an English one — a CJK glyph is about twice as wide — and the cut
+ * prefers a word boundary close to where the window opens, because a preview
+ * starting mid-token (`…riginal message`) reads as a corrupted string. The
+ * backstop keeps that snap from walking so far forward that the line says
+ * less than it had room for.
  */
-function clipToWidth(line: string, columns: number): string {
+function clipTail(line: string, columns: number): string {
   let width = 0;
-  let cut = line.length;
-  for (let i = 0; i < line.length; i++) {
-    width += WIDE.test(line[i]) ? 2 : 1;
+  let start = 0;
+  for (let i = line.length - 1; i >= 0; i--) {
+    width += WIDE.test(line[i]!) ? 2 : 1;
     if (width > columns) {
-      cut = i;
+      start = i + 1;
       break;
     }
   }
-  if (cut === line.length) return line;
-  const backstop = cut - Math.floor(columns / 4);
-  const space = line.lastIndexOf(" ", cut);
-  return `${(space > backstop ? line.slice(0, space) : line.slice(0, cut)).trimEnd()}…`;
+  if (start === 0) return line;
+  const backstop = start + Math.floor(columns / 4);
+  const space = line.indexOf(" ", start);
+  const from = space !== -1 && space <= backstop ? space + 1 : start;
+  return `…${line.slice(from).trimStart()}`;
 }
 
+/** The latest line of a thought, trimmed to the row. Empty when there is nothing to show. */
 export function thinkingPreview(text: string): string {
-  return clipToWidth(text.replace(/\s+/g, " ").trim(), 88);
+  const lines = text.split("\n");
+  let last = "";
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i]!.replace(/[ \t]+/g, " ").trim();
+    if (line) {
+      last = line;
+      break;
+    }
+  }
+  if (!last) return "";
+  return clipTail(last, 88);
 }
 
 /** Milliseconds and seconds are units: `840ms`, `1.5s`, `12s`, `2m 05s`, `10h 15m` in every language. */

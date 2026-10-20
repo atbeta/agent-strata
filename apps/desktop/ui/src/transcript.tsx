@@ -139,7 +139,11 @@ function ThinkingBlock(props: { text: string; live?: boolean; scope?: string }) 
           {props.live ? t("transcript.thinking") : t("transcript.thought")}
         </span>
         <Show when={!open() && thinkingPreview(props.text)}>
-          <span class="min-w-0 truncate text-xs text-muted-foreground/70">{thinkingPreview(props.text)}</span>
+          {/* rtl puts the overflow on the left, so a narrow row keeps the
+              newest words. The inner bdi draws those words left to right. */}
+          <span dir="rtl" class="min-w-0 truncate text-left text-xs text-muted-foreground/70">
+            <bdi dir="ltr">{thinkingPreview(props.text)}</bdi>
+          </span>
         </Show>
         <span
           class="ml-auto inline-flex shrink-0 text-muted-foreground transition-transform"
