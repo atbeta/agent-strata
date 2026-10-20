@@ -234,7 +234,7 @@ export default {
   "composer.send": "发送",
   "composer.type": "输入消息",
   "composer.queue": "加入队列",
-  "composer.queue.tip": "加入队列——本轮结束后发送（Enter）",
+  "composer.queue.tip": "本轮结束后发送",
   "composer.more": "更多选项",
   "composer.details": "会话详情",
   "composer.menu.files": "文件",
@@ -258,7 +258,7 @@ export default {
   "cmd.redo": "恢复撤回的消息",
   "cmd.interrupt": "停止当前运行",
   "cmd.fork": "分叉此会话",
-  "cmd.rename": "重命名此会话：/rename <标题>",
+  "cmd.rename": "重命名此会话",
   "cmd.share": "分享此会话",
   "cmd.unshare": "停止分享此会话",
   "cmd.export": "导出会话记录",
@@ -276,7 +276,6 @@ export default {
   "picker.effort": "思考强度",
   "picker.default": "默认",
   "picker.agent": "智能体",
-  "picker.agent.tip": "智能体（Tab 切换）",
 
   // The context popover.
   "info.session": "会话",

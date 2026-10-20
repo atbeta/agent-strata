@@ -233,7 +233,7 @@ export default {
   "composer.send": "Send",
   "composer.type": "Type a message",
   "composer.queue": "Queue",
-  "composer.queue.tip": "Queue — sends when the current run finishes (Enter)",
+  "composer.queue.tip": "Sends when this run finishes",
   "composer.more": "More options",
   "composer.details": "Session details",
   "composer.menu.files": "Files",
@@ -257,7 +257,7 @@ export default {
   "cmd.redo": "Restore the reverted message",
   "cmd.interrupt": "Stop the current run",
   "cmd.fork": "Fork this session",
-  "cmd.rename": "Rename this session: /rename <title>",
+  "cmd.rename": "Rename this session",
   "cmd.share": "Share this session",
   "cmd.unshare": "Stop sharing this session",
   "cmd.export": "Export this transcript",
@@ -275,7 +275,6 @@ export default {
   "picker.effort": "Thinking effort",
   "picker.default": "Default",
   "picker.agent": "Agent",
-  "picker.agent.tip": "Agent (Tab to switch)",
 
   // The context popover.
   "info.session": "Session",

@@ -636,7 +636,7 @@ export function useSessionComposer(args: {
   const agentSlot = () => (
     <Picker
       showValueInTip
-      label={opencode() ? t("picker.agent.tip") : t("picker.agent")}
+      label={t("picker.agent")}
       capitalize
       value={agentSel()}
       options={(args.options()?.agents ?? []).map((a) => ({ value: a.name, label: a.name }))}
