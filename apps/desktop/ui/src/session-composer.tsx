@@ -64,6 +64,7 @@ import { ContextRing, SessionInfo } from "./session-info";
 import { paneWorkspace } from "./session-chrome";
 import { Button } from "@/components/ui/button";
 import { Picker } from "@/components/ui/picker";
+import { ProviderIcon } from "./provider-icon";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 function sessionModel(v: SessionView | undefined): string | undefined {
@@ -610,6 +611,11 @@ export function useSessionComposer(args: {
       label={t("picker.model")}
       value={modelSel()}
       options={modelOptions()}
+      icon={
+        <Show when={splitModel(modelSel())}>
+          {(m) => <ProviderIcon provider={m().providerID} />}
+        </Show>
+      }
       class="composer-model max-w-40"
       onChange={(value) => {
         setModelTouched(true);

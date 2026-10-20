@@ -1,4 +1,4 @@
-import { For, Show, createMemo, createSignal } from "solid-js";
+import { For, Show, createMemo, createSignal, type JSX } from "solid-js";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -35,6 +35,8 @@ export interface PickerProps {
   contentClass?: string;
   /** Tooltip names the current pick too; the aria-label stays the generic one. */
   showValueInTip?: boolean;
+  /** Drawn on the trigger ahead of the current pick. */
+  icon?: JSX.Element;
 }
 
 /**
@@ -82,6 +84,7 @@ export function Picker(props: PickerProps) {
           )}
           aria-label={props.label}
         >
+          {props.icon}
           <span class="truncate">{triggerText()}</span>
           <svg
             viewBox="0 0 12 12"
