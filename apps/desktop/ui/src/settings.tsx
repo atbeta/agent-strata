@@ -37,6 +37,8 @@ import { RowButton } from "@/components/ui/row-button";
 import { Switch } from "@/components/ui/switch";
 import { TextFieldInput } from "@/components/ui/text-field";
 import { Group, PillGroup, Row, Segmented } from "./settings-blocks";
+import { BackendSettings } from "./backend-settings";
+import type { ConnectionsCtl } from "./use-connections";
 import { PolicyEditor } from "./policy";
 import { ProviderSettings } from "./providers";
 import { SETTINGS_SECTIONS, settingsSection } from "./settings-sections";
@@ -206,7 +208,7 @@ const CHOICES = (): { id: ThemeChoice; label: string }[] => [
   { id: "system", label: t("settings.theme.system") },
 ];
 
-export function SettingsPage(props: { section?: string }) {
+export function SettingsPage(props: { section?: string; conns: ConnectionsCtl }) {
   const section = () => settingsSection(props.section);
   const [choice, setChoice] = createSignal<ThemeChoice>(readTheme());
   const [launch] = createResource(readOpencodeLaunch);
@@ -482,6 +484,10 @@ export function SettingsPage(props: { section?: string }) {
           </Row>
         </div>
       </Group>
+      </Show>
+
+      <Show when={section() === "backends"}>
+        <BackendSettings conns={props.conns} />
       </Show>
 
       <Show when={section() === "opencode"}>

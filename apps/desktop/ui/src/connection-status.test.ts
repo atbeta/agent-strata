@@ -52,13 +52,16 @@ describe("sidebarEmptyKind", () => {
 });
 
 describe("the connect panel", () => {
-  test("it leaves without the connect button, and the row names embed against external", () => {
-    const src = read("use-connections.tsx");
-    expect(src).toContain("data-connect-keep");
-    expect(src).toContain("action.dismissConnect");
-    expect(src).toContain("conn.placement");
-    expect(src).toContain('closest("[data-connect-keep]")');
-    expect(src).not.toContain("LAUNCHING");
-    expect(src).not.toContain("readOpencodeLaunch");
+  test("the corner shows live status and leaves management to settings", () => {
+    const footer = read("use-connections.tsx");
+    expect(footer).toContain('location.hash = "/settings/backends"');
+    expect(footer).toContain("conn.placement");
+    expect(footer).not.toContain("data-connect-keep");
+    expect(footer).not.toContain("LAUNCHING");
+    const page = read("backend-settings.tsx");
+    expect(page).toContain("settings.backends.disconnect");
+    expect(page).toContain("settings.backends.forget");
+    expect(page).toContain("connect.kind.acp");
+    expect(page).toContain("settings.backends.history");
   });
 });

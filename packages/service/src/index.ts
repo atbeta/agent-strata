@@ -1421,6 +1421,17 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     });
     if (extension) return extension;
 
+    if (path === "/connections/forget" && req.method === "POST") {
+      const body = (await req.json().catch(() => null)) as { endpoint?: unknown } | null;
+      const endpoint = body?.endpoint;
+      if (typeof endpoint !== "string" || endpoint.length === 0) {
+        return json({ error: "endpoint required" }, 400);
+      }
+      memory.forget(endpoint);
+      attempts.delete(endpoint);
+      return json({ ok: true });
+    }
+
     const discMatch = path.match(/^\/connections\/([^/]+)$/);
     if (discMatch && req.method === "DELETE") {
       const conn = conns.get(decodeURIComponent(discMatch[1]!));

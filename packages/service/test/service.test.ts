@@ -672,6 +672,47 @@ describe("agent-strata service", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  test("forgetting a dead backend keeps it from being dialed again", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "strata-boot-forget-"));
+    writeFileSync(
+      join(dir, "connections.json"),
+      JSON.stringify([{ baseUrl: "http://127.0.0.1:1" }, { backend: "acp", command: "strata-no-such-agent", args: ["--nope"] }]) +
+        "\n",
+    );
+    const db = join(dir, "events.db");
+    const first = startService({ db, port: 0, desktopDir: dir, autoConnectTimeoutMs: -1 });
+    const base = `http://127.0.0.1:${first.port}`;
+    let phase = "";
+    for (let i = 0; i < 80 && phase !== "failed"; i++) {
+      phase = ((await fetch(`${base}/connections`).then((r) => r.json())) as { phase: string }).phase;
+      if (phase !== "failed") await Bun.sleep(50);
+    }
+    expect(phase).toBe("failed");
+    for (const endpoint of ["http://127.0.0.1:1", "acp://strata-no-such-agent --nope"]) {
+      const res = await fetch(`${base}/connections/forget`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ endpoint }),
+      });
+      expect(res.status).toBe(200);
+    }
+    const after = (await fetch(`${base}/connections`).then((r) => r.json())) as { phase: string; attempts: unknown[] };
+    expect(after.attempts).toEqual([]);
+    expect(after.phase).toBe("idle");
+    expect(JSON.parse(readFileSync(join(dir, "connections.json"), "utf8"))).toEqual([]);
+    first.stop();
+
+    const second = startService({ db, port: 0, desktopDir: dir, autoConnectTimeoutMs: -1 });
+    const again = (await fetch(`http://127.0.0.1:${second.port}/connections`).then((r) => r.json())) as {
+      phase: string;
+      attempts: unknown[];
+    };
+    expect(again.phase).toBe("idle");
+    expect(again.attempts).toEqual([]);
+    second.stop();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   test("a shorter reconnect does not report the boot target dead while boot is still trying", async () => {
     const dir = mkdtempSync(join(tmpdir(), "strata-boot-hold-"));
     writeFileSync(

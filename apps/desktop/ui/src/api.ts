@@ -848,6 +848,17 @@ export async function disconnectBackend(id: string): Promise<void> {
   await throwOnError(await fetch(api(`/connections/${encodeURIComponent(id)}`), { method: "DELETE" }));
 }
 
+/** Drop a remembered address so the next launch does not dial it again. */
+export async function forgetBackend(endpoint: string): Promise<void> {
+  await throwOnError(
+    await fetch(api("/connections/forget"), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ endpoint }),
+    }),
+  );
+}
+
 export async function testPolicy(body: {
   tool: string;
   input: Record<string, unknown>;

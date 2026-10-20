@@ -182,11 +182,6 @@ export function App() {
       if (ws.dirOpen()) {
         ws.setDirOpen(false);
         e.preventDefault();
-        return;
-      }
-      if (conns.connOpen()) {
-        conns.setConnOpen(false);
-        e.preventDefault();
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
@@ -255,7 +250,7 @@ export function App() {
         location.hash = `/session/${encodeURIComponent(body.id)}`;
       } else {
         conns.setConnErr(body.error ?? t("error.createSession"));
-        conns.setConnOpen(true);
+        location.hash = "/settings/backends";
       }
     } catch (e) {
       // Reached from `void newSession()`, so a rejection here had nowhere to
@@ -271,7 +266,7 @@ export function App() {
       // Opening the form while a backend is still being dialed asks the reader
       // to connect something the app has not finished connecting.
       if (phase === "idle" || phase === "failed" || phase === "missing" || phase === "unreachable") {
-        conns.setConnOpen(true);
+        location.hash = "/settings/backends";
       }
       return;
     }
@@ -462,7 +457,7 @@ export function App() {
         </Show>
         <Show when={route().name === "settings"}>
           <PageShell title={t("settings.title")}>
-            <SettingsPage section={(route() as { section?: string }).section} />
+            <SettingsPage section={(route() as { section?: string }).section} conns={conns} />
           </PageShell>
         </Show>
       </main>
