@@ -11,23 +11,25 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { copyText } from "./clipboard";
-import { Icon } from "./icons";
+import { Icon, type Name } from "./icons";
 import { Md } from "./md";
 import { Tip } from "./tip";
 import { stripAnsi } from "./ansi";
 import { Code, CopyButton } from "./payload";
 import { t, tn } from "./i18n";
+import { cn } from "@/lib/utils";
 import { readThinkingOpen } from "./thinking";
 import {
   assistantNotice,
   diffStat,
+  fmtElapsed,
   fmtLatency,
   hasMessageContent,
   isDiff,
   isInteractiveTool,
   messageText,
   permissionLabel,
-  statusLabel,
+  toolStatusLabel,
   thinkingPreview,
   todoItems,
   toolHeadline,
@@ -236,6 +238,75 @@ export function BlockText(props: { blocks: ContentBlock[]; tight?: boolean; live
   );
 }
 
+/**
+ * A note that stands apart from the message flow — "generation stopped",
+ * "context compacted". A rule on both sides rather than the pill and the
+ * bare centred line it replaces: one shape for every thing that is a seam
+ * in the transcript rather than part of what was said.
+ */
+function TranscriptDivider(props: { icon?: Name; children: JSX.Element }) {
+  return (
+    <div role="status" class="flex items-center gap-2.5 py-1 text-2xs text-muted-foreground">
+      <span class="h-px flex-1 bg-border" />
+      <Show when={props.icon}>
+        {(name) => <Icon name={name()} class="size-3 shrink-0" />}
+      </Show>
+      {props.children}
+      <span class="h-px flex-1 bg-border" />
+    </div>
+  );
+}
+
+/** The three dots a call that has not answered yet writes under itself —
+ *  quieter than naming the state, which the row's status already did. */
+function PendingDots() {
+  return (
+    <p class="flex items-center gap-1 px-2.5 py-2" aria-hidden="true">
+      <span class="tool-dot size-1 rounded-full bg-muted-foreground/50" />
+      <span class="tool-dot size-1 rounded-full bg-muted-foreground/50" style={{ "animation-delay": "150ms" }} />
+      <span class="tool-dot size-1 rounded-full bg-muted-foreground/50" style={{ "animation-delay": "300ms" }} />
+    </p>
+  );
+}
+
+/**
+ * A shell call reads as the terminal it ran in: the command echoed on a `$`
+ * line and the output beneath it, in one well. The command only repeats when
+ * the row's one line could not hold it — a short command already sits in the
+ * row, so echoing it again is noise. The copy button prefers the output the
+ * way a reader does: the answer is the thing worth keeping, the command only
+ * when there is no answer yet.
+ */
+function ShellWell(props: { call: ToolCallView; command?: string; running: boolean }) {
+  const output = () => props.call.output;
+  const copy = () => (output() ? stripAnsi(output()!) : (props.command ?? ""));
+  return (
+    <Show when={props.command || output() || props.running}>
+      <div class="group relative overflow-hidden rounded-md border border-border bg-secondary/40">
+        <Show when={props.command}>
+          <p class="whitespace-pre-wrap break-words px-2.5 pb-1.5 pt-2 font-mono text-2xs leading-5 text-muted-foreground">
+            <span class="select-none text-muted-foreground/60">$ </span>
+            {props.command}
+          </p>
+        </Show>
+        <Show when={output()}>
+          <div class={props.command ? "border-t border-border" : undefined}>
+            <Code source={output()!} maxHeight="max-h-72" class="rounded-none border-0 bg-transparent" />
+          </div>
+        </Show>
+        <Show when={!output() && props.running}>
+          <PendingDots />
+        </Show>
+        <Show when={copy()}>
+          <div class="absolute right-1.5 top-1.5">
+            <CopyButton text={copy()} />
+          </div>
+        </Show>
+      </div>
+    </Show>
+  );
+}
+
 function diffLineClass(line: string): string {
   if (line.startsWith("+") && !line.startsWith("+++")) return "text-status-active";
   if (line.startsWith("-") && !line.startsWith("---")) return "text-destructive";
@@ -275,6 +346,10 @@ type ChildSession = { title: string; status: string; busy?: boolean };
 
 function ToolCallCard(props: {
   call: ToolCallView;
+  /** The session is running, so a `pending` call is work in progress. Without
+   *  it `pending` is an orphaned state — the app died mid-call — and reads as
+   *  unfinished rather than running. */
+  live?: boolean;
   childOf?: (id: string) => ChildSession | undefined;
   onOpenChild?: (id: string) => void;
 }) {
@@ -304,23 +379,48 @@ function ToolCallCard(props: {
     // noise. Only multiline or truncation-length commands earn the repeat.
     return c.includes("\n") || c.length > 60 ? c : undefined;
   };
-  const [open, setOpen] = createSignal(props.call.status === "pending" || props.call.status === "error");
+  /** A pending call is only "running" while the session is. */
+  const running = () => props.call.status === "pending" && props.live === true;
+  const [open, setOpen] = createSignal(running() || props.call.status === "error");
   createEffect(
     on(
       () => props.call.status,
       (status, prev) => {
-        if (status === "error" || status === "pending") setOpen(true);
+        if (status === "error" || (status === "pending" && props.live)) setOpen(true);
         else if (prev === "pending" && status === "ok") setOpen(false);
       },
     ),
   );
-  const todos = () => todoItems(props.call.input);
-  const label = () => {
-    if (props.call.permission?.decision === "deny") return t("tool.status.denied");
-    if (props.call.permission && !props.call.permission.decision && props.call.status === "pending")
-      return t("tool.status.needs_permission");
-    return statusLabel(props.call.status);
+  /**
+   * A running call says how long it has been running, not just that it is.
+   * The ticker exists only while this row is pending — a settled call has a
+   * latency and nothing to count — and it counts from the call's own `ts`,
+   * so a slow open does not restart the clock. A call parked at a permission
+   * prompt or waiting on a reader is waiting on a person, not running, so it
+   * keeps the word instead of the number.
+   */
+  const [now, setNow] = createSignal(Date.now());
+  createEffect(() => {
+    if (!running()) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    onCleanup(() => clearInterval(id));
+  });
+  const elapsed = () => {
+    if (!running()) return undefined;
+    if (props.call.permission && !props.call.permission.decision) return undefined;
+    if (isInteractiveTool(props.call.tool)) return undefined;
+    return fmtElapsed(props.call.ts ?? "", now());
   };
+  const todos = () => todoItems(props.call.input);
+  const status = () => toolStatusLabel(props.call, props.live === true);
+  // A person saying yes marks the row; policy and auto approvals say nothing
+  // new, and a deny already reads in the row's red.
+  const userAllowed = () =>
+    props.call.permission?.decision === "allow" && props.call.permission.by === "user";
+  const permLabel = () =>
+    props.call.permission?.decision || props.call.status === "pending"
+      ? permissionLabel(props.call.permission)
+      : undefined;
   /* One quiet line, not a card: a transcript can hold a dozen of these in a
      row, and giving each one a border and a fill turned the conversation into
      a stack of chrome. The hanging indent under the icon carries the expanded
@@ -359,25 +459,43 @@ function ToolCallCard(props: {
               </span>
             )}
           </Show>
-          <Show when={label() || childBusy() || childError()}>
+          <Show when={userAllowed()}>
+            <Tip label={permLabel() ?? ""}>
+              <Icon name="shield-check" class="size-3 shrink-0 text-muted-foreground" />
+            </Tip>
+          </Show>
+          <Show when={elapsed()}>
+            {(s) => (
+              <Tip label={t("status.running")}>
+                <span
+                  class="shrink-0 font-mono text-2xs tabular-nums text-status-active"
+                  aria-label={t("status.running")}
+                >
+                  <span class="mr-1 inline-block size-1.5 motion-safe:animate-pulse rounded-full bg-status-active align-middle" />
+                  {s()}
+                </span>
+              </Tip>
+            )}
+          </Show>
+          <Show when={!elapsed() && (status() || childBusy() || childError())}>
             <span
               class={`shrink-0 text-2xs ${
-                childError() || denied()
+                childError() || status()?.tone === "danger"
                   ? "text-destructive"
-                  : props.call.status === "pending" || childBusy()
+                  : childBusy() || status()?.tone === "live"
                     ? "text-status-active"
                     : "text-muted-foreground"
               }`}
             >
-              <Show when={props.call.status === "pending" || childBusy()}>
+              <Show when={running() || childBusy()}>
                 <span class="mr-1 inline-block size-1.5 motion-safe:animate-pulse rounded-full bg-status-active align-middle" />
               </Show>
-              {label()}
+              {status()?.text}
             </span>
           </Show>
           {/* Interactive tools wait on the reader, so their latency is a
               person's pause, not a runtime — there is nothing to report. */}
-          <Show when={!label() && !isInteractiveTool(props.call.tool) && fmtLatency(props.call.latency_ms)}>
+          <Show when={!status() && !isInteractiveTool(props.call.tool) && fmtLatency(props.call.latency_ms)}>
             <span class="shrink-0 font-mono text-2xs text-muted-foreground tabular-nums">
               {fmtLatency(props.call.latency_ms)}
             </span>
@@ -412,17 +530,25 @@ function ToolCallCard(props: {
         {/* Expanded content aligns under the row's text, past the icon and its
             gap — a box carries the boundary now, so no rail is needed. */}
         <div class="expand-in ml-[22px] space-y-2 pb-2">
-          <Show when={command()}>
-            <p class="break-words font-mono text-2xs leading-5 text-muted-foreground">{command()}</p>
-          </Show>
-          <Show
-            when={
-              props.call.permission?.decision || props.call.status === "pending"
-                ? permissionLabel(props.call.permission)
-                : undefined
-            }
-          >
-            {(label) => <p class="text-2xs text-event-permission">{label()}</p>}
+          <Show when={permLabel()}>
+            {(label) => (
+              <p
+                class={cn(
+                  "flex items-center gap-1.5 text-2xs",
+                  props.call.permission?.decision === "deny"
+                    ? "text-destructive"
+                    : props.call.permission && !props.call.permission.decision
+                      ? "text-event-permission"
+                      : "text-muted-foreground",
+                )}
+              >
+                <Icon
+                  name={props.call.permission?.decision === "allow" ? "shield-check" : "shield"}
+                  class="size-3 shrink-0"
+                />
+                {label()}
+              </p>
+            )}
           </Show>
           <Show when={headline().kind === "todo" && todos().length > 0}>
             <ul class="space-y-1">
@@ -446,12 +572,22 @@ function ToolCallCard(props: {
               </For>
             </ul>
           </Show>
-          <Show when={props.call.output} fallback={
-            <Show when={props.call.status === "pending"}>
-              <p class="text-xs text-muted-foreground">{t("tool.running")}</p>
-            </Show>
-          }>
-            <OutputWell text={props.call.output!} kind={headline().kind} />
+          <Show
+            when={headline().kind === "shell"}
+            fallback={
+              <Show
+                when={props.call.output}
+                fallback={
+                  <Show when={running()}>
+                    <PendingDots />
+                  </Show>
+                }
+              >
+                <OutputWell text={props.call.output!} kind={headline().kind} />
+              </Show>
+            }
+          >
+            <ShellWell call={props.call} command={command()} running={running()} />
           </Show>
         </div>
       </Show>
@@ -471,6 +607,11 @@ function AssistantMessage(props: {
   turnId: string;
   index: number;
   message: AssistantMessageData;
+  /** Whether the copy/fork row keeps its space under this message. Only the
+   *  turn's closing row carries one — between a paragraph and the tools it
+   *  called, a reserved-but-hidden action row reads as a hole in the text.
+   *  The actions stay reachable through the right-click menu regardless. */
+  footer?: boolean;
   onFork?: (messageId: string) => void;
 }) {
   const text = () => messageText(props.message.content);
@@ -483,7 +624,10 @@ function AssistantMessage(props: {
         text={text}
         onFork={forkable() ? () => props.onFork!(props.message.msg_id!) : undefined}
       >
-      <div class="transcript-message" data-message-role="assistant">
+      {/* `py-1` carries the beat between this paragraph and the tool row that
+          follows it: `space-y-2` margins cannot reach through MessageMenu's
+          `display:contents` wrapper, so the gap lives on the row itself. */}
+      <div class="transcript-message py-1" data-message-role="assistant">
         <div class="relative">
           <BlockText
             blocks={props.message.content}
@@ -492,20 +636,16 @@ function AssistantMessage(props: {
           />
           <Show when={notice()?.kind === "stopped" ? notice() : undefined}>
             {(n) => (
-              <p
-                role="status"
-                class="mt-1 inline-flex items-center gap-1.5 rounded-full border border-border bg-secondary/30 px-2 py-1 text-xs text-muted-foreground"
-              >
-                <Icon name="stop" class="size-3" />
-                {n().text}
-              </p>
+              <div class="mt-2">
+                <TranscriptDivider icon="stop">{n().text}</TranscriptDivider>
+              </div>
             )}
           </Show>
           <Show when={notice()?.kind === "error" ? notice() : undefined}>
             {(n) => (
               <p
                 role="alert"
-                class="mt-1 flex items-start gap-1.5 whitespace-pre-wrap break-words rounded-md border border-destructive/20 bg-destructive/5 px-2.5 py-2 text-xs text-destructive"
+                class="mt-1 flex items-start gap-1.5 whitespace-pre-wrap break-words rounded-md bg-destructive/6 px-3 py-2 text-xs text-destructive"
               >
                 <Icon name="alert" class="mt-0.5 size-3 shrink-0" />
                 <span class="min-w-0 flex-1 whitespace-pre-wrap break-words">{n().text}</span>
@@ -516,7 +656,7 @@ function AssistantMessage(props: {
             <span class="ml-0.5 inline-block h-[1em] w-[2px] translate-y-0.5 motion-safe:animate-pulse bg-foreground/70 align-text-bottom" />
           </Show>
         </div>
-        <Show when={hasFooter()}>
+        <Show when={props.footer && hasFooter()}>
           <MessageActions
             text={text()}
             align="start"
@@ -540,6 +680,8 @@ function AssistantMessage(props: {
  */
 function ToolRun(props: {
   calls: ToolCallView[];
+  /** The session is running — a `pending` call is live work, not an orphan. */
+  live?: boolean;
   childOf?: (id: string) => ChildSession | undefined;
   onOpenChild?: (id: string) => void;
 }) {
@@ -547,10 +689,10 @@ function ToolRun(props: {
     props.calls.length > 3 &&
     props.calls.every((c) => c.status === "ok" && c.permission?.decision !== "deny");
   const [open, setOpen] = createSignal(!foldable());
-  // A run is live while a call is still `pending` — that is the backend's word
-  // for a call it has not finished, and `ok`/`error`/`interrupted` are all ways
-  // of saying it is over.
-  const live = () => props.calls.some((c) => c.status === "pending");
+  // A run animates only while a call is still `pending` AND the session is
+  // live — `pending` alone is just "no result yet", which an orphaned call
+  // keeps saying forever.
+  const live = () => props.live === true && props.calls.some((c) => c.status === "pending");
   return (
     <div class={`space-y-1 ${live() ? "tool-live-in" : ""}`}>
       <Show when={foldable()}>
@@ -586,6 +728,7 @@ function ToolRun(props: {
             {(call) => (
               <ToolCallCard
                 call={call()}
+                live={props.live}
                 childOf={props.childOf}
                 onOpenChild={props.onOpenChild}
               />
@@ -608,6 +751,9 @@ export function TurnBlock(props: {
   entering?: () => boolean;
   /** the agent has been asked but has said nothing yet */
   awaiting?: () => boolean;
+  /** The session is running and this is its working turn, so `pending` calls
+   *  in it are live work rather than orphans of a dead run. */
+  live?: () => boolean;
   childOf?: (id: string) => ChildSession | undefined;
   onOpenChild?: (id: string) => void;
   onEdit?: (turnId: string, text: string) => void;
@@ -703,13 +849,19 @@ export function TurnBlock(props: {
                   turnId={props.turn.turn_id}
                   index={index}
                   message={r().message}
+                  footer={index === flow().length - 1}
                   onFork={props.onFork}
                 />
               )}
             </Match>
             <Match when={row().kind === "tools" ? (row() as Extract<FlowRow, { kind: "tools" }>) : undefined}>
               {(r) => (
-                <ToolRun calls={r().calls} childOf={props.childOf} onOpenChild={props.onOpenChild} />
+                <ToolRun
+                  calls={r().calls}
+                  live={props.live?.()}
+                  childOf={props.childOf}
+                  onOpenChild={props.onOpenChild}
+                />
               )}
             </Match>
           </Switch>
@@ -722,9 +874,7 @@ export function TurnBlock(props: {
         </div>
       </Show>
       <Show when={props.turn.compaction}>
-        <div class="border-t border-border pt-3 text-center text-2xs text-muted-foreground">
-          {t("message.compacted")}
-        </div>
+        <TranscriptDivider>{t("message.compacted")}</TranscriptDivider>
       </Show>
     </div>
   );

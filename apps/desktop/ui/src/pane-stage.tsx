@@ -3,7 +3,7 @@ import { Icon, type Name } from "./icons";
 import { t } from "./i18n";
 import { displayTitle } from "./session-title";
 import { Tip } from "./tip";
-import { realWorkspace } from "./api";
+import { folderLabel, realWorkspace } from "./api";
 import { sessionStatus, showsMark } from "./session-status";
 import { paneStatus } from "./pane-activity";
 import { ToggleIcon } from "./header-toggle";
@@ -61,12 +61,6 @@ function presetIcon(preset: LayoutPreset | "custom"): Name {
   if (preset === "rows-2") return "split-col";
   if (preset === "grid-4" || preset === "custom") return "grid";
   return "layout";
-}
-
-function folderLabel(ws: string | null | undefined): string | undefined {
-  const real = realWorkspace(ws ?? undefined);
-  if (!real) return undefined;
-  return real === "/" || real === "\\" ? t("path.root") : real.split(/[/\\]/).filter(Boolean).at(-1);
 }
 
 /**

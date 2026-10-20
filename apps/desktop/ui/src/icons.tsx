@@ -7,6 +7,7 @@ export type Name =
   | "download"
   | "link"
   | "shield"
+  | "shield-check"
   | "columns"
   | "search"
   | "folder"
@@ -157,6 +158,13 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
     return (
       <Glyph class={cls}>
         <path d="M8 2.2 12.5 4v3.6c0 2.6-1.8 4.4-4.5 5.7C5.3 12 3.5 10.2 3.5 7.6V4z" />
+      </Glyph>
+    );
+  if (name === "shield-check")
+    return (
+      <Glyph class={cls}>
+        <path d="M8 2.2 12.5 4v3.6c0 2.6-1.8 4.4-4.5 5.7C5.3 12 3.5 10.2 3.5 7.6V4z" />
+        <path d="M6 7.9 7.4 9.3 10.1 6.6" />
       </Glyph>
     );
   if (name === "columns")

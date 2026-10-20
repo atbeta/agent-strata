@@ -6,6 +6,7 @@ import { asStructure, looksStructured } from "./structure";
 import { JsonView } from "./json-view";
 import { t } from "./i18n";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 /**
  * A framed block for a tool payload. Structure renders as a tree, text renders
@@ -46,9 +47,11 @@ function Code(props: { source: string; label?: string; maxHeight?: string; class
 
   return (
     <pre
-      class={`group overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-secondary/40 p-2.5 font-mono text-2xs leading-5 text-foreground/85 ${
-        props.class ?? ""
-      } ${props.maxHeight ?? "max-h-96"}`}
+      class={cn(
+        "group overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-secondary/40 p-2.5 font-mono text-2xs leading-5 text-foreground/85",
+        props.class,
+        props.maxHeight ?? "max-h-96",
+      )}
     >
       <code>
         <For each={tokens()}>

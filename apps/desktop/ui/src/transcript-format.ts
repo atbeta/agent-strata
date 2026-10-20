@@ -254,6 +254,23 @@ export function fmtLatency(ms: number | undefined): string | undefined {
 }
 
 /**
+ * How long a still-running call has been running, for the status beside its
+ * row. `fromIso` is the event's timestamp; `now` is the caller's clock. An
+ * unparsable stamp is no answer (`undefined`), and a clock slightly ahead of
+ * the event's reads as zero rather than a negative second. Under a minute the
+ * figure ticks in whole seconds — `9s`, not `9.0s`, because a number that is
+ * meant to change every second should not lie about its precision — past it
+ * the string is latency's own.
+ */
+export function fmtElapsed(fromIso: string, now: number): string | undefined {
+  const from = Date.parse(fromIso);
+  if (!Number.isFinite(from)) return undefined;
+  const ms = Math.max(0, now - from);
+  if (ms < 60_000) return t("latency.s", { n: Math.floor(ms / 1000) });
+  return fmtLatency(ms);
+}
+
+/**
  * A call whose "latency" is the reader deciding, not the tool running. The
  * number beside such a row measures how long a person took to answer, which
  * is not a speed anybody tuned.
@@ -267,6 +284,30 @@ export function statusLabel(status: ToolCallView["status"]): string | undefined 
   if (status === "error") return t("status.failed");
   if (status === "interrupted") return t("status.stopped");
   return undefined;
+}
+
+/**
+ * The word a tool row carries on its right, and how loud it speaks. `pending`
+ * is the backend's word for "no result yet" — it stays `pending` forever in a
+ * session whose run died mid-call, so it only reads as running while the
+ * session is actually live (`live`). An orphaned pending call is unfinished
+ * work, not work in progress: muted, no ticker, and a parked permission
+ * prompt says the same thing — it never got its answer either.
+ */
+export function toolStatusLabel(
+  call: Pick<ToolCallView, "status" | "permission">,
+  live: boolean,
+): { text: string; tone: "live" | "muted" | "danger" } | undefined {
+  if (call.permission?.decision === "deny") return { text: t("tool.status.denied"), tone: "danger" };
+  if (call.status === "pending") {
+    if (!live) return { text: t("status.unfinished"), tone: "muted" };
+    if (call.permission && !call.permission.decision)
+      return { text: t("tool.status.needs_permission"), tone: "live" };
+    return { text: t("status.running"), tone: "live" };
+  }
+  const text = statusLabel(call.status);
+  if (text === undefined) return undefined;
+  return { text, tone: call.status === "error" ? "danger" : "muted" };
 }
 
 /**

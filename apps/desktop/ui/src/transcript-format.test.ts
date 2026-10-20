@@ -15,12 +15,14 @@ const { locale, setLocale } = await import("./i18n");
 const {
   assistantNotice,
   diffStat,
+  fmtElapsed,
   fmtLatency,
   hasMessageContent,
   isInteractiveTool,
   messageText,
   permissionLabel,
   statusLabel,
+  toolStatusLabel,
   thinkingPreview,
   todoItems,
   toolHeadline,
@@ -227,6 +229,19 @@ describe("diff and labels", () => {
     });
   });
 
+  test("elapsed time ticks in whole seconds, then borrows latency's scale", () => {
+    const start = "2026-10-20T10:00:00.000Z";
+    const now = Date.parse("2026-10-20T10:02:05.000Z");
+    // A stamp that means nothing is no answer — the row keeps its word then.
+    expect(fmtElapsed("not a time", now)).toBeUndefined();
+    // A clock slightly behind the event's reads as just started, never negative.
+    expect(fmtElapsed("2026-10-20T10:00:01.000Z", Date.parse("2026-10-20T10:00:00.000Z"))).toBe("0s");
+    // Whole seconds under a minute — a figure that ticks says 9s, not 9.0s.
+    expect(fmtElapsed(start, Date.parse("2026-10-20T10:00:09.900Z"))).toBe("9s");
+    expect(fmtElapsed(start, now)).toBe("2m 05s");
+    expect(fmtElapsed(start, Date.parse("2026-10-20T11:15:00.000Z"))).toBe("1h 15m");
+  });
+
   test("latency climbs ms → tenths → seconds → minutes → hours", () => {
     withLocale("en", () => {
       expect(fmtLatency(999)).toBe("999ms");
@@ -264,6 +279,40 @@ describe("diff and labels", () => {
       expect(statusLabel("error")).toBe("失败");
       expect(statusLabel("interrupted")).toBe("已停止");
       expect(statusLabel("ok")).toBeUndefined();
+    });
+  });
+
+  test("a pending call only runs while the session is live", () => {
+    const pending = { status: "pending" as const, permission: undefined };
+    const ask = {
+      status: "pending" as const,
+      permission: { request_id: "r" },
+    };
+    withLocale("en", () => {
+      expect(toolStatusLabel(pending, true)).toEqual({ text: "Running", tone: "live" });
+      expect(toolStatusLabel(pending, false)).toEqual({ text: "Unfinished", tone: "muted" });
+      // A parked permission prompt is live waiting; orphaned, it is unfinished.
+      expect(toolStatusLabel(ask, true)).toEqual({ text: "Needs permission", tone: "live" });
+      expect(toolStatusLabel(ask, false)).toEqual({ text: "Unfinished", tone: "muted" });
+      expect(toolStatusLabel({ status: "ok", permission: undefined }, true)).toBeUndefined();
+      expect(toolStatusLabel({ status: "interrupted", permission: undefined }, true)).toEqual({
+        text: "Stopped",
+        tone: "muted",
+      });
+      expect(toolStatusLabel({ status: "error", permission: undefined }, true)).toEqual({
+        text: "Failed",
+        tone: "danger",
+      });
+      // A deny speaks first, whatever the status.
+      expect(
+        toolStatusLabel(
+          { status: "pending", permission: { request_id: "r", decision: "deny", by: "user" } },
+          false,
+        ),
+      ).toEqual({ text: "Denied", tone: "danger" });
+    });
+    withLocale("zh", () => {
+      expect(toolStatusLabel(pending, false)).toEqual({ text: "未完成", tone: "muted" });
     });
   });
 

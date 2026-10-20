@@ -25,6 +25,7 @@ import {
   readSessionPolicy,
   readLsp,
   readVcs,
+  folderLabel,
   realWorkspace,
   renameSession,
   respondPermission,
@@ -49,6 +50,7 @@ import { copyText } from "./clipboard";
 import { messageText } from "./transcript-format";
 import { Icon } from "./icons";
 import { t } from "./i18n";
+import { SessionEmpty } from "./session-empty";
 import { displayTitle } from "./session-title";
 import { settled } from "./resource";
 import { inDesktopShell, shellPlatform } from "./shell";
@@ -1426,7 +1428,7 @@ const turns = () => shown().turns;
                         class="max-w-40 shrink-0 truncate font-mono text-2xs text-muted-foreground @max-[440px]:hidden"
                         title={ws()}
                       >
-                        {ws() === "/" || ws() === "\\" ? t("path.root") : ws().split(/[/\\]/).filter(Boolean).at(-1)}
+                        {folderLabel(ws())}
                       </span>
                     )}
                   </Show>
@@ -1692,7 +1694,9 @@ const turns = () => shown().turns;
                 }}
               >
                 <div
-                  class={showNav() ? "mx-auto w-full px-11 py-4" : "mx-auto w-full px-5 py-4"}
+                  class={`${showNav() ? "mx-auto w-full px-11 py-4" : "mx-auto w-full px-5 py-4"}${
+                    turns().length === 0 ? " flex min-h-full flex-col" : ""
+                  }`}
                   style={{
                     "max-width": `calc(${contentW()}px + ${showNav() ? "5.5rem" : "2.5rem"})`,
                   }}
@@ -1716,12 +1720,18 @@ const turns = () => shown().turns;
                             </div>
                           }
                         >
-                          <div class="flex justify-center">
-                            <EmptyState
-                              icon="spark"
-                              title={t("session.empty")}
-                              description={t("session.empty_hint")}
-                              class="py-10"
+                          {/* Centres optically rather than dead-centre: the
+                              composer sits at the bottom, so the middle of
+                              what is left reads higher than the middle of
+                              the column. */}
+                          <div class="flex flex-1 items-center justify-center pb-[10vh]">
+                            <SessionEmpty
+                              workspace={v().workspace}
+                              branch={settled(vcs)?.branch}
+                              hints={{
+                                mention: opencode(),
+                                command: Array.isArray(slashCommands()),
+                              }}
                             />
                           </div>
                         </Show>
@@ -1749,6 +1759,9 @@ const turns = () => shown().turns;
                           <TurnBlock
                             turn={turn()}
                             entering={() => shown().arriving.has(turn().turn_id)}
+                            live={() =>
+                              composer.generating() && turns().at(-1)?.turn_id === turn().turn_id
+                            }
                             awaiting={() =>
                               turn().turn_id === ECHO_TURN_ID || lastSilentTurn() === turn()
                             }

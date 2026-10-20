@@ -689,6 +689,23 @@ textarea {
       opacity: 0.4;
     }
   }
+  /* The waiting dots in a tool well: one dimming pulse that walks across the
+     three of them in sequence rather than a blink in unison. Reduced motion
+     stops the walk at resting opacity — a still row of dots says the same
+     thing without moving. */
+  .tool-dot {
+    animation: tool-dot 1.4s ease-in-out infinite;
+  }
+  @keyframes tool-dot {
+    0%,
+    70%,
+    100% {
+      opacity: 0.35;
+    }
+    35% {
+      opacity: 1;
+    }
+  }
 }
 
 

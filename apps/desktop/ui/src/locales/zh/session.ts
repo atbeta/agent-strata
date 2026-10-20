@@ -88,8 +88,11 @@ export default {
   // card has to name where it came from — otherwise it reads as belonging to
   // the conversation on screen.
   "prompt.from_child": "来自子会话 {name}",
-  "session.empty": "空会话。写一条消息开始。",
-  "session.empty_hint": "这个会话还没有任何对话。",
+  "session.empty.fresh": "新会话",
+  "session.empty.mention": "引用文件",
+  "session.empty.command": "命令",
+  "session.empty.newline": "换行",
+  "session.empty.peer": "还没有对话",
   "session.generated": "新会话 · {when}",
   "header.cost.tip": "已花费 {amount} — 打开上下文环查看明细",
   "header.export": "导出会话记录",

@@ -42,7 +42,7 @@ import {
 import { ContentSashes, LoadingTranscript } from "./content-sashes";
 import type { SessionRowSummary } from "./pane-stage";
 import { Button } from "@/components/ui/button";
-import { EmptyState } from "@/components/ui/empty-state";
+import { SessionEmpty } from "./session-empty";
 
 export type StreamEventPayload = {
   session_id?: string;
@@ -445,7 +445,9 @@ const turns = () => shown().turns;
         }}
       >
         <div
-          class={showNav() ? "mx-auto w-full px-11 py-4" : "mx-auto w-full px-5 py-4"}
+          class={`${showNav() ? "mx-auto w-full px-11 py-4" : "mx-auto w-full px-5 py-4"}${
+            turns().length === 0 ? " flex min-h-full flex-col" : ""
+          }`}
           style={{
             "max-width": `calc(${contentW()}px + ${showNav() ? "5.5rem" : "2.5rem"})`,
           }}
@@ -454,13 +456,10 @@ const turns = () => shown().turns;
             <Show
               when={turns().length > 0}
               fallback={
-                <div class="flex justify-center">
-                  <EmptyState
-                    icon="spark"
-                    title={t("session.empty")}
-                    description={t("session.empty_hint")}
-                    class="py-10"
-                  />
+                // Peer panes have no composer, so no key hints — just where
+                // the session lives and that nobody has said anything yet.
+                <div class="flex flex-1 items-center justify-center pb-[10vh]">
+                  <SessionEmpty workspace={displayed()?.workspace} />
                 </div>
               }
             >
@@ -486,6 +485,9 @@ const turns = () => shown().turns;
                     <TurnBlock
                       turn={turn()}
                       entering={() => shown().arriving.has(turn().turn_id)}
+                      live={() =>
+                        peerGenerating() && turns().at(-1)?.turn_id === turn().turn_id
+                      }
                       awaiting={() => false}
                       childOf={childOf}
                       onOpenChild={props.onOpenChild}

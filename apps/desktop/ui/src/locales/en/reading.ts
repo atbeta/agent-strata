@@ -29,12 +29,12 @@ export default {
   "status.running": "Running",
   "status.failed": "Failed",
   "status.stopped": "Stopped",
+  "status.unfinished": "Unfinished",
 
   "tool.status.denied": "Denied",
   "tool.status.needs_permission": "Needs permission",
   "tool.output.hide": "Hide output",
   "tool.output.show": "Show output",
-  "tool.running": "Running…",
 
   // The permission sentence is assembled per language: English puts the actor
   // after the verb with a space (`Denied by you`), Chinese puts it first and

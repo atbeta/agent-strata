@@ -88,8 +88,11 @@ export default {
   // card has to name where it came from — otherwise it reads as belonging to
   // the conversation on screen.
   "prompt.from_child": "From subagent {name}",
-  "session.empty": "Empty session. Write a prompt to start.",
-  "session.empty_hint": "Nothing has been said in this session yet.",
+  "session.empty.fresh": "New session",
+  "session.empty.mention": "Mention a file",
+  "session.empty.command": "Commands",
+  "session.empty.newline": "New line",
+  "session.empty.peer": "Nothing said yet",
   "session.generated": "New session · {when}",
   "header.cost.tip": "{amount} so far — open the context ring for the breakdown",
   "header.export": "Export transcript",

@@ -1044,6 +1044,14 @@ export function realWorkspace(ws?: string | null): string | undefined {
   return ws;
 }
 
+/** A workspace's one-word name — the last path segment, or the root marker
+ *  when the session sits at `/`. */
+export function folderLabel(ws: string | null | undefined): string | undefined {
+  const real = realWorkspace(ws ?? undefined);
+  if (!real) return undefined;
+  return real === "/" || real === "\\" ? t("path.root") : real.split(/[/\\]/).filter(Boolean).at(-1);
+}
+
 /**
  * The status vocabulary, in one place: which colour a dot takes, and which
  * dictionary key names it. Keys rather than finished words, so a caller renders

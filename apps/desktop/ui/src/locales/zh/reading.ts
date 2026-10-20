@@ -28,12 +28,12 @@ export default {
   "status.running": "运行中",
   "status.failed": "失败",
   "status.stopped": "已停止",
+  "status.unfinished": "未完成",
 
   "tool.status.denied": "已拒绝",
   "tool.status.needs_permission": "需要授权",
   "tool.output.hide": "隐藏输出",
   "tool.output.show": "显示输出",
-  "tool.running": "运行中…",
 
   // 授权这句话按语言拼：英文是 `Denied by you`（动词在前，中间还要一个
   // 空格），中文是 `你已拒绝`（人在前，动词紧贴，中间不能有空格）。语序不
