@@ -327,6 +327,10 @@ export default {
 
   // The prompt outline on the transcript's left edge.
   "nav.outline": "Prompt outline, {n} prompts",
+  "nav.previous": "Previous prompt",
+  "nav.next": "Next prompt",
+  "nav.first": "Jump to the first prompt",
+  "nav.last": "Jump to the latest prompt",
   "nav.turn": "Turn {n}",
   "nav.reverted": "Reverted",
   "nav.latest": "Back to latest",

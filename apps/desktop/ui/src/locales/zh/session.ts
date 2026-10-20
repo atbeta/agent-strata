@@ -328,6 +328,10 @@ export default {
 
   // The prompt outline on the transcript's left edge.
   "nav.outline": "提问导航，共 {n} 条",
+  "nav.previous": "上一条提问",
+  "nav.next": "下一条提问",
+  "nav.first": "跳到最早的提问",
+  "nav.last": "跳到最新的提问",
   "nav.turn": "第 {n} 轮",
   "nav.reverted": "已回退",
   "nav.latest": "返回最新",

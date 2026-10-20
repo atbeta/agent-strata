@@ -1,7 +1,17 @@
 import { createEffect, createRenderEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { Portal } from "solid-js/web";
+import { Button } from "./components/ui/button";
+import { Icon } from "./icons";
 import { t } from "./i18n";
+import { magnifiedWidth, navSteps, railOverflows } from "./prompt-nav";
 import type { PromptEntry } from "./prompt-outline";
+
+/** How far a hovered line reaches into its neighbours, in px. */
+const MAG_INFLUENCE = 50;
+const RIB_BASE = 8;
+const RIB_PEAK = 20;
+const RIB_CURRENT = 14;
+const RIB_CURRENT_PEAK = 22;
 
 /**
  * Prompt rail: one line per user prompt, anchored to the transcript viewport's
@@ -9,6 +19,10 @@ import type { PromptEntry } from "./prompt-outline";
  * preview card for that turn; clicking the line jumps straight to it. All
  * entries keep stable positions in the rail's own scrollbox — nothing is
  * windowed or re-ordered around the active turn.
+ *
+ * Once the ticks outgrow the cap, the scrollbar stays hidden and the ends
+ * stay on screen: an arrow steps to the neighbouring prompt, and a dot jumps
+ * to the first or the last. Passing the pointer widens the lines around it.
  */
 export function PromptNavigator(props: {
   entries: readonly PromptEntry[];
@@ -20,14 +34,20 @@ export function PromptNavigator(props: {
   const [pos, setPos] = createSignal<{ x: number; y: number } | null>(null);
   const [tabId, setTabId] = createSignal<string | null>(null);
   const refs = new Map<string, HTMLButtonElement>();
+  let nav: HTMLDivElement | undefined;
   let rail: HTMLDivElement | undefined;
   let card: HTMLDivElement | undefined;
+  const [chrome, setChrome] = createSignal(false);
+  const steps = () => navSteps(
+    props.entries.map((e) => e.turnId),
+    props.activeId,
+  );
 
   const text = (e: PromptEntry) => e.prompt || t("nav.attach");
   const current = () => props.entries.find((e) => e.turnId === previewId());
 
-  const showFor = (id: string) => {
-    const el = refs.get(id);
+  const showFor = (id: string, anchorEl?: HTMLElement) => {
+    const el = anchorEl ?? refs.get(id);
     if (!el) return;
     setAnchor(el.getBoundingClientRect());
     setPreviewId(id);
@@ -52,6 +72,64 @@ export function PromptNavigator(props: {
     else if (bottom > rail.scrollTop + rail.clientHeight)
       rail.scrollTop = bottom - rail.clientHeight;
   });
+
+  // The cap is the rail's own max, or whatever of the transcript is left after
+  // the 24px margin. Chrome (arrows and end dots) only appears once the ticks
+  // are taller than that, which is the case the hidden scrollbar used to hide.
+  createEffect(() => {
+    props.entries.length;
+    const el = nav;
+    if (!el) return;
+    const measure = () => {
+      const host = el.parentElement;
+      const room = host ? host.clientHeight - 24 : 360;
+      const cap = Math.max(0, Math.min(360, room));
+      const raw = getComputedStyle(el).getPropertyValue("--nav-row-size").trim();
+      const row = parseFloat(raw);
+      setChrome(railOverflows(props.entries.length, Number.isFinite(row) ? row : 8, cap));
+    };
+    measure();
+    const host = el.parentElement;
+    if (!host) return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(host);
+    onCleanup(() => ro.disconnect());
+  });
+
+  const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const paintRibs = (clientY: number | null) => {
+    const col = rail;
+    if (!col) return;
+    const rect = col.getBoundingClientRect();
+    const py = clientY == null ? null : clientY - rect.top + col.scrollTop;
+    for (const btn of col.querySelectorAll<HTMLButtonElement>(".nav-tick")) {
+      const line = btn.querySelector<HTMLElement>(".nav-line");
+      if (!line) continue;
+      if (py == null || reduced()) {
+        line.style.transition = "width 140ms ease-out";
+        line.style.width = "";
+        continue;
+      }
+      const center = btn.offsetTop + btn.offsetHeight / 2;
+      const current = btn.getAttribute("aria-current") === "true";
+      const width = magnifiedWidth(
+        current ? RIB_CURRENT : RIB_BASE,
+        current ? RIB_CURRENT_PEAK : RIB_PEAK,
+        Math.abs(py - center),
+        MAG_INFLUENCE,
+      );
+      line.style.transition = "none";
+      line.style.width = `${width}px`;
+    }
+  };
+  const onRailMove = (e: PointerEvent) => paintRibs(e.clientY);
+  const onRailLeave = () => paintRibs(null);
+
+  const go = (id: string | undefined) => {
+    if (!id) return;
+    hide();
+    props.onSelect(id);
+  };
 
   const onAnyScroll = (e: Event) => {
     if (!previewId()) return;
@@ -138,23 +216,66 @@ export function PromptNavigator(props: {
   const tabFor = (id: string) =>
     (tabId() ?? props.activeId ?? props.entries[0]?.turnId) === id ? 0 : -1;
 
+  const stepClass =
+    "nav-step h-4 w-7 opacity-55 group-hover:opacity-100 group-focus-within:opacity-100 disabled:opacity-30 group-hover:disabled:opacity-30";
+  const endClass = "nav-end h-4 w-7 opacity-55 group-hover:opacity-100 group-focus-within:opacity-100";
+
   return (
     <div
-      class="prompt-nav absolute left-2 top-1/2 z-10 -translate-y-1/2"
+      ref={nav}
+      class="prompt-nav group absolute left-2 top-1/2 z-10 flex -translate-y-1/2 flex-col items-center"
       style={{
         "--nav-count": props.entries.length,
-        height: "min(calc(var(--nav-count) * var(--nav-row-size)), 360px, calc(100% - 24px))",
+        height: chrome()
+          ? "min(360px, calc(100% - 24px))"
+          : "min(calc(var(--nav-count) * var(--nav-row-size)), 360px, calc(100% - 24px))",
+      }}
+      onMouseLeave={(e) => {
+        if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+        hide();
+        onRailLeave();
+      }}
+      onFocusOut={(e) => {
+        if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+        hide();
+        onRailLeave();
       }}
     >
+      <Show when={chrome() && steps()}>
+        {(s) => (
+          <>
+            <Button
+              variant="quiet"
+              size="icon-2xs"
+              class={stepClass}
+              aria-label={t("nav.previous")}
+              disabled={!s().previousId}
+              onMouseEnter={hide}
+              onClick={() => go(s().previousId)}
+            >
+              <Icon name="chevron" class="size-3.5 rotate-180" />
+            </Button>
+            <Button
+              variant="quiet"
+              size="icon-2xs"
+              class={endClass}
+              aria-label={t("nav.first")}
+              onMouseEnter={(e) => showFor(s().firstId, e.currentTarget)}
+              onFocus={(e) => showFor(s().firstId, e.currentTarget)}
+              onClick={() => go(s().firstId)}
+            >
+              <span class="nav-dot" />
+            </Button>
+          </>
+        )}
+      </Show>
       <div
         ref={rail}
-        class="rail h-full overflow-y-auto overscroll-contain"
+        class={`rail overflow-y-auto overscroll-contain ${chrome() ? "min-h-0 w-full flex-1" : "h-full"}`}
         role="group"
         aria-label={t("nav.outline", { n: props.entries.length })}
-        onMouseLeave={hide}
-        onFocusOut={(e) => {
-          if (!rail?.contains(e.relatedTarget as Node | null)) hide();
-        }}
+        onPointerMove={onRailMove}
+        onPointerLeave={onRailLeave}
         onKeyDown={onKey}
       >
         <For each={props.entries}>
@@ -183,6 +304,34 @@ export function PromptNavigator(props: {
           )}
         </For>
       </div>
+      <Show when={chrome() && steps()}>
+        {(s) => (
+          <>
+            <Button
+              variant="quiet"
+              size="icon-2xs"
+              class={endClass}
+              aria-label={t("nav.last")}
+              onMouseEnter={(e) => showFor(s().lastId, e.currentTarget)}
+              onFocus={(e) => showFor(s().lastId, e.currentTarget)}
+              onClick={() => go(s().lastId)}
+            >
+              <span class="nav-dot" />
+            </Button>
+            <Button
+              variant="quiet"
+              size="icon-2xs"
+              class={stepClass}
+              aria-label={t("nav.next")}
+              disabled={!s().nextId}
+              onMouseEnter={hide}
+              onClick={() => go(s().nextId)}
+            >
+              <Icon name="chevron" class="size-3.5" />
+            </Button>
+          </>
+        )}
+      </Show>
       <Show when={current()}>
         {(en) => (
           <Portal>

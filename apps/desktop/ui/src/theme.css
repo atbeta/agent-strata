@@ -565,6 +565,21 @@ textarea {
   background: var(--primary);
   opacity: 1;
 }
+.prompt-nav .nav-dot {
+  display: block;
+  width: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: currentColor;
+  transition:
+    width 0.15s ease,
+    height 0.15s ease;
+}
+.prompt-nav .nav-end:hover .nav-dot,
+.prompt-nav .nav-end:focus-visible .nav-dot {
+  width: 5px;
+  height: 5px;
+}
 @media (hover: none) {
   .prompt-nav {
     --nav-row-size: 28px;
