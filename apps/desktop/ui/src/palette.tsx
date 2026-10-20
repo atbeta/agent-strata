@@ -45,7 +45,7 @@ function TitledRow(props: {
       </Show>
       <Show when={props.row.kind === "command" ? props.row.cmd.chord : undefined}>
         {(chord) => (
-          <kbd class="shrink-0 font-mono text-2xs text-muted-foreground">
+          <kbd class="shrink-0 font-sans text-2xs text-muted-foreground">
             {formatChord(chord())}
           </kbd>
         )}

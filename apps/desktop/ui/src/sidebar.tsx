@@ -16,6 +16,7 @@ import { openSessionInSplit } from "./session-chrome";
 import { hostsTrafficLights, inDesktopShell } from "./shell";
 import { sessionStatus } from "./session-status";
 import { explain } from "./errors";
+import { formatChord } from "./commands";
 import type { SessionListCtl, SidebarGroup } from "./use-session-list";
 import { ProjectLensMenu } from "./project-lens";
 import type { ConnectionsCtl } from "./use-connections";
@@ -45,11 +46,6 @@ export type SidebarSearch = {
   onQuery: (q: string) => void;
   onOpenSession: (id: string) => void;
 };
-
-/** The shortcut as the platform spells it — `⌘K` on a Mac, `Ctrl K` elsewhere. */
-function searchShortcut(): string {
-  return /Mac|iPhone|iPad/i.test(navigator.userAgent) ? "⌘K" : "Ctrl K";
-}
 
 /**
  * The whole left rail: search + new session, the project picker, the fleet
@@ -257,8 +253,10 @@ export function Sidebar(props: {
         >
           <Icon name="search" class="size-3.5 shrink-0 text-muted-foreground" />
           <span>{t("search.label")}</span>
-          <kbd class="ml-auto font-mono text-2xs text-muted-foreground/80">
-            {searchShortcut()}
+          {/* Spelled by the same function as the command panel, so the row and
+              the panel it opens never disagree about what the keys are. */}
+          <kbd class="ml-auto font-sans text-2xs text-muted-foreground/80">
+            {formatChord({ key: "k" })}
           </kbd>
         </RowButton>
         <RowButton
