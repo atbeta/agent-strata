@@ -174,16 +174,28 @@ export function groupVisible(
   return !lens.hideEmpty;
 }
 
+/**
+ * How many axes are off their resting value.
+ *
+ * Zero is the lens doing nothing. The button that opens it wears the count
+ * when it is not: a colour shift on a mark this small is easy to miss once
+ * the menu has closed, and a digit is something a reader can check without
+ * opening the menu to find out whether the list is the whole list.
+ */
+export function lensCount(lens: ProjectLens): number {
+  let n = 0;
+  if (lens.query.trim().length > 0) n += 1;
+  if (lens.hideEmpty) n += 1;
+  if (lens.groupBy !== NO_LENS.groupBy) n += 1;
+  if (lens.status !== NO_LENS.status) n += 1;
+  if (lens.period !== NO_LENS.period) n += 1;
+  if (lens.type !== NO_LENS.type) n += 1;
+  return n;
+}
+
 /** Whether the lens is narrowing anything at all. */
 export function lensActive(lens: ProjectLens): boolean {
-  return (
-    lens.query.trim().length > 0 ||
-    lens.hideEmpty ||
-    lens.groupBy !== NO_LENS.groupBy ||
-    lens.status !== NO_LENS.status ||
-    lens.period !== NO_LENS.period ||
-    lens.type !== NO_LENS.type
-  );
+  return lensCount(lens) > 0;
 }
 
 /**

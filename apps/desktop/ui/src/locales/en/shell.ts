@@ -18,6 +18,7 @@ export default {
   "sidebar.project.none": "No project",
   "sidebar.project.openDirectory": "Open directory",
   "sidebar.project.filter": "Filter projects",
+  "sidebar.project.filter.on": "Filters on",
   "sidebar.project.filter.label": "Search",
   "sidebar.project.filter.placeholder": "Project or session name",
   "sidebar.project.filter.groupBy": "Group by",
@@ -50,21 +51,16 @@ export default {
   "sidebar.sessionCount.one": "{n} session",
   "sidebar.sessionCount.other": "{n} sessions",
 
-  // Sidebar groups and the filter above them. The attention set is the same
-  // one the fleet page calls "Needs attention", so both screens use the one
-  // word.
+  // Sidebar groups. The attention set is the same one the fleet page calls
+  // "Needs attention", so both screens use the one word.
   "sidebar.group.pinned": "Pinned",
   "sidebar.group.attention": "Needs attention",
   "sidebar.group.more": "{n} more",
   "sidebar.group.empty": "No sessions yet",
-  "sidebar.filter.label": "Filter sessions",
-  "sidebar.filter.all": "All",
-  "sidebar.filter.attention": "Needs attention",
 
   // Sidebar empty state
   "sidebar.empty.none": "No sessions yet.",
   "sidebar.empty.needBackend": "Connect a backend to see sessions.",
-  "sidebar.empty.attention": "Nothing needs attention right now.",
 
   // Backends
   "sidebar.backend.none": "No backend",

@@ -124,18 +124,32 @@ export function ProjectLensMenu(props: { list: SessionListCtl }) {
     { id: "hide", label: t("sidebar.project.filter.hide") },
   ];
 
+  const on = () => props.list.lensActive();
+
   return (
     <DropdownMenu placement="right-start" gutter={8}>
-      <Tip label={t("sidebar.project.filter")}>
+      <Tip label={on() ? t("sidebar.project.filter.on") : t("sidebar.project.filter")}>
         <DropdownMenuTrigger
           class={cn(
-            "grid size-5 place-items-center rounded text-muted-foreground/60 hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-            // A lens that narrows something says so on the button, or the
-            // projects that went missing look like projects that never were.
-            props.list.lensActive() && "text-foreground",
+            "grid h-5 place-items-center rounded text-muted-foreground/60 hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+            // A lens that narrows something has to say so after the menu
+            // closes, or the projects that went missing look like projects
+            // that never were. The mark alone turning white was not enough:
+            // it stayed the same shape. On, it becomes a tinted chip and
+            // wears how many axes are set, which is readable without
+            // remembering what the icon looked like a moment ago.
+            on()
+              ? "grid-flow-col gap-0.5 bg-primary/15 px-1 text-primary hover:bg-primary/20 hover:text-primary"
+              : "size-5",
           )}
           aria-label={t("sidebar.project.filter")}
+          aria-pressed={on()}
         >
+          <Show when={on()}>
+            <span class="min-w-2 text-center text-2xs font-medium tabular-nums leading-none">
+              {props.list.lensCount()}
+            </span>
+          </Show>
           <Icon name="sliders" class="size-3.5" />
         </DropdownMenuTrigger>
       </Tip>

@@ -3,6 +3,7 @@ import {
   dayLabel,
   groupVisible,
   lensActive,
+  lensCount,
   lensTypes,
   NO_LENS,
   readLens,
@@ -117,6 +118,13 @@ describe("the project lens", () => {
     expect(lensActive({ ...NO_LENS, status: "busy" })).toBe(true);
     expect(lensActive({ ...NO_LENS, period: "week" })).toBe(true);
     expect(lensActive({ ...NO_LENS, type: "acp" })).toBe(true);
+  });
+
+  test("the count is one per axis that is off rest, and blank space is not one", () => {
+    expect(lensCount(NO_LENS)).toBe(0);
+    expect(lensCount({ ...NO_LENS, query: "   " })).toBe(0);
+    expect(lensCount({ ...NO_LENS, query: "beta", status: "busy", period: "week" })).toBe(3);
+    expect(lensActive(NO_LENS)).toBe(lensCount(NO_LENS) > 0);
   });
 
   test("the lens survives a restart, and a broken one reads as no lens", () => {

@@ -218,14 +218,18 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
   if (name === "sliders")
     return (
       <Glyph class={cls}>
-        {/* Two rails with a knob on each — a mixer, and the shape of a thing
-            whose settings are turned rather than chosen. The knobs are filled:
-            an outlined circle this small reads as a speck next to the pen
-            weight of every other mark on the row. */}
-        <path d="M2.6 5.2h10.8" />
-        <path d="M2.6 10.8h10.8" />
-        <circle cx="6.2" cy="5.2" r="1.9" fill="currentColor" stroke="none" />
-        <circle cx="9.8" cy="10.8" r="1.9" fill="currentColor" stroke="none" />
+        {/* Three rails, a knob on each — the mixer a reader already calls a
+            filter. Two rails read as a broken equals sign, and a line drawn
+            through the knob turns the pair into one blob. The rail stops at
+            the disc: at the size this mark is drawn, a ring's hole fills in
+            and the stroke goes soft, which is the whole of why the old one
+            disappeared on a dark ground. */}
+        <path d="M2.5 4H7.2M12.8 4H13.5" />
+        <circle cx="10" cy="4" r="1.4" fill="currentColor" stroke="none" />
+        <path d="M2.5 8H3.2M8.8 8H13.5" />
+        <circle cx="6" cy="8" r="1.4" fill="currentColor" stroke="none" />
+        <path d="M2.5 12H6.2M11.8 12H13.5" />
+        <circle cx="9" cy="12" r="1.4" fill="currentColor" stroke="none" />
       </Glyph>
     );
   if (name === "arrow-down")

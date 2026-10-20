@@ -14,6 +14,7 @@ import {
   dayLabel,
   groupVisible,
   lensActive,
+  lensCount,
   lensTypes,
   NO_LENS,
   readLens,
@@ -57,7 +58,7 @@ function dirHint(path: string): string {
 
 /**
  * The sidebar's session data: the /sessions resource, its workspace-scoped and
- * grouped views, pins and the attention lens, the row actions, and the two
+ * grouped views, pins and the project lens, the row actions, and the two
  * ambient effects that read the list — finish notifications and the window
  * title's waiting count.
  */
@@ -133,18 +134,13 @@ export function useSessionList(opts: {
   });
 
   /**
-   * Sessions the reader keeps on top, and the "only what is running" lens.
+   * Sessions the reader keeps on top.
    *
    * A pin is window-side state — it says this window cares about this
    * session, which is a property of the person looking, not of the session,
-   * so it persists in storage rather than on the backend. `attentionOnly`
-   * is the momentary version of the same question and is deliberately not
-   * persisted: it answers "where is my running work" for a glance, and a
-   * lens that survived restarts would hide sessions the reader forgot they
-   * filtered out.
+   * so it persists in storage rather than on the backend.
    */
   const [pins, setPins] = createSignal(readPins());
-  const [attentionOnly, setAttentionOnly] = createSignal(false);
   const togglePinned = (id: string) => {
     const next = togglePin(pins(), id);
     setPins(next);
@@ -154,11 +150,9 @@ export function useSessionList(opts: {
   /**
    * The lens on the project section.
    *
-   * It answers "which projects am I looking at, and how", which the attention
-   * lens above cannot: that one collapses the whole list into one lane and
-   * takes the project structure with it. This one keeps the structure and
-   * narrows what is inside it — by name, by backend, by status, by age, and by
-   * the way the list is cut up.
+   * It answers "which projects am I looking at, and how": it keeps the
+   * project structure and narrows what is inside it — by name, by backend,
+   * by status, by age, and by the way the list is cut up.
    */
   const [lens, setLensRaw] = createSignal<ProjectLens>(readLens());
   const setLens = (next: ProjectLens) => {
@@ -176,9 +170,6 @@ export function useSessionList(opts: {
 
   /** The backends the list holds — what the type menu offers. */
   const types = () => lensTypes(sessions().map((s) => s.summary.backend));
-
-  /** The attention set, filter included — pinned rows count when they run. */
-  const attentionRows = () => fleetAttention(sessions());
 
   /** A session, as the lens looks at it. */
   const lensSession = (s: SessionRow): LensSession => ({
@@ -334,16 +325,10 @@ export function useSessionList(opts: {
    * reference too, and a group rebuilt around the same rows would take its
    * children with it. Rows are already held still by `library`, so comparing
    * them by identity here is enough to know the group is unchanged.
-   *
-   * The attention lens shares this memo rather than building its own list in
-   * the render path, because a freshly allocated group every poll would
-   * unmount every row in it and drop a half-typed rename with it.
    */
   const groups = createMemo((prev: SidebarGroup[] | undefined) =>
     holdRows(
-      attentionOnly()
-        ? [{ key: "__attention__", label: t("sidebar.group.attention"), rows: attentionRows() }]
-        : buildGroups(),
+      buildGroups(),
       prev,
       (g) => g.key,
       (a, b) =>
@@ -377,11 +362,9 @@ export function useSessionList(opts: {
     sessions,
     pins,
     togglePinned,
-    attentionOnly,
-    setAttentionOnly,
-    attentionRows,
     lens,
     lensActive: () => lensActive(lens()),
+    lensCount: () => lensCount(lens()),
     setQuery,
     setHideEmpty,
     setGroupBy,

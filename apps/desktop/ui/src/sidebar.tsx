@@ -26,7 +26,6 @@ import { SessionListItem } from "./sidebar-row";
 import { Button } from "@/components/ui/button";
 import { RowButton } from "@/components/ui/row-button";
 import { SectionHeader } from "@/components/ui/section-header";
-import { MiniTabs } from "@/components/ui/mini-tabs";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
   DropdownMenu,
@@ -54,7 +53,7 @@ function searchShortcut(): string {
 
 /**
  * The whole left rail: search + new session, the project picker, the fleet
- * row with its attention lens, the grouped session list, and the connections
+ * row, the grouped session list, and the connections
  * footer. State lives in the `list`/`ws`/`conns` hooks; this only composes
  * and wires them to rows.
  */
@@ -247,60 +246,40 @@ export function Sidebar(props: {
           written on it and nowhere else — removing the row to reach for the
           keyboard would take away how anyone finds the thing that finds
           everything else. */}
-      <div class="px-1.5 pt-2">
+      {/* Search and the overview are the two places the rail goes that are
+          not a session, so they sit together as one block with one style.
+          A rule between them made the overview a section of one row. */}
+      <nav class="flex flex-col gap-px px-1.5 pt-2 pb-1">
         <RowButton
-          class="h-8 items-center px-2 text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+          class="h-8 items-center px-2 text-foreground/80 hover:bg-accent/70"
           aria-label={t("palette.title")}
           onClick={props.onOpenSearch}
         >
-          <Icon name="search" class="size-3.5 shrink-0" />
+          <Icon name="search" class="size-3.5 shrink-0 text-muted-foreground" />
           <span>{t("search.label")}</span>
           <kbd class="ml-auto font-mono text-2xs text-muted-foreground/80">
             {searchShortcut()}
           </kbd>
         </RowButton>
-      </div>
+        <RowButton
+          class={cn(
+            "h-8 items-center px-2",
+            props.fleetActive
+              ? "bg-accent text-foreground"
+              : "text-foreground/80 hover:bg-accent/70",
+          )}
+          aria-current={props.fleetActive ? "page" : undefined}
+          onClick={() => props.onOpenFleet()}
+        >
+          <Icon name="list" class="size-3.5 shrink-0 text-muted-foreground" />
+          <span class="truncate">{t("fleet.nav")}</span>
+        </RowButton>
+      </nav>
       <Show when={list().actionErr()}>
         <p class="truncate px-3 pb-1.5 font-mono text-2xs text-destructive" title={list().actionErr()}>
           {list().actionErr()}
         </p>
       </Show>
-      <div class="border-t border-border px-1.5 pt-1 pb-1">
-        <div class="flex items-center gap-1">
-          <RowButton
-            class={cn(
-              "h-8 min-w-0 flex-1 items-center px-2",
-              props.fleetActive
-                ? "bg-accent text-foreground"
-                : "text-foreground/80 hover:bg-accent/70",
-            )}
-            aria-current={props.fleetActive ? "page" : undefined}
-            onClick={() => props.onOpenFleet()}
-          >
-            <Icon name="list" class="size-3.5 shrink-0 text-muted-foreground" />
-            {/* Label and count travel together, the way SectionHeader sets a
-                group's count beside its name. `flex-1` here stranded the number
-                at the panel edge, so the one row that sits directly above the
-                groups read differently from the groups below it. */}
-            <span class="flex items-baseline gap-1.5">
-              <span class="truncate">{t("fleet.nav")}</span>
-            </span>
-          </RowButton>
-          {/* The "only what is running" lens. It filters rather than sorts
-              because a session that is not moving answers a different
-              question than the one this tab asks. */}
-          <MiniTabs
-            class="shrink-0"
-            value={list().attentionOnly() ? "attention" : "all"}
-            options={[
-              { id: "all", label: t("sidebar.filter.all") },
-              { id: "attention", label: t("sidebar.filter.attention"), count: list().attentionRows().length },
-            ]}
-            onChange={(id) => list().setAttentionOnly(id === "attention")}
-            label={t("sidebar.filter.label")}
-          />
-        </div>
-      </div>
       <div class="min-h-0 flex-1 overflow-y-auto px-1.5 pb-4 pt-1 [mask-image:linear-gradient(to_bottom,black_calc(100%-16px),transparent)]">
         {/* Compare is a mode of the list and it says so at the top of the
             list. The hint used to live inside the connect panel, so entering
@@ -326,9 +305,6 @@ export function Sidebar(props: {
           </div>
         </Show>
         <For each={metaGroups()}>{renderGroup}</For>
-        {/* The attention lens collapses the list to one lane — a projects
-            label above nothing would just be a dangling header. */}
-        <Show when={!list().attentionOnly()}>
         <div class="mb-0.5 flex items-center justify-between px-2 pb-0.5 pt-2.5">
           <span class="text-xs font-medium text-muted-foreground">{sectionLabel()}</span>
           <div class="flex items-center gap-0.5">
@@ -408,11 +384,9 @@ export function Sidebar(props: {
                       listError: Boolean(list().data.error),
                     });
                     if (kind === "hidden") return null;
-                    const attention = list().attentionOnly() && list().sessions().length > 0;
                     const danger = kind === "listError" || kind === "failed" || kind === "unreachable";
-                    const title = attention
-                      ? t("sidebar.empty.attention")
-                      : kind === "listError"
+                    const title =
+                      kind === "listError"
                         ? explain(list().data.error)
                         : kind === "connecting"
                           ? t("sidebar.backend.connecting")
@@ -432,7 +406,7 @@ export function Sidebar(props: {
                         class="px-4 py-10"
                         title={title}
                         action={
-                          kind === "none" && !attention ? (
+                          kind === "none" ? (
                             <Button size="sm" variant="quiet" onClick={() => props.onNewSession()}>
                               {t("action.newSession")}
                             </Button>
@@ -469,7 +443,6 @@ export function Sidebar(props: {
           }
         >
           <For each={sectionGroups()}>{renderGroup}</For>
-        </Show>
         </Show>
       </div>
       <ConnectionsFooter

@@ -19,6 +19,7 @@ export default {
   "sidebar.project.none": "无项目",
   "sidebar.project.openDirectory": "打开目录",
   "sidebar.project.filter": "筛选项目",
+  "sidebar.project.filter.on": "筛选已生效",
   "sidebar.project.filter.label": "搜索",
   "sidebar.project.filter.placeholder": "项目名或会话标题",
   "sidebar.project.filter.groupBy": "分组",
@@ -51,20 +52,16 @@ export default {
   "sidebar.sessionCount.one": "{n} 个会话",
   "sidebar.sessionCount.other": "{n} 个会话",
 
-  // Sidebar groups and the filter above them. The attention set is the same
-  // one the fleet page calls 需要关注, so both screens use the one word.
+  // Sidebar groups. The attention set is the same one the fleet page calls
+  // 需要关注, so both screens use the one word.
   "sidebar.group.pinned": "置顶",
   "sidebar.group.attention": "需要关注",
   "sidebar.group.more": "还有 {n} 条",
   "sidebar.group.empty": "还没有会话",
-  "sidebar.filter.label": "筛选会话列表",
-  "sidebar.filter.all": "全部",
-  "sidebar.filter.attention": "需要关注",
 
   // Sidebar empty state
   "sidebar.empty.none": "还没有会话。",
   "sidebar.empty.needBackend": "连接后端后即可看到会话。",
-  "sidebar.empty.attention": "当前没有需要关注的会话。",
 
   // Backends
   "sidebar.backend.none": "未连接后端",
