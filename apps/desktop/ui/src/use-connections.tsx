@@ -315,12 +315,12 @@ export function ConnectionsFooter(props: {
             </Button>
           </Tip>
         </Show>
-        <Tip label={t("settings.backends.open")}>
+        <Tip label={t("settings.open")}>
           <Button
             variant="icon"
             size="icon-2xs"
             class="text-muted-foreground"
-            aria-label={t("settings.backends.open")}
+            aria-label={t("settings.open")}
             onClick={() => {
               location.hash = "/settings/backends";
             }}

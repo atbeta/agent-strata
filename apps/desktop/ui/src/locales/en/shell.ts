@@ -70,7 +70,6 @@ export default {
   "settings.backends.useForNew": "Use for new sessions",
   "settings.backends.add": "Add a backend",
   "settings.backends.disconnect": "Disconnect",
-  "settings.backends.open": "Backend settings",
   "connect.form.command": "command, e.g. opencode acp",
   "sidebar.backend.newTarget": "new sessions",
 
@@ -166,6 +165,7 @@ export default {
 
   // Settings
   "settings.title": "Settings",
+  "settings.open": "Settings",
   "settings.savedHere": "Saved on this computer.",
   "settings.section.interface": "Interface",
   "settings.section.backends": "Backends",

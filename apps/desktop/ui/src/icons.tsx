@@ -243,11 +243,16 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
         <circle cx="8" cy="8" r="1.4" />
       </Glyph>
     );
+  /**
+   * Lucide `settings` (24 grid, verbatim). The old mark was a circle with
+   * radial ticks, which at 14px read as a sun rather than a cog — the shape
+   * everybody already knows means settings. The toothed ring is that shape.
+   */
   if (name === "gear")
     return (
-      <Glyph class={cls}>
-        <circle cx="8" cy="8" r="2" />
-        <path d="M8 2.2v1.6M8 12.2v1.6M2.2 8h1.6M12.2 8h1.6M3.8 3.8l1.2 1.2M11 11l1.2 1.2M12.2 3.8 11 5M5 11 3.8 12.2" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+        <circle cx="12" cy="12" r="3" />
       </Glyph>
     );
   if (name === "more")

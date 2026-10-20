@@ -70,7 +70,6 @@ export default {
   "settings.backends.useForNew": "用于新会话",
   "settings.backends.add": "添加后端",
   "settings.backends.disconnect": "断开",
-  "settings.backends.open": "后端设置",
   "connect.form.command": "启动命令，如 opencode acp",
   "sidebar.backend.newTarget": "新会话",
 
@@ -164,6 +163,7 @@ export default {
 
   // Settings
   "settings.title": "设置",
+  "settings.open": "设置",
   "settings.savedHere": "保存在此电脑上。",
   "settings.section.interface": "界面",
   "settings.section.backends": "后端",
