@@ -380,31 +380,48 @@ textarea {
   .tok-del     { @apply text-destructive; }
 }
 
-/* The busy session mark: a faint dot-matrix with a bright arc chasing the
-   perimeter ring. Each ring cell lights for about a third of the cycle and
-   the stagger is one sixteenth of the period per cell, so a six-cell comet
-   moves one cell per tick. Reduced-motion keeps the static faint grid — the
-   state still shows, the motion is not required to read it. */
+/* The busy session mark. OpenCode's spinner: the inner four breathe between
+   a present green and full, the edge between two dimmer steps, and the
+   corners are not drawn. Resting opacities are what reduced motion shows.
+   Phases live on the cells (`--d`, `--t`) so this file owns the curves. */
 .status-busy {
   color: var(--status-active);
 }
 .status-busy .cell {
-  opacity: 0.22;
+  opacity: 0.7;
+}
+.status-busy .cell-dim {
+  opacity: 0.28;
 }
 @media (prefers-reduced-motion: no-preference) {
-  .status-busy .cell-ring {
-    animation: status-busy-chase 1.6s linear infinite;
-    animation-delay: calc(var(--i) * -0.1s);
+  .status-busy .cell {
+    animation-name: status-busy-core;
+    animation-duration: calc(var(--t) * 1s);
+    animation-timing-function: ease-in-out;
+    animation-iteration-count: infinite;
+    animation-fill-mode: both;
+    animation-delay: calc(var(--d) * 1s);
+  }
+  .status-busy .cell-dim {
+    animation-name: status-busy-edge;
   }
 }
-@keyframes status-busy-chase {
+@keyframes status-busy-core {
   0%,
-  37.4% {
+  100% {
+    opacity: 0.4;
+  }
+  50% {
     opacity: 1;
   }
-  37.5%,
+}
+@keyframes status-busy-edge {
+  0%,
   100% {
-    opacity: 0.22;
+    opacity: 0.15;
+  }
+  50% {
+    opacity: 0.35;
   }
 }
 

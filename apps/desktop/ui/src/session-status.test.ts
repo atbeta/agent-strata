@@ -106,6 +106,19 @@ describe("lists draw status through one primitive", () => {
     return src.slice(i, j < 0 ? undefined : j);
   };
 
+  test("the running mark breathes through the middle", () => {
+    // A perimeter chase left nine cells sitting still, so the mark read as a
+    // hollow ring. The inner four use the bright curve; the edge uses the dim
+    // one; nothing is a ring.
+    const mark = read("components/ui/session-status.tsx");
+    expect(mark).not.toContain("cell-ring");
+    expect(mark).toContain("cell-dim");
+    const theme = read("theme.css");
+    expect(theme).toContain("animation-name: status-busy-core");
+    expect(theme).toContain("animation-name: status-busy-edge");
+    expect(theme).not.toContain("status-busy-chase");
+  });
+
   test("both lists use it", () => {
     // Two lists, two bespoke status drawings, one vocabulary.
     for (const file of ["sidebar-row.tsx", "fleet-view.tsx"]) {
