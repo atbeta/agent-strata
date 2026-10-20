@@ -1,7 +1,7 @@
 import { createSignal, For, Show } from "solid-js";
 import { respondQuestion, type PendingAsk, type PendingQuestion } from "./api";
 import { Icon } from "./icons";
-import { questionGroups } from "./question-payload";
+import { questionAllowsCustom, questionGroups } from "./question-payload";
 import { DiffBlock } from "./diff";
 import { JsonView } from "./json-view";
 import { permissionView, type PermissionView } from "./permission-card";
@@ -118,8 +118,8 @@ export function QuestionCard(props: { q: PendingQuestion; from?: string; onDone:
   const answers = () =>
     groups.map((question, i) => {
       const selected = picks()[i] ?? [];
-      const extra = custom()[i]?.trim();
-      if (selected.length && extra && question.custom) return [...selected, extra];
+      const extra = questionAllowsCustom(question) ? custom()[i]?.trim() : "";
+      if (selected.length && extra) return [...selected, extra];
       if (selected.length) return selected;
       return extra ? [extra] : [];
     });
@@ -179,7 +179,7 @@ export function QuestionCard(props: { q: PendingQuestion; from?: string; onDone:
                   }}
                 </For>
               </div>
-              <Show when={question.custom}>
+              <Show when={questionAllowsCustom(question)}>
                 <TextFieldInput
                   size="sm"
                   class="mt-2"

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { questionGroups } from "./question-payload";
+import { questionAllowsCustom, questionGroups } from "./question-payload";
 
 /**
  * `/questions` is reached through a blind cast, so nothing upstream checks the
@@ -50,6 +50,15 @@ describe("question payload", () => {
     const optionsless = { ...group("a"), options: undefined as never };
     expect(questionGroups([optionsless])).toHaveLength(1);
   });
+
+  test("custom answers are offered unless the backend says false", () => {
+    // The field is optional upstream and documented as defaulting to true;
+    // the card must not read it truthily, or every current prompt loses the
+    // free-text row.
+    expect(questionAllowsCustom(group("a"))).toBe(true);
+    expect(questionAllowsCustom({ ...group("a"), custom: true })).toBe(true);
+    expect(questionAllowsCustom({ ...group("a"), custom: false })).toBe(false);
+  });
 });
 
 describe("QuestionCard never reads the raw field again", () => {
@@ -65,5 +74,12 @@ describe("QuestionCard never reads the raw field again", () => {
 
   test("it goes through the normaliser", () => {
     expect(src).toContain("questionGroups(props.q.questions)");
+  });
+
+  test("custom answers follow the default-on rule everywhere", () => {
+    // Both the input and the answer it contributes must agree on `custom`;
+    // reading the raw flag truthily hid the row for today's payloads.
+    expect(src).toContain("questionAllowsCustom(question)");
+    expect(src).not.toMatch(/question\.custom\b/);
   });
 });

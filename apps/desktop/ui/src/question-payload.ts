@@ -24,3 +24,13 @@ export function questionGroups(questions: unknown): Group[] {
   if (!Array.isArray(questions)) return [];
   return questions.filter((g): g is Group => !!g && typeof g === "object");
 }
+
+/**
+ * `custom` means "allow typing a custom answer" and upstream documents it as
+ * defaulting to *true*: only an explicit `false` closes the question to free
+ * text. The card read the field truthily, so every prompt that left it out —
+ * which is what the backend sends today — silently lost its input.
+ */
+export function questionAllowsCustom(question: Group): boolean {
+  return question.custom !== false;
+}
