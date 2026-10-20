@@ -29,8 +29,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use embed::{
-    child_env, health_ok, plan, read_mode, resolve_mode, serve_args, service_env, supervise,
-    write_status, OpencodeMode, OpencodeState, Spawned,
+    child_env, health_ok, plan_with_port, previous_port, read_mode, resolve_mode, serve_args,
+    service_env, supervise, write_status, OpencodeMode, OpencodeState, Spawned,
 };
 
 use std::thread::JoinHandle;
@@ -311,10 +311,20 @@ impl Sidecars {
                         }
                     }
                 }
+                // The service needs to know that this address is not ours, or it
+                // would treat it as the embedded server and prune it away.
+                extras.push(("STRATA_OPENCODE_PLACEMENT".to_string(), "external".to_string()));
             }
             OpencodeMode::Embed => {
+                // The placement says which server the address belongs to, not
+                // whether the binary was there to start it.
+                extras.push(("STRATA_OPENCODE_PLACEMENT".to_string(), "embed".to_string()));
                 if let Some(bin) = which("opencode") {
-                    match plan(OpencodeMode::Embed) {
+                    // The last run's port, if it is still free. A different port
+                    // every launch would leave the app with a new remembered
+                    // address every time it opened.
+                    let preferred = previous_port(&status_path);
+                    match plan_with_port(OpencodeMode::Embed, preferred) {
                         Ok(planned) => {
                             let supervise_log =
                                 log.try_clone().ok().or_else(|| open_log(&log_path));

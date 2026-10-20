@@ -18,8 +18,14 @@ import { makeEvent, type EventInput } from "@agent-strata/schema";
 import { goalContinuation, lastAssistantText, sessionAwaiting, shouldContinueGoal } from "./goal";
 import { connectAcpDriver } from "./acp-driver";
 import { bootPlan, REMEMBERED_PROBE_MS } from "./boot-connect";
-import { connectionPhase, connectionPlacement } from "./connection-phase";
-import { agentNameOf, connectionMemory, endpointOf, type ConnectBody } from "./connections";
+import { connectionPhase, connectionPlacement, sameEndpoint } from "./connection-phase";
+import {
+  agentNameOf,
+  connectionMemory,
+  endpointOf,
+  looksEmbedded,
+  type ConnectBody,
+} from "./connections";
 import { extensionRoute } from "./extension-route";
 import { mcpAddRequest, safeMcpError } from "./mcp-add";
 import { mcpAuthCode, mcpAuthStartView } from "./mcp-auth";
@@ -41,6 +47,8 @@ export interface ServiceOpts {
   autoConnectUsername?: string;
   autoConnectPassword?: string;
   autoConnectTimeoutMs?: number;
+  // whether autoConnect is the server the app starts, or one someone else runs
+  autoConnectPlacement?: "embed" | "external";
   // directory holding desktop.json and opencode-status.json; default ~/.agent-strata
   desktopDir?: string;
 }
@@ -504,16 +512,23 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   // boot auto-connect. The address we mean to use retries until the deadline
   // (an embedded server may still be starting). Every other remembered address
   // is probed once, so a dead one does not sit on the connect timeout.
+  //
+  // The addresses of earlier runs of the app are not kept. The app stops the
+  // server it started when it exits, so those addresses are dead; dialing them
+  // again is what left the backend list with one more entry on every launch.
+  const placement = autoConnectPlacement(opts, desktopDir);
+  const remembered = memory.pruneEmbedded(placement, opts.autoConnect);
   const boot: ConnectBody[] = opts.autoConnect
     ? [
         {
           baseUrl: opts.autoConnect,
           username: opts.autoConnectUsername,
           password: opts.autoConnectPassword,
+          placement,
         },
-        ...memory.saved().filter((c) => endpointOf(c) !== opts.autoConnect),
+        ...remembered.filter((c) => endpointOf(c) !== opts.autoConnect),
       ]
-    : memory.saved();
+    : remembered;
   for (const { body, mode } of bootPlan(boot, opts.autoConnect)) {
     const endpoint = endpointOf(body);
     const deadline = Date.now() + (opts.autoConnectTimeoutMs ?? 15_000);
@@ -530,6 +545,18 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         } catch (e) {
           if (mode === "once" || Date.now() > deadline) {
             console.error(`auto-connect to ${endpoint} gave up: ${e}`);
+            /**
+             * An address from an earlier run of the app, and one that answers
+             * nobody, is not a backend to keep reminding the reader about.
+             * The server the app starts is gone the moment the app exits, so
+             * the address is dropped instead of leaving a row behind that
+             * every launch would add another of.
+             */
+            if (looksEmbedded(body)) {
+              memory.forget(endpoint);
+              attempts.delete(endpoint);
+              return;
+            }
             failAttempt(body, e, true);
             return;
           }
@@ -1727,6 +1754,22 @@ function readOpencodeMode(dir: string): OpencodeLaunchMode {
   return "embed";
 }
 
+/**
+ * Whether the boot address is the server the app starts, or one someone else
+ * runs.
+ *
+ * The shell knows which one it started and says so. The status file is the
+ * fallback for a service that was started without the shell: it names the URL
+ * of the embedded server when there is one. When nothing says, the address is
+ * someone else's — the app only owns a server when it says it started one.
+ */
+function autoConnectPlacement(opts: ServiceOpts, desktopDir: string): "embed" | "external" {
+  if (opts.autoConnectPlacement) return opts.autoConnectPlacement;
+  const launch = readOpencodeStatus(desktopDir);
+  if (launch.url && opts.autoConnect && sameEndpoint(launch.url, opts.autoConnect)) return "embed";
+  return "external";
+}
+
 function readOpencodeStatus(dir: string): {
   mode: OpencodeLaunchMode;
   state: OpencodeLaunchState;
@@ -1755,6 +1798,7 @@ if (import.meta.main) {
   const db = process.env.STRATA_DB ?? join(home, ".agent-strata", "events.db");
   const port = Number(process.env.STRATA_PORT ?? 7700);
   const policyFile = process.env.STRATA_POLICY ?? join(home, ".agent-strata", "policy.json");
+  const placement = process.env.STRATA_OPENCODE_PLACEMENT;
   const svc = startService({
     db,
     port,
@@ -1763,6 +1807,7 @@ if (import.meta.main) {
     autoConnect: process.env.STRATA_OPENCODE_URL,
     autoConnectUsername: process.env.STRATA_OPENCODE_USERNAME,
     autoConnectPassword: process.env.STRATA_OPENCODE_PASSWORD,
+    autoConnectPlacement: placement === "embed" || placement === "external" ? placement : undefined,
   });
   console.log(`agent-strata service listening on http://127.0.0.1:${svc.port} (db: ${db})`);
 }

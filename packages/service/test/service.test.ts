@@ -797,6 +797,124 @@ describe("agent-strata service", () => {
     svc.stop();
   });
 
+  test("the embedded server of an earlier run is neither dialed nor remembered", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "strata-embed-boot-"));
+    // The shape the shell gives the server it starts: loopback, the `opencode`
+    // user, and a 43-character password.
+    const stale = (port: number) => ({
+      baseUrl: `http://127.0.0.1:${port}`,
+      username: "opencode",
+      password: "yachwVpceU13FftYteC9pU7Hq448RciEEgmflAWueNI",
+    });
+    writeFileSync(
+      join(dir, "connections.json"),
+      JSON.stringify([stale(53507), stale(51800), { baseUrl: "http://127.0.0.1:4096" }]) + "\n",
+    );
+    const svc = startService({
+      db: join(dir, "events.db"),
+      port: 0,
+      desktopDir: dir,
+      autoConnect: "http://127.0.0.1:64091",
+      autoConnectPlacement: "embed",
+      autoConnectTimeoutMs: -1,
+    });
+    const base = `http://127.0.0.1:${svc.port}`;
+    let body = { attempts: [] as { endpoint: string }[] };
+    for (let i = 0; i < 80; i++) {
+      body = (await fetch(`${base}/connections`).then((r) => r.json())) as typeof body;
+      const endpoints = body.attempts.map((a) => a.endpoint);
+      if (endpoints.includes("http://127.0.0.1:64091") && !endpoints.includes("http://127.0.0.1:53507")) {
+        break;
+      }
+      await Bun.sleep(50);
+    }
+    // The addresses of earlier runs are gone: they answered nobody, and a
+    // dead address of the app's own server is not a backend to keep listing.
+    // The address the user added themselves is still probed, and the one this
+    // run owns is the only embedded address left in the list.
+    expect(body.attempts.map((a) => a.endpoint).sort()).toEqual([
+      "http://127.0.0.1:4096",
+      "http://127.0.0.1:64091",
+    ]);
+    const saved = JSON.parse(readFileSync(join(dir, "connections.json"), "utf8")) as {
+      baseUrl: string;
+    }[];
+    expect(saved.map((c) => c.baseUrl)).toEqual(["http://127.0.0.1:4096"]);
+    svc.stop();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("an address of the app's own shape that answers is kept", async () => {
+    const oc = fakeOpencode();
+    const dir = mkdtempSync(join(tmpdir(), "strata-embed-live-"));
+    // The same shape the shell gives the server it starts — but a server that
+    // is running, so it may be one the user runs themselves.
+    writeFileSync(
+      join(dir, "connections.json"),
+      JSON.stringify([
+        { baseUrl: oc.baseUrl, username: "opencode", password: "yachwVpceU13FftYteC9pU7Hq448RciEEgmflAWueNI" },
+      ]) + "\n",
+    );
+    const svc = startService({
+      db: join(dir, "events.db"),
+      port: 0,
+      desktopDir: dir,
+      autoConnectTimeoutMs: -1,
+    });
+    const base = `http://127.0.0.1:${svc.port}`;
+    let conns = 0;
+    for (let i = 0; i < 80 && conns === 0; i++) {
+      conns = (await fetch(`${base}/health`).then((r) => r.json())).conns;
+      if (conns === 0) await Bun.sleep(50);
+    }
+    expect(conns).toBe(1);
+    const saved = JSON.parse(readFileSync(join(dir, "connections.json"), "utf8")) as {
+      baseUrl: string;
+    }[];
+    expect(saved.map((c) => c.baseUrl)).toEqual([oc.baseUrl]);
+    svc.stop();
+    oc.stop();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a launch replaces the embedded address instead of adding one", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "strata-embed-again-"));
+    const db = join(dir, "events.db");
+    const first = fakeOpencode();
+    const second = fakeOpencode();
+    const boot = async (url: string) => {
+      const svc = startService({
+        db,
+        port: 0,
+        desktopDir: dir,
+        autoConnect: url,
+        autoConnectPlacement: "embed",
+        autoConnectTimeoutMs: -1,
+      });
+      for (let i = 0; i < 80; i++) {
+        const health = (await fetch(`http://127.0.0.1:${svc.port}/health`).then((r) => r.json())) as {
+          conns: number;
+        };
+        if (health.conns > 0) break;
+        await Bun.sleep(50);
+      }
+      svc.stop();
+    };
+    await boot(first.baseUrl);
+    await boot(second.baseUrl);
+
+    const saved = JSON.parse(readFileSync(join(dir, "connections.json"), "utf8")) as {
+      baseUrl?: string;
+      placement?: string;
+    }[];
+    expect(saved).toHaveLength(1);
+    expect(saved[0]?.baseUrl).toBe(second.baseUrl);
+    expect(saved[0]?.placement).toBe("embed");
+    first.stop();
+    second.stop();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   test("a remembered dead address does not block the live one", async () => {
     const oc = fakeOpencode();
     const dir = mkdtempSync(join(tmpdir(), "strata-boot-"));

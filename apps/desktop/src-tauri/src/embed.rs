@@ -66,6 +66,24 @@ pub fn free_port() -> std::io::Result<u16> {
     Ok(port)
 }
 
+/// Whether this port can still be taken on the loopback.
+pub fn port_is_free(port: u16) -> bool {
+    port > 0 && TcpListener::bind(("127.0.0.1", port)).is_ok()
+}
+
+/// The port the last run used, as the status file still names it.
+///
+/// The embedded server belongs to one run of the app, but its address does not
+/// have to change every time. Reusing the port keeps the remembered connection
+/// the same entry instead of a new one on every launch.
+pub fn previous_port(path: &Path) -> Option<u16> {
+    let url = read_status(path)?.url?;
+    let rest = url.strip_prefix("http://")?;
+    let host = rest.split('/').next()?;
+    let (_, port) = host.rsplit_once(':')?;
+    port.parse().ok()
+}
+
 pub fn random_password() -> String {
     let mut bytes = [0u8; 32];
     getrandom::getrandom(&mut bytes).expect("CSPRNG should provide 32 bytes");
@@ -175,14 +193,22 @@ pub fn health_ok(url: &str, username: &str, password: &str) -> bool {
     status_line.contains(" 200 ")
 }
 
-pub fn plan(mode: OpencodeMode) -> std::io::Result<OpencodePlan> {
+/// Plan the embedded server, preferring a port that is still free.
+///
+/// A preferred port is only a preference: anything else already on the
+/// loopback — a second app, an `opencode serve` of the user's own — wins over
+/// it, and the server takes a free port instead.
+pub fn plan_with_port(mode: OpencodeMode, preferred: Option<u16>) -> std::io::Result<OpencodePlan> {
     match mode {
         OpencodeMode::External => Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "plan() only supports embed mode",
         )),
         OpencodeMode::Embed => {
-            let port = free_port()?;
+            let port = match preferred {
+                Some(port) if port_is_free(port) => port,
+                _ => free_port()?,
+            };
             let password = random_password();
             Ok(OpencodePlan {
                 mode,
@@ -263,7 +289,6 @@ pub fn write_status(
     std::fs::write(path, json)
 }
 
-#[cfg(test)]
 pub fn read_status(path: &Path) -> Option<OpencodeStatus> {
     let text = std::fs::read_to_string(path).ok()?;
     serde_json::from_str(&text).ok()
@@ -566,7 +591,7 @@ mod tests {
 
     #[test]
     fn plan_embed_fills_loopback_url_and_username() {
-        let planned = plan(OpencodeMode::Embed).expect("embed plan");
+        let planned = plan_with_port(OpencodeMode::Embed, None).expect("embed plan");
         assert_eq!(planned.mode, OpencodeMode::Embed);
         assert_eq!(planned.username, "opencode");
         assert_eq!(planned.url, format!("http://127.0.0.1:{}", planned.port));
@@ -575,8 +600,52 @@ mod tests {
 
     #[test]
     fn plan_external_is_invalid_input() {
-        let err = plan(OpencodeMode::External).expect_err("external plan");
+        let err = plan_with_port(OpencodeMode::External, None).expect_err("external plan");
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn plan_with_port_keeps_a_port_that_is_still_free() {
+        let port = free_port().expect("free port");
+        let planned = plan_with_port(OpencodeMode::Embed, Some(port)).expect("embed plan");
+        assert_eq!(planned.port, port);
+        assert_eq!(planned.url, format!("http://127.0.0.1:{port}"));
+    }
+
+    #[test]
+    fn plan_with_port_gives_up_a_port_that_is_taken() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let taken = listener.local_addr().expect("addr").port();
+        let planned = plan_with_port(OpencodeMode::Embed, Some(taken)).expect("embed plan");
+        assert_ne!(planned.port, taken);
+        assert!(port_is_free(planned.port));
+    }
+
+    #[test]
+    fn previous_port_reads_the_port_the_last_run_used() {
+        let status_path = temp_path("status.json");
+        write_status(
+            &status_path,
+            OpencodeMode::Embed,
+            OpencodeState::Running,
+            Some("http://127.0.0.1:43123"),
+        )
+        .expect("write running status");
+        assert_eq!(previous_port(&status_path), Some(43123));
+    }
+
+    #[test]
+    fn previous_port_is_none_without_a_status_file_or_a_url() {
+        let status_path = temp_path("status.json");
+        assert_eq!(previous_port(&status_path), None);
+        write_status(
+            &status_path,
+            OpencodeMode::External,
+            OpencodeState::External,
+            None,
+        )
+        .expect("write external status");
+        assert_eq!(previous_port(&status_path), None);
     }
 
     #[test]
