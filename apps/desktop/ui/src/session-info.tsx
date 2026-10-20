@@ -6,6 +6,7 @@ import { copyText } from "./clipboard";
 import { sessionStatus, showsMark, type SessionStatus } from "./session-status";
 import { pieSectorPath } from "./context-pie";
 import type { ContextBreakdownKey, ContextBreakdownSegment } from "./session-context-breakdown";
+import { Tip } from "./tip";
 import { Button } from "@/components/ui/button";
 
 /**
@@ -38,8 +39,18 @@ export function ContextRing(props: { percent: number | null }) {
   );
 }
 
-/** A filled bar reads faster than the ring once the number is spelled out. */
-function ContextBar(props: { percent: number | null }) {
+/**
+ * A filled bar reads faster than the ring once the number is spelled out.
+ *
+ * The filled part is split into the request's composition, so the gauge answers
+ * both "how full" and "of what" at once. The caller supplies the detail behind
+ * a hover; the bar itself stays one line tall.
+ */
+function ContextBar(props: {
+  percent: number | null;
+  segments?: ContextBreakdownSegment[];
+  label?: string;
+}) {
   const width = () => `${Math.max(0, Math.min(100, props.percent ?? 0))}%`;
   const tone = () =>
     props.percent == null
@@ -49,9 +60,29 @@ function ContextBar(props: { percent: number | null }) {
         : props.percent >= 75
           ? "bg-status-cancelled"
           : "bg-foreground";
+  const split = () => (props.segments?.length ?? 0) > 0;
   return (
-    <div class="h-1.5 w-full overflow-hidden rounded-full bg-border">
-      <div class={`h-full rounded-full transition-[width] ${tone()}`} style={{ width: width() }} />
+    <div
+      class="h-1.5 w-full overflow-hidden rounded-full bg-border outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      role="img"
+      aria-label={props.label}
+      tabIndex={props.label ? 0 : undefined}
+    >
+      <div class="flex h-full overflow-hidden rounded-full transition-[width]" style={{ width: width() }}>
+        <Show
+          when={split()}
+          fallback={<div class={`h-full w-full rounded-full ${tone()}`} />}
+        >
+          <For each={props.segments}>
+            {(segment) => (
+              <span
+                class={`h-full shrink-0 ${BREAKDOWN_FILL[segment.key]}`}
+                style={{ width: `${segment.width}%` }}
+              />
+            )}
+          </For>
+        </Show>
+      </div>
     </div>
   );
 }
@@ -78,51 +109,21 @@ function breakdownLabel(key: ContextBreakdownKey): string {
 }
 
 /**
- * A composition bar for the input side of the last request. Percentages are of
- * `input`, not of the context total — the same denominator OpenCode's desktop
- * uses — so the segments always add up to the number on the right.
+ * The composition behind the bar's hover. Percentages are of `input`, not of
+ * the context total — the same denominator OpenCode's desktop uses — which is
+ * also why the note says the split is an estimate rather than a measurement.
  */
-function ContextBreakdown(props: { segments: ContextBreakdownSegment[]; input: number }) {
-  return (
-    <Show when={props.segments.length > 0}>
-      <div class="mt-2.5 border-t border-border/60 pt-2">
-        <div class="flex items-baseline justify-between gap-3">
-          <span class="text-2xs text-muted-foreground" title={t("info.breakdown.note")}>
-            {t("info.breakdown")}
-          </span>
-          <span class="font-mono text-2xs tabular-nums text-muted-foreground">
-            {t("info.breakdown.input", { n: num(props.input) })}
-          </span>
-        </div>
-        <div class="mt-1.5 flex h-1.5 w-full overflow-hidden rounded-full bg-border" aria-hidden="true">
-          <For each={props.segments}>
-            {(segment) => (
-              <span
-                class={`h-full shrink-0 ${BREAKDOWN_FILL[segment.key]}`}
-                style={{ width: `${segment.width}%` }}
-              />
-            )}
-          </For>
-        </div>
-        <div class="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1">
-          <For each={props.segments}>
-            {(segment) => (
-              <span class="inline-flex min-w-0 items-center gap-1 text-2xs text-muted-foreground">
-                <span
-                  class={`size-1.5 shrink-0 rounded-full ${BREAKDOWN_FILL[segment.key]}`}
-                  aria-hidden="true"
-                />
-                <span class="truncate">{breakdownLabel(segment.key)}</span>
-                <span class="tabular-nums text-muted-foreground/70">
-                  {segment.percent < 0.1 ? "<0.1" : segment.percent}%
-                </span>
-              </span>
-            )}
-          </For>
-        </div>
-      </div>
-    </Show>
-  );
+function breakdownTip(segments: ContextBreakdownSegment[], input: number): string {
+  if (segments.length === 0) return "";
+  const rows = segments.map((segment) => {
+    const percent = segment.percent < 0.1 ? "<0.1" : segment.percent;
+    return `${breakdownLabel(segment.key)} ${percent}% · ${compactNum(segment.tokens)}`;
+  });
+  return [
+    `${t("info.breakdown")} · ${t("info.breakdown.input", { n: num(input) })}`,
+    ...rows,
+    t("info.breakdown.note"),
+  ].join("\n");
 }
 
 /**
@@ -227,6 +228,7 @@ export function SessionInfo(props: {
       return null;
     return Math.round(props.context.total / (props.context.percent / 100));
   };
+  const contextTip = () => breakdownTip(props.breakdown ?? [], props.context?.input ?? 0);
   const [idCopied, setIdCopied] = createSignal(false);
   const copyId = async () => {
     const mine = ++copyIdToken;
@@ -280,7 +282,13 @@ export function SessionInfo(props: {
             there is nothing to misread. */}
         <Show when={props.context?.percent != null}>
           <div class="mt-2">
-            <ContextBar percent={props.context!.percent} />
+            <Tip label={contextTip()} class="w-full">
+              <ContextBar
+                percent={props.context!.percent}
+                segments={props.breakdown}
+                label={contextTip()}
+              />
+            </Tip>
           </div>
           <div class="mt-1.5 flex items-baseline justify-between gap-3 text-2xs text-muted-foreground">
             <span>{num(props.context!.total)} tokens</span>
@@ -292,7 +300,6 @@ export function SessionInfo(props: {
         <Show when={!props.context || props.context.total <= 0}>
           <div class="mt-1 text-2xs text-muted-foreground">{t("info.context.none")}</div>
         </Show>
-        <ContextBreakdown segments={props.breakdown ?? []} input={props.context?.input ?? 0} />
       </div>
 
       <InfoGroup divided={false}>
