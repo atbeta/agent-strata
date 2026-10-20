@@ -90,6 +90,11 @@ describe("the transcript's flow is positioned so motion is possible", () => {
       expect(body).not.toContain("infinite");
     }
     expect(theme).toContain("animation: rise-in 0.16s ease-out both;");
+    // Command overlays are asked for. They finish with the backdrop fade
+    // instead of travelling after it, and they stay shorter than a turn.
+    expect(theme).toContain("animation: dialog-pop 0.08s ease-out;");
+    const dialog = theme.indexOf("@keyframes dialog-pop");
+    expect(theme.slice(dialog, dialog + 180)).toContain("translateY(-3px)");
     // Two pixels. A reader should not be able to catch a block travelling.
     const at = theme.indexOf("@keyframes rise-in");
     expect(theme.slice(at, at + 160)).toContain("translateY(2px)");
