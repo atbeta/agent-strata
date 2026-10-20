@@ -4,46 +4,52 @@ import { cn } from "@/lib/utils";
 import { showsMark, type SessionStatus } from "@/session-status";
 
 /**
- * The working mark: a 5×5 pixel grid whose lit cells chase around the
- * perimeter. The same idea OpenCode draws with an animated sprite — a dim
- * dot-matrix with a bright arc sweeping the ring — done here as SVG cells
- * with staggered animation delays, so the mark tints itself from
- * `currentColor` and needs no image asset. Reduced-motion collapses to the
- * same faint grid with no sweep.
+ * The working mark, taken from OpenCode's spinner.
  *
- * Cells sit on a 3px pitch starting at 1, 2×2 each, in a 16×16 viewBox.
- * Ring order runs clockwise from the top-left so `--i` reads as the cell's
- * place in the chase.
+ * A 4×4 matrix with the four corners left out, so it reads as a cluster
+ * rather than a frame. The inner four breathe bright and the edge breathes
+ * dim, on phases that are fixed for the whole window: every row beats the
+ * same way, and a reload does not reshuffle them. A perimeter chase left the
+ * middle sitting still, which is the hollow ring this replaced.
+ *
+ * Cells are 3×3 on a 4px pitch inside a 15×15 viewBox, corners rounded by 1
+ * so they stay squares at sidebar size. The mark tints itself from
+ * `currentColor`. Reduced motion keeps the same cells at their resting
+ * opacity, with no pulse.
  */
-const RING: [number, number][] = [
-  [0, 0], [1, 0], [2, 0], [3, 0], [4, 0],
-  [4, 1], [4, 2], [4, 3], [4, 4],
-  [3, 4], [2, 4], [1, 4], [0, 4],
-  [0, 3], [0, 2], [0, 1],
+const BUSY_CELLS: { x: number; y: number; dim: boolean; delay: number; duration: number }[] = [
+  { x: 4, y: 0, dim: true, delay: 0.15, duration: 1.4 },
+  { x: 8, y: 0, dim: true, delay: 0.9, duration: 1.7 },
+  { x: 0, y: 4, dim: true, delay: 0.55, duration: 1.5 },
+  { x: 4, y: 4, dim: false, delay: 0.0, duration: 1.6 },
+  { x: 8, y: 4, dim: false, delay: 0.4, duration: 1.3 },
+  { x: 12, y: 4, dim: true, delay: 1.1, duration: 1.8 },
+  { x: 0, y: 8, dim: true, delay: 0.25, duration: 1.6 },
+  { x: 4, y: 8, dim: false, delay: 0.7, duration: 1.4 },
+  { x: 8, y: 8, dim: false, delay: 1.2, duration: 1.5 },
+  { x: 12, y: 8, dim: true, delay: 0.45, duration: 1.7 },
+  { x: 4, y: 12, dim: true, delay: 1.0, duration: 1.3 },
+  { x: 8, y: 12, dim: true, delay: 0.3, duration: 1.8 },
 ];
-const INNER: [number, number][] = [];
-for (let y = 1; y < 4; y++) for (let x = 1; x < 4; x++) INNER.push([x, y]);
 
 function BusyGrid() {
   return (
     <svg
-      viewBox="0 0 16 16"
+      viewBox="0 0 15 15"
       class="status-busy size-3 shrink-0"
       fill="currentColor"
       aria-hidden="true"
     >
-      <For each={INNER}>
-        {([x, y]) => <rect x={1 + x * 3} y={1 + y * 3} width="2" height="2" class="cell" />}
-      </For>
-      <For each={RING}>
-        {([x, y], i) => (
+      <For each={BUSY_CELLS}>
+        {(cell) => (
           <rect
-            x={1 + x * 3}
-            y={1 + y * 3}
-            width="2"
-            height="2"
-            class="cell cell-ring"
-            style={{ "--i": i() }}
+            x={cell.x}
+            y={cell.y}
+            width="3"
+            height="3"
+            rx="1"
+            class={cell.dim ? "cell cell-dim" : "cell"}
+            style={{ "--d": cell.delay, "--t": cell.duration }}
           />
         )}
       </For>
