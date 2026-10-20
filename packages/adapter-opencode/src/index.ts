@@ -174,7 +174,7 @@ export async function connectOpencode(opts: {
   mcpAuthFinish: (name: string, code: string, directory: string | undefined, signal: AbortSignal) => Promise<void>;
   revert: (sessionID: string, messageID: string, directory?: string) => Promise<void>;
   unrevert: (sessionID: string, directory?: string) => Promise<void>;
-  fork: (sessionID: string, messageID: string, directory?: string) => Promise<{ id: string }>;
+  fork: (sessionID: string, messageID: string | undefined, directory?: string) => Promise<{ id: string }>;
   summarize: (
     sessionID: string,
     directory?: string,
@@ -557,7 +557,7 @@ export async function connectOpencode(opts: {
       const legacy = await client.session.unrevert({ sessionID, directory: directory ?? opts.directory });
       if (legacy.error) throw new Error(errorMessage(legacy.error));
     },
-    async fork(sessionID: string, messageID: string, directory?: string) {
+    async fork(sessionID: string, messageID: string | undefined, directory?: string) {
       const r = await client.session.fork({ sessionID, messageID, directory: directory ?? opts.directory });
       if (!r.data) throw new Error("session.fork returned no data");
       return { id: r.data.id };

@@ -629,11 +629,19 @@ export async function handoffSession(id: string, connectionId: string): Promise<
   return data.id;
 }
 
-export async function forkSession(id: string, messageId: string): Promise<string> {
+/**
+ * A new session with this one's messages: all of them, those before `before`,
+ * or those up to and including `through`.
+ */
+export async function forkSession(
+  id: string,
+  at: { before: string } | { through: string } | "all",
+): Promise<string> {
+  const body = at === "all" ? {} : "before" in at ? { message_id: at.before } : { message_id: at.through, through: true };
   const res = await fetch(api(`/sessions/${encodeURIComponent(id)}/fork`), {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ message_id: messageId }),
+    body: JSON.stringify(body),
   });
   await throwOnError(res);
   const data = (await res.json()) as { id: string };

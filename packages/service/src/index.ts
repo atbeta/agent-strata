@@ -32,6 +32,7 @@ import { mcpAuthCode, mcpAuthStartView } from "./mcp-auth";
 import { providerRoute } from "./provider-auth";
 import { readPromptParts } from "./prompt-parts";
 import { editorLaunch } from "./editor";
+import { forkBefore, forkTitle } from "./fork";
 import { refused, shellCors } from "./shell-origin";
 import { terminalClose, terminalMessage, terminalOpen, terminalRoute, terminalUpgrade } from "./terminal";
 import { SessionClaims } from "./identity";
@@ -1114,13 +1115,23 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       if (!native) return json({ error: "session is not owned by a connected backend" }, 400);
       owners.set(casfId, conn.id);
       if (!conn.capabilities.fork || !conn.fork) return json({ error: "backend cannot fork" }, 400);
-      const body = (await req.json().catch(() => null)) as { message_id?: unknown } | null;
-      const messageId = typeof body?.message_id === "string" ? body.message_id : "";
-      if (!messageId) return json({ error: "message_id required" }, 400);
+      const body = (await req.json().catch(() => null)) as { message_id?: unknown; through?: unknown } | null;
+      if (body?.message_id !== undefined && (typeof body.message_id !== "string" || !body.message_id)) {
+        return json({ error: "message_id must be a message id" }, 400);
+      }
+      const view = sessionView(casfId);
+      const cut = forkBefore(view, body?.message_id as string | undefined, body?.through === true);
+      if (!cut) return json({ error: "no such message in the session" }, 400);
+      const directory = directoryOf(casfId);
       try {
-        const created = await conn.fork(native, messageId, directoryOf(casfId));
+        const created = await conn.fork(native, cut.before, directory);
         owners.set(created.casfId, conn.id);
         claims.claim(`${conn.agent}:${created.nativeId}`, created.casfId, conn.id);
+        const source = view.title?.trim();
+        if (source && conn.capabilities.manage) {
+          const title = forkTitle(source, store.listSessions().map((s) => s.title));
+          await conn.rename(created.nativeId, title, directory).catch(() => {});
+        }
         return json({ id: created.casfId });
       } catch (e) {
         return json({ error: String(e) }, 502);

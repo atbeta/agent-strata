@@ -3,9 +3,11 @@ import {
   createSignal,
   createUniqueId,
   For,
+  on,
   onCleanup,
   onMount,
   Show,
+  untrack,
   type JSX,
 } from "solid-js";
 import {
@@ -747,7 +749,9 @@ export function useSessionComposer(args: {
     });
   };
 
-  createEffect(() => writeDraft(args.sessionId(), draft()));
+  // Keyed on the draft alone: on a switch the new id lands before `resetFor`
+  // reads the new draft, and writing then would give it the old session's text.
+  createEffect(on(draft, (text) => writeDraft(untrack(args.sessionId), text), { defer: true }));
 
   // A restored draft arrives with a collapsed textarea; grow it once it exists.
   onMount(() => {

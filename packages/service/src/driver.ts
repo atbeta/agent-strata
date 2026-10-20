@@ -159,7 +159,8 @@ export interface BackendDriver {
    */
   replyQuestion?(requestId: string, answers: string[][], directory?: string): Promise<unknown>;
   rejectQuestion?(requestId: string, directory?: string): Promise<unknown>;
-  fork?(nativeId: string, messageId: string, directory?: string): Promise<{ casfId: string; nativeId: string }>;
+  /** copies the messages before `beforeId`, or all of them without one */
+  fork?(nativeId: string, beforeId: string | undefined, directory?: string): Promise<{ casfId: string; nativeId: string }>;
   summarize?(
     nativeId: string,
     directory?: string,

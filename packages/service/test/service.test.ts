@@ -1223,6 +1223,8 @@ describe("agent-strata service", () => {
         Response.json({ id: "ses_x", directory: "/repo", title: "x", time: { created: 1, updated: 1 } }),
       "/session/ses_x/fork": () =>
         Response.json({ id: "ses_fork", directory: "/repo", title: "fork", time: { created: 1, updated: 1 } }),
+      "/session/ses_fork": () =>
+        Response.json({ id: "ses_fork", directory: "/repo", title: "x (fork #3)", time: { created: 1, updated: 1 } }),
       "/session/ses_x/summarize": () => Response.json(true),
     });
     const svc = startService({ db: ":memory:", port: 0 });
@@ -1236,6 +1238,10 @@ describe("agent-strata service", () => {
     await post("/connect", { baseUrl: oc.baseUrl, directory: "/repo" });
     svc.store.append([
       ev("opencode:ses_x", "session.started", { title: "x", workspace: "/repo" }, "2026-01-01T00:00:00Z"),
+      ev("opencode:ses_x", "turn.user", { turn_id: "msg_1", content: [{ type: "text", text: "a" }] }, "2026-01-01T00:00:01Z"),
+      ev("opencode:ses_x", "turn.assistant", { turn_id: "msg_1", msg_id: "msg_1r", content: [] }, "2026-01-01T00:00:02Z"),
+      ev("opencode:ses_x", "turn.user", { turn_id: "msg_2", content: [{ type: "text", text: "b" }] }, "2026-01-01T00:00:03Z"),
+      ev("opencode:ses_y", "session.started", { title: "x (fork #2)", workspace: "/repo" }, "2026-01-01T00:00:04Z"),
     ]);
     const sid = encodeURIComponent("opencode:ses_x");
 
@@ -1260,12 +1266,19 @@ describe("agent-strata service", () => {
     expect(await unrevert.json()).toEqual({ ok: true });
     expect(oc.seen.some((s) => s.path === "/session/ses_x/unrevert")).toBe(true);
 
-    expect((await post(`/sessions/${sid}/fork`, {})).status).toBe(400);
+    expect((await post(`/sessions/${sid}/fork`, { message_id: "" })).status).toBe(400);
+    expect((await post(`/sessions/${sid}/fork`, { message_id: "nope" })).status).toBe(400);
+    const forkBody = () => JSON.parse(oc.seen.filter((s) => s.path === "/session/ses_x/fork").at(-1)!.body);
     const fork = await post(`/sessions/${sid}/fork`, { message_id: "msg_1" });
     expect(fork.status).toBe(200);
     expect(await fork.json()).toEqual({ id: "opencode:ses_fork" });
-    const forkSeen = oc.seen.filter((s) => s.path === "/session/ses_x/fork").at(-1);
-    expect(JSON.parse(forkSeen!.body)).toEqual({ messageID: "msg_1" });
+    expect(forkBody()).toEqual({ messageID: "msg_1" });
+    const renamed = oc.seen.filter((s) => s.path === "/session/ses_fork" && s.method === "PATCH").at(-1);
+    expect(JSON.parse(renamed!.body)).toMatchObject({ title: "x (fork #3)" });
+    expect((await post(`/sessions/${sid}/fork`, { message_id: "msg_1r", through: true })).status).toBe(200);
+    expect(forkBody()).toEqual({ messageID: "msg_2" });
+    expect((await post(`/sessions/${sid}/fork`, {})).status).toBe(200);
+    expect(forkBody()).toEqual({});
 
     const summarize = await post(`/sessions/${sid}/summarize`);
     expect(summarize.status).toBe(200);

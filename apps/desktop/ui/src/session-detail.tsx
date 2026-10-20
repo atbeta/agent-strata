@@ -120,6 +120,7 @@ import { AskCard, QuestionCard } from "./session-prompts";
 import { useSessionSearch, SearchPanel } from "./session-search";
 import { useMcpTools, McpToolsPanel } from "./session-tools";
 import { useSessionComposer, SessionComposer } from "./session-composer";
+import { writeDraft } from "./prompt-memory";
 import { SessionRail } from "./session-rail";
 import { createEntranceLedger } from "./entrance";
 import { Button } from "@/components/ui/button";
@@ -702,9 +703,8 @@ export function SessionDetail(props: {
         return;
       }
       case "fork": {
-        const last = settled(view)?.turns.at(-1);
-        if (!last) throw new Error(t("cmd.fork.none"));
-        const id = await forkSession(props.id, last.turn_id);
+        if (!settled(view)?.turns.length) throw new Error(t("cmd.fork.none"));
+        const id = await forkSession(props.id, "all");
         location.hash = `/session/${encodeURIComponent(id)}`;
         return;
       }
@@ -1228,9 +1228,16 @@ const turns = () => shown().turns;
     })().catch((err) => composer.setSendErr(err instanceof Error ? err.message : t("err.network")));
   };
 
-  const forkTurn = (turnId: string) => {
-    void forkSession(props.id, turnId)
+  /**
+   * Forking at a reply keeps it. Forking at a prompt leaves the prompt out and
+   * puts it in the new session's composer, to send again or rewrite.
+   */
+  const forkAt = (messageId: string) => {
+    const prompt = (settled(view)?.turns ?? []).find((item) => item.turn_id === messageId);
+    void forkSession(props.id, prompt ? { before: messageId } : { through: messageId })
       .then((id) => {
+        const text = prompt?.user ? messageText(prompt.user) : "";
+        if (text.trim()) writeDraft(id, text);
         location.hash = `/session/${encodeURIComponent(id)}`;
       })
       .catch((err) => composer.setSendErr(err instanceof Error ? err.message : t("err.network")));
@@ -1769,7 +1776,7 @@ const turns = () => shown().turns;
                             onOpenChild={openChild}
                             onEdit={composer.editTurn}
                             onRevert={caps()?.revert ? revertTurn : undefined}
-                            onFork={caps()?.fork ? forkTurn : undefined}
+                            onFork={caps()?.fork ? forkAt : undefined}
                           />
                         </div>
                       )}
