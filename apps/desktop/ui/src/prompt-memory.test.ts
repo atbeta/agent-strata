@@ -1,10 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { navigateHistory, rememberPrompt, sessionContext } from "./prompt-memory";
 
-const usage = (input: number, extra: { output?: number; cache_read?: number } = {}) => ({
+const usage = (
+  input: number,
+  extra: { output?: number; cache_read?: number; cache_write?: number; reasoning?: number } = {},
+) => ({
   input,
   output: extra.output ?? 0,
   cache_read: extra.cache_read,
+  cache_write: extra.cache_write,
+  reasoning: extra.reasoning,
 });
 
 describe("sessionContext", () => {
@@ -15,20 +20,35 @@ describe("sessionContext", () => {
         { assistant: [{ usage: usage(0) }, { usage: usage(800, { output: 40, cache_read: 10 }) }] },
       ],
       1_000,
+      "opencode",
     );
-    expect(ctx).toEqual({ total: 850, percent: 85, input: 800 });
-  });
-
-  test("percent stays unset when the model publishes no window", () => {
-    expect(sessionContext([{ assistant: [{ usage: usage(10, { output: 5 }) }] }])).toEqual({
-      total: 15,
-      percent: null,
-      input: 10,
+    expect(ctx).toEqual({
+      total: 850,
+      percent: 85,
+      limit: 1_000,
+      usage: { input: 800, cache_read: 10, cache_write: 0, output: 40, reasoning: 0 },
     });
   });
 
+  test("percent and limit stay unset when the model publishes no window", () => {
+    expect(
+      sessionContext([{ assistant: [{ usage: usage(10, { output: 5 }) }] }], undefined, "opencode"),
+    ).toEqual({
+      total: 15,
+      percent: null,
+      limit: null,
+      usage: { input: 10, cache_read: 0, cache_write: 0, output: 5, reasoning: 0 },
+    });
+  });
+
+  test("a non-OpenCode backend's aggregate usage is not a request", () => {
+    const turns = [{ assistant: [{ usage: usage(10, { output: 5 }) }] }];
+    expect(sessionContext(turns, 1_000, "acp")).toBeUndefined();
+    expect(sessionContext(turns, 1_000, undefined)).toBeUndefined();
+  });
+
   test("an empty transcript has no context", () => {
-    expect(sessionContext([])).toBeUndefined();
+    expect(sessionContext([], 1_000, "opencode")).toBeUndefined();
   });
 });
 

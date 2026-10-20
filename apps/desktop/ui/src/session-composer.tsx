@@ -61,7 +61,6 @@ import {
 } from "./composer-input";
 import { AttachmentStrip, ComposerMenu, type MenuItem } from "./composer-menu";
 import { ContextRing, SessionInfo } from "./session-info";
-import { estimateSessionContextBreakdown } from "./session-context-breakdown";
 import { paneWorkspace } from "./session-chrome";
 import { Button } from "@/components/ui/button";
 import { Picker } from "@/components/ui/picker";
@@ -553,7 +552,7 @@ export function useSessionComposer(args: {
   const context = () => {
     const id = modelSel();
     const model = (args.options()?.models ?? []).find((m) => `${m.providerID}/${m.modelID}` === id);
-    return sessionContext(args.view()?.turns ?? [], model?.context);
+    return sessionContext(args.view()?.turns ?? [], model?.context, args.view()?.backend);
   };
   const contextLabel = (total: number, percent: number | null) =>
     percent == null
@@ -590,7 +589,6 @@ export function useSessionComposer(args: {
               id={args.sessionId()}
               totals={v().totals}
               context={context()}
-              breakdown={estimateSessionContextBreakdown(v().turns, context()?.input ?? 0)}
               model={modelSel()}
               backend={v().backend}
               status={v().status}

@@ -5,7 +5,8 @@ import { compactNum, num, t } from "./i18n";
 import { copyText } from "./clipboard";
 import { sessionStatus, showsMark, type SessionStatus } from "./session-status";
 import { pieSectorPath } from "./context-pie";
-import type { ContextBreakdownKey, ContextBreakdownSegment } from "./session-context-breakdown";
+import type { SessionContext } from "./prompt-memory";
+import { requestParts, type RequestPart, type RequestPartKey } from "./request-usage";
 import { Tip } from "./tip";
 import { Button } from "@/components/ui/button";
 
@@ -48,7 +49,7 @@ export function ContextRing(props: { percent: number | null }) {
  */
 function ContextBar(props: {
   percent: number | null;
-  segments?: ContextBreakdownSegment[];
+  segments?: RequestPart[];
   label?: string;
 }) {
   const width = () => `${Math.max(0, Math.min(100, props.percent ?? 0))}%`;
@@ -76,7 +77,7 @@ function ContextBar(props: {
           <For each={props.segments}>
             {(segment) => (
               <span
-                class={`h-full shrink-0 ${BREAKDOWN_FILL[segment.key]}`}
+                class={`h-full shrink-0 ${PART_FILL[segment.key]}`}
                 style={{ width: `${segment.width}%` }}
               />
             )}
@@ -88,42 +89,78 @@ function ContextBar(props: {
 }
 
 /**
- * The four buckets keep the transcript's own colours — user, assistant, tool —
- * so a reader can connect a share to the kind of row it came from. `other` is
- * deliberately the only grey one: it is the part of the request the log does
- * not hold (system prompt, tool definitions, overhead), not a fourth kind of
- * message.
+ * The request's parts take the chart palette — the split is categorical, not
+ * a status, so no colour is allowed to read as a warning or a grade.
  */
-const BREAKDOWN_FILL: Record<ContextBreakdownKey, string> = {
-  user: "bg-event-user",
-  assistant: "bg-event-assistant",
-  tool: "bg-event-tool",
-  other: "bg-muted-foreground/60",
+const PART_FILL: Record<RequestPartKey, string> = {
+  cache_read: "bg-chart-1",
+  cache_write: "bg-chart-4",
+  input: "bg-chart-2",
+  output: "bg-chart-3",
+  reasoning: "bg-chart-5",
 };
 
-function breakdownLabel(key: ContextBreakdownKey): string {
-  if (key === "user") return t("info.breakdown.user");
-  if (key === "assistant") return t("info.breakdown.assistant");
-  if (key === "tool") return t("info.breakdown.tool");
-  return t("info.breakdown.other");
+function requestLabel(key: RequestPartKey): string {
+  return t(`info.request.${key}`);
 }
 
 /**
- * The composition behind the bar's hover. Percentages are of `input`, not of
- * the context total — the same denominator OpenCode's desktop uses — which is
- * also why the note says the split is an estimate rather than a measurement.
+ * The request's composition as spoken text: the aria label and the plain
+ * fallback say the same rows the hover card draws. Every number here is one
+ * the backend reported — the card's note says nothing is estimated, so the
+ * label must not invent a figure either.
  */
-function breakdownTip(segments: ContextBreakdownSegment[], input: number): string {
-  if (segments.length === 0) return "";
-  const rows = segments.map((segment) => {
-    const percent = segment.percent < 0.1 ? "<0.1" : segment.percent;
-    return `${breakdownLabel(segment.key)} ${percent}% · ${compactNum(segment.tokens)}`;
+function requestTip(parts: RequestPart[], total: number): string {
+  if (parts.length === 0) return "";
+  const rows = parts.map((part) => {
+    const percent = part.percent < 0.1 ? "<0.1" : part.percent;
+    return `${requestLabel(part.key)} ${percent}% · ${num(part.tokens)}`;
   });
-  return [
-    `${t("info.breakdown")} · ${t("info.breakdown.input", { n: num(input) })}`,
-    ...rows,
-    t("info.breakdown.note"),
-  ].join("\n");
+  return [`${t("info.request")} · ${num(total)}`, ...rows, t("info.request.note")].join("\n");
+}
+
+/**
+ * The request's composition behind the bar's hover, laid out as a small
+ * table instead of stacked text. Percentages are of `total` — the reported
+ * size of the last model call — and the note states that nothing here is
+ * estimated.
+ */
+function RequestCard(props: { parts: RequestPart[]; total: number }) {
+  return (
+    <div class="w-64">
+      <div class="flex items-baseline justify-between gap-3">
+        <span class="text-xs font-medium text-foreground">{t("info.request")}</span>
+        <span class="font-mono text-2xs tabular-nums text-muted-foreground">{num(props.total)}</span>
+      </div>
+      <div class="mt-2 grid grid-cols-[minmax(0,1fr)_3rem_2.75rem_4rem] items-center gap-x-2 gap-y-1.5">
+        <For each={props.parts}>
+          {(part) => (
+            <>
+              <span class="inline-flex min-w-0 items-center gap-1.5">
+                <span class={`size-2 shrink-0 rounded-full ${PART_FILL[part.key]}`} />
+                <span class="truncate text-xs text-foreground">{requestLabel(part.key)}</span>
+              </span>
+              <span class="h-1 w-full overflow-hidden rounded-full bg-border">
+                <span
+                  class={`block h-full rounded-full ${PART_FILL[part.key]}`}
+                  style={{ width: `max(2px, ${part.width}%)` }}
+                />
+              </span>
+              <span class="text-right text-xs tabular-nums text-foreground">
+                {part.percent < 0.1 ? "<0.1" : part.percent}%
+              </span>
+              <span class="text-right font-mono text-2xs tabular-nums text-muted-foreground">
+                {num(part.tokens)}
+              </span>
+            </>
+          )}
+        </For>
+      </div>
+      <p class="mt-2.5 border-t border-border pt-2 text-2xs leading-4 text-muted-foreground">
+        {t("info.request.note")}
+      </p>
+    </div>
+  );
 }
 
 /**
@@ -201,9 +238,9 @@ function StatusValue(props: { status: SessionStatus }) {
 export function SessionInfo(props: {
   id: string;
   totals: SessionView["totals"];
-  context: { total: number; percent: number | null; input: number } | undefined;
-  /** Estimated input composition; empty when the last step spent no input. */
-  breakdown?: ContextBreakdownSegment[];
+  /** The last request's reported usage; undefined when the backend does not
+   *  publish one. */
+  context: SessionContext | undefined;
   model: string;
   backend: string;
   status: string;
@@ -216,19 +253,8 @@ export function SessionInfo(props: {
 }) {
   const state = () =>
     sessionStatus({ status: props.status, busy: props.busy, needs_input: props.needsInput });
-  const contextLimit = () => {
-    // A session that has sent tokens but rounds to 0% has no window to infer:
-    // dividing by it would print an infinite limit.
-    if (
-      !props.context ||
-      props.context.percent == null ||
-      props.context.percent <= 0 ||
-      props.context.total <= 0
-    )
-      return null;
-    return Math.round(props.context.total / (props.context.percent / 100));
-  };
-  const contextTip = () => breakdownTip(props.breakdown ?? [], props.context?.input ?? 0);
+  const parts = () => (props.context ? requestParts(props.context.usage, props.context.total) : []);
+  const contextTip = () => requestTip(parts(), props.context?.total ?? 0);
   const [idCopied, setIdCopied] = createSignal(false);
   const copyId = async () => {
     const mine = ++copyIdToken;
@@ -282,18 +308,26 @@ export function SessionInfo(props: {
             there is nothing to misread. */}
         <Show when={props.context?.percent != null}>
           <div class="mt-2">
-            <Tip label={contextTip()} class="w-full">
+            <Tip
+              label={contextTip()}
+              content={
+                parts().length > 0
+                  ? () => <RequestCard parts={parts()} total={props.context?.total ?? 0} />
+                  : undefined
+              }
+              class="w-full"
+            >
               <ContextBar
                 percent={props.context!.percent}
-                segments={props.breakdown}
+                segments={parts()}
                 label={contextTip()}
               />
             </Tip>
           </div>
           <div class="mt-1.5 flex items-baseline justify-between gap-3 text-2xs text-muted-foreground">
             <span>{num(props.context!.total)} tokens</span>
-            <Show when={contextLimit()}>
-              <span class="font-mono">{t("info.context.of", { n: num(contextLimit()!) })}</span>
+            <Show when={props.context!.limit}>
+              <span class="font-mono">{t("info.context.of", { n: num(props.context!.limit!) })}</span>
             </Show>
           </div>
         </Show>
@@ -309,20 +343,20 @@ export function SessionInfo(props: {
             widest thing in the panel and pushes every other row's decimal out
             of alignment; the exact figure stays on hover. */}
         <InfoRow
-          label={t("info.input")}
+          label={t("info.total.input")}
           value={compactNum(props.totals.input)}
           mono
           title={num(props.totals.input)}
         />
         <InfoRow
-          label={t("info.output")}
+          label={t("info.total.output")}
           value={compactNum(props.totals.output)}
           mono
           title={num(props.totals.output)}
         />
         <Show when={props.totals.reasoning > 0}>
           <InfoRow
-            label={t("info.reasoning")}
+            label={t("info.total.reasoning")}
             value={compactNum(props.totals.reasoning)}
             mono
             title={num(props.totals.reasoning)}
@@ -330,7 +364,7 @@ export function SessionInfo(props: {
         </Show>
         <Show when={props.totals.cache_read > 0}>
           <InfoRow
-            label={t("info.cache_read")}
+            label={t("info.total.cache_read")}
             value={compactNum(props.totals.cache_read)}
             mono
             title={num(props.totals.cache_read)}

@@ -18,12 +18,33 @@ export interface SessionContext {
   total: number;
   /** null when the model has no published context window */
   percent: number | null;
-  /** Uncached prompt tokens of the same message — the denominator the
-   *  breakdown divides by, and not the same number as `total`. */
-  input: number;
+  /** the model's published window, null when it reports none */
+  limit: number | null;
+  /** what the last model call spent, as the backend reported it */
+  usage: {
+    input: number;
+    cache_read: number;
+    cache_write: number;
+    output: number;
+    reasoning: number;
+  };
 }
 
-export function sessionContext(turns: ContextTurn[], limit?: number): SessionContext | undefined {
+/**
+ * The last request's size, exactly as the backend reported it.
+ *
+ * OpenCode usage is per model call and cache-exclusive — `input` counts only
+ * the tokens that missed the cache — so the five fields sum to a real
+ * per-request total the UI can split without estimating. ACP reports usage
+ * aggregated across the session with cache inclusion unspecified, so a
+ * non-OpenCode backend gets no context figure rather than a made-up one.
+ */
+export function sessionContext(
+  turns: ContextTurn[],
+  limit: number | undefined,
+  backend: string | undefined,
+): SessionContext | undefined {
+  if (backend !== "opencode") return undefined;
   for (let i = turns.length - 1; i >= 0; i--) {
     const assistant = turns[i]?.assistant ?? [];
     for (let j = assistant.length - 1; j >= 0; j--) {
@@ -33,7 +54,18 @@ export function sessionContext(turns: ContextTurn[], limit?: number): SessionCon
         usage.input + usage.output + (usage.reasoning ?? 0) + (usage.cache_read ?? 0) + (usage.cache_write ?? 0);
       if (total <= 0) continue;
       const percent = limit && limit > 0 ? Math.round((total / limit) * 100) : null;
-      return { total, percent, input: usage.input };
+      return {
+        total,
+        percent,
+        limit: limit && limit > 0 ? limit : null,
+        usage: {
+          input: usage.input,
+          cache_read: usage.cache_read ?? 0,
+          cache_write: usage.cache_write ?? 0,
+          output: usage.output,
+          reasoning: usage.reasoning ?? 0,
+        },
+      };
     }
   }
   return undefined;

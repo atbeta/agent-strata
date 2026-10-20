@@ -31,6 +31,9 @@ const MAX_W = 448;
  */
 export function Tip(props: {
   label: string;
+  /** A tooltip that is a small table rather than a sentence. `label` stays
+      required: it is the plain-text fallback and what callers use for aria. */
+  content?: () => JSX.Element;
   class?: string;
   /** Suppress the bubble while the trigger's own panel is open. */
   disabled?: boolean;
@@ -119,23 +122,25 @@ export function Tip(props: {
       onFocusOut={hide}
     >
       {props.children}
-      <Show when={anchor() && props.label}>
+      <Show when={anchor() && (props.content || props.label)}>
         {/* Portaled to body: inside a transformed transcript row a `fixed`
             bubble would be positioned relative to the row, not the viewport. */}
         <Portal>
         <span
           ref={setBubble}
           role="tooltip"
-          class={`fade-in pointer-events-none fixed z-[80] w-max -translate-x-1/2 rounded-md border border-border bg-popover px-1.5 py-0.5 text-2xs break-words whitespace-pre-wrap text-popover-foreground shadow-md ${
-            pos()?.below ? "" : "-translate-y-full"
-          }`}
+          class={`fade-in pointer-events-none fixed z-[80] w-max -translate-x-1/2 border border-border bg-popover break-words text-popover-foreground ${
+            props.content
+              ? "surface-popover rounded-lg px-3 py-2.5 text-xs whitespace-normal"
+              : "rounded-md px-1.5 py-0.5 text-2xs whitespace-pre-wrap shadow-md"
+          } ${pos()?.below ? "" : "-translate-y-full"}`}
           style={{
             left: `${pos()?.x ?? 0}px`,
             top: `${pos()?.y ?? 0}px`,
             "max-width": `min(${MAX_W}px, calc(100vw - ${PAD * 2}px))`,
           }}
         >
-          {props.label}
+          {props.content ? props.content() : props.label}
         </span>
         </Portal>
       </Show>
