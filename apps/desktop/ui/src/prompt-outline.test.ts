@@ -107,6 +107,20 @@ describe("promptEntries", () => {
     expect(entry.prompt.endsWith("...")).toBe(true);
     expect(entry.prompt.length).toBeLessThanOrEqual(160);
   });
+
+  test("unchanged turns keep their entry identity across a view rebuild", () => {
+    const first = turn("a", text("one"));
+    const second = turn("b", text("two"));
+    const before = promptEntries([first, second]);
+    const streamed: Turn = { ...second, assistant: [{ content: text("answer") }] };
+    const after = promptEntries([first, streamed]);
+    expect(after[0]).toBe(before[0]);
+    expect(after[1]).not.toBe(before[1]);
+    expect(after[1]!.reply).toBe("answer");
+    const shifted = promptEntries([turn("x", text("new first")), first, streamed]);
+    expect(shifted[1]).not.toBe(before[0]);
+    expect(shifted[1]!.turnIndex).toBe(1);
+  });
 });
 
 describe("promptAt", () => {

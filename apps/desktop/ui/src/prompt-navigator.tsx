@@ -1,4 +1,4 @@
-import { createEffect, createRenderEffect, createSignal, For, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createRenderEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { Button } from "./components/ui/button";
 import { Icon } from "./icons";
@@ -38,10 +38,10 @@ export function PromptNavigator(props: {
   let rail: HTMLDivElement | undefined;
   let card: HTMLDivElement | undefined;
   const [chrome, setChrome] = createSignal(false);
-  const steps = () => navSteps(
+  const steps = createMemo(() => navSteps(
     props.entries.map((e) => e.turnId),
     props.activeId,
-  );
+  ));
 
   const text = (e: PromptEntry) => e.prompt || t("nav.attach");
   const current = () => props.entries.find((e) => e.turnId === previewId());
@@ -97,33 +97,63 @@ export function PromptNavigator(props: {
   });
 
   const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let frame = 0;
+  let pendingY: number | null = null;
   const paintRibs = (clientY: number | null) => {
     const col = rail;
     if (!col) return;
-    const rect = col.getBoundingClientRect();
-    const py = clientY == null ? null : clientY - rect.top + col.scrollTop;
+    const still = clientY == null || reduced();
+    // Read every line's geometry before writing any width: interleaving the
+    // two turns one pointermove into N forced layouts, one per tick.
+    const targets: { line: HTMLElement; center: number; current: boolean }[] = [];
     for (const btn of col.querySelectorAll<HTMLButtonElement>(".nav-tick")) {
       const line = btn.querySelector<HTMLElement>(".nav-line");
       if (!line) continue;
-      if (py == null || reduced()) {
-        line.style.transition = "width 140ms ease-out";
-        line.style.width = "";
+      const r = btn.getBoundingClientRect();
+      targets.push({
+        line,
+        center: r.top + r.height / 2,
+        current: btn.getAttribute("aria-current") === "true",
+      });
+    }
+    for (const target of targets) {
+      if (still) {
+        if (target.line.style.width === "") continue;
+        target.line.style.transition = "width 140ms ease-out";
+        target.line.style.width = "";
         continue;
       }
-      const center = btn.offsetTop + btn.offsetHeight / 2;
-      const current = btn.getAttribute("aria-current") === "true";
+      // Centres live in viewport space like the pointer, so the arrows above
+      // the rail and the rail's own scrollTop cannot shift the widest rib.
       const width = magnifiedWidth(
-        current ? RIB_CURRENT : RIB_BASE,
-        current ? RIB_CURRENT_PEAK : RIB_PEAK,
-        Math.abs(py - center),
+        target.current ? RIB_CURRENT : RIB_BASE,
+        target.current ? RIB_CURRENT_PEAK : RIB_PEAK,
+        Math.abs((clientY as number) - target.center),
         MAG_INFLUENCE,
       );
-      line.style.transition = "none";
-      line.style.width = `${width}px`;
+      const px = `${Math.round(width * 100) / 100}px`;
+      if (target.line.style.width === px) continue;
+      target.line.style.transition = "none";
+      target.line.style.width = px;
     }
   };
-  const onRailMove = (e: PointerEvent) => paintRibs(e.clientY);
-  const onRailLeave = () => paintRibs(null);
+  // Coalesce pointermoves to one paint per frame; the last position wins.
+  const onRailMove = (e: PointerEvent) => {
+    pendingY = e.clientY;
+    if (frame) return;
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      paintRibs(pendingY);
+    });
+  };
+  const onRailLeave = () => {
+    pendingY = null;
+    if (frame) {
+      cancelAnimationFrame(frame);
+      frame = 0;
+    }
+    paintRibs(null);
+  };
 
   const go = (id: string | undefined) => {
     if (!id) return;
@@ -211,7 +241,10 @@ export function PromptNavigator(props: {
     }
   };
 
-  onCleanup(() => refs.clear());
+  onCleanup(() => {
+    if (frame) cancelAnimationFrame(frame);
+    refs.clear();
+  });
 
   const tabFor = (id: string) =>
     (tabId() ?? props.activeId ?? props.entries[0]?.turnId) === id ? 0 : -1;

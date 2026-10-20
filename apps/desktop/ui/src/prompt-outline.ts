@@ -49,6 +49,14 @@ const replyOf = (turn: Turn): string => {
 };
 
 /**
+ * Turns are replaced, never mutated, so an entry can outlive the view update
+ * that re-derived the list. Reusing it keeps the row's identity stable: the
+ * rail's `<For>` then leaves every unchanged tick in the DOM instead of
+ * rebuilding all of them on each streaming snapshot.
+ */
+const entryCache = new WeakMap<Turn, PromptEntry>();
+
+/**
  * One outline entry per turn the reader actually prompted. The list is built
  * from the transcript already on screen — no summarization, no fetch.
  */
@@ -56,16 +64,23 @@ export function promptEntries(turns: readonly Turn[]): PromptEntry[] {
   const out: PromptEntry[] = [];
   turns.forEach((turn, turnIndex) => {
     if (!hasPrompt(turn)) return;
+    const cached = entryCache.get(turn);
+    if (cached && cached.turnIndex === turnIndex) {
+      out.push(cached);
+      return;
+    }
     const text = compact(messageText(turn.user ?? []), PROMPT_MAX);
     const file = (turn.user ?? []).find((b) => b.type === "file_ref");
-    out.push({
+    const entry: PromptEntry = {
       turnId: turn.turn_id,
       turnIndex,
       number: turnIndex + 1,
       prompt: text || (file && file.type === "file_ref" ? fileBase(file.path) : ""),
       reply: replyOf(turn),
       reverted: Boolean(turn.reverted),
-    });
+    };
+    entryCache.set(turn, entry);
+    out.push(entry);
   });
   return out;
 }
