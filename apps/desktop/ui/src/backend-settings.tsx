@@ -124,7 +124,7 @@ export function BackendSettings(props: { conns: ConnectionsCtl }) {
                   size="sm"
                   mono
                   value={c().connUrl()}
-                  onChange={c().setConnUrl}
+                  onInput={(e) => c().setConnUrl(e.currentTarget.value)}
                   class="bg-background text-2xs"
                   placeholder="http://127.0.0.1:4096"
                 />
@@ -132,14 +132,14 @@ export function BackendSettings(props: { conns: ConnectionsCtl }) {
                   <TextFieldInput
                     size="sm"
                     value={c().connName()}
-                    onChange={c().setConnName}
+                    onInput={(e) => c().setConnName(e.currentTarget.value)}
                     class="w-1/3 bg-background px-2 text-2xs"
                     placeholder={t("connect.form.name")}
                   />
                   <TextFieldInput
                     size="sm"
                     value={c().connUser()}
-                    onChange={c().setConnUser}
+                    onInput={(e) => c().setConnUser(e.currentTarget.value)}
                     class="w-1/3 bg-background px-2 text-2xs"
                     placeholder={t("connect.form.user")}
                   />
@@ -147,7 +147,7 @@ export function BackendSettings(props: { conns: ConnectionsCtl }) {
                     size="sm"
                     type="password"
                     value={c().connPass()}
-                    onChange={c().setConnPass}
+                    onInput={(e) => c().setConnPass(e.currentTarget.value)}
                     class="w-1/3 bg-background px-2 text-2xs"
                     placeholder={t("connect.form.password")}
                   />
@@ -159,14 +159,14 @@ export function BackendSettings(props: { conns: ConnectionsCtl }) {
               size="sm"
               mono
               value={c().connCmd()}
-              onChange={c().setConnCmd}
+              onInput={(e) => c().setConnCmd(e.currentTarget.value)}
               class="bg-background text-2xs"
               placeholder={t("connect.form.command")}
             />
             <TextFieldInput
               size="sm"
               value={c().connName()}
-              onChange={c().setConnName}
+              onInput={(e) => c().setConnName(e.currentTarget.value)}
               class="bg-background px-2 text-2xs"
               placeholder={t("connect.form.name")}
             />

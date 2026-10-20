@@ -344,7 +344,7 @@ export function Sidebar(props: {
                           size="sm"
                           mono
                           value={props.ws.dirDraft()}
-                          onChange={props.ws.setDirDraft}
+                          onInput={(e) => props.ws.setDirDraft(e.currentTarget.value)}
                           class="bg-background text-2xs"
                           placeholder="/path/to/project"
                           onKeyDown={(e) => e.stopPropagation()}
