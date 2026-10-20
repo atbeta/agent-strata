@@ -1,14 +1,20 @@
 import { describe, expect, test } from "bun:test";
-import type { SessionRow } from "./api";
+import type { DailyUsageRow, SessionRow } from "./api";
 import {
   cacheEfficiency,
+  dayKey,
   fleetAttention,
+  fleetModels,
   fleetProjects,
   fleetRecent,
+  fleetStatus,
   fleetTotals,
   fleetTrend,
+  fmtShare,
   inPeriod,
+  periodKeys,
   periodStart,
+  sessionPeriodTotals,
   shareOf,
   tokenParts,
   tokenTotal,
@@ -18,12 +24,6 @@ function row(patch: {
   id: string;
   workspace?: string | null;
   last?: string;
-  cost?: number;
-  input?: number;
-  output?: number;
-  tools?: number;
-  cacheRead?: number;
-  cacheWrite?: number;
   busy?: boolean;
   needs_input?: boolean;
 }): SessionRow {
@@ -41,71 +41,72 @@ function row(patch: {
     busy: patch.busy,
     needs_input: patch.needs_input,
     totals: {
-      input: patch.input ?? 0,
-      output: patch.output ?? 0,
-      cost_usd: patch.cost ?? 0,
-      tool_calls: patch.tools ?? 0,
-      cache_read: patch.cacheRead ?? 0,
-      cache_write: patch.cacheWrite ?? 0,
+      input: 0,
+      output: 0,
+      cost_usd: 0,
+      tool_calls: 0,
+      cache_read: 0,
+      cache_write: 0,
     },
   };
 }
 
-describe("fleet totals", () => {
-  test("sums the rows in hand and counts distinct directories", () => {
-    const totals = fleetTotals([
-      row({ id: "a", workspace: "D:/Code/lector", cost: 1.5, input: 100, output: 40, tools: 3 }),
-      row({ id: "b", workspace: "D:/Code/lector", cost: 0.5, input: 10, output: 5, tools: 1 }),
-      row({ id: "c", workspace: "D:/Code/notefast", cost: 2, input: 20, output: 20, tools: 2 }),
-      row({ id: "d", workspace: "unknown", cost: 0.25, tools: 1 }),
-    ]);
-    expect(totals.sessions).toBe(4);
-    expect(totals.cost).toBeCloseTo(4.25);
-    expect(totals.input).toBe(130);
-    expect(totals.output).toBe(65);
-    expect(totals.tools).toBe(7);
-    expect(totals.projects).toBe(3);
+function bucket(patch: Partial<DailyUsageRow> & { session_id: string; day: string }): DailyUsageRow {
+  return {
+    model: null,
+    input: 0,
+    output: 0,
+    reasoning: 0,
+    cache_read: 0,
+    cache_write: 0,
+    cost_usd: 0,
+    messages: 0,
+    tool_calls: 0,
+    tool_errors: 0,
+    ...patch,
+  };
+}
+
+const NOW = new Date(2026, 9, 14, 15, 30, 0).getTime(); // Oct 14
+const key = (day: number, month = 9) => `2026-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+const iso = (day: number, hour = 12) => new Date(2026, 9, day, hour, 0, 0).toISOString();
+
+describe("day keys and windows", () => {
+  test("dayKey is the local calendar date", () => {
+    expect(dayKey(NOW)).toBe("2026-10-14");
+    expect(dayKey(new Date(2026, 0, 5, 23, 59).getTime())).toBe("2026-01-05");
   });
 
-  test("keeps the cache columns the previous version dropped", () => {
-    const totals = fleetTotals([
-      row({ id: "a", input: 10, cacheRead: 900, cacheWrite: 40 }),
-      row({ id: "b", input: 10, cacheRead: 100, cacheWrite: 0 }),
-    ]);
-    expect(totals.cacheRead).toBe(1000);
-    expect(totals.cacheWrite).toBe(40);
-  });
-});
+  test("each window admits the days its name says", () => {
+    const today = periodKeys("today", NOW);
+    expect(today("2026-10-14")).toBe(true);
+    expect(today("2026-10-13")).toBe(false);
 
-describe("periods", () => {
-  const now = new Date(2026, 9, 14, 15, 30, 0).getTime();
-  const iso = (day: number, hour = 12) => new Date(2026, 9, day, hour, 0, 0).toISOString();
+    const week = periodKeys("week", NOW);
+    expect(week("2026-10-08")).toBe(true);
+    expect(week("2026-10-07")).toBe(false);
+    expect(week("2026-10-14")).toBe(true);
 
-  test("each window starts where its name says it does", () => {
-    expect(periodStart("total", now)).toBe(0);
-    expect(periodStart("today", now)).toBe(new Date(2026, 9, 14).getTime());
-    expect(periodStart("week", now)).toBe(new Date(2026, 9, 8).getTime());
-    expect(periodStart("month", now)).toBe(new Date(2026, 9, 1).getTime());
+    const month = periodKeys("month", NOW);
+    expect(month("2026-10-01")).toBe(true);
+    expect(month("2026-09-30")).toBe(false);
+
+    expect(periodKeys("total", NOW)("1999-01-01")).toBe(true);
   });
 
-  test("puts a session in the window its last event falls in", () => {
-    const rows = [
-      row({ id: "today", last: iso(14) }),
-      row({ id: "week", last: iso(9) }),
-      row({ id: "month", last: iso(3) }),
-      // Last month, and late in the evening so it cannot be a clock slip.
-      row({ id: "old", last: new Date(2026, 8, 30, 23, 0, 0).toISOString() }),
-    ];
-    const ids = (p: Parameters<typeof inPeriod>[1]) => inPeriod(rows, p, now).map((s) => s.summary.session_id);
-    expect(ids("today")).toEqual(["today"]);
-    expect(ids("week")).toEqual(["today", "week"]);
-    expect(ids("month")).toEqual(["today", "week", "month"]);
-    expect(ids("total")).toHaveLength(4);
+  test("a month-start window covers the whole month, not a day", () => {
+    const first = new Date(2026, 9, 1, 0, 30, 0).getTime();
+    const month = periodKeys("month", first);
+    expect(month("2026-10-01")).toBe(true);
+    expect(month("2026-10-31")).toBe(true);
+    expect(month("2026-09-30")).toBe(false);
   });
 
-  test("walks the calendar rather than subtracting milliseconds", () => {
-    // A week measured in ms lands an hour off across a DST boundary, which
-    // would push late-evening sessions into the wrong window.
+  test("periodStart still walks the calendar rather than subtracting ms", () => {
+    expect(periodStart("total", NOW)).toBe(0);
+    expect(periodStart("today", NOW)).toBe(new Date(2026, 9, 14).getTime());
+    expect(periodStart("week", NOW)).toBe(new Date(2026, 9, 8).getTime());
+    expect(periodStart("month", NOW)).toBe(new Date(2026, 9, 1).getTime());
     const springForward = new Date(2026, 2, 8, 12, 0, 0).getTime();
     const back = new Date(periodStart("week", springForward));
     expect(back.getDate()).toBe(2);
@@ -113,69 +114,259 @@ describe("periods", () => {
   });
 });
 
+describe("period scope", () => {
+  const rows = [
+    row({ id: "a", last: iso(14) }),
+    row({ id: "b", last: iso(9) }),
+    row({ id: "c", last: iso(3) }),
+    row({ id: "d", last: new Date(2026, 8, 30, 23, 0, 0).toISOString() }),
+  ];
+  const buckets = [
+    bucket({ session_id: "a", day: key(14), input: 10 }),
+    // A long-running session's usage lands on the day it happened, not where
+    // its last event was.
+    bucket({ session_id: "b", day: key(2), input: 10 }),
+    bucket({ session_id: "b", day: key(9), input: 10 }),
+  ];
+
+  test("a session is in a window when a bucket lands there", () => {
+    const ids = (p: Parameters<typeof inPeriod>[2]) =>
+      inPeriod(rows, buckets, p, NOW).map((s) => s.summary.session_id);
+    expect(ids("today")).toEqual(["a"]);
+    expect(ids("week")).toEqual(["a", "b"]);
+    // b has an October bucket even though its last event is inside the week.
+    expect(ids("month")).toEqual(["a", "b", "c"]);
+    expect(ids("total")).toHaveLength(4);
+  });
+
+  test("a fresh session with no usage still counts on last_ts", () => {
+    const fresh = row({ id: "fresh", last: iso(14, 15) });
+    expect(
+      inPeriod([fresh], [], "today", NOW).map((s) => s.summary.session_id),
+    ).toEqual(["fresh"]);
+  });
+
+  test("buckets of sessions outside the list do not count", () => {
+    const totals = fleetTotals(
+      rows,
+      [...buckets, bucket({ session_id: "not-listed", day: key(14), input: 999, cost_usd: 9 })],
+      "today",
+      NOW,
+    );
+    expect(totals.input).toBe(10);
+    expect(totals.cost).toBe(0);
+  });
+});
+
+describe("fleet totals", () => {
+  test("sums the in-window buckets and counts the union's directories", () => {
+    const rows = [
+      row({ id: "a", workspace: "D:/Code/lector", last: iso(14) }),
+      row({ id: "b", workspace: "D:/Code/lector", last: iso(14) }),
+      row({ id: "c", workspace: "D:/Code/notefast", last: iso(1) }),
+      row({ id: "fresh", workspace: "unknown", last: iso(14, 15) }),
+    ];
+    const buckets = [
+      bucket({ session_id: "a", day: key(14), input: 100, output: 40, cost_usd: 1.5, tool_calls: 3, tool_errors: 1 }),
+      bucket({ session_id: "b", day: key(14), input: 10, output: 5, reasoning: 2, cost_usd: 0.5, tool_calls: 1 }),
+      bucket({ session_id: "b", day: key(1), input: 999, cost_usd: 9 }),
+      bucket({ session_id: "c", day: key(1), input: 20 }),
+    ];
+    const totals = fleetTotals(rows, buckets, "today", NOW);
+    expect(totals.sessions).toBe(3); // a, b, and the fresh one on last_ts
+    expect(totals.cost).toBeCloseTo(2);
+    expect(totals.input).toBe(110);
+    expect(totals.output).toBe(45);
+    expect(totals.reasoning).toBe(2);
+    expect(totals.tools).toBe(4);
+    expect(totals.toolErrors).toBe(1);
+    expect(totals.projects).toBe(2); // lector + unknown
+  });
+});
+
 describe("token composition", () => {
-  test("counts the cache in the total and shares it out", () => {
-    const totals = fleetTotals([row({ id: "a", input: 100, output: 50, cacheRead: 800, cacheWrite: 50 })]);
-    expect(tokenTotal(totals)).toBe(1000);
-    expect(tokenParts(totals)).toEqual([
+  const totals = (buckets: DailyUsageRow[]) =>
+    fleetTotals([row({ id: "a" })], buckets, "total", NOW);
+
+  test("counts the cache and reasoning in the total and shares them out", () => {
+    const t = totals([
+      bucket({ session_id: "a", day: key(10), input: 100, output: 50, reasoning: 25, cache_read: 800, cache_write: 25 }),
+    ]);
+    expect(tokenTotal(t)).toBe(1000);
+    expect(tokenParts(t)).toEqual([
       { key: "input", value: 100, pct: 10 },
-      { key: "output", value: 50, pct: 5 },
       { key: "cacheRead", value: 800, pct: 80 },
-      { key: "cacheWrite", value: 50, pct: 5 },
+      { key: "cacheWrite", value: 25, pct: 2.5 },
+      { key: "output", value: 50, pct: 5 },
+      { key: "reasoning", value: 25, pct: 2.5 },
     ]);
   });
 
   test("leaves out a kind that never happened", () => {
-    const parts = tokenParts(fleetTotals([row({ id: "a", input: 30, output: 10 })]));
+    const parts = tokenParts(totals([bucket({ session_id: "a", day: key(10), input: 30, output: 10 })]));
     expect(parts.map((p) => p.key)).toEqual(["input", "output"]);
     expect(parts.reduce((sum, p) => sum + p.pct, 0)).toBeCloseTo(100);
   });
 
   test("a window with no usage is empty, not NaN", () => {
-    expect(tokenParts(fleetTotals([]))).toEqual([]);
-    expect(tokenTotal(fleetTotals([]))).toBe(0);
+    expect(tokenParts(totals([]))).toEqual([]);
+    expect(tokenTotal(totals([]))).toBe(0);
   });
 });
 
 describe("cache efficiency", () => {
-  test("is the cached share of everything the model was shown", () => {
-    expect(cacheEfficiency(fleetTotals([row({ id: "a", input: 100, cacheRead: 300 })]))).toBe(0.75);
-    expect(cacheEfficiency(fleetTotals([row({ id: "a", input: 100 })]))).toBe(0);
-    expect(cacheEfficiency(fleetTotals([]))).toBe(0);
+  const totals = (buckets: DailyUsageRow[]) =>
+    fleetTotals([row({ id: "a" })], buckets, "total", NOW);
+
+  test("is the cached share of everything the prompt carried", () => {
+    expect(
+      cacheEfficiency(
+        totals([bucket({ session_id: "a", day: key(10), input: 100, cache_read: 300 })]),
+      ),
+    ).toBe(0.75);
+    expect(cacheEfficiency(totals([bucket({ session_id: "a", day: key(10), input: 100 })]))).toBe(0);
+    expect(cacheEfficiency(totals([]))).toBe(0);
+  });
+
+  test("cache writes count in the prompt side too", () => {
+    // input 100 + read 300 + write 100 = 500 sent; 300 of it was a hit.
+    expect(
+      cacheEfficiency(
+        totals([
+          bucket({ session_id: "a", day: key(10), input: 100, cache_read: 300, cache_write: 100 }),
+        ]),
+      ),
+    ).toBe(0.6);
   });
 });
 
 describe("fleet projects", () => {
-  test("groups by directory and puts the heaviest volume first", () => {
-    // Tokens lead the sort, not dollars: on a subscription the dollar column is
-    // a list price, and ordering the panel by it would rank the wrong projects.
-    const projects = fleetProjects([
-      row({ id: "a", workspace: "D:/Code/lector", input: 100, cost: 1, last: "2026-10-11T00:00:00.000Z" }),
-      row({ id: "b", workspace: "D:/Code/notefast", input: 400, cost: 4, last: "2026-10-09T00:00:00.000Z" }),
-      row({ id: "c", workspace: "D:/Code/lector", input: 100, cost: 1, last: "2026-10-12T00:00:00.000Z" }),
-    ]);
+  test("groups by directory on the window's own tokens", () => {
+    const rows = [
+      row({ id: "a", workspace: "D:/Code/lector", last: iso(14) }),
+      row({ id: "b", workspace: "D:/Code/notefast", last: iso(14) }),
+      row({ id: "c", workspace: "D:/Code/lector", last: iso(14) }),
+    ];
+    const buckets = [
+      bucket({ session_id: "a", day: key(14), input: 100, cost_usd: 1 }),
+      // c's lifetime is large but its in-window share is small.
+      bucket({ session_id: "c", day: key(14), input: 50 }),
+      bucket({ session_id: "c", day: key(1), input: 10_000 }),
+      bucket({ session_id: "b", day: key(14), input: 400, cost_usd: 4 }),
+    ];
+    const projects = fleetProjects(rows, buckets, "week", NOW);
     expect(projects.map((p) => p.workspace)).toEqual(["D:/Code/notefast", "D:/Code/lector"]);
-    expect(projects[1]).toMatchObject({ sessions: 2, cost: 2, tokens: 200, lastTs: "2026-10-12T00:00:00.000Z" });
+    expect(projects[1]).toMatchObject({ sessions: 2, cost: 1, tokens: 150 });
   });
 
-  test("counts the cache in a project's volume", () => {
-    const [only] = fleetProjects([row({ id: "a", input: 10, output: 5, cacheRead: 500, cacheWrite: 1 })]);
-    expect(only!.tokens).toBe(516);
+  test("a session that was active but spent nothing still sits on its row", () => {
+    const projects = fleetProjects(
+      [row({ id: "a", workspace: "D:/x", last: iso(14) })],
+      [],
+      "week",
+      NOW,
+    );
+    expect(projects).toHaveLength(1);
+    expect(projects[0]).toMatchObject({ sessions: 1, tokens: 0 });
+  });
+});
+
+describe("fleet recent", () => {
+  test("scopes to the window and sorts newest first without mutating", () => {
+    const rows = [
+      row({ id: "old", last: iso(2) }),
+      row({ id: "b", last: iso(9) }),
+      row({ id: "a", last: iso(14) }),
+    ];
+    const buckets = [
+      bucket({ session_id: "a", day: key(14), input: 10 }),
+      bucket({ session_id: "b", day: key(9), input: 10 }),
+      bucket({ session_id: "old", day: key(2), input: 10 }),
+    ];
+    const recent = fleetRecent(rows, buckets, "week", NOW).map((s) => s.summary.session_id);
+    expect(recent).toEqual(["a", "b"]);
+    expect(rows.map((s) => s.summary.session_id)).toEqual(["old", "b", "a"]);
+  });
+});
+
+describe("session period totals", () => {
+  test("sums a session's own in-window buckets", () => {
+    const map = sessionPeriodTotals(
+      [row({ id: "a" })],
+      [
+        bucket({ session_id: "a", day: key(14), input: 10, output: 5, reasoning: 1, cache_read: 3, cache_write: 1, cost_usd: 0.5 }),
+        bucket({ session_id: "a", day: key(1), input: 999 }),
+      ],
+      "week",
+      NOW,
+    );
+    expect(map.get("a")).toEqual({ tokens: 20, cost: 0.5, model: null });
   });
 
-  test("falls back to spend only to break a tie on volume", () => {
-    const projects = fleetProjects([
-      row({ id: "a", workspace: "D:/x", input: 100, cost: 1 }),
-      row({ id: "b", workspace: "D:/y", input: 100, cost: 9 }),
+  test("names the session's heaviest in-window model, null when none", () => {
+    const map = sessionPeriodTotals(
+      [row({ id: "a" }), row({ id: "b" }), row({ id: "c" })],
+      [
+        bucket({ session_id: "a", day: key(14), model: "p/big", input: 100 }),
+        bucket({ session_id: "a", day: key(14), model: "p/small", input: 10 }),
+        bucket({ session_id: "a", day: key(1), model: "p/other", input: 9999 }),
+        // Unnamed work only — the row is still that session's, just untitled.
+        bucket({ session_id: "b", day: key(14), model: null, input: 10 }),
+        // A tools-only bucket names no model.
+        bucket({ session_id: "c", day: key(14), tool_calls: 2 }),
+      ],
+      "week",
+      NOW,
+    );
+    expect(map.get("a")!.model).toBe("p/big");
+    expect(map.get("b")!.model).toBeNull();
+    expect(map.get("c")!.model).toBeNull();
+  });
+});
+
+describe("fleet status", () => {
+  test("splits waiting from running, both newest first", () => {
+    const status = fleetStatus([
+      row({ id: "run-old", busy: true, last: "2026-10-10T00:00:00.000Z" }),
+      row({ id: "wait", needs_input: true, last: "2026-10-01T00:00:00.000Z" }),
+      row({ id: "both", busy: true, needs_input: true, last: "2026-10-13T00:00:00.000Z" }),
+      row({ id: "run", busy: true, last: "2026-10-12T00:00:00.000Z" }),
+      row({ id: "done", last: "2026-10-14T00:00:00.000Z" }),
     ]);
-    expect(projects.map((p) => p.workspace)).toEqual(["D:/y", "D:/x"]);
+    expect(status.waiting.map((s) => s.summary.session_id)).toEqual(["both", "wait"]);
+    expect(status.running.map((s) => s.summary.session_id)).toEqual(["run", "run-old"]);
+  });
+});
+
+describe("fleet models", () => {
+  test("ranks models by in-window tokens, unnamed last row included", () => {
+    const models = fleetModels(
+      [row({ id: "a" }), row({ id: "b" })],
+      [
+        bucket({ session_id: "a", day: key(14), model: "p/big", input: 400, cost_usd: 2 }),
+        bucket({ session_id: "a", day: key(14), model: "p/small", input: 90 }),
+        bucket({ session_id: "b", day: key(14), model: "p/small", input: 20, cache_read: 90 }),
+        bucket({ session_id: "a", day: key(14), model: null, tool_calls: 5 }),
+        bucket({ session_id: "a", day: key(1), model: "p/big", input: 999 }),
+        bucket({ session_id: "not-listed", day: key(14), model: "p/other", input: 999 }),
+      ],
+      "week",
+      NOW,
+    );
+    expect(models.map((m) => m.model)).toEqual(["p/big", "p/small"]);
+    expect(models[0]).toMatchObject({ tokens: 400, cost: 2, sessions: 1 });
+    expect(models[1]).toMatchObject({ tokens: 200, sessions: 2 });
   });
 
-  test("does not mutate the list it was given", () => {
-    const rows = [row({ id: "b", last: "2026-10-02T00:00:00.000Z" }), row({ id: "a", last: "2026-10-03T00:00:00.000Z" })];
-    fleetRecent(rows);
-    expect(rows.map((s) => s.summary.session_id)).toEqual(["b", "a"]);
-    expect(fleetRecent(rows).map((s) => s.summary.session_id)).toEqual(["a", "b"]);
+  test("a model with no in-window tokens is not a row", () => {
+    expect(
+      fleetModels(
+        [row({ id: "a" })],
+        [bucket({ session_id: "a", day: key(14), model: "p/x", tool_calls: 3 })],
+        "week",
+        NOW,
+      ),
+    ).toEqual([]);
   });
 });
 
@@ -192,36 +383,34 @@ describe("fleet attention", () => {
 });
 
 describe("fleet trend", () => {
-  const now = new Date(2026, 9, 14, 15, 0, 0).getTime();
-  const iso = (day: number) => new Date(2026, 9, day, 12, 0, 0).toISOString();
-  // Fourteen columns ending on the 14th reach back to the 1st, so anything
-  // older has to leave October altogether to fall off the left edge.
-  const beforeWindow = new Date(2026, 8, 20, 12, 0, 0).toISOString();
+  const trendNow = new Date(2026, 9, 14, 15, 0, 0).getTime();
+  const rows = [row({ id: "a" }), row({ id: "b" }), row({ id: "gone" })];
 
-  test("keeps every day, including the ones with nothing in them", () => {
+  test("places each bucket on its own day and counts distinct sessions", () => {
     const points = fleetTrend(
+      rows,
       [
-        row({ id: "today", last: iso(14), cost: 1.5, input: 10, cacheRead: 90 }),
-        row({ id: "today-2", last: iso(14), cost: 0.5, input: 10 }),
-        row({ id: "too-old", last: beforeWindow, cost: 3 }),
+        bucket({ session_id: "a", day: key(14), input: 10, cache_read: 90, cost_usd: 1.5 }),
+        bucket({ session_id: "a", day: key(1), input: 5 }),
+        bucket({ session_id: "b", day: key(14), input: 10, cost_usd: 0.5 }),
+        // A session outside the page's list is not this chart's business.
+        bucket({ session_id: "not-listed", day: key(14), input: 7 }),
+        bucket({ session_id: "a", day: "2026-09-20", input: 9 }),
       ],
-      now,
+      trendNow,
       14,
     );
     expect(points).toHaveLength(14);
     expect(points[13]).toMatchObject({ sessions: 2, cost: 2, tokens: 110 });
-    expect(points[0]).toMatchObject({ sessions: 0, cost: 0, tokens: 0 });
+    expect(points[0]).toMatchObject({ sessions: 1, tokens: 5 });
+    expect(points[1]).toMatchObject({ sessions: 0, tokens: 0 });
   });
 
   test("runs oldest first and stops at today", () => {
-    const points = fleetTrend([], now, 14);
+    const points = fleetTrend([], [], trendNow, 14);
     expect(points.map((p) => p.day)).toEqual([...points.map((p) => p.day)].sort((a, b) => a - b));
     expect(points[13]!.day).toBe(new Date(2026, 9, 14).getTime());
-  });
-
-  test("a session older than the window is not in any column", () => {
-    const points = fleetTrend([row({ id: "old", last: beforeWindow, cost: 9 })], now, 14);
-    expect(points.reduce((sum, p) => sum + p.cost, 0)).toBe(0);
+    expect(points[13]!.label).toBeTruthy();
   });
 });
 
@@ -231,5 +420,15 @@ describe("share", () => {
     expect(shareOf(5, 0)).toBe(0);
     expect(shareOf(1, 4)).toBe(25);
     expect(shareOf(8, 4)).toBe(100);
+  });
+});
+
+describe("fmtShare", () => {
+  test("keeps small shares readable instead of rounding them away", () => {
+    expect(fmtShare(0)).toBe("0%");
+    expect(fmtShare(0.05)).toBe("<0.1%");
+    expect(fmtShare(3.36)).toBe("3.4%");
+    expect(fmtShare(9.96)).toBe("10%");
+    expect(fmtShare(73.4)).toBe("73%");
   });
 });

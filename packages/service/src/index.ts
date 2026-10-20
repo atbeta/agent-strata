@@ -609,6 +609,99 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       return json({ events: store.query(q) });
     }
 
+    if (path === "/usage/daily" && req.method === "GET") {
+      const tz = url.searchParams.get("tz");
+      let fmt: Intl.DateTimeFormat;
+      try {
+        if (tz === null) throw new Error("missing tz");
+        fmt = new Intl.DateTimeFormat("en-CA", {
+          timeZone: tz,
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        });
+      } catch {
+        return json({ error: "invalid tz" }, 400);
+      }
+      const dayOf = (iso: string): string => {
+        const parts = fmt.formatToParts(new Date(iso));
+        const get = (type: string) => parts.find((x) => x.type === type)?.value ?? "";
+        return `${get("year")}-${get("month")}-${get("day")}`;
+      };
+      interface DailyBucket {
+        session_id: string;
+        day: string;
+        model: string | null;
+        input: number;
+        output: number;
+        reasoning: number;
+        cache_read: number;
+        cache_write: number;
+        cost_usd: number;
+        messages: number;
+        tool_calls: number;
+        tool_errors: number;
+      }
+      const buckets = new Map<string, DailyBucket>();
+      const bucket = (sessionId: string, day: string, model: string | null): DailyBucket => {
+        const key = `${sessionId}\n${day}\n${model ?? ""}`;
+        let b = buckets.get(key);
+        if (!b) {
+          b = {
+            session_id: sessionId, day, model,
+            input: 0, output: 0, reasoning: 0, cache_read: 0, cache_write: 0,
+            cost_usd: 0, messages: 0, tool_calls: 0, tool_errors: 0,
+          };
+          buckets.set(key, b);
+        }
+        return b;
+      };
+      // The projected view, never raw events: a streamed partial and the final
+      // snapshot share a msg_id, and counting both would double the day.
+      for (const summary of store.listSessions()) {
+        const view = sessionView(summary.session_id);
+        for (const turn of view.turns) {
+          // A tool call wears the model of the message that asked for it.
+          const modelByMsg = new Map<string, string | null>();
+          for (const a of turn.assistant) {
+            if (a.msg_id) modelByMsg.set(a.msg_id, a.model ?? null);
+            if (!a.ts) continue;
+            const b = bucket(summary.session_id, dayOf(a.ts), a.model ?? null);
+            b.input += a.usage?.input ?? 0;
+            b.output += a.usage?.output ?? 0;
+            b.reasoning += a.usage?.reasoning ?? 0;
+            b.cache_read += a.usage?.cache_read ?? 0;
+            b.cache_write += a.usage?.cache_write ?? 0;
+            b.cost_usd += a.cost_usd ?? 0;
+            b.messages += 1;
+          }
+          for (const c of turn.tool_calls) {
+            if (!c.ts) continue;
+            const model = c.msg_id ? (modelByMsg.get(c.msg_id) ?? null) : null;
+            const b = bucket(summary.session_id, dayOf(c.ts), model);
+            b.tool_calls += 1;
+            // Same rule as `view.totals.tool_errors`, so the overview and the
+            // session panel count the same calls as failed.
+            if (c.status === "error" || c.status === "interrupted") b.tool_errors += 1;
+          }
+        }
+      }
+      const rows = [...buckets.values()]
+        .filter(
+          (b) =>
+            b.input + b.output + b.reasoning + b.cache_read + b.cache_write +
+              b.cost_usd + b.messages + b.tool_calls + b.tool_errors >
+            0,
+        )
+        .sort(
+          (a, b) =>
+            a.day.localeCompare(b.day) ||
+            a.session_id.localeCompare(b.session_id) ||
+            (a.model === null ? 1 : b.model === null ? -1 : a.model.localeCompare(b.model)),
+        );
+      return json({ tz, rows });
+    }
+
     if (path === "/options" && req.method === "GET") {
       // model/agent pickers: merge every connected backend's lists
       const models: ModelChoice[] = [];

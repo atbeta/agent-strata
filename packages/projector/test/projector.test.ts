@@ -3,10 +3,10 @@ import { aggregate, projectSession } from "../src/index";
 import { makeEvent, parseEvent, type Event, type EventInput } from "@agent-strata/schema";
 
 let seq = 0;
-const mk = (session_id: string, type: string, data: object): Event => {
+const mk = (session_id: string, type: string, data: object, ts?: string): Event => {
   const input = makeEvent({
     session_id,
-    ts: new Date().toISOString(),
+    ts: ts ?? new Date().toISOString(),
     source: { backend: "b1" },
     type,
     data,
@@ -548,5 +548,31 @@ describe("projector", () => {
     ]);
     expect(v.turns[0]!.compaction).toBe(true);
     expect(v.turns[1]!.compaction).toBeUndefined();
+  });
+
+  test("entries carry the ts of the event that wrote them", () => {
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w" }, "2026-01-01T00:00:00Z"),
+      mk("s", "turn.user", { turn_id: "t1", content: [] }, "2026-01-01T00:00:01Z"),
+      mk(
+        "s",
+        "turn.assistant",
+        { turn_id: "t1", msg_id: "m1", partial: true, content: [{ type: "text", text: "…" }] },
+        "2026-01-01T00:00:02Z",
+      ),
+      mk(
+        "s",
+        "turn.assistant",
+        { turn_id: "t1", msg_id: "m1", content: [{ type: "text", text: "done" }] },
+        "2026-01-01T00:00:05Z",
+      ),
+      mk("s", "tool.call", { turn_id: "t1", call_id: "c1", tool: "bash", input: {} }, "2026-01-01T00:00:03Z"),
+      mk("s", "tool.result", { call_id: "c1", status: "ok" }, "2026-01-01T00:00:04Z"),
+    ]);
+    // The replacing snapshot keeps one entry and takes the newer ts.
+    expect(v.turns[0]!.assistant).toHaveLength(1);
+    expect(v.turns[0]!.assistant[0]!.ts).toBe("2026-01-01T00:00:05Z");
+    // A call is stamped when it is declared; its result does not move it.
+    expect(v.turns[0]!.tool_calls[0]!.ts).toBe("2026-01-01T00:00:03Z");
   });
 });

@@ -20,6 +20,8 @@ export interface ToolCallView {
   order?: number;
   /** The assistant message this call belongs to, when the backend names one. */
   msg_id?: string;
+  /** When the call was declared — the `tool.call` event's ts, not its result's. */
+  ts?: string;
   child_session_id?: string;
 }
 
@@ -34,6 +36,8 @@ export interface Turn {
     usage?: Usage;
     cost_usd?: number;
     latency_ms?: number;
+    /** When the event that produced this entry was written. */
+    ts?: string;
     /** set when the backend finished the message by failing, and there may be no text */
     error?: string;
   }[];
@@ -315,6 +319,7 @@ export function projectSession(events: Event[]): SessionView {
             usage: e.data.usage,
             cost_usd: e.data.cost_usd,
             latency_ms: e.data.latency_ms,
+            ts: e.ts,
             error: e.data.error,
           };
         } else {
@@ -326,6 +331,7 @@ export function projectSession(events: Event[]): SessionView {
             usage: e.data.usage,
             cost_usd: e.data.cost_usd,
             latency_ms: e.data.latency_ms,
+            ts: e.ts,
             error: e.data.error,
           });
         }
@@ -351,6 +357,7 @@ export function projectSession(events: Event[]): SessionView {
           status: "pending",
           order: e.data.order,
           msg_id: e.data.msg_id,
+          ts: e.ts,
           child_session_id: e.data.child_session_id,
         };
         t.tool_calls.push(call);

@@ -483,6 +483,32 @@ export function exportFileName(sessionId: string): string {
   return `strata-${sessionId.replace(/[^\w.-]+/g, "_")}.ndjson`;
 }
 
+/** One session's usage on one local day — the grain the overview's windows
+ *  actually measure, so a session touched today no longer drags its whole
+ *  lifetime into "today". */
+export interface DailyUsageRow {
+  session_id: string;
+  /** Local day in the requested tz, `YYYY-MM-DD`. */
+  day: string;
+  /** The model the message was made by, when the backend named one. */
+  model: string | null;
+  input: number;
+  output: number;
+  reasoning: number;
+  cache_read: number;
+  cache_write: number;
+  cost_usd: number;
+  messages: number;
+  tool_calls: number;
+  tool_errors: number;
+}
+
+export function fetchDailyUsage(tz: string): Promise<DailyUsageRow[]> {
+  return getJson<{ rows: DailyUsageRow[] }>(`/usage/daily?tz=${encodeURIComponent(tz)}`).then(
+    (r) => r.rows,
+  );
+}
+
 /**
  * The shell's page and the service are different origins, so a link to the
  * export would be a cross-site navigation the service refuses. Fetch it and
