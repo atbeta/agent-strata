@@ -1,11 +1,13 @@
-import { createSignal } from "solid-js";
+import { createSignal, Show } from "solid-js";
 import {
   CONTENT_W_DEFAULT,
   CONTENT_W_MAX,
   CONTENT_W_MIN,
+  sashEdge,
+  showReadingSash,
   writeContentWidth,
 } from "./content-width";
-import { contentW, setContentWidth } from "./session-chrome";
+import { contentW, paneWorkspace, setContentWidth } from "./session-chrome";
 import { t } from "./i18n";
 
 export function LoadingTranscript() {
@@ -59,10 +61,9 @@ export function ContentSashes() {
     e.preventDefault();
     setContentWidth(contentW() + (grow ? step : -step));
   };
-  // The strip straddles the column edge, half in the margin and half over the
-  // column; `max()` keeps it on the pane's own border when the pane has no
-  // margin to spare.
-  const edge = () => `max(0px, calc(50% - ${contentW() / 2 + 8}px))`;
+  // The hairline sits outside the text, in the padding gutter. `max()` pins
+  // it to the pane border when that gutter is already gone.
+  const edge = () => sashEdge(contentW());
   const grip = (side: "left" | "right") => (
     <div
       role="separator"
@@ -94,9 +95,14 @@ export function ContentSashes() {
     </div>
   );
   return (
-    <>
+    <Show
+      when={showReadingSash({
+        mode: paneWorkspace().mode,
+        zoomed: paneWorkspace().zoomedPaneId !== null,
+      })}
+    >
       {grip("left")}
       {grip("right")}
-    </>
+    </Show>
   );
 }

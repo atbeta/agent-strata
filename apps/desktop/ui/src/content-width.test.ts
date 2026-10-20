@@ -6,6 +6,8 @@ import {
   CONTENT_W_MIN,
   CONTENT_WIDTH_KEY,
   readContentWidth,
+  sashEdge,
+  showReadingSash,
   writeContentWidth,
 } from "./content-width";
 
@@ -45,5 +47,20 @@ describe("the reading column's width", () => {
 
   test("a stored value that is not a number falls back to the default", () => {
     expect(readContentWidth(store({ [CONTENT_WIDTH_KEY]: "wide" }))).toBe(CONTENT_W_DEFAULT);
+  });
+
+  test("the resize line sits in the padding, outside the text", () => {
+    // 768 / 2 + 8px of hit target + 16px of outset = 408.
+    expect(sashEdge(CONTENT_W_DEFAULT)).toBe("max(0px, calc(50% - 408px))");
+    expect(sashEdge(CONTENT_W_MIN)).toBe("max(0px, calc(50% - 264px))");
+  });
+
+  test("a split layout hides the reading-column resize line", () => {
+    expect(showReadingSash({ mode: "multiplex", zoomed: false })).toBe(false);
+  });
+
+  test("one pane, and a zoomed pane, keep the resize line", () => {
+    expect(showReadingSash({ mode: "single", zoomed: false })).toBe(true);
+    expect(showReadingSash({ mode: "multiplex", zoomed: true })).toBe(true);
   });
 });
