@@ -18,6 +18,7 @@ import { makeEvent, type EventInput } from "@agent-strata/schema";
 import { goalContinuation, lastAssistantText, sessionAwaiting, shouldContinueGoal } from "./goal";
 import { connectAcpDriver } from "./acp-driver";
 import { bootPlan, REMEMBERED_PROBE_MS } from "./boot-connect";
+import { connectionPhase, connectionPlacement } from "./connection-phase";
 import { agentNameOf, connectionMemory, endpointOf, type ConnectBody } from "./connections";
 import { extensionRoute } from "./extension-route";
 import { mcpAddRequest, safeMcpError } from "./mcp-add";
@@ -374,6 +375,40 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   };
   const memory = connectionMemory(opts.db);
 
+  /**
+   * Boot and the periodic reconnect share one record.
+   *
+   * A failure used to be a `console.error` and then nothing: the window had
+   * connected last time, the address was gone, and the only visible state was
+   * the same "nothing is connected" as a person who had never connected.
+   * `retrying` is owned by the boot loop until it gives up. A shorter probe
+   * from `/sync` must not overwrite it, or the first poll would report the
+   * address dead while boot was still waiting for an embedded server.
+   */
+  const attempts = new Map<
+    string,
+    { endpoint: string; backend: string; phase: "retrying" | "failed"; error?: string }
+  >();
+  const beginAttempt = (body: ConnectBody) => {
+    const endpoint = endpointOf(body);
+    attempts.set(endpoint, { endpoint, backend: body.backend ?? "opencode", phase: "retrying" });
+  };
+  const failAttempt = (body: ConnectBody, error: unknown, settle: boolean) => {
+    const endpoint = endpointOf(body);
+    const current = attempts.get(endpoint);
+    if (current?.phase === "retrying" && !settle) return;
+    const message = error instanceof Error ? error.message : String(error);
+    attempts.set(endpoint, {
+      endpoint,
+      backend: body.backend ?? "opencode",
+      phase: "failed",
+      error: message.slice(0, 240),
+    });
+  };
+  const finishAttempt = (endpoint: string) => {
+    attempts.delete(endpoint);
+  };
+
   const inflightConnects = new Map<string, Promise<{ id: string; indexed: number }>>();
   const connectBackend = (body: ConnectBody): Promise<{ id: string; indexed: number }> => {
     const key = endpointOf(body);
@@ -388,6 +423,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     const endpoint = endpointOf(body);
     const already = [...conns.values()].find((c) => c.baseUrl === endpoint);
     if (already) {
+      finishAttempt(endpoint);
       void syncDriver(already).catch((e) => console.error(`sync ${already.id} failed: ${e}`));
       return { id: already.id, indexed: 0 };
     }
@@ -461,6 +497,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       console.error(`index sessions on ${driver.id} failed: ${e}`);
     }
     void syncDriver(driver).catch((e) => console.error(`sync ${driver.id} failed: ${e}`));
+    finishAttempt(endpoint);
     return { id: driver.id, indexed: indexed.length };
   };
 
@@ -480,6 +517,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   for (const { body, mode } of bootPlan(boot, opts.autoConnect)) {
     const endpoint = endpointOf(body);
     const deadline = Date.now() + (opts.autoConnectTimeoutMs ?? 15_000);
+    beginAttempt(body);
     void (async () => {
       for (;;) {
         try {
@@ -492,6 +530,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         } catch (e) {
           if (mode === "once" || Date.now() > deadline) {
             console.error(`auto-connect to ${endpoint} gave up: ${e}`);
+            failAttempt(body, e, true);
             return;
           }
           await Bun.sleep(750);
@@ -1090,6 +1129,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
               await connectBackend({ ...saved, connectTimeoutMs: REMEMBERED_PROBE_MS });
             } catch (e) {
               console.error(`reconnect ${endpointOf(saved)} failed: ${e}`);
+              failAttempt(saved, e, false);
             }
           }),
         );
@@ -1107,15 +1147,28 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     }
 
     if (path === "/connections" && req.method === "GET") {
+      const launch = readOpencodeStatus(desktopDir);
+      const listed = [...attempts.values()].map((attempt) => ({
+        ...attempt,
+        placement: connectionPlacement(attempt.backend, attempt.endpoint, launch),
+      }));
+      const connections = [...conns.values()].map((c) => ({
+        id: c.id,
+        backend: c.backend,
+        baseUrl: c.baseUrl,
+        name: c.name,
+        directory: c.directory,
+        capabilities: { ...c.capabilities, extension: c.extension?.kind },
+        placement: connectionPlacement(c.backend, c.baseUrl, launch),
+      }));
       return json({
-        connections: [...conns.values()].map((c) => ({
-          id: c.id,
-          backend: c.backend,
-          baseUrl: c.baseUrl,
-          name: c.name,
-          directory: c.directory,
-          capabilities: { ...c.capabilities, extension: c.extension?.kind },
-        })),
+        connections,
+        attempts: listed,
+        phase: connectionPhase({
+          connected: connections.length > 0,
+          attempts: listed,
+          launchState: launch.state,
+        }),
       });
     }
 

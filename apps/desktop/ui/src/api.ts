@@ -127,12 +127,33 @@ export interface StrataEvent {
   data: Record<string, unknown>;
 }
 
+export type ConnectionPlacement = "embed" | "external";
+
+/** What `/connections` says the backends are doing, once it has answered. */
+export type ConnectionPhaseName = "connected" | "attaching" | "failed" | "missing" | "idle";
+
+export interface ConnectionAttempt {
+  endpoint: string;
+  backend: string;
+  phase: "retrying" | "failed";
+  error?: string;
+  placement?: ConnectionPlacement;
+}
+
+export interface ConnectionsResponse {
+  connections: Connection[];
+  attempts?: ConnectionAttempt[];
+  phase?: ConnectionPhaseName;
+}
+
 export interface Connection {
   id: string;
   backend: string;
   baseUrl: string;
   name?: string;
   directory?: string;
+  /** OpenCode only: the shell spawned this server, or it is someone else's. */
+  placement?: ConnectionPlacement;
   capabilities?: {
     prompt: boolean;
     abort: boolean;

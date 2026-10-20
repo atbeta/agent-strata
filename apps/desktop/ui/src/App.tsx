@@ -11,15 +11,13 @@ import { commandForChord, registerCommand } from "./commands";
 import { CommandPalette } from "./palette";
 import { SessionSwitcher } from "./switcher";
 import { PageShell, WindowCaptionBar } from "./chrome";
-import { Button } from "@/components/ui/button";
-import { EmptyState } from "@/components/ui/empty-state";
 import { t } from "./i18n";
 import { displayTitle } from "./session-title";
 import { isStreamingSnapshotMessage } from "./live";
 import { parseHash, type Route } from "./routes";
 import { explain } from "./errors";
 import { useSessionList } from "./use-session-list";
-import { useConnections } from "./use-connections";
+import { ConnectionEmpty, useConnections } from "./use-connections";
 import { useWorkspace } from "./use-workspace";
 import { useSessionSwitcher } from "./use-switcher";
 import { Sidebar } from "./sidebar";
@@ -268,8 +266,13 @@ export function App() {
   };
 
   const requestNewSession = (dir?: string) => {
-    if (!conns.connected()) {
-      conns.setConnOpen(true);
+    const phase = conns.phase();
+    if (phase !== "connected") {
+      // Opening the form while a backend is still being dialed asks the reader
+      // to connect something the app has not finished connecting.
+      if (phase === "idle" || phase === "failed" || phase === "missing" || phase === "unreachable") {
+        conns.setConnOpen(true);
+      }
       return;
     }
     void newSession(dir);
@@ -423,33 +426,11 @@ export function App() {
         <Show when={route().name === "fleet"}>
           <PageShell title={t("fleet.scope.all")}>
             <Show
-              when={conns.connected()}
+              when={conns.phase() === "connected"}
               fallback={
-                <Show
-                  when={conns.attaching()}
-                  fallback={
-                    <div class="flex h-full items-center justify-center">
-                      <EmptyState
-                        icon="plug"
-                        title={t("action.connectBackend")}
-                        description={t("fleet.hint.disconnected")}
-                        action={
-                          <Button onClick={() => conns.setConnOpen(true)}>
-                            {t("action.connect")}
-                          </Button>
-                        }
-                      />
-                    </div>
-                  }
-                >
-                  <div class="flex h-full items-center justify-center">
-                    <EmptyState
-                      icon="plug"
-                      title={t("action.attachingBackend")}
-                      description={t("fleet.hint.connecting")}
-                    />
-                  </div>
-                </Show>
+                <div class="flex h-full items-center justify-center">
+                  <ConnectionEmpty conns={conns} />
+                </div>
               }
             >
               <FleetView

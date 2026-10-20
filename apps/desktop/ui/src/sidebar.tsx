@@ -19,6 +19,7 @@ import { explain } from "./errors";
 import type { SessionListCtl, SidebarGroup } from "./use-session-list";
 import type { ConnectionsCtl } from "./use-connections";
 import { endpointHost, endpointShort, ConnectionsFooter } from "./use-connections";
+import { sidebarEmptyKind } from "./connection-status";
 import type { WorkspaceCtl } from "./use-workspace";
 import { SessionListItem } from "./sidebar-row";
 import { Button } from "@/components/ui/button";
@@ -387,27 +388,46 @@ export function Sidebar(props: {
           when={projectGroups().length > 0}
           fallback={
             <Show when={metaGroups().length === 0}>
-              <EmptyState
-                icon={list().data.error ? "alert" : "list"}
-                tone={list().data.error ? "danger" : "neutral"}
-                class="px-4 py-10"
-                title={
-                  list().attentionOnly() && list().sessions().length > 0
-                    ? t("sidebar.empty.attention")
-                    : list().data.error
-                      ? explain(list().data.error)
-                      : settled(list().data)
-                        ? t("sidebar.empty.none")
-                        : t("sidebar.empty.needBackend")
-                }
-                action={
-                  settled(list().data) && !list().data.error ? (
-                    <Button size="sm" variant="quiet" onClick={() => props.onNewSession()}>
-                      {t("action.newSession")}
-                    </Button>
-                  ) : undefined
-                }
-              />
+              {(() => {
+                const kind = sidebarEmptyKind({
+                  phase: props.conns.phase(),
+                  listSettled: settled(list().data) !== undefined,
+                  listError: Boolean(list().data.error),
+                });
+                if (kind === "hidden") return null;
+                const attention = list().attentionOnly() && list().sessions().length > 0;
+                const danger = kind === "listError" || kind === "failed" || kind === "unreachable";
+                const title = attention
+                  ? t("sidebar.empty.attention")
+                  : kind === "listError"
+                    ? explain(list().data.error)
+                    : kind === "connecting"
+                      ? t("sidebar.backend.connecting")
+                      : kind === "failed"
+                        ? t("sidebar.backend.failed")
+                        : kind === "missing"
+                          ? t("sidebar.backend.missing")
+                          : kind === "unreachable"
+                            ? t("error.serviceUnreachable")
+                            : kind === "needBackend"
+                              ? t("sidebar.empty.needBackend")
+                              : t("sidebar.empty.none");
+                return (
+                  <EmptyState
+                    icon={danger ? "alert" : kind === "connecting" ? "plug" : "list"}
+                    tone={danger ? "danger" : "neutral"}
+                    class="px-4 py-10"
+                    title={title}
+                    action={
+                      kind === "none" && !attention ? (
+                        <Button size="sm" variant="quiet" onClick={() => props.onNewSession()}>
+                          {t("action.newSession")}
+                        </Button>
+                      ) : undefined
+                    }
+                  />
+                );
+              })()}
             </Show>
           }
         >

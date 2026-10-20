@@ -47,17 +47,21 @@ export default {
   "sidebar.backend.none": "No backend",
   "sidebar.backend.connecting": "Connecting to a backend…",
   "sidebar.backend.missing": "opencode was not found",
+  "sidebar.backend.failed": "The last backend did not answer",
   "action.newSession": "New session",
   "action.connectBackend": "Connect a backend",
   "action.attachingBackend": "Attaching to a backend…",
   "action.connect": "Connect",
   "action.connecting": "Connecting…",
-  "action.closeConnect": "Close connect",
+  "action.dismissConnect": "Cancel",
+  "action.closeConnect": "Hide connect panel",
   "connect.form.name": "name",
   "connect.form.user": "user",
   "connect.form.password": "password",
   "connect.kind.opencode": "OpenCode server",
   "connect.kind.acp": "ACP agent",
+  "connect.placement.embed": "Built in",
+  "connect.placement.external": "External",
   "connect.form.command": "command, e.g. opencode acp",
   "sidebar.backend.newTarget": "new sessions",
 
@@ -114,6 +118,7 @@ export default {
     "Attach a running agent server. Sessions already on it show up as soon as the stream connects.",
   "fleet.hint.connecting":
     "The agent server is starting. Sessions appear on its own once it is up — nothing to do here.",
+  "fleet.hint.failed": "Connect one that is still running.",
 
   // Time
   "time.now": "now",

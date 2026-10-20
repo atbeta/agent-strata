@@ -638,6 +638,110 @@ describe("agent-strata service", () => {
     svc2.stop();
   });
 
+  test("a backend that is gone on boot is reported for opencode and acp alike", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "strata-boot-gone-"));
+    // The OpenCode address is probed once. The ACP command is the one boot
+    // keeps retrying, and a missing executable fails without the stream timeout.
+    writeFileSync(
+      join(dir, "connections.json"),
+      JSON.stringify([
+        { baseUrl: "http://127.0.0.1:1" },
+        { backend: "acp", command: "strata-no-such-agent", args: ["--nope"] },
+      ]) + "\n",
+    );
+    const svc = startService({
+      db: join(dir, "events.db"),
+      port: 0,
+      desktopDir: dir,
+      autoConnectTimeoutMs: -1,
+    });
+    const base = `http://127.0.0.1:${svc.port}`;
+    let body = { phase: "", attempts: [] as { endpoint: string; phase: string; backend: string }[] };
+    for (let i = 0; i < 80; i++) {
+      body = (await fetch(`${base}/connections`).then((r) => r.json())) as typeof body;
+      if (body.phase === "failed" && body.attempts.length >= 2 && body.attempts.every((a) => a.phase === "failed")) break;
+      await Bun.sleep(50);
+    }
+    expect(body.phase).toBe("failed");
+    expect(body.attempts.map((a) => a.endpoint).sort()).toEqual([
+      "acp://strata-no-such-agent --nope",
+      "http://127.0.0.1:1",
+    ]);
+    expect(body.attempts.map((a) => a.backend).sort()).toEqual(["acp", "opencode"]);
+    svc.stop();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a shorter reconnect does not report the boot target dead while boot is still trying", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "strata-boot-hold-"));
+    writeFileSync(
+      join(dir, "connections.json"),
+      JSON.stringify([{ backend: "acp", command: "strata-no-such-agent", args: ["--nope"] }]) + "\n",
+    );
+    const svc = startService({
+      db: join(dir, "events.db"),
+      port: 0,
+      desktopDir: dir,
+      autoConnectTimeoutMs: 5_000,
+    });
+    const base = `http://127.0.0.1:${svc.port}`;
+    const synced = await fetch(`${base}/sync`, { method: "POST" });
+    expect(synced.status).toBe(200);
+    const body = (await fetch(`${base}/connections`).then((r) => r.json())) as {
+      phase: string;
+      attempts: { phase: string; endpoint: string }[];
+    };
+    expect(body.phase).toBe("attaching");
+    expect(body.attempts).toEqual([
+      expect.objectContaining({ endpoint: "acp://strata-no-such-agent --nope", phase: "retrying" }),
+    ]);
+    svc.stop();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("an opencode connection says whether it is the embedded server", async () => {
+    const oc = fakeOpencode();
+    const desktopDir = mkdtempSync(join(tmpdir(), "strata-placement-"));
+    writeFileSync(
+      join(desktopDir, "opencode-status.json"),
+      JSON.stringify({ state: "running", url: oc.baseUrl }),
+    );
+    const svc = startService({ db: ":memory:", port: 0, desktopDir });
+    const base = `http://127.0.0.1:${svc.port}`;
+    const connected = await fetch(`${base}/connect`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ baseUrl: oc.baseUrl }),
+    });
+    expect(connected.status).toBe(200);
+    const embedded = (await fetch(`${base}/connections`).then((r) => r.json())) as {
+      phase: string;
+      connections: { placement?: string; baseUrl: string }[];
+    };
+    expect(embedded.phase).toBe("connected");
+    expect(embedded.connections[0]).toMatchObject({ baseUrl: oc.baseUrl, placement: "embed" });
+
+    writeFileSync(join(desktopDir, "desktop.json"), JSON.stringify({ opencode: "external" }));
+    const external = (await fetch(`${base}/connections`).then((r) => r.json())) as {
+      connections: { placement?: string }[];
+    };
+    expect(external.connections[0]?.placement).toBe("external");
+
+    writeFileSync(join(desktopDir, "desktop.json"), JSON.stringify({ opencode: "embed" }));
+    writeFileSync(
+      join(desktopDir, "opencode-status.json"),
+      JSON.stringify({ state: "running", url: "http://127.0.0.1:9" }),
+    );
+    const other = (await fetch(`${base}/connections`).then((r) => r.json())) as {
+      connections: { placement?: string }[];
+    };
+    expect(other.connections[0]?.placement).toBe("external");
+
+    svc.stop();
+    oc.stop();
+    rmSync(desktopDir, { recursive: true, force: true });
+  });
+
   test("autoConnect to a dead backend retries then gives up, service stays up", async () => {
     const svc = startService({
       db: ":memory:",

@@ -1,18 +1,22 @@
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createEffect, createResource, createSignal, For, onCleanup, Show } from "solid-js";
 import {
   backendLabel,
   connectBackend,
   disconnectBackend,
   getJson,
-  readOpencodeLaunch,
-  type Connection,
+  getJsonWhenUp,
+  type ConnectionAttempt,
+  type ConnectionPlacement,
+  type ConnectionsResponse,
 } from "./api";
 import { settled } from "./resource";
+import { backendHeadline, viewPhase, type ViewPhase } from "./connection-status";
 import { explain } from "./errors";
 import { t } from "./i18n";
 import { Icon } from "./icons";
 import { Tip } from "./tip";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { RowButton } from "@/components/ui/row-button";
 import { TextFieldInput } from "@/components/ui/text-field";
 import {
@@ -61,33 +65,28 @@ export function useConnections(opts: {
   currentDir: () => string | undefined;
   onChanged: () => void;
 }) {
-  const [conns, { refetch: refetchConns }] = createResource(() =>
-    getJson<{ connections: Connection[] }>("/connections"),
-  );
-  const [opencodeLaunch] = createResource(readOpencodeLaunch);
-  const backendMissing = () => settled(opencodeLaunch)?.state === "missing";
+  // The first read waits out the race with the service coming up. A fetch that
+  // fails in that race is not "no backend" — concluding that paints the
+  // disconnected sentence over a launch that has not answered yet.
+  let opened = false;
+  const [conns, { refetch: refetchConns }] = createResource(() => {
+    const load = opened
+      ? getJson<ConnectionsResponse>("/connections")
+      : getJsonWhenUp<ConnectionsResponse>("/connections");
+    opened = true;
+    return load;
+  });
+  const phase = (): ViewPhase => viewPhase(settled(conns), conns.error);
+  const connected = () => phase() === "connected";
+  const failedAttempts = () => (settled(conns)?.attempts ?? []).filter((attempt) => attempt.phase === "failed");
 
-  const connected = () => (settled(conns)?.connections.length ?? 0) > 0;
-
-  /**
-   * States in which a backend is on its way rather than one waiting on a person.
-   *
-   * `external` counts: the service attaches to a pre-set `STRATA_OPENCODE_URL`
-   * and retries until it answers, which is the same wait as a spawn, just one
-   * this shell did not start. `unmanaged` does not, because nothing is coming
-   * — that is the one state where the prompt to connect is the whole truth.
-   */
-  const LAUNCHING = new Set(["starting", "restarting", "running", "external"]);
-  const launching = () => LAUNCHING.has(settled(opencodeLaunch)?.state ?? "");
-
-  /**
-   * `connected()` is false for the whole stretch between the window opening
-   * and the stream attaching: the shell spawns `opencode serve`, the service
-   * retries until it answers, and until it does `/connections` is empty. Read
-   * as a boolean that stretch looks identical to a person who has not attached
-   * anything, and the page asked them to fix something already in progress.
-   */
-  const attaching = () => !connected() && launching();
+  // Boot can give up between the 12s polls. While something is still being
+  // dialed, reread often enough that the failure shows when the dialing stops.
+  createEffect(() => {
+    if (phase() !== "attaching") return;
+    const timer = setInterval(() => void refetchConns(), 500);
+    onCleanup(() => clearInterval(timer));
+  });
 
   const [connOpen, setConnOpenRaw] = createSignal(false);
   const [connErr, setConnErrRaw] = createSignal("");
@@ -203,10 +202,9 @@ export function useConnections(opts: {
   return {
     conns,
     refetchConns,
-    opencodeLaunch,
-    backendMissing,
+    phase,
+    failedAttempts,
     connected,
-    attaching,
     connOpen,
     setConnOpen,
     connUrl,
@@ -237,6 +235,26 @@ export function useConnections(opts: {
 
 export type ConnectionsCtl = ReturnType<typeof useConnections>;
 
+function placementWord(placement: ConnectionPlacement | undefined): string {
+  if (placement === "embed") return t("connect.placement.embed");
+  if (placement === "external") return t("connect.placement.external");
+  return "";
+}
+
+function attemptLine(attempt: ConnectionAttempt): string {
+  const place = placementWord(attempt.placement);
+  const host = endpointShort(attempt.endpoint);
+  return place ? `${host} · ${place}` : host;
+}
+
+const HEADLINE_KEY = {
+  connecting: "sidebar.backend.connecting",
+  failed: "sidebar.backend.failed",
+  missing: "sidebar.backend.missing",
+  unreachable: "error.serviceUnreachable",
+  none: "sidebar.backend.none",
+} as const;
+
 /**
  * The sidebar's bottom strip: the connect form when open, then one row per
  * live connection — the row owns its sync progress — plus the compare-open
@@ -248,10 +266,28 @@ export function ConnectionsFooter(props: {
   onCompareOpen: () => void;
 }) {
   const c = () => props.conns;
+  // A press outside the form puts it away. The menu that toggles the form is
+  // portaled, so it carries the same marker as the form: without that, the
+  // press that chooses "hide" would close the form and the selection would
+  // open it again.
+  createEffect(() => {
+    if (!c().connOpen()) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest("[data-connect-keep]")) return;
+      c().setConnOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    onCleanup(() => document.removeEventListener("pointerdown", onPointerDown, true));
+  });
+  const headline = () => backendHeadline(c().phase());
+  const headlineTone = () =>
+    headline() === "failed" || headline() === "unreachable" ? "text-destructive" : "text-muted-foreground";
   return (
     <div class="border-t border-border px-2">
       <Show when={c().connOpen()}>
-        <div class="my-1.5 space-y-1.5 px-1">
+        <div class="my-1.5 space-y-1.5 px-1" data-connect-keep="">
           <div class="flex gap-1">
             <Button
               size="sm"
@@ -325,17 +361,34 @@ export function ConnectionsFooter(props: {
               placeholder={t("connect.form.name")}
             />
           </Show>
-          <Button
-            class="h-8 w-full"
-            disabled={c().connecting() || !(c().connKind() === "acp" ? c().connCmd().trim() : c().connUrl().trim())}
-            onClick={() => void c().connect()}
-          >
-            {c().connecting() ? t("action.connecting") : t("action.connect")}
-          </Button>
+          <div class="flex gap-1.5">
+            <Button variant="ghost" class="h-8 flex-1" onClick={() => c().setConnOpen(false)}>
+              {t("action.dismissConnect")}
+            </Button>
+            <Button
+              class="h-8 flex-[2]"
+              disabled={c().connecting() || !(c().connKind() === "acp" ? c().connCmd().trim() : c().connUrl().trim())}
+              onClick={() => void c().connect()}
+            >
+              {c().connecting() ? t("action.connecting") : t("action.connect")}
+            </Button>
+          </div>
         </div>
       </Show>
       <Show when={c().connErr()}>
         <p class="my-1 px-1.5 font-mono text-2xs text-destructive">{c().connErr()}</p>
+      </Show>
+      <Show when={c().connected() && c().failedAttempts().length > 0}>
+        <div class="px-1.5 pt-1">
+          <p class="truncate text-2xs text-destructive">{t("sidebar.backend.failed")}</p>
+          <For each={c().failedAttempts()}>
+            {(attempt) => (
+              <p class="truncate font-mono text-2xs text-muted-foreground" title={attempt.error}>
+                {attemptLine(attempt)}
+              </p>
+            )}
+          </For>
+        </div>
       </Show>
       {/* min-h-7 so the strip lands on the same line as the session view's
           status footer — two bottoms at different heights read as a seam
@@ -346,14 +399,17 @@ export function ConnectionsFooter(props: {
             when={c().connected()}
             fallback={
               <div class="min-w-0 px-1.5 py-1">
-                <p class="truncate text-xs text-muted-foreground">
-                  {c().attaching()
-                    ? t("sidebar.backend.connecting")
-                    : c().backendMissing()
-                      ? t("sidebar.backend.missing")
-                      : t("sidebar.backend.none")}
-                </p>
-                <Show when={c().backendMissing()}>
+                <p class={`truncate text-xs ${headlineTone()}`}>{t(HEADLINE_KEY[headline()])}</p>
+                <Show when={headline() === "failed"}>
+                  <For each={c().failedAttempts()}>
+                    {(attempt) => (
+                      <p class="truncate font-mono text-2xs text-muted-foreground" title={attempt.error}>
+                        {attemptLine(attempt)}
+                      </p>
+                    )}
+                  </For>
+                </Show>
+                <Show when={headline() === "missing"}>
                   <a
                     href="https://opencode.ai"
                     target="_blank"
@@ -391,6 +447,9 @@ export function ConnectionsFooter(props: {
                     />
                     <span class="truncate">
                       {backendLabel(conn.backend)}
+                      <Show when={placementWord(conn.placement)}>
+                        {(word) => <span class="text-2xs text-muted-foreground"> {word()}</span>}
+                      </Show>
                       <span class="font-mono text-2xs text-muted-foreground">
                         {" "}
                         · {endpointHost(conn.baseUrl)}
@@ -431,10 +490,11 @@ export function ConnectionsFooter(props: {
           <DropdownMenuTrigger
             class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
             aria-label={t("sidebar.menu.more")}
+            data-connect-keep=""
           >
             ···
           </DropdownMenuTrigger>
-          <DropdownMenuContent class="min-w-52">
+          <DropdownMenuContent class="min-w-52" data-connect-keep="">
             <DropdownMenuItem onSelect={() => (location.hash = "/settings")}>
               <Icon name="gear" class="size-3.5 text-muted-foreground" />
               {t("settings.title")}
@@ -460,5 +520,62 @@ export function ConnectionsFooter(props: {
         </DropdownMenu>
       </div>
     </div>
+  );
+}
+
+/**
+ * The fleet page when nothing is connected yet.
+ *
+ * Same phase as the footer. The connect button appears once we know a person
+ * has to do something — not while the first read is still in flight, and not
+ * while a backend is still being dialed.
+ */
+export function ConnectionEmpty(props: { conns: ConnectionsCtl }) {
+  const phase = () => props.conns.phase();
+  const connecting = () => phase() === "pending" || phase() === "attaching";
+  const failed = () => phase() === "failed";
+  const missing = () => phase() === "missing";
+  const unreachable = () => phase() === "unreachable";
+  const title = () =>
+    connecting()
+      ? t("action.attachingBackend")
+      : failed()
+        ? t("sidebar.backend.failed")
+        : missing()
+          ? t("sidebar.backend.missing")
+          : unreachable()
+            ? t("error.serviceUnreachable")
+            : t("action.connectBackend");
+  const description = () => {
+    if (connecting()) return t("fleet.hint.connecting");
+    if (failed()) {
+      const targets = props.conns.failedAttempts().map(attemptLine).join("  ");
+      return targets ? `${targets} ${t("fleet.hint.failed")}` : t("fleet.hint.failed");
+    }
+    if (missing()) return t("settings.opencode.missing");
+    if (phase() === "idle") return t("fleet.hint.disconnected");
+    return undefined;
+  };
+  return (
+    <EmptyState
+      icon={failed() || unreachable() ? "alert" : "plug"}
+      tone={failed() || unreachable() ? "danger" : "neutral"}
+      title={title()}
+      description={description()}
+      action={
+        failed() || phase() === "idle" ? (
+          <Button onClick={() => props.conns.setConnOpen(true)}>{t("action.connect")}</Button>
+        ) : missing() ? (
+          <a
+            href="https://opencode.ai"
+            target="_blank"
+            rel="noreferrer"
+            class="text-xs text-muted-foreground hover:text-foreground"
+          >
+            {t("settings.opencode.install")}
+          </a>
+        ) : undefined
+      }
+    />
   );
 }
