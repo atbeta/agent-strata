@@ -1,12 +1,12 @@
 # Agent Strata design system v0.3
 
-The shell is a dark, quiet desktop app. Visual references are Linear (one neutral surface, hairline borders, 13px UI type, accent used sparingly) and OpenCode Desktop (session sidebar, conversation, composer, custom window chrome). Tokens live in `ui/src/theme.css`. Interactive controls come from a small Solid component set in `ui/src/components/ui`, styled with those tokens. Light is available via `theme.ts`; dark stays the default.
+The shell is a dark, quiet desktop app. Visual references are Linear (one neutral surface, hairline borders, compact UI type, accent used sparingly) and OpenCode Desktop (session sidebar, conversation, composer, custom window chrome). Tokens live in `ui/src/theme.css`. Interactive controls come from a small Solid component set in `ui/src/components/ui`, styled with those tokens. Light is available via `theme.ts`; dark stays the default.
 
 ## Components
 
 The set is an owned copy of [solid-ui](https://github.com/stefan-karger/solid-ui) (the Solid port of the shadcn component model). Primitives are `@kobalte/core`. `cn()` in `ui/src/lib/utils.ts` merges classes. Import from `@/components/ui/*`.
 
-Official shadcn/ui is React, so its CLI is not used here. solid-ui's own CLI targets Tailwind 3 and this app is Tailwind 4, so new pieces are copied in and adapted by hand: keep the Kobalte behavior, restyle with the tokens in `theme.css`, and skip animation class names that are not defined in this theme. Density is tighter than the solid-ui defaults (13px type, 32px fields, 28px icon buttons).
+Official shadcn/ui is React, so its CLI is not used here. solid-ui's own CLI targets Tailwind 3 and this app is Tailwind 4, so new pieces are copied in and adapted by hand: keep the Kobalte behavior, restyle with the tokens in `theme.css`, and skip animation class names that are not defined in this theme. Density is tighter than the solid-ui defaults (14px type, 32px fields, 28px icon buttons).
 
 In use: `Button`, `TextField`, `DropdownMenu` on the sidebar (project switcher, search, row actions, connect). The rest of the screens still carry hand-styled controls; they move onto this set as those screens are touched. Do not add a second styling path beside these components.
 
@@ -60,7 +60,7 @@ Patterns with one consumer live next to it rather than in `components/ui`: `Pane
 
 ## What the references change
 
-Linear keeps the sidebar and the document on the same background. Separation is a 1px border at about 8% white, not a second gray panel. Selection is a soft fill. Section labels are 11px and sentence case. The accent color appears on the primary action, not on every border.
+Linear keeps the sidebar and the document on the same background. Separation is a 1px border at about 8% white, not a second gray panel. Selection is a soft fill. Section labels are 12px and sentence case. The accent color appears on the primary action, not on every border.
 
 Light mode is the one exception to the shared surface: it tints the sidebar (`--sidebar`, ~96.5% lightness against the 99% window) because on a near-white window the hairline alone does not separate the columns; dark keeps one surface.
 
@@ -109,13 +109,15 @@ The type scale is declared once in `theme.css` and tuned to this app rather than
 
 | Step | px | Use |
 | --- | --- | --- |
-| `text-2xs` | 11 | section labels, kbd hints, counts, mono metadata |
-| `text-xs` | 12 | secondary copy, table cells, payload panes |
-| `text-sm` | 13 | UI default: rows, buttons, fields, prose |
-| `text-base` | 14 | emphasised body |
+| `text-2xs` | 12 | section labels, kbd hints, counts, mono metadata |
+| `text-xs` | 13 | secondary copy, table cells, payload panes |
+| `text-sm` | 14 | UI default: rows, buttons, fields, prose |
+| `text-base` | 15 | emphasised body |
 | `text-lg` / `text-xl` | 16 / 20 | `.md h2` / `.md h1`, page titles |
 
-Use the named steps. `text-[13px]` is the same size as `text-sm` today, but only one of them survives a change to the scale. `.md` lives in the components layer so a caller can size rendered markdown with a utility; that is why the drawer passes `text-xs` and gets it.
+The ladder started at Linear's 11/13 and moved up a pixel: most of the copy is Chinese, and a CJK label at 11px closes up where a Latin one does not.
+
+Use the named steps. `text-[14px]` is the same size as `text-sm` today, but only one of them survives a change to the scale. `.md` lives in the components layer so a caller can size rendered markdown with a utility; that is why the drawer passes `text-xs` and gets it.
 
 ### Payload rendering
 Tool `input` and `result` arrive as raw event data and are rendered by `Payload` in `payload.tsx`, which decides the shape rather than guessing at draw time:

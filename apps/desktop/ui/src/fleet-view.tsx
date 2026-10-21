@@ -621,7 +621,7 @@ function TrendChart(props: { points: TrendPoint[]; since: number; all: boolean }
             against; the figure on it is the day that ceiling belongs to. */}
         <Show when={max() > 0}>
           <span class="absolute inset-x-0 top-0 flex items-center gap-1.5">
-            <span class="text-[9px] leading-none tabular-nums text-muted-foreground/60">
+            <span class="text-[10px] leading-none tabular-nums text-muted-foreground/60">
               {compactNum(max())}
             </span>
             <span class="h-px min-w-0 flex-1 bg-border/60" />
@@ -659,7 +659,7 @@ function TrendChart(props: { points: TrendPoint[]; since: number; all: boolean }
           {(p, i) => (
             <span
               class={cn(
-                "min-w-0 flex-1 text-center text-[9px] leading-none tabular-nums",
+                "min-w-0 flex-1 text-center text-[10px] leading-none tabular-nums",
                 p === today() ? "text-foreground" : "text-muted-foreground/60",
               )}
               classList={{ "opacity-0": !labelled(i(), props.points.length) }}

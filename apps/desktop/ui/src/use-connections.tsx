@@ -297,7 +297,7 @@ export function ConnectionsFooter(props: {
                     </span>
                     <Show when={tick()}>
                       {(tk) => (
-                        <span class="ml-auto font-mono text-2xs text-muted-foreground tabular-nums">
+                        <span class="ml-auto shrink-0 whitespace-nowrap font-mono text-2xs text-muted-foreground tabular-nums">
                           {tk().total > 0 ? `${tk().done}/${tk().total}` : t("sidebar.sync.busy")}
                         </span>
                       )}

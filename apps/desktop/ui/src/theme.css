@@ -189,11 +189,13 @@ html[data-theme="light"] {
 
 @theme {
   /* --- typography ---
-     The scale is tuned to the app, not to Tailwind's defaults: UI copy is 13px
-     and section labels are 11px (DESIGN.md), so `text-sm` — not `text-base` —
-     is the default size and `text-2xs` replaces the off-scale 11px label. Going
-     through named steps instead of `text-[13px]` keeps the whole UI retunable
-     from this block. */
+     The scale is tuned to the app, not to Tailwind's defaults: UI copy is 14px
+     and section labels are 12px (DESIGN.md), so `text-sm` — not `text-base` —
+     is the default size and `text-2xs` is the label step. Most of this UI's
+     copy is Chinese, and at Linear's 11/13 the strokes of a CJK label closed
+     up; the whole ladder sits one pixel higher so the hierarchy is unchanged.
+     Going through named steps instead of `text-[14px]` keeps the whole UI
+     retunable from this block. */
   /* The CJK faces in both stacks are not decoration. Every Latin family here is
      Latin-only, so a Chinese character walks the whole list and lands on the
      generic — and Chromium resolves generic `monospace` to SimSun on Windows,
@@ -204,10 +206,10 @@ html[data-theme="light"] {
   --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "Cascadia Mono", Consolas,
     "PingFang SC", "Microsoft YaHei", "Noto Sans Mono CJK SC", monospace;
   --font-terminal: var(--font-mono);
-  --text-2xs: 0.6875rem;
-  --text-xs: 0.75rem;
-  --text-sm: 0.8125rem;
-  --text-base: 0.875rem;
+  --text-2xs: 0.75rem;
+  --text-xs: 0.8125rem;
+  --text-sm: 0.875rem;
+  --text-base: 0.9375rem;
   --text-lg: 1rem;
   --text-xl: 1.25rem;
   --text-2xl: 1.5rem;
@@ -280,7 +282,7 @@ html[data-theme="light"] {
     -webkit-app-region: no-drag;
     app-region: no-drag;
   }
-  /* The page is 13px. A control that keeps the browser default (16px) reads
+  /* The page is 14px. A control that keeps the browser default (16px) reads
      larger than every label beside it, and a native select on Windows ignores
      a utility size often enough that the mismatch shows up in every form. */
   button,
