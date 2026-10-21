@@ -2,8 +2,11 @@ import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import {
+  EVENT_DATA_CLASS,
   Event,
   EventInput,
+  LOCAL_ONLY_EVENT_TYPES,
+  REBUILDABLE_EVENT_TYPES,
   isStreamingSnapshot,
   makeEvent,
   parseEvent,
@@ -41,6 +44,31 @@ export interface ReplaceOptions {
   mapper?: string;
 }
 
+export interface ClassStats {
+  events: number;
+  bytes: number;
+}
+
+export interface StoreStats {
+  sessions: number;
+  events: number;
+  /** Sum of stored event bodies, not the size of the database file. */
+  bytes: number;
+  fts: number;
+  oldest: string | null;
+  newest: string | null;
+  rebuildable: ClassStats;
+  local: ClassStats;
+}
+
+export interface SessionClassStats {
+  session_id: string;
+  rebuildable: number;
+  local: number;
+  rebuildable_bytes: number;
+  local_bytes: number;
+}
+
 export interface Store {
   append(inputs: EventInput[]): Event[];
   /**
@@ -68,6 +96,25 @@ export interface Store {
   ): { event: Event; snippet: string }[];
   subscribe(fn: (e: Event) => void): () => void;
   close(): void;
+
+  /** Counts and content bytes, split by what a rebuild can reproduce. */
+  stats(): StoreStats;
+  /** Per-session split, for a purge preview. Omit ids to count every session. */
+  classCounts(session_ids?: string[]): SessionClassStats[];
+  /** Remove every event, the session row and its revision marker. */
+  deleteSessions(session_ids: string[]): number;
+  /**
+   * Remove only what an import can rebuild, keeping permissions, questions,
+   * status and goals. A session left with no events is removed as a whole.
+   */
+  deleteRebuildable(session_ids: string[]): number;
+  /** A compact copy of the live database. `:memory:` stores can be saved too. */
+  backupTo(path: string): void;
+  integrityCheck(): string[];
+  /** Cheap housekeeping: query planner, FTS index, WAL checkpoint. */
+  optimize(): void;
+  /** Rewrites the database file; can take a while on a large store. */
+  vacuum(): void;
 }
 
 function ftsText(e: Event): string {
@@ -409,6 +456,170 @@ export function openStore(path: string | ":memory:"): Store {
       }
       const rows = db.query(sql).all(...params) as { body: string; snip: string }[];
       return rows.map((r) => ({ event: parseEvent(JSON.parse(r.body)), snippet: r.snip }));
+    },
+
+    stats() {
+      const totals = db
+        .query(
+          "SELECT COUNT(*) AS events, COALESCE(SUM(length(body)),0) AS bytes, MIN(ts) AS oldest, MAX(ts) AS newest FROM events",
+        )
+        .get() as { events: number; bytes: number; oldest: string | null; newest: string | null };
+      const sessions = (
+        db.query("SELECT COUNT(*) AS n FROM sessions").get() as { n: number }
+      ).n;
+      const fts = (db.query("SELECT COUNT(*) AS n FROM events_fts").get() as { n: number }).n;
+      const byType = db
+        .query(
+          "SELECT type, COUNT(*) AS events, COALESCE(SUM(length(body)),0) AS bytes FROM events GROUP BY type",
+        )
+        .all() as { type: EventType; events: number; bytes: number }[];
+      const rebuildable: ClassStats = { events: 0, bytes: 0 };
+      const local: ClassStats = { events: 0, bytes: 0 };
+      for (const row of byType) {
+        const bucket = EVENT_DATA_CLASS[row.type] === "local" ? local : rebuildable;
+        bucket.events += row.events;
+        bucket.bytes += row.bytes;
+      }
+      return { ...totals, sessions, fts, rebuildable, local };
+    },
+
+    classCounts(session_ids) {
+      const useFilter = session_ids !== undefined && session_ids.length > 0;
+      const marks = useFilter ? session_ids.map(() => "?").join(",") : "";
+      const rows = db
+        .query(
+          `SELECT session_id, type, COUNT(*) AS events, COALESCE(SUM(length(body)),0) AS bytes
+             FROM events${useFilter ? ` WHERE session_id IN (${marks})` : ""}
+             GROUP BY session_id, type`,
+        )
+        .all(...(useFilter ? session_ids : [])) as {
+        session_id: string;
+        type: EventType;
+        events: number;
+        bytes: number;
+      }[];
+      const out = new Map<string, SessionClassStats>();
+      if (session_ids) {
+        for (const id of session_ids) {
+          out.set(id, {
+            session_id: id,
+            rebuildable: 0,
+            local: 0,
+            rebuildable_bytes: 0,
+            local_bytes: 0,
+          });
+        }
+      }
+      for (const row of rows) {
+        const entry = out.get(row.session_id) ?? {
+          session_id: row.session_id,
+          rebuildable: 0,
+          local: 0,
+          rebuildable_bytes: 0,
+          local_bytes: 0,
+        };
+        if (EVENT_DATA_CLASS[row.type] === "local") {
+          entry.local += row.events;
+          entry.local_bytes += row.bytes;
+        } else {
+          entry.rebuildable += row.events;
+          entry.rebuildable_bytes += row.bytes;
+        }
+        out.set(row.session_id, entry);
+      }
+      return [...out.values()].sort((a, b) => a.session_id.localeCompare(b.session_id));
+    },
+
+    deleteSessions(session_ids) {
+      if (session_ids.length === 0) return 0;
+      return db.transaction(() => {
+        let deleted = 0;
+        for (const id of session_ids) {
+          deleted += (
+            db.query("SELECT COUNT(*) AS n FROM events WHERE session_id=?").get(id) as {
+              n: number;
+            }
+          ).n;
+          db.query("DELETE FROM events_fts WHERE session_id=?").run(id);
+          db.query("DELETE FROM events WHERE session_id=?").run(id);
+          db.query("DELETE FROM sessions WHERE session_id=?").run(id);
+          db.query("DELETE FROM session_rev WHERE session_id=?").run(id);
+        }
+        return deleted;
+      })();
+    },
+
+    deleteRebuildable(session_ids) {
+      if (session_ids.length === 0) return 0;
+      const marks = REBUILDABLE_EVENT_TYPES.map(() => "?").join(",");
+      return db.transaction(() => {
+        let deleted = 0;
+        for (const id of session_ids) {
+          const before = (
+            db.query("SELECT COUNT(*) AS n FROM events WHERE session_id=?").get(id) as {
+              n: number;
+            }
+          ).n;
+          db.query(
+            `DELETE FROM events_fts WHERE event_id IN
+               (SELECT id FROM events WHERE session_id=? AND type IN (${marks}))`,
+          ).run(id, ...REBUILDABLE_EVENT_TYPES);
+          db.query(`DELETE FROM events WHERE session_id=? AND type IN (${marks})`).run(
+            id,
+            ...REBUILDABLE_EVENT_TYPES,
+          );
+          const left = (
+            db.query("SELECT COUNT(*) AS n FROM events WHERE session_id=?").get(id) as {
+              n: number;
+            }
+          ).n;
+          deleted += before - left;
+          if (left === 0) {
+            db.query("DELETE FROM sessions WHERE session_id=?").run(id);
+            db.query("DELETE FROM session_rev WHERE session_id=?").run(id);
+          } else {
+            // The transcript is gone, so the next sync has to rebuild it; the
+            // local-only facts keep the session and its title.
+            db.query(
+              `UPDATE sessions SET
+                 last_seq=COALESCE((SELECT MAX(seq) FROM events WHERE session_id=?), 0),
+                 last_ts=(SELECT MAX(ts) FROM events WHERE session_id=?),
+                 started_at=(SELECT MIN(ts) FROM events WHERE session_id=?),
+                 mapper=NULL
+               WHERE session_id=?`,
+            ).run(id, id, id, id);
+            db.query("DELETE FROM session_rev WHERE session_id=?").run(id);
+          }
+        }
+        return deleted;
+      })();
+    },
+
+    backupTo(path) {
+      if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
+      const escaped = path.replace(/'/g, "''");
+      db.exec(`VACUUM INTO '${escaped}'`);
+    },
+
+    integrityCheck() {
+      const rows = db.query("PRAGMA integrity_check").all() as Record<string, unknown>[];
+      return rows.map((row) => String(Object.values(row)[0] ?? "")).filter(Boolean);
+    },
+
+    optimize() {
+      db.exec("PRAGMA optimize");
+      db.exec("INSERT INTO events_fts(events_fts) VALUES('optimize')");
+      if (path !== ":memory:") {
+        try {
+          db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+        } catch {
+          // No WAL, or a reader holding it open. Housekeeping is best-effort.
+        }
+      }
+    },
+
+    vacuum() {
+      db.exec("VACUUM");
     },
 
     subscribe(fn) {

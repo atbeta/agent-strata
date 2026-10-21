@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   DEFAULT_SECRET_PATTERNS,
+  EVENT_DATA_CLASS,
   EVENT_TYPES,
+  LOCAL_ONLY_EVENT_TYPES,
+  REBUILDABLE_EVENT_TYPES,
+  eventDataClass,
   makeEvent,
   parseEvent,
   safeParseEvent,
@@ -68,6 +72,50 @@ const fixtures: Record<string, unknown> = {
   },
   "question.resolved": { request_id: "q1", decision: "reply", answers: [["bun"]] },
 };
+
+describe("what a rebuild can get back", () => {
+  test("every event type is classified exactly once", () => {
+    expect(new Set([...REBUILDABLE_EVENT_TYPES, ...LOCAL_ONLY_EVENT_TYPES])).toEqual(
+      new Set(EVENT_TYPES),
+    );
+    for (const type of EVENT_TYPES) {
+      const cls = eventDataClass(type);
+      expect(cls === "rebuildable" || cls === "local").toBe(true);
+      expect(EVENT_DATA_CLASS[type]).toBe(cls);
+    }
+  });
+
+  test("permissions, questions, status and goals are the local-only half", () => {
+    for (const type of [
+      "permission.requested",
+      "permission.resolved",
+      "question.asked",
+      "question.resolved",
+      "session.status",
+      "session.goal",
+      "session.ended",
+      "session.deleted",
+      "plan.updated",
+    ] as const) {
+      expect(eventDataClass(type)).toBe("local");
+    }
+  });
+
+  test("the transcript and file changes are rebuildable", () => {
+    for (const type of [
+      "session.started",
+      "session.updated",
+      "session.compacted",
+      "turn.user",
+      "turn.assistant",
+      "tool.call",
+      "tool.result",
+      "file.changed",
+    ] as const) {
+      expect(eventDataClass(type)).toBe("rebuildable");
+    }
+  });
+});
 
 describe("schema", () => {
   test("valid fixture per event type parses", () => {

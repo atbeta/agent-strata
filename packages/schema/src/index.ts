@@ -200,6 +200,51 @@ export type Event = {
 }[keyof DataMap];
 export type EventType = Event["type"];
 
+/**
+ * What the store can get back from a backend, and what it cannot.
+ *
+ * A session's transcript is a cache: the adapter can re-read the backend's own
+ * record and rebuild it. Permissions, questions, status changes and goals only
+ * exist because strata saw them, so deleting those loses information no import
+ * can recreate. Every event type is classified here rather than in a list per
+ * consumer, so the store, the maintenance screen and the adapters cannot drift
+ * on which half a row belongs to.
+ */
+export const EVENT_DATA_CLASS: Record<EventType, "rebuildable" | "local"> = {
+  "session.started": "rebuildable",
+  "session.updated": "rebuildable",
+  "session.compacted": "rebuildable",
+  "turn.user": "rebuildable",
+  "turn.assistant": "rebuildable",
+  "tool.call": "rebuildable",
+  "tool.result": "rebuildable",
+  "file.changed": "rebuildable",
+  // Ended, deleted, status and goal are observations: the backend's session
+  // record does not replay them, and a rebuilt transcript would be missing the
+  // fact that a run stopped or a goal was set.
+  "session.ended": "local",
+  "session.deleted": "local",
+  "session.status": "local",
+  "session.goal": "local",
+  "plan.updated": "local",
+  "permission.requested": "local",
+  "permission.resolved": "local",
+  "question.asked": "local",
+  "question.resolved": "local",
+};
+
+export const REBUILDABLE_EVENT_TYPES = (Object.keys(EVENT_DATA_CLASS) as EventType[]).filter(
+  (type) => EVENT_DATA_CLASS[type] === "rebuildable",
+);
+
+export const LOCAL_ONLY_EVENT_TYPES = (Object.keys(EVENT_DATA_CLASS) as EventType[]).filter(
+  (type) => EVENT_DATA_CLASS[type] === "local",
+);
+
+export function eventDataClass(type: EventType): "rebuildable" | "local" {
+  return EVENT_DATA_CLASS[type];
+}
+
 type DistOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 export type EventInput = DistOmit<Event, "seq" | "id"> & { id?: string };
 

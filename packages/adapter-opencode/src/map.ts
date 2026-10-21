@@ -1,5 +1,6 @@
 import type { Event, Part } from "@opencode-ai/sdk/v2";
 import {
+  REBUILDABLE_EVENT_TYPES,
   isStreamingSnapshot,
   makeEvent,
   type ContentBlock,
@@ -124,16 +125,7 @@ export const SETTLE_STALL_MS = 300_000;
 export const OPENCODE_MAPPER_VERSION = "opencode-7";
 
 /** The event types an import reproduces from OpenCode's own record of a session. */
-export const OPENCODE_REBUILT_TYPES: EventType[] = [
-  "session.started",
-  "session.updated",
-  "session.compacted",
-  "turn.user",
-  "turn.assistant",
-  "tool.call",
-  "tool.result",
-  "file.changed",
-];
+export const OPENCODE_REBUILT_TYPES: EventType[] = [...REBUILDABLE_EVENT_TYPES];
 
 export interface SnapshotMessage {
   info: { id: string; role: string; time?: { created?: number; completed?: number } };

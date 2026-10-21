@@ -263,6 +263,107 @@ describe("store.query", () => {
     s.close();
   });
 
+  test("stats split the record into rebuildable and local-only bytes", () => {
+    const s = openStore(":memory:");
+    s.append([
+      mk("a", "session.started", { workspace: "/a" }),
+      mk("a", "turn.user", { turn_id: "t1", content: [{ type: "text", text: "hi" }] }),
+      mk("a", "permission.requested", {
+        request_id: "p1",
+        session_id: "a",
+        tool: "bash",
+        input: { command: "ls" },
+        asked_at: new Date().toISOString(),
+      } as never),
+      mk("a", "question.asked", {
+        request_id: "q1",
+        questions: [],
+        asked_at: new Date().toISOString(),
+      } as never),
+    ]);
+    const stats = s.stats();
+    expect(stats.sessions).toBe(1);
+    expect(stats.events).toBe(4);
+    expect(stats.fts).toBeGreaterThan(0);
+    expect(stats.rebuildable.events).toBe(2);
+    expect(stats.local.events).toBe(2);
+    expect(stats.rebuildable.bytes).toBeGreaterThan(0);
+
+    const [row] = s.classCounts(["a"]);
+    expect(row).toMatchObject({ session_id: "a", rebuildable: 2, local: 2 });
+    expect(row!.local_bytes).toBeGreaterThan(0);
+    s.close();
+  });
+
+  test("deleting only rebuildable events keeps the facts strata alone saw", () => {
+    const s = openStore(":memory:");
+    s.append([
+      mk("a", "session.started", { workspace: "/a" }),
+      mk("a", "turn.user", { turn_id: "t1", content: [] }),
+      mk("a", "permission.requested", {
+        request_id: "p1",
+        session_id: "a",
+        tool: "bash",
+        input: { command: "ls" },
+        asked_at: new Date().toISOString(),
+      } as never),
+    ]);
+    expect(s.deleteRebuildable(["a"])).toBe(2);
+    expect(s.read({ session_id: "a" }).map((e) => e.type)).toEqual(["permission.requested"]);
+    expect(s.listSessions()).toHaveLength(1);
+    expect(s.classCounts(["a"])[0]).toMatchObject({ rebuildable: 0, local: 1 });
+    s.close();
+  });
+
+  test("deleting rebuildable events removes a cache-only session entirely", () => {
+    const s = openStore(":memory:");
+    s.append([
+      mk("b", "session.started", { workspace: "/b" }),
+      mk("b", "turn.user", { turn_id: "t1", content: [] }),
+    ]);
+    expect(s.deleteRebuildable(["b"])).toBe(2);
+    expect(s.read({ session_id: "b" })).toHaveLength(0);
+    expect(s.listSessions()).toHaveLength(0);
+    expect(s.stats().sessions).toBe(0);
+    s.close();
+  });
+
+  test("deleting a session removes its events, row, revision and search hits", () => {
+    const s = openStore(":memory:");
+    s.append([
+      mk("a", "session.started", { workspace: "/a" }),
+      mk("a", "turn.user", { turn_id: "t1", content: [{ type: "text", text: "needle" }] }),
+    ]);
+    s.markRevision("a", 42);
+    expect(s.search("needle")).toHaveLength(1);
+    expect(s.deleteSessions(["a"])).toBe(2);
+    expect(s.read({ session_id: "a" })).toHaveLength(0);
+    expect(s.listSessions()).toHaveLength(0);
+    expect(s.sessionRevision("a")).toBeNull();
+    expect(s.search("needle")).toHaveLength(0);
+    s.close();
+  });
+
+  test("a backup opens as a store and integrity/optimize/vacuum do not throw", () => {
+    const dir = mkdtempSync(join(tmpdir(), "strata-store-"));
+    try {
+      const s = openStore(join(dir, "events.db"));
+      s.append([mk("a", "session.started", { workspace: "/a" })]);
+      expect(s.integrityCheck()).toContain("ok");
+      s.optimize();
+      s.vacuum();
+      const copy = join(dir, "backup.db");
+      s.backupTo(copy);
+      expect(existsSync(copy)).toBe(true);
+      const restored = openStore(copy);
+      expect(restored.listSessions()).toHaveLength(1);
+      restored.close();
+      s.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("session revision survives reopen and keeps the newest mark", () => {
     const dir = mkdtempSync(join(tmpdir(), "strata-store-"));
     try {
