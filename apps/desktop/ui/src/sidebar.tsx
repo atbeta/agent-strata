@@ -193,11 +193,17 @@ export function Sidebar(props: {
             group.dir !== undefined ? (
               <Tip label={t("action.newSession")}>
                 {/* Revealed on section hover — one "+" per project, always on,
-                    would be a rail of pluses down the rail. */}
+                    would be a rail of pluses down the rail. An empty project
+                    keeps it visible: there is no session row to hover. */}
                 <Button
                   variant="quiet"
                   size="icon-2xs"
-                  class="size-4 shrink-0 text-muted-foreground/60 opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/section:opacity-100"
+                  class={cn(
+                    "size-4 shrink-0 text-muted-foreground/60 transition-opacity hover:text-foreground focus-visible:opacity-100",
+                    group.rows.length === 0
+                      ? "opacity-100"
+                      : "opacity-0 group-hover/section:opacity-100",
+                  )}
                   aria-label={t("action.newSession")}
                   onClick={() => props.onNewSession(group.dir)}
                 >
@@ -208,9 +214,6 @@ export function Sidebar(props: {
           }
         />
         <Show when={!collapsed().has(group.key)}>
-          <Show when={group.dir !== undefined && group.rows.length === 0}>
-            <EmptyState layout="inline" title={t("sidebar.group.empty")} class="px-2 py-1" />
-          </Show>
           <For each={rows()}>
             {(s) => {
               const id = s.summary.session_id;

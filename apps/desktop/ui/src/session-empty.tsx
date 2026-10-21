@@ -1,7 +1,8 @@
-import { Show, type JSX } from "solid-js";
+import { For, Show, type JSX } from "solid-js";
 import { folderLabel, realWorkspace } from "./api";
 import { Icon } from "./icons";
 import { t } from "./i18n";
+import { Button } from "@/components/ui/button";
 
 /**
  * What a session with nothing in it says about itself.
@@ -22,8 +23,15 @@ export function SessionEmpty(props: {
   branch?: string | null;
   /** Composer affordances worth naming; undefined marks a pane with no composer. */
   hints?: { mention: boolean; command: boolean };
+  /** Fill the composer with a starting prompt; absent on companion panes. */
+  onPick?: (text: string) => void;
 }) {
   const real = () => realWorkspace(props.workspace);
+  const suggestions = () => [
+    t("session.empty.suggest.explain"),
+    t("session.empty.suggest.changes"),
+    t("session.empty.suggest.tests"),
+  ];
   return (
     <div
       class="flex w-full max-w-full flex-col items-center text-center"
@@ -47,12 +55,29 @@ export function SessionEmpty(props: {
           </p>
         )}
       </Show>
+      <Show when={props.onPick}>
+        <div class="mt-6 flex max-w-full flex-wrap items-center justify-center gap-1.5">
+          <For each={suggestions()}>
+            {(text) => (
+              <Button
+                type="button"
+                variant="quiet"
+                size="xs"
+                class="h-7 rounded-full border border-border bg-secondary/30 px-3 text-2xs text-muted-foreground hover:bg-accent hover:text-foreground"
+                onClick={() => props.onPick?.(text)}
+              >
+                {text}
+              </Button>
+            )}
+          </For>
+        </div>
+      </Show>
       <Show
         when={props.hints}
         fallback={<p class="mt-3 text-xs text-muted-foreground">{t("session.empty.peer")}</p>}
       >
         {(hints) => (
-          <div class="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs text-muted-foreground">
+          <div class="mt-3 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs text-muted-foreground">
             <Show when={hints().mention}>
               <Hint keys="@">{t("session.empty.mention")}</Hint>
             </Show>

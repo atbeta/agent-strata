@@ -68,7 +68,6 @@ export default {
   "sidebar.archived.deleted": "已删除。",
   "sidebar.more": "显示更多会话",
   "sidebar.group.more": "还有 {n} 条",
-  "sidebar.group.empty": "还没有会话",
 
   // Sidebar empty state
   "sidebar.empty.none": "还没有会话。",

@@ -103,6 +103,7 @@ export function useSessionComposer(args: {
   branch?: () => string | undefined;
 }) {
   const opencode = () => args.caps()?.extension === "opencode";
+  const connected = () => args.caps()?.connected !== false;
 
   const [draft, setDraft] = createSignal(readDraft(args.sessionId()));
   const [queued, setQueued] = createSignal<Outgoing[]>([]);
@@ -442,6 +443,10 @@ export function useSessionComposer(args: {
   };
 
   const send = () => {
+    if (!connected()) {
+      setSendErr(t("composer.disconnected"));
+      return;
+    }
     const revertTurnId = editTurnId();
     if (revertTurnId) setEditTurnId(undefined);
     const out: Outgoing = {
@@ -479,7 +484,7 @@ export function useSessionComposer(args: {
     }
     void deliver(out);
   };
-  const canSend = () => Boolean(draft().trim()) || attachments().length > 0;
+  const canSend = () => connected() && (Boolean(draft().trim()) || attachments().length > 0);
 
   const runSlash = (name: string, slashArgs: string) => {
     setDraft(slashArgs ? `/${name} ${slashArgs}` : `/${name}`);
@@ -909,6 +914,12 @@ export function useSessionComposer(args: {
     resetFor,
     onKeyDown,
     bindDraft: (el: HTMLTextAreaElement) => (draftEl = el),
+    focusDraft: () => {
+      if (!draftEl) return;
+      draftEl.focus();
+      const end = draftEl.value.length;
+      draftEl.setSelectionRange(end, end);
+    },
     bindFileInput: (el: HTMLInputElement) => (fileInput = el),
     openFilePicker: () => fileInput?.click(),
     removeAttachment: (id: string) => {

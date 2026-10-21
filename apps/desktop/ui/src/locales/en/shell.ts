@@ -67,7 +67,6 @@ export default {
   "sidebar.archived.deleted": "Deleted.",
   "sidebar.more": "Show more sessions",
   "sidebar.group.more": "{n} more",
-  "sidebar.group.empty": "No sessions yet",
 
   // Sidebar empty state
   "sidebar.empty.none": "No sessions yet.",

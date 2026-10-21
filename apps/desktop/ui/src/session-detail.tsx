@@ -1754,6 +1754,10 @@ const turns = () => shown().turns;
                                 mention: opencode(),
                                 command: Array.isArray(slashCommands()),
                               }}
+                              onPick={(text) => {
+                                composer.setDraft(text);
+                                composer.focusDraft();
+                              }}
                             />
                           </div>
                         </Show>
@@ -1924,6 +1928,12 @@ const turns = () => shown().turns;
                           {t("message.restore")}
                         </Button>
                       </div>
+                    </Show>
+                    <Show when={caps()?.connected === false}>
+                      <p class="mb-1.5 flex items-center gap-1.5 px-1 text-2xs text-status-cancelled">
+                        <Icon name="plug" class="size-3 shrink-0" />
+                        {t("composer.disconnected")}
+                      </p>
                     </Show>
                     <SessionComposer
                       c={composer}
