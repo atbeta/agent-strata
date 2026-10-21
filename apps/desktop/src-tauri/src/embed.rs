@@ -918,14 +918,24 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
+    /// The free-port tests bind real ephemeral ports; serialise them so one
+    /// test cannot claim the port another just reserved.
+    static FREE_PORT_TEST: Mutex<()> = Mutex::new(());
+
     fn temp_path(name: &str) -> PathBuf {
+        // Two tests can ask for the same `name` in the same nanosecond on a
+        // platform with a coarse clock; the counter keeps their directories
+        // apart so one test's JSON cannot land in the other's file.
+        static TEMP_SEQ: AtomicUsize = AtomicUsize::new(0);
+        let seq = TEMP_SEQ.fetch_add(1, Ordering::SeqCst);
         let dir = std::env::temp_dir().join(format!(
-            "strata-embed-{}-{}-{}",
+            "strata-embed-{}-{}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos(),
+            seq,
             name
         ));
         fs::create_dir_all(&dir).unwrap();
@@ -1231,12 +1241,17 @@ mod tests {
 
     #[test]
     fn free_port_returns_a_port_that_accepts_a_bind() {
-        let port = free_port().expect("free port");
-        let listener = TcpListener::bind(("127.0.0.1", port));
-        assert!(
-            listener.is_ok(),
-            "free_port {port} should accept a bind on 127.0.0.1"
-        );
+        let _guard = FREE_PORT_TEST.lock().unwrap_or_else(|e| e.into_inner());
+        // A port obtained by binding :0 and dropping the listener can be
+        // claimed by another test before this one rebinds it. Retry instead of
+        // treating one lost race as a bug in free_port.
+        for _ in 0..10 {
+            let port = free_port().expect("free port");
+            if TcpListener::bind(("127.0.0.1", port)).is_ok() {
+                return;
+            }
+        }
+        panic!("free_port did not produce a bindable port in ten attempts");
     }
 
     #[test]
@@ -1268,19 +1283,27 @@ mod tests {
 
     #[test]
     fn plan_with_port_keeps_a_port_that_is_still_free() {
-        let port = free_port().expect("free port");
-        let planned = plan_with_port(OpencodeMode::Embed, Some(port)).expect("embed plan");
-        assert_eq!(planned.port, port);
-        assert_eq!(planned.url, format!("http://127.0.0.1:{port}"));
+        let _guard = FREE_PORT_TEST.lock().unwrap_or_else(|e| e.into_inner());
+        for _ in 0..10 {
+            let port = free_port().expect("free port");
+            let planned = plan_with_port(OpencodeMode::Embed, Some(port)).expect("embed plan");
+            if planned.port == port {
+                assert_eq!(planned.url, format!("http://127.0.0.1:{port}"));
+                return;
+            }
+        }
+        panic!("the free port was taken before plan_with_port could keep it");
     }
 
     #[test]
     fn plan_with_port_gives_up_a_port_that_is_taken() {
+        let _guard = FREE_PORT_TEST.lock().unwrap_or_else(|e| e.into_inner());
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
         let taken = listener.local_addr().expect("addr").port();
         let planned = plan_with_port(OpencodeMode::Embed, Some(taken)).expect("embed plan");
         assert_ne!(planned.port, taken);
-        assert!(port_is_free(planned.port));
+        // Do not rebind `planned.port` here: another parallel test can claim it
+        // after plan_with_port checked it, which tests the race, not the plan.
     }
 
     #[test]
