@@ -125,6 +125,10 @@ The log has two kinds of rows, and they are not interchangeable. **Rebuildable**
 
 Settings → Maintenance shows the database file and content sizes split by that classification, checks integrity, optimizes the WAL and FTS index, vacuums on request, writes `VACUUM INTO` backups under `<db dir>/backups`, and lists hand-made `.bak` snapshots separately for cleanup. Cleaning the rebuildable cache (previewed, optionally only archived sessions older than N days) never touches the local-only rows; a session the backend still has may be imported again on the next sync. Archived sessions live in a folded section at the bottom of the sidebar, not in Maintenance: restoring or deleting one is a session action. Deleting an archived session removes the backend copy when a connected backend can manage it and always purges the local record; `DELETE /sessions/:id?local=1` is the explicit local-only path, and `GET /sessions/:id/data` says how many local-only facts would be lost. Paging `GET /sessions?limit=…` reports `more` so the sidebar can offer the next page instead of silently cutting the list at 200.
 
+## Waiting and finding
+
+A background window notifies when a session finishes, and when it stops for a permission or a question; clicking the notice brings the window back to that session. Only the transition into “needs input” counts, so a request already on screen at startup does not announce twice. The global palette searches commands, sessions and the transcript; choosing a transcript hit opens the session's own search with the same query and jumps to the first turn that can be resolved, including tool results via their call id.
+
 ## Releasing
 
 Pushing a `v*` tag is the release. GitHub Actions builds the Windows NSIS
