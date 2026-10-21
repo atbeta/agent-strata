@@ -25,3 +25,17 @@ export async function chooseOpencodeBinary(title: string): Promise<string | null
   const picked = await open({ multiple: false, directory: false, title });
   return typeof picked === "string" ? picked : null;
 }
+
+/** Ask the shell's supervisor to replace the embedded server. */
+export async function restartOpencode(): Promise<void> {
+  if (!inDesktopShell()) throw new Error("desktop only");
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("restart_opencode");
+}
+
+/** Open the shell/OpenCode log; returns the path that was opened. */
+export async function openOpencodeLog(): Promise<string> {
+  if (!inDesktopShell()) throw new Error("desktop only");
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<string>("open_log_file");
+}

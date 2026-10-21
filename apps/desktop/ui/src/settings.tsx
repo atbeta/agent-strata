@@ -6,7 +6,13 @@ import {
   type OpencodeLaunchMode,
   type OpencodeRuntime,
 } from "./api";
-import { checkOpencodeRuntime, chooseOpencodeBinary, setOpencodeBinary } from "./opencode-runtime";
+import {
+  checkOpencodeRuntime,
+  chooseOpencodeBinary,
+  openOpencodeLog,
+  restartOpencode,
+  setOpencodeBinary,
+} from "./opencode-runtime";
 import { copyText } from "./clipboard";
 import { inDesktopShell } from "./shell";
 import { readMru } from "./session-switch";
@@ -217,12 +223,13 @@ const CHOICES = (): { id: ThemeChoice; label: string }[] => [
 export function SettingsPage(props: { section?: string; conns: ConnectionsCtl }) {
   const section = () => settingsSection(props.section);
   const [choice, setChoice] = createSignal<ThemeChoice>(readTheme());
-  const [launch] = createResource(readOpencodeLaunch);
+  const [launch, { refetch: refetchLaunch }] = createResource(readOpencodeLaunch);
   const [mode, setMode] = createSignal<OpencodeLaunchMode>("embed");
   const [runtime, setRuntime] = createSignal<OpencodeRuntime>();
   const [runtimeBusy, setRuntimeBusy] = createSignal(false);
   const [runtimeErr, setRuntimeErr] = createSignal("");
   const [runtimeNote, setRuntimeNote] = createSignal("");
+  const [restartArmed, setRestartArmed] = createSignal(false);
   const [hydrated, setHydrated] = createSignal(false);
   const [saveErr, setSaveErr] = createSignal("");
   const [fonts, setFonts] = createSignal<FontChoice>(readFonts());
@@ -346,6 +353,63 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
       setRuntimeBusy(false);
     }
   };
+  const restartRuntime = async () => {
+    setRuntimeBusy(true);
+    setRuntimeErr("");
+    setRuntimeNote("");
+    setRestartArmed(false);
+    try {
+      await restartOpencode();
+      // The supervisor reacts on its next five-second beat, then the new
+      // server has to become healthy. Poll rather than claiming success.
+      for (let i = 0; i < 30; i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        const next = await readOpencodeLaunch();
+        if (next.state === "running") {
+          setRuntime(next.runtime);
+          await refetchLaunch();
+          setRuntimeNote(t("settings.opencode.restarted"));
+          return;
+        }
+        if (next.state === "missing" || next.state === "stopped") {
+          throw new Error(t("settings.opencode.restartFailed"));
+        }
+      }
+      setRuntimeNote(t("settings.opencode.restartSlow"));
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "";
+      setRuntimeErr(
+        message.includes("not being supervised")
+          ? t("settings.opencode.restartFailed")
+          : message || t("err.network"),
+      );
+    } finally {
+      setRuntimeBusy(false);
+    }
+  };
+  const armRestart = () => {
+    if (!restartArmed()) {
+      setRestartArmed(true);
+      setTimeout(() => setRestartArmed(false), 4000);
+      return;
+    }
+    setRestartArmed(false);
+    void restartRuntime();
+  };
+  const openLog = async () => {
+    setRuntimeErr("");
+    setRuntimeNote("");
+    try {
+      const path = await openOpencodeLog();
+      setRuntimeNote(t("settings.opencode.logOpened", { path }));
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "";
+      setRuntimeErr(
+        message.includes("log file") ? t("settings.opencode.noLog") : message || t("err.network"),
+      );
+    }
+  };
+
   const copyDiagnostics = async () => {
     const report = runtime();
     const lines = [
@@ -682,6 +746,30 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
                 onClick={() => void checkRuntime()}
               >
                 {t("settings.opencode.check")}
+              </Button>
+              <Show when={launchData()?.mode === "embed" && launchData()?.state !== "external"}>
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="quiet"
+                  disabled={runtimeBusy() || !inDesktopShell()}
+                  title={t("settings.opencode.restartHint")}
+                  onClick={armRestart}
+                >
+                  {restartArmed()
+                    ? t("settings.opencode.restartConfirm")
+                    : t("settings.opencode.restart")}
+                </Button>
+              </Show>
+              <Button
+                type="button"
+                size="xs"
+                variant="quiet"
+                disabled={runtimeBusy() || !inDesktopShell()}
+                title={t("settings.opencode.logHint")}
+                onClick={() => void openLog()}
+              >
+                {t("settings.opencode.log")}
               </Button>
               <Show when={runtime()?.source === "setting"}>
                 <Button

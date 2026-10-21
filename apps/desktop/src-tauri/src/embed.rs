@@ -346,6 +346,7 @@ pub fn supervise<S, H, W>(
     healthy: H,
     wait: W,
     shutdown: Arc<AtomicBool>,
+    restart: Arc<AtomicBool>,
 ) where
     S: Fn(&OpencodePlan) -> std::io::Result<Spawned>,
     H: Fn(&OpencodePlan) -> bool,
@@ -364,6 +365,11 @@ pub fn supervise<S, H, W>(
             );
             return;
         }
+
+        // A request made while the last child was being torn down is already
+        // satisfied by the spawn below. Requests made against a live child are
+        // consumed in its health loop.
+        restart.store(false, Ordering::SeqCst);
 
         let _ = write_status(
             status_path,
@@ -412,6 +418,10 @@ pub fn supervise<S, H, W>(
                     );
                     return;
                 }
+                if restart.swap(false, Ordering::SeqCst) {
+                    (spawned.kill)();
+                    break;
+                }
             }
 
             if reached_running {
@@ -427,6 +437,10 @@ pub fn supervise<S, H, W>(
                             Some(&plan.url),
                         );
                         return;
+                    }
+                    if restart.swap(false, Ordering::SeqCst) {
+                        (spawned.kill)();
+                        break;
                     }
                     if spawned.exited.load(Ordering::SeqCst) {
                         break;
@@ -1430,6 +1444,7 @@ mod tests {
                 }
             },
             shutdown.clone(),
+            Arc::new(AtomicBool::new(false)),
         );
 
         assert!(
@@ -1446,6 +1461,57 @@ mod tests {
         assert_eq!(spawned[1].password, plan.password);
         assert_eq!(spawned[0].port, plan.port);
         assert_eq!(spawned[0].password, plan.password);
+    }
+
+    #[test]
+    fn supervise_restart_replaces_a_healthy_child_without_waiting_for_exit() {
+        let plan = sample_plan();
+        let status_path = temp_path("status.json");
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let restart = Arc::new(AtomicBool::new(false));
+        let spawns = Arc::new(AtomicUsize::new(0));
+        let kills = Arc::new(AtomicUsize::new(0));
+        let waits = Arc::new(AtomicUsize::new(0));
+
+        supervise(
+            plan,
+            &status_path,
+            {
+                let spawns = spawns.clone();
+                let kills = kills.clone();
+                move |_| {
+                    spawns.fetch_add(1, Ordering::SeqCst);
+                    Ok(Spawned {
+                        exited: Arc::new(AtomicBool::new(false)),
+                        kill: Box::new({
+                            let kills = kills.clone();
+                            move || {
+                                kills.fetch_add(1, Ordering::SeqCst);
+                            }
+                        }),
+                    })
+                }
+            },
+            |_| true,
+            {
+                let spawns = spawns.clone();
+                let restart = restart.clone();
+                let shutdown = shutdown.clone();
+                let waits = waits.clone();
+                move |_| {
+                    if waits.fetch_add(1, Ordering::SeqCst) == 0 {
+                        restart.store(true, Ordering::SeqCst);
+                    } else if spawns.load(Ordering::SeqCst) >= 2 {
+                        shutdown.store(true, Ordering::SeqCst);
+                    }
+                }
+            },
+            shutdown,
+            restart,
+        );
+
+        assert!(spawns.load(Ordering::SeqCst) >= 2);
+        assert!(kills.load(Ordering::SeqCst) >= 1);
     }
 
     #[test]
@@ -1481,6 +1547,7 @@ mod tests {
                 }
             },
             shutdown.clone(),
+            Arc::new(AtomicBool::new(false)),
         );
 
         assert_eq!(spawns.load(Ordering::SeqCst), 1);
@@ -1531,6 +1598,7 @@ mod tests {
                 }
             },
             shutdown,
+            Arc::new(AtomicBool::new(false)),
         );
 
         assert_eq!(first_kills.load(Ordering::SeqCst), 1);
@@ -1571,6 +1639,7 @@ mod tests {
                 }
             },
             shutdown,
+            Arc::new(AtomicBool::new(false)),
         );
 
         assert_eq!(spawns.load(Ordering::SeqCst), 9);

@@ -23,7 +23,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -40,6 +40,9 @@ use tauri::Manager;
 
 struct Sidecars {
     shutdown: Arc<AtomicBool>,
+    /// Set by the doctor's restart button; the supervisor treats it as a
+    /// request to kill the current child and converge again on the same plan.
+    restart: Arc<AtomicBool>,
     /// First caller reaps. Exit and Drop can both arrive; the second finds nothing to stop.
     stopped: AtomicBool,
     opencode: Arc<Mutex<Option<Child>>>,
@@ -51,6 +54,7 @@ impl Sidecars {
     fn empty() -> Self {
         Self {
             shutdown: Arc::new(AtomicBool::new(false)),
+            restart: Arc::new(AtomicBool::new(false)),
             stopped: AtomicBool::new(false),
             opencode: Arc::new(Mutex::new(None)),
             service: Mutex::new(None),
@@ -89,6 +93,18 @@ impl Sidecars {
             .take()
         {
             reap(&mut child);
+        }
+    }
+
+    /// Ask the supervisor to replace the running embedded server.
+    fn request_restart(&self) -> Result<(), String> {
+        let supervise = self.supervise.lock().unwrap_or_else(|e| e.into_inner());
+        match supervise.as_ref() {
+            Some(handle) if !handle.is_finished() => {
+                self.restart.store(true, Ordering::SeqCst);
+                Ok(())
+            }
+            _ => Err("the embedded OpenCode server is not being supervised".into()),
         }
     }
 
@@ -255,6 +271,7 @@ fn reap(child: &mut Child) {
 impl Sidecars {
     fn start() -> Self {
         let shutdown = Arc::new(AtomicBool::new(false));
+        let restart = Arc::new(AtomicBool::new(false));
         let opencode = Arc::new(Mutex::new(None));
         let mut supervisor = None;
         let data = data_dir();
@@ -374,6 +391,7 @@ impl Sidecars {
                                 extras.extend(service_env(&planned));
                                 let home = home_dir();
                                 let shutdown_flag = shutdown.clone();
+                                let restart_flag = restart.clone();
                                 let opencode_slot = opencode.clone();
                                 let exited = Arc::new(AtomicBool::new(false));
                                 let pid_path = pid_path.clone();
@@ -474,6 +492,7 @@ impl Sidecars {
                                             }
                                         },
                                         shutdown_flag,
+                                        restart_flag.clone(),
                                     );
                                 }));
                             } else {
@@ -535,6 +554,7 @@ impl Sidecars {
 
         Sidecars {
             shutdown,
+            restart,
             stopped: AtomicBool::new(false),
             opencode,
             service: Mutex::new(service_child),
@@ -559,6 +579,45 @@ async fn save_export(file_name: String, contents: Vec<u8>) -> Result<Option<Stri
     let path = file.path().to_path_buf();
     fs::write(&path, &contents).map_err(|e| format!("write {} failed: {e}", path.display()))?;
     Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+/// Ask the supervisor to replace the embedded server. The command returns as
+/// soon as the request is queued; the page polls `/desktop/opencode` for the
+/// state to settle rather than holding the UI on a restart.
+#[tauri::command]
+fn restart_opencode(state: tauri::State<Sidecars>) -> Result<(), String> {
+    state.request_restart()
+}
+
+/// Open the log the shell and the embedded server share. The path is fixed,
+/// not passed in: this is a doctor button, not a general file opener.
+#[tauri::command]
+fn open_log_file() -> Result<String, String> {
+    let path = data_dir().join("service.log");
+    if !path.is_file() {
+        return Err("the log file has not been created yet".into());
+    }
+    open_path(&path).map_err(|e| format!("could not open {}: {e}", path.display()))?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+fn open_path(path: &Path) -> std::io::Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open").arg(path).status().map(|_| ())
+    }
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("cmd")
+            .args(["/C", "start", ""])
+            .arg(path)
+            .status()
+            .map(|_| ())
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        Command::new("xdg-open").arg(path).status().map(|_| ())
+    }
 }
 
 /// Re-inspect the binary without restarting anything. The settings page calls
@@ -593,6 +652,8 @@ fn main() {
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             save_export,
+            restart_opencode,
+            open_log_file,
             opencode_runtime,
             set_opencode_bin,
         ])
