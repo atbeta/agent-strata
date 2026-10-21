@@ -230,6 +230,8 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
   const [runtimeErr, setRuntimeErr] = createSignal("");
   const [runtimeNote, setRuntimeNote] = createSignal("");
   const [restartArmed, setRestartArmed] = createSignal(false);
+  const [diagNote, setDiagNote] = createSignal("");
+  const [diagErr, setDiagErr] = createSignal("");
   const [hydrated, setHydrated] = createSignal(false);
   const [saveErr, setSaveErr] = createSignal("");
   const [fonts, setFonts] = createSignal<FontChoice>(readFonts());
@@ -397,16 +399,14 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
     void restartRuntime();
   };
   const openLog = async () => {
-    setRuntimeErr("");
-    setRuntimeNote("");
+    setDiagErr("");
+    setDiagNote("");
     try {
       const path = await openOpencodeLog();
-      setRuntimeNote(t("settings.opencode.logOpened", { path }));
+      setDiagNote(t("settings.about.logOpened", { path }));
     } catch (e) {
       const message = e instanceof Error ? e.message : "";
-      setRuntimeErr(
-        message.includes("log file") ? t("settings.opencode.noLog") : message || t("err.network"),
-      );
+      setDiagErr(message.includes("log file") ? t("settings.about.noLog") : message || t("err.network"));
     }
   };
 
@@ -423,7 +423,7 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
       `error: ${report?.error ?? "—"}`,
       `checked_at: ${report?.checked_at ? new Date(report.checked_at * 1000).toISOString() : "—"}`,
     ];
-    if (await copyText(lines.join("\n"))) setRuntimeNote(t("settings.opencode.diagnostics.copied"));
+    if (await copyText(lines.join("\n"))) setDiagNote(t("settings.about.diagnosticsCopied"));
   };
 
   createEffect(() => {
@@ -761,16 +761,6 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
                     : t("settings.opencode.restart")}
                 </Button>
               </Show>
-              <Button
-                type="button"
-                size="xs"
-                variant="quiet"
-                disabled={runtimeBusy() || !inDesktopShell()}
-                title={t("settings.opencode.logHint")}
-                onClick={() => void openLog()}
-              >
-                {t("settings.opencode.log")}
-              </Button>
               <Show when={runtime()?.source === "setting"}>
                 <Button
                   type="button"
@@ -782,15 +772,6 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
                   {t("settings.opencode.clearBin")}
                 </Button>
               </Show>
-              <Button
-                type="button"
-                size="xs"
-                variant="quiet"
-                disabled={runtimeBusy()}
-                onClick={() => void copyDiagnostics()}
-              >
-                {t("settings.opencode.diagnostics")}
-              </Button>
             </span>
           </div>
           <Show
@@ -941,6 +922,32 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
             </a>
           </Row>
         </div>
+      </Group>
+      <Group label={t("settings.about.diagnostics")}>
+        <p class="text-2xs leading-4 text-muted-foreground">
+          {t("settings.about.diagnosticsHint")}
+        </p>
+        <div class="mt-3 flex flex-wrap gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={!inDesktopShell()}
+            onClick={() => void openLog()}
+          >
+            {t("settings.about.openLog")}
+          </Button>
+          <Button type="button" size="sm" variant="quiet" onClick={() => void copyDiagnostics()}>
+            {t("settings.about.copyDiagnostics")}
+          </Button>
+        </div>
+        <Show when={diagNote()}>
+          <p class="mt-2 text-2xs text-muted-foreground">{diagNote()}</p>
+        </Show>
+        <Show when={diagErr()}>
+          <p class="mt-2 text-2xs text-destructive">{diagErr()}</p>
+        </Show>
+        <p class="mt-2 text-2xs leading-4 text-muted-foreground">{t("settings.about.logHint")}</p>
       </Group>
       </Show>
       </div>
