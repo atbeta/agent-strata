@@ -20,7 +20,7 @@
 mod embed;
 
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -190,25 +190,45 @@ fn open_log(path: &Path) -> Option<File> {
     OpenOptions::new().create(true).append(true).open(path).ok()
 }
 
+type Log = Arc<Mutex<File>>;
+
+/// One line, one timestamp, one lock. Child stdout and stderr both come
+/// through here, so a log line cannot be split by the other stream.
+fn log_line(log: &Log, line: &str) {
+    let stamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+    if let Ok(mut file) = log.lock() {
+        let _ = writeln!(file, "{stamp} | {line}");
+    }
+}
+
+fn log_note(log: &Log, line: &str) {
+    log_line(log, line);
+}
+
+fn pipe_to_log<R: Read + Send + 'static>(reader: R, log: Log) {
+    std::thread::spawn(move || {
+        for line in BufReader::new(reader).lines() {
+            match line {
+                Ok(line) => log_line(&log, &line),
+                Err(_) => break,
+            }
+        }
+    });
+}
+
 fn spawn(
     bin: &Path,
     args: &[String],
     cwd: &Path,
     envs: &[(&str, String)],
-    log: &File,
+    log: &Log,
 ) -> Option<Child> {
     let mut cmd = command_for(bin);
     cmd.args(args)
         .current_dir(cwd)
-        .envs(envs.iter().map(|(k, v)| (*k, v.as_str())));
-    match (log.try_clone(), log.try_clone()) {
-        (Ok(out), Ok(err)) => {
-            cmd.stdout(Stdio::from(out)).stderr(Stdio::from(err));
-        }
-        _ => {
-            cmd.stdout(Stdio::inherit()).stderr(Stdio::inherit());
-        }
-    }
+        .envs(envs.iter().map(|(k, v)| (*k, v.as_str())))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -222,9 +242,18 @@ fn spawn(
         cmd.creation_flags(0x08000000);
     }
     match cmd.spawn() {
-        Ok(child) => Some(child),
+        Ok(mut child) => {
+            if let Some(stdout) = child.stdout.take() {
+                pipe_to_log(stdout, log.clone());
+            }
+            if let Some(stderr) = child.stderr.take() {
+                pipe_to_log(stderr, log.clone());
+            }
+            Some(child)
+        }
         Err(e) => {
             eprintln!("spawn {} failed: {e}", bin.display());
+            log_note(log, &format!("spawn {} failed: {e}", bin.display()));
             None
         }
     }
@@ -276,13 +305,12 @@ impl Sidecars {
         let mut supervisor = None;
         let data = data_dir();
         let log_path = data.join("service.log");
-        let Some(log) = open_log(&log_path) else {
+        let Some(log_file) = open_log(&log_path) else {
             eprintln!("agent-strata: could not open {}", log_path.display());
             return Sidecars::empty();
         };
-        if let Ok(mut stamp) = log.try_clone() {
-            let _ = writeln!(stamp, "\n--- agent-strata shell starting ---");
-        }
+        let log: Log = Arc::new(Mutex::new(log_file));
+        log_note(&log, "---- agent-strata shell starting ----");
 
         let db = std::env::var("STRATA_DB")
             .unwrap_or_else(|_| data.join("events.db").to_string_lossy().into_owned());
@@ -315,6 +343,10 @@ impl Sidecars {
                 "agent-strata: could not write {}: {e}",
                 runtime_path.display()
             );
+            log_note(
+                &log,
+                &format!("could not write {}: {e}", runtime_path.display()),
+            );
         }
 
         let mut extras: Vec<(String, String)> = Vec::new();
@@ -322,6 +354,10 @@ impl Sidecars {
         if port_open(port) {
             eprintln!(
                 "agent-strata: port {port} is already open, leaving the existing service in place"
+            );
+            log_note(
+                &log,
+                &format!("port {port} is already open; leaving the existing service in place"),
             );
             return Sidecars::empty();
         }
@@ -333,6 +369,7 @@ impl Sidecars {
         let pid_path = data.join("opencode.pid");
         if let Some(pid) = cleanup_stale_opencode(&pid_path) {
             eprintln!("agent-strata: stopped stale opencode process {pid}");
+            log_note(&log, &format!("stopped stale opencode process {pid}"));
         }
 
         let status_path = data.join("opencode-status.json");
@@ -380,13 +417,16 @@ impl Sidecars {
                                 eprintln!(
                                     "agent-strata: stopped opencode {pid} still holding port {port}"
                                 );
+                                log_note(
+                                    &log,
+                                    &format!("stopped opencode {pid} still holding port {port}"),
+                                );
                             }
                         }
                     }
                     match plan_with_port(OpencodeMode::Embed, preferred) {
                         Ok(planned) => {
-                            let supervise_log =
-                                log.try_clone().ok().or_else(|| open_log(&log_path));
+                            let supervise_log = Some(log.clone());
                             if let Some(supervise_log) = supervise_log {
                                 extras.extend(service_env(&planned));
                                 let home = home_dir();
@@ -504,10 +544,12 @@ impl Sidecars {
                         }
                         Err(e) => {
                             eprintln!("agent-strata: could not plan embedded opencode: {e}");
+                            log_note(&log, &format!("could not plan embedded opencode: {e}"));
                         }
                     }
                 } else {
                     let _ = write_status(&status_path, mode, OpencodeState::Missing, None);
+                    log_note(&log, "no opencode binary found for embedded mode");
                 }
             }
         }
@@ -530,6 +572,7 @@ impl Sidecars {
                 Some(bin) => spawn(&bin, &[], &data, &envs, &log),
                 None => {
                     eprintln!("agent-strata: bundled service is not next to the executable");
+                    log_note(&log, "bundled service is not next to the executable");
                     None
                 }
             }
@@ -537,6 +580,10 @@ impl Sidecars {
             eprintln!(
                 "agent-strata: service entry not found at {}",
                 service.display()
+            );
+            log_note(
+                &log,
+                &format!("service entry not found at {}", service.display()),
             );
             None
         } else if let Some(bun) = which("bun") {
@@ -549,6 +596,7 @@ impl Sidecars {
             )
         } else {
             eprintln!("agent-strata: bun not found on PATH");
+            log_note(&log, "bun not found on PATH");
             None
         };
 
@@ -723,12 +771,42 @@ fn main() {
 
 #[cfg(all(test, unix))]
 mod tests {
-    use super::reap;
+    use super::{open_log, reap, spawn, Log};
     use std::os::unix::process::CommandExt;
     use std::process::Command;
+    use std::sync::{Arc, Mutex};
 
     extern "C" {
         fn kill(pid: i32, sig: i32) -> i32;
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn spawned_output_is_written_with_a_timestamp() {
+        let path = std::env::temp_dir().join(format!("strata-log-test-{}.log", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let file = open_log(&path).expect("open log");
+        let log: Log = Arc::new(Mutex::new(file));
+        let mut child = spawn(
+            &std::path::PathBuf::from("/bin/echo"),
+            &["hello".to_string()],
+            &std::env::temp_dir(),
+            &[],
+            &log,
+        )
+        .expect("spawn echo");
+        let _ = child.wait();
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        let text = std::fs::read_to_string(&path).expect("read log");
+        let line = text
+            .lines()
+            .find(|line| line.contains("hello"))
+            .expect("hello line");
+        assert!(line.contains(" | hello"), "missing separator: {line}");
+        assert_eq!(line.as_bytes().get(4), Some(&b'-'), "missing date: {line}");
+        assert_eq!(line.as_bytes().get(7), Some(&b'-'), "missing date: {line}");
+        assert_eq!(line.as_bytes().get(10), Some(&b' '), "missing time: {line}");
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
