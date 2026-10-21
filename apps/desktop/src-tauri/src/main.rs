@@ -698,6 +698,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
             save_export,
             restart_opencode,
@@ -796,12 +797,18 @@ mod tests {
         )
         .expect("spawn echo");
         let _ = child.wait();
-        std::thread::sleep(std::time::Duration::from_millis(200));
-        let text = std::fs::read_to_string(&path).expect("read log");
-        let line = text
-            .lines()
-            .find(|line| line.contains("hello"))
-            .expect("hello line");
+        // The reader thread and the child's exit are independent; wait for
+        // the line instead of guessing how long the pipe needs.
+        let mut line = String::new();
+        for _ in 0..50 {
+            let text = std::fs::read_to_string(&path).unwrap_or_default();
+            if let Some(found) = text.lines().find(|line| line.contains("hello")) {
+                line = found.to_string();
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(!line.is_empty(), "hello line did not reach the log");
         assert!(line.contains(" | hello"), "missing separator: {line}");
         assert_eq!(line.as_bytes().get(4), Some(&b'-'), "missing date: {line}");
         assert_eq!(line.as_bytes().get(7), Some(&b'-'), "missing date: {line}");

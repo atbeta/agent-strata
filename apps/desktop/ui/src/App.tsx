@@ -23,6 +23,7 @@ import { useSessionSwitcher } from "./use-switcher";
 import { Sidebar } from "./sidebar";
 import { installExternalLinkHandler } from "./external-open";
 import { requestSearchTarget } from "./search-target";
+import { installNotifyActions } from "./notify";
 
 export function App() {
   const [route, setRoute] = createSignal<Route>(parseHash());
@@ -98,6 +99,7 @@ export function App() {
     // Before anything else: a link clicked in the first frame must not be the
     // one that empties the window.
     const removeLinkHandler = installExternalLinkHandler();
+    void installNotifyActions();
     applyTheme(readTheme());
     applyFonts(readFonts());
     const scheme = window.matchMedia("(prefers-color-scheme: light)");

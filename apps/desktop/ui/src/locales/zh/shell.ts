@@ -213,7 +213,7 @@ export default {
   "settings.theme.light": "浅色",
   "settings.theme.system": "跟随系统",
   "settings.notify.title": "完成或等待时通知",
-  "settings.notify.hint": "会话结束或停下来等你批准/回答，而窗口在后台时，响一声并弹出系统通知。",
+  "settings.notify.hint": "会话结束或停下来等你批准/回答，而窗口在后台时，响一声并弹出系统通知；首次开启会请求系统权限。",
   "notify.needsInput": "等待你处理",
   "settings.notify.blocked": "系统没有允许通知。",
   "settings.thinking.title": "思考过程",

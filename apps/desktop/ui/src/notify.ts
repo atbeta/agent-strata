@@ -1,4 +1,5 @@
 import { t } from "./i18n";
+import { inDesktopShell } from "./shell";
 
 export const NOTIFY_KEY = "strata.notify";
 
@@ -56,21 +57,95 @@ export function rememberWaiting(prev: Map<string, boolean>, next: readonly Notic
   for (const row of next) prev.set(row.id, row.needsInput === true);
 }
 
+let actionsInstalled = false;
+let actionsInstalling: Promise<void> | undefined;
+
+async function desktopNotification() {
+  return import("@tauri-apps/plugin-notification");
+}
+
+/**
+ * Register the desktop click handler once. The native notification carries the
+ * session id in `extra`; a click is reported as the `tap` action, which is how
+ * a background notice returns to the conversation that produced it.
+ */
+export function installNotifyActions(): Promise<void> {
+  if (!inDesktopShell()) return Promise.resolve();
+  if (actionsInstalled) return Promise.resolve();
+  actionsInstalling ??= (async () => {
+    const mod = await desktopNotification();
+    // A preference saved by the old web-notification path can say "on" while
+    // the shell has never been granted native permission. Do not keep a switch
+    // on that cannot deliver; the settings toggle will ask for it again.
+    if (readNotify() && !(await mod.isPermissionGranted())) saveNotify(false);
+    const { onAction } = mod;
+    await onAction((event) => {
+      if (event.actionId !== "tap") return;
+      const id = event.notification?.extra?.sessionId;
+      if (typeof id === "string" && id) void focusSession(id);
+    });
+    actionsInstalled = true;
+  })().finally(() => {
+    actionsInstalling = undefined;
+  });
+  return actionsInstalling;
+}
+
+/**
+ * Ask the shell, not the webview, for permission. WebKit's Notification is not
+ * wired to Notification Center in a Tauri window, so the native plugin is the
+ * path that actually delivers a banner; the browser path remains for UI-only
+ * iteration.
+ */
 export async function enableNotify(): Promise<boolean> {
-  saveNotify(true);
-  if (typeof Notification === "undefined") return false;
-  if (Notification.permission === "granted") return true;
-  if (Notification.permission === "denied") return false;
-  return (await Notification.requestPermission()) === "granted";
+  if (inDesktopShell()) {
+    try {
+      const { isPermissionGranted, requestPermission } = await desktopNotification();
+      let granted = await isPermissionGranted();
+      if (!granted) granted = (await requestPermission()) === "granted";
+      if (!granted) {
+        saveNotify(false);
+        return false;
+      }
+      // Click handling is a convenience; a failure there must not turn off
+      // notifications that the OS has already allowed.
+      await installNotifyActions().catch(() => {});
+      saveNotify(true);
+      return true;
+    } catch {
+      saveNotify(false);
+      return false;
+    }
+  }
+  if (typeof Notification === "undefined") {
+    saveNotify(false);
+    return false;
+  }
+  if (Notification.permission === "granted") {
+    saveNotify(true);
+    return true;
+  }
+  if (Notification.permission === "denied") {
+    saveNotify(false);
+    return false;
+  }
+  const granted = (await Notification.requestPermission()) === "granted";
+  saveNotify(granted);
+  return granted;
 }
 
 export function disableNotify() {
   saveNotify(false);
 }
 
+/** Background means minimized or merely behind another window. */
+function inBackground(): boolean {
+  return document.hidden || !document.hasFocus();
+}
+
 /** A quiet chime, and only while this window is in the background. */
 function chime() {
-  if (!readNotify() || !document.hidden) return;
+  if (!readNotify() || !inBackground()) return;
   const Ctx = window.AudioContext;
   if (!Ctx) return;
   const ctx = new Ctx();
@@ -86,33 +161,65 @@ function chime() {
 }
 
 /** Bring the window forward and land on the session a notice is about. */
-function focusSession(sessionId: string | undefined) {
-  window.focus();
+async function focusSession(sessionId: string | undefined) {
   if (sessionId) location.hash = `/session/${encodeURIComponent(sessionId)}`;
+  if (inDesktopShell()) {
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const current = getCurrentWindow();
+      await current.show();
+      await current.setFocus();
+      return;
+    } catch {
+      // fall through to the webview's own focus
+    }
+  }
+  window.focus();
 }
 
-function systemNotification(title: string, body: string | undefined, sessionId: string | undefined) {
+async function systemNotification(
+  title: string,
+  body: string | undefined,
+  sessionId: string | undefined,
+) {
+  if (inDesktopShell()) {
+    try {
+      const { isPermissionGranted, sendNotification } = await desktopNotification();
+      if (!(await isPermissionGranted())) return;
+      void installNotifyActions().catch(() => {});
+      sendNotification({
+        title,
+        ...(body ? { body } : {}),
+        ...(sessionId ? { group: sessionId, extra: { sessionId } } : {}),
+        autoCancel: true,
+      });
+    } catch {
+      // The chime still fires; a notification that cannot be delivered must
+      // not take the session state down with it.
+    }
+    return;
+  }
   if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
   const notice = new Notification(title, {
     ...(body ? { body } : {}),
     ...(sessionId ? { tag: sessionId } : {}),
   });
   notice.onclick = () => {
-    focusSession(sessionId);
+    void focusSession(sessionId);
     notice.close();
   };
 }
 
 /** A quiet chime plus a system notification, and only while this window is in the background. */
 export function announceFinished(title: string, sessionId?: string) {
-  if (!readNotify() || !document.hidden) return;
-  systemNotification(title, undefined, sessionId);
+  if (!readNotify() || !inBackground()) return;
+  void systemNotification(title, undefined, sessionId);
   chime();
 }
 
 /** The same, for a session that has stopped and is waiting on the reader. */
 export function announceNeedsInput(title: string, sessionId?: string) {
-  if (!readNotify() || !document.hidden) return;
-  systemNotification(t("notify.needsInput"), title, sessionId);
+  if (!readNotify() || !inBackground()) return;
+  void systemNotification(t("notify.needsInput"), title, sessionId);
   chime();
 }

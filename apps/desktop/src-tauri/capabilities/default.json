@@ -11,6 +11,7 @@
     "core:window:allow-show",
     "core:window:allow-set-focus",
     "dialog:default",
+    "notification:default",
     {
       "identifier": "shell:allow-open",
       "allow": [{ "url": "https://*" }, { "url": "http://*" }, { "url": "mailto:*" }]

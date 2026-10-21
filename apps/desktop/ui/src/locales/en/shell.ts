@@ -214,7 +214,7 @@ export default {
   "settings.theme.light": "Light",
   "settings.theme.system": "System",
   "settings.notify.title": "Notify on finish or when waiting",
-  "settings.notify.hint": "A chime and a system notification when a session ends, or stops for your approval or answer, while this window is in the background.",
+  "settings.notify.hint": "A chime and a system notification when a session ends, or stops for your approval or answer, while this window is in the background. Enabling it asks for the system permission once.",
   "notify.needsInput": "Waiting for you",
   "settings.notify.blocked": "Notifications are blocked.",
   "settings.thinking.title": "Thinking",

@@ -127,7 +127,7 @@ Settings → Maintenance shows the database file and content sizes split by that
 
 ## Waiting and finding
 
-A background window notifies when a session finishes, and when it stops for a permission or a question; clicking the notice brings the window back to that session. Only the transition into “needs input” counts, so a request already on screen at startup does not announce twice. The global palette searches commands, sessions and the transcript; choosing a transcript hit opens the session's own search with the same query and jumps to the first turn that can be resolved, including tool results via their call id.
+A background window notifies when a session finishes, and when it stops for a permission or a question; clicking the notice brings the window back to that session. In the desktop app this goes through `tauri-plugin-notification` (the webview's `Notification` is not wired to the OS), so the first enable asks for the system permission and the capability file grants `notification:default`. Only the transition into “needs input” counts, so a request already on screen at startup does not announce twice. The global palette searches commands, sessions and the transcript; choosing a transcript hit opens the session's own search with the same query and jumps to the first turn that can be resolved, including tool results via their call id.
 
 ## Releasing
 
