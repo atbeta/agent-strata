@@ -401,14 +401,14 @@ export function MaintenanceSettings() {
                   />
                   {t("maintenance.clean.days")}
                 </label>
-                <label class="flex items-center gap-2 text-2xs text-muted-foreground">
+                <div class="flex items-center gap-2 text-2xs text-muted-foreground">
                   <Switch
                     checked={archivedOnly()}
                     aria-label={t("maintenance.clean.archivedOnly")}
-                    onChange={() => setArchivedOnly((on) => !on)}
+                    onChange={(next) => setArchivedOnly(next)}
                   />
                   {t("maintenance.clean.archivedOnly")}
-                </label>
+                </div>
                 <Button
                   size="sm"
                   variant="outline"

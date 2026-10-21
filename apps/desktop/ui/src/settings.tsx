@@ -578,7 +578,9 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
           <Switch
             checked={notifyOn()}
             aria-label={t("settings.notify.title")}
-            onChange={() => void toggleNotify()}
+            onChange={(next) => {
+              if (next !== notifyOn()) void toggleNotify();
+            }}
           />
         </Row>
       </section>
