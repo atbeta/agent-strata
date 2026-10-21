@@ -52,10 +52,10 @@ export default {
   "sidebar.sessionCount.one": "{n} 个会话",
   "sidebar.sessionCount.other": "{n} 个会话",
 
-  // Sidebar groups. The attention set is the same one the fleet page calls
-  // 需要关注, so both screens use the one word.
+  // Sidebar groups. The waiting lane holds only sessions stopped on a person,
+  // the same set the fleet page lists under 需要处理.
   "sidebar.group.pinned": "置顶",
-  "sidebar.group.attention": "需要关注",
+  "sidebar.group.waiting": "等待处理",
   "sidebar.archived": "已归档 {n}",
   "sidebar.archived.restore": "恢复",
   "sidebar.archived.delete": "删除",

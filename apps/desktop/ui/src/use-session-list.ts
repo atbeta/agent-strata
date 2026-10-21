@@ -8,7 +8,7 @@ import {
 } from "./api";
 import { settled } from "./resource";
 import { holdRows, sameValue } from "./session-rows";
-import { fleetAttention, projectName, dayKey } from "./fleet";
+import { fleetWaiting, projectName, dayKey } from "./fleet";
 import { readPins, togglePin, writePins } from "./pins";
 import {
   dayLabel,
@@ -229,11 +229,13 @@ export function useSessionList(opts: {
     const rows = sessions();
     if (rows.length === 0 && opts.extraDirs().length === 0) return [];
 
-    // Three lanes, each row in exactly one: pinned first, then whatever is
-    // running or waiting — the same set the fleet page calls "needs
-    // attention" — then everything else in its usual buckets. Repeating a
-    // row under both 需要关注 and its day would make the list argue with
-    // itself about where the session lives.
+    // Three lanes, each row in exactly one: pinned first, then what is waiting
+    // on a person, then everything else in its usual buckets. Only waiting is
+    // lifted out: it is rare and needs a hand, so it earns the move. Running is
+    // the normal state and stays home, told apart by its status mark — a row
+    // that left its project on every start and came back on every finish made
+    // the list look like it had lost the session. Repeating a row under both
+    // the lane and its project would make the list argue about where it lives.
     const pinSet = new Set(pins());
     const pinned: SessionRow[] = [];
     const loose: SessionRow[] = [];
@@ -242,21 +244,21 @@ export function useSessionList(opts: {
     }
     pinned.sort((a, b) => b.summary.last_ts.localeCompare(a.summary.last_ts));
 
-    const attention = fleetAttention(loose);
-    const attentionIds = new Set(attention.map((s) => s.summary.session_id));
-    const rest = loose.filter((s) => !attentionIds.has(s.summary.session_id));
+    const waiting = fleetWaiting(loose);
+    const waitingIds = new Set(waiting.map((s) => s.summary.session_id));
+    const rest = loose.filter((s) => !waitingIds.has(s.summary.session_id));
 
     const out: SidebarGroup[] = [];
     if (pinned.length > 0) {
       out.push({ key: "__pinned__", label: t("sidebar.group.pinned"), rows: pinned });
     }
-    if (attention.length > 0) {
-      out.push({ key: "__attention__", label: t("sidebar.group.attention"), rows: attention });
+    if (waiting.length > 0) {
+      out.push({ key: "__waiting__", label: t("sidebar.group.waiting"), rows: waiting });
     }
 
     // The lens narrows the projects, not the lanes above them: a pin is the
-    // reader's own choice and the attention set is the work that is moving,
-    // and neither of them is a project the reader has to find.
+    // reader's own choice and a waiting session is blocked on the reader, and
+    // neither of them is a project the reader has to find.
     const now = opts.clock();
     const lensNow = lens();
     out.push(

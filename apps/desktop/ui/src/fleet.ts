@@ -321,22 +321,22 @@ export function sessionPeriodTotals(
 }
 
 /**
- * What a person might need to walk back to.
+ * The sessions stopped on a person: a permission or a question, newest first.
  *
- * Waiting outranks running: a session that has stopped for a decision is the
- * one going nowhere, and a session that is both is waiting, not merely busy.
+ * Running is not in it. A running session needs nobody, and it can run for a
+ * long time; lifting it out of its project on every start and dropping it back
+ * on every finish moved rows for no decision the reader had to make. A session
+ * that is both running and waiting is waiting.
  */
-export function fleetAttention(rows: SessionRow[]): SessionRow[] {
+export function fleetWaiting(rows: SessionRow[]): SessionRow[] {
   const byRecent = (a: SessionRow, b: SessionRow) => b.summary.last_ts.localeCompare(a.summary.last_ts);
-  const waiting = rows.filter((s) => s.needs_input).sort(byRecent);
-  const busy = rows.filter((s) => s.busy && !s.needs_input).sort(byRecent);
-  return [...waiting, ...busy];
+  return rows.filter((s) => s.needs_input).sort(byRecent);
 }
 
 /**
  * The page's first question — is anything waiting or running — as two groups.
- * Waiting outranks running for the same reason it does in `fleetAttention`;
- * the overview just shows them separately rather than interleaved.
+ * Waiting outranks running: a session that has stopped for a decision is the
+ * one going nowhere.
  */
 export function fleetStatus(rows: SessionRow[]): { waiting: SessionRow[]; running: SessionRow[] } {
   const byRecent = (a: SessionRow, b: SessionRow) => b.summary.last_ts.localeCompare(a.summary.last_ts);

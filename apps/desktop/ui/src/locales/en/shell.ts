@@ -51,10 +51,10 @@ export default {
   "sidebar.sessionCount.one": "{n} session",
   "sidebar.sessionCount.other": "{n} sessions",
 
-  // Sidebar groups. The attention set is the same one the fleet page calls
-  // "Needs attention", so both screens use the one word.
+  // Sidebar groups. The waiting lane holds only sessions stopped on a person,
+  // the same set the fleet page lists under "Needs you".
   "sidebar.group.pinned": "Pinned",
-  "sidebar.group.attention": "Needs attention",
+  "sidebar.group.waiting": "Waiting on you",
   "sidebar.archived": "Archived {n}",
   "sidebar.archived.restore": "Restore",
   "sidebar.archived.delete": "Delete",

@@ -164,7 +164,7 @@ export function Sidebar(props: {
     });
   });
 
-  /** Pinned and attention are lanes; projects and days are places. The label
+  /** Pinned and waiting are lanes; projects and days are places. The label
       row and its "+" sit between them. */
   const metaGroups = () => list().groups().filter((g) => g.key.startsWith("__"));
   const sectionGroups = () => list().groups().filter((g) => !g.key.startsWith("__"));

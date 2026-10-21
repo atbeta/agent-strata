@@ -3,7 +3,7 @@ import type { DailyUsageRow, SessionRow } from "./api";
 import {
   cacheEfficiency,
   dayKey,
-  fleetAttention,
+  fleetWaiting,
   fleetModels,
   fleetProjects,
   fleetRecent,
@@ -370,15 +370,15 @@ describe("fleet models", () => {
   });
 });
 
-describe("fleet attention", () => {
-  test("lists sessions waiting on a person ahead of ones still running", () => {
-    const ids = fleetAttention([
+describe("fleet waiting", () => {
+  test("lists only sessions stopped on a person, newest first; running stays home", () => {
+    const ids = fleetWaiting([
       row({ id: "run", busy: true, last: "2026-10-12T00:00:00.000Z" }),
       row({ id: "wait-old", needs_input: true, last: "2026-10-01T00:00:00.000Z" }),
       row({ id: "both", busy: true, needs_input: true, last: "2026-10-11T00:00:00.000Z" }),
       row({ id: "done", last: "2026-10-13T00:00:00.000Z" }),
     ]).map((s) => s.summary.session_id);
-    expect(ids).toEqual(["both", "wait-old", "run"]);
+    expect(ids).toEqual(["both", "wait-old"]);
   });
 });
 
