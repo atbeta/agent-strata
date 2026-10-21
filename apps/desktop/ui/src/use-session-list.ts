@@ -91,7 +91,7 @@ export function useSessionList(opts: {
     opened = true;
     return load;
   });
-  const more = () => settled(data)?.more === true;
+  const more = () => settled(data)?.more === true && limit() < 2000;
   const loadMore = () => setLimit((n) => Math.min(n + 200, 2000));
 
   const waiting = () =>

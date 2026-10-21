@@ -993,8 +993,17 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
         <Show when={diagErr()}>
           <p class="mt-2 text-2xs text-destructive">{diagErr()}</p>
         </Show>
+        <Show when={!inDesktopShell()}>
+          <p class="mt-2 text-2xs leading-4 text-muted-foreground">
+            {t("settings.about.desktopOnly")}
+          </p>
+        </Show>
         <p class="mt-2 text-2xs leading-4 text-muted-foreground">{t("settings.about.logHint")}</p>
-        <p class="mt-1 text-2xs leading-4 text-muted-foreground">{t("settings.about.notifyHint")}</p>
+        {/* Only a dev shell borrows Terminal's notification identity; a packaged
+            build has its own, so the caveat would only mislead there. */}
+        <Show when={import.meta.env.DEV}>
+          <p class="mt-1 text-2xs leading-4 text-muted-foreground">{t("settings.about.notifyHint")}</p>
+        </Show>
       </Group>
       </Show>
       </div>

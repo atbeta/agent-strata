@@ -147,6 +147,12 @@ export function MaintenanceSettings() {
         setCleanNote("");
       },
     );
+  /** A preview names the sessions the clean will touch; changing what it was
+   *  asked for makes that list a different question's answer. */
+  const resetPreview = () => {
+    setPreview(undefined);
+    if (confirming() === "clean") setConfirming("");
+  };
   const runClean = async () => {
     const target = preview();
     if (!target || target.totals.sessions === 0) return;
@@ -212,12 +218,14 @@ export function MaintenanceSettings() {
                   />
                 </div>
                 <div class="mt-2 grid grid-cols-1 gap-1 text-2xs @min-[560px]/main:grid-cols-2">
-                  <p class="text-muted-foreground">
-                    <span class="text-foreground">{t("maintenance.rebuildable")}</span>{" "}
+                  <p class="flex items-center gap-1.5 text-muted-foreground">
+                    <span class="size-1.5 shrink-0 rounded-full bg-chart-1" aria-hidden="true" />
+                    <span class="text-foreground">{t("maintenance.rebuildable")}</span>
                     {num(stats()!.rebuildable.events)} · {fmtBytes(stats()!.rebuildable.bytes)}
                   </p>
-                  <p class="text-muted-foreground">
-                    <span class="text-foreground">{t("maintenance.local")}</span>{" "}
+                  <p class="flex items-center gap-1.5 text-muted-foreground">
+                    <span class="size-1.5 shrink-0 rounded-full bg-chart-3" aria-hidden="true" />
+                    <span class="text-foreground">{t("maintenance.local")}</span>
                     {num(stats()!.local.events)} · {fmtBytes(stats()!.local.bytes)}
                   </p>
                 </div>
@@ -395,9 +403,13 @@ export function MaintenanceSettings() {
                     onInput={(event) => {
                       const text = event.currentTarget.value;
                       setDaysText(text);
-                      const next = Number(text);
-                      if (Number.isFinite(next) && next > 0) setDays(Math.min(next, 3650));
+                      const next = Math.floor(Number(text));
+                      if (Number.isFinite(next) && next > 0 && Math.min(next, 3650) !== days()) {
+                        setDays(Math.min(next, 3650));
+                        resetPreview();
+                      }
                     }}
+                    onBlur={() => setDaysText(String(days()))}
                   />
                   {t("maintenance.clean.days")}
                 </label>
@@ -405,7 +417,10 @@ export function MaintenanceSettings() {
                   <Switch
                     checked={archivedOnly()}
                     aria-label={t("maintenance.clean.archivedOnly")}
-                    onChange={(next) => setArchivedOnly(next)}
+                    onChange={(next) => {
+                      setArchivedOnly(next);
+                      resetPreview();
+                    }}
                   />
                   {t("maintenance.clean.archivedOnly")}
                 </div>
@@ -417,41 +432,55 @@ export function MaintenanceSettings() {
                 >
                   {t("maintenance.clean.preview")}
                 </Button>
-                <Show when={preview()}>
-                  {(target) => (
-                    <Button
-                      size="sm"
-                      variant="quiet"
-                      disabled={Boolean(busy()) || target().totals.sessions === 0}
-                      onClick={() => void runClean()}
-                    >
-                      {t("maintenance.clean.apply")}
-                    </Button>
-                  )}
+                <Show when={preview() && preview()!.totals.sessions > 0}>
+                  <Button
+                    size="sm"
+                    variant="quiet"
+                    class="text-destructive hover:text-destructive"
+                    disabled={Boolean(busy())}
+                    onClick={() => confirmAction("clean", () => void runClean())}
+                  >
+                    {confirming() === "clean" ? t("maintenance.confirm") : t("maintenance.clean.apply")}
+                  </Button>
                 </Show>
               </div>
               <Show when={preview()}>
                 {(target) => (
                   <div class="mt-3 rounded-lg border border-border px-3 py-2 text-2xs leading-5 text-muted-foreground">
-                    <p>
-                      {t("maintenance.clean.previewLine", {
-                        n: target().totals.sessions,
-                        rebuildable: num(target().totals.rebuildable),
-                        local: num(target().totals.local),
-                        size: fmtBytes(target().totals.rebuildable_bytes),
-                      })}
-                    </p>
-                    <Show when={target().targets.length > 0}>
+                    <Show
+                      when={target().totals.sessions > 0}
+                      fallback={<p>{t("maintenance.clean.nothing")}</p>}
+                    >
+                      <p>
+                        {t("maintenance.clean.previewLine", {
+                          n: target().totals.sessions,
+                          rebuildable: num(target().totals.rebuildable),
+                          local: num(target().totals.local),
+                          size: fmtBytes(target().totals.rebuildable_bytes),
+                        })}
+                      </p>
                       <ul class="mt-1 space-y-0.5">
                         <For each={target().targets.slice(0, 5)}>
                           {(row) => (
-                            <li class="truncate">
-                              {displayTitle(row.title) ?? t("common.untitled")}
-                              <span class="ml-2 font-mono">{num(row.rebuildable)} / {num(row.local)}</span>
+                            <li class="flex items-baseline gap-2">
+                              <span class="min-w-0 flex-1 truncate">
+                                {displayTitle(row.title) ?? t("common.untitled")}
+                              </span>
+                              <span
+                                class="shrink-0 font-mono tabular-nums"
+                                title={`${t("maintenance.rebuildable")} / ${t("maintenance.local")}`}
+                              >
+                                {num(row.rebuildable)} / {num(row.local)}
+                              </span>
                             </li>
                           )}
                         </For>
                       </ul>
+                      <Show when={target().targets.length > 5}>
+                        <p class="mt-0.5">
+                          {t("maintenance.clean.andMore", { n: target().targets.length - 5 })}
+                        </p>
+                      </Show>
                     </Show>
                   </div>
                 )}

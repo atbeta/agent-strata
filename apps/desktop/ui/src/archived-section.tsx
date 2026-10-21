@@ -1,5 +1,5 @@
 import { createSignal, For, Show } from "solid-js";
-import type { SessionRow } from "./api";
+import { folderLabel, type SessionRow } from "./api";
 import type { SessionListCtl } from "./use-session-list";
 import { deleteSession, readSessionData, unarchiveSession, type SessionData } from "./maintenance-api";
 import { displayTitle } from "./session-title";
@@ -99,41 +99,55 @@ export function ArchivedSection(props: {
               {(row) => {
                 const id = row.summary.session_id;
                 const pending = () => confirm()?.row.summary.session_id === id;
+                const title = () => displayTitle(row.title ?? row.summary.title) ?? t("common.untitled");
+                const folder = () => folderLabel(row.workspace ?? row.summary.workspace);
+                // Fifteen rows each spelling out two actions read as a form, not
+                // a list. The date holds the slot until the row is pointed at or
+                // focused; a row awaiting its delete decision keeps them out.
+                const held = () => pending() || busy() === id;
                 return (
                   <li>
-                    <div class="flex items-center gap-1">
+                    <div class="group/arch relative flex items-center">
                       <RowButton
-                        class="min-w-0 flex-1 px-1 py-1 text-sm"
-                        title={displayTitle(row.title ?? row.summary.title) ?? t("common.untitled")}
+                        class="min-w-0 flex-1 gap-2 px-1 py-1 text-sm text-muted-foreground hover:text-foreground"
+                        title={folder() ? `${title()} · ${folder()}` : title()}
                         onClick={() => props.onOpen(id)}
                       >
-                        <span class="min-w-0 flex-1 truncate">
-                          {displayTitle(row.title ?? row.summary.title) ?? t("common.untitled")}
+                        <span class="min-w-0 flex-1 truncate">{title()}</span>
+                        <span
+                          class={`shrink-0 font-mono text-2xs text-muted-foreground/70 tabular-nums group-hover/arch:invisible group-focus-within/arch:invisible ${
+                            held() ? "invisible" : ""
+                          }`}
+                        >
+                          {relTime(row.summary.last_ts, props.now())}
                         </span>
                       </RowButton>
-                      <span class="shrink-0 font-mono text-2xs text-muted-foreground">
-                        {relTime(row.summary.last_ts, props.now())}
-                      </span>
-                      <Button
-                        type="button"
-                        size="xs"
-                        variant="quiet"
-                        class="shrink-0 px-1.5"
-                        disabled={busy() === id}
-                        onClick={() => void restore(row)}
+                      <div
+                        class={`absolute inset-y-0 right-0 flex items-center gap-0.5 bg-sidebar pl-1 transition-opacity group-hover/arch:opacity-100 group-focus-within/arch:opacity-100 ${
+                          held() ? "opacity-100" : "opacity-0"
+                        }`}
                       >
-                        {t("sidebar.archived.restore")}
-                      </Button>
-                      <Button
-                        type="button"
-                        size="xs"
-                        variant="quiet"
-                        class="shrink-0 px-1.5 text-muted-foreground"
-                        disabled={busy() === id}
-                        onClick={() => void askDelete(row)}
-                      >
-                        {t("sidebar.archived.delete")}
-                      </Button>
+                        <Button
+                          type="button"
+                          size="xs"
+                          variant="quiet"
+                          class="shrink-0 px-1.5"
+                          disabled={busy() === id}
+                          onClick={() => void restore(row)}
+                        >
+                          {t("sidebar.archived.restore")}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="xs"
+                          variant="quiet"
+                          class="shrink-0 px-1.5 text-muted-foreground hover:text-destructive"
+                          disabled={busy() === id}
+                          onClick={() => void askDelete(row)}
+                        >
+                          {t("sidebar.archived.delete")}
+                        </Button>
+                      </div>
                     </div>
                     <Show when={pending() ? confirm() : undefined}>
                       {(target) => (
