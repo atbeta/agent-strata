@@ -31,6 +31,14 @@ import { mcpAddRequest, safeMcpError } from "./mcp-add";
 import { mcpAuthCode, mcpAuthStartView } from "./mcp-auth";
 import { providerRoute } from "./provider-auth";
 import { readPromptParts } from "./prompt-parts";
+import {
+  availableBackupName,
+  fileInfo,
+  listBackups,
+  listLegacy,
+  maintenanceDirs,
+  safeName,
+} from "./maintenance";
 import { editorLaunch } from "./editor";
 import { forkBefore, forkTitle } from "./fork";
 import { refused, shellCors } from "./shell-origin";
@@ -139,6 +147,24 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   };
   const live = new LiveOverlay();
   const views = new ViewCache(store);
+  const maintenanceDirsInfo = maintenanceDirs(opts.db, desktopDir);
+  const maintenanceSnapshot = () => {
+    const dbPath = maintenanceDirsInfo.dbPath;
+    const dbFile = dbPath ? fileInfo(dbPath) : undefined;
+    const wal = dbPath ? fileInfo(`${dbPath}-wal`) : undefined;
+    const shm = dbPath ? fileInfo(`${dbPath}-shm`) : undefined;
+    return {
+      db: {
+        path: dbPath,
+        bytes: dbFile?.bytes ?? 0,
+        wal_bytes: wal?.bytes ?? 0,
+        shm_bytes: shm?.bytes ?? 0,
+        stats: store.stats(),
+      },
+      backups: listBackups(maintenanceDirsInfo.dir),
+      legacy: listLegacy(maintenanceDirsInfo.dir),
+    };
+  };
   // A continuation already handed to the backend, waiting until that run shows
   // as busy. Without it, the idle that accepted the prompt sends another one.
   const goalKicked = new Set<string>();
@@ -574,10 +600,16 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     if (path === "/health") return json({ ok: true, conns: conns.size });
 
     if (path === "/sessions" && req.method === "GET") {
-      const summaries = store.listSessions({
+      const requested = Math.min(
+        Math.max(Number(url.searchParams.get("limit") ?? 200) || 200, 1),
+        2000,
+      );
+      const fetched = store.listSessions({
         backend: url.searchParams.get("backend") ?? undefined,
-        limit: Number(url.searchParams.get("limit") ?? 200),
+        limit: requested + 1,
       });
+      const more = fetched.length > requested;
+      const summaries = more ? fetched.slice(0, requested) : fetched;
       const askSessions = new Set([...pendingAsks.values()].map((p) => p.session_id));
       const rows = summaries.map((summary) => ({ summary, view: sessionView(summary.session_id) }));
       // From the projection, not from `pendingQuestions`. That map only holds
@@ -619,7 +651,137 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         // the prompt actually goes. Absent when no connected backend claims it.
         connection_id: driverFor(summary.session_id)?.id,
       }));
-      return json({ sessions, aggregate: aggregate(rows.map((r) => r.view)) });
+      return json({ sessions, aggregate: aggregate(rows.map((r) => r.view)), more });
+    }
+
+    if (path === "/maintenance" && req.method === "GET") {
+      return json(maintenanceSnapshot());
+    }
+
+    if (path === "/maintenance/check" && req.method === "POST") {
+      return json({ results: store.integrityCheck() });
+    }
+
+    if (path === "/maintenance/optimize" && req.method === "POST") {
+      const body = (await req.json().catch(() => null)) as { vacuum?: unknown } | null;
+      store.optimize();
+      if (body?.vacuum === true) store.vacuum();
+      return json(maintenanceSnapshot());
+    }
+
+    if (path === "/maintenance/backup" && req.method === "POST") {
+      mkdirSync(maintenanceDirsInfo.backupDir, { recursive: true });
+      const name = availableBackupName(maintenanceDirsInfo.dir);
+      store.backupTo(join(maintenanceDirsInfo.backupDir, name));
+      return json(maintenanceSnapshot());
+    }
+
+    const removeBackup = path.match(/^\/maintenance\/backups\/([^/]+)$/);
+    if (removeBackup && req.method === "DELETE") {
+      const name = decodeURIComponent(removeBackup[1]!);
+      if (!safeName(name)) return json({ error: "invalid backup name" }, 400);
+      try {
+        unlinkSync(join(maintenanceDirsInfo.backupDir, name));
+      } catch {
+        return json({ error: "backup not found" }, 404);
+      }
+      return json(maintenanceSnapshot());
+    }
+
+    const removeLegacy = path.match(/^\/maintenance\/legacy\/([^/]+)$/);
+    if (removeLegacy && req.method === "DELETE") {
+      const name = decodeURIComponent(removeLegacy[1]!);
+      if (!safeName(name) || !name.includes(".bak")) {
+        return json({ error: "invalid snapshot name" }, 400);
+      }
+      try {
+        unlinkSync(join(maintenanceDirsInfo.dir, name));
+      } catch {
+        return json({ error: "snapshot not found" }, 404);
+      }
+      return json(maintenanceSnapshot());
+    }
+
+    if (path === "/maintenance/clean" && req.method === "POST") {
+      const body = (await req.json().catch(() => null)) as {
+        mode?: unknown;
+        session_ids?: unknown;
+        older_than_days?: unknown;
+        archived_only?: unknown;
+        apply?: unknown;
+      } | null;
+      if (body?.mode !== "rebuildable") {
+        return json({ error: "mode must be rebuildable" }, 400);
+      }
+      const mode = "rebuildable" as const;
+      let ids: string[] = [];
+      if (Array.isArray(body.session_ids)) {
+        ids = body.session_ids.filter(
+          (id): id is string => typeof id === "string" && id.length > 0,
+        );
+      } else {
+        const days = Number(body.older_than_days);
+        if (!Number.isFinite(days) || days <= 0) {
+          return json({ error: "session_ids or older_than_days is required" }, 400);
+        }
+        const cutoff = Date.now() - days * 86_400_000;
+        const summaries = store.listSessions({ limit: 5000 });
+        ids = summaries
+          .filter((summary) => {
+            const at = new Date(summary.last_ts).getTime();
+            return Number.isFinite(at) && at < cutoff;
+          })
+          .map((summary) => summary.session_id);
+        if (body.archived_only === true) {
+          ids = ids.filter((id) => {
+            try {
+              return sessionView(id).archived === true;
+            } catch {
+              return false;
+            }
+          });
+        }
+      }
+      ids = [...new Set(ids)].slice(0, 1000);
+      const counts = new Map(store.classCounts(ids).map((row) => [row.session_id, row]));
+      const summaries = new Map(
+        store.listSessions({ limit: 5000 }).map((summary) => [summary.session_id, summary]),
+      );
+      const targets = ids
+        .map((id) => {
+          const cls = counts.get(id);
+          const row = summaries.get(id);
+          return {
+            session_id: id,
+            title: row?.title ?? null,
+            workspace: row?.workspace ?? null,
+            last_ts: row?.last_ts ?? null,
+            rebuildable: cls?.rebuildable ?? 0,
+            local: cls?.local ?? 0,
+            rebuildable_bytes: cls?.rebuildable_bytes ?? 0,
+            local_bytes: cls?.local_bytes ?? 0,
+          };
+        })
+        // A session with nothing rebuildable is already as small as this
+        // action can make it; listing it would offer a delete that deletes 0.
+        .filter((row) => row.rebuildable > 0);
+      const totals = targets.reduce(
+        (sum, row) => ({
+          sessions: sum.sessions + 1,
+          rebuildable: sum.rebuildable + row.rebuildable,
+          local: sum.local + row.local,
+          rebuildable_bytes: sum.rebuildable_bytes + row.rebuildable_bytes,
+          local_bytes: sum.local_bytes + row.local_bytes,
+        }),
+        { sessions: 0, rebuildable: 0, local: 0, rebuildable_bytes: 0, local_bytes: 0 },
+      );
+      if (body.apply !== true) {
+        return json({ mode, applied: false, targets, totals });
+      }
+      const deleted = store.deleteRebuildable(ids);
+      for (const id of ids) views.drop(id);
+      broadcast({ type: "maintenance.applied", mode, sessions: ids });
+      return json({ mode, applied: true, deleted, targets, totals });
     }
 
     if (path === "/events" && req.method === "GET") {
@@ -871,7 +1033,9 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       });
     }
 
-    const sessionCmd = path.match(/^\/sessions\/([^/]+)\/(prompt|command|abort|import|rebuild|rename|archive)$/);
+    const sessionCmd = path.match(
+      /^\/sessions\/([^/]+)\/(prompt|command|abort|import|rebuild|rename|archive|unarchive)$/,
+    );
     if (sessionCmd) {
       const casfId = decodeURIComponent(sessionCmd[1]!);
       const cmd = sessionCmd[2]!;
@@ -910,11 +1074,15 @@ export function startService(opts: ServiceOpts = {}): RunningService {
           return json({ error: String(e) }, 502);
         }
       }
-      if ((cmd === "rename" || cmd === "archive") && req.method === "POST") {
+      if ((cmd === "rename" || cmd === "archive" || cmd === "unarchive") && req.method === "POST") {
         if (!conn.capabilities.manage) return json({ error: "backend cannot manage sessions" }, 400);
         try {
-          if (cmd === "archive") await conn.archive(native, directory);
-          else {
+          if (cmd === "archive" || cmd === "unarchive") {
+            await conn.archive(native, directory, cmd === "archive");
+            // The session list filters on the projector's archived flag. Tell
+            // the readers to reread it instead of waiting for the next sync.
+            broadcast({ type: "session.updated", session_id: casfId });
+          } else {
             const body = (await req.json().catch(() => null)) as { title?: string } | null;
             const title = body?.title?.trim();
             if (!title) return json({ error: "title required" }, 400);
@@ -1219,20 +1387,54 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       }
     }
 
+    const sessionData = path.match(/^\/sessions\/([^/]+)\/data$/);
+    if (sessionData && req.method === "GET") {
+      const casfId = decodeURIComponent(sessionData[1]!);
+      const counts = store.classCounts([casfId])[0] ?? {
+        session_id: casfId,
+        rebuildable: 0,
+        local: 0,
+        rebuildable_bytes: 0,
+        local_bytes: 0,
+      };
+      const conn = driverFor(casfId);
+      return json({
+        ...counts,
+        backend: conn !== undefined,
+        can_delete: Boolean(conn?.capabilities.manage && conn.nativeId(casfId)),
+      });
+    }
+
     const sessionDelete = path.match(/^\/sessions\/([^/]+)$/);
     if (sessionDelete && req.method === "DELETE") {
       const casfId = decodeURIComponent(sessionDelete[1]!);
+      const localOnly = url.searchParams.get("local") === "1";
+      const counts = store.classCounts([casfId])[0];
       const conn = driverFor(casfId);
-      if (!conn) return json({ error: "no backend connected" }, 400);
-      if (!conn.capabilities.manage) return json({ error: "backend cannot manage sessions" }, 400);
-      const native = conn.nativeId(casfId);
-      if (!native) return json({ error: "session is not owned by a connected backend" }, 400);
-      try {
-        await conn.deleteSession(native, directoryOf(casfId));
-        return json({ ok: true });
-      } catch (e) {
-        return json({ error: String(e) }, 502);
+      const native = conn?.nativeId(casfId);
+      let backend = false;
+      if (!localOnly && conn && conn.capabilities.manage && native) {
+        try {
+          await conn.deleteSession(native, directoryOf(casfId));
+          backend = true;
+        } catch (e) {
+          return json({ error: String(e) }, 502);
+        }
+      } else if (!localOnly) {
+        return json(
+          {
+            error: "no connected backend can delete this session",
+            backend: false,
+            local: counts?.local ?? 0,
+            local_only: true,
+          },
+          409,
+        );
       }
+      const deleted = store.deleteSessions([casfId]);
+      views.drop(casfId);
+      broadcast({ type: "session.deleted", session_id: casfId });
+      return json({ ok: true, backend, deleted, local: counts?.local ?? 0 });
     }
 
     if (path === "/workspaces" && req.method === "GET") {

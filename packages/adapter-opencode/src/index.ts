@@ -588,7 +588,9 @@ export async function connectOpencode(opts: {
         sessionID,
         directory: directory ?? opts.directory,
         title: patch.title,
-        time: patch.archived ? { archived: Date.now() } : undefined,
+        // 0 is how OpenCode records "not archived"; leaving the field out would
+        // mean "do not change" and the restore would look like it did nothing.
+        time: patch.archived === undefined ? undefined : { archived: patch.archived ? Date.now() : 0 },
       });
       if (r.data) {
         ingestor.handle({

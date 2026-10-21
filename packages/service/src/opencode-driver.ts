@@ -111,7 +111,7 @@ export async function connectOpencodeDriver(opts: {
     listAgents: () => conn.listAgents(),
     listWorkspaces: () => conn.listWorkspaces(),
     rename: (nativeId, title, directory) => conn.updateSession(nativeId, { title }, directory),
-    archive: (nativeId, directory) => conn.updateSession(nativeId, { archived: true }, directory),
+    archive: (nativeId, directory, archived = true) => conn.updateSession(nativeId, { archived }, directory),
     deleteSession: (nativeId, directory) => conn.deleteSession(nativeId, directory),
     async indexSessions() {
       const ids = await conn.indexSessions();

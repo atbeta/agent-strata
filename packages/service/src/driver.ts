@@ -183,7 +183,7 @@ export interface BackendDriver {
   rebuild(nativeId: string, directory?: string): Promise<number>;
   importSession(nativeId: string, directory?: string): Promise<void>;
   rename(nativeId: string, title: string, directory?: string): Promise<void>;
-  archive(nativeId: string, directory?: string): Promise<void>;
+  archive(nativeId: string, directory?: string, archived?: boolean): Promise<void>;
   deleteSession(nativeId: string, directory?: string): Promise<void>;
   nativeId(casfId: string): string | undefined;
 }
