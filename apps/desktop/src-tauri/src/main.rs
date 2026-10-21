@@ -23,14 +23,15 @@ use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use embed::{
-    child_env, health_ok, plan_with_port, previous_port, read_mode, resolve_mode, serve_args,
-    service_env, supervise, write_status, OpencodeMode, OpencodeState, Spawned,
+    child_env, cleanup_stale_opencode, command_for, detect_runtime, health_ok, plan_with_port,
+    previous_port, read_mode, reap_opencode_on_port, resolve_mode, serve_args, service_env,
+    supervise, write_pid, write_runtime, write_status, OpencodeMode, OpencodeState, Spawned,
 };
 
 use std::thread::JoinHandle;
@@ -180,7 +181,7 @@ fn spawn(
     envs: &[(&str, String)],
     log: &File,
 ) -> Option<Child> {
-    let mut cmd = Command::new(bin);
+    let mut cmd = command_for(bin);
     cmd.args(args)
         .current_dir(cwd)
         .envs(envs.iter().map(|(k, v)| (*k, v.as_str())));
@@ -287,6 +288,18 @@ impl Sidecars {
         };
         let mode = resolve_mode(env_embed.as_deref(), Some(file_mode));
 
+        // Read the binary and its version before anything is started. The
+        // result is what the settings page shows, and it is separate from the
+        // process status the supervisor rewrites on every transition.
+        let runtime = detect_runtime(&data, mode);
+        let runtime_path = data.join("opencode-runtime.json");
+        if let Err(e) = write_runtime(&runtime_path, &runtime) {
+            eprintln!(
+                "agent-strata: could not write {}: {e}",
+                runtime_path.display()
+            );
+        }
+
         let mut extras: Vec<(String, String)> = Vec::new();
 
         if port_open(port) {
@@ -294,6 +307,15 @@ impl Sidecars {
                 "agent-strata: port {port} is already open, leaving the existing service in place"
             );
             return Sidecars::empty();
+        }
+
+        // A previous run may have left its embedded server behind (a crash, a
+        // killed dev process, a rebuild). Reap it before planning, so the last
+        // port is free again and the next launch reuses it instead of opening a
+        // second server and remembering a third address.
+        let pid_path = data.join("opencode.pid");
+        if let Some(pid) = cleanup_stale_opencode(&pid_path) {
+            eprintln!("agent-strata: stopped stale opencode process {pid}");
         }
 
         let status_path = data.join("opencode-status.json");
@@ -313,17 +335,37 @@ impl Sidecars {
                 }
                 // The service needs to know that this address is not ours, or it
                 // would treat it as the embedded server and prune it away.
-                extras.push(("STRATA_OPENCODE_PLACEMENT".to_string(), "external".to_string()));
+                extras.push((
+                    "STRATA_OPENCODE_PLACEMENT".to_string(),
+                    "external".to_string(),
+                ));
             }
             OpencodeMode::Embed => {
                 // The placement says which server the address belongs to, not
                 // whether the binary was there to start it.
                 extras.push(("STRATA_OPENCODE_PLACEMENT".to_string(), "embed".to_string()));
-                if let Some(bin) = which("opencode") {
+                if let Some(bin) = runtime
+                    .bin
+                    .as_deref()
+                    .map(PathBuf::from)
+                    .filter(|path| path.is_file())
+                {
                     // The last run's port, if it is still free. A different port
                     // every launch would leave the app with a new remembered
-                    // address every time it opened.
+                    // address every time it opened. If an older run left an
+                    // opencode serve on that port, stop it first: the address in
+                    // the status file is ours, and reusing the port is better
+                    // than adding another one.
                     let preferred = previous_port(&status_path);
+                    if let Some(port) = preferred {
+                        if !embed::port_is_free(port) {
+                            if let Some(pid) = reap_opencode_on_port(port) {
+                                eprintln!(
+                                    "agent-strata: stopped opencode {pid} still holding port {port}"
+                                );
+                            }
+                        }
+                    }
                     match plan_with_port(OpencodeMode::Embed, preferred) {
                         Ok(planned) => {
                             let supervise_log =
@@ -334,10 +376,12 @@ impl Sidecars {
                                 let shutdown_flag = shutdown.clone();
                                 let opencode_slot = opencode.clone();
                                 let exited = Arc::new(AtomicBool::new(false));
+                                let pid_path = pid_path.clone();
                                 supervisor = Some(std::thread::spawn(move || {
                                     let wait_shutdown = shutdown_flag.clone();
                                     let wait_slot = opencode_slot.clone();
                                     let wait_exited = exited.clone();
+                                    let pid_path = pid_path.clone();
                                     supervise(
                                         planned,
                                         &status_path,
@@ -371,6 +415,7 @@ impl Sidecars {
                                                         "spawn opencode failed",
                                                     )
                                                 })?;
+                                                let _ = write_pid(&pid_path, child.id());
                                                 let mut slot =
                                                     opencode_slot.lock().map_err(|_| {
                                                         std::io::Error::new(
@@ -516,11 +561,41 @@ async fn save_export(file_name: String, contents: Vec<u8>) -> Result<Option<Stri
     Ok(Some(path.to_string_lossy().into_owned()))
 }
 
+/// Re-inspect the binary without restarting anything. The settings page calls
+/// this after the reader picks a path, and on demand when a launch looks wrong.
+#[tauri::command]
+fn opencode_runtime() -> Result<embed::OpencodeRuntime, String> {
+    let data = data_dir();
+    let mode = read_mode(&data.join("desktop.json"));
+    let runtime = detect_runtime(&data, mode);
+    write_runtime(&data.join("opencode-runtime.json"), &runtime)
+        .map_err(|e| format!("could not write runtime status: {e}"))?;
+    Ok(runtime)
+}
+
+/// Save or clear the binary chosen in Settings. It takes effect on the next
+/// launch: the running embedded server keeps the binary it was started with.
+#[tauri::command]
+fn set_opencode_bin(path: Option<String>) -> Result<embed::OpencodeRuntime, String> {
+    let data = data_dir();
+    embed::write_desktop_bin(&data.join("desktop.json"), path.as_deref())
+        .map_err(|e| format!("could not save the opencode path: {e}"))?;
+    let mode = read_mode(&data.join("desktop.json"));
+    let runtime = detect_runtime(&data, mode);
+    write_runtime(&data.join("opencode-runtime.json"), &runtime)
+        .map_err(|e| format!("could not write runtime status: {e}"))?;
+    Ok(runtime)
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![save_export])
+        .invoke_handler(tauri::generate_handler![
+            save_export,
+            opencode_runtime,
+            set_opencode_bin,
+        ])
         .setup(|app| {
             // macOS keeps the overlay title bar and traffic lights. Windows
             // drops the native caption so the webview's drag strip and caption

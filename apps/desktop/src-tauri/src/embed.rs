@@ -1,9 +1,11 @@
+use std::env;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
@@ -40,6 +42,44 @@ pub struct OpencodeStatus {
     pub state: OpencodeState,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+}
+
+/// Where the binary the app will run came from. The settings page shows this
+/// because "we found one" and "you told us which one" fail in different ways.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RuntimeSource {
+    /// `desktop.json` names a path, chosen in Settings.
+    Setting,
+    /// `STRATA_OPENCODE_BIN` names a path.
+    Env,
+    /// Found on PATH or in one of the platform directories.
+    Path,
+    /// Embed mode, and nothing was found.
+    Missing,
+    /// The app is using a server someone else started; there is no local binary
+    /// to inspect.
+    External,
+}
+
+/// What the shell knows about the OpenCode binary, written beside the status of
+/// the process it started.
+///
+/// This is deliberately a separate file from `opencode-status.json`: the
+/// supervisor rewrites that one on every start, stop and restart, and the
+/// binary does not change without a restart. Merging them would make every
+/// process transition re-run `--version`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpencodeRuntime {
+    pub source: RuntimeSource,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bin: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// Unix seconds. The UI formats it in the reader's zone.
+    pub checked_at: u64,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -430,6 +470,430 @@ pub fn supervise<S, H, W>(
     }
 }
 
+fn now_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+fn home_dir() -> Option<PathBuf> {
+    for key in ["HOME", "USERPROFILE"] {
+        if let Ok(value) = env::var(key) {
+            if !value.is_empty() {
+                return Some(PathBuf::from(value));
+            }
+        }
+    }
+    None
+}
+
+/// The names a binary can have on this platform.
+///
+/// npm installs a Windows shim as `opencode.cmd` (and PowerShell users may have
+/// `opencode.ps1`); looking only for `opencode` and `opencode.exe` reports a
+/// working install as missing. The Unix installer has no extension.
+pub fn candidate_names() -> Vec<&'static str> {
+    #[cfg(windows)]
+    {
+        vec![
+            "opencode",
+            "opencode.exe",
+            "opencode.cmd",
+            "opencode.bat",
+            "opencode.ps1",
+        ]
+    }
+    #[cfg(not(windows))]
+    {
+        vec!["opencode"]
+    }
+}
+
+/// Directories worth checking after PATH. The official installer writes to
+/// `~/.opencode/bin`; Homebrew and bun are the two paths this project already
+/// supported.
+pub fn fallback_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(home) = home_dir() {
+        dirs.push(home.join(".opencode").join("bin"));
+        dirs.push(home.join(".local").join("bin"));
+        dirs.push(home.join(".bun").join("bin"));
+    }
+    dirs.push(PathBuf::from("/opt/homebrew/bin"));
+    dirs.push(PathBuf::from("/usr/local/bin"));
+    #[cfg(windows)]
+    {
+        if let Ok(local) = env::var("LOCALAPPDATA") {
+            if !local.is_empty() {
+                dirs.push(PathBuf::from(local).join("Programs").join("opencode"));
+            }
+        }
+        if let Ok(appdata) = env::var("APPDATA") {
+            if !appdata.is_empty() {
+                dirs.push(PathBuf::from(appdata).join("npm"));
+            }
+        }
+    }
+    dirs
+}
+
+fn find_in(dirs: impl IntoIterator<Item = PathBuf>) -> Option<PathBuf> {
+    let names = candidate_names();
+    for dir in dirs {
+        for name in &names {
+            let candidate = dir.join(name);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
+pub fn read_desktop_bin(path: &Path) -> Option<PathBuf> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let bin = value.get("opencodeBin")?.as_str()?.trim();
+    if bin.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(bin))
+    }
+}
+
+pub fn write_pid(path: &Path, pid: u32) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, pid.to_string())
+}
+
+pub fn read_pid(path: &Path) -> Option<u32> {
+    std::fs::read_to_string(path).ok()?.trim().parse().ok()
+}
+
+/// The command line of a live process, or `None` when it has gone.
+#[cfg(unix)]
+fn process_command(pid: u32) -> Option<String> {
+    let output = Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "command="])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if text.is_empty() {
+        None
+    } else {
+        Some(text)
+    }
+}
+
+#[cfg(windows)]
+fn process_command(pid: u32) -> Option<String> {
+    let output = Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if text.is_empty() || text.contains("No tasks") {
+        None
+    } else {
+        Some(text)
+    }
+}
+
+fn process_is_opencode(pid: u32) -> bool {
+    process_command(pid)
+        .map(|command| {
+            let lower = command.to_ascii_lowercase();
+            lower.contains("opencode") && lower.contains("serve")
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(unix)]
+fn kill_tree(pid: u32) {
+    extern "C" {
+        fn kill(pid: i32, sig: i32) -> i32;
+    }
+    let group = unsafe { kill(-(pid as i32), 9) };
+    if group != 0 {
+        // Not a process-group leader (an older or manually started server):
+        // fall back to the process itself.
+        unsafe {
+            kill(pid as i32, 9);
+        }
+    }
+}
+
+#[cfg(windows)]
+fn kill_tree(pid: u32) {
+    let _ = Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .output();
+}
+
+/// The pid of an `opencode serve` whose command line names this exact port.
+///
+/// Used only for the address the status file says the app was running: a server
+/// from before the pid file existed, or one whose pid file was lost. The command
+/// line has to name both `opencode`/`serve` and `--port <port>`, so a listener
+/// that merely happens to hold the port is not a candidate.
+#[cfg(unix)]
+fn opencode_pid_on_port(port: u16) -> Option<u32> {
+    let output = Command::new("ps")
+        .args(["-axo", "pid=,command="])
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let wanted = port.to_string();
+    for line in text.lines() {
+        let mut parts = line.split_whitespace();
+        let Some(pid_text) = parts.next() else {
+            continue;
+        };
+        let Ok(pid) = pid_text.parse::<u32>() else {
+            continue;
+        };
+        let args: Vec<&str> = parts.collect();
+        let is_opencode = args
+            .iter()
+            .any(|arg| arg.to_ascii_lowercase().contains("opencode"));
+        let serves = args.iter().any(|arg| *arg == "serve");
+        let names_port = args
+            .windows(2)
+            .any(|pair| pair[0] == "--port" && pair[1] == wanted);
+        if is_opencode && serves && names_port {
+            return Some(pid);
+        }
+    }
+    None
+}
+
+#[cfg(unix)]
+pub fn reap_opencode_on_port(port: u16) -> Option<u32> {
+    let pid = opencode_pid_on_port(port)?;
+    kill_tree(pid);
+    for _ in 0..40 {
+        if port_is_free(port) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    Some(pid)
+}
+
+#[cfg(windows)]
+pub fn reap_opencode_on_port(_port: u16) -> Option<u32> {
+    // Windows cleans up through the pid file; enumerating listeners and
+    // matching command lines is a different, larger job.
+    None
+}
+
+/// Stop an embedded server left behind by a previous run.
+///
+/// The shell supervises its server while it is alive, but a crash, a killed dev
+/// process, or a rebuild can orphan one. The next launch then finds the old
+/// port taken, picks a new one, and the remembered address points at a server
+/// nobody supervises — which is exactly the "old port, then a new port" start.
+/// The pid is checked against the process command line before it is signalled,
+/// so a recycled pid is never enough to kill something else.
+pub fn cleanup_stale_opencode(path: &Path) -> Option<u32> {
+    let pid = read_pid(path)?;
+    let killed = process_is_opencode(pid);
+    if killed {
+        kill_tree(pid);
+        for _ in 0..40 {
+            if !process_is_opencode(pid) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+    let _ = std::fs::remove_file(path);
+    if killed {
+        Some(pid)
+    } else {
+        None
+    }
+}
+
+/// Save or clear the chosen binary without dropping the mode or any field a
+/// later version of the app may have written there.
+pub fn write_desktop_bin(path: &Path, bin: Option<&str>) -> std::io::Result<()> {
+    let mut value: serde_json::Value = std::fs::read_to_string(path)
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    if !value.is_object() {
+        value = serde_json::json!({});
+    }
+    {
+        let object = value.as_object_mut().expect("checked above");
+        match bin.map(str::trim).filter(|value| !value.is_empty()) {
+            Some(chosen) => {
+                object.insert("opencodeBin".into(), serde_json::json!(chosen));
+            }
+            None => {
+                object.remove("opencodeBin");
+            }
+        }
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let json = serde_json::to_string_pretty(&value)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    std::fs::write(path, format!("{json}\n"))
+}
+
+/// The command to run a binary, including the shims Windows needs.
+///
+/// `CreateProcess` cannot execute a `.cmd` or `.ps1` file directly. npm's
+/// Windows install puts `opencode.cmd` in front of the real executable, so a
+/// path found by name would otherwise fail with "not a valid Win32 application".
+pub fn command_for(bin: &Path) -> Command {
+    #[cfg(windows)]
+    {
+        let ext = bin
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        if ext == "cmd" || ext == "bat" {
+            let mut command = Command::new("cmd");
+            command.arg("/C").arg(bin);
+            return command;
+        }
+        if ext == "ps1" {
+            let mut command = Command::new("powershell");
+            command
+                .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+                .arg(bin);
+            return command;
+        }
+    }
+    Command::new(bin)
+}
+
+/// `opencode --version`, or the reason it could not be read.
+pub fn version_of(bin: &Path) -> Result<String, String> {
+    let output = command_for(bin)
+        .arg("--version")
+        .output()
+        .map_err(|e| format!("could not run {}: {e}", bin.display()))?;
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr);
+        let line = detail
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .unwrap_or("");
+        return Err(if line.is_empty() {
+            format!("{} --version exited with {}", bin.display(), output.status)
+        } else {
+            line.to_string()
+        });
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let version = text
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or("");
+    if version.is_empty() {
+        Err(format!("{} --version printed nothing", bin.display()))
+    } else {
+        Ok(version.to_string())
+    }
+}
+
+fn runtime_for(bin: PathBuf, source: RuntimeSource, checked_at: u64) -> OpencodeRuntime {
+    if !bin.is_file() {
+        return OpencodeRuntime {
+            source,
+            bin: Some(bin.to_string_lossy().into_owned()),
+            version: None,
+            error: Some(format!("not a file: {}", bin.display())),
+            checked_at,
+        };
+    }
+    match version_of(&bin) {
+        Ok(version) => OpencodeRuntime {
+            source,
+            bin: Some(bin.to_string_lossy().into_owned()),
+            version: Some(version),
+            error: None,
+            checked_at,
+        },
+        Err(error) => OpencodeRuntime {
+            source,
+            bin: Some(bin.to_string_lossy().into_owned()),
+            version: None,
+            error: Some(error),
+            checked_at,
+        },
+    }
+}
+
+/// Inspect the binary without starting anything. `env_bin` is an argument so
+/// tests do not have to mutate the process environment.
+pub fn detect_runtime_with(
+    dir: &Path,
+    mode: OpencodeMode,
+    env_bin: Option<PathBuf>,
+) -> OpencodeRuntime {
+    let checked_at = now_secs();
+    if mode == OpencodeMode::External {
+        return OpencodeRuntime {
+            source: RuntimeSource::External,
+            bin: None,
+            version: None,
+            error: None,
+            checked_at,
+        };
+    }
+    if let Some(chosen) = read_desktop_bin(&dir.join("desktop.json")) {
+        return runtime_for(chosen, RuntimeSource::Setting, checked_at);
+    }
+    if let Some(from_env) = env_bin.filter(|path| !path.as_os_str().is_empty()) {
+        return runtime_for(from_env, RuntimeSource::Env, checked_at);
+    }
+    if let Some(found) = find_in(
+        env::split_paths(&env::var_os("PATH").unwrap_or_default())
+            .chain(fallback_dirs().into_iter()),
+    ) {
+        return runtime_for(found, RuntimeSource::Path, checked_at);
+    }
+    OpencodeRuntime {
+        source: RuntimeSource::Missing,
+        bin: None,
+        version: None,
+        error: Some("opencode was not found on PATH".into()),
+        checked_at,
+    }
+}
+
+pub fn detect_runtime(dir: &Path, mode: OpencodeMode) -> OpencodeRuntime {
+    detect_runtime_with(
+        dir,
+        mode,
+        env::var_os("STRATA_OPENCODE_BIN").map(PathBuf::from),
+    )
+}
+
+pub fn write_runtime(path: &Path, runtime: &OpencodeRuntime) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let json = serde_json::to_string_pretty(runtime)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    std::fs::write(path, format!("{json}\n"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -462,6 +926,190 @@ mod tests {
             password: "unit-test-password-value".into(),
             url: "http://127.0.0.1:43123".into(),
         }
+    }
+
+    #[test]
+    fn desktop_bin_round_trips_and_keeps_other_fields() {
+        let desktop = temp_path("desktop.json");
+        fs::write(&desktop, r#"{"opencode":"external","other":1}"#).unwrap();
+        write_desktop_bin(&desktop, Some("/opt/example/opencode")).unwrap();
+        assert_eq!(
+            read_desktop_bin(&desktop),
+            Some(PathBuf::from("/opt/example/opencode"))
+        );
+        let value: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&desktop).unwrap()).unwrap();
+        assert_eq!(value["opencode"], "external");
+        assert_eq!(value["other"], 1);
+
+        write_desktop_bin(&desktop, None).unwrap();
+        assert_eq!(read_desktop_bin(&desktop), None);
+        let value: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&desktop).unwrap()).unwrap();
+        assert_eq!(value["opencode"], "external");
+    }
+
+    #[test]
+    fn detect_runtime_reports_a_setting_that_is_not_a_file() {
+        let desktop = temp_path("desktop.json");
+        write_desktop_bin(&desktop, Some("/definitely/not/an/opencode")).unwrap();
+        let runtime = detect_runtime_with(desktop.parent().unwrap(), OpencodeMode::Embed, None);
+        assert_eq!(runtime.source, RuntimeSource::Setting);
+        assert!(runtime.version.is_none());
+        assert!(runtime.error.unwrap().contains("not a file"));
+    }
+
+    #[test]
+    fn detect_runtime_external_does_not_look_for_a_binary() {
+        let desktop = temp_path("desktop.json");
+        let runtime = detect_runtime_with(
+            desktop.parent().unwrap(),
+            OpencodeMode::External,
+            Some(PathBuf::from("/does/not/matter")),
+        );
+        assert_eq!(runtime.source, RuntimeSource::External);
+        assert!(runtime.bin.is_none());
+        assert!(runtime.version.is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn detect_runtime_reads_the_version_from_the_chosen_binary() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let desktop = temp_path("desktop.json");
+        let bin = desktop.parent().unwrap().join("opencode");
+        fs::write(&bin, "#!/bin/sh\necho 1.18.30\n").unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+        write_desktop_bin(&desktop, Some(bin.to_str().unwrap())).unwrap();
+
+        let runtime = detect_runtime_with(desktop.parent().unwrap(), OpencodeMode::Embed, None);
+        assert_eq!(runtime.source, RuntimeSource::Setting);
+        assert_eq!(runtime.version.as_deref(), Some("1.18.30"));
+        assert!(runtime.error.is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_saved_path_wins_over_the_environment() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let desktop = temp_path("desktop.json");
+        let dir = desktop.parent().unwrap();
+        let chosen = dir.join("chosen");
+        let from_env = dir.join("from-env");
+        for (path, version) in [(&chosen, "1.18.30"), (&from_env, "9.9.9")] {
+            fs::write(path, format!("#!/bin/sh\necho {version}\n")).unwrap();
+            fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        write_desktop_bin(&desktop, Some(chosen.to_str().unwrap())).unwrap();
+
+        let runtime = detect_runtime_with(dir, OpencodeMode::Embed, Some(from_env));
+        assert_eq!(runtime.source, RuntimeSource::Setting);
+        assert_eq!(runtime.version.as_deref(), Some("1.18.30"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_environment_is_used_when_no_path_is_saved() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let desktop = temp_path("desktop.json");
+        let dir = desktop.parent().unwrap();
+        let from_env = dir.join("from-env");
+        fs::write(&from_env, "#!/bin/sh\necho 1.19.3\n").unwrap();
+        fs::set_permissions(&from_env, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let runtime = detect_runtime_with(dir, OpencodeMode::Embed, Some(from_env));
+        assert_eq!(runtime.source, RuntimeSource::Env);
+        assert_eq!(runtime.version.as_deref(), Some("1.19.3"));
+    }
+
+    #[test]
+    fn pid_file_round_trips() {
+        let path = temp_path("opencode.pid");
+        write_pid(&path, 4321).unwrap();
+        assert_eq!(read_pid(&path), Some(4321));
+        assert_eq!(read_pid(&path.with_extension("missing")), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_stale_pid_that_is_not_opencode_is_not_killed() {
+        use std::os::unix::process::CommandExt;
+
+        extern "C" {
+            fn kill(pid: i32, sig: i32) -> i32;
+        }
+
+        let mut child = Command::new("/bin/sleep")
+            .arg("30")
+            .process_group(0)
+            .spawn()
+            .expect("sleep");
+        let pid = child.id();
+        let path = temp_path("opencode.pid");
+        write_pid(&path, pid).unwrap();
+
+        assert_eq!(cleanup_stale_opencode(&path), None);
+        assert_eq!(read_pid(&path), None);
+        // Still alive: the command line did not look like `opencode serve`.
+        assert_eq!(unsafe { kill(pid as i32, 0) }, 0);
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_opencode_serve_on_a_port_is_found_and_reaped() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::os::unix::process::CommandExt;
+
+        let script = temp_path("opencode");
+        fs::write(&script, "#!/bin/sh\nsleep 30\n").unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        let mut child = Command::new(&script)
+            .args(["serve", "--hostname", "127.0.0.1", "--port", "45678"])
+            .process_group(0)
+            .spawn()
+            .expect("fake opencode");
+        let pid = child.id();
+
+        assert_eq!(opencode_pid_on_port(45678), Some(pid));
+        assert_eq!(reap_opencode_on_port(45678), Some(pid));
+        assert_eq!(opencode_pid_on_port(45678), None);
+        let _ = child.wait();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_stale_opencode_serve_process_is_reaped() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::os::unix::process::CommandExt;
+
+        let script = temp_path("opencode");
+        fs::write(&script, "#!/bin/sh\nsleep 30\n").unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        let mut child = Command::new(&script)
+            .arg("serve")
+            .process_group(0)
+            .spawn()
+            .expect("fake opencode");
+        let pid = child.id();
+        let path = temp_path("opencode.pid");
+        write_pid(&path, pid).unwrap();
+
+        assert_eq!(cleanup_stale_opencode(&path), Some(pid));
+        assert_eq!(read_pid(&path), None);
+        let status = child.wait().expect("reaped");
+        assert!(!status.success());
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn command_for_runs_a_unix_binary_directly() {
+        let command = command_for(Path::new("/tmp/opencode"));
+        assert_eq!(command.get_program(), std::ffi::OsStr::new("/tmp/opencode"));
     }
 
     #[test]

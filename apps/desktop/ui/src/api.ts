@@ -827,10 +827,23 @@ export async function finishProviderLogin(
 
 export type OpencodeLaunchMode = "embed" | "external";
 
+export type OpencodeRuntimeSource = "setting" | "env" | "path" | "missing" | "external";
+
+/** What the shell found when it last inspected the local opencode binary. */
+export type OpencodeRuntime = {
+  source: OpencodeRuntimeSource;
+  bin?: string;
+  version?: string;
+  error?: string;
+  /** Unix seconds; the UI formats it in the reader's zone. */
+  checked_at?: number;
+};
+
 export type OpencodeLaunch = {
   mode: OpencodeLaunchMode;
   state: "starting" | "running" | "missing" | "restarting" | "stopped" | "external" | "unmanaged";
   url?: string;
+  runtime?: OpencodeRuntime;
 };
 
 export function readOpencodeLaunch(): Promise<OpencodeLaunch> {

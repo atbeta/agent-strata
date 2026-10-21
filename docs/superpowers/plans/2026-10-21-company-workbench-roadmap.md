@@ -78,3 +78,4 @@
 ## 进度
 
 - **2026-10-21：** Provider 可见性已落地。设置页每个厂商行有“在模型选择中显示/隐藏”的开关，模型选择器按可见厂商过滤，当前会话正在用的隐藏模型仍保留在列表顶部并标注“已隐藏”。隐藏集合存在本机 localStorage，不改变凭据和 OpenCode 配置。`provider-visibility.test.ts` 覆盖存储、过滤和当前模型保留。
+- **2026-10-21：** 运行时配置与健康检查已落地。运行时面板收成一张紧凑卡片：默认只显示版本、来源、二进制路径和三个动作，状态用圆点表示，服务地址只留在诊断信息里。内嵌启动会先清理上一次留下的 opencode（`opencode.pid`，以及仍占着上次端口的 `opencode serve`），复用上次端口而不是再开一个。侧栏的连接徽标加了 600ms 稳定期，避免同步期间端口号出现又消失。发现顺序为设置路径 → `STRATA_OPENCODE_BIN` → PATH → 官方/Homebrew/bun 目录；Windows 同时尝试 `.exe/.cmd/.bat/.ps1`，`.cmd/.bat` 经 `cmd /C`、`.ps1` 经 `powershell -File` 启动。启动时写 `opencode-runtime.json`（来源、路径、版本、错误、检查时间），`GET /desktop/opencode` 一并返回；设置页显示运行时并在桌面应用内支持选择/清除路径、重新检测和复制诊断。不做 sidecar、不自动升级 opencode。`cargo test` 与 `bun test` 覆盖新的发现、版本读取和状态读写。

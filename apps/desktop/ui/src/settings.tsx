@@ -4,7 +4,11 @@ import {
   readOpencodeLaunch,
   saveOpencodeMode,
   type OpencodeLaunchMode,
+  type OpencodeRuntime,
 } from "./api";
+import { checkOpencodeRuntime, chooseOpencodeBinary, setOpencodeBinary } from "./opencode-runtime";
+import { copyText } from "./clipboard";
+import { inDesktopShell } from "./shell";
 import { readMru } from "./session-switch";
 import {
   isShellAvailable,
@@ -32,6 +36,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
 import { ChoiceCard } from "@/components/ui/choice-card";
 import { RowButton } from "@/components/ui/row-button";
 import { Switch } from "@/components/ui/switch";
@@ -213,6 +218,10 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
   const [choice, setChoice] = createSignal<ThemeChoice>(readTheme());
   const [launch] = createResource(readOpencodeLaunch);
   const [mode, setMode] = createSignal<OpencodeLaunchMode>("embed");
+  const [runtime, setRuntime] = createSignal<OpencodeRuntime>();
+  const [runtimeBusy, setRuntimeBusy] = createSignal(false);
+  const [runtimeErr, setRuntimeErr] = createSignal("");
+  const [runtimeNote, setRuntimeNote] = createSignal("");
   const [hydrated, setHydrated] = createSignal(false);
   const [saveErr, setSaveErr] = createSignal("");
   const [fonts, setFonts] = createSignal<FontChoice>(readFonts());
@@ -228,12 +237,136 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
   };
 
   const launchData = () => (launch.error ? undefined : launch());
+  const runtimeSource = () => {
+    switch (runtime()?.source) {
+      case "setting":
+        return t("settings.opencode.sourceShort.setting");
+      case "env":
+        return t("settings.opencode.sourceShort.env");
+      case "path":
+        return t("settings.opencode.sourceShort.path");
+      case "missing":
+        return t("settings.opencode.sourceShort.missing");
+      case "external":
+        return t("settings.opencode.sourceShort.external");
+      default:
+        return "—";
+    }
+  };
+  /** Running is the ordinary case: a green dot says it, no word needed. */
+  const runtimeWord = () => {
+    if (launchData()?.state === "running") return undefined;
+    return runtimeState();
+  };
+  const runtimeTone = () => {
+    switch (launchData()?.state) {
+      case "running":
+        return "bg-status-active";
+      case "missing":
+      case "stopped":
+        return "bg-status-error";
+      case "starting":
+      case "restarting":
+        return "bg-status-cancelled";
+      default:
+        return "bg-status-pending";
+    }
+  };
+  const runtimeState = () => {
+    switch (launchData()?.state) {
+      case "starting":
+        return t("settings.opencode.state.starting");
+      case "running":
+        return t("settings.opencode.state.running");
+      case "missing":
+        return t("settings.opencode.state.missing");
+      case "restarting":
+        return t("settings.opencode.state.restarting");
+      case "stopped":
+        return t("settings.opencode.state.stopped");
+      case "external":
+        return t("settings.opencode.state.external");
+      case "unmanaged":
+        return t("settings.opencode.state.unmanaged");
+      default:
+        return "—";
+    }
+  };
+  /** A version this build was not tuned against is worth naming, not blocking. */
+  const versionAhead = () => {
+    const version = runtime()?.version;
+    return Boolean(version && !version.includes("1.18."));
+  };
+  const checkRuntime = async () => {
+    setRuntimeBusy(true);
+    setRuntimeErr("");
+    setRuntimeNote("");
+    try {
+      const report = await checkOpencodeRuntime();
+      if (report) setRuntime(report);
+      else setRuntimeErr(t("settings.opencode.desktopOnly"));
+    } catch (e) {
+      setRuntimeErr(e instanceof Error ? e.message : t("err.network"));
+    } finally {
+      setRuntimeBusy(false);
+    }
+  };
+  const pickRuntime = async () => {
+    setRuntimeErr("");
+    setRuntimeNote("");
+    try {
+      const picked = await chooseOpencodeBinary(t("settings.opencode.chooseBin"));
+      if (!picked) return;
+      setRuntimeBusy(true);
+      const report = await setOpencodeBinary(picked);
+      if (report) {
+        setRuntime(report);
+        setRuntimeNote(t("settings.opencode.binSaved"));
+      }
+    } catch (e) {
+      setRuntimeErr(e instanceof Error ? e.message : t("err.network"));
+    } finally {
+      setRuntimeBusy(false);
+    }
+  };
+  const clearRuntime = async () => {
+    setRuntimeBusy(true);
+    setRuntimeErr("");
+    setRuntimeNote("");
+    try {
+      const report = await setOpencodeBinary(null);
+      if (report) {
+        setRuntime(report);
+        setRuntimeNote(t("settings.opencode.binCleared"));
+      }
+    } catch (e) {
+      setRuntimeErr(e instanceof Error ? e.message : t("err.network"));
+    } finally {
+      setRuntimeBusy(false);
+    }
+  };
+  const copyDiagnostics = async () => {
+    const report = runtime();
+    const lines = [
+      `Agent Strata v${__APP_VERSION__}`,
+      `mode: ${launchData()?.mode ?? "—"}`,
+      `state: ${launchData()?.state ?? "—"}`,
+      `url: ${launchData()?.url ?? "—"}`,
+      `opencode: ${report?.bin ?? "—"}`,
+      `version: ${report?.version ?? "—"}`,
+      `source: ${report?.source ?? "—"}`,
+      `error: ${report?.error ?? "—"}`,
+      `checked_at: ${report?.checked_at ? new Date(report.checked_at * 1000).toISOString() : "—"}`,
+    ];
+    if (await copyText(lines.join("\n"))) setRuntimeNote(t("settings.opencode.diagnostics.copied"));
+  };
 
   createEffect(() => {
     if (hydrated()) return;
     const data = launchData();
     if (data) {
       setMode(data.mode);
+      setRuntime(data.runtime);
       setHydrated(true);
     } else if (launch.error) {
       setHydrated(true);
@@ -512,19 +645,133 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
         <p class={`mt-3 text-sm ${saveErr() ? "text-destructive" : "text-muted-foreground"}`}>
           {saveErr() || t("settings.opencode.apply")}
         </p>
-        <Show when={launchData()?.state === "missing"}>
-          <div>
-            <p class="mt-3 text-sm text-muted-foreground">{t("settings.opencode.missing")}</p>
-            <a
-              href="https://opencode.ai"
-              target="_blank"
-              rel="noreferrer"
-              class="mt-1 inline-block text-sm text-muted-foreground hover:text-foreground"
-            >
-              {t("settings.opencode.install")}
-            </a>
+      </Group>
+
+      <Group label={t("settings.opencode.runtime")}>
+        <div class="mt-3 rounded-lg border border-border px-3 py-2.5">
+          <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span aria-hidden="true" class={`size-1.5 shrink-0 rounded-full ${runtimeTone()}`} />
+            <span class="text-sm font-medium">OpenCode</span>
+            <Show when={runtime()?.version}>
+              <span class="font-mono text-2xs text-muted-foreground">{runtime()?.version}</span>
+            </Show>
+            <Show when={runtime()?.source}>
+              <span class="rounded bg-secondary/60 px-1 py-0.5 text-2xs text-muted-foreground">
+                {runtimeSource()}
+              </span>
+            </Show>
+            <Show when={runtimeWord()}>
+              <span class="text-2xs text-muted-foreground">{runtimeWord()}</span>
+            </Show>
+            <span class="ml-auto flex flex-wrap items-center gap-1">
+              <Button
+                type="button"
+                size="xs"
+                variant="quiet"
+                disabled={runtimeBusy() || !inDesktopShell()}
+                onClick={() => void pickRuntime()}
+              >
+                {t("settings.opencode.chooseBin")}
+              </Button>
+              <Button
+                type="button"
+                size="xs"
+                variant="quiet"
+                disabled={runtimeBusy() || !inDesktopShell()}
+                onClick={() => void checkRuntime()}
+              >
+                {t("settings.opencode.check")}
+              </Button>
+              <Show when={runtime()?.source === "setting"}>
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="quiet"
+                  disabled={runtimeBusy() || !inDesktopShell()}
+                  onClick={() => void clearRuntime()}
+                >
+                  {t("settings.opencode.clearBin")}
+                </Button>
+              </Show>
+              <Button
+                type="button"
+                size="xs"
+                variant="quiet"
+                disabled={runtimeBusy()}
+                onClick={() => void copyDiagnostics()}
+              >
+                {t("settings.opencode.diagnostics")}
+              </Button>
+            </span>
           </div>
-        </Show>
+          <Show
+            when={runtime()?.source === "external"}
+            fallback={
+              <p
+                class="mt-1.5 truncate font-mono text-2xs text-muted-foreground"
+                title={runtime()?.bin ?? ""}
+              >
+                {runtime()?.bin ?? (runtime() ? t("settings.opencode.binMissing") : "—")}
+              </p>
+            }
+          >
+            <p class="mt-1.5 text-2xs text-muted-foreground">
+              {t("settings.opencode.externalPath")}
+            </p>
+          </Show>
+          <Show
+            when={
+              !inDesktopShell() ||
+              runtime()?.source === "env" ||
+              runtimeErr() ||
+              runtimeNote() ||
+              runtime()?.error
+            }
+          >
+            <div class="mt-1.5 space-y-1">
+              <Show when={!inDesktopShell()}>
+                <p class="text-2xs leading-4 text-muted-foreground">
+                  {t("settings.opencode.desktopOnly")}
+                </p>
+              </Show>
+              <Show when={runtime()?.source === "env"}>
+                <p class="text-2xs leading-4 text-muted-foreground">
+                  {t("settings.opencode.envHint")}
+                </p>
+              </Show>
+              <Show when={runtimeErr()}>
+                <p class="text-sm text-destructive">{runtimeErr()}</p>
+              </Show>
+              <Show when={runtimeNote()}>
+                <p class="text-sm text-muted-foreground">{runtimeNote()}</p>
+              </Show>
+              <Show when={runtime()?.error}>
+                <p class="text-sm text-destructive">{runtime()?.error}</p>
+              </Show>
+              <Show when={launchData()?.state === "missing"}>
+                <p class="text-sm text-muted-foreground">
+                  {t("settings.opencode.missing")}{" "}
+                  <a
+                    href="https://opencode.ai"
+                    target="_blank"
+                    rel="noreferrer"
+                    class="text-muted-foreground underline decoration-border underline-offset-2 hover:text-foreground"
+                  >
+                    {t("settings.opencode.install")}
+                  </a>
+                </p>
+              </Show>
+            </div>
+          </Show>
+          <Show when={versionAhead()}>
+            <p class="mt-1.5 text-2xs leading-4 text-muted-foreground">
+              {t("settings.opencode.versionHint")}
+            </p>
+          </Show>
+        </div>
+        <p class="mt-2 text-2xs leading-4 text-muted-foreground">
+          {t("settings.opencode.runtimeHint")}
+        </p>
       </Group>
 
       {/* Terminals are an opencode capability — the ACP adapter reports

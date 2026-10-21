@@ -1564,8 +1564,15 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       const body = (await req.json().catch(() => null)) as { mode?: unknown } | null;
       const mode = body?.mode;
       if (!isOpencodeMode(mode)) return json({ error: "mode must be embed or external" }, 400);
+      // The file also holds the chosen binary. Rewriting it as `{opencode}` used
+      // to erase that choice every time someone switched modes.
+      const previous = readDesktopJson(join(desktopDir, "desktop.json"));
+      const next =
+        previous && typeof previous === "object" && !Array.isArray(previous)
+          ? { ...(previous as Record<string, unknown>), opencode: mode }
+          : { opencode: mode };
       mkdirSync(desktopDir, { recursive: true });
-      writeFileSync(join(desktopDir, "desktop.json"), JSON.stringify({ opencode: mode }));
+      writeFileSync(join(desktopDir, "desktop.json"), JSON.stringify(next, null, 2) + "\n");
       return json({ mode, applied: "next-launch" });
     }
 
@@ -1781,21 +1788,75 @@ function autoConnectPlacement(opts: ServiceOpts, desktopDir: string): "embed" | 
   return "external";
 }
 
+type OpencodeRuntimeSource = "setting" | "env" | "path" | "missing" | "external";
+
+interface OpencodeRuntime {
+  source: OpencodeRuntimeSource;
+  bin?: string;
+  version?: string;
+  error?: string;
+  checked_at?: number;
+}
+
+function isRuntimeSource(value: unknown): value is OpencodeRuntimeSource {
+  return (
+    value === "setting" ||
+    value === "env" ||
+    value === "path" ||
+    value === "missing" ||
+    value === "external"
+  );
+}
+
+/** The shell writes this once per launch and after a settings check. */
+function readOpencodeRuntime(dir: string): OpencodeRuntime | undefined {
+  const parsed = readDesktopJson(join(dir, "opencode-runtime.json"));
+  if (!parsed || typeof parsed !== "object" || parsed === null) return undefined;
+  const rec = parsed as {
+    source?: unknown;
+    bin?: unknown;
+    version?: unknown;
+    error?: unknown;
+    checked_at?: unknown;
+  };
+  if (!isRuntimeSource(rec.source)) return undefined;
+  const runtime: OpencodeRuntime = { source: rec.source };
+  if (typeof rec.bin === "string" && rec.bin) runtime.bin = rec.bin;
+  if (typeof rec.version === "string" && rec.version) runtime.version = rec.version;
+  if (typeof rec.error === "string" && rec.error) runtime.error = rec.error;
+  if (typeof rec.checked_at === "number" && Number.isFinite(rec.checked_at)) {
+    runtime.checked_at = rec.checked_at;
+  }
+  return runtime;
+}
+
 function readOpencodeStatus(dir: string): {
   mode: OpencodeLaunchMode;
   state: OpencodeLaunchState;
   url?: string;
+  runtime?: OpencodeRuntime;
 } {
   const mode = readOpencodeMode(dir);
+  const runtime = readOpencodeRuntime(dir);
   const parsed = readDesktopJson(join(dir, "opencode-status.json"));
-  if (!parsed || typeof parsed !== "object" || parsed === null) return { mode, state: "unmanaged" };
+  if (!parsed || typeof parsed !== "object" || parsed === null) {
+    return runtime ? { mode, state: "unmanaged", runtime } : { mode, state: "unmanaged" };
+  }
   const rec = parsed as { state?: unknown; url?: unknown };
-  if (!isOpencodeState(rec.state)) return { mode, state: "unmanaged" };
-  const body: { mode: OpencodeLaunchMode; state: OpencodeLaunchState; url?: string } = {
+  if (!isOpencodeState(rec.state)) {
+    return runtime ? { mode, state: "unmanaged", runtime } : { mode, state: "unmanaged" };
+  }
+  const body: {
+    mode: OpencodeLaunchMode;
+    state: OpencodeLaunchState;
+    url?: string;
+    runtime?: OpencodeRuntime;
+  } = {
     mode,
     state: rec.state,
   };
   if (typeof rec.url === "string") body.url = rec.url;
+  if (runtime) body.runtime = runtime;
   return body;
 }
 

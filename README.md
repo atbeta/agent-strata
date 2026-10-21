@@ -115,6 +115,10 @@ installed through cargo.)
 (`beforeDevCommand`), so the second command is only needed if you want the UI in
 a plain browser tab. Linux additionally needs the system `webkit2gtk` packages.
 
+## OpenCode runtime
+
+The app does not bundle an `opencode` binary. In embed mode it resolves one in this order: the path saved in `~/.agent-strata/desktop.json` (`opencodeBin`, set from Settings), `STRATA_OPENCODE_BIN`, `PATH`, then the official installer (`~/.opencode/bin`), Homebrew and bun directories. Windows also looks for `.exe`, `.cmd`, `.bat` and `.ps1`, and runs command shims through `cmd /C` or PowerShell. The shell records the source, path, version and last check in `opencode-runtime.json`; `GET /desktop/opencode` returns that beside the process state, which is what the settings page shows. `opencode.pid` names the embedded server it started, so the next launch can reap an orphan before choosing a port instead of opening a second server. Changing the path takes effect on the next launch — the running server keeps the binary it started with. `cargo test` in `apps/desktop/src-tauri` covers discovery and version reading.
+
 ## Releasing
 
 Pushing a `v*` tag is the release. GitHub Actions builds the Windows NSIS

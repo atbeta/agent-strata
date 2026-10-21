@@ -1663,8 +1663,37 @@ describe("the service exposes the opencode launch mode and status", () => {
     });
   });
 
+  test("GET /desktop/opencode includes the binary the shell inspected", async () => {
+    await withDesktopDir(async (desktopDir, base) => {
+      writeFileSync(
+        join(desktopDir, "opencode-runtime.json"),
+        JSON.stringify({
+          source: "setting",
+          bin: "/opt/opencode",
+          version: "1.18.30",
+          checked_at: 1_700_000_000,
+        }),
+      );
+      const got = await fetch(`${base}/desktop/opencode`).then((r) => r.json());
+      expect(got).toEqual({
+        mode: "embed",
+        state: "unmanaged",
+        runtime: {
+          source: "setting",
+          bin: "/opt/opencode",
+          version: "1.18.30",
+          checked_at: 1_700_000_000,
+        },
+      });
+    });
+  });
+
   test("PUT /desktop/opencode saves the mode for the next launch", async () => {
     await withDesktopDir(async (desktopDir, base) => {
+      writeFileSync(
+        join(desktopDir, "desktop.json"),
+        JSON.stringify({ opencode: "embed", opencodeBin: "/opt/opencode" }),
+      );
       const res = await fetch(`${base}/desktop/opencode`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
@@ -1672,8 +1701,10 @@ describe("the service exposes the opencode launch mode and status", () => {
       });
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ mode: "external", applied: "next-launch" });
+      // The mode changes; the binary chosen for the next launch does not.
       expect(JSON.parse(readFileSync(join(desktopDir, "desktop.json"), "utf8"))).toEqual({
         opencode: "external",
+        opencodeBin: "/opt/opencode",
       });
 
       const bad = await fetch(`${base}/desktop/opencode`, {

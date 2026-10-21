@@ -1,4 +1,4 @@
-import { createEffect, For, Show, createSignal } from "solid-js";
+import { createEffect, createMemo, For, onCleanup, Show, createSignal } from "solid-js";
 import {
   archiveSession,
   backendLabel,
@@ -88,20 +88,43 @@ export function Sidebar(props: {
    * its own bucket, because that is the other case where the rows are not
    * interchangeable.
    */
-  const splitInstances = () => {
+  const splitInstances = createMemo(() => {
     const ids = new Set<string>();
     for (const g of list().groups()) for (const s of g.rows) ids.add(s.connection_id ?? "");
     return ids;
-  };
+  });
 
+  /**
+   * Whether the `port` badge on a row is worth showing, held still for a beat.
+   *
+   * A sync briefly leaves some rows without their connection id and fills it in
+   * on the next pass. Reading that directly made the badge appear and disappear
+   * down the whole list — a flicker with no meaning behind it. The split has to
+   * stay true for long enough to be a state rather than a frame.
+   */
+  const [splitSettled, setSplitSettled] = createSignal(false);
+  createEffect(() => {
+    const multiple = props.conns.phase() === "connected" && splitInstances().size >= 2;
+    const timer = setTimeout(() => setSplitSettled(multiple), 600);
+    onCleanup(() => clearTimeout(timer));
+  });
+
+  // The last badge a row had. A sync briefly drops `connection_id` from some
+  // rows; without this the badge under that row vanished for a frame even
+  // though the session had not moved.
+  const lastInstance = new Map<string, { short: string; tip: string }>();
   const instanceOf = (s: SessionRow) => {
-    if (!s.connection_id || splitInstances().size < 2) return undefined;
-    const c = (settled(props.conns.conns)?.connections ?? []).find((x) => x.id === s.connection_id);
-    if (!c) return undefined;
-    return {
+    if (!splitSettled()) return undefined;
+    const c = s.connection_id
+      ? (settled(props.conns.conns)?.connections ?? []).find((x) => x.id === s.connection_id)
+      : undefined;
+    if (!c) return lastInstance.get(s.summary.session_id);
+    const badge = {
       short: endpointShort(c.baseUrl),
       tip: `${backendLabel(c.backend)} · ${endpointHost(c.baseUrl)}`,
     };
+    lastInstance.set(s.summary.session_id, badge);
+    return badge;
   };
 
   /**
