@@ -740,6 +740,12 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
         </p>
       </Group>
 
+      {/* An external server brings its own binary; the app has nothing here to
+          find, check or restart. Keyed on the chosen mode rather than the
+          running one, so picking 内嵌 shows where its binary will come from.
+          `mode` reads "embed" until the saved choice arrives; waiting for it
+          keeps an external setup from flashing the block on open. */}
+      <Show when={hydrated() && mode() !== "external"}>
       <Group label={t("settings.opencode.runtime")}>
         <div class="mt-3 rounded-lg border border-border px-3 py-2.5">
           <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -871,6 +877,7 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
           {t("settings.opencode.runtimeHint")}
         </p>
       </Group>
+      </Show>
 
       {/* Terminals are an opencode capability — the ACP adapter reports
           `terminal: false` — so this sits with the rest of what only that backend
