@@ -168,29 +168,47 @@ export function Sidebar(props: {
       row and its "+" sit between them. */
   const metaGroups = () => list().groups().filter((g) => g.key.startsWith("__"));
   const sectionGroups = () => list().groups().filter((g) => !g.key.startsWith("__"));
+  /**
+   * Sections and rows are rendered by key, not by object. `holdRows` keeps a
+   * row's object only while its value is unchanged, and a running session
+   * changes on every event: by object, its row — and its whole section, whose
+   * rows array no longer matched — was torn down several times a second. That
+   * read as flicker, and a press that went down on one node and came up on its
+   * replacement never became a click, so a busy session could not be opened.
+   */
+  const metaKeys = () => metaGroups().map((g) => g.key);
+  const sectionKeys = () => sectionGroups().map((g) => g.key);
+  const groupsByKey = createMemo(() => new Map(list().groups().map((g) => [g.key, g])));
 
   /** What the section is called: the places, or the days they are cut by. */
   const sectionLabel = () =>
     list().lens().groupBy === "day" ? t("sidebar.recent") : t("sidebar.projects");
 
-  const renderGroup = (group: SidebarGroup) => {
-    const rows = () => (expanded().has(group.key) ? group.rows : group.rows.slice(0, PAGE));
+  const renderGroup = (key: string) => {
+    // The last known shape outlives the key by the frame `<For>` takes to
+    // dispose a section that just left.
+    const group = createMemo<SidebarGroup>((prev) => groupsByKey().get(key) ?? prev!);
+    const byId = createMemo(() => new Map(group().rows.map((s) => [s.summary.session_id, s])));
+    const rowIds = () =>
+      (expanded().has(key) ? group().rows : group().rows.slice(0, PAGE)).map(
+        (s) => s.summary.session_id,
+      );
     return (
       <section
-        data-group={group.key}
-        class={cn("group/section", collapsed().has(group.key) ? "mb-0" : "mb-2")}
+        data-group={key}
+        class={cn("group/section", collapsed().has(key) ? "mb-0" : "mb-2")}
       >
         <SectionHeader
-          label={group.label}
-          count={group.rows.length > 0 || group.dir === undefined ? group.rows.length : undefined}
-          hint={group.hint}
-          title={group.title}
-          icon={group.dir !== undefined ? (collapsed().has(group.key) ? "folder" : "folder-open") : undefined}
-          chevron={group.dir === undefined}
-          open={!collapsed().has(group.key)}
-          onToggle={() => setCollapsed((s) => flip(s, group.key))}
+          label={group().label}
+          count={group().rows.length > 0 || group().dir === undefined ? group().rows.length : undefined}
+          hint={group().hint}
+          title={group().title}
+          icon={group().dir !== undefined ? (collapsed().has(key) ? "folder" : "folder-open") : undefined}
+          chevron={group().dir === undefined}
+          open={!collapsed().has(key)}
+          onToggle={() => setCollapsed((s) => flip(s, key))}
           action={
-            group.dir !== undefined ? (
+            group().dir !== undefined ? (
               <Tip label={t("action.newSession")}>
                 {/* Revealed on section hover — one "+" per project, always on,
                     would be a rail of pluses down the rail. An empty project
@@ -201,12 +219,12 @@ export function Sidebar(props: {
                   size="icon-2xs"
                   class={cn(
                     "size-4 shrink-0 transition-opacity hover:text-foreground focus-visible:opacity-100",
-                    group.rows.length === 0
+                    group().rows.length === 0
                       ? "text-muted-foreground/35 group-hover/section:text-muted-foreground"
                       : "text-muted-foreground/60 opacity-0 group-hover/section:opacity-100",
                   )}
                   aria-label={t("action.newSession")}
-                  onClick={() => props.onNewSession(group.dir)}
+                  onClick={() => props.onNewSession(group().dir)}
                 >
                   <Icon name="plus" class="size-2.5" />
                 </Button>
@@ -214,17 +232,17 @@ export function Sidebar(props: {
             ) : undefined
           }
         />
-        <Show when={!collapsed().has(group.key)}>
-          <For each={rows()}>
-            {(s) => {
-              const id = s.summary.session_id;
+        <Show when={!collapsed().has(key)}>
+          <For each={rowIds()}>
+            {(id) => {
+              const s = createMemo<SessionRow>((prev) => byId().get(id) ?? prev!);
               return (
                 <SessionListItem
                   id={id}
-                  title={displayTitle(s.title ?? s.summary.title) ?? t("common.untitled")}
+                  title={displayTitle(s().title ?? s().summary.title) ?? t("common.untitled")}
                   active={props.activeId() === id || props.compareSel.includes(id)}
-                  status={sessionStatus(s)}
-                  time={relTime(s.summary.last_ts, props.clock())}
+                  status={sessionStatus(s())}
+                  time={relTime(s().summary.last_ts, props.clock())}
                   actions={!props.compareOn}
                   onOpen={() => props.onOpenSession(id)}
                   onRename={(title) => list().runAction(id, () => renameSession(id, title), false)}
@@ -233,18 +251,18 @@ export function Sidebar(props: {
                   onTogglePin={() => list().togglePinned(id)}
                   onCompare={() => props.onStartCompare(id)}
                   onSplitOpen={() => openSessionInSplit(id, "row")}
-                  instance={instanceOf(s)}
+                  instance={instanceOf(s())}
                 />
               );
             }}
           </For>
-          <Show when={!expanded().has(group.key) && group.rows.length > PAGE}>
+          <Show when={!expanded().has(key) && group().rows.length > PAGE}>
             <RowButton
               class="h-7 items-center px-2 text-2xs text-muted-foreground hover:bg-accent/70"
-              onClick={() => setExpanded((s) => flip(s, group.key))}
+              onClick={() => setExpanded((s) => flip(s, key))}
             >
               <Icon name="chevron" class="size-2.5 rotate-90 text-muted-foreground/60" />
-              {t("sidebar.group.more", { n: group.rows.length - PAGE })}
+              {t("sidebar.group.more", { n: group().rows.length - PAGE })}
             </RowButton>
           </Show>
         </Show>
@@ -331,7 +349,7 @@ export function Sidebar(props: {
             </Button>
           </div>
         </Show>
-        <For each={metaGroups()}>{renderGroup}</For>
+        <For each={metaKeys()}>{renderGroup}</For>
         <div class="mb-0.5 flex items-center justify-between px-2 pb-0.5 pt-2.5">
           <span class="text-xs font-medium text-muted-foreground">{sectionLabel()}</span>
           <div class="flex items-center gap-0.5">
@@ -469,7 +487,7 @@ export function Sidebar(props: {
             </Show>
           }
         >
-          <For each={sectionGroups()}>{renderGroup}</For>
+          <For each={sectionKeys()}>{renderGroup}</For>
           <Show when={list().more()}>
             <div class="px-2 pb-2 pt-1">
               <Button
