@@ -355,7 +355,7 @@ export default {
   "maintenance.clean.apply": "Clean",
   "maintenance.clean.previewLine": "{n} sessions, {rebuildable} rebuildable rows ({size}) to remove; {local} local-only rows will be kept.",
   "maintenance.clean.done": "Removed {n} rebuildable rows.",
-  "maintenance.archivedMoved": "Archived sessions are at the bottom of the sidebar, where they can be restored or deleted.",
+  "maintenance.archivedMoved": "Archived sessions are at the top of the sidebar, where they can be restored or deleted.",
   "maintenance.loading": "Reading…",
   "settings.about.title": "Application",
   "settings.about.tagline": "A cross-backend agent session layer — this is the desktop reader for it.",

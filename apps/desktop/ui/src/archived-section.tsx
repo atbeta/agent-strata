@@ -78,7 +78,7 @@ export function ArchivedSection(props: {
 
   return (
     <Show when={rows().length > 0}>
-      <div class="mt-1 border-t border-border px-2 pb-1 pt-1.5">
+      <div class="mb-1 border-b border-border px-2 pb-1.5 pt-1">
         <RowButton
           class="h-7 items-center gap-2 px-1 text-xs text-muted-foreground hover:bg-accent/70"
           aria-expanded={open()}
@@ -94,7 +94,7 @@ export function ArchivedSection(props: {
           />
         </RowButton>
         <Show when={open()}>
-          <ul class="mt-1 space-y-0.5">
+          <ul class="mt-1 max-h-72 space-y-0.5 overflow-y-auto pr-0.5">
             <For each={rows()}>
               {(row) => {
                 const id = row.summary.session_id;

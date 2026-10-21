@@ -353,7 +353,7 @@ export default {
   "maintenance.clean.apply": "清理",
   "maintenance.clean.previewLine": "将处理 {n} 个会话，删除 {rebuildable} 条可重建记录（{size}）；{local} 条仅本地记录会保留。",
   "maintenance.clean.done": "已清理 {n} 条可重建记录。",
-  "maintenance.archivedMoved": "已归档会话在侧栏底部，可以恢复或删除。",
+  "maintenance.archivedMoved": "已归档会话在侧栏顶部，可以恢复或删除。",
   "maintenance.loading": "正在读取…",
   "settings.about.title": "应用",
   "settings.about.tagline": "跨后端的 Agent 会话层，这里是它的桌面读端。",
