@@ -30,7 +30,15 @@ import { t } from "./i18n";
 import { displayTitle } from "./session-title";
 import { windowTitle } from "./permission-card";
 import { inDesktopShell } from "./shell";
-import { announceFinished, finishedSessions, readNotify, rememberBusy } from "./notify";
+import {
+  announceFinished,
+  announceNeedsInput,
+  finishedSessions,
+  readNotify,
+  rememberBusy,
+  rememberWaiting,
+  waitingSessions,
+} from "./notify";
 
 export type SidebarGroup = {
   key: string;
@@ -127,24 +135,39 @@ export function useSessionList(opts: {
   );
 
   const busySeen = new Map<string, boolean>();
-  let busyReady = false;
+  const waitingSeen = new Map<string, boolean>();
+  let noticesReady = false;
   createEffect(() => {
+    // A parent carries its subagent's wait; notifying the child as well would
+    // announce the same approval twice under a title the sidebar hides.
     const next = (settled(data)?.sessions ?? [])
-      .filter((s) => !s.archived && !s.deleted)
+      .filter((s) => !s.parent && !s.archived && !s.deleted)
       .map((s) => ({
         id: s.summary.session_id,
         title: displayTitle(s.title || s.summary.title) ?? t("session.untitled"),
         busy: s.busy === true,
+        needsInput: s.needs_input === true,
       }));
-    if (!busyReady) {
+    if (!noticesReady) {
       rememberBusy(busySeen, next);
-      busyReady = true;
+      rememberWaiting(waitingSeen, next);
+      noticesReady = true;
       return;
     }
     if (readNotify()) {
-      for (const row of finishedSessions(busySeen, next)) announceFinished(row.title);
+      const waiting = waitingSessions(waitingSeen, next);
+      const waitingIds = new Set(waiting.map((row) => row.id));
+      for (const row of finishedSessions(busySeen, next)) {
+        // A turn that stops on a question is waiting, not finished. Announcing
+        // both would put two notices on the same pause.
+        if (!waitingIds.has(row.id) && row.needsInput !== true) {
+          announceFinished(row.title, row.id);
+        }
+      }
+      for (const row of waiting) announceNeedsInput(row.title, row.id);
     }
     rememberBusy(busySeen, next);
+    rememberWaiting(waitingSeen, next);
   });
 
   /**

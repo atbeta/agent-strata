@@ -52,6 +52,8 @@ export function useSessionSearch(args: {
   const [query, setQuery] = createSignal("");
   const [hitAt, setHitAt] = createSignal(0);
   const [probe, setProbe] = createSignal("");
+  /** A search opened from a global hit lands on its first match, not on the tail. */
+  const [jumpFirst, setJumpFirst] = createSignal(false);
   let searchEl: HTMLInputElement | undefined;
   let resultsEl: HTMLUListElement | undefined;
   let probeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -71,6 +73,7 @@ export function useSessionSearch(args: {
     setQuery("");
     setProbe("");
     setHitAt(0);
+    setJumpFirst(false);
   };
 
   const [result] = createResource(
@@ -118,6 +121,16 @@ export function useSessionSearch(args: {
     if (i >= 0) args.scrollToIndex(i);
   };
 
+  // The view may still be loading when the search opens. The first match is
+  // taken as soon as it exists, not only on the render that opened the panel.
+  createEffect(() => {
+    if (!jumpFirst()) return;
+    const first = targets()[0];
+    if (!first) return;
+    setJumpFirst(false);
+    goTo(first);
+  });
+
   /** Turns are addressed by an opaque id, so a result has to say which one it is. */
   const turnNumber = (h: SearchHit) => turnIndexOf(h) + 1;
 
@@ -129,9 +142,10 @@ export function useSessionSearch(args: {
     goTo(all[next]);
   };
 
-  const openSearch = (keep?: string) => {
+  const openSearch = (keep?: string, jumpToFirst = false) => {
     args.onOpen?.();
     setSearchOpen(true);
+    setJumpFirst(jumpToFirst);
     if (keep) onQuery(keep);
     queueMicrotask(() => searchEl?.focus());
   };

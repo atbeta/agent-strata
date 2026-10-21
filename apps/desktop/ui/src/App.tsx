@@ -22,6 +22,7 @@ import { useWorkspace } from "./use-workspace";
 import { useSessionSwitcher } from "./use-switcher";
 import { Sidebar } from "./sidebar";
 import { installExternalLinkHandler } from "./external-open";
+import { requestSearchTarget } from "./search-target";
 
 export function App() {
   const [route, setRoute] = createSignal<Route>(parseHash());
@@ -481,6 +482,10 @@ export function App() {
         events={settled(results)}
         searching={results.loading}
         onOpenSession={(id) => {
+          location.hash = `/session/${encodeURIComponent(id)}`;
+        }}
+        onOpenHit={(id, text) => {
+          requestSearchTarget(id, text.trim());
           location.hash = `/session/${encodeURIComponent(id)}`;
         }}
         onClose={() => {

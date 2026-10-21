@@ -138,8 +138,8 @@ export function CommandPalette(props: {
   events?: readonly { id: string; session_id: string; type: string; ts: string; data: Record<string, unknown> }[];
   searching?: boolean;
   onOpenSession: (id: string) => void;
-  /** transcript hits carry the line they matched, so the session opens there */
-  onOpenHit?: (sessionId: string) => void;
+  /** transcript hits carry the query that found them; the session opens its search */
+  onOpenHit?: (sessionId: string, query: string) => void;
 }) {
   const [at, setAt] = createSignal(0);
   let input: HTMLInputElement | undefined;
@@ -160,10 +160,12 @@ export function CommandPalette(props: {
 
   const choose = (row: PanelHit | undefined) => {
     if (!row || row.kind === "heading") return;
+    // `onClose` resets the owner's query, so the hit's query is read first.
+    const q = query();
     props.onClose();
     if (row.kind === "command") row.cmd.run();
     else if (row.kind === "session") props.onOpenSession(row.id);
-    else props.onOpenHit?.(row.sessionId);
+    else props.onOpenHit?.(row.sessionId, q);
   };
 
   const onKeyDown = (e: KeyboardEvent) => {

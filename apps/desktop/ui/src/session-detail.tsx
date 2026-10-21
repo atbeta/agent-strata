@@ -118,6 +118,7 @@ import { PeerSessionTranscript } from "./peer-transcript";
 import { ContentSashes, LoadingTranscript } from "./content-sashes";
 import { AskCard, QuestionCard } from "./session-prompts";
 import { useSessionSearch, SearchPanel } from "./session-search";
+import { clearSearchTarget, searchTarget } from "./search-target";
 import { useMcpTools, McpToolsPanel } from "./session-tools";
 import { useSessionComposer, SessionComposer } from "./session-composer";
 import { writeDraft } from "./prompt-memory";
@@ -760,6 +761,20 @@ export function SessionDetail(props: {
     enabled: opencode,
     onOpen: () => search.closeSearch(),
     onError: (message) => composer.setSendErr(message),
+  });
+  /**
+   * A transcript hit from the global palette. The palette knows the query and
+   * the session; the turn is resolved here, against the view being loaded.
+   */
+  createEffect(() => {
+    const target = searchTarget();
+    if (!target) return;
+    if (target.sessionId !== props.id) {
+      clearSearchTarget();
+      return;
+    }
+    clearSearchTarget();
+    search.openSearch(target.query, true);
   });
 
   /**
