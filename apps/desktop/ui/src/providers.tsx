@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { RowButton } from "@/components/ui/row-button";
 import { TextFieldInput } from "@/components/ui/text-field";
+import { hiddenProviders, setProviderHidden, showAllProviders } from "./provider-visibility";
 
 /**
  * Providers used to be twenty full cards, each with its own password box and
@@ -332,6 +333,9 @@ function ProviderRow(props: {
   onCode: (value: string) => void;
   onSubmitCode: () => void;
   onCancelFlow: () => void;
+  /** The reader hid this provider from the model picker. */
+  hidden: boolean;
+  onToggleVisible: () => void;
 }) {
   const panel = () => `provider-panel-${props.row.id}`;
 
@@ -339,7 +343,7 @@ function ProviderRow(props: {
     <li class="py-0.5">
       <div class="flex items-center gap-1">
         <RowButton
-          class="min-w-0 flex-1 gap-2.5"
+          class={`min-w-0 flex-1 gap-2.5 ${props.hidden ? "opacity-60" : ""}`}
           aria-expanded={expandable(props.row) ? props.open : undefined}
           aria-controls={expandable(props.row) ? panel() : undefined}
           onClick={() => {
@@ -365,6 +369,25 @@ function ProviderRow(props: {
             </Show>
           </span>
         </RowButton>
+
+        {/* A display choice, not a credential action: the eye is outside the
+            row button because a button cannot nest in one, and the action has
+            to stay reachable for an unconnected provider too. */}
+        <Button
+          type="button"
+          size="icon-2xs"
+          variant="icon"
+          class="shrink-0 text-muted-foreground"
+          aria-label={t(
+            props.hidden ? "settings.provider.showInPicker" : "settings.provider.hideInPicker",
+          )}
+          title={t(
+            props.hidden ? "settings.provider.showInPicker" : "settings.provider.hideInPicker",
+          )}
+          onClick={props.onToggleVisible}
+        >
+          <Icon name={props.hidden ? "eye-off" : "eye"} class="size-3.5" />
+        </Button>
 
         {/* Disconnecting is destructive and rare, so it waits to be asked for
             instead of sitting on every connected row all day.
@@ -618,6 +641,8 @@ function ProviderList(props: { connectionId: string }) {
                 onCode={setCode}
                 onSubmitCode={() => void submitCode()}
                 onCancelFlow={cancelFlow}
+                hidden={hiddenProviders().has(row.id)}
+                onToggleVisible={() => setProviderHidden(row.id, !hiddenProviders().has(row.id))}
               />
             )}
           </For>
@@ -662,6 +687,22 @@ function ProviderList(props: { connectionId: string }) {
 
       <Show when={!rows.error && all().length > 0 && visible().length === 0}>
         <p class="mt-4 text-sm text-muted-foreground">{t("settings.provider.noMatch")}</p>
+      </Show>
+      <Show when={hiddenProviders().size > 0}>
+        <div class="mt-4 flex items-start gap-3">
+          <p class="min-w-0 flex-1 text-2xs leading-4 text-muted-foreground">
+            {t("settings.provider.hiddenHint")}
+          </p>
+          <Button
+            type="button"
+            size="xs"
+            variant="quiet"
+            class="shrink-0"
+            onClick={() => showAllProviders()}
+          >
+            {t("settings.provider.showAll")}
+          </Button>
+        </div>
       </Show>
     </div>
   );

@@ -255,6 +255,10 @@ export default {
   "settings.provider.removed":
     "已移除。运行中的 OpenCode 还在返回旧状态，重启后才会更新。",
   "settings.provider.actions": "更多操作",
+  "settings.provider.hideInPicker": "在模型选择中隐藏",
+  "settings.provider.showInPicker": "在模型选择中显示",
+  "settings.provider.hiddenHint": "隐藏只影响模型选择，不改凭据，也不影响已有会话。",
+  "settings.provider.showAll": "全部显示",
   "settings.provider.failed": "没能保存密钥",
   "settings.provider.open": "打开授权页面",
   "settings.provider.waiting": "等待浏览器里的授权完成",

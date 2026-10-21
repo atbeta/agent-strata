@@ -51,6 +51,8 @@ export type Name =
   | "pin"
   | "unpin"
   | "export"
+  | "eye"
+  | "eye-off"
   | "layout";
 
 /**
@@ -146,6 +148,27 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
         <path d="M4 6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v1a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6" />
         <path d="M4 15a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-3" />
         <path d="M14 6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2V6" />
+      </Glyph>
+    );
+  /**
+   * An open eye and the same eye struck through: whether a provider is offered
+   * in the model picker. The eye is a display toggle, not a permission lock —
+   * the struck-through version still means the provider can run a session that
+   * already named it.
+   */
+  if (name === "eye")
+    return (
+      <Glyph class={cls}>
+        <path d="M1.8 8s2.4-4.2 6.2-4.2S14.2 8 14.2 8s-2.4 4.2-6.2 4.2S1.8 8 1.8 8Z" />
+        <circle cx="8" cy="8" r="2.1" />
+      </Glyph>
+    );
+  if (name === "eye-off")
+    return (
+      <Glyph class={cls}>
+        <path d="M6.4 3.9c.5-.1 1-.2 1.6-.2 3.8 0 6.2 4.3 6.2 4.3a10 10 0 0 1-2 2.4" />
+        <path d="M4.1 4.9A10.6 10.6 0 0 0 1.8 8s2.4 4.2 6.2 4.2c.7 0 1.4-.1 2-.4" />
+        <path d="M2.2 2.2 13.8 13.8" />
       </Glyph>
     );
   if (name === "link")

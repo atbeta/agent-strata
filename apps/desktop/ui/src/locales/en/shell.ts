@@ -256,6 +256,11 @@ export default {
   "settings.provider.removed":
     "Removed. The running OpenCode still serves the old state; restart it to see this.",
   "settings.provider.actions": "More actions",
+  "settings.provider.hideInPicker": "Hide from the model picker",
+  "settings.provider.showInPicker": "Show in the model picker",
+  "settings.provider.hiddenHint":
+    "Hiding changes the model picker only. It keeps the credentials and does not affect sessions already using the provider.",
+  "settings.provider.showAll": "Show all",
   "settings.provider.failed": "Could not save the key",
   "settings.provider.open": "Open the authorization page",
   "settings.provider.waiting": "Waiting for the browser to finish signing in",

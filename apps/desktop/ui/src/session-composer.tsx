@@ -67,6 +67,7 @@ import { paneWorkspace } from "./session-chrome";
 import { Button } from "@/components/ui/button";
 import { Picker } from "@/components/ui/picker";
 import { ProviderIcon } from "./provider-icon";
+import { hiddenProviders, modelPickerOptions, visibleModels } from "./provider-visibility";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 function sessionModel(v: SessionView | undefined): string | undefined {
@@ -342,6 +343,14 @@ export function useSessionComposer(args: {
     if (!agentSel() && agents[0]) setAgentSel(agents[0].name);
   });
 
+  const allModels = () => args.options()?.models ?? [];
+  /**
+   * Providers the reader hid from the picker in settings. The current model is
+   * still listed below even when its provider is hidden: a session that already
+   * names a model must not be silently moved to another one.
+   */
+  const shownModels = () => visibleModels(allModels());
+
   createEffect(() => {
     if (modelTouched()) return;
     const inherited = sessionModel(args.view());
@@ -350,39 +359,20 @@ export function useSessionComposer(args: {
       return;
     }
     if (args.booting() || !args.view()) return;
-    const models = args.options()?.models ?? [];
+    const models = shownModels();
     if (models[0]) setModelSel(`${models[0].providerID}/${models[0].modelID}`);
   });
 
   const selectedModel = () =>
-    args.options()?.models.find((m) => `${m.providerID}/${m.modelID}` === modelSel());
+    allModels().find((m) => `${m.providerID}/${m.modelID}` === modelSel());
   // empty model means "server default"; still offer that leading model's efforts
   const effortModel = () =>
-    selectedModel() ?? args.options()?.models.find((m) => (m.variants?.length ?? 0) > 0);
-  const modelOptions = () => {
-    const models = args.options()?.models ?? [];
-    const known = new Set(models.map((m) => `${m.providerID}/${m.modelID}`));
-    // A session can name a model the server no longer lists. Keep it selectable
-    // rather than silently snapping the composer to something else.
-    const stale =
-      modelSel() && !known.has(modelSel())
-        ? [
-            {
-              value: modelSel(),
-              label: modelSel().slice(modelSel().indexOf("/") + 1),
-              group: "Unavailable",
-            },
-          ]
-        : [];
-    return [
-      ...stale,
-      ...models.map((m) => ({
-        value: `${m.providerID}/${m.modelID}`,
-        label: m.modelID,
-        group: m.providerID,
-      })),
-    ];
-  };
+    selectedModel() ?? shownModels().find((m) => (m.variants?.length ?? 0) > 0);
+  const modelOptions = () =>
+    modelPickerOptions(allModels(), modelSel(), hiddenProviders(), {
+      hidden: t("picker.hiddenProvider"),
+      unavailable: t("picker.unavailable"),
+    });
 
   /**
    * The prompt the reader just sent and the backend has not echoed back.
@@ -606,7 +596,7 @@ export function useSessionComposer(args: {
     </Popover>
   );
   const modelAvailable = () =>
-    (args.options()?.models.length ?? 0) > 0 && (Boolean(modelSel()) || !args.booting());
+    allModels().length > 0 && (Boolean(modelSel()) || !args.booting());
   const modelSlot = () => (
     <Picker
       showValueInTip

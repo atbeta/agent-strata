@@ -282,6 +282,8 @@ export default {
   "picker.model": "模型",
   "picker.effort": "思考强度",
   "picker.default": "默认",
+  "picker.hiddenProvider": "已隐藏",
+  "picker.unavailable": "当前不可用",
   "picker.agent": "智能体",
 
   // The context popover.

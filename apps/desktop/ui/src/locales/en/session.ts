@@ -281,6 +281,8 @@ export default {
   "picker.model": "Model",
   "picker.effort": "Thinking effort",
   "picker.default": "Default",
+  "picker.hiddenProvider": "Hidden",
+  "picker.unavailable": "Unavailable",
   "picker.agent": "Agent",
 
   // The context popover.
