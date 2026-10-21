@@ -25,7 +25,13 @@ import {
 import { LOCALES, LOCALE_LABEL, locale, setLocale, t, type Locale } from "./i18n";
 import { Icon } from "./icons";
 import { readTheme, saveTheme, type ThemeChoice } from "./theme";
-import { disableNotify, enableNotify, readNotify } from "./notify";
+import {
+  disableNotify,
+  enableNotify,
+  openNotificationSettings,
+  readNotify,
+  sendTestNotification,
+} from "./notify";
 import {
   CODE_SIZES,
   isInstalled,
@@ -398,6 +404,26 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
     setRestartArmed(false);
     void restartRuntime();
   };
+  const testNotification = async () => {
+    setDiagErr("");
+    setDiagNote("");
+    try {
+      await sendTestNotification();
+      setDiagNote(t("settings.about.testSent"));
+    } catch (e) {
+      setDiagErr(e instanceof Error ? e.message : t("err.network"));
+    }
+  };
+  const openNotifySettings = async () => {
+    setDiagErr("");
+    setDiagNote("");
+    try {
+      await openNotificationSettings();
+    } catch (e) {
+      setDiagErr(e instanceof Error ? e.message : t("err.network"));
+    }
+  };
+
   const openLog = async () => {
     setDiagErr("");
     setDiagNote("");
@@ -942,6 +968,24 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
           <Button type="button" size="sm" variant="quiet" onClick={() => void copyDiagnostics()}>
             {t("settings.about.copyDiagnostics")}
           </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="quiet"
+            disabled={!inDesktopShell()}
+            onClick={() => void testNotification()}
+          >
+            {t("settings.about.testNotification")}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="quiet"
+            disabled={!inDesktopShell()}
+            onClick={() => void openNotifySettings()}
+          >
+            {t("settings.about.notificationSettings")}
+          </Button>
         </div>
         <Show when={diagNote()}>
           <p class="mt-2 text-2xs text-muted-foreground">{diagNote()}</p>
@@ -950,6 +994,7 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
           <p class="mt-2 text-2xs text-destructive">{diagErr()}</p>
         </Show>
         <p class="mt-2 text-2xs leading-4 text-muted-foreground">{t("settings.about.logHint")}</p>
+        <p class="mt-1 text-2xs leading-4 text-muted-foreground">{t("settings.about.notifyHint")}</p>
       </Group>
       </Show>
       </div>

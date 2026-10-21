@@ -649,6 +649,46 @@ fn open_log_file() -> Result<String, String> {
     Ok(path.to_string_lossy().into_owned())
 }
 
+/// Open the OS notification pane. The desktop notification plugin does not
+/// ask for permission on desktop, so when a banner is missing this is where the
+/// reader can check that the app (or Terminal, in dev) is allowed.
+#[tauri::command]
+fn open_notification_settings() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        for url in [
+            "x-apple.systempreferences:com.apple.Notifications-Settings.extension",
+            "x-apple.systempreferences:com.apple.preference.notifications",
+        ] {
+            if Command::new("open")
+                .arg(url)
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
+            {
+                return Ok(());
+            }
+        }
+        Err("could not open the notification settings".into())
+    }
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("cmd")
+            .args(["/C", "start", "ms-settings:notifications"])
+            .status()
+            .map(|_| ())
+            .map_err(|e| format!("could not open the notification settings: {e}"))
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        Command::new("gnome-control-center")
+            .arg("notifications")
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| format!("could not open the notification settings: {e}"))
+    }
+}
+
 fn open_path(path: &Path) -> std::io::Result<()> {
     #[cfg(target_os = "macos")]
     {
@@ -703,6 +743,7 @@ fn main() {
             save_export,
             restart_opencode,
             open_log_file,
+            open_notification_settings,
             opencode_runtime,
             set_opencode_bin,
         ])

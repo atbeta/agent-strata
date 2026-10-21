@@ -85,3 +85,4 @@
 - **2026-10-22（OpenCode doctor）：** 运行时卡新增“重启”。启动器收到重启请求后杀掉当前子进程，在同一个 plan 上重新拉起；页面轮询状态而不是假装成功。日志和复制诊断移到“关于 → 诊断”，因为它们覆盖 shell、service 和内嵌 OpenCode，不是 OpenCode 专属。
 - **2026-10-22（日志）：** `service.log` 的 shell 启动标记、service/OpenCode 的 stdout/stderr 现在统一经过一个带本地时间戳的写入器，行不会互相穿插；端口已被占用、遗留进程清理、找不到二进制和启动失败也会写明原因，不再只有一行空的 shell starting。
 - **2026-10-22（通知权限）：** 桌面端通知改走 `tauri-plugin-notification`，capability 增加 `notification:default`；首次开启请求系统权限，旧版本留下的“已开启”偏好在没有原生权限时会自动关掉，避免开关亮着却发不出通知。点击通知通过 `onAction` 的 `tap` 回到会话。
+- **2026-10-22（通知诊断）：** 桌面通知改走插件的原生命令，而不是插件 JS 的 `window.Notification` shim；发送失败会留在控制台。关于 → 诊断新增“发送测试通知”和“系统通知设置”。桌面端本来就不会弹权限申请（插件恒报 granted），提示文案改为引导检查系统设置。

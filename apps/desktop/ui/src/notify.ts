@@ -64,6 +64,42 @@ async function desktopNotification() {
   return import("@tauri-apps/plugin-notification");
 }
 
+async function desktopInvoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<T>(command, args);
+}
+
+/**
+ * The plugin's JS `isPermissionGranted` short-circuits on WebKit's
+ * `Notification.permission`, which can say "granted" even when the native
+ * plugin was never injected. Calling the command itself is the only way to
+ * know that the shell side exists.
+ */
+async function desktopPermission(): Promise<boolean> {
+  return desktopInvoke<boolean>("plugin:notification|is_permission_granted");
+}
+
+async function requestDesktopPermission(): Promise<boolean> {
+  const state = await desktopInvoke<string>("plugin:notification|request_permission");
+  return state === "granted";
+}
+
+async function sendDesktop(
+  title: string,
+  body: string | undefined,
+  sessionId: string | undefined,
+): Promise<void> {
+  if (!(await desktopPermission())) throw new Error(t("settings.notify.blocked"));
+  await desktopInvoke("plugin:notification|notify", {
+    options: {
+      title,
+      ...(body ? { body } : {}),
+      ...(sessionId ? { group: sessionId, extra: { sessionId } } : {}),
+      autoCancel: true,
+    },
+  });
+}
+
 /**
  * Register the desktop click handler once. The native notification carries the
  * session id in `extra`; a click is reported as the `tap` action, which is how
@@ -100,9 +136,8 @@ export function installNotifyActions(): Promise<void> {
 export async function enableNotify(): Promise<boolean> {
   if (inDesktopShell()) {
     try {
-      const { isPermissionGranted, requestPermission } = await desktopNotification();
-      let granted = await isPermissionGranted();
-      if (!granted) granted = (await requestPermission()) === "granted";
+      let granted = await desktopPermission();
+      if (!granted) granted = await requestDesktopPermission();
       if (!granted) {
         saveNotify(false);
         return false;
@@ -184,18 +219,13 @@ async function systemNotification(
 ) {
   if (inDesktopShell()) {
     try {
-      const { isPermissionGranted, sendNotification } = await desktopNotification();
-      if (!(await isPermissionGranted())) return;
+      await sendDesktop(title, body, sessionId);
       void installNotifyActions().catch(() => {});
-      sendNotification({
-        title,
-        ...(body ? { body } : {}),
-        ...(sessionId ? { group: sessionId, extra: { sessionId } } : {}),
-        autoCancel: true,
-      });
-    } catch {
+    } catch (e) {
       // The chime still fires; a notification that cannot be delivered must
-      // not take the session state down with it.
+      // not take the session state down with it. The About test surfaces the
+      // same error to the reader.
+      console.error("strata: notification failed", e);
     }
     return;
   }
@@ -222,4 +252,16 @@ export function announceNeedsInput(title: string, sessionId?: string) {
   if (!readNotify() || !inBackground()) return;
   void systemNotification(t("notify.needsInput"), title, sessionId);
   chime();
+}
+
+
+/** Send a banner even while focused, so Settings can prove the path works. */
+export async function sendTestNotification(): Promise<void> {
+  if (!inDesktopShell()) throw new Error(t("notify.desktopOnly"));
+  await sendDesktop(t("notify.test.title"), t("notify.test.body"), undefined);
+}
+
+export async function openNotificationSettings(): Promise<void> {
+  if (!inDesktopShell()) throw new Error(t("notify.desktopOnly"));
+  await desktopInvoke("open_notification_settings");
 }
