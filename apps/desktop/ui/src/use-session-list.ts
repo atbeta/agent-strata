@@ -74,13 +74,17 @@ export function useSessionList(opts: {
   // ordinary request, so a momentary hiccup reports as an error instead of
   // spinning forever.
   let opened = false;
-  const [data, { refetch }] = createResource(() => {
+  const [limit, setLimit] = createSignal(200);
+  const [data, { refetch }] = createResource(limit, (n) => {
+    const path = `/sessions?limit=${n}`;
     const load = opened
-      ? getJson<SessionsResponse>("/sessions")
-      : getJsonWhenUp<SessionsResponse>("/sessions");
+      ? getJson<SessionsResponse>(path)
+      : getJsonWhenUp<SessionsResponse>(path);
     opened = true;
     return load;
   });
+  const more = () => settled(data)?.more === true;
+  const loadMore = () => setLimit((n) => Math.min(n + 200, 2000));
 
   const waiting = () =>
     (settled(data)?.sessions ?? []).filter((s) => s.needs_input && !s.archived && !s.deleted).length;
@@ -111,6 +115,16 @@ export function useSessionList(opts: {
   );
 
   const sessions = () => library();
+
+  /** Archived roots, held the same way: the sidebar shows them in their own fold. */
+  const archived = createMemo((prev: SessionRow[] | undefined) =>
+    holdRows(
+      (settled(data)?.sessions ?? []).filter((s) => !s.parent && s.archived === true && !s.deleted),
+      prev,
+      (s) => s.summary.session_id,
+      sameValue,
+    ),
+  );
 
   const busySeen = new Map<string, boolean>();
   let busyReady = false;
@@ -360,6 +374,7 @@ export function useSessionList(opts: {
     sessionWorkspace,
     library,
     sessions,
+    archived,
     pins,
     togglePinned,
     lens,
@@ -377,6 +392,8 @@ export function useSessionList(opts: {
     actionErr,
     setActionErr,
     runAction,
+    more,
+    loadMore,
   };
 }
 

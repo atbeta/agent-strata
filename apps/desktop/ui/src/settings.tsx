@@ -46,6 +46,7 @@ import { BackendSettings } from "./backend-settings";
 import type { ConnectionsCtl } from "./use-connections";
 import { PolicyEditor } from "./policy";
 import { ProviderSettings } from "./providers";
+import { MaintenanceSettings } from "./maintenance";
 import { SETTINGS_SECTIONS, settingsSection } from "./settings-sections";
 
 /** A function, not a const: the labels are translated, so they have to be read
@@ -802,6 +803,10 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
       <Group label={t("settings.permission.title")}>
         <PolicyEditor />
       </Group>
+      </Show>
+
+      <Show when={section() === "maintenance"}>
+        <MaintenanceSettings />
       </Show>
 
       <Show when={section() === "about"}>

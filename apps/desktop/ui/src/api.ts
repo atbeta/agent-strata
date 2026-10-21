@@ -63,6 +63,8 @@ export interface SessionRow {
 export interface SessionsResponse {
   sessions: SessionRow[];
   aggregate: { total: { cost_usd: number; input: number; output: number } };
+  /** The store had more than the requested page. */
+  more?: boolean;
 }
 
 /** One full-text hit inside a session. `snippet` brackets its matches: "…lo[ad]ing…". */

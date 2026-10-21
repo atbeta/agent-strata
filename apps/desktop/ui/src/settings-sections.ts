@@ -12,6 +12,7 @@ export const SETTINGS_SECTIONS = [
   { id: "backends", label: "settings.section.backends" },
   { id: "opencode", label: "settings.section.opencode" },
   { id: "permission", label: "settings.section.permission" },
+  { id: "maintenance", label: "settings.section.maintenance" },
   { id: "about", label: "settings.section.about" },
 ] as const satisfies readonly { id: string; label: MessageKey }[];
 

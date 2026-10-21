@@ -24,6 +24,7 @@ import { endpointHost, endpointShort, ConnectionsFooter } from "./use-connection
 import { sidebarEmptyKind } from "./connection-status";
 import type { WorkspaceCtl } from "./use-workspace";
 import { SessionListItem } from "./sidebar-row";
+import { ArchivedSection } from "./archived-section";
 import { Button } from "@/components/ui/button";
 import { RowButton } from "@/components/ui/row-button";
 import { SectionHeader } from "@/components/ui/section-header";
@@ -464,7 +465,20 @@ export function Sidebar(props: {
           }
         >
           <For each={sectionGroups()}>{renderGroup}</For>
+          <Show when={list().more()}>
+            <div class="px-2 pb-2 pt-1">
+              <Button
+                size="xs"
+                variant="quiet"
+                class="w-full justify-center"
+                onClick={() => list().loadMore()}
+              >
+                {t("sidebar.more")}
+              </Button>
+            </div>
+          </Show>
         </Show>
+        <ArchivedSection list={props.list} now={props.clock} onOpen={props.onOpenSession} />
       </div>
       <ConnectionsFooter
         conns={props.conns}
