@@ -89,7 +89,7 @@ const UI_PRESETS = [
 const PREVIEW_UI = "Agent Strata 会话与设置";
 const PREVIEW_CODE = `const greeting = "你好";
 function width(ch: string) {
-  return ch.codePointAt(0)! > 255 ? 2 : 1;
+  return ch.codePointAt(0)! >= 255 ? 2 : 1;
 }`;
 
 /** Where a question about this build should end up. */

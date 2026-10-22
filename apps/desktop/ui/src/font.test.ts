@@ -1,5 +1,9 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { fontIsAvailable, fontStack, parseFonts, sanitizeFamily } from "./font";
+
+const read = (file: string) => readFileSync(join(import.meta.dir, file), "utf8");
 
 describe("detecting a font the machine actually has", () => {
   // The browser substitutes a family it cannot resolve, so a missing font is
@@ -86,5 +90,31 @@ describe("a stored font choice", () => {
       leading: "relaxed",
       ligatures: false,
     });
+  });
+});
+
+describe("ligatures off", () => {
+  test("reaches markdown code, not only the font-mono class", () => {
+    // Chat code takes its face from `@apply font-mono`, so the element never
+    // carries the class. A rule aimed only at `.font-mono` leaves `>=` joined
+    // in the transcript after the switch is off.
+    const theme = read("theme.css");
+    const at = theme.indexOf('html[data-code-ligatures="off"]');
+    expect(at).toBeGreaterThan(-1);
+    const rule = theme.slice(at, theme.indexOf("}", at) + 1);
+    expect(rule).toContain(".font-mono");
+    expect(rule).toContain(".md code");
+    expect(rule).toContain("font-variant-ligatures: none");
+    // Coding faces keep `>=` in `calt`. Clearing only the variant property
+    // leaves that feature on in Chromium.
+    expect(rule).toContain('"liga" 0');
+    expect(rule).toContain('"calt" 0');
+  });
+
+  test("the settings sample contains a ligature that can be seen", () => {
+    const settings = read("settings.tsx");
+    const at = settings.indexOf("const PREVIEW_CODE");
+    const sample = settings.slice(at, settings.indexOf("`;", at));
+    expect(sample).toContain(">=");
   });
 });
