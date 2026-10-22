@@ -673,11 +673,15 @@ fn open_notification_settings() -> Result<(), String> {
     }
     #[cfg(target_os = "windows")]
     {
-        Command::new("cmd")
-            .args(["/C", "start", "ms-settings:notifications"])
-            .status()
-            .map(|_| ())
-            .map_err(|e| format!("could not open the notification settings: {e}"))
+        // Same rule as the log: `cmd /C start` flashes a console and exits.
+        match document_open(shell_execute(std::ffi::OsStr::new(
+            "ms-settings:notifications",
+        ))) {
+            DocumentOpen::Opened => Ok(()),
+            DocumentOpen::NoAssociation | DocumentOpen::Failed(_) => {
+                Err("could not open the notification settings".into())
+            }
+        }
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
@@ -689,6 +693,27 @@ fn open_notification_settings() -> Result<(), String> {
     }
 }
 
+/// What ShellExecute did with a document.
+///
+/// A return greater than 32 means the shell opened it. 31 and 27 mean the
+/// extension has no program, which is the usual state of a `.log` file.
+#[derive(Debug, PartialEq, Eq)]
+enum DocumentOpen {
+    Opened,
+    NoAssociation,
+    Failed(isize),
+}
+
+fn document_open(shell_execute_code: isize) -> DocumentOpen {
+    if shell_execute_code > 32 {
+        DocumentOpen::Opened
+    } else if shell_execute_code == 31 || shell_execute_code == 27 {
+        DocumentOpen::NoAssociation
+    } else {
+        DocumentOpen::Failed(shell_execute_code)
+    }
+}
+
 fn open_path(path: &Path) -> std::io::Result<()> {
     #[cfg(target_os = "macos")]
     {
@@ -696,16 +721,71 @@ fn open_path(path: &Path) -> std::io::Result<()> {
     }
     #[cfg(target_os = "windows")]
     {
-        Command::new("cmd")
-            .args(["/C", "start", ""])
-            .arg(path)
-            .status()
-            .map(|_| ())
+        // `cmd /C start` is a console program, so a GUI build flashes a
+        // terminal and the window is gone before anyone can read it. `start`
+        // also treats the first quoted argument as a window title, so a path
+        // with a space — a normal user-profile path — opens nothing.
+        // ShellExecute asks the shell to open the document. When a `.log`
+        // file has no association, Notepad is a GUI program that can read it.
+        match document_open(shell_execute(path.as_os_str())) {
+            DocumentOpen::Opened => Ok(()),
+            DocumentOpen::NoAssociation => open_with_notepad(path),
+            DocumentOpen::Failed(code) => Err(std::io::Error::other(format!(
+                "could not open {}: ShellExecute returned {code}",
+                path.display()
+            ))),
+        }
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
         Command::new("xdg-open").arg(path).status().map(|_| ())
     }
+}
+
+#[cfg(target_os = "windows")]
+fn shell_execute(file: &std::ffi::OsStr) -> isize {
+    use std::os::windows::ffi::OsStrExt;
+
+    #[link(name = "shell32")]
+    extern "system" {
+        fn ShellExecuteW(
+            hwnd: *mut core::ffi::c_void,
+            verb: *const u16,
+            file: *const u16,
+            params: *const u16,
+            dir: *const u16,
+            show: i32,
+        ) -> isize;
+    }
+
+    fn wide(value: &std::ffi::OsStr) -> Vec<u16> {
+        value.encode_wide().chain(Some(0)).collect()
+    }
+
+    let file = wide(file);
+    let verb = wide(std::ffi::OsStr::new("open"));
+    unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            verb.as_ptr(),
+            file.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            1,
+        )
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn open_with_notepad(path: &Path) -> std::io::Result<()> {
+    use std::os::windows::process::CommandExt;
+    // Notepad is a GUI program. The flag keeps a console from appearing if
+    // the lookup ever lands on a console shim.
+    Command::new("notepad")
+        .arg(path)
+        .creation_flags(0x08000000)
+        .spawn()
+        .map(|_| ())
 }
 
 /// Re-inspect the binary without restarting anything. The settings page calls
@@ -855,6 +935,28 @@ mod tests {
         assert_eq!(line.as_bytes().get(7), Some(&b'-'), "missing date: {line}");
         assert_eq!(line.as_bytes().get(10), Some(&b' '), "missing time: {line}");
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_log_without_a_program_is_handed_to_notepad() {
+        use super::{document_open, DocumentOpen};
+        assert_eq!(document_open(33), DocumentOpen::Opened);
+        assert_eq!(document_open(31), DocumentOpen::NoAssociation);
+        assert_eq!(document_open(27), DocumentOpen::NoAssociation);
+        assert_eq!(document_open(2), DocumentOpen::Failed(2));
+    }
+
+    #[test]
+    fn opening_the_log_does_not_spawn_a_console() {
+        let src = include_str!("main.rs");
+        let start = src.find("fn open_path").expect("open_path");
+        let body = &src[start..];
+        let end = body.find("\nfn ").unwrap_or(body.len());
+        let body = &body[..end];
+        assert!(
+            !body.contains("Command::new(\"cmd\")"),
+            "open_path still goes through a console:\n{body}"
+        );
     }
 
     #[test]
