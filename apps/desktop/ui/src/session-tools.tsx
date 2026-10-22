@@ -20,6 +20,7 @@ import {
   mcpShowLoading,
   type McpAddProblem,
 } from "./mcp-panel";
+import { Tip } from "./tip";
 import { Button } from "@/components/ui/button";
 import { MiniTabs } from "@/components/ui/mini-tabs";
 import { TextFieldInput } from "@/components/ui/text-field";
@@ -294,8 +295,14 @@ export function McpToolsPanel(props: {
               {([name, server]) => {
                 const busy = () => m().mcpBusy() === name;
                 const note = () => (m().mcpNote()?.name === name ? m().mcpNote()?.text : undefined);
+                const err = (): string => {
+                  if (busy()) return "";
+                  if (server.status !== "failed" && server.status !== "needs_client_registration") return "";
+                  return server.error ?? "";
+                };
                 const action = () => mcpRowAction(server.status);
-                const showAction = () => action() !== undefined && !(action() === "auth" && m().mcpAuth()?.name === name);
+                const auth = () => m().mcpAuth();
+                const showAction = () => action() !== undefined && !(action() === "auth" && auth()?.name === name);
                 const busyKey = (): MessageKey =>
                   action() === "disconnect" ? "mcp.disconnecting" : action() === "auth" ? "mcp.auth" : "mcp.connecting";
                 const actionKey = (): MessageKey =>
@@ -309,7 +316,7 @@ export function McpToolsPanel(props: {
                     <div class="min-w-0 flex-1">
                       <div class="truncate text-sm">{name}</div>
                       <div
-                        class={`truncate text-2xs ${
+                        class={`flex min-w-0 items-center gap-1 text-2xs ${
                           server.status === "connected"
                             ? "text-status-active"
                             : server.status === "failed" || server.status === "needs_client_registration"
@@ -317,16 +324,13 @@ export function McpToolsPanel(props: {
                               : "text-muted-foreground"
                         }`}
                       >
-                        {busy() ? t(busyKey()) : t(MCP_STATUS[server.status])}
-                        <Show
-                          when={
-                            !busy() &&
-                            (server.status === "failed" ||
-                              server.status === "needs_client_registration") &&
-                            server.error
-                          }
-                        >
-                          {` · ${server.error}`}
+                        <span class="shrink-0">{busy() ? t(busyKey()) : t(MCP_STATUS[server.status])}</span>
+                        <Show when={err()}>
+                          {(text) => (
+                            <Tip label={err()} class="min-w-0 flex-1">
+                              <span class="block truncate">· {text()}</span>
+                            </Tip>
+                          )}
                         </Show>
                       </div>
                       <Show when={note()}>

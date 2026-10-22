@@ -118,6 +118,13 @@ describe("the panel copy stays on the row", () => {
     expect(src.includes("tools.attention()")).toBe(true);
   });
 
+  test("a server error keeps the full sentence in a tip", () => {
+    const src = readFileSync(join(import.meta.dir, "session-tools.tsx"), "utf8");
+    const row = src.slice(src.indexOf("const note = () =>"), src.indexOf("mcpAuth()?.name"));
+    expect(row).toContain("<Tip");
+    expect(row).toContain("label={err()}");
+  });
+
   test("the header mark stays a small dot", () => {
     const src = readFileSync(join(import.meta.dir, "session-tools.tsx"), "utf8");
     const mark = src.slice(src.indexOf("export function McpAttentionMark"), src.indexOf("export function useMcpTools"));
