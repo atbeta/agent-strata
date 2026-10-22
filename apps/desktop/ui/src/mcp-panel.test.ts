@@ -117,4 +117,12 @@ describe("the panel copy stays on the row", () => {
     const src = readFileSync(join(import.meta.dir, "session-detail.tsx"), "utf8");
     expect(src.includes("tools.attention()")).toBe(true);
   });
+
+  test("the header mark stays a small dot", () => {
+    const src = readFileSync(join(import.meta.dir, "session-tools.tsx"), "utf8");
+    const mark = src.slice(src.indexOf("export function McpAttentionMark"), src.indexOf("export function useMcpTools"));
+    expect(mark.includes("size-1.5")).toBe(true);
+    expect(mark.includes("size-2")).toBe(false);
+    expect(mark.includes("ring-")).toBe(false);
+  });
 });

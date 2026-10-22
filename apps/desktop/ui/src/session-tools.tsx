@@ -54,7 +54,7 @@ export function McpAttentionMark(props: { tone?: "error" | "pending" }) {
     <Show when={props.tone}>
       {(tone) => (
         <span
-          class={`pointer-events-none absolute -right-0.5 -top-0.5 size-2 rounded-full ring-2 ring-background ${
+          class={`pointer-events-none absolute -right-1 -top-1 size-1.5 rounded-full ${
             tone() === "error" ? "bg-status-error" : "bg-status-cancelled"
           }`}
           aria-hidden="true"
