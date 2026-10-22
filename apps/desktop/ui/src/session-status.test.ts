@@ -148,4 +148,10 @@ describe("lists draw status through one primitive", () => {
     expect(src).not.toContain("bg-event-permission");
     expect(src).not.toMatch(/bg-status-/);
   });
+
+  test("a session row names the server its shell is still on", () => {
+    expect(read("sidebar.tsx")).toContain("shell={s().shell}");
+    expect(read("sidebar-row.tsx")).toContain("<ShellMark");
+    expect(read("shell-mark.tsx")).toContain("session.shell.running");
+  });
 });

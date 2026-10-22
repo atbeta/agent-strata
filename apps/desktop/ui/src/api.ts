@@ -44,6 +44,11 @@ export interface SessionRow {
   deleted?: boolean;
   needs_input?: boolean;
   /**
+   * A dev server the session's shell has not exited. Absent unless the command
+   * is one that stays up and the call is still pending.
+   */
+  shell?: { command: string; detail: string; since?: string };
+  /**
    * The connection this session belongs to, when a connected backend claims
    * it. Two instances of the same backend kind are otherwise
    * indistinguishable in the list — `backend` only says which kind, never

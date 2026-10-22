@@ -2,6 +2,7 @@ import { createResource, createSignal, For, Show, type JSX } from "solid-js";
 import { fetchDailyUsage, fmtUsd, realWorkspace, type SessionRow } from "./api";
 import { sessionStatus } from "./session-status";
 import { SessionStatusMark } from "@/components/ui/session-status";
+import { ShellMark } from "./shell-mark";
 import {
   cacheEfficiency,
   fleetModels,
@@ -172,8 +173,13 @@ export function FleetView(props: {
                               >
                                 <SessionStatusMark status={sessionStatus(s)} class="mt-1" />
                                 <span class="min-w-0 flex-1">
-                                  <span class="block truncate text-sm text-foreground">
-                                    {displayTitle(s.title ?? s.summary.title) ?? t("common.untitled")}
+                                  <span class="flex min-w-0 items-center gap-1.5">
+                                    <span class="min-w-0 truncate text-sm text-foreground">
+                                      {displayTitle(s.title ?? s.summary.title) ?? t("common.untitled")}
+                                    </span>
+                                    <Show when={s.shell}>
+                                      {(shell) => <ShellMark command={shell().command} detail={shell().detail} />}
+                                    </Show>
                                   </span>
                                   <span class="mt-0.5 block truncate text-2xs text-muted-foreground">
                                     {projectLabel(s)}
@@ -379,8 +385,13 @@ function StatusGroup(props: {
                   onClick={() => props.onOpen(s.summary.session_id)}
                 >
                   <SessionStatusMark status={sessionStatus(s)} />
-                  <span class="min-w-0 flex-1 truncate text-sm text-foreground">
-                    {displayTitle(s.title ?? s.summary.title) ?? t("common.untitled")}
+                  <span class="flex min-w-0 flex-1 items-center gap-1.5">
+                    <span class="min-w-0 truncate text-sm text-foreground">
+                      {displayTitle(s.title ?? s.summary.title) ?? t("common.untitled")}
+                    </span>
+                    <Show when={s.shell}>
+                      {(shell) => <ShellMark command={shell().command} detail={shell().detail} />}
+                    </Show>
                   </span>
                   <span class="min-w-0 max-w-40 shrink-0 truncate text-right text-2xs text-muted-foreground">
                     {projectLabel(s)}

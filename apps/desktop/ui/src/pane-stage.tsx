@@ -9,6 +9,7 @@ import { paneStatus } from "./pane-activity";
 import { ToggleIcon } from "./header-toggle";
 import { toggleClasses } from "./toggle-state";
 import { SessionStatusMark } from "@/components/ui/session-status";
+import { ShellMark } from "./shell-mark";
 import { Button } from "@/components/ui/button";
 import { RowButton } from "@/components/ui/row-button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -45,6 +46,7 @@ export type SessionRowSummary = {
   status: string;
   busy?: boolean;
   needs_input?: boolean;
+  shell?: { command: string; detail: string };
 };
 
 /**
@@ -404,6 +406,9 @@ function EmptyPanePicker(props: {
                       <span class="truncate font-medium text-foreground">
                         {displayTitle(s.title || s.summary.title) ?? t("session.untitled")}
                       </span>
+                      <Show when={s.shell}>
+                        {(shell) => <ShellMark command={shell().command} detail={shell().detail} />}
+                      </Show>
                     </span>
                     <Show when={ws}>
                       <span class="max-w-24 shrink-0 truncate font-mono text-2xs text-muted-foreground">

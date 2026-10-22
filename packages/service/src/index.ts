@@ -6,7 +6,7 @@ import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { openStore, type Store, type EventQuery } from "@agent-strata/store";
-import { projectSession, aggregate, emptySessionView, type SessionView } from "@agent-strata/projector";
+import { projectSession, aggregate, emptySessionView, runningShell, type SessionView } from "@agent-strata/projector";
 import { compareSessions, exportEvents, sessionBriefing } from "@agent-strata/core";
 import { autoAccept, evaluate, loadPolicy, type Policy } from "@agent-strata/policy";
 import { UnknownCommandError } from "@agent-strata/adapter-opencode";
@@ -635,22 +635,28 @@ export function startService(opts: ServiceOpts = {}): RunningService {
           up = parentRow.get(up);
         }
       }
-      const sessions = rows.map(({ summary, view: v }) => ({
-        summary,
-        status: v.status,
-        busy: v.busy,
-        totals: v.totals,
-        title: v.title,
-        workspace: v.workspace,
-        parent: v.parent_session_id,
-        archived: v.archived === true,
-        deleted: v.deleted === true,
-        needs_input: needsInput.has(summary.session_id),
-        // Which connection owns it, resolved the same way the per-session
-        // commands resolve it, so a label in the UI cannot disagree with where
-        // the prompt actually goes. Absent when no connected backend claims it.
-        connection_id: driverFor(summary.session_id)?.id,
-      }));
+      const sessions = rows.map(({ summary, view: v }) => {
+        // A dev server still inside the shell. Absent for an ordinary pending
+        // command, so the list does not grow a field on every working session.
+        const shell = runningShell(v);
+        return {
+          summary,
+          status: v.status,
+          busy: v.busy,
+          totals: v.totals,
+          title: v.title,
+          workspace: v.workspace,
+          parent: v.parent_session_id,
+          archived: v.archived === true,
+          deleted: v.deleted === true,
+          needs_input: needsInput.has(summary.session_id),
+          ...(shell ? { shell } : {}),
+          // Which connection owns it, resolved the same way the per-session
+          // commands resolve it, so a label in the UI cannot disagree with where
+          // the prompt actually goes. Absent when no connected backend claims it.
+          connection_id: driverFor(summary.session_id)?.id,
+        };
+      });
       return json({ sessions, aggregate: aggregate(rows.map((r) => r.view)), more });
     }
 

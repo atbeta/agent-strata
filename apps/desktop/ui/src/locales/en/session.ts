@@ -30,6 +30,7 @@ export default {
   "session.status.stopped": "Stopped",
   "session.status.done": "Done",
   "session.status.idle": "Idle",
+  "session.shell.running": "This session's shell is still on this command: {command}",
 
   // A permission request sitting above the composer.
   "permission.wants_to_run": "awaiting approval",
