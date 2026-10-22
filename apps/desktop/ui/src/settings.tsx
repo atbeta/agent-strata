@@ -22,7 +22,7 @@ import {
   shellChoices,
   writeTerminalShell,
 } from "./terminal-shell";
-import { LOCALES, LOCALE_LABEL, locale, setLocale, t, type Locale } from "./i18n";
+import { LOCALES, LOCALE_LABEL, locale, setLocale, stamp, t, type Locale } from "./i18n";
 import { Icon } from "./icons";
 import { readTheme, saveTheme, type ThemeChoice } from "./theme";
 import {
@@ -49,11 +49,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
-import { ChoiceCard } from "@/components/ui/choice-card";
 import { RowButton } from "@/components/ui/row-button";
 import { Switch } from "@/components/ui/switch";
 import { TextFieldInput } from "@/components/ui/text-field";
-import { Group, PillGroup, Row, Segmented } from "./settings-blocks";
+import { Card, Group, PillGroup, Row, Segmented } from "./settings-blocks";
 import { BackendSettings } from "./backend-settings";
 import type { ConnectionsCtl } from "./use-connections";
 import { PolicyEditor } from "./policy";
@@ -238,6 +237,7 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
   const [restartArmed, setRestartArmed] = createSignal(false);
   const [diagNote, setDiagNote] = createSignal("");
   const [diagErr, setDiagErr] = createSignal("");
+  const [diagKey, setDiagKey] = createSignal("");
   const [hydrated, setHydrated] = createSignal(false);
   const [saveErr, setSaveErr] = createSignal("");
   const [fonts, setFonts] = createSignal<FontChoice>(readFonts());
@@ -268,11 +268,6 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
       default:
         return "—";
     }
-  };
-  /** Running is the ordinary case: a green dot says it, no word needed. */
-  const runtimeWord = () => {
-    if (launchData()?.state === "running") return undefined;
-    return runtimeState();
   };
   const runtimeTone = () => {
     switch (launchData()?.state) {
@@ -405,6 +400,7 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
     void restartRuntime();
   };
   const testNotification = async () => {
+    setDiagKey("notify");
     setDiagErr("");
     setDiagNote("");
     try {
@@ -415,6 +411,7 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
     }
   };
   const openNotifySettings = async () => {
+    setDiagKey("notify");
     setDiagErr("");
     setDiagNote("");
     try {
@@ -425,6 +422,7 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
   };
 
   const openLog = async () => {
+    setDiagKey("log");
     setDiagErr("");
     setDiagNote("");
     try {
@@ -436,7 +434,25 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
     }
   };
 
+  /** Feedback for the row that produced it — log opened, report copied,
+   *  notification sent. */
+  const diagLine = (key: string) => (
+    <Show when={diagKey() === key && (diagNote() || diagErr())}>
+      <p
+        class={`mt-1.5 flex items-center gap-1.5 text-2xs ${
+          diagErr() ? "text-destructive" : "text-muted-foreground"
+        }`}
+      >
+        <Icon name={diagErr() ? "alert" : "check"} class="size-3 shrink-0" />
+        {diagErr() || diagNote()}
+      </p>
+    </Show>
+  );
+
   const copyDiagnostics = async () => {
+    setDiagKey("report");
+    setDiagErr("");
+    setDiagNote("");
     const report = runtime();
     const lines = [
       `Agent Strata v${__APP_VERSION__}`,
@@ -523,13 +539,6 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
             )}
           </For>
         </nav>
-        {/* These live in this app's store, not on the server. It belongs to the
-            rail as a caption on the whole settings surface rather than as a
-            subtitle repeating the title the shell already put in the caption
-            bar — which is what this column used to open with. */}
-        <p class="hidden px-2.5 text-2xs leading-4 text-muted-foreground @min-[880px]/main:mt-3 @min-[880px]/main:block">
-          {t("settings.savedHere")}
-        </p>
       </div>
 
       <div class="w-full min-w-0 max-w-2xl flex-1">
@@ -540,39 +549,41 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
       <div role="tabpanel" id="settings-panel" aria-labelledby={`settings-tab-${section()}`} class="[&>section:first-child]:mt-0">
       <Show when={section() === "interface"}>
       <Group label={t("settings.appearance")}>
-        {/* This one was a bare Segmented straight inside the group, so its
-            control sat under the group heading on the left while every other
-            control on the page right-aligned against one edge — the ragged
-            edge that Row exists to prevent. */}
-        <Row label={t("settings.theme")} controlClass="w-88">
-          <Segmented
-            label={t("settings.theme")}
-            value={choice()}
-            onChange={(id) => pick(id as ThemeChoice)}
-            options={CHOICES().map((item) => ({
-              id: item.id,
-              label: item.label,
-              swatch: (
-                <span
-                  class={`h-3.5 w-6 shrink-0 rounded-sm border border-border ${
-                    item.id === "light"
-                      ? "bg-white"
-                      : item.id === "system"
-                        ? "bg-[linear-gradient(90deg,#f7f7f8_50%,#17171a_50%)]"
-                        : "bg-[#17171a]"
-                  }`}
-                />
-              ),
-            }))}
-          />
-        </Row>
+        <Card>
+          {/* This one was a bare Segmented straight inside the group, so its
+              control sat under the group heading on the left while every other
+              control on the page right-aligned against one edge — the ragged
+              edge that Row exists to prevent. */}
+          <Row label={t("settings.theme")} controlClass="w-88">
+            <Segmented
+              label={t("settings.theme")}
+              value={choice()}
+              onChange={(id) => pick(id as ThemeChoice)}
+              options={CHOICES().map((item) => ({
+                id: item.id,
+                label: item.label,
+                swatch: (
+                  <span
+                    class={`h-3.5 w-6 shrink-0 rounded-sm border border-border ${
+                      item.id === "light"
+                        ? "bg-white"
+                        : item.id === "system"
+                          ? "bg-[linear-gradient(90deg,#f7f7f8_50%,#17171a_50%)]"
+                          : "bg-[#17171a]"
+                    }`}
+                  />
+                ),
+              }))}
+            />
+          </Row>
+        </Card>
       </Group>
 
       {/* Language and notification are preferences, not a category each: they
           share one list so the page reads as a page instead of a stack of
           equally loud blocks. */}
       <Group label={t("settings.general")}>
-      <section class="divide-y divide-border">
+      <Card>
         <Row label={t("settings.language")} hint={t("settings.language.hint")}>
           {/* Each language in its own name. "English" is not a translation of
               "英文" to someone who cannot read the one they are looking at. */}
@@ -600,7 +611,18 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
           />
         </Row>
 
-        <Row label={t("settings.notify.title")} hint={t("settings.notify.hint")}>
+        <Row
+          label={t("settings.notify.title")}
+          hint={t("settings.notify.hint")}
+          note={
+            <Show when={notifyErr()}>
+              <p class="mt-1.5 flex items-center gap-1.5 text-2xs text-destructive">
+                <Icon name="alert" class="size-3 shrink-0" />
+                {notifyErr()}
+              </p>
+            </Show>
+          }
+        >
           <Switch
             checked={notifyOn()}
             aria-label={t("settings.notify.title")}
@@ -609,36 +631,30 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
             }}
           />
         </Row>
-      </section>
-      <Show when={notifyErr()}>
-        <p class="mt-2 text-2xs text-destructive">{notifyErr()}</p>
-      </Show>
+      </Card>
       </Group>
 
-      <Group label={t("settings.font.title")}>
-        <p class="text-2xs leading-4 text-muted-foreground">{t("settings.font.hint")}</p>
-
-        {/* Both families have to appear here. A preview that only shows the code
-            font leaves the interface-font row looking like it did nothing, which
-            is the same doubt the picker itself has to answer. */}
-        <div class="sticky top-0 z-10 -mx-2 mt-3 bg-background px-2 py-2">
-          <div class="overflow-hidden rounded-lg border border-border bg-secondary/30">
-            <div class="flex items-baseline gap-3 border-b border-border px-3 py-2">
+      <Group label={t("settings.font.title")} hint={t("settings.font.hint")}>
+        <Card>
+          {/* Both families have to appear here. A preview that only shows the code
+              font leaves the interface-font row looking like it did nothing, which
+              is the same doubt the picker itself has to answer. It pins while the
+              rows beneath scroll past, on the card's own surface. */}
+          <div class="sticky top-0 z-10 rounded-t-lg bg-card py-3">
+            <div class="flex items-baseline gap-3">
               <span class="w-14 shrink-0 text-2xs text-muted-foreground">
                 {t("settings.font.ui")}
               </span>
               <span class="truncate text-sm">{PREVIEW_UI}</span>
             </div>
-            <div class="flex items-baseline gap-3 px-3 py-2">
+            <div class="mt-2 flex items-baseline gap-3">
               <span class="w-14 shrink-0 text-2xs text-muted-foreground">
                 {t("settings.font.code")}
               </span>
               <pre class="min-w-0 overflow-x-auto font-mono text-xs whitespace-pre">{PREVIEW_CODE}</pre>
             </div>
           </div>
-        </div>
 
-        <div class="divide-y divide-border">
           <Row label={t("settings.font.ui")}>
             <FontPicker
               label={t("settings.font.ui")}
@@ -708,7 +724,7 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
               onChange={(v) => patchFonts({ ligatures: v === "on" })}
             />
           </Row>
-        </div>
+        </Card>
       </Group>
       </Show>
 
@@ -717,56 +733,99 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
       </Show>
 
       <Show when={section() === "opencode"}>
-      <Group label={t("settings.opencode.title")}>
-        <div
-          class="mt-3 grid grid-cols-2 gap-2"
-          role="radiogroup"
-          aria-label={t("settings.opencode.title")}
+      <Group label={t("settings.opencode.title")} hint={t("settings.opencode.runtimeHint")}>
+      <Card>
+        <Row
+          label={t("settings.opencode.mode")}
+          hint={t("settings.opencode.modeHint", {
+            desc: (OPENCODE_MODES().find((m) => m.id === mode())?.hint ?? "").replace(
+              /[.。]\s*$/,
+              "",
+            ),
+            apply: t("settings.opencode.apply"),
+          })}
+          controlClass="w-auto"
+          note={
+            <Show when={saveErr()}>
+              <p class="mt-1.5 flex items-center gap-1.5 text-2xs text-destructive">
+                <Icon name="alert" class="size-3 shrink-0" />
+                {saveErr()}
+              </p>
+            </Show>
+          }
         >
-          {OPENCODE_MODES().map((item) => (
-            <ChoiceCard
-              mode="radio"
-              class="rounded-lg px-3 py-2.5"
-              selected={mode() === item.id}
-              onSelect={() => void pickMode(item.id)}
-            >
-              <span class="block text-sm font-medium">{item.label}</span>
-              <span class="mt-0.5 block text-2xs text-muted-foreground">{item.hint}</span>
-            </ChoiceCard>
-          ))}
-        </div>
-        <p class={`mt-3 text-sm ${saveErr() ? "text-destructive" : "text-muted-foreground"}`}>
-          {saveErr() || t("settings.opencode.apply")}
-        </p>
-      </Group>
+          <Segmented
+            label={t("settings.opencode.mode")}
+            value={mode()}
+            onChange={(id) => void pickMode(id as OpencodeLaunchMode)}
+            options={OPENCODE_MODES().map((item) => ({ id: item.id, label: item.label }))}
+          />
+        </Row>
 
-      {/* An external server brings its own binary; the app has nothing here to
-          find, check or restart. Keyed on the chosen mode rather than the
-          running one, so picking 内嵌 shows where its binary will come from.
-          `mode` reads "embed" until the saved choice arrives; waiting for it
-          keeps an external setup from flashing the block on open. */}
-      <Show when={hydrated() && mode() !== "external"}>
-      <Group label={t("settings.opencode.runtime")}>
-        <div class="mt-3 rounded-lg border border-border px-3 py-2.5">
-          <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span aria-hidden="true" class={`size-1.5 shrink-0 rounded-full ${runtimeTone()}`} />
-            <span class="text-sm font-medium">OpenCode</span>
-            <Show when={runtime()?.version}>
-              <span class="font-mono text-2xs text-muted-foreground">{runtime()?.version}</span>
-            </Show>
-            <Show when={runtime()?.source}>
-              <span class="rounded bg-secondary/60 px-1 py-0.5 text-2xs text-muted-foreground">
-                {runtimeSource()}
-              </span>
-            </Show>
-            <Show when={runtimeWord()}>
-              <span class="text-2xs text-muted-foreground">{runtimeWord()}</span>
-            </Show>
-            <span class="ml-auto flex flex-wrap items-center gap-1">
+        {/* An external server brings its own binary; the app has nothing here
+            to find, check or restart. Keyed on the chosen mode rather than the
+            running one, so picking 内嵌 shows where its binary will come from.
+            `mode` reads "embed" until the saved choice arrives; waiting for it
+            keeps an external setup from flashing the rows on open. */}
+        <Show when={hydrated() && mode() !== "external"}>
+          {/* Doctor's verdict sits next to the binary it belongs to — this is
+              the "is my setup okay" line, not a status page. */}
+          <Row
+            label={t("settings.opencode.bin")}
+            hint={`${t("settings.opencode.source")}: ${runtimeSource()} · ${t("settings.opencode.version")}: ${runtime()?.version ?? "—"} · ${t("settings.opencode.checkedAt", { at: runtime()?.checked_at ? stamp(runtime()!.checked_at! * 1000) : "—" })}`}
+            controlClass="w-auto"
+            note={
+              <>
+                <Show
+                  when={runtime()?.source === "external"}
+                  fallback={
+                    <p
+                      class="mt-1.5 max-w-full truncate font-mono text-2xs text-muted-foreground"
+                      title={runtime()?.bin ?? ""}
+                    >
+                      {runtime()?.bin ?? (runtime() ? t("settings.opencode.binMissing") : "—")}
+                    </p>
+                  }
+                >
+                  <p class="mt-1.5 text-2xs text-muted-foreground">
+                    {t("settings.opencode.externalPath")}
+                  </p>
+                </Show>
+                <Show when={!inDesktopShell()}>
+                  <p class="mt-1.5 flex items-center gap-1.5 text-2xs leading-4 text-muted-foreground">
+                    {t("settings.opencode.desktopOnly")}
+                  </p>
+                </Show>
+                <Show when={runtime()?.source === "env"}>
+                  <p class="mt-1.5 text-2xs leading-4 text-muted-foreground">
+                    {t("settings.opencode.envHint")}
+                  </p>
+                </Show>
+                <Show when={versionAhead()}>
+                  <p class="mt-1.5 text-2xs leading-4 text-muted-foreground">
+                    {t("settings.opencode.versionHint")}
+                  </p>
+                </Show>
+                <Show when={runtimeErr()}>
+                  <p class="mt-1.5 flex items-center gap-1.5 text-2xs text-destructive">
+                    <Icon name="alert" class="size-3 shrink-0" />
+                    {runtimeErr()}
+                  </p>
+                </Show>
+                <Show when={runtime()?.error}>
+                  <p class="mt-1.5 flex items-center gap-1.5 text-2xs text-destructive">
+                    <Icon name="alert" class="size-3 shrink-0" />
+                    {runtime()?.error}
+                  </p>
+                </Show>
+              </>
+            }
+          >
+            <div class="flex flex-wrap justify-end gap-2">
               <Button
                 type="button"
-                size="xs"
-                variant="quiet"
+                size="sm"
+                variant="outline"
                 disabled={runtimeBusy() || !inDesktopShell()}
                 onClick={() => void pickRuntime()}
               >
@@ -774,116 +833,82 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
               </Button>
               <Button
                 type="button"
-                size="xs"
-                variant="quiet"
+                size="sm"
+                variant="outline"
                 disabled={runtimeBusy() || !inDesktopShell()}
                 onClick={() => void checkRuntime()}
               >
                 {t("settings.opencode.check")}
               </Button>
-              <Show when={launchData()?.mode === "embed" && launchData()?.state !== "external"}>
-                <Button
-                  type="button"
-                  size="xs"
-                  variant="quiet"
-                  disabled={runtimeBusy() || !inDesktopShell()}
-                  title={t("settings.opencode.restartHint")}
-                  onClick={armRestart}
-                >
-                  {restartArmed()
-                    ? t("settings.opencode.restartConfirm")
-                    : t("settings.opencode.restart")}
-                </Button>
-              </Show>
               <Show when={runtime()?.source === "setting"}>
                 <Button
                   type="button"
-                  size="xs"
-                  variant="quiet"
+                  size="sm"
+                  variant="outline"
                   disabled={runtimeBusy() || !inDesktopShell()}
                   onClick={() => void clearRuntime()}
                 >
                   {t("settings.opencode.clearBin")}
                 </Button>
               </Show>
-            </span>
-          </div>
-          <Show
-            when={runtime()?.source === "external"}
-            fallback={
-              <p
-                class="mt-1.5 truncate font-mono text-2xs text-muted-foreground"
-                title={runtime()?.bin ?? ""}
-              >
-                {runtime()?.bin ?? (runtime() ? t("settings.opencode.binMissing") : "—")}
-              </p>
-            }
-          >
-            <p class="mt-1.5 text-2xs text-muted-foreground">
-              {t("settings.opencode.externalPath")}
-            </p>
-          </Show>
-          <Show
-            when={
-              !inDesktopShell() ||
-              runtime()?.source === "env" ||
-              runtimeErr() ||
-              runtimeNote() ||
-              runtime()?.error
-            }
-          >
-            <div class="mt-1.5 space-y-1">
-              <Show when={!inDesktopShell()}>
-                <p class="text-2xs leading-4 text-muted-foreground">
-                  {t("settings.opencode.desktopOnly")}
-                </p>
-              </Show>
-              <Show when={runtime()?.source === "env"}>
-                <p class="text-2xs leading-4 text-muted-foreground">
-                  {t("settings.opencode.envHint")}
-                </p>
-              </Show>
-              <Show when={runtimeErr()}>
-                <p class="text-sm text-destructive">{runtimeErr()}</p>
-              </Show>
-              <Show when={runtimeNote()}>
-                <p class="text-sm text-muted-foreground">{runtimeNote()}</p>
-              </Show>
-              <Show when={runtime()?.error}>
-                <p class="text-sm text-destructive">{runtime()?.error}</p>
-              </Show>
-              <Show when={launchData()?.state === "missing"}>
-                <p class="text-sm text-muted-foreground">
-                  {t("settings.opencode.missing")}{" "}
-                  <a
-                    href="https://opencode.ai"
-                    target="_blank"
-                    rel="noreferrer"
-                    class="text-muted-foreground underline decoration-border underline-offset-2 hover:text-foreground"
-                  >
-                    {t("settings.opencode.install")}
-                  </a>
-                </p>
-              </Show>
             </div>
-          </Show>
-          <Show when={versionAhead()}>
-            <p class="mt-1.5 text-2xs leading-4 text-muted-foreground">
-              {t("settings.opencode.versionHint")}
-            </p>
-          </Show>
-        </div>
-        <p class="mt-2 text-2xs leading-4 text-muted-foreground">
-          {t("settings.opencode.runtimeHint")}
-        </p>
-      </Group>
-      </Show>
+          </Row>
+
+          <Row
+            label={t("settings.opencode.state")}
+            controlClass="w-auto"
+            note={
+              <>
+                <p class="mt-1.5 flex items-center gap-1.5 text-2xs text-muted-foreground">
+                  <span aria-hidden="true" class={`size-1.5 shrink-0 rounded-full ${runtimeTone()}`} />
+                  {runtimeState()}
+                </p>
+                <Show when={runtimeNote()}>
+                  <p class="mt-1.5 flex items-center gap-1.5 text-2xs text-muted-foreground">
+                    <Icon name="check" class="size-3 shrink-0" />
+                    {runtimeNote()}
+                  </p>
+                </Show>
+                <Show when={launchData()?.state === "missing"}>
+                  <p class="mt-1.5 flex items-center gap-1.5 text-2xs text-muted-foreground">
+                    <Icon name="alert" class="size-3 shrink-0" />
+                    {t("settings.opencode.missing")}{" "}
+                    <a
+                      href="https://opencode.ai"
+                      target="_blank"
+                      rel="noreferrer"
+                      class="underline decoration-border underline-offset-2 hover:text-foreground"
+                    >
+                      {t("settings.opencode.install")}
+                    </a>
+                  </p>
+                </Show>
+              </>
+            }
+          >
+            <Show when={launchData()?.mode === "embed" && launchData()?.state !== "external"}>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={runtimeBusy() || !inDesktopShell()}
+                title={restartArmed() ? undefined : t("settings.opencode.restartHint")}
+                onClick={armRestart}
+              >
+                {restartArmed()
+                  ? t("settings.opencode.restartConfirm")
+                  : t("settings.opencode.restart")}
+              </Button>
+            </Show>
+          </Row>
+        </Show>
+      </Card>
 
       {/* Terminals are an opencode capability — the ACP adapter reports
           `terminal: false` — so this sits with the rest of what only that backend
           offers rather than pretending every session can open one. */}
       <Group label={t("settings.shell.group")}>
-        <section class="divide-y divide-border">
+        <Card>
           <Row label={t("settings.shell.title")} hint={t("settings.shell.hint")}>
             <TerminalShellPicker
               label={t("settings.shell.title")}
@@ -894,7 +919,9 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
               }}
             />
           </Row>
-        </section>
+        </Card>
+      </Group>
+
       </Group>
 
       <ProviderSettings />
@@ -904,9 +931,7 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
       {/* Policy is global to strata rather than to one backend, so it is not
           filed under OpenCode. It lives here as the editor itself: one place
           to reach it, and the deep link is the section. */}
-      <Group label={t("settings.permission.title")}>
-        <PolicyEditor />
-      </Group>
+      <PolicyEditor />
       </Show>
 
       <Show when={section() === "maintenance"}>
@@ -934,11 +959,11 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
           </div>
         </div>
 
-        <div class="mt-5 divide-y divide-border">
-          {/* Mono because this is a build identifier, read against the tag
-              list — not a sentence. */}
+        <Card class="mt-5">
+          {/* Sans tabular — a number read as a number; the link next row is
+              the one that truncates. */}
           <Row label={t("settings.about.version")} controlClass="w-40">
-            <span class="font-mono text-sm text-muted-foreground">v{__APP_VERSION__}</span>
+            <span class="text-sm tabular-nums text-foreground">v{__APP_VERSION__}</span>
           </Row>
 
           <Row
@@ -956,61 +981,76 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
               <span class="truncate">atbeta/agent-strata</span>
             </a>
           </Row>
-        </div>
+        </Card>
       </Group>
-      <Group label={t("settings.about.diagnostics")}>
-        <p class="text-2xs leading-4 text-muted-foreground">
-          {t("settings.about.diagnosticsHint")}
-        </p>
-        <div class="mt-3 flex flex-wrap gap-2">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={!inDesktopShell()}
-            onClick={() => void openLog()}
+      <Group
+        label={t("settings.about.diagnostics")}
+        hint={
+          t("settings.about.diagnosticsHint") +
+          (inDesktopShell() ? "" : ` ${t("settings.about.desktopOnly")}`)
+        }
+      >
+        <Card>
+          <Row
+            label={t("settings.about.log")}
+            hint={t("settings.about.logHint")}
+            controlClass="w-auto"
+            note={diagLine("log")}
           >
-            {t("settings.about.openLog")}
-          </Button>
-          <Button type="button" size="sm" variant="quiet" onClick={() => void copyDiagnostics()}>
-            {t("settings.about.copyDiagnostics")}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="quiet"
-            disabled={!inDesktopShell()}
-            onClick={() => void testNotification()}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={!inDesktopShell()}
+              onClick={() => void openLog()}
+            >
+              {t("settings.about.openLog")}
+            </Button>
+          </Row>
+          <Row
+            label={t("settings.about.report")}
+            controlClass="w-auto"
+            note={diagLine("report")}
           >
-            {t("settings.about.testNotification")}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="quiet"
-            disabled={!inDesktopShell()}
-            onClick={() => void openNotifySettings()}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => void copyDiagnostics()}
+            >
+              {t("settings.about.copyDiagnostics")}
+            </Button>
+          </Row>
+          {/* Only a dev shell borrows Terminal's notification identity; a
+              packaged build has its own, so the caveat would only mislead there. */}
+          <Row
+            label={t("settings.about.notifications")}
+            hint={import.meta.env.DEV ? t("settings.about.notifyHint") : undefined}
+            controlClass="w-auto"
+            note={diagLine("notify")}
           >
-            {t("settings.about.notificationSettings")}
-          </Button>
-        </div>
-        <Show when={diagNote()}>
-          <p class="mt-2 text-2xs text-muted-foreground">{diagNote()}</p>
-        </Show>
-        <Show when={diagErr()}>
-          <p class="mt-2 text-2xs text-destructive">{diagErr()}</p>
-        </Show>
-        <Show when={!inDesktopShell()}>
-          <p class="mt-2 text-2xs leading-4 text-muted-foreground">
-            {t("settings.about.desktopOnly")}
-          </p>
-        </Show>
-        <p class="mt-2 text-2xs leading-4 text-muted-foreground">{t("settings.about.logHint")}</p>
-        {/* Only a dev shell borrows Terminal's notification identity; a packaged
-            build has its own, so the caveat would only mislead there. */}
-        <Show when={import.meta.env.DEV}>
-          <p class="mt-1 text-2xs leading-4 text-muted-foreground">{t("settings.about.notifyHint")}</p>
-        </Show>
+            <div class="flex justify-end gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={!inDesktopShell()}
+                onClick={() => void testNotification()}
+              >
+                {t("settings.about.testNotification")}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={!inDesktopShell()}
+                onClick={() => void openNotifySettings()}
+              >
+                {t("settings.about.notificationSettings")}
+              </Button>
+            </div>
+          </Row>
+        </Card>
       </Group>
       </Show>
       </div>

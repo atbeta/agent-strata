@@ -9,12 +9,43 @@ import { cn } from "@/lib/utils";
  */
 
 /** The name of a group of settings, quieter than any row inside it. */
-export function Group(props: { label: string; children: JSX.Element }) {
+export function Group(props: {
+  label: string;
+  /** One quiet line under the label — what the group is for. */
+  hint?: string;
+  /** The right end of the label line — a count or a small action. */
+  aside?: JSX.Element;
+  children: JSX.Element;
+}) {
   return (
     <section class="mt-8">
-      <h2 class="text-xs text-muted-foreground">{props.label}</h2>
+      <div class="flex items-baseline justify-between gap-3">
+        <h2 class="text-xs text-muted-foreground">{props.label}</h2>
+        {props.aside}
+      </div>
+      <Show when={props.hint}>
+        <p class="mt-1 text-2xs leading-4 text-muted-foreground">{props.hint}</p>
+      </Show>
       <div class="mt-2">{props.children}</div>
     </section>
+  );
+}
+
+/**
+ * The bordered surface a group's Rows sit in. It pads horizontally and rules
+ * a hairline between children; a card that holds list rows instead of Rows
+ * passes `class="px-0"` and lets its rows pad themselves.
+ */
+export function Card(props: { children: JSX.Element; class?: string }) {
+  return (
+    <div
+      class={cn(
+        "divide-y divide-border rounded-lg border border-border bg-card px-4",
+        props.class,
+      )}
+    >
+      {props.children}
+    </div>
   );
 }
 
@@ -25,18 +56,21 @@ export function Group(props: { label: string; children: JSX.Element }) {
 export function Row(props: {
   label: string;
   hint?: string;
+  /** Extra line under the hint — the result or error belonging to this row. */
+  note?: JSX.Element;
   /** Control column width. A row whose control is wider than one chip-column
    *  needs more room or the chips wrap and leave an orphan on their own line. */
   controlClass?: string;
   children: JSX.Element;
 }) {
   return (
-    <div class="flex flex-col gap-3 py-2.5 @min-[560px]/main:flex-row @min-[560px]/main:items-start @min-[560px]/main:justify-between @min-[560px]/main:gap-6">
+    <div class="flex flex-col gap-3 py-3 @min-[560px]/main:flex-row @min-[560px]/main:items-start @min-[560px]/main:justify-between @min-[560px]/main:gap-6">
       <div class="min-w-0 pt-1">
         <div class="text-sm text-foreground">{props.label}</div>
         <Show when={props.hint}>
           <div class="mt-0.5 text-2xs leading-4 text-muted-foreground">{props.hint}</div>
         </Show>
+        {props.note}
       </div>
       <div class={cn("flex max-w-full shrink-0 justify-end pt-1", props.controlClass ?? "w-60", "@max-[560px]/main:w-full @max-[560px]/main:justify-start")}>
         {props.children}
@@ -83,9 +117,12 @@ export function Segmented(props: {
 
 /** A compact choice chip, for the sets too many to sit inside one control. */
 export function pill(on: boolean): string {
+  // One look for one-pick controls: the fill says selected, no ring — the
+  // same surface Segmented uses, so a pill set and a segmented row read as
+  // the same control drawn two ways.
   return `rounded-md border px-2.5 py-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
     on
-      ? "border-ring bg-secondary text-foreground"
+      ? "border-transparent bg-secondary text-foreground"
       : "border-border text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
   }`;
 }

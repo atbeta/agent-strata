@@ -14,7 +14,7 @@ import {
 } from "./api";
 import { t } from "./i18n";
 import { Icon } from "./icons";
-import { Group } from "./settings-blocks";
+import { Card, Group } from "./settings-blocks";
 import { Button } from "@/components/ui/button";
 import { Picker } from "@/components/ui/picker";
 import {
@@ -340,7 +340,9 @@ function ProviderRow(props: {
   const panel = () => `provider-panel-${props.row.id}`;
 
   return (
-    <li class="py-0.5">
+    // The row's px-2 plus RowButton's own px-2 put the name on the card's
+    // px-4 line, and py-1 + the button's py-1.5 make the row read py-2.5.
+    <li class="px-2 py-1">
       <div class="flex items-center gap-1">
         <RowButton
           class={`min-w-0 flex-1 gap-2.5 ${props.hidden ? "opacity-60" : ""}`}
@@ -356,9 +358,6 @@ function ProviderRow(props: {
             <span class="truncate font-mono text-2xs text-muted-foreground">{props.row.id}</span>
           </Show>
           <span class="ml-auto flex shrink-0 items-center gap-2">
-            <Show when={props.row.connected}>
-              <span class="text-2xs text-muted-foreground">{t("settings.provider.connected")}</span>
-            </Show>
             <Show when={expandable(props.row)}>
               <Icon
                 name="chevron"
@@ -427,7 +426,7 @@ function ProviderRow(props: {
           method has no panel to open, and those are exactly the ones whose
           removal lands without moving the list. */}
       <Show when={props.notice}>
-        {(text) => <p class="px-2 pt-1 text-2xs leading-4 text-muted-foreground">{text()}</p>}
+        {(text) => <p class="px-4 pt-1 text-2xs leading-4 text-muted-foreground">{text()}</p>}
       </Show>
 
       <Show when={props.open}>
@@ -613,10 +612,11 @@ function ProviderList(props: { connectionId: string }) {
       <div class="mt-4">
         <div class="mb-1 flex items-baseline gap-2 text-2xs text-muted-foreground">
           <span>{label}</span>
-          <span class="font-mono">{list.length}</span>
+          <span class="tabular-nums text-muted-foreground/60">{list.length}</span>
         </div>
-        <ul class="divide-y divide-border">
-          <For each={list}>
+        <Card class="px-0">
+          <ul class="divide-y divide-border">
+            <For each={list}>
             {(row) => (
               <ProviderRow
                 row={row}
@@ -645,8 +645,9 @@ function ProviderList(props: { connectionId: string }) {
                 onToggleVisible={() => setProviderHidden(row.id, !hiddenProviders().has(row.id))}
               />
             )}
-          </For>
-        </ul>
+            </For>
+          </ul>
+        </Card>
       </div>
     </Show>
   );
@@ -713,8 +714,7 @@ export function ProviderSettings() {
   const opencode = () => (conns()?.connections ?? []).filter((conn) => conn.backend === "opencode");
 
   return (
-    <Group label={t("settings.provider.title")}>
-      <p class="text-2xs leading-4 text-muted-foreground">{t("settings.provider.hint")}</p>
+    <Group label={t("settings.provider.title")} hint={t("settings.provider.hint")}>
       <Show when={!conns.loading && opencode().length === 0}>
         <p class="mt-3 text-sm text-muted-foreground">{t("settings.provider.offline")}</p>
       </Show>

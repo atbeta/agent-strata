@@ -2,10 +2,11 @@ import { For, Show } from "solid-js";
 import { backendLabel } from "./api";
 import { settled } from "./resource";
 import { t } from "./i18n";
+import { Icon } from "./icons";
 import { Button } from "@/components/ui/button";
 import { TextFieldInput } from "@/components/ui/text-field";
-import { Group } from "./settings-blocks";
-import { endpointHost, endpointShort, type ConnectionsCtl } from "./use-connections";
+import { Card, Group, Segmented } from "./settings-blocks";
+import { endpointShort, type ConnectionsCtl } from "./use-connections";
 import type { ConnectionAttempt, ConnectionPlacement } from "./api";
 
 function placementWord(placement: ConnectionPlacement | undefined): string {
@@ -19,6 +20,8 @@ function attemptLine(attempt: ConnectionAttempt): string {
   const host = endpointShort(attempt.endpoint);
   return place ? `${host} · ${place}` : host;
 }
+
+const fieldLabel = "block text-2xs text-muted-foreground mb-1";
 
 /**
  * The connected backends, and the addresses the app still means to dial.
@@ -35,153 +38,219 @@ export function BackendSettings(props: { conns: ConnectionsCtl }) {
 
   return (
     <>
-      <Group label={t("settings.backends.connected")}>
-        <p class="mb-2 text-2xs leading-4 text-muted-foreground">{t("settings.backends.history")}</p>
-        <Show
-          when={live().length > 0}
-          fallback={<p class="text-sm text-muted-foreground">{t("settings.backends.none")}</p>}
-        >
-          <ul class="divide-y divide-border">
+      <Group label={t("settings.backends.connected")} hint={t("settings.backends.history")}>
+        <Card class="px-0">
+          <Show
+            when={live().length > 0}
+            fallback={
+              <p class="px-4 py-3 text-sm text-muted-foreground">{t("settings.backends.none")}</p>
+            }
+          >
             <For each={live()}>
               {(conn) => (
-                <li class="flex items-center gap-3 py-2.5">
-                  <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-status-active" />
-                  <span class="min-w-0 flex-1 truncate text-sm">
-                    {backendLabel(conn.backend)}
-                    <Show when={placementWord(conn.placement)}>
-                      {(word) => <span class="text-2xs text-muted-foreground"> {word()}</span>}
-                    </Show>
-                    <span class="font-mono text-2xs text-muted-foreground"> · {endpointHost(conn.baseUrl)}</span>
+                <div class="flex items-center gap-3 px-4 py-3">
+                  <span class="size-1.5 shrink-0 rounded-full bg-status-active" />
+                  <span class="shrink-0 text-sm">{backendLabel(conn.backend)}</span>
+                  <Show when={placementWord(conn.placement)}>
+                    {(word) => (
+                      <span class="shrink-0 rounded bg-secondary/60 px-1 py-0.5 text-2xs text-muted-foreground">
+                        {word()}
+                      </span>
+                    )}
+                  </Show>
+                  <span
+                    class="min-w-0 flex-1 truncate font-mono text-2xs text-muted-foreground"
+                    title={conn.baseUrl}
+                  >
+                    {conn.baseUrl}
                   </span>
                   <Show when={live().length > 1 && c().newSessionConnection() !== conn.id}>
-                    <Button size="xs" variant="quiet" onClick={() => c().chooseNewConn(conn.id)}>
+                    <Button
+                      size="sm"
+                      variant="quiet"
+                      onClick={() => c().chooseNewConn(conn.id)}
+                    >
                       {t("settings.backends.useForNew")}
                     </Button>
                   </Show>
                   <Show when={live().length > 1 && c().newSessionConnection() === conn.id}>
-                    <span class="text-2xs text-muted-foreground">{t("sidebar.backend.newTarget")}</span>
+                    <span class="shrink-0 text-2xs text-muted-foreground">
+                      {t("sidebar.backend.newTarget")}
+                    </span>
                   </Show>
-                  <Button size="xs" variant="quiet" onClick={() => c().disconnect(conn.id)}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => c().disconnect(conn.id)}
+                  >
                     {t("settings.backends.disconnect")}
                   </Button>
-                </li>
+                </div>
               )}
             </For>
-          </ul>
-        </Show>
+          </Show>
+        </Card>
       </Group>
 
       <Show when={pending().length > 0}>
         <Group label={t("settings.backends.pending")}>
-          <ul class="divide-y divide-border">
+          <Card class="px-0">
             <For each={pending()}>
               {(attempt) => (
-                <li class="flex items-center gap-3 py-2.5">
+                <div class="flex items-center gap-3 px-4 py-3">
                   <span class="min-w-0 flex-1 truncate text-sm">
                     {backendLabel(attempt.backend)}
-                    <span class="font-mono text-2xs text-muted-foreground"> · {attemptLine(attempt)}</span>
+                    <span class="font-mono text-2xs text-muted-foreground">
+                      {" "}
+                      · {attemptLine(attempt)}
+                    </span>
                   </span>
-                  <span class="text-2xs text-muted-foreground">
-                    {attempt.phase === "retrying" ? t("sidebar.backend.connecting") : t("sidebar.backend.failed")}
+                  <span class="shrink-0 text-2xs text-muted-foreground">
+                    {attempt.phase === "retrying"
+                      ? t("sidebar.backend.connecting")
+                      : t("sidebar.backend.failed")}
                   </span>
                   <Show when={attempt.phase === "failed"}>
-                    <Button size="xs" variant="quiet" onClick={() => c().forget(attempt.endpoint)}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => c().forget(attempt.endpoint)}
+                    >
                       {t("settings.backends.forget")}
                     </Button>
                   </Show>
-                </li>
+                </div>
               )}
             </For>
-          </ul>
+          </Card>
         </Group>
       </Show>
 
       <Group label={t("settings.backends.add")}>
-        <div class="space-y-1.5">
-          <div class="flex gap-1">
-            <Button
-              size="sm"
-              variant={c().connKind() === "opencode" ? "secondary" : "ghost"}
-              class="h-7 flex-1 text-2xs"
-              onClick={() => c().setConnKind("opencode")}
-            >
-              {t("connect.kind.opencode")}
-            </Button>
-            <Button
-              size="sm"
-              variant={c().connKind() === "acp" ? "secondary" : "ghost"}
-              class="h-7 flex-1 text-2xs"
-              onClick={() => c().setConnKind("acp")}
-            >
-              {t("connect.kind.acp")}
-            </Button>
+        <Card>
+          <div class="py-3">
+            <Segmented
+              label={t("settings.backends.add")}
+              value={c().connKind()}
+              onChange={(id) => c().setConnKind(id as "opencode" | "acp")}
+              options={[
+                { id: "opencode", label: t("connect.kind.opencode") },
+                { id: "acp", label: t("connect.kind.acp") },
+              ]}
+            />
           </div>
-          <Show
-            when={c().connKind() === "acp"}
-            fallback={
-              <>
+
+          <div class="space-y-3 py-3">
+            <Show
+              when={c().connKind() === "acp"}
+              fallback={
+                <>
+                  <div>
+                    <label class={fieldLabel} for="connect-url">
+                      {t("connect.form.url")}
+                    </label>
+                    <TextFieldInput
+                      id="connect-url"
+                      size="sm"
+                      mono
+                      value={c().connUrl()}
+                      onInput={(e) => c().setConnUrl(e.currentTarget.value)}
+                      class="bg-background text-2xs"
+                      placeholder="http://127.0.0.1:4096"
+                    />
+                  </div>
+                  <div class="grid grid-cols-3 gap-2 @max-[560px]/main:grid-cols-1">
+                    <div>
+                      <label class={fieldLabel} for="connect-name">
+                        {t("connect.form.name")}
+                      </label>
+                      <TextFieldInput
+                        id="connect-name"
+                        size="sm"
+                        value={c().connName()}
+                        onInput={(e) => c().setConnName(e.currentTarget.value)}
+                        class="bg-background px-2 text-2xs"
+                      />
+                    </div>
+                    <div>
+                      <label class={fieldLabel} for="connect-user">
+                        {t("connect.form.user")}
+                      </label>
+                      <TextFieldInput
+                        id="connect-user"
+                        size="sm"
+                        value={c().connUser()}
+                        onInput={(e) => c().setConnUser(e.currentTarget.value)}
+                        class="bg-background px-2 text-2xs"
+                      />
+                    </div>
+                    <div>
+                      <label class={fieldLabel} for="connect-pass">
+                        {t("connect.form.password")}
+                      </label>
+                      <TextFieldInput
+                        id="connect-pass"
+                        size="sm"
+                        type="password"
+                        value={c().connPass()}
+                        onInput={(e) => c().setConnPass(e.currentTarget.value)}
+                        class="bg-background px-2 text-2xs"
+                      />
+                    </div>
+                  </div>
+                </>
+              }
+            >
+              <div>
+                <label class={fieldLabel} for="connect-cmd">
+                  {t("connect.form.command")}
+                </label>
                 <TextFieldInput
+                  id="connect-cmd"
                   size="sm"
                   mono
-                  value={c().connUrl()}
-                  onInput={(e) => c().setConnUrl(e.currentTarget.value)}
+                  value={c().connCmd()}
+                  onInput={(e) => c().setConnCmd(e.currentTarget.value)}
                   class="bg-background text-2xs"
-                  placeholder="http://127.0.0.1:4096"
+                  placeholder="opencode acp"
                 />
-                <div class="flex gap-1.5">
-                  <TextFieldInput
-                    size="sm"
-                    value={c().connName()}
-                    onInput={(e) => c().setConnName(e.currentTarget.value)}
-                    class="w-1/3 bg-background px-2 text-2xs"
-                    placeholder={t("connect.form.name")}
-                  />
-                  <TextFieldInput
-                    size="sm"
-                    value={c().connUser()}
-                    onInput={(e) => c().setConnUser(e.currentTarget.value)}
-                    class="w-1/3 bg-background px-2 text-2xs"
-                    placeholder={t("connect.form.user")}
-                  />
-                  <TextFieldInput
-                    size="sm"
-                    type="password"
-                    value={c().connPass()}
-                    onInput={(e) => c().setConnPass(e.currentTarget.value)}
-                    class="w-1/3 bg-background px-2 text-2xs"
-                    placeholder={t("connect.form.password")}
-                  />
-                </div>
-              </>
-            }
-          >
-            <TextFieldInput
-              size="sm"
-              mono
-              value={c().connCmd()}
-              onInput={(e) => c().setConnCmd(e.currentTarget.value)}
-              class="bg-background text-2xs"
-              placeholder={t("connect.form.command")}
-            />
-            <TextFieldInput
-              size="sm"
-              value={c().connName()}
-              onInput={(e) => c().setConnName(e.currentTarget.value)}
-              class="bg-background px-2 text-2xs"
-              placeholder={t("connect.form.name")}
-            />
-          </Show>
-          <Show when={c().connErr()}>
-            <p class="font-mono text-2xs text-destructive">{c().connErr()}</p>
-          </Show>
-          <Button
-            class="h-8"
-            disabled={c().connecting() || !(c().connKind() === "acp" ? c().connCmd().trim() : c().connUrl().trim())}
-            onClick={() => void c().connect()}
-          >
-            {c().connecting() ? t("action.connecting") : t("action.connect")}
-          </Button>
-        </div>
+              </div>
+              <div>
+                <label class={fieldLabel} for="connect-name">
+                  {t("connect.form.name")}
+                </label>
+                <TextFieldInput
+                  id="connect-name"
+                  size="sm"
+                  value={c().connName()}
+                  onInput={(e) => c().setConnName(e.currentTarget.value)}
+                  class="bg-background px-2 text-2xs"
+                />
+              </div>
+            </Show>
+          </div>
+
+          <div class="py-3">
+            <Show when={c().connErr()}>
+              <p class="mb-2 flex items-center gap-1.5 text-2xs text-destructive">
+                <Icon name="alert" class="size-3 shrink-0" />
+                {c().connErr()}
+              </p>
+            </Show>
+            <div class="flex justify-end">
+              <Button
+                size="sm"
+                disabled={
+                  c().connecting() ||
+                  !(c().connKind() === "acp" ? c().connCmd().trim() : c().connUrl().trim())
+                }
+                onClick={() => void c().connect()}
+              >
+                {c().connecting() ? t("action.connecting") : t("action.connect")}
+              </Button>
+            </div>
+          </div>
+        </Card>
       </Group>
     </>
   );

@@ -35,9 +35,12 @@ export default {
   "policy.default.label": "默认效果",
   "policy.rules.count.one": "{n} 条规则",
   "policy.rules.count.other": "{n} 条规则",
+  "policy.rules.empty": "还没有规则，所有调用都按默认效果处理。",
 
   // 草稿测试
   "policy.test.title": "测试草稿",
+  "policy.test.tool": "工具",
+  "policy.test.input": "输入（JSON）",
   "policy.test.hint":
     "用一次模拟的工具调用测试未保存的草稿 —— bash 命令会像真实的权限检查那样被拆分并分析",
   "policy.test.run": "运行",

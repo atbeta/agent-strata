@@ -16,7 +16,7 @@ import { Icon } from "./icons";
 import { Button } from "@/components/ui/button";
 import { TextFieldInput } from "@/components/ui/text-field";
 import { Picker } from "@/components/ui/picker";
-import { Segmented } from "./settings-blocks";
+import { Card, Group, Row, Segmented } from "./settings-blocks";
 
 // editing model: `when` is a Record in CASF but easier to edit as flat rows
 interface CondRow {
@@ -128,8 +128,10 @@ function RuleCard(props: { index: number; draft: Draft; setDraft: (fn: (d: Draft
         : "text-event-permission";
 
   return (
-    <div class="rounded-lg border border-border">
-      <div class="flex items-center gap-2 px-3 py-2">
+    // No chrome of its own: it is one cell in the policy card's divide-y, and
+    // the hairlines between its parts are the card's language too.
+    <div>
+      <div class="flex items-center gap-2 py-2">
         <Picker
           label={t(EFFECT_LABEL[rule().effect])}
           value={rule().effect}
@@ -161,7 +163,7 @@ function RuleCard(props: { index: number; draft: Draft; setDraft: (fn: (d: Draft
         </Button>
       </div>
 
-      <div class="grid grid-cols-[4.75rem_minmax(0,1fr)] items-center gap-x-3 gap-y-2 border-t border-border px-3 py-2.5">
+      <div class="grid grid-cols-[4.75rem_minmax(0,1fr)] items-center gap-x-3 gap-y-2 border-t border-border py-2.5">
         <span class="text-2xs text-muted-foreground">{t("policy.field.ruleId")}</span>
         <TextFieldInput
           size="sm"
@@ -179,7 +181,7 @@ function RuleCard(props: { index: number; draft: Draft; setDraft: (fn: (d: Draft
         />
       </div>
 
-      <div class="border-t border-border px-3 py-2.5">
+      <div class="border-t border-border py-2.5">
         <div class="flex items-baseline justify-between gap-3">
           <span class="text-2xs text-muted-foreground">
             {t("policy.conditions.title")}
@@ -316,129 +318,172 @@ export function PolicyEditor() {
     // No page wrapper and no heading of its own: this lives in the settings
     // page's permission section, which already names itself. A second <h1>
     // under a section label reads as two pages stacked in one.
-    <div>
-      <p class="text-2xs leading-4 text-muted-foreground">{t("policy.hint")}</p>
-      {/* Its own line, truncated: run inline after a sentence and the wrap
-          lands wherever the path happens to be wide, which on a Windows
-          profile directory breaks mid-component and reads as a typo. */}
-      <Show when={saved()?.file}>
-        <p class="mt-1 truncate font-mono text-2xs text-muted-foreground/80" title={saved()!.file ?? undefined}>
-          {saved()!.file}
-        </p>
-      </Show>
-
-      <div class="mt-4 flex items-center justify-between gap-4">
-        <div class="min-w-0">
-          <div class="text-sm">{t("policy.default.label")}</div>
-          <div class="mt-0.5 text-2xs text-muted-foreground">{tn("policy.rules.count", draft.rules.length)}</div>
-        </div>
-        <Segmented
-          label={t("policy.default.label")}
-          value={draft.default}
-          options={[
-            { id: "ask", label: t("policy.rule.effect.ask") },
-            { id: "allow", label: t("policy.rule.effect.allow") },
-            { id: "deny", label: t("policy.rule.effect.deny") },
-          ]}
-          onChange={(id) => setDraftRaw("default", id as Draft["default"])}
-        />
-      </div>
-      <Show when={err()}>
-        <p class="mt-2 font-mono text-xs text-destructive">{err()}</p>
-      </Show>
-      {/*
-        `notice` and `testErr` carry a dictionary key when the words are ours and
-        whatever the backend said otherwise. `t()` hands an unknown key back
-        verbatim, so one render site covers both and nothing is translated twice.
-      */}
-      <Show when={notice()}>
-        <p class="mt-2 text-xs text-status-active">{t(notice() as MessageKey)}</p>
-      </Show>
-
-      <section class="mt-4 space-y-2">
-        <For each={draft.rules}>
-          {(_r, i) => (
-            <RuleCard
-              index={i()}
-              draft={draft}
-              setDraft={setDraft}
-              remove={() => setDraft((d) => d.rules.splice(i(), 1))}
+    <>
+      <Group label={t("settings.permission.title")} hint={t("policy.hint")}>
+        <Card>
+          <Row
+            label={t("policy.default.label")}
+            hint={tn("policy.rules.count", draft.rules.length)}
+          >
+            <Segmented
+              label={t("policy.default.label")}
+              value={draft.default}
+              options={[
+                { id: "ask", label: t("policy.rule.effect.ask") },
+                { id: "allow", label: t("policy.rule.effect.allow") },
+                { id: "deny", label: t("policy.rule.effect.deny") },
+              ]}
+              onChange={(id) => setDraftRaw("default", id as Draft["default"])}
             />
-          )}
-        </For>
-        <Button
-          type="button"
-          size="sm"
-          variant="quiet"
-          class="shrink-0 gap-1.5"
-          onClick={() =>
-            setDraft((d) =>
-              d.rules.push({ id: "", effect: "allow", tool: "", reason: "", conds: [] }),
-            )
-          }
-        >
-          <Icon name="plus" class="size-3.5" />
-          {t("policy.action.addRule")}
-        </Button>
-      </section>
+          </Row>
 
-      <div class="mt-3 flex items-center justify-end gap-2">
-        <Button variant="ghost" size="sm" onClick={() => void clear()}>
-          {t("policy.action.clear")}
-        </Button>
-        <Button size="sm" onClick={() => void save()}>
-          {t("policy.action.save")}
-        </Button>
-      </div>
+          <Show
+            when={draft.rules.length > 0}
+            fallback={
+              <p class="py-2.5 text-2xs text-muted-foreground">{t("policy.rules.empty")}</p>
+            }
+          >
+            <For each={draft.rules}>
+              {(_r, i) => (
+                <div class="px-0 py-2.5">
+                  <RuleCard
+                    index={i()}
+                    draft={draft}
+                    setDraft={setDraft}
+                    remove={() => setDraft((d) => d.rules.splice(i(), 1))}
+                  />
+                </div>
+              )}
+            </For>
+          </Show>
 
-      <section class="mt-8">
-        <h2 class="text-xs text-muted-foreground">{t("policy.test.title")}</h2>
-        <p class="mt-1 text-2xs leading-4 text-muted-foreground">{t("policy.test.hint")}</p>
-        <div class="mt-2 flex gap-2">
-          <TextFieldInput
-            size="sm"
-            mono
-            class="w-28"
-            aria-label={t("policy.field.tool")}
-            placeholder={t("policy.field.tool")}
-            value={testTool()}
-            onInput={(e) => setTestTool(e.currentTarget.value)}
-          />
-          <TextFieldInput
-            size="sm"
-            mono
-            class="flex-1"
-            value={testInput()}
-            onInput={(e) => setTestInput(e.currentTarget.value)}
-          />
-          <Button variant="secondary" size="sm" class="shrink-0" onClick={() => void runTest()}>
-            {t("policy.test.run")}
-          </Button>
-        </div>
-        <Show when={testResult()}>
-          {(d) => (
-            <div class="mt-2 text-xs">
-              <span class={`font-medium ${DECISION_CLS[d().decision]}`}>
-                {t(EFFECT_LABEL[d().decision])}
-              </span>
-              <Show when={d().rule_id}>
-                <span class="text-muted-foreground">
-                  {t("policy.test.via")}
-                  <span class="font-mono text-foreground">{d().rule_id}</span>
-                </span>
+          <div class="py-2.5">
+            <Button
+              type="button"
+              size="sm"
+              variant="quiet"
+              class="shrink-0 gap-1.5"
+              onClick={() =>
+                setDraft((d) =>
+                  d.rules.push({ id: "", effect: "allow", tool: "", reason: "", conds: [] }),
+                )
+              }
+            >
+              <Icon name="plus" class="size-3.5" />
+              {t("policy.action.addRule")}
+            </Button>
+          </div>
+
+          <div class="flex items-center justify-between gap-3 py-2.5">
+            <div class="min-w-0">
+              {/* Its own line, truncated: run inline after a sentence and the
+                  wrap lands wherever the path happens to be wide, which on a
+                  Windows profile directory breaks mid-component and reads as
+                  a typo. */}
+              <Show when={saved()?.file}>
+                <p
+                  class="truncate font-mono text-2xs text-muted-foreground"
+                  title={saved()!.file ?? undefined}
+                >
+                  {saved()!.file}
+                </p>
               </Show>
-              <Show when={d().reason}>
-                <p class="mt-1 text-2xs text-muted-foreground">{d().reason}</p>
+              <Show when={err()}>
+                <p class="mt-1 flex items-center gap-1.5 text-2xs text-destructive">
+                  <Icon name="alert" class="size-3 shrink-0" />
+                  {err()}
+                </p>
+              </Show>
+              {/*
+                `notice` and `testErr` carry a dictionary key when the words are
+                ours and whatever the backend said otherwise. `t()` hands an
+                unknown key back verbatim, so one render site covers both and
+                nothing is translated twice.
+              */}
+              <Show when={notice()}>
+                <p class="mt-1 flex items-center gap-1.5 text-2xs text-muted-foreground">
+                  <Icon name="check" class="size-3 shrink-0" />
+                  {t(notice() as MessageKey)}
+                </p>
               </Show>
             </div>
-          )}
-        </Show>
-        <Show when={testErr()}>
-          <p class="mt-2 font-mono text-xs text-destructive">
-            {t(testErr() as MessageKey)}
-          </p>
-        </Show>
-      </section>
-    </div>
+            <div class="flex shrink-0 items-center gap-2">
+              <Button variant="quiet" size="sm" onClick={() => void clear()}>
+                {t("policy.action.clear")}
+              </Button>
+              <Button size="sm" onClick={() => void save()}>
+                {t("policy.action.save")}
+              </Button>
+            </div>
+          </div>
+        </Card>
+      </Group>
+
+      <Group label={t("policy.test.title")} hint={t("policy.test.hint")}>
+        <Card>
+          <div class="flex items-end gap-2 py-3">
+            <div>
+              <label class="mb-1 block text-2xs text-muted-foreground" for="policy-test-tool">
+                {t("policy.test.tool")}
+              </label>
+              <TextFieldInput
+                id="policy-test-tool"
+                size="sm"
+                mono
+                class="w-28"
+                placeholder="bash"
+                value={testTool()}
+                onInput={(e) => setTestTool(e.currentTarget.value)}
+              />
+            </div>
+            <div class="min-w-0 flex-1">
+              <label class="mb-1 block text-2xs text-muted-foreground" for="policy-test-input">
+                {t("policy.test.input")}
+              </label>
+              <TextFieldInput
+                id="policy-test-input"
+                size="sm"
+                mono
+                class="w-full"
+                value={testInput()}
+                onInput={(e) => setTestInput(e.currentTarget.value)}
+              />
+            </div>
+            <Button variant="outline" size="sm" class="shrink-0" onClick={() => void runTest()}>
+              {t("policy.test.run")}
+            </Button>
+          </div>
+
+          <Show when={testResult() || testErr()}>
+            <div class="py-3">
+              <Show when={testResult()}>
+                {(d) => (
+                  <div class="text-xs">
+                    <span class={`font-medium ${DECISION_CLS[d().decision]}`}>
+                      {t(EFFECT_LABEL[d().decision])}
+                    </span>
+                    <Show when={d().rule_id}>
+                      <span class="text-muted-foreground">
+                        {t("policy.test.via")}
+                        <span class="font-mono text-foreground">{d().rule_id}</span>
+                      </span>
+                    </Show>
+                    <Show when={d().reason}>
+                      <p class="mt-1 text-2xs text-muted-foreground">{d().reason}</p>
+                    </Show>
+                  </div>
+                )}
+              </Show>
+              <Show when={testErr()}>
+                <p class="flex items-center gap-1.5 text-2xs text-destructive">
+                  <Icon name="alert" class="size-3 shrink-0" />
+                  {t(testErr() as MessageKey)}
+                </p>
+              </Show>
+            </div>
+          </Show>
+        </Card>
+      </Group>
+    </>
   );
 }

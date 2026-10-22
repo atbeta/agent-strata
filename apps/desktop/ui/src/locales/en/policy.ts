@@ -36,9 +36,12 @@ export default {
   "policy.default.label": "default effect",
   "policy.rules.count.one": "{n} rule",
   "policy.rules.count.other": "{n} rules",
+  "policy.rules.empty": "No rules yet — every call gets the default effect.",
 
   // Draft tester
   "policy.test.title": "test the draft",
+  "policy.test.tool": "Tool",
+  "policy.test.input": "Input (JSON)",
   "policy.test.hint":
     "runs the unsaved draft against a fake tool call — bash commands are split and analyzed like real permission checks",
   "policy.test.run": "run",
