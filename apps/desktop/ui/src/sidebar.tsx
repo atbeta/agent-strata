@@ -325,7 +325,6 @@ export function Sidebar(props: {
         </p>
       </Show>
       <div class="min-h-0 flex-1 overflow-y-auto px-1.5 pb-4 pt-1 [mask-image:linear-gradient(to_bottom,black_calc(100%-16px),transparent)]">
-        <ArchivedSection list={props.list} now={props.clock} onOpen={props.onOpenSession} />
         {/* Compare is a mode of the list and it says so at the top of the
             list. The hint used to live inside the connect panel, so entering
             compare mode from anywhere else showed nothing at all: the rows
@@ -501,6 +500,10 @@ export function Sidebar(props: {
             </div>
           </Show>
         </Show>
+        {/* After the working set. A block above the pinned lane is the first
+            thing the rail says, and an archived conversation is the one you
+            set aside. */}
+        <ArchivedSection list={props.list} now={props.clock} onOpen={props.onOpenSession} />
       </div>
       <ConnectionsFooter
         conns={props.conns}

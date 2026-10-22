@@ -358,7 +358,7 @@ export default {
   "maintenance.clean.done": "已清理 {n} 条可重建记录。",
   "maintenance.clean.nothing": "没有符合条件的会话。",
   "maintenance.clean.andMore": "另有 {n} 个会话。",
-  "maintenance.archivedMoved": "已归档会话在侧栏顶部，可以恢复或删除。",
+  "maintenance.archivedMoved": "已归档会话在侧栏列表底部，可以恢复或删除。",
   "maintenance.loading": "正在读取…",
   "notify.desktopOnly": "通知测试只在桌面应用中可用。",
   "notify.test.title": "Agent Strata 测试通知",
