@@ -240,6 +240,39 @@ export function thinkingPreview(text: string): string {
   return clipTail(last, 88);
 }
 
+/** A backend clock small enough to be a fixture, not an instant. */
+const REAL_INSTANT_MS = 1_000_000_000_000;
+
+/**
+ * How long a thought has been going, in milliseconds.
+ *
+ * A live thought counts from the backend's start to `now`. A finished one is
+ * the span the backend reported. A missing clock, or a live stamp that is not
+ * a real instant, is no answer.
+ */
+export function thinkingElapsed(input: {
+  startedMs?: number;
+  endedMs?: number;
+  live: boolean;
+  now: number;
+}): number | undefined {
+  const start = input.startedMs;
+  if (input.live) {
+    if (start == null || !Number.isFinite(start) || start < REAL_INSTANT_MS) return undefined;
+    return Math.max(0, input.now - start);
+  }
+  const end = input.endedMs;
+  if (start == null || end == null || !Number.isFinite(start) || !Number.isFinite(end)) return undefined;
+  return Math.max(0, end - start);
+}
+
+/** The same scale as a tool's latency. A live thought under a minute ticks in whole seconds. */
+export function formatThinkingClock(ms: number | undefined, live: boolean): string | undefined {
+  if (ms == null) return undefined;
+  if (live && ms < 60_000) return t("latency.s", { n: Math.floor(ms / 1000) });
+  return fmtLatency(ms);
+}
+
 /** Milliseconds and seconds are units: `840ms`, `1.5s`, `12s`, `2m 05s`, `10h 15m` in every language. */
 export function fmtLatency(ms: number | undefined): string | undefined {
   if (ms == null || !Number.isFinite(ms)) return undefined;

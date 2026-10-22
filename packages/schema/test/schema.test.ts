@@ -118,6 +118,22 @@ describe("what a rebuild can get back", () => {
 });
 
 describe("schema", () => {
+  test("a thought keeps the clock the backend reported", () => {
+    const start = Date.parse("2026-10-22T10:00:00.000Z");
+    const e = parseEvent({
+      ...base,
+      type: "turn.assistant",
+      data: {
+        turn_id: "t1",
+        content: [{ type: "thinking", text: "hmm", started_ms: start, ended_ms: start + 4200 }],
+      },
+    });
+    expect(e.data).toEqual({
+      turn_id: "t1",
+      content: [{ type: "thinking", text: "hmm", started_ms: start, ended_ms: start + 4200 }],
+    });
+  });
+
   test("valid fixture per event type parses", () => {
     for (const [type, data] of Object.entries(fixtures)) {
       const e = parseEvent({ ...base, type, data });

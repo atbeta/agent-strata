@@ -2503,7 +2503,28 @@ describe("what the user sent", () => {
   });
 
   test("the mapping version moved, so stored sessions are rebuilt", () => {
-    expect(OPENCODE_MAPPER_VERSION).toBe("opencode-7");
+    expect(OPENCODE_MAPPER_VERSION).toBe("opencode-8");
+  });
+
+  test("a reasoning part keeps the clock the backend reported", () => {
+    const m = new OpencodeMapper();
+    const start = Date.parse("2026-10-22T10:00:00.000Z");
+    const end = start + 4200;
+    const out = [
+      sessionCreated(),
+      msgUpdated({
+        id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
+        time: { created: start }, providerID: "p", modelID: "m", cost: 0,
+        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      }),
+      partUpdated({
+        id: "pr", sessionID: sid, messageID: "a1", type: "reasoning", text: "hmm",
+        time: { start, end },
+      }),
+    ].flatMap((e) => m.handle(e));
+    const snap = out.find((e) => e.type === "turn.assistant");
+    const content = (snap?.data as { content: object[] }).content;
+    expect(content).toEqual([{ type: "thinking", text: "hmm", started_ms: start, ended_ms: end }]);
   });
 });
 

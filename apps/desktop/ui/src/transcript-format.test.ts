@@ -17,6 +17,8 @@ const {
   diffStat,
   fmtElapsed,
   fmtLatency,
+  formatThinkingClock,
+  thinkingElapsed,
   hasMessageContent,
   isInteractiveTool,
   messageText,
@@ -182,6 +184,32 @@ describe("diff and labels", () => {
     // Collapsed thinking follows the latest line, not the opening one.
     expect(thinkingPreview("  first line\nsecond")).toBe("second");
     expect(thinkingPreview("first\n\n  latest  \n")).toBe("latest");
+  });
+
+  test("a thought reports how long it ran", () => {
+    const start = Date.parse("2026-10-22T10:00:00.000Z");
+    const end = start + 12_400;
+    expect(thinkingElapsed({ startedMs: start, endedMs: end, live: false, now: end + 5000 })).toBe(12_400);
+    expect(thinkingElapsed({ startedMs: start, live: true, now: start + 9_900 })).toBe(9_900);
+    // A finished thought with no clock, and a live one whose stamp is not a
+    // real instant, have nothing to show.
+    expect(thinkingElapsed({ live: false, now: end })).toBeUndefined();
+    expect(thinkingElapsed({ startedMs: 20, live: true, now: end })).toBeUndefined();
+    withLocale("en", () => {
+      expect(formatThinkingClock(9_900, true)).toBe("9s");
+      expect(formatThinkingClock(12_400, false)).toBe("12s");
+      expect(formatThinkingClock(undefined, false)).toBeUndefined();
+    });
+  });
+
+  test("an open thought scrolls inside the block, under the collapse", () => {
+    const src = readFileSync(join(import.meta.dir, "transcript.tsx"), "utf8");
+    const block = src.slice(src.indexOf("function ThinkingBlock"), src.indexOf("function FileChip"));
+    const body = block.slice(block.indexOf("when={open()}"));
+    expect(body).toContain("max-h-72");
+    expect(body).toContain("overflow-y-auto");
+    expect(block.indexOf("formatThinkingClock")).toBeGreaterThan(-1);
+    expect(block.indexOf("<RowButton")).toBeLessThan(block.indexOf("max-h-72"));
   });
 
   test("a thinking preview is the end of the latest line, cut by displayed width", () => {

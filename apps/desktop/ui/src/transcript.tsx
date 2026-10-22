@@ -24,12 +24,14 @@ import {
   diffStat,
   fmtElapsed,
   fmtLatency,
+  formatThinkingClock,
   hasMessageContent,
   isDiff,
   isInteractiveTool,
   messageText,
   permissionLabel,
   toolStatusLabel,
+  thinkingElapsed,
   thinkingPreview,
   todoItems,
   toolHeadline,
@@ -107,7 +109,13 @@ function MessageMenu(props: {
 /** A reader's own open/closed choice, so a refresh does not snap it back. */
 const thinkingChoice = new Map<string, boolean>();
 
-function ThinkingBlock(props: { text: string; live?: boolean; scope?: string }) {
+function ThinkingBlock(props: {
+  text: string;
+  live?: boolean;
+  scope?: string;
+  startedMs?: number;
+  endedMs?: number;
+}) {
   const [open, setOpen] = createSignal(
     props.scope !== undefined && thinkingChoice.has(props.scope)
       ? thinkingChoice.get(props.scope)!
@@ -126,6 +134,35 @@ function ThinkingBlock(props: { text: string; live?: boolean; scope?: string }) 
     if (props.scope !== undefined) thinkingChoice.set(props.scope, next);
     setOpen(next);
   };
+  // A thought we watched live still has a duration when the backend sent no
+  // end. One that arrives already finished, with no span, stays blank.
+  const [now, setNow] = createSignal(Date.now());
+  const [seenAt, setSeenAt] = createSignal<number | undefined>(props.live ? Date.now() : undefined);
+  const [frozenAt, setFrozenAt] = createSignal<number>();
+  createEffect(() => {
+    if (props.live) {
+      if (seenAt() == null) setSeenAt(Date.now());
+      const id = setInterval(() => setNow(Date.now()), 1000);
+      onCleanup(() => clearInterval(id));
+      return;
+    }
+    if (seenAt() != null) setFrozenAt((v) => v ?? Date.now());
+  });
+  const clock = () => {
+    const live = props.live === true;
+    const backend = thinkingElapsed({
+      startedMs: props.startedMs,
+      endedMs: props.endedMs,
+      live,
+      now: now(),
+    });
+    if (backend != null) return formatThinkingClock(backend, live);
+    const start = seenAt();
+    if (start == null) return undefined;
+    const end = live ? now() : frozenAt();
+    if (end == null) return undefined;
+    return formatThinkingClock(Math.max(0, end - start), live);
+  };
   return (
     // Same shape as the tool row below — one hanging indent, one inset, one
     // icon column. A thought and a tool call are both collapsed activity with
@@ -140,6 +177,15 @@ function ThinkingBlock(props: { text: string; live?: boolean; scope?: string }) 
         <span class="shrink-0 text-xs font-medium text-muted-foreground">
           {props.live ? t("transcript.thinking") : t("transcript.thought")}
         </span>
+        <Show when={clock()}>
+          {(c) => (
+            <span
+              class={`shrink-0 font-mono text-2xs tabular-nums ${props.live ? "text-status-active" : "text-muted-foreground"}`}
+            >
+              {c()}
+            </span>
+          )}
+        </Show>
         <Show when={!open() && thinkingPreview(props.text)}>
           {/* rtl puts the overflow on the left, so a narrow row keeps the
               newest words. The inner bdi draws those words left to right. */}
@@ -155,7 +201,9 @@ function ThinkingBlock(props: { text: string; live?: boolean; scope?: string }) 
         </span>
       </RowButton>
       <Show when={open()}>
-        <div class="expand-in ml-[22px] py-1.5">
+        {/* The collapse stays on the row. A long thought scrolls in this box,
+            so the control is never a page above the words being read. */}
+        <div class="expand-in ml-[22px] max-h-72 overflow-y-auto overscroll-y-contain py-1.5">
           <Md class="text-sm leading-6 text-muted-foreground" text={props.text} />
         </div>
       </Show>
@@ -208,7 +256,15 @@ function TranscriptBlock(props: { block: ContentBlock; tight?: boolean; live?: b
   return (
     <Switch>
       <Match when={props.block.type === "thinking" ? props.block : undefined}>
-        {(block) => <ThinkingBlock text={block().text} live={props.live} scope={props.scope} />}
+        {(block) => (
+          <ThinkingBlock
+            text={block().text}
+            live={props.live}
+            scope={props.scope}
+            startedMs={block().started_ms}
+            endedMs={block().ended_ms}
+          />
+        )}
       </Match>
       <Match when={props.block.type === "file_ref" ? props.block : undefined}>
         {(block) => <FileChip path={block().path} range={block().range} />}
