@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { visibleArchiveNote } from "./archived-section";
 
 const read = (file: string) => readFileSync(join(import.meta.dir, file), "utf8");
 
@@ -25,5 +26,13 @@ describe("archived sessions sit under the working list", () => {
     const head = src.slice(src.indexOf("return ("), src.indexOf("</RowButton>"));
     expect(head).not.toContain("border-b");
     expect(head).toContain("text-2xs");
+  });
+
+  test("a delete note leaves with the row it named", () => {
+    const note = { id: "a", text: "已删除。" };
+    expect(visibleArchiveNote(note, ["a", "b"])).toBe("已删除。");
+    expect(visibleArchiveNote(note, ["b"])).toBeUndefined();
+    expect(visibleArchiveNote(undefined, ["a"])).toBeUndefined();
+    expect(read("archived-section.tsx")).toContain("visibleArchiveNote(");
   });
 });

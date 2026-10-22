@@ -10,6 +10,15 @@ import { Icon } from "./icons";
 import { Button } from "@/components/ui/button";
 import { RowButton } from "@/components/ui/row-button";
 
+/** A result line names one archived session. It stays only while that session is still in the list. */
+export function visibleArchiveNote(
+  note: { id: string; text: string } | undefined,
+  ids: readonly string[],
+): string | undefined {
+  if (!note || !ids.includes(note.id)) return undefined;
+  return note.text;
+}
+
 /**
  * Archived sessions, under the working list.
  *
@@ -27,11 +36,12 @@ export function ArchivedSection(props: {
 }) {
   const [open, setOpen] = createSignal(false);
   const [busy, setBusy] = createSignal("");
-  const [message, setMessage] = createSignal("");
+  const [note, setNote] = createSignal<{ id: string; text: string }>();
   const [error, setError] = createSignal("");
   const [confirm, setConfirm] = createSignal<{ row: SessionRow; data: SessionData }>();
 
   const rows = () => props.list.archived();
+  const noteText = () => visibleArchiveNote(note(), rows().map((row) => row.summary.session_id));
   const askDelete = async (row: SessionRow) => {
     const id = row.summary.session_id;
     setBusy(id);
@@ -49,10 +59,10 @@ export function ArchivedSection(props: {
     const id = row.summary.session_id;
     setBusy(id);
     setError("");
-    setMessage("");
+    setNote(undefined);
     try {
       await unarchiveSession(id);
-      setMessage(t("sidebar.archived.restored"));
+      setNote({ id, text: t("sidebar.archived.restored") });
       void props.list.refetch();
     } catch (e) {
       setError(explain(e));
@@ -64,11 +74,11 @@ export function ArchivedSection(props: {
     const id = row.summary.session_id;
     setBusy(id);
     setError("");
-    setMessage("");
+    setNote(undefined);
     try {
       await deleteSession(id, !data.can_delete);
       setConfirm(undefined);
-      setMessage(t("sidebar.archived.deleted"));
+      setNote({ id, text: t("sidebar.archived.deleted") });
       void props.list.refetch();
     } catch (e) {
       setError(explain(e));
@@ -188,8 +198,8 @@ export function ArchivedSection(props: {
               }}
             </For>
           </ul>
-          <Show when={message()}>
-            <p class="px-1 pt-1 text-2xs text-muted-foreground">{message()}</p>
+          <Show when={noteText()}>
+            <p class="px-1 pt-1 text-2xs text-muted-foreground">{noteText()}</p>
           </Show>
           <Show when={error()}>
             <p class="px-1 pt-1 text-2xs text-destructive">{error()}</p>
