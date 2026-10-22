@@ -38,6 +38,8 @@ export interface Turn {
     latency_ms?: number;
     /** When the event that produced this entry was written. */
     ts?: string;
+    /** The event that wrote this entry, so a later goal can tell it is older. */
+    seq?: number;
     /** set when the backend finished the message by failing, and there may be no text */
     error?: string;
   }[];
@@ -131,6 +133,10 @@ export interface SessionView {
   revert_turn_id?: string;
   /** what this session is working toward; absent when nobody set one */
   goal?: string;
+  /** The model reported the goal met. A later goal event without `met` clears it. */
+  goal_met?: boolean;
+  /** Seq of the goal event that set the current text, so an older reply cannot complete a goal that was just saved. */
+  goal_seq?: number;
   turns: Turn[];
   orphans: ToolCallView[];
   pending_permissions: PermissionInfo[];
@@ -280,8 +286,16 @@ export function projectSession(events: Event[]): SessionView {
         view.busy = false;
         break;
       case "session.goal":
-        if (e.data.text) view.goal = e.data.text;
-        else delete view.goal;
+        if (e.data.text) {
+          view.goal = e.data.text;
+          view.goal_seq = e.seq;
+          if (e.data.met) view.goal_met = true;
+          else delete view.goal_met;
+        } else {
+          delete view.goal;
+          delete view.goal_met;
+          delete view.goal_seq;
+        }
         break;
       case "turn.user": {
         const t = getTurn(e.data.turn_id);
@@ -320,6 +334,7 @@ export function projectSession(events: Event[]): SessionView {
             cost_usd: e.data.cost_usd,
             latency_ms: e.data.latency_ms,
             ts: e.ts,
+            seq: e.seq,
             error: e.data.error,
           };
         } else {
@@ -332,6 +347,7 @@ export function projectSession(events: Event[]): SessionView {
             cost_usd: e.data.cost_usd,
             latency_ms: e.data.latency_ms,
             ts: e.ts,
+            seq: e.seq,
             error: e.data.error,
           });
         }

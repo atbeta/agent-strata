@@ -84,5 +84,9 @@ describe("reader view cache", () => {
     expect(tailMatches(held, tailOf(edited))).toBe(false);
     const longer = view(["a", "b", "c"]);
     expect(tailMatches(held, tailOf(longer))).toBe(false);
+    const met = structuredClone(held);
+    met.goal = "ship it";
+    met.goal_met = true;
+    expect(tailMatches(held, tailOf(met))).toBe(false);
   });
 });

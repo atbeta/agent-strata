@@ -21,6 +21,24 @@ export function messageText(blocks: readonly ContentBlock[]): string {
 }
 
 /**
+ * The model was told to answer with this line alone when the goal is done.
+ * A reply that is exactly that line is a seam, not a sentence. Anything
+ * around it — an earlier line, a thought, a picture — stays a normal message.
+ */
+export function goalMetReply(blocks: readonly ContentBlock[]): boolean {
+  for (const block of blocks) {
+    if (block.type === "text") continue;
+    if (block.type === "thinking" && block.text.trim() === "") continue;
+    return false;
+  }
+  const lines = messageText(blocks)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return lines.length === 1 && lines[0] === "GOAL MET";
+}
+
+/**
  * Cancellation arrives as a plain error string. Only the exact backend wordings
  * map to the neutral "stopped" notice — a message that merely mentions aborting
  * is a real error and must not be downgraded.

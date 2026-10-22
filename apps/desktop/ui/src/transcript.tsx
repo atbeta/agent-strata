@@ -25,6 +25,7 @@ import {
   fmtElapsed,
   fmtLatency,
   hasMessageContent,
+  goalMetReply,
   isDiff,
   isInteractiveTool,
   messageText,
@@ -614,10 +615,11 @@ function AssistantMessage(props: {
   footer?: boolean;
   onFork?: (messageId: string) => void;
 }) {
-  const text = () => messageText(props.message.content);
+  const met = () => goalMetReply(props.message.content);
+  const text = () => (met() ? t("goal.met_reply") : messageText(props.message.content));
   const notice = () => assistantNotice(props.message.error);
   const forkable = () => Boolean(props.onFork && props.message.msg_id);
-  const hasFooter = () => text().trim() !== "";
+  const hasFooter = () => !met() && text().trim() !== "";
   return (
     <Show when={hasMessageContent(props.message.content) || notice()}>
       <MessageMenu
@@ -629,11 +631,18 @@ function AssistantMessage(props: {
           `display:contents` wrapper, so the gap lives on the row itself. */}
       <div class="transcript-message py-1" data-message-role="assistant">
         <div class="relative">
-          <BlockText
-            blocks={props.message.content}
-            live={props.message.partial}
-            scope={props.message.msg_id ?? `${props.turnId}:m${props.index}`}
-          />
+          <Show
+            when={met()}
+            fallback={
+              <BlockText
+                blocks={props.message.content}
+                live={props.message.partial}
+                scope={props.message.msg_id ?? `${props.turnId}:m${props.index}`}
+              />
+            }
+          >
+            <TranscriptDivider icon="check">{t("goal.met_reply")}</TranscriptDivider>
+          </Show>
           <Show when={notice()?.kind === "stopped" ? notice() : undefined}>
             {(n) => (
               <div class="mt-2">
@@ -652,7 +661,7 @@ function AssistantMessage(props: {
               </p>
             )}
           </Show>
-          <Show when={props.message.partial && props.message.content.some((block) => block.type === "text")}>
+          <Show when={!met() && props.message.partial && props.message.content.some((block) => block.type === "text")}>
             <span class="ml-0.5 inline-block h-[1em] w-[2px] translate-y-0.5 motion-safe:animate-pulse bg-foreground/70 align-text-bottom" />
           </Show>
         </div>

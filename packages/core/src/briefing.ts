@@ -95,6 +95,7 @@ export function sessionBriefing(view: SessionView): string {
 
   if (view.goal) {
     lines.push("", "Goal", clip(view.goal, GOAL_MAX));
+    if (view.goal_met) lines.push("status: met");
   }
 
   if (view.files_changed.length > 0) {

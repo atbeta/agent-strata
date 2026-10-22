@@ -38,7 +38,9 @@ export function sessionAwaiting(
 }
 
 /** The latest finished assistant text, skipping a message still being written. */
-export function lastAssistantText(turns: SessionView["turns"]): string | undefined {
+export function lastAssistantReply(
+  turns: SessionView["turns"],
+): { text: string; seq?: number } | undefined {
   for (let i = turns.length - 1; i >= 0; i--) {
     const assistants = turns[i]!.assistant;
     for (let j = assistants.length - 1; j >= 0; j--) {
@@ -49,10 +51,28 @@ export function lastAssistantText(turns: SessionView["turns"]): string | undefin
         .map((block) => block.text)
         .join("\n")
         .trim();
-      if (text) return text;
+      if (text) return { text, ...(message.seq !== undefined ? { seq: message.seq } : {}) };
     }
   }
   return undefined;
+}
+
+/**
+ * A GOAL MET reply completes the goal only when it was written after the goal
+ * was saved. An older reply belongs to the previous run; saving again must
+ * not complete the new goal immediately.
+ */
+export function goalMetByReply(input: {
+  goal?: string;
+  met?: boolean;
+  goalSeq?: number;
+  reply?: { text: string; seq?: number };
+}): boolean {
+  if (!input.goal || input.met || !input.reply || !goalIsMet(input.reply.text)) return false;
+  if (input.goalSeq !== undefined) {
+    if (input.reply.seq === undefined || input.reply.seq <= input.goalSeq) return false;
+  }
+  return true;
 }
 
 /**
@@ -72,12 +92,12 @@ export function shouldContinueGoal(input: {
   pending: boolean;
   paused: boolean;
   kicked: boolean;
-  lastAssistant?: string;
+  /** Recorded on the goal itself, so a later message does not start the loop again. */
+  met?: boolean;
 }): boolean {
-  if (!input.goal) return false;
+  if (!input.goal || input.met) return false;
   if (input.busy || input.paused || input.kicked || input.pending) return false;
   if (input.deleted || input.archived) return false;
   if (input.status !== "active") return false;
-  if (input.lastAssistant && goalIsMet(input.lastAssistant)) return false;
   return true;
 }

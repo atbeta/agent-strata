@@ -23,8 +23,9 @@ describe("whether a goal should continue", () => {
     expect(shouldContinueGoal({ ...ready, kicked: true })).toBe(false);
     expect(shouldContinueGoal({ ...ready, pending: true })).toBe(false);
     expect(shouldContinueGoal({ ...ready, status: "completed" })).toBe(false);
-    expect(shouldContinueGoal({ ...ready, lastAssistant: "done\nGOAL MET" })).toBe(false);
+    expect(shouldContinueGoal({ ...ready, met: true })).toBe(false);
     expect(goalIsMet("GOAL MET")).toBe(true);
+    expect(goalIsMet("done\nGOAL MET")).toBe(true);
     expect(goalIsMet("not yet")).toBe(false);
   });
 });
@@ -134,6 +135,44 @@ describe("a goal continues the session when it goes idle", () => {
     run.append("session.status", { state: "busy" }, "2026-01-01T00:00:05Z");
     run.append("session.status", { state: "idle" }, "2026-01-01T00:00:06Z");
     expect(run.prompts()).toHaveLength(2);
+    expect((await run.view()).goal).toBe("ship the fix");
+    expect((await run.view()).goal_met).toBe(true);
+    expect((await run.post(`/sessions/${encodeURIComponent(sid)}/prompt`, { text: "what changed?" })).status).toBe(200);
+    run.append(
+      "turn.assistant",
+      { turn_id: "t-after", content: [{ type: "text", text: "the login page" }] },
+      "2026-01-01T00:00:07Z",
+    );
+    run.append("session.status", { state: "busy" }, "2026-01-01T00:00:08Z");
+    run.append("session.status", { state: "idle" }, "2026-01-01T00:00:09Z");
+    await Bun.sleep(40);
+    // The user's own question is one prompt. The finished goal does not add another.
+    expect(run.prompts()).toHaveLength(3);
+    expect((await run.view()).goal_met).toBe(true);
+    run.stop();
+  });
+
+  test("saving the goal again clears the completion and continues", async () => {
+    const run = await boot();
+    await run.goal("PUT", "ship the fix");
+    await run.waitFor(1);
+    run.append("session.status", { state: "busy" }, "2026-01-01T00:00:02Z");
+    run.append(
+      "turn.assistant",
+      { turn_id: "t-met", content: [{ type: "text", text: "GOAL MET" }] },
+      "2026-01-01T00:00:03Z",
+    );
+    run.append("session.status", { state: "idle" }, "2026-01-01T00:00:04Z");
+    await Bun.sleep(40);
+    expect((await run.view()).goal_met).toBe(true);
+    expect(run.prompts()).toHaveLength(1);
+    const again = await run.goal("PUT", "ship the tests");
+    expect(again.status).toBe(200);
+    await run.waitFor(2);
+    expect(run.prompts()).toHaveLength(2);
+    expect(run.prompts().at(-1)!.body).toContain("ship the tests");
+    expect((await run.view()).goal).toBe("ship the tests");
+    expect((await run.view()).goal_met).toBeUndefined();
     run.stop();
   });
 

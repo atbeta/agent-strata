@@ -425,6 +425,38 @@ describe("projector", () => {
     expect(cleared.goal).toBeUndefined();
   });
 
+  test("a met goal keeps its text, and a later goal starts over", () => {
+    const met = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      mk("s", "session.goal", { text: "ship the fix" }),
+      mk("s", "session.goal", { text: "ship the fix", met: true }),
+    ]);
+    expect(met.goal).toBe("ship the fix");
+    expect(met.goal_met).toBe(true);
+    expect(met.goal_seq).toBeGreaterThan(0);
+    const said = projectSession([
+      mk("s4", "session.started", { workspace: "/w" }),
+      mk("s4", "turn.assistant", { turn_id: "t1", content: [{ type: "text", text: "GOAL MET" }] }),
+    ]);
+    expect(said.turns[0]!.assistant[0]!.seq).toBeGreaterThan(0);
+    const again = projectSession([
+      mk("s2", "session.started", { workspace: "/w" }),
+      mk("s2", "session.goal", { text: "ship the fix", met: true }),
+      mk("s2", "session.goal", { text: "ship the tests" }),
+    ]);
+    expect(again.goal).toBe("ship the tests");
+    expect(again.goal_met).toBeUndefined();
+    expect(again.goal_seq).toBeGreaterThan(0);
+    const cleared = projectSession([
+      mk("s3", "session.started", { workspace: "/w" }),
+      mk("s3", "session.goal", { text: "ship the fix", met: true }),
+      mk("s3", "session.goal", { text: null }),
+    ]);
+    expect(cleared.goal).toBeUndefined();
+    expect(cleared.goal_met).toBeUndefined();
+    expect(cleared.goal_seq).toBeUndefined();
+  });
+
   test("busy flag and pending questions follow the latest events", () => {
     const v = projectSession([
       mk("s", "session.started", { workspace: "/w" }),
