@@ -1945,6 +1945,7 @@ const turns = () => shown().turns;
                       title={v().title}
                       permission={autoAcceptToggle}
                       goal={v().goal}
+                      goalMet={v().goal_met}
                     />
                   </div>
                 </div>

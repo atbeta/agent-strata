@@ -200,6 +200,18 @@ describe("sessionBriefing", () => {
     expect(text).toContain("/repo");
   });
 
+  test("a met goal stays in the briefing as finished", () => {
+    const s = openStore(":memory:");
+    s.append([
+      mk("a", "session.started", { workspace: "/repo", title: "auth" }, "2026-01-01T00:00:00Z", "opencode"),
+      mk("a", "session.goal", { text: "ship the auth fix", met: true }, "2026-01-01T00:00:01Z"),
+    ]);
+    const text = sessionBriefing(projectSession(s.read({ session_id: "a" })));
+    s.close();
+    expect(text).toContain("ship the auth fix");
+    expect(text).toContain("status: met");
+  });
+
   test("leaves out tool bodies, diffs, thoughts, reverted turns and secrets", () => {
     const text = briefed();
     expect(text).not.toContain("OUTPUT_SENTINEL_do_not_copy");

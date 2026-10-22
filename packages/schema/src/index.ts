@@ -81,6 +81,9 @@ const data = {
   // null clears. Kept out of adapter rebuilds: the backend has no copy of it.
   "session.goal": z.object({
     text: z.string().min(1).nullable(),
+    // Present only when the model reported this goal met. A later goal event
+    // that omits it is a fresh start, so the flag does not linger.
+    met: z.boolean().optional(),
   }),
   "session.compacted": z.object({
     message_id: z.string().min(1),

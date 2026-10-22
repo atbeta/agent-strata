@@ -18,6 +18,7 @@ const {
   fmtElapsed,
   fmtLatency,
   formatThinkingClock,
+  goalMetReply,
   thinkingElapsed,
   hasMessageContent,
   isInteractiveTool,
@@ -471,6 +472,35 @@ describe("hasMessageContent", () => {
   test("images and file refs always show something", () => {
     expect(hasMessageContent([{ type: "image", mime: "image/png", data: "AAAA" }])).toBe(true);
     expect(hasMessageContent([{ type: "file_ref", path: "src/a.ts" }])).toBe(true);
+  });
+});
+
+describe("goalMetReply", () => {
+  test("a reply that is only the completion line is the seam", () => {
+    expect(goalMetReply([{ type: "text", text: "GOAL MET" }])).toBe(true);
+    expect(goalMetReply([{ type: "text", text: "  GOAL MET  \n" }])).toBe(true);
+  });
+
+  test("a reply with anything else stays a normal message", () => {
+    expect(goalMetReply([{ type: "text", text: "done\nGOAL MET" }])).toBe(false);
+    expect(goalMetReply([{ type: "text", text: "not yet" }])).toBe(false);
+    expect(goalMetReply([
+      { type: "thinking", text: "checking" },
+      { type: "text", text: "GOAL MET" },
+    ])).toBe(false);
+    expect(goalMetReply([
+      { type: "text", text: "GOAL MET" },
+      { type: "image", mime: "image/png", data: "AAAA" },
+    ])).toBe(false);
+  });
+
+  test("the transcript draws that reply as the completion seam, and the strip says the goal is done", () => {
+    const transcript = readFileSync(join(import.meta.dir, "transcript.tsx"), "utf8");
+    const bar = readFileSync(join(import.meta.dir, "goal-bar.tsx"), "utf8");
+    expect(transcript).toContain("goalMetReply(");
+    expect(transcript).toContain('t("goal.met_reply")');
+    expect(bar).toContain('t("goal.met")');
+    expect(bar).toContain('t("goal.restart")');
   });
 });
 

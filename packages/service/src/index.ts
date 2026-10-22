@@ -15,7 +15,7 @@ import { connectOpencodeDriver } from "./opencode-driver";
 import { LiveOverlay } from "./live";
 import { filesKeyOf, ViewCache } from "./views";
 import { makeEvent, type EventInput } from "@agent-strata/schema";
-import { goalContinuation, lastAssistantText, sessionAwaiting, shouldContinueGoal } from "./goal";
+import { goalContinuation, goalMetByReply, lastAssistantReply, sessionAwaiting, shouldContinueGoal } from "./goal";
 import { connectAcpDriver } from "./acp-driver";
 import { bootPlan, REMEMBERED_PROBE_MS } from "./boot-connect";
 import { connectionPhase, connectionPlacement, sameEndpoint } from "./connection-phase";
@@ -353,9 +353,31 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       sessionAwaiting(view) ||
       [...pendingAsks.values()].some((ask) => ask.session_id === sessionId) ||
       [...pendingQuestions.values()].some((q) => q.session_id === sessionId);
+    const goal = view.goal;
+    if (
+      goal &&
+      goalMetByReply({
+        goal,
+        met: view.goal_met,
+        goalSeq: view.goal_seq,
+        reply: lastAssistantReply(view.turns),
+      })
+    ) {
+      // The text stays. The flag is what stops the loop, including after the
+      // reader sends an ordinary message of their own.
+      store.append([
+        makeEvent({
+          session_id: sessionId,
+          source: { backend: "desktop" },
+          type: "session.goal",
+          data: { text: goal, met: true },
+        }) as EventInput,
+      ]);
+      return;
+    }
     if (
       !shouldContinueGoal({
-        goal: view.goal,
+        goal,
         busy: view.busy,
         status: view.status,
         deleted: view.deleted,
@@ -363,7 +385,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         pending,
         paused: goalPaused.has(sessionId),
         kicked: goalKicked.has(sessionId),
-        lastAssistant: lastAssistantText(view.turns),
+        met: view.goal_met,
       })
     ) {
       return;

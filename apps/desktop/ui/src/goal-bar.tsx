@@ -7,7 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 /** Set or clear the goal the service continues when this session goes idle. */
-export function useGoal(sessionId: () => string, goal: () => string | undefined) {
+export function useGoal(
+  sessionId: () => string,
+  goal: () => string | undefined,
+  met: () => boolean | undefined,
+) {
   const [draft, setDraft] = createSignal("");
   const [err, setErr] = createSignal("");
   const [busy, setBusy] = createSignal(false);
@@ -16,6 +20,9 @@ export function useGoal(sessionId: () => string, goal: () => string | undefined)
   // the strip does not collapse back to "set a goal" in that gap.
   const [held, setHeld] = createSignal<string | null>(null);
   const shown = () => (held() === null ? goal() : held() || undefined);
+  // A save rearms the goal before the view catches up. While that text is
+  // held, the strip stays the active one.
+  const metShown = () => held() === null && met() === true;
 
   createEffect(() => {
     const incoming = goal() ?? "";
@@ -74,7 +81,7 @@ export function useGoal(sessionId: () => string, goal: () => string | undefined)
     }
   };
 
-  return { draft, setDraft, err, busy, open, setOpen, shown, openEditor, save, remove };
+  return { draft, setDraft, err, busy, open, setOpen, shown, metShown, openEditor, save, remove };
 }
 
 export type GoalCtl = ReturnType<typeof useGoal>;
@@ -93,12 +100,16 @@ export function GoalButton(props: { g: GoalCtl }) {
       gutter={8}
       placement="top-start"
     >
-      <Tip label={g().shown() ? t("goal.edit_tip") : t("goal.set")} disabled={g().open()}>
+      <Tip label={g().metShown() ? t("goal.restart") : g().shown() ? t("goal.edit_tip") : t("goal.set")} disabled={g().open()}>
         <PopoverTrigger
           class={`grid size-7 shrink-0 place-items-center rounded-md transition-colors hover:bg-secondary ${
-            g().shown() ? "text-primary" : "text-muted-foreground hover:text-foreground"
+            g().metShown()
+              ? "text-muted-foreground"
+              : g().shown()
+                ? "text-primary"
+                : "text-muted-foreground hover:text-foreground"
           }`}
-          aria-pressed={Boolean(g().shown())}
+          aria-pressed={Boolean(g().shown()) && !g().metShown()}
           aria-label={t("goal.label")}
         >
           <Icon name="target" class="size-4" />
@@ -166,7 +177,7 @@ export function GoalButton(props: { g: GoalCtl }) {
             disabled={g().busy() || !g().draft().trim()}
             onClick={() => void g().save()}
           >
-            {g().shown() ? t("goal.update") : t("goal.save")}
+            {g().metShown() ? t("goal.restart") : g().shown() ? t("goal.update") : t("goal.save")}
           </Button>
         </div>
       </PopoverContent>
@@ -185,8 +196,13 @@ export function GoalStrip(props: { g: GoalCtl }) {
       {(text) => (
         <div class="expand-in rounded-t-2xl border border-b-0 border-input bg-secondary/70 px-3 pb-4 pt-2">
           <div class="flex items-center gap-2">
-            <Icon name="target" class="size-3.5 shrink-0 text-primary" />
-            <span class="shrink-0 text-2xs font-medium text-muted-foreground">{t("goal.label")}</span>
+            <Icon
+              name={g().metShown() ? "check" : "target"}
+              class={`size-3.5 shrink-0 ${g().metShown() ? "text-muted-foreground" : "text-primary"}`}
+            />
+            <span class="shrink-0 text-2xs font-medium text-muted-foreground">
+              {g().metShown() ? t("goal.met") : t("goal.label")}
+            </span>
             <Tip label={text()} class="min-w-0 flex-1">
               <Button
                 type="button"
@@ -194,7 +210,7 @@ export function GoalStrip(props: { g: GoalCtl }) {
                 class="h-auto min-w-0 flex-1 justify-start px-0 py-0 font-normal"
                 onClick={() => g().openEditor()}
               >
-                <span class="truncate text-xs text-foreground/80">{text()}</span>
+                <span class={`truncate text-xs ${g().metShown() ? "text-muted-foreground" : "text-foreground/80"}`}>{text()}</span>
               </Button>
             </Tip>
             <Button

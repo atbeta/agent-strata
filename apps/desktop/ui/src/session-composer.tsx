@@ -1030,9 +1030,11 @@ export function SessionComposer(props: {
   permission?: () => JSX.Element;
   /** the session's goal, shown as a strip on top of the composer and edited from the toolbar */
   goal?: string;
+  /** The model reported the goal met. The text stays; the loop does not. */
+  goalMet?: boolean;
 }) {
   const c = () => props.c;
-  const g = useGoal(props.sessionId, () => props.goal);
+  const g = useGoal(props.sessionId, () => props.goal, () => props.goalMet);
   const placeholder = () =>
     paneWorkspace().mode === "multiplex"
       ? c().generating()
