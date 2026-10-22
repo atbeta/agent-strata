@@ -11,6 +11,15 @@ import {
 } from "./api";
 import { t } from "./i18n";
 import type { MessageKey } from "./locales/zh";
+import {
+  mcpAddProblem,
+  mcpAttention,
+  mcpFollowUp,
+  mcpRowAction,
+  mcpShowAddForm,
+  mcpShowLoading,
+  type McpAddProblem,
+} from "./mcp-panel";
 import { Button } from "@/components/ui/button";
 import { MiniTabs } from "@/components/ui/mini-tabs";
 import { TextFieldInput } from "@/components/ui/text-field";
@@ -23,11 +32,36 @@ const MCP_STATUS: Record<McpServerStatus["status"], MessageKey> = {
   needs_client_registration: "mcp.status.needs_client_registration",
 };
 
+const ADD_PROBLEM: Record<McpAddProblem, MessageKey> = {
+  name: "mcp.add.name.invalid",
+  command: "mcp.add.command.invalid",
+  url: "mcp.add.url.invalid",
+};
+
 function mcpDot(status: McpServerStatus["status"]): string {
   if (status === "connected") return "bg-status-active";
   if (status === "failed" || status === "needs_client_registration") return "bg-status-error";
   if (status === "needs_auth") return "bg-status-pending";
   return "bg-muted-foreground/40";
+}
+
+/**
+ * The header's one mark. Sign-in uses the amber of a person who still has to
+ * answer — the pending gray sits too close to the muted icon to read there.
+ */
+export function McpAttentionMark(props: { tone?: "error" | "pending" }) {
+  return (
+    <Show when={props.tone}>
+      {(tone) => (
+        <span
+          class={`pointer-events-none absolute -right-0.5 -top-0.5 size-2 rounded-full ring-2 ring-background ${
+            tone() === "error" ? "bg-status-error" : "bg-status-cancelled"
+          }`}
+          aria-hidden="true"
+        />
+      )}
+    </Show>
+  );
 }
 
 export function useMcpTools(args: {
@@ -43,13 +77,14 @@ export function useMcpTools(args: {
   const [mcpServers, setMcpServers] = createSignal<[string, McpServerStatus][]>([]);
   const [mcpBusy, setMcpBusy] = createSignal<string>();
   const [mcpNote, setMcpNote] = createSignal<{ name: string; text: string }>();
+  const [mcpAddOpen, setMcpAddOpen] = createSignal(false);
 
-  const loadTools = async () => {
+  const loadTools = async (report: boolean) => {
     try {
       const mcp = await readMcp(args.sessionId());
       setMcpServers(Object.entries(mcp ?? {}).sort(([a], [b]) => a.localeCompare(b)));
     } catch (err) {
-      args.onError(err instanceof Error ? err.message : t("err.network"));
+      if (report) args.onError(err instanceof Error ? err.message : t("err.network"));
     } finally {
       setToolsReady(true);
     }
@@ -58,34 +93,35 @@ export function useMcpTools(args: {
   const toggleTools = () => {
     if (toolsOpen()) {
       setToolsOpen(false);
+      setMcpAddOpen(false);
       return;
     }
     args.onOpen?.();
     setMcpNote(undefined);
-    setToolsReady(false);
+    if (mcpServers().length === 0) setToolsReady(false);
     setToolsOpen(true);
-    void loadTools();
+    void loadTools(true);
   };
 
   createEffect(() => {
-    if (args.enabled()) void loadTools();
+    if (args.enabled()) void loadTools(true);
   });
 
   const toggleMcp = async (name: string, action: "connect" | "disconnect") => {
-    const before = mcpServers().find(([n]) => n === name)?.[1].status;
     setMcpBusy(name);
     setMcpNote(undefined);
+    let follow: ReturnType<typeof mcpFollowUp> = "stay";
     try {
       if (action === "connect") await connectMcp(args.sessionId(), name);
       else await disconnectMcp(args.sessionId(), name);
-      await loadTools();
-      const after = mcpServers().find(([n]) => n === name)?.[1].status;
-      if (after === before) setMcpNote({ name, text: t("mcp.unchanged") });
+      await loadTools(false);
+      follow = mcpFollowUp(action, mcpServers().find(([n]) => n === name)?.[1].status);
     } catch (err) {
       setMcpNote({ name, text: err instanceof Error ? err.message : t("err.network") });
     } finally {
       setMcpBusy(undefined);
     }
+    if (follow === "auth") await beginMcpAuth(name);
   };
 
   const [mcpKind, setMcpKind] = createSignal<"command" | "url">("url");
@@ -94,18 +130,30 @@ export function useMcpTools(args: {
   const [mcpAdding, setMcpAdding] = createSignal(false);
   const [mcpAddErr, setMcpAddErr] = createSignal("");
 
+  // The popover has no refresh control. While it is open, a server can finish
+  // connecting after the fetch that opened it, so the same list is read again.
+  createEffect(() => {
+    if (!args.enabled() || !toolsOpen()) return;
+    const timer = setInterval(() => {
+      if (mcpBusy() || mcpAdding()) return;
+      void loadTools(false);
+    }, 5_000);
+    onCleanup(() => clearInterval(timer));
+  });
+
   const submitMcp = async (e: Event) => {
     e.preventDefault();
     const name = mcpName().trim();
     const value = mcpValue().trim();
-    if (!name || !value || mcpAdding()) return;
+    if (!name || !value || mcpAdding() || mcpAddProblem(mcpKind(), name, value)) return;
     setMcpAdding(true);
     setMcpAddErr("");
     try {
       await addMcp(args.sessionId(), mcpKind() === "command" ? { name, command: value } : { name, url: value });
       setMcpName("");
       setMcpValue("");
-      await loadTools();
+      setMcpAddOpen(false);
+      await loadTools(false);
     } catch (err) {
       const text = err instanceof Error ? err.message : t("err.network");
       setMcpAddErr(value.length >= 8 && text.includes(value) ? t("mcp.add.failed") : text);
@@ -137,7 +185,7 @@ export function useMcpTools(args: {
       if ("url" in started && (started.url.startsWith("https://") || started.url.startsWith("http://"))) {
         setMcpAuth({ name, url: started.url });
       } else {
-        await loadTools();
+        await loadTools(false);
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
@@ -159,7 +207,7 @@ export function useMcpTools(args: {
       await finishMcpLogin(args.sessionId(), name, code, mcpAuthWait.signal);
       setMcpCode("");
       setMcpAuth(undefined);
-      await loadTools();
+      await loadTools(false);
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
       const text = err instanceof Error ? err.message : t("mcp.auth.failed");
@@ -172,11 +220,17 @@ export function useMcpTools(args: {
   return {
     toolsOpen,
     setToolsOpen,
-    closeTools: () => setToolsOpen(false),
+    closeTools: () => {
+      setToolsOpen(false);
+      setMcpAddOpen(false);
+    },
     toggleTools,
+    attention: () => mcpAttention(mcpServers().map(([, server]) => server.status)),
     mcpServers,
     mcpBusy,
     mcpNote,
+    mcpAddOpen,
+    setMcpAddOpen,
     mcpKind,
     setMcpKind,
     mcpName,
@@ -185,6 +239,7 @@ export function useMcpTools(args: {
     setMcpValue,
     mcpAdding,
     mcpAddErr,
+    setMcpAddErr,
     mcpAuth,
     mcpCode,
     setMcpCode,
@@ -205,15 +260,33 @@ export function McpToolsPanel(props: {
   lsp?: () => LspServer[] | undefined;
 }) {
   const m = () => props.tools;
+  const showForm = () => mcpShowAddForm(m().toolsReady(), m().mcpServers().length, m().mcpAddOpen());
+  const problem = () => mcpAddProblem(m().mcpKind(), m().mcpName(), m().mcpValue());
+  let scroller: HTMLDivElement | undefined;
+  createEffect(() => {
+    if (!m().mcpAddOpen()) return;
+    // The form is the last block. Pin its buttons after the row has laid out.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (!scroller) return;
+        scroller.scrollTop = scroller.scrollHeight;
+      });
+    });
+  });
   return (
     <div
       ref={props.bindPanel}
       class="absolute right-4 top-11 z-30 w-80 max-w-[calc(100%-2rem)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg"
     >
-      <div class="max-h-80 overflow-y-auto px-2 py-2">
+      <div
+        ref={(el) => {
+          scroller = el;
+        }}
+        class="max-h-80 overflow-y-auto px-2 pb-3 pt-2"
+      >
         <h2 class="px-1.5 text-2xs font-medium text-muted-foreground">{t("mcp.title")}</h2>
-        <Show when={m().toolsReady() && m().mcpServers().length === 0}>
-          <p class="mt-1.5 px-1.5 text-xs text-muted-foreground">{t("mcp.empty")}</p>
+        <Show when={mcpShowLoading(m().toolsReady(), m().mcpServers().length)}>
+          <p class="mt-1.5 px-1.5 text-xs text-muted-foreground">{t("mcp.loading")}</p>
         </Show>
         <Show when={m().mcpServers().length > 0}>
           <ul class="mt-1">
@@ -221,9 +294,12 @@ export function McpToolsPanel(props: {
               {([name, server]) => {
                 const busy = () => m().mcpBusy() === name;
                 const note = () => (m().mcpNote()?.name === name ? m().mcpNote()?.text : undefined);
-                const canDisconnect = () => server.status === "connected";
-                const canConnect = () => server.status === "disabled" || server.status === "failed";
-                const canAuth = () => server.status === "needs_auth" && m().mcpAuth()?.name !== name;
+                const action = () => mcpRowAction(server.status);
+                const showAction = () => action() !== undefined && !(action() === "auth" && m().mcpAuth()?.name === name);
+                const busyKey = (): MessageKey =>
+                  action() === "disconnect" ? "mcp.disconnecting" : action() === "auth" ? "mcp.auth" : "mcp.connecting";
+                const actionKey = (): MessageKey =>
+                  action() === "disconnect" ? "mcp.disconnect" : action() === "auth" ? "mcp.auth" : "mcp.connect";
                 return (
                   <li class="rounded-md px-1.5 py-1.5">
                     <div class="flex items-center gap-2">
@@ -236,20 +312,12 @@ export function McpToolsPanel(props: {
                         class={`truncate text-2xs ${
                           server.status === "connected"
                             ? "text-status-active"
-                            : server.status === "failed"
+                            : server.status === "failed" || server.status === "needs_client_registration"
                               ? "text-status-error"
                               : "text-muted-foreground"
                         }`}
                       >
-                        {busy()
-                          ? t(
-                              canDisconnect()
-                                ? "mcp.disconnecting"
-                                : canAuth()
-                                  ? "mcp.auth"
-                                  : "mcp.connecting",
-                            )
-                          : t(MCP_STATUS[server.status])}
+                        {busy() ? t(busyKey()) : t(MCP_STATUS[server.status])}
                         <Show
                           when={
                             !busy() &&
@@ -265,20 +333,19 @@ export function McpToolsPanel(props: {
                         <div class="truncate text-2xs text-muted-foreground">{note()}</div>
                       </Show>
                     </div>
-                    <Show when={canDisconnect() || canConnect() || canAuth()}>
+                    <Show when={showAction()}>
                       <Button
                         type="button"
                         size="xs"
                         variant="icon"
                         disabled={busy()}
                         onClick={() => {
-                          if (canAuth()) void m().beginMcpAuth(name);
-                          else void m().toggleMcp(name, canDisconnect() ? "disconnect" : "connect");
+                          if (action() === "auth") void m().beginMcpAuth(name);
+                          else if (action() === "disconnect") void m().toggleMcp(name, "disconnect");
+                          else void m().toggleMcp(name, "connect");
                         }}
                       >
-                        {busy()
-                          ? t(canDisconnect() ? "mcp.disconnecting" : canAuth() ? "mcp.auth" : "mcp.connecting")
-                          : t(canDisconnect() ? "mcp.disconnect" : canAuth() ? "mcp.auth" : "mcp.connect")}
+                        {busy() ? t(busyKey()) : t(actionKey())}
                       </Button>
                     </Show>
                     </div>
@@ -339,21 +406,38 @@ export function McpToolsPanel(props: {
             </For>
           </ul>
         </Show>
-        <Show when={m().toolsReady()}>
-          <form class="mt-2 border-t border-border px-1.5 pt-2" onSubmit={(e) => void m().submitMcp(e)}>
+        <Show when={!showForm() && m().mcpServers().length > 0}>
+          <div class="mt-2 border-t border-border px-1.5 pt-2">
+            <Button type="button" size="xs" variant="quiet" class="px-0" onClick={() => m().setMcpAddOpen(true)}>
+              {t("mcp.add")}
+            </Button>
+          </div>
+        </Show>
+        <Show when={showForm()}>
+          <form
+            class={`px-1.5 ${m().mcpServers().length > 0 ? "mt-2 border-t border-border pt-2" : "mt-2"}`}
+            onSubmit={(e) => void m().submitMcp(e)}
+          >
             <div class="text-2xs font-medium text-muted-foreground">{t("mcp.add")}</div>
             <TextFieldInput
               size="xs"
               value={m().mcpName()}
+              aria-label={t("mcp.add.name")}
               placeholder={t("mcp.add.name")}
               class="mt-1.5"
-              onInput={(e) => m().setMcpName(e.currentTarget.value)}
+              onInput={(e) => {
+                m().setMcpName(e.currentTarget.value);
+                m().setMcpAddErr("");
+              }}
             />
             <MiniTabs
               kind="radio"
               label={t("mcp.add")}
               value={m().mcpKind()}
-              onChange={(id) => m().setMcpKind(id as "url" | "command")}
+              onChange={(id) => {
+                m().setMcpKind(id as "url" | "command");
+                m().setMcpAddErr("");
+              }}
               options={[
                 { id: "url", label: t("mcp.add.url") },
                 { id: "command", label: t("mcp.add.command") },
@@ -364,23 +448,42 @@ export function McpToolsPanel(props: {
               size="xs"
               mono
               value={m().mcpValue()}
+              aria-label={t(m().mcpKind() === "command" ? "mcp.add.command" : "mcp.add.url")}
               placeholder={t(m().mcpKind() === "command" ? "mcp.add.command.placeholder" : "mcp.add.url.placeholder")}
               class="mt-1.5"
-              onInput={(e) => m().setMcpValue(e.currentTarget.value)}
+              onInput={(e) => {
+                m().setMcpValue(e.currentTarget.value);
+                m().setMcpAddErr("");
+              }}
             />
-            <p class="mt-1.5 text-2xs text-muted-foreground">{t("mcp.add.hint")}</p>
+            <p class="mt-1.5 text-2xs">
+              <Show
+                when={problem()}
+                fallback={<span class="text-muted-foreground">{t("mcp.add.hint")}</span>}
+              >
+                {(reason) => <span class="text-status-error">{t(ADD_PROBLEM[reason()])}</span>}
+              </Show>
+            </p>
             <Show when={m().mcpAddErr()}>
               <p class="mt-1 text-2xs text-status-error">{m().mcpAddErr()}</p>
             </Show>
-            <Button
-              type="submit"
-              size="xs"
-              variant="outline"
-              class="mt-1.5"
-              disabled={m().mcpAdding() || !m().mcpName().trim() || !m().mcpValue().trim()}
-            >
-              {t(m().mcpAdding() ? "mcp.add.adding" : "mcp.add.submit")}
-            </Button>
+            <div class="mt-1.5 flex items-center gap-1">
+              <Button
+                type="submit"
+                size="xs"
+                variant="outline"
+                disabled={
+                  m().mcpAdding() || !m().mcpName().trim() || !m().mcpValue().trim() || problem() !== undefined
+                }
+              >
+                {t(m().mcpAdding() ? "mcp.add.adding" : "mcp.add.submit")}
+              </Button>
+              <Show when={m().mcpServers().length > 0}>
+                <Button type="button" size="xs" variant="quiet" onClick={() => m().setMcpAddOpen(false)}>
+                  {t("mcp.add.cancel")}
+                </Button>
+              </Show>
+            </div>
           </form>
         </Show>
       </div>

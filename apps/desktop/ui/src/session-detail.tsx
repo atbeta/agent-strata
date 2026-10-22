@@ -119,7 +119,7 @@ import { ContentSashes, LoadingTranscript } from "./content-sashes";
 import { AskCard, QuestionCard } from "./session-prompts";
 import { useSessionSearch, SearchPanel } from "./session-search";
 import { clearSearchTarget, searchTarget } from "./search-target";
-import { useMcpTools, McpToolsPanel } from "./session-tools";
+import { useMcpTools, McpAttentionMark, McpToolsPanel } from "./session-tools";
 import { useSessionComposer, SessionComposer } from "./session-composer";
 import { writeDraft } from "./prompt-memory";
 import { SessionRail } from "./session-rail";
@@ -1529,7 +1529,10 @@ const turns = () => shown().turns;
                         onClick={tools.toggleTools}
                         bindRef={(el) => (toolsTriggerEl = el)}
                       >
-                        <Icon name="mcp" />
+                        <span class="relative inline-flex">
+                          <Icon name="mcp" />
+                          <McpAttentionMark tone={tools.attention()} />
+                        </span>
                       </PanelToggle>
                     </Tip>
                   </Show>
