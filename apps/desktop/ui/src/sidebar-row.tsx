@@ -3,6 +3,7 @@ import { Icon } from "./icons";
 import { t } from "./i18n";
 import type { SessionStatus } from "./session-status";
 import { SessionStatusMark } from "@/components/ui/session-status";
+import { ShellMark } from "./shell-mark";
 import { ListRow } from "@/components/ui/list-row";
 import {
   DropdownMenu,
@@ -39,6 +40,8 @@ export function SessionListItem(props: {
    * more than one instance connected.
    */
   instance?: { short: string; tip: string };
+  /** A server the shell has not exited. */
+  shell?: { command: string; detail: string };
 }) {
   const [editing, setEditing] = createSignal(false);
   const [draft, setDraft] = createSignal(props.title);
@@ -121,6 +124,9 @@ export function SessionListItem(props: {
               had ended cleanly drew: nothing. `sessionStatus()` decides, this
               draws. */}
           <SessionStatusMark status={props.status} />
+          <Show when={props.shell}>
+            {(shell) => <ShellMark command={shell().command} detail={shell().detail} />}
+          </Show>
           {/* Before the title, not after it: the title reserves its right padding
               for the timestamp, which is absolutely positioned over the end of the
               row, and a badge placed after the title lands on top of it. Left of

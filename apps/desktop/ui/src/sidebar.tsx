@@ -252,6 +252,7 @@ export function Sidebar(props: {
                   onCompare={() => props.onStartCompare(id)}
                   onSplitOpen={() => openSessionInSplit(id, "row")}
                   instance={instanceOf(s())}
+                  shell={s().shell}
                 />
               );
             }}

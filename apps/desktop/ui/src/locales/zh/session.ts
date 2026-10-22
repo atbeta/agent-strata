@@ -30,6 +30,7 @@ export default {
   "session.status.stopped": "已停止",
   "session.status.done": "已完成",
   "session.status.idle": "空闲",
+  "session.shell.running": "这个会话的终端还停在这条命令上：{command}",
 
   // A permission request sitting above the composer.
   "permission.wants_to_run": "等待确认",
