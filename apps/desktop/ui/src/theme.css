@@ -744,6 +744,11 @@ html[data-code-size] .font-mono {
 html[data-code-leading] .font-mono {
   line-height: var(--code-leading);
 }
-html[data-code-ligatures="off"] .font-mono {
+/* Markdown code takes its face from `@apply font-mono` and never carries the
+   class, so a selector aimed only at `.font-mono` leaves the transcript joined
+   after the switch is off. Coding faces keep `>=` in `calt`, and clearing the
+   variant property alone leaves that feature on in Chromium. */
+html[data-code-ligatures="off"] :is(.font-mono, .md code) {
   font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
 }
