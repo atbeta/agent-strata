@@ -262,33 +262,18 @@ export function thinkingPreview(text: string): string {
 const REAL_INSTANT_MS = 1_000_000_000_000;
 
 /**
- * How long a thought has been going, in milliseconds.
+ * How long a finished thought ran, on the same scale as a tool's latency.
  *
- * A live thought counts from the backend's start to `now`. A finished one is
- * the span the backend reported. A missing clock, or a live stamp that is not
- * a real instant, is no answer.
+ * Only a span the backend itself reported counts: both stamps, both real
+ * instants, end not before start. A clock we saw ticking locally is an
+ * estimate the client made up — it answers nothing, so it shows nothing.
  */
-export function thinkingElapsed(input: {
-  startedMs?: number;
-  endedMs?: number;
-  live: boolean;
-  now: number;
-}): number | undefined {
-  const start = input.startedMs;
-  if (input.live) {
-    if (start == null || !Number.isFinite(start) || start < REAL_INSTANT_MS) return undefined;
-    return Math.max(0, input.now - start);
-  }
-  const end = input.endedMs;
-  if (start == null || end == null || !Number.isFinite(start) || !Number.isFinite(end)) return undefined;
-  return Math.max(0, end - start);
-}
-
-/** The same scale as a tool's latency. A live thought under a minute ticks in whole seconds. */
-export function formatThinkingClock(ms: number | undefined, live: boolean): string | undefined {
-  if (ms == null) return undefined;
-  if (live && ms < 60_000) return t("latency.s", { n: Math.floor(ms / 1000) });
-  return fmtLatency(ms);
+export function thinkingDuration(startedMs?: number, endedMs?: number): string | undefined {
+  if (startedMs == null || endedMs == null) return undefined;
+  if (!Number.isFinite(startedMs) || !Number.isFinite(endedMs)) return undefined;
+  if (startedMs < REAL_INSTANT_MS || endedMs < REAL_INSTANT_MS) return undefined;
+  if (endedMs < startedMs) return undefined;
+  return fmtLatency(endedMs - startedMs);
 }
 
 /** Milliseconds and seconds are units: `840ms`, `1.5s`, `12s`, `2m 05s`, `10h 15m` in every language. */

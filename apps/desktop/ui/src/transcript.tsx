@@ -24,7 +24,7 @@ import {
   diffStat,
   fmtElapsed,
   fmtLatency,
-  formatThinkingClock,
+  thinkingDuration,
   hasMessageContent,
   goalMetReply,
   isDiff,
@@ -32,7 +32,6 @@ import {
   messageText,
   permissionLabel,
   toolStatusLabel,
-  thinkingElapsed,
   thinkingPreview,
   todoItems,
   toolHeadline,
@@ -130,46 +129,36 @@ function ThinkingBlock(props: {
     window.addEventListener("strata-thinking", onPref);
     onCleanup(() => window.removeEventListener("strata-thinking", onPref));
   });
+  let blockEl!: HTMLDivElement;
   const toggle = () => {
     const next = !open();
     if (props.scope !== undefined) thinkingChoice.set(props.scope, next);
+    // Collapsing from a pinned header should land on the collapsed row, not
+    // wherever the thought used to end. The header being stuck means the
+    // thought's own top is already above the viewport, so pull the row back.
+    const stuck =
+      !next &&
+      blockEl.getBoundingClientRect().top <
+        (blockEl.closest(".overflow-y-auto")?.getBoundingClientRect().top ?? -Infinity);
     setOpen(next);
+    if (stuck) queueMicrotask(() => blockEl.scrollIntoView({ block: "nearest" }));
   };
-  // A thought we watched live still has a duration when the backend sent no
-  // end. One that arrives already finished, with no span, stays blank.
-  const [now, setNow] = createSignal(Date.now());
-  const [seenAt, setSeenAt] = createSignal<number | undefined>(props.live ? Date.now() : undefined);
-  const [frozenAt, setFrozenAt] = createSignal<number>();
-  createEffect(() => {
-    if (props.live) {
-      if (seenAt() == null) setSeenAt(Date.now());
-      const id = setInterval(() => setNow(Date.now()), 1000);
-      onCleanup(() => clearInterval(id));
-      return;
-    }
-    if (seenAt() != null) setFrozenAt((v) => v ?? Date.now());
-  });
-  const clock = () => {
-    const live = props.live === true;
-    const backend = thinkingElapsed({
-      startedMs: props.startedMs,
-      endedMs: props.endedMs,
-      live,
-      now: now(),
-    });
-    if (backend != null) return formatThinkingClock(backend, live);
-    const start = seenAt();
-    if (start == null) return undefined;
-    const end = live ? now() : frozenAt();
-    if (end == null) return undefined;
-    return formatThinkingClock(Math.max(0, end - start), live);
-  };
+  // A live thought shows no time at all — nothing the backend has said yet is
+  // a duration, and a client-watched span is a guess. A finished one reports
+  // its backend-measured span where a tool row reports its latency.
+  const duration = () =>
+    props.live ? undefined : thinkingDuration(props.startedMs, props.endedMs);
   return (
     // Same shape as the tool row below — one hanging indent, one inset, one
     // icon column. A thought and a tool call are both collapsed activity with
     // a chevron and they alternate down the stream, so they share the row's
     // exact geometry or the icon column drifts with every other line.
-    <div class="-ml-2">
+    <div class="-ml-2" ref={blockEl}>
+      {/* An open thought can run for a screenful of lines, so its header pins
+          to the top of the transcript while the reader scrolls through it and
+          releases with the block's own end — the collapse is always at hand
+          without a second scrollbar. */}
+      <div class={open() ? "sticky top-0 z-10 bg-background" : undefined}>
       <RowButton class="text-xs focus-visible:ring-inset" aria-expanded={open()} onClick={toggle}>
         <Icon
           name="brain"
@@ -178,33 +167,37 @@ function ThinkingBlock(props: {
         <span class="shrink-0 text-xs font-medium text-muted-foreground">
           {props.live ? t("transcript.thinking") : t("transcript.thought")}
         </span>
-        <Show when={clock()}>
-          {(c) => (
-            <span
-              class={`shrink-0 font-mono text-2xs tabular-nums ${props.live ? "text-status-active" : "text-muted-foreground"}`}
-            >
-              {c()}
-            </span>
-          )}
-        </Show>
         <Show when={!open() && thinkingPreview(props.text)}>
           {/* rtl puts the overflow on the left, so a narrow row keeps the
               newest words. The inner bdi draws those words left to right. */}
-          <span dir="rtl" class="min-w-0 truncate text-left text-xs text-muted-foreground/70">
+          <span dir="rtl" class="min-w-0 flex-1 truncate text-left text-xs text-muted-foreground/70">
             <bdi dir="ltr">{thinkingPreview(props.text)}</bdi>
           </span>
         </Show>
-        <span
-          class="ml-auto inline-flex shrink-0 text-muted-foreground transition-transform"
-          style={{ transform: open() ? "none" : "rotate(-90deg)" }}
-        >
-          <Icon name="chevron" class="size-3" />
+        {/* Duration and chevron ride the same right edge as a tool row's
+            latency and chevron — one `ml-auto` cluster, the row's gap-2. */}
+        <span class="ml-auto flex shrink-0 items-center gap-2">
+          <Show when={duration()}>
+            {(d) => (
+              <span class="shrink-0 font-mono text-2xs tabular-nums text-muted-foreground">
+                {d()}
+              </span>
+            )}
+          </Show>
+          <span
+            class="inline-flex shrink-0 text-muted-foreground transition-transform"
+            style={{ transform: open() ? "none" : "rotate(-90deg)" }}
+          >
+            <Icon name="chevron" class="size-3" />
+          </span>
         </span>
       </RowButton>
+      </div>
       <Show when={open()}>
-        {/* The collapse stays on the row. A long thought scrolls in this box,
-            so the control is never a page above the words being read. */}
-        <div class="expand-in ml-[22px] max-h-72 overflow-y-auto overscroll-y-contain py-1.5">
+        {/* The body scrolls with the transcript like every other block; the
+            pinned header above is what keeps the collapse at hand. A live
+            thought just grows — nothing here fights the scroller's follow. */}
+        <div class="expand-in ml-[22px] py-1.5">
           <Md class="text-sm leading-6 text-muted-foreground" text={props.text} />
         </div>
       </Show>

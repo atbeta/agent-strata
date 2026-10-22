@@ -459,12 +459,15 @@ export function Virtual<T>(props: VirtualProps<T>) {
           const row = props.children(item, i);
           return (
             <div
-              class="absolute left-0 right-0 top-0"
+              class="absolute left-0 right-0"
               ref={(el) => {
                 observed.set(el, { key: props.id(item(), i), i });
                 ro.observe(el);
               }}
-              style={{ transform: `translateY(${offsets()[i]}px)` }}
+              // `top`, not `transform`: a transformed ancestor becomes a
+              // containing block that `position: sticky` cannot see past,
+              // which would keep an open thought's header from pinning.
+              style={{ top: `${offsets()[i]}px` }}
             >
               {row}
             </div>

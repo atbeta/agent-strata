@@ -643,7 +643,7 @@ export function useSessionComposer(args: {
           {(m) => <ProviderIcon provider={m().providerID} />}
         </Show>
       }
-      class="composer-model max-w-40"
+      class="composer-model max-w-64"
       onChange={(value) => {
         setModelTouched(true);
         setModelSel(value);
