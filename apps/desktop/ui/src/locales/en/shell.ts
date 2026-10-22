@@ -360,7 +360,7 @@ export default {
   "maintenance.clean.done": "Removed {n} rebuildable rows.",
   "maintenance.clean.nothing": "No sessions match.",
   "maintenance.clean.andMore": "and {n} more sessions.",
-  "maintenance.archivedMoved": "Archived sessions are at the top of the sidebar, where they can be restored or deleted.",
+  "maintenance.archivedMoved": "Archived sessions are at the bottom of the sidebar list, where they can be restored or deleted.",
   "maintenance.loading": "Reading…",
   "notify.desktopOnly": "Notification testing is only available in the desktop app.",
   "notify.test.title": "Agent Strata test notification",

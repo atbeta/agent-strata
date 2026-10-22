@@ -11,13 +11,14 @@ import { Button } from "@/components/ui/button";
 import { RowButton } from "@/components/ui/row-button";
 
 /**
- * Archived sessions where a session belongs: the sidebar.
+ * Archived sessions, under the working list.
  *
  * They are folded away by default — an archived conversation is not part of the
- * working set — but they are not in a settings page either, because restoring
- * one is a session action, not database upkeep. Deleting one says what the two
- * halves mean before it happens: the backend copy and the local record, and how
- * many local-only facts cannot be rebuilt.
+ * working set — and the fold itself sits at the bottom of the rail, after the
+ * projects, so it is an entry and not a section. Restoring one stays here,
+ * because that is a session action, not database upkeep. Deleting one says what
+ * the two halves mean before it happens: the backend copy and the local record,
+ * and how many local-only facts cannot be rebuilt.
  */
 export function ArchivedSection(props: {
   list: SessionListCtl;
@@ -78,13 +79,13 @@ export function ArchivedSection(props: {
 
   return (
     <Show when={rows().length > 0}>
-      <div class="mb-1 border-b border-border px-2 pb-1.5 pt-1">
+      <div class="mt-3 px-2 pb-1">
         <RowButton
-          class="h-7 items-center gap-2 px-1 text-xs text-muted-foreground hover:bg-accent/70"
+          class="h-6 items-center gap-1.5 px-1 text-2xs text-muted-foreground/55 hover:bg-accent/50 hover:text-muted-foreground"
           aria-expanded={open()}
           onClick={() => setOpen((on) => !on)}
         >
-          <Icon name="archive" class="size-3.5 shrink-0 text-muted-foreground/70" />
+          <Icon name="archive" class="size-3 shrink-0 text-muted-foreground/45" />
           <span class="truncate">{t("sidebar.archived", { n: rows().length })}</span>
           <Icon
             name="chevron"
