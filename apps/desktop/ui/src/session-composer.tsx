@@ -44,6 +44,9 @@ import {
 import {
   ATTACHMENT_ACCEPT,
   attachmentProblem,
+  COMPOSER_MAX_HEIGHT,
+  composerResize,
+  composerValueWrite,
   commandOf,
   commandParts,
   insertPick,
@@ -146,6 +149,12 @@ export function useSessionComposer(args: {
   const menuId = createUniqueId();
   let draftEl: HTMLTextAreaElement | undefined;
   let fileInput: HTMLInputElement | undefined;
+  /** Set for the whole IME composition, including the input events inside it. */
+  let composing = false;
+  /** Character count at the last height decision, so a longer key is not a shrink. */
+  let seenChars = 0;
+  /** Pixel height of a one-line draft. Backspace below this does not remeasure. */
+  let singleLineHeight = 0;
 
   const citeLine = (note: string) => {
     setDraft((cur) => (cur && !cur.endsWith("\n") ? `${cur}\n${note}` : `${cur}${note}`));
@@ -153,9 +162,30 @@ export function useSessionComposer(args: {
   };
 
   const autogrow = () => {
-    if (!draftEl) return;
-    draftEl.style.height = "auto";
-    draftEl.style.height = `${Math.min(draftEl.scrollHeight, 220)}px`;
+    const el = draftEl;
+    if (!el) return;
+    const textShrunk = el.value.length < seenChars;
+    seenChars = el.value.length;
+    const singleLine =
+      singleLineHeight > 0 && !el.value.includes("\n") && el.clientHeight <= singleLineHeight + 1;
+    const decision = composerResize({
+      scrollHeight: el.scrollHeight,
+      clientHeight: el.clientHeight,
+      textShrunk,
+      singleLine,
+    });
+    if (decision.action === "keep") {
+      if (!el.value.includes("\n") && !el.style.height && el.clientHeight > 0) singleLineHeight = el.clientHeight;
+      return;
+    }
+    if (decision.action === "grow") {
+      el.style.height = `${decision.height}px`;
+      return;
+    }
+    el.style.height = "auto";
+    const next = Math.min(el.scrollHeight, COMPOSER_MAX_HEIGHT);
+    el.style.height = `${next}px`;
+    if (!el.value.includes("\n")) singleLineHeight = next;
   };
 
   const menuItems = () => (menuList().kind === trigger()?.kind ? menuList().items : []);
@@ -746,7 +776,22 @@ export function useSessionComposer(args: {
 
   // Keyed on the draft alone: on a switch the new id lands before `resetFor`
   // reads the new draft, and writing then would give it the old session's text.
-  createEffect(on(draft, (text) => writeDraft(untrack(args.sessionId), text), { defer: true }));
+  // The field is not controlled. A keystroke already put the text in the DOM;
+  // writing `value` again restarts an IME composition. Only a draft that
+  // arrived from outside, and only once composition is over, is copied in.
+  createEffect(
+    on(
+      draft,
+      (text) => {
+        writeDraft(untrack(args.sessionId), text);
+        const el = draftEl;
+        if (!el || !composerValueWrite({ composing, domValue: el.value, draft: text })) return;
+        el.value = text;
+        queueMicrotask(autogrow);
+      },
+      { defer: true },
+    ),
+  );
 
   // A restored draft arrives with a collapsed textarea; grow it once it exists.
   onMount(() => {
@@ -864,6 +909,33 @@ export function useSessionComposer(args: {
     }
   };
 
+  const onDraftInput: JSX.EventHandler<HTMLTextAreaElement, InputEvent> = (e) => {
+    // A composition owns the field until compositionend. An input event that
+    // forgets isComposing must not hand the field back early.
+    if (e.isComposing) composing = true;
+    setDraft(e.currentTarget.value);
+    setHistIndex(-1);
+    autogrow();
+    if (!e.isComposing) track();
+  };
+  const onCompositionStart = () => {
+    composing = true;
+  };
+  const onCompositionEnd = () => {
+    composing = false;
+    // The box is what the reader sees. A draft written while the IME owned
+    // the field stays out of the box; once composition ends, the signal
+    // follows the text that was actually committed.
+    const el = draftEl;
+    if (el && el.value !== draft()) setDraft(el.value);
+    track();
+    finishComposition();
+  };
+  const onDraftBlur = () => {
+    composing = false;
+    setTrigger(undefined);
+  };
+
   return {
     draft,
     setDraft,
@@ -913,7 +985,15 @@ export function useSessionComposer(args: {
     clearPending: closeHandover,
     resetFor,
     onKeyDown,
-    bindDraft: (el: HTMLTextAreaElement) => (draftEl = el),
+    onDraftInput,
+    onCompositionStart,
+    onCompositionEnd,
+    onDraftBlur,
+    bindDraft: (el: HTMLTextAreaElement) => {
+      draftEl = el;
+      el.value = draft();
+      seenChars = el.value.length;
+    },
     focusDraft: () => {
       if (!draftEl) return;
       draftEl.focus();
@@ -1054,24 +1134,16 @@ export function SessionComposer(props: {
             rows={1}
             placeholder={placeholder()}
             aria-label={placeholder()}
-            value={c().draft()}
             aria-autocomplete="list"
             aria-controls={c().menuOpen() && c().menuItems().length ? c().menuId : undefined}
             aria-activedescendant={
               c().menuOpen() && c().menuItems().length ? `${c().menuId}-${c().menuActive()}` : undefined
             }
-            onInput={(e) => {
-              c().setDraft(e.currentTarget.value);
-              c().setHistIndex(-1);
-              c().autogrow();
-              if (!e.isComposing) c().track();
-            }}
-            onCompositionEnd={() => {
-              c().track();
-              c().finishComposition();
-            }}
+            onInput={c().onDraftInput}
+            onCompositionStart={c().onCompositionStart}
+            onCompositionEnd={c().onCompositionEnd}
             onClick={c().track}
-            onBlur={() => c().setTrigger(undefined)}
+            onBlur={c().onDraftBlur}
             onKeyUp={(e) => {
               if (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "Home" || e.key === "End") c().track();
             }}

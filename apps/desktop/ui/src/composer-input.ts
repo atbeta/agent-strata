@@ -281,6 +281,40 @@ export function stepAgent(agents: readonly string[], current: string, step: 1 | 
   return j >= 0 && j < agents.length ? agents[j] : undefined;
 }
 
+/** The composer box stops growing here, the same cap the field already used. */
+export const COMPOSER_MAX_HEIGHT = 220;
+
+/**
+ * What a keystroke should do to the composer height.
+ *
+ * Reading `scrollHeight` after forcing `height: auto` lays out the column on
+ * every character. A key that still fits, and a backspace that is still one
+ * line, keep the current height. Growth can use the overflow the box already
+ * reports. Only a shorter wrapped draft needs the collapse.
+ */
+export function composerResize(input: {
+  scrollHeight: number;
+  clientHeight: number;
+  textShrunk: boolean;
+  singleLine: boolean;
+  cap?: number;
+}): { action: "keep" } | { action: "grow"; height: number } | { action: "measure" } {
+  if (input.clientHeight <= 0) return { action: "keep" };
+  const cap = input.cap ?? COMPOSER_MAX_HEIGHT;
+  if (input.scrollHeight > input.clientHeight + 1) {
+    const height = Math.min(input.scrollHeight, cap);
+    if (height <= input.clientHeight + 1) return { action: "keep" };
+    return { action: "grow", height };
+  }
+  if (!input.textShrunk || input.singleLine) return { action: "keep" };
+  return { action: "measure" };
+}
+
+/** An in-progress IME composition owns the textarea. Writing `value` then restarts it. */
+export function composerValueWrite(input: { composing: boolean; domValue: string; draft: string }): boolean {
+  return !input.composing && input.domValue !== input.draft;
+}
+
 export const ATTACHMENT_ACCEPT = "image/png,image/jpeg,image/gif,image/webp,application/pdf";
 const ATTACHMENT_MIMES = new Set(ATTACHMENT_ACCEPT.split(","));
 export const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;

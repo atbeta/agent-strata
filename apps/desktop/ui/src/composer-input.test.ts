@@ -20,6 +20,9 @@ import {
   restoreFailed,
   toAttachment,
   triggerAt,
+  COMPOSER_MAX_HEIGHT,
+  composerResize,
+  composerValueWrite,
 } from "./composer-input";
 
 describe("what the caret is typing", () => {
@@ -355,5 +358,58 @@ describe("attachments", () => {
 
   test("a file without a type is refused", async () => {
     await expect(toAttachment(new File([new Uint8Array([1])], "x"), "k")).rejects.toThrow();
+  });
+});
+
+describe("composer field while typing", () => {
+  test("a key that still fits does not resize the box", () => {
+    expect(composerResize({ scrollHeight: 40, clientHeight: 40, textShrunk: false, singleLine: false })).toEqual({
+      action: "keep",
+    });
+    expect(composerResize({ scrollHeight: 41, clientHeight: 40, textShrunk: false, singleLine: false })).toEqual({
+      action: "keep",
+    });
+  });
+
+  test("a wrapped line grows to the content, and stops at the cap", () => {
+    expect(composerResize({ scrollHeight: 72, clientHeight: 40, textShrunk: false, singleLine: false })).toEqual({
+      action: "grow",
+      height: 72,
+    });
+    expect(composerResize({ scrollHeight: 400, clientHeight: 180, textShrunk: false, singleLine: false })).toEqual({
+      action: "grow",
+      height: COMPOSER_MAX_HEIGHT,
+    });
+    expect(composerResize({ scrollHeight: 400, clientHeight: COMPOSER_MAX_HEIGHT, textShrunk: false, singleLine: false })).toEqual({
+      action: "keep",
+    });
+  });
+
+  test("backspace on one line stays put, and a shorter wrapped draft is remeasured", () => {
+    expect(composerResize({ scrollHeight: 40, clientHeight: 40, textShrunk: true, singleLine: true })).toEqual({
+      action: "keep",
+    });
+    expect(composerResize({ scrollHeight: 80, clientHeight: 80, textShrunk: true, singleLine: false })).toEqual({
+      action: "measure",
+    });
+  });
+
+  test("a hidden box is left alone", () => {
+    expect(composerResize({ scrollHeight: 40, clientHeight: 0, textShrunk: true, singleLine: false })).toEqual({
+      action: "keep",
+    });
+  });
+
+  test("the field is written only when the draft arrived from outside an IME composition", () => {
+    expect(composerValueWrite({ composing: true, domValue: "你", draft: "你好" })).toBe(false);
+    expect(composerValueWrite({ composing: false, domValue: "你好", draft: "你好" })).toBe(false);
+    expect(composerValueWrite({ composing: false, domValue: "旧的", draft: "编辑回来的" })).toBe(true);
+  });
+
+  test("the textarea is not a controlled value, and growth goes through composerResize", () => {
+    const src = readFileSync(join(import.meta.dir, "session-composer.tsx"), "utf8");
+    expect(src.includes("value={c().draft()}")).toBe(false);
+    expect(src.includes("composerResize")).toBe(true);
+    expect(src.includes("composerValueWrite")).toBe(true);
   });
 });
