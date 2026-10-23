@@ -455,6 +455,32 @@ describe("projector", () => {
     expect(cleared.goal).toBeUndefined();
     expect(cleared.goal_met).toBeUndefined();
     expect(cleared.goal_seq).toBeUndefined();
+    expect(cleared.goal_paused).toBeUndefined();
+  });
+
+  test("pausing a goal keeps the text and a later goal starts again", () => {
+    const paused = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      mk("s", "session.goal", { text: "ship the fix" }),
+      mk("s", "session.goal", { text: "ship the fix", paused: true }),
+    ]);
+    expect(paused.goal).toBe("ship the fix");
+    expect(paused.goal_paused).toBe(true);
+    expect(paused.goal_met).toBeUndefined();
+    const resumed = projectSession([
+      mk("s2", "session.started", { workspace: "/w" }),
+      mk("s2", "session.goal", { text: "ship the fix", paused: true }),
+      mk("s2", "session.goal", { text: "ship the fix" }),
+    ]);
+    expect(resumed.goal).toBe("ship the fix");
+    expect(resumed.goal_paused).toBeUndefined();
+    const cleared = projectSession([
+      mk("s3", "session.started", { workspace: "/w" }),
+      mk("s3", "session.goal", { text: "ship the fix", paused: true }),
+      mk("s3", "session.goal", { text: null }),
+    ]);
+    expect(cleared.goal).toBeUndefined();
+    expect(cleared.goal_paused).toBeUndefined();
   });
 
   test("busy flag and pending questions follow the latest events", () => {

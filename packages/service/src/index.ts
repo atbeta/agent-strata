@@ -15,7 +15,7 @@ import { connectOpencodeDriver } from "./opencode-driver";
 import { LiveOverlay } from "./live";
 import { filesKeyOf, ViewCache } from "./views";
 import { makeEvent, type EventInput } from "@agent-strata/schema";
-import { goalContinuation, goalMetByReply, lastAssistantReply, sessionAwaiting, shouldContinueGoal } from "./goal";
+import { goalContinuation, goalMetByReply, lastAssistantReply, nextPlanStep, sessionAwaiting, shouldContinueGoal } from "./goal";
 import { connectAcpDriver } from "./acp-driver";
 import { bootPlan, REMEMBERED_PROBE_MS } from "./boot-connect";
 import { connectionPhase, connectionPlacement, sameEndpoint } from "./connection-phase";
@@ -386,6 +386,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         paused: goalPaused.has(sessionId),
         kicked: goalKicked.has(sessionId),
         met: view.goal_met,
+        held: view.goal_paused,
       })
     ) {
       return;
@@ -393,7 +394,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     const conn = driverFor(sessionId);
     const native = conn?.nativeId(sessionId);
     if (!conn || !native || !conn.capabilities.prompt || !view.goal) return;
-    const text = goalContinuation(view.goal);
+    const text = goalContinuation(view.goal, nextPlanStep(view.plan));
     goalKicked.add(sessionId);
     void conn.prompt(native, [{ type: "text", text }], { directory: directoryOf(sessionId) }).catch((err) => {
       goalKicked.delete(sessionId);
@@ -1635,12 +1636,17 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       if (store.lastSeq(sid) <= 0) return json({ error: "not found" }, 404);
       if (req.method === "GET") {
         let text: string | null = null;
+        let paused = false;
+        let met = false;
         try {
-          text = sessionView(sid).goal ?? null;
+          const view = sessionView(sid);
+          text = view.goal ?? null;
+          paused = view.goal_paused === true;
+          met = view.goal_met === true;
         } catch {
           text = null;
         }
-        return json({ text, session_id: sid });
+        return json({ text, paused, met, session_id: sid });
       }
       if (req.method === "DELETE") {
         store.append([
@@ -1656,7 +1662,44 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         return json({ ok: true, text: null, session_id: sid });
       }
       if (req.method === "PUT") {
-        const body = (await req.json().catch(() => null)) as { text?: unknown } | null;
+        const body = (await req.json().catch(() => null)) as { text?: unknown; paused?: unknown } | null;
+        if (typeof body?.paused === "boolean" && body.text === undefined) {
+          let view: SessionView;
+          try {
+            view = sessionView(sid);
+          } catch {
+            return json({ error: "not found" }, 404);
+          }
+          if (!view.goal) return json({ error: "no goal" }, 400);
+          if (body.paused) {
+            if (view.goal_met) return json({ error: "goal is met" }, 409);
+            if (!view.goal_paused) {
+              store.append([
+                makeEvent({
+                  session_id: sid,
+                  source: { backend: "desktop" },
+                  type: "session.goal",
+                  data: { text: view.goal, paused: true },
+                }) as EventInput,
+              ]);
+            }
+            return json({ ok: true, text: view.goal, paused: true, session_id: sid });
+          }
+          if (view.goal_paused) {
+            store.append([
+              makeEvent({
+                session_id: sid,
+                source: { backend: "desktop" },
+                type: "session.goal",
+                data: { text: view.goal },
+              }) as EventInput,
+            ]);
+            goalPaused.delete(sid);
+            goalKicked.delete(sid);
+            considerGoal(sid);
+          }
+          return json({ ok: true, text: view.goal, paused: false, session_id: sid });
+        }
         const text = typeof body?.text === "string" ? body.text.trim() : "";
         if (!text) return json({ error: "text required" }, 400);
         if (text.length > GOAL_MAX) return json({ error: "text is too long" }, 400);

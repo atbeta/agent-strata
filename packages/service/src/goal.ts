@@ -3,17 +3,28 @@ import type { SessionView } from "@agent-strata/projector";
 /** The only reply that means the goal is finished. Anything else keeps going. */
 export const GOAL_MET = "GOAL MET";
 
+/** The plan entry a continuation should do next: the one in progress, else the first still pending. */
+export function nextPlanStep(
+  plan: readonly { content: string; status: string }[] | undefined,
+): string | undefined {
+  if (!plan) return undefined;
+  const hit = plan.find((entry) => entry.status === "in_progress") ?? plan.find((entry) => entry.status === "pending");
+  const text = hit?.content.trim();
+  if (!text) return undefined;
+  return text.length > 200 ? `${text.slice(0, 199)}…` : text;
+}
+
 /** What the service sends when a session with a goal goes idle. */
-export function goalContinuation(goal: string): string {
-  return [
+export function goalContinuation(goal: string, next?: string): string {
+  const lines = [
     "The session has a goal. Continue working toward it. Take the next concrete step.",
     "",
     "Goal:",
     goal,
-    "",
-    "If the goal is already met, reply with exactly this line and nothing else:",
-    GOAL_MET,
-  ].join("\n");
+  ];
+  if (next) lines.push("", "Next plan item:", next);
+  lines.push("", "If the goal is already met, reply with exactly this line and nothing else:", GOAL_MET);
+  return lines.join("\n");
 }
 
 export function goalIsMet(text: string): boolean {
@@ -82,6 +93,8 @@ export function goalMetByReply(input: {
  * itself as busy yet, so a second idle must not send another one.
  * `paused` means the user aborted, which would otherwise look like an ordinary
  * idle and immediately undo the abort.
+ * `held` means the reader paused the goal itself. That one is stored on the
+ * goal, and a later message does not lift it.
  */
 export function shouldContinueGoal(input: {
   goal?: string;
@@ -94,8 +107,10 @@ export function shouldContinueGoal(input: {
   kicked: boolean;
   /** Recorded on the goal itself, so a later message does not start the loop again. */
   met?: boolean;
+  /** Recorded on the goal itself. Resume is a separate write. */
+  held?: boolean;
 }): boolean {
-  if (!input.goal || input.met) return false;
+  if (!input.goal || input.met || input.held) return false;
   if (input.busy || input.paused || input.kicked || input.pending) return false;
   if (input.deleted || input.archived) return false;
   if (input.status !== "active") return false;

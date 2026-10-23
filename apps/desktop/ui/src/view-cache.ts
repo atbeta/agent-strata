@@ -74,6 +74,7 @@ export function tailMatches(view: SessionView, tail: ViewTail): boolean {
   if ((view.parent_session_id ?? null) !== (tail.parent_session_id ?? null)) return false;
   if ((view.goal ?? null) !== (tail.goal ?? null)) return false;
   if ((view.goal_met === true) !== (tail.goal_met === true)) return false;
+  if ((view.goal_paused === true) !== (tail.goal_paused === true)) return false;
   if ((view.archived === true) !== (tail.archived === true)) return false;
   if ((view.deleted === true) !== (tail.deleted === true)) return false;
   if (JSON.stringify(view.orphans ?? []) !== JSON.stringify(tail.orphans ?? [])) return false;

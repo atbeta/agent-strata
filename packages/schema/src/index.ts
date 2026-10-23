@@ -84,6 +84,9 @@ const data = {
     // Present only when the model reported this goal met. A later goal event
     // that omits it is a fresh start, so the flag does not linger.
     met: z.boolean().optional(),
+    // Present when the reader paused this goal. Omitting it starts again,
+    // the same way omitting `met` does.
+    paused: z.boolean().optional(),
   }),
   "session.compacted": z.object({
     message_id: z.string().min(1),

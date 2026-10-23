@@ -88,5 +88,10 @@ describe("reader view cache", () => {
     met.goal = "ship it";
     met.goal_met = true;
     expect(tailMatches(held, tailOf(met))).toBe(false);
+    const heldGoal = structuredClone(held);
+    heldGoal.goal = "ship it";
+    const paused = structuredClone(heldGoal);
+    paused.goal_paused = true;
+    expect(tailMatches(heldGoal, tailOf(paused))).toBe(false);
   });
 });

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { makeEvent, type EventInput } from "@agent-strata/schema";
 import { OPENCODE_REBUILT_TYPES } from "@agent-strata/adapter-opencode";
-import { goalIsMet, shouldContinueGoal } from "../src/goal";
+import { goalContinuation, goalIsMet, nextPlanStep, shouldContinueGoal } from "../src/goal";
 import { startService } from "../src/index";
 import { fakeOpencode } from "./fake-opencode";
 
@@ -24,9 +24,19 @@ describe("whether a goal should continue", () => {
     expect(shouldContinueGoal({ ...ready, pending: true })).toBe(false);
     expect(shouldContinueGoal({ ...ready, status: "completed" })).toBe(false);
     expect(shouldContinueGoal({ ...ready, met: true })).toBe(false);
+    expect(shouldContinueGoal({ ...ready, held: true })).toBe(false);
     expect(goalIsMet("GOAL MET")).toBe(true);
     expect(goalIsMet("done\nGOAL MET")).toBe(true);
     expect(goalIsMet("not yet")).toBe(false);
+    expect(nextPlanStep([
+      { content: "done already", status: "completed" },
+      { content: "  write the test  ", status: "in_progress" },
+      { content: "then the page", status: "pending" },
+    ])).toBe("write the test");
+    expect(nextPlanStep([{ content: "then the page", status: "pending" }])).toBe("then the page");
+    expect(nextPlanStep([{ content: "done", status: "completed" }])).toBeUndefined();
+    expect(goalContinuation("ship it", "write the test")).toContain("write the test");
+    expect(goalContinuation("ship it")).not.toContain("Next plan item");
   });
 });
 
@@ -63,6 +73,12 @@ describe("a goal continues the session when it goes idle", () => {
         headers: { "content-type": "application/json" },
         body: method === "PUT" ? JSON.stringify({ text }) : undefined,
       });
+    const hold = (paused: boolean) =>
+      fetch(`${base}/sessions/${encodeURIComponent(sid)}/goal`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ paused }),
+      });
     const waitFor = async (n: number) => {
       for (let i = 0; i < 40 && prompts().length < n; i++) await Bun.sleep(15);
     };
@@ -70,6 +86,7 @@ describe("a goal continues the session when it goes idle", () => {
       prompts,
       waitFor,
       goal,
+      hold,
       post,
       base,
       stop() {
@@ -210,6 +227,52 @@ describe("a goal continues the session when it goes idle", () => {
     run.append("session.status", { state: "idle" }, "2026-01-01T00:00:12Z");
     await Bun.sleep(40);
     expect(run.prompts().filter((s) => s.body.includes("ship the fix"))).toHaveLength(1);
+    run.stop();
+  });
+
+  test("pausing a goal keeps the text and stops continuation until it is resumed", async () => {
+    const run = await boot();
+    await run.goal("PUT", "ship the fix");
+    await run.waitFor(1);
+    const paused = await run.hold(true);
+    expect(paused.status).toBe(200);
+    expect((await run.view()).goal).toBe("ship the fix");
+    expect((await run.view()).goal_paused).toBe(true);
+    expect((await run.view()).goal_met).toBeUndefined();
+    run.append("session.status", { state: "busy" }, "2026-01-01T00:00:02Z");
+    run.append("session.status", { state: "idle" }, "2026-01-01T00:00:03Z");
+    await Bun.sleep(40);
+    expect(run.prompts()).toHaveLength(1);
+    const resumed = await run.hold(false);
+    expect(resumed.status).toBe(200);
+    await run.waitFor(2);
+    expect(run.prompts()).toHaveLength(2);
+    expect((await run.view()).goal_paused).toBeUndefined();
+    expect((await run.view()).goal).toBe("ship the fix");
+    run.stop();
+  });
+
+  test("a continuation names the unfinished plan item", async () => {
+    const run = await boot();
+    await run.goal("PUT", "ship the fix");
+    await run.waitFor(1);
+    run.append(
+      "plan.updated",
+      {
+        entries: [
+          { content: "already shipped", status: "completed" },
+          { content: "write the pause control", status: "in_progress" },
+          { content: "then the board", status: "pending" },
+        ],
+      },
+      "2026-01-01T00:00:02Z",
+    );
+    run.append("session.status", { state: "busy" }, "2026-01-01T00:00:03Z");
+    run.append("session.status", { state: "idle" }, "2026-01-01T00:00:04Z");
+    await run.waitFor(2);
+    expect(run.prompts()).toHaveLength(2);
+    expect(run.prompts().at(-1)!.body).toContain("write the pause control");
+    expect(run.prompts().at(-1)!.body).not.toContain("already shipped");
     run.stop();
   });
 

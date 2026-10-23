@@ -137,6 +137,8 @@ export interface SessionView {
   goal?: string;
   /** The model reported the goal met. A later goal event without `met` clears it. */
   goal_met?: boolean;
+  /** The reader paused the goal. A later goal event without `paused` starts it again. */
+  goal_paused?: boolean;
   /** Seq of the goal event that set the current text, so an older reply cannot complete a goal that was just saved. */
   goal_seq?: number;
   turns: Turn[];
@@ -293,9 +295,12 @@ export function projectSession(events: Event[]): SessionView {
           view.goal_seq = e.seq;
           if (e.data.met) view.goal_met = true;
           else delete view.goal_met;
+          if (e.data.paused) view.goal_paused = true;
+          else delete view.goal_paused;
         } else {
           delete view.goal;
           delete view.goal_met;
+          delete view.goal_paused;
           delete view.goal_seq;
         }
         break;
