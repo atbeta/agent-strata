@@ -24,6 +24,10 @@ import { Sidebar } from "./sidebar";
 import { installExternalLinkHandler } from "./external-open";
 import { requestSearchTarget } from "./search-target";
 import { installNotifyActions } from "./notify";
+import { StartupGate } from "./startup-gate";
+import { useStartup } from "./use-startup";
+import { SyncLine } from "./sync-line";
+import { changesSessionList } from "./sync-events";
 
 export function App() {
   const [route, setRoute] = createSignal<Route>(parseHash());
@@ -41,6 +45,9 @@ export function App() {
     activeId,
   });
   const conns = useConnections({ currentDir: () => ws.lastDir() ?? undefined, onChanged: () => list.refetch() });
+  const boot = useStartup({ conns, list, ws });
+  /** A finished sync is the one moment the overview's usage buckets move. */
+  const [usageKey, setUsageKey] = createSignal(1);
 
   /**
    * Where an undirected "+" lands: the session being read first — the eye is
@@ -111,6 +118,11 @@ export function App() {
     const es = new EventSource(api("/stream"));
     let timer: ReturnType<typeof setTimeout> | undefined;
     const pull = () => {
+      // During launch the gate owns the wait and the service is already
+      // connecting; a full project/session read every 12s would only add work
+      // to the sync it is waiting for. A running sync rereads on its finish,
+      // so a poll landing in the middle would only compete with it.
+      if (!boot.ready() || conns.syncTicks().size > 0) return;
       void syncBackend()
         .catch(() => {})
         .finally(() => {
@@ -133,6 +145,7 @@ export function App() {
     let wsStale = false;
     es.onmessage = (m) => {
       if (isStreamingSnapshotMessage(m.data)) return;
+      let type: string | undefined;
       // The project list costs a round trip to every backend, and only a
       // session appearing, moving or going away can change it.
       try {
@@ -142,28 +155,56 @@ export function App() {
           done?: number;
           total?: number;
         };
+        type = evt.type;
         // Sync ticks update the progress strip and nothing else; the session.*
         // events a sync produces already drive the refetch.
         if (evt.type?.startsWith("sync.")) {
           conns.onSyncEvent(evt);
+          // A refetch already queued by the last event would land in the
+          // middle of this sync; the finish does the reread instead. The
+          // finish clears its own queued copy so the reread happens once.
+          if (evt.type === "sync.started" || evt.type === "sync.finished") clearTimeout(timer);
+          const allDone = conns.syncTicks().size === 0;
+          if (evt.type === "sync.finished" && allDone) {
+            setUsageKey((n) => n + 1);
+            // Metadata events seen during the sync were deliberately not
+            // reread; take the workspace list once the sync is over.
+            if (wsStale) {
+              wsStale = false;
+              void ws.refetchWs();
+            }
+          }
           return;
         }
         if (evt.type === "session.started" || evt.type === "session.updated" || evt.type === "session.deleted") wsStale = true;
       } catch {
         // heartbeats
       }
+      // A sync emits a transcript event per imported message. Re-projecting
+      // the whole list for each one is what made the overview's token total
+      // climb message by message and put "刚刚" on rows whose real time had
+      // not been imported yet. Only a structural event gets through; the
+      // finish does one full reread for everything else.
+      const behindSync = conns.syncTicks().size > 0;
+      if (behindSync && !changesSessionList(type)) return;
       clearTimeout(timer);
-      timer = setTimeout(() => {
-        list.refetch();
-        conns.refetchConns();
-        if (wsStale) {
-          wsStale = false;
-          void ws.refetchWs();
-        }
-      }, 200);
+      timer = setTimeout(
+        () => {
+          list.refetch();
+          conns.refetchConns();
+          if (wsStale) {
+            wsStale = false;
+            void ws.refetchWs();
+          }
+        },
+        behindSync ? 900 : 200,
+      );
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.isComposing) return;
+      // The gate owns the window until launch is over; a shortcut that only
+      // changes state behind it would land on an empty app after the gate.
+      if (!boot.ready()) return;
       if (switcher.switchOpen() && e.key === "Escape") {
         switcher.setSwitchOpen(false);
         e.preventDefault();
@@ -404,6 +445,30 @@ export function App() {
   return (
     <div class="flex h-full min-h-0 flex-col bg-background">
       <WindowCaptionBar />
+      <Show
+        when={boot.ready()}
+        fallback={
+          <Show
+            when={boot.visible()}
+            fallback={<div class="min-h-0 flex-1 bg-background" />}
+          >
+            <StartupGate
+              stage={boot.stage()}
+              sync={boot.sync()}
+              attempts={conns.attempts()}
+              slow={boot.slow()}
+              canEnter={boot.canEnter()}
+              onEnter={boot.enter}
+              onRetry={boot.retry}
+              onSettings={() => {
+                boot.enter();
+                location.hash = "/settings/backends";
+              }}
+            />
+          </Show>
+        }
+      >
+      <>
       <div class="flex min-h-0 flex-1">
       <Sidebar
         list={list}
@@ -426,6 +491,7 @@ export function App() {
       />
 
       <main class="@container/main relative min-w-0 flex-1">
+        <SyncLine ticks={conns.syncTicks()} show={conns.syncShown()} />
         <Show when={route().name === "fleet"}>
           <PageShell title={t("fleet.scope.all")}>
             <Show
@@ -439,6 +505,7 @@ export function App() {
               <FleetView
                 sessions={list.sessions()}
                 now={clock()}
+                refreshKey={usageKey()}
                 onOpen={openSession}
                 onOpenProject={(dir) => setFocusDir(dir)}
               />
@@ -506,6 +573,8 @@ export function App() {
         onChoose={switcher.chooseSwitch}
         onCancel={() => switcher.setSwitchOpen(false)}
       />
+      </>
+      </Show>
     </div>
   );
 }

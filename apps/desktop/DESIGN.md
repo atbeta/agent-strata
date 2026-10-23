@@ -158,6 +158,12 @@ Two consequences follow from the log being the record rather than the promise. A
 
 The card still needs a place to be. The dock has one. A pane showing another session beside this one does not — it has no questions, no dock and no composer, only a banner that jumps here — so a question raised while you were looking elsewhere is answered by coming back, not by answering in place.
 
+### A launch that is honest about waiting
+
+The first window is a launch surface, not the app. `StartupGate` waits for the sidecar, the backend, the first session list and the initial sync, then mounts the real screens. Before this, the first frame painted "service unreachable" in the footer and the sidebar while the sidecar was still coming up, then "connecting", then a sync the reader could not use; each was true for a moment and none was the whole situation. The gate shows one stage list, the sync progress, and only the actions that can help: retry, open the log, open connection settings, or enter with local history once the list is there. A launch that finishes inside 150ms skips the gate rather than flashing it, and a launch that has succeeded never puts the gate back for a later background sync.
+
+A sync after launch is not a second launch. The list and the overview are held still while it runs: only structural events (a session appearing, leaving, changing status, or waiting on the reader) refresh them, and the finish does one full reread. That is what kept a token total from climbing message by message and a row from reading "刚刚" before its real timestamp was imported. The footer marks a running sync with a spinner, not the word, and a two-pixel line at the top of the content appears only after 1.5s, so a routine poll is over before either is seen.
+
 ## Screens
 
 - **Sidebar** (`App.tsx`): project switcher, search, sessions grouped by day or by project.

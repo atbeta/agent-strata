@@ -277,13 +277,23 @@ export async function getJson<T>(p: string, init?: RequestInit): Promise<T> {
 }
 
 /**
+ * How long a first read waits for the sidecar before giving up.
+ *
+ * The startup screen owns this wait now; the resource should not turn a slow
+ * launch into a red error a few seconds before the service would have answered.
+ * Keeping the two numbers together means the screen and the reads it waits on
+ * cannot disagree about how long "still starting" lasts.
+ */
+export const SERVICE_BOOT_MS = 30_000;
+
+/**
  * The first read races the service, which is spawned beside the window and is
  * not listened for before the page paints. A connection failure is that race;
  * an HTTP error is the service already answering, and waiting would only hide it.
  */
 export async function getJsonWhenUp<T>(path: string): Promise<T> {
   if (!inDesktopShell()) return getJson(path);
-  const deadline = Date.now() + 8_000;
+  const deadline = Date.now() + SERVICE_BOOT_MS;
   for (;;) {
     try {
       return await getJson<T>(path);

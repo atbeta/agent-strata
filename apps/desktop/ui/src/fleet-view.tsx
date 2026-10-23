@@ -78,13 +78,16 @@ const RECENT_SHOWN = 10;
  * Status leads because it is the only thing on the page that asks for an
  * action. Usage comes second, and its windows are what actually happened
  * inside them — the day's usage buckets, never a session's lifetime
- * re-labelled as "today". While the buckets are in flight the figures say "—"
- * rather than guess, and the lists fall back to what the session rows alone
+ * re-labelled as "today". While the first buckets are in flight the figures
+ * say "—" rather than guess; a refresh after a sync keeps the last set until
+ * the new one lands, and the lists fall back to what the session rows alone
  * can say.
  */
 export function FleetView(props: {
   sessions: SessionRow[];
   now: number;
+  /** Changes after a sync: the usage buckets are stale even when the rows are not. */
+  refreshKey?: number;
   onOpen: (id: string) => void;
   onOpenProject: (directory: string) => void;
 }) {
@@ -93,10 +96,14 @@ export function FleetView(props: {
   const [allRecent, setAllRecent] = createSignal(false);
   // The service buckets by the caller's zone, so the UI's day keys agree
   // with the service's day keys by construction.
-  const [daily] = createResource(() =>
-    fetchDailyUsage(Intl.DateTimeFormat().resolvedOptions().timeZone),
+  const [daily] = createResource(
+    () => props.refreshKey ?? 1,
+    () => fetchDailyUsage(Intl.DateTimeFormat().resolvedOptions().timeZone),
   );
-  const buckets = () => (daily.state === "ready" ? daily() : undefined);
+  // A refresh keeps the last buckets on screen; only a first load or a failed
+  // read has none. Hiding them during the sync-finish reread made every figure
+  // flash to "—" immediately before showing the new total.
+  const buckets = () => (daily.error ? undefined : daily.latest);
 
   const totalsFor = (key: Period) =>
     buckets() ? fleetTotals(props.sessions, buckets()!, key, props.now) : undefined;

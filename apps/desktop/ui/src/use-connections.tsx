@@ -172,15 +172,17 @@ export function useConnections(opts: {
       if (next.size === 0) {
         clearTimeout(syncGrace);
         setSyncShown(false);
+        // The list is held still while any sync runs; reread once, when the
+        // last one is over, rather than on every connection's finish.
+        opts.onChanged();
       }
-      opts.onChanged();
       return;
     }
     const idle = syncTicks().size === 0;
     const next = new Map(syncTicks());
     next.set(id, { done: evt.done ?? 0, total: evt.total ?? 0 });
     setSyncTicks(next);
-    if (idle) syncGrace = setTimeout(() => setSyncShown(true), 800);
+    if (idle) syncGrace = setTimeout(() => setSyncShown(true), 1_500);
   };
   const clearSyncGrace = () => clearTimeout(syncGrace);
 
@@ -272,22 +274,27 @@ export function ConnectionsFooter(props: {
             <For each={settled(c().conns)?.connections ?? []}>
               {(conn) => {
                 const tick = () => (c().syncShown() ? c().syncTicks().get(conn.id) : undefined);
+                const syncText = () =>
+                  tick()
+                    ? tick()!.total > 0
+                      ? t("sidebar.sync.progress", { done: tick()!.done, total: tick()!.total })
+                      : t("sidebar.sync.scanning")
+                    : undefined;
                 return (
                   <div
                     class="flex min-w-0 items-center gap-2 px-1.5 py-0 text-xs"
-                    title={
-                      tick()
-                        ? tick()!.total > 0
-                          ? t("sidebar.sync.progress", { done: tick()!.done, total: tick()!.total })
-                          : t("sidebar.sync.scanning")
-                        : conn.baseUrl
-                    }
+                    title={syncText() ?? conn.baseUrl}
                   >
-                    <span
-                      class={`h-1.5 w-1.5 shrink-0 rounded-full bg-status-active ${
-                        tick() ? "motion-safe:animate-pulse" : ""
-                      }`}
-                    />
+                    <Show
+                      when={tick()}
+                      fallback={<span class="h-1.5 w-1.5 shrink-0 rounded-full bg-status-active" />}
+                    >
+                      <span
+                        class="size-3 shrink-0 rounded-full border-2 border-muted-foreground/25 border-t-foreground motion-safe:animate-spin"
+                        role="img"
+                        aria-label={syncText() ?? t("sidebar.sync.busy")}
+                      />
+                    </Show>
                     <span class="truncate">
                       {backendLabel(conn.backend)}
                       <Show when={placementWord(conn.placement)}>
@@ -295,13 +302,6 @@ export function ConnectionsFooter(props: {
                       </Show>
                       <span class="font-mono text-2xs text-muted-foreground"> · {endpointHost(conn.baseUrl)}</span>
                     </span>
-                    <Show when={tick()}>
-                      {(tk) => (
-                        <span class="ml-auto shrink-0 whitespace-nowrap font-mono text-2xs text-muted-foreground tabular-nums">
-                          {tk().total > 0 ? `${tk().done}/${tk().total}` : t("sidebar.sync.busy")}
-                        </span>
-                      )}
-                    </Show>
                   </div>
                 );
               }}

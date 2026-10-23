@@ -162,6 +162,40 @@ export default {
     "The agent server is starting. Sessions appear on its own once it is up — nothing to do here.",
   "fleet.hint.failed": "Connect one that is still running.",
 
+  // Launch
+  "startup.service": "Starting the local service",
+  "startup.opencode": "Connecting to OpenCode",
+  "startup.sessions": "Loading sessions",
+  "startup.sync": "Syncing session history",
+  "startup.degraded": "OpenCode did not connect",
+  "startup.serviceError": "The local service did not start",
+  "startup.sessionsError": "Could not load the session list",
+  "startup.serviceHint": "Agent Strata is starting its local service. This usually takes a few seconds.",
+  "startup.opencodeHint": "Waiting for OpenCode to come up; the first launch can take longer.",
+  "startup.sessionsHint": "Reading the local session list.",
+  "startup.syncHint":
+    "Bringing OpenCode's session history into the local store. The sync can continue in the background.",
+  "startup.degradedHint":
+    "Local history is still readable. The connection can be fixed in settings.",
+  "startup.serviceErrorHint":
+    "The local service is not answering. Retry, or open the log to see why.",
+  "startup.sessionsErrorHint":
+    "The local service is up, but the session list could not be read.",
+  "startup.steps": "Startup steps",
+  "startup.step.service": "Local service",
+  "startup.step.opencode": "OpenCode",
+  "startup.step.sessions": "Sessions",
+  "startup.step.sync": "History sync",
+  "startup.syncCount": "{done} of {total} synced",
+  "startup.syncScanning": "Scanning sessions…",
+  "startup.enter": "Enter the app",
+  "startup.enterLocal": "Enter with local history only",
+  "startup.retry": "Retry",
+  "startup.settings": "Open connection settings",
+  "startup.log": "Open log",
+  "startup.slow": "The first launch can take a moment.",
+  "startup.attempts": "Last attempts: {targets}",
+
   // Time
   "time.now": "now",
   "time.today": "Today",
