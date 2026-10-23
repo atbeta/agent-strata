@@ -78,6 +78,7 @@ import { promptAt, promptEntries } from "./prompt-outline";
 import { applyStreamingSnapshot, mergeViewTail, type StreamingSnapshot } from "./live";
 import { ECHO_TURN_ID } from "./prompt-echo";
 import { descendantSessions } from "./session-tree";
+import { ChildBoard } from "./child-board";
 import {
   filesKeyOf,
   peekView,
@@ -1587,6 +1588,8 @@ const turns = () => shown().turns;
                 </span>
               </header>
 
+              <ChildBoard parentId={props.id} sessions={props.sessions} />
+
               <Show when={search.searchOpen()}>
                 <SearchPanel search={search} bindPanel={(el) => (searchPanelEl = el)} />
               </Show>
@@ -1946,6 +1949,7 @@ const turns = () => shown().turns;
                       permission={autoAcceptToggle}
                       goal={v().goal}
                       goalMet={v().goal_met}
+                      goalPaused={v().goal_paused}
                     />
                   </div>
                 </div>

@@ -1032,9 +1032,11 @@ export function SessionComposer(props: {
   goal?: string;
   /** The model reported the goal met. The text stays; the loop does not. */
   goalMet?: boolean;
+  /** The reader paused the goal. The text stays; idle does not continue it. */
+  goalPaused?: boolean;
 }) {
   const c = () => props.c;
-  const g = useGoal(props.sessionId, () => props.goal, () => props.goalMet);
+  const g = useGoal(props.sessionId, () => props.goal, () => props.goalMet, () => props.goalPaused);
   const placeholder = () =>
     paneWorkspace().mode === "multiplex"
       ? c().generating()

@@ -35,3 +35,30 @@ export function descendantSessions(
   }
   return out;
 }
+
+export interface ChildBoardRow {
+  summary: { session_id: string; last_ts?: string };
+  parent?: string | null;
+  deleted?: boolean;
+  busy?: boolean;
+  needs_input?: boolean;
+  status?: string;
+}
+
+/**
+ * The sessions this one opened directly, in the order a board should show them.
+ *
+ * Waiting outranks running, and running outranks a session that has already
+ * stopped. Deleted rows are gone. A row that names itself is not its own child.
+ * Deeper descendants stay on their own parent's board.
+ */
+export function childBoardRows<T extends ChildBoardRow>(rows: readonly T[], id: string): T[] {
+  const rank = (row: T) => (row.needs_input ? 0 : row.busy ? 1 : row.status === "error" ? 2 : 3);
+  return rows
+    .filter((row) => row.parent === id && row.summary.session_id !== id && row.deleted !== true)
+    .sort(
+      (a, b) =>
+        rank(a) - rank(b) ||
+        (b.summary.last_ts ?? "").localeCompare(a.summary.last_ts ?? ""),
+    );
+}

@@ -1,5 +1,5 @@
 import { createEffect, createSignal, on, Show } from "solid-js";
-import { clearGoal, setGoal } from "./api";
+import { clearGoal, setGoal, setGoalPaused } from "./api";
 import { Icon } from "./icons";
 import { t } from "./i18n";
 import { Tip } from "./tip";
@@ -11,6 +11,7 @@ export function useGoal(
   sessionId: () => string,
   goal: () => string | undefined,
   met: () => boolean | undefined,
+  paused: () => boolean | undefined,
 ) {
   const [draft, setDraft] = createSignal("");
   const [err, setErr] = createSignal("");
@@ -19,10 +20,22 @@ export function useGoal(
   // The view arrives a beat after the write. Hold the text we just saved so
   // the strip does not collapse back to "set a goal" in that gap.
   const [held, setHeld] = createSignal<string | null>(null);
+  // null follows the view. true/false is the pause we just wrote, until the
+  // view agrees.
+  const [heldPause, setHeldPause] = createSignal<boolean | null>(null);
   const shown = () => (held() === null ? goal() : held() || undefined);
   // A save rearms the goal before the view catches up. While that text is
   // held, the strip stays the active one.
   const metShown = () => held() === null && met() === true;
+  const pausedShown = () => {
+    if (metShown()) return false;
+    if (heldPause() !== null) return heldPause() === true;
+    return paused() === true;
+  };
+
+  createEffect(() => {
+    if (heldPause() === (paused() === true)) setHeldPause(null);
+  });
 
   createEffect(() => {
     const incoming = goal() ?? "";
@@ -36,6 +49,7 @@ export function useGoal(
       sessionId,
       () => {
         setHeld(null);
+        setHeldPause(null);
         setErr("");
         setOpen(false);
         setDraft("");
@@ -58,6 +72,7 @@ export function useGoal(
     try {
       await setGoal(sessionId(), text);
       setHeld(text);
+      setHeldPause(false);
       setOpen(false);
     } catch (e) {
       setErr(e instanceof Error ? e.message : t("goal.err"));
@@ -73,6 +88,7 @@ export function useGoal(
     try {
       await clearGoal(sessionId());
       setHeld("");
+      setHeldPause(null);
       setOpen(false);
     } catch (e) {
       setErr(e instanceof Error ? e.message : t("goal.err"));
@@ -81,7 +97,21 @@ export function useGoal(
     }
   };
 
-  return { draft, setDraft, err, busy, open, setOpen, shown, metShown, openEditor, save, remove };
+  const hold = async (next: boolean) => {
+    if (busy() || metShown()) return;
+    setBusy(true);
+    setErr("");
+    try {
+      await setGoalPaused(sessionId(), next);
+      setHeldPause(next);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : t("goal.err"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return { draft, setDraft, err, busy, open, setOpen, shown, metShown, pausedShown, openEditor, save, remove, hold };
 }
 
 export type GoalCtl = ReturnType<typeof useGoal>;
@@ -103,7 +133,7 @@ export function GoalButton(props: { g: GoalCtl }) {
       <Tip label={g().metShown() ? t("goal.restart") : g().shown() ? t("goal.edit_tip") : t("goal.set")} disabled={g().open()}>
         <PopoverTrigger
           class={`grid size-7 shrink-0 place-items-center rounded-md transition-colors hover:bg-secondary ${
-            g().metShown()
+            g().metShown() || g().pausedShown()
               ? "text-muted-foreground"
               : g().shown()
                 ? "text-primary"
@@ -198,10 +228,10 @@ export function GoalStrip(props: { g: GoalCtl }) {
           <div class="flex items-center gap-2">
             <Icon
               name={g().metShown() ? "check" : "target"}
-              class={`size-3.5 shrink-0 ${g().metShown() ? "text-muted-foreground" : "text-primary"}`}
+              class={`size-3.5 shrink-0 ${g().metShown() || g().pausedShown() ? "text-muted-foreground" : "text-primary"}`}
             />
             <span class="shrink-0 text-2xs font-medium text-muted-foreground">
-              {g().metShown() ? t("goal.met") : t("goal.label")}
+              {g().metShown() ? t("goal.met") : g().pausedShown() ? t("goal.paused") : t("goal.label")}
             </span>
             <Tip label={text()} class="min-w-0 flex-1">
               <Button
@@ -210,9 +240,21 @@ export function GoalStrip(props: { g: GoalCtl }) {
                 class="h-auto min-w-0 flex-1 justify-start px-0 py-0 font-normal"
                 onClick={() => g().openEditor()}
               >
-                <span class={`truncate text-xs ${g().metShown() ? "text-muted-foreground" : "text-foreground/80"}`}>{text()}</span>
+                <span class={`truncate text-xs ${g().metShown() || g().pausedShown() ? "text-muted-foreground" : "text-foreground/80"}`}>{text()}</span>
               </Button>
             </Tip>
+            <Show when={!g().metShown()}>
+              <Button
+                type="button"
+                size="xs"
+                variant="quiet"
+                class="shrink-0"
+                disabled={g().busy()}
+                onClick={() => void g().hold(!g().pausedShown())}
+              >
+                {g().pausedShown() ? t("goal.resume") : t("goal.pause")}
+              </Button>
+            </Show>
             <Button
               type="button"
               size="icon-2xs"

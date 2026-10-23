@@ -735,6 +735,16 @@ export async function setGoal(sessionId: string, text: string): Promise<void> {
   );
 }
 
+export async function setGoalPaused(sessionId: string, paused: boolean): Promise<void> {
+  await throwOnError(
+    await fetch(api(`/sessions/${encodeURIComponent(sessionId)}/goal`), {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ paused }),
+    }),
+  );
+}
+
 export async function clearGoal(sessionId: string): Promise<void> {
   await throwOnError(
     await fetch(api(`/sessions/${encodeURIComponent(sessionId)}/goal`), { method: "DELETE" }),
