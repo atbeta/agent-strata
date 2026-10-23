@@ -132,12 +132,11 @@ export function ProjectLensMenu(props: { list: SessionListCtl }) {
         <DropdownMenuTrigger
           class={cn(
             "grid h-5 place-items-center rounded text-muted-foreground/60 hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-            // A lens that narrows something has to say so after the menu
-            // closes, or the projects that went missing look like projects
-            // that never were. The mark alone turning white was not enough:
-            // it stayed the same shape. On, it becomes a tinted chip and
-            // wears how many axes are set, which is readable without
-            // remembering what the icon looked like a moment ago.
+            // A search, a status, a period or a backend takes sessions off
+            // the list, and the button has to keep saying so after the menu
+            // closes. Hiding empty projects and the way the list is grouped
+            // are how the reader keeps the sidebar; they stay written on
+            // their own rows and do not light this chip.
             on()
               ? "grid-flow-col gap-0.5 bg-primary/15 px-1 text-primary hover:bg-primary/20 hover:text-primary"
               : "size-5",

@@ -175,25 +175,24 @@ export function groupVisible(
 }
 
 /**
- * How many axes are off their resting value.
+ * How many axes are hiding sessions.
  *
- * Zero is the lens doing nothing. The button that opens it wears the count
- * when it is not: a colour shift on a mark this small is easy to miss once
- * the menu has closed, and a digit is something a reader can check without
- * opening the menu to find out whether the list is the whole list.
+ * Hiding an empty project, and grouping by day instead of by project, arrange
+ * the list the reader keeps. They are not news: a chip that stays lit because
+ * empty directories are hidden stops meaning anything. The button wears this
+ * count only for a search, a status, a period, or a backend — the cuts that
+ * take a session off the list the reader would otherwise see.
  */
 export function lensCount(lens: ProjectLens): number {
   let n = 0;
   if (lens.query.trim().length > 0) n += 1;
-  if (lens.hideEmpty) n += 1;
-  if (lens.groupBy !== NO_LENS.groupBy) n += 1;
   if (lens.status !== NO_LENS.status) n += 1;
   if (lens.period !== NO_LENS.period) n += 1;
   if (lens.type !== NO_LENS.type) n += 1;
   return n;
 }
 
-/** Whether the lens is narrowing anything at all. */
+/** Whether a session the reader would otherwise see is being left out. */
 export function lensActive(lens: ProjectLens): boolean {
   return lensCount(lens) > 0;
 }

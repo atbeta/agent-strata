@@ -110,20 +110,24 @@ describe("the project lens", () => {
     expect(groupVisible(lens, { rows: 0, total: 0, path: "E:\\Code\\other" }, "D:\\Code\\Beta")).toBe(false);
   });
 
-  test("a lens is only active when it narrows something", () => {
+  test("a lens is only active when it is hiding sessions", () => {
     expect(lensActive({ ...NO_LENS, query: "   " })).toBe(false);
     expect(lensActive({ ...NO_LENS, query: "beta" })).toBe(true);
-    expect(lensActive({ ...NO_LENS, hideEmpty: true })).toBe(true);
-    expect(lensActive({ ...NO_LENS, groupBy: "day" })).toBe(true);
     expect(lensActive({ ...NO_LENS, status: "busy" })).toBe(true);
     expect(lensActive({ ...NO_LENS, period: "week" })).toBe(true);
     expect(lensActive({ ...NO_LENS, type: "acp" })).toBe(true);
+    // Hiding empty projects and grouping by day arrange the list. They stay
+    // set, and they do not announce themselves as a filter in force.
+    expect(lensActive({ ...NO_LENS, hideEmpty: true })).toBe(false);
+    expect(lensActive({ ...NO_LENS, groupBy: "day" })).toBe(false);
   });
 
-  test("the count is one per axis that is off rest, and blank space is not one", () => {
+  test("the count is one per axis that hides sessions, and a standing arrangement is not one", () => {
     expect(lensCount(NO_LENS)).toBe(0);
     expect(lensCount({ ...NO_LENS, query: "   " })).toBe(0);
     expect(lensCount({ ...NO_LENS, query: "beta", status: "busy", period: "week" })).toBe(3);
+    expect(lensCount({ ...NO_LENS, hideEmpty: true, groupBy: "day" })).toBe(0);
+    expect(lensCount({ ...NO_LENS, hideEmpty: true, query: "beta", groupBy: "day" })).toBe(1);
     expect(lensActive(NO_LENS)).toBe(lensCount(NO_LENS) > 0);
   });
 
