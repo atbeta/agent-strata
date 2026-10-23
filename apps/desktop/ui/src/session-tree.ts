@@ -62,3 +62,38 @@ export function childBoardRows<T extends ChildBoardRow>(rows: readonly T[], id: 
         (b.summary.last_ts ?? "").localeCompare(a.summary.last_ts ?? ""),
     );
 }
+
+/**
+ * Open the fold on arrival when a child is waiting on the reader.
+ *
+ * A quiet list stays shut. Several finished children under the header are a
+ * count, and the titles are a click away; a child that cannot move without
+ * the reader is the case the fold exists to put on screen.
+ */
+export function childBoardStartsOpen(rows: readonly { needs_input?: boolean }[]): boolean {
+  return rows.some((row) => row.needs_input === true);
+}
+
+export interface ChildBoardFold {
+  waiting: number;
+  running: number;
+  /**
+   * The child a closed fold names. Waiting outranks running. A list where
+   * nobody is mid-work names nobody — the count is the whole line.
+   */
+  previewId?: string;
+}
+
+/** What the closed fold can say without spreading every title across the header. */
+export function childBoardFold<T extends { summary: { session_id: string }; needs_input?: boolean; busy?: boolean }>(
+  rows: readonly T[],
+): ChildBoardFold {
+  const waitingRows = rows.filter((row) => row.needs_input);
+  const runningRows = rows.filter((row) => row.busy && !row.needs_input);
+  const preview = waitingRows[0] ?? runningRows[0];
+  return {
+    waiting: waitingRows.length,
+    running: runningRows.length,
+    previewId: preview?.summary.session_id,
+  };
+}

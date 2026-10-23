@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { childBoardRows, descendantSessions } from "./session-tree";
+import { childBoardFold, childBoardRows, childBoardStartsOpen, descendantSessions } from "./session-tree";
 
 const row = (id: string, parent?: string) => ({ summary: { session_id: id }, parent: parent ?? null });
 
@@ -57,5 +57,30 @@ describe("the board under a parent session", () => {
       "idle-new",
       "idle-old",
     ]);
+  });
+
+  test("starts open only when a child is waiting", () => {
+    expect(childBoardStartsOpen([board("ask", "parent", { needs_input: true })])).toBe(true);
+    expect(childBoardStartsOpen([board("busy", "parent", { busy: true })])).toBe(false);
+    expect(childBoardStartsOpen([board("idle", "parent")])).toBe(false);
+    expect(childBoardStartsOpen([])).toBe(false);
+  });
+
+  test("a closed fold names who is waiting, else who is running, and stays quiet otherwise", () => {
+    const ask = board("ask", "parent", { needs_input: true });
+    const busy = board("busy", "parent", { busy: true });
+    const idle = board("idle", "parent");
+    expect(childBoardFold([idle, busy, ask])).toEqual({
+      waiting: 1,
+      running: 1,
+      previewId: "ask",
+    });
+    expect(childBoardFold([idle, busy])).toEqual({ waiting: 0, running: 1, previewId: "busy" });
+    expect(childBoardFold([idle])).toEqual({ waiting: 0, running: 0, previewId: undefined });
+    expect(childBoardFold([board("both", "parent", { needs_input: true, busy: true })])).toEqual({
+      waiting: 1,
+      running: 0,
+      previewId: "both",
+    });
   });
 });
