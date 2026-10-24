@@ -14,6 +14,10 @@ export default {
   "tool.verb.plan": "Plan",
   "tool.verb.task": "Subagent",
   "tool.verb.question": "Question",
+  "tool.verb.dev.start": "Start",
+  "tool.verb.dev.logs": "Logs",
+  "tool.verb.dev.stop": "Stop",
+  "tool.verb.dev.list": "List",
 
   "tool.search.in": "in {path}",
   "plan.items.one": "{n} item",

@@ -199,7 +199,6 @@ export default {
   "dev.logs.failed": "日志读取失败。",
   "dev.failed": "启动失败",
   "dev.pid": "PID {pid}",
-  "dev.uptime": "已运行 {time}",
   "dev.stop.failed": "停止失败：{reason}",
   "rail.resize": "调整侧栏宽度",
   "content.resize": "调整阅读区宽度（双击复位）",

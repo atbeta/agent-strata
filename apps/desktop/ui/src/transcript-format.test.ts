@@ -129,6 +129,33 @@ describe("tool headlines", () => {
     });
   });
 
+  test("a dev tool reads as the shell work it is, named by its action", () => {
+    // `Dev_start` was the fallback — a capitalised tool name with the
+    // underscore still in it. The family renders like the terminal it runs in
+    // (the shell kind gets the `$ command` well), and the verb is the action.
+    withLocale("en", () => {
+      expect(toolHeadline({ tool: "dev_start", input: { command: "pnpm dev --port 3000" } })).toEqual({
+        kind: "shell",
+        verb: "Start",
+        title: "pnpm dev --port 3000",
+      });
+      expect(toolHeadline({ tool: "dev_logs", input: { process_id: "dev_01" } })).toEqual({
+        kind: "shell",
+        verb: "Logs",
+        title: "dev_01",
+      });
+      expect(toolHeadline({ tool: "dev_stop", input: { process_id: "dev_01" } }).verb).toBe("Stop");
+      expect(toolHeadline({ tool: "dev_list", input: {} })).toEqual({
+        kind: "shell",
+        verb: "List",
+        title: "",
+      });
+    });
+    withLocale("zh", () => {
+      expect(toolHeadline({ tool: "dev_start", input: { command: "pnpm dev" } }).verb).toBe("启动");
+    });
+  });
+
   test("a question tool reads as a question and titles from its first entry", () => {
     withLocale("en", () => {
       expect(

@@ -69,6 +69,12 @@ const KINDS: Record<string, ToolKind> = {
   shell: "shell",
   exec: "shell",
   execute: "shell",
+  // The supervised-process tools are shell work with a different lifetime:
+  // they render like the terminal they run in — `$ command` over its output.
+  dev_start: "shell",
+  dev_logs: "shell",
+  dev_stop: "shell",
+  dev_list: "shell",
   read: "read",
   view: "read",
   edit: "edit",
@@ -139,6 +145,24 @@ export function toolHeadline(call: Pick<ToolCallView, "tool" | "input">): ToolHe
   const command = field(input, ["command", "cmd"]);
   const pattern = field(input, ["pattern", "query", "glob"]);
   const url = field(input, ["url", "href"]);
+  const processId = field(input, ["process_id"]);
+
+  // The dev_* family renders as shell work but the verb is the action, not
+  // "Dev_start": `Start pnpm dev`, `Stop dev_x`, and an empty title where the
+  // tool takes no argument.
+  const tool = call.tool.toLowerCase();
+  if (tool === "dev_start") {
+    return { kind, verb: t("tool.verb.dev.start"), title: command ? firstLine(command) : call.tool };
+  }
+  if (tool === "dev_logs") {
+    return { kind, verb: t("tool.verb.dev.logs"), title: processId ?? call.tool };
+  }
+  if (tool === "dev_stop") {
+    return { kind, verb: t("tool.verb.dev.stop"), title: processId ?? call.tool };
+  }
+  if (tool === "dev_list") {
+    return { kind, verb: t("tool.verb.dev.list"), title: "" };
+  }
 
   if (kind === "shell") {
     return { kind, verb: t("tool.verb.bash"), title: command ? firstLine(command) : call.tool };

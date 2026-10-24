@@ -1,10 +1,12 @@
-// The shell's own OpenCode plugin, handed to the server it starts.
+// The shell's own OpenCode plugin, installed into OpenCode's global config.
 //
-// It is written to a file under the app's data directory and named through
-// `OPENCODE_CONFIG_CONTENT`, which OpenCode merges into the config it loads
-// for this process. Nothing is installed into the user's project and nothing
-// is written to their global config: closing the app takes the capability
-// with it.
+// OpenCode loads every file under `<config>/plugin/`, so writing it there gives
+// the tools to every server the user runs — not only the one this shell
+// launched. An OpenCode with no shell hands it to anyone is why the plugin
+// checks for a live service before doing anything, and why the handshake file
+// beside it tells it where that service is. For the server we spawn ourselves
+// the plugin is also named through `OPENCODE_CONFIG_CONTENT`, which covers a
+// config directory that is not writable.
 //
 // Why a file rather than an inline spec: OpenCode resolves plugin specs
 // relative to the config file that declared them, and a `file://` URL is the

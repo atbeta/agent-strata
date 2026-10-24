@@ -1,5 +1,5 @@
-import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
-import { readDevLogs, stopDevProcess, type DevLogLine, type DevProcess } from "./api";
+import { createEffect, createSignal, For, onCleanup, Show, type JSX } from "solid-js";
+import { readDevLogs, type DevLogLine, type DevProcess } from "./api";
 import { t } from "./i18n";
 import { fmtLatency } from "./transcript-format";
 import { Button } from "@/components/ui/button";
@@ -20,18 +20,114 @@ export function devRunning(process: DevProcess): boolean {
  * and that error is the whole story. A stopped one is not "exited 143" to a
  * reader who pressed the button — it is stopped.
  */
-function stateLabel(process: DevProcess): string {
+export function stateLabel(process: DevProcess): string {
   if (process.error && process.exit_code !== 0) return t("dev.failed");
   if (devRunning(process)) return t("dev.running");
   if (process.stopped) return t("dev.stopped");
   return t("dev.exited", { code: process.exit_code ?? 0 });
 }
 
-function stateClass(process: DevProcess): string {
+export function stateClass(process: DevProcess): string {
   if (process.error && process.exit_code !== 0) return "text-destructive";
   if (devRunning(process)) return "text-status-active";
   if (process.stopped) return "text-muted-foreground";
   return "text-status-error";
+}
+
+function dotClass(process: DevProcess): string {
+  if (process.error && process.exit_code !== 0) return "bg-destructive";
+  if (devRunning(process)) return "bg-status-active";
+  if (process.stopped) return "bg-muted-foreground/50";
+  return "bg-status-error";
+}
+
+/**
+ * One line per process: a status dot, the command, and the number that keeps
+ * moving. Everything else — the pid, the error it died with, the last line it
+ * printed — is a click away in the detail well, where it cannot crowd the row.
+ *
+ * Shared with the fleet overview: the two lists ask different questions but a
+ * process looks the same in both, so the row lives here once.
+ */
+export function DevRow(props: {
+  process: DevProcess;
+  now: number;
+  open: boolean;
+  onToggle: () => void;
+  busy: boolean;
+  onStop: () => void;
+  /** An action that rides beside Stop — the fleet row's session link. */
+  extra?: JSX.Element;
+}) {
+  const p = () => props.process;
+  return (
+    <div class="flex items-center gap-1 px-2 py-0.5">
+      <RowButton
+        aria-expanded={props.open}
+        onClick={props.onToggle}
+        class="min-w-0 flex-1 gap-2 px-1 py-1 hover:bg-secondary"
+      >
+        <span
+          class={`size-1.5 shrink-0 rounded-full ${dotClass(p())}`}
+          title={stateLabel(p())}
+        />
+        <span class="min-w-0 flex-1 truncate font-mono text-xs" title={p().command}>
+          {p().command}
+        </span>
+        <Show
+          when={devRunning(p())}
+          fallback={
+            <span class={`shrink-0 text-2xs ${stateClass(p())}`}>{stateLabel(p())}</span>
+          }
+        >
+          <span class="shrink-0 text-2xs tabular-nums text-muted-foreground">
+            {fmtLatency(Math.max(0, props.now - p().started_at))}
+          </span>
+        </Show>
+      </RowButton>
+      {props.extra}
+      <Show when={devRunning(p())}>
+        <Button
+          type="button"
+          variant="icon"
+          size="xs"
+          class="shrink-0 px-1.5"
+          disabled={props.busy}
+          onClick={props.onStop}
+        >
+          {props.busy ? t("dev.stopping") : t("dev.stop")}
+        </Button>
+      </Show>
+    </div>
+  );
+}
+
+/**
+ * What the collapsed row left out: the words for the state, the pid a reader
+ * needs for `kill`, the error a failed start printed. Sits between the row and
+ * its log so the click that opened the log opens the context too.
+ */
+export function DevRowDetail(props: { process: DevProcess }) {
+  const p = () => props.process;
+  return (
+    <div class="space-y-0.5 px-3 pb-1 pt-1.5 text-2xs text-muted-foreground">
+      <p>
+        {stateLabel(p())}
+        <Show when={p().pid !== undefined}>
+          {" · "}
+          {t("dev.pid", { pid: p().pid ?? 0 })}
+        </Show>
+      </p>
+      <Show when={p().error}>
+        <p class="break-words text-destructive">{p().error}</p>
+      </Show>
+      <Show when={!p().error && p().last_line}>
+        <p class="truncate" title={p().last_line}>
+          {p().last_line}
+        </p>
+      </Show>
+    </div>
+  );
 }
 
 /**
@@ -70,11 +166,6 @@ export function BackgroundPanel(props: {
     }
   };
 
-  const uptime = (process: DevProcess): string | undefined => {
-    if (!devRunning(process)) return undefined;
-    return fmtLatency(Math.max(0, now() - process.started_at));
-  };
-
   return (
     <div class="flex min-h-0 flex-1 flex-col">
       <Show when={err()}>
@@ -93,55 +184,16 @@ export function BackgroundPanel(props: {
           <For each={props.processes()}>
             {(process) => (
               <li class="border-b border-border/60 last:border-b-0">
-                <div class="flex items-start gap-1 px-2 py-1.5">
-                  <RowButton
-                    aria-expanded={openId() === process.id}
-                    onClick={() => setOpenId(openId() === process.id ? null : process.id)}
-                    class="min-w-0 flex-1 items-start px-1 py-1 hover:bg-secondary"
-                  >
-                    <span class="min-w-0 flex-1">
-                      <span class="block truncate font-mono text-xs" title={process.command}>
-                        {process.command}
-                      </span>
-                      <span class="mt-0.5 flex items-center gap-1.5 text-2xs">
-                        <span class={stateClass(process)}>{stateLabel(process)}</span>
-                        <Show when={process.pid !== undefined}>
-                          <span class="text-muted-foreground">{t("dev.pid", { pid: process.pid ?? 0 })}</span>
-                        </Show>
-                        <Show when={uptime(process)}>
-                          {(time) => <span class="text-muted-foreground">{t("dev.uptime", { time: time() })}</span>}
-                        </Show>
-                      </span>
-                      <Show when={process.error}>
-                        {(message) => (
-                          <span class="mt-0.5 block truncate text-2xs text-destructive" title={message()}>
-                            {message()}
-                          </span>
-                        )}
-                      </Show>
-                      <Show when={!process.error && process.last_line}>
-                        {(line) => (
-                          <span class="mt-0.5 block truncate text-2xs text-muted-foreground" title={line()}>
-                            {line()}
-                          </span>
-                        )}
-                      </Show>
-                    </span>
-                  </RowButton>
-                  <Show when={devRunning(process)}>
-                    <Button
-                      type="button"
-                      variant="icon"
-                      size="xs"
-                      class="mt-1 shrink-0 px-1.5"
-                      disabled={busy() === process.id}
-                      onClick={() => void stop(process.id)}
-                    >
-                      {busy() === process.id ? t("dev.stopping") : t("dev.stop")}
-                    </Button>
-                  </Show>
-                </div>
+                <DevRow
+                  process={process}
+                  now={now()}
+                  open={openId() === process.id}
+                  onToggle={() => setOpenId(openId() === process.id ? null : process.id)}
+                  busy={busy() === process.id}
+                  onStop={() => void stop(process.id)}
+                />
                 <Show when={openId() === process.id}>
+                  <DevRowDetail process={process} />
                   <ProcessLogs processId={process.id} />
                 </Show>
               </li>

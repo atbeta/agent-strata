@@ -2,30 +2,11 @@ import { createEffect, createResource, createSignal, For, onCleanup, Show } from
 import { listAllDevProcesses, readDevLogs, stopDevProcess, type DevLogLine, type DevProcess, type SessionRow } from "./api";
 import { t } from "./i18n";
 import { displayTitle } from "./session-title";
-import { fmtLatency } from "./transcript-format";
+import { devRunning, DevRow, DevRowDetail } from "./background-panel";
 import { Button } from "@/components/ui/button";
-import { RowButton } from "@/components/ui/row-button";
 
 /** How often the running time and an open log refresh. */
 const TICK_MS = 1_000;
-
-function running(process: DevProcess): boolean {
-  return process.exit_code === null;
-}
-
-function stateLabel(process: DevProcess): string {
-  if (process.error && process.exit_code !== 0) return t("dev.failed");
-  if (running(process)) return t("dev.running");
-  if (process.stopped) return t("dev.stopped");
-  return t("dev.exited", { code: process.exit_code ?? 0 });
-}
-
-function stateClass(process: DevProcess): string {
-  if (process.error && process.exit_code !== 0) return "text-destructive";
-  if (running(process)) return "text-status-active";
-  if (process.stopped) return "text-muted-foreground";
-  return "text-status-error";
-}
 
 /**
  * Every command left running, across every session.
@@ -80,7 +61,7 @@ export function FleetDevSection(props: {
     return displayTitle(row.title ?? row.summary.title) ?? t("common.untitled");
   };
 
-  const live = () => (processes() ?? []).filter(running);
+  const live = () => (processes() ?? []).filter(devRunning);
 
   const stop = async (id: string) => {
     setErr("");
@@ -94,9 +75,6 @@ export function FleetDevSection(props: {
       setBusy(null);
     }
   };
-
-  const uptime = (process: DevProcess): string | undefined =>
-    running(process) ? fmtLatency(Math.max(0, now() - process.started_at)) : undefined;
 
   return (
     <Show when={live().length > 0}>
@@ -112,58 +90,31 @@ export function FleetDevSection(props: {
           <For each={live()}>
             {(process) => (
               <li>
-                <div class="flex items-start gap-1 px-3 py-2">
-                  <RowButton
-                    aria-expanded={openId() === process.id}
-                    onClick={() => setOpenId(openId() === process.id ? null : process.id)}
-                    class="min-w-0 flex-1 items-start px-1 py-1 hover:bg-secondary"
-                  >
-                    <span class="min-w-0 flex-1">
-                      <span class="block truncate font-mono text-xs" title={process.command}>
-                        {process.command}
-                      </span>
-                      <span class="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-2xs">
-                        <span class={stateClass(process)}>{stateLabel(process)}</span>
-                        <Show when={process.pid !== undefined}>
-                          <span class="text-muted-foreground">{t("dev.pid", { pid: process.pid ?? 0 })}</span>
-                        </Show>
-                        <Show when={uptime(process)}>
-                          {(time) => <span class="text-muted-foreground">{t("dev.uptime", { time: time() })}</span>}
-                        </Show>
-                      </span>
-                      <Show when={!process.error && process.last_line}>
-                        {(line) => (
-                          <span class="mt-0.5 block truncate text-2xs text-muted-foreground" title={line()}>
-                            {line()}
-                          </span>
-                        )}
-                      </Show>
-                    </span>
-                  </RowButton>
-                  {/* Outside the row, not inside it: a button nested in a button
-                      is invalid markup and swallows the outer row's click. */}
-                  <Button
-                    type="button"
-                    variant="quiet"
-                    size="xs"
-                    class="mt-1 max-w-[9rem] shrink-0 truncate px-1.5 text-2xs underline decoration-dotted underline-offset-2"
-                    title={titleOf(process.session_id)}
-                    onClick={() => props.onOpenSession(process.session_id)}
-                  >
-                    {titleOf(process.session_id)}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="icon"
-                    size="xs"
-                    class="mt-1 shrink-0 px-1.5"
-                    disabled={busy() === process.id}
-                    onClick={() => void stop(process.id)}
-                  >
-                    {busy() === process.id ? t("dev.stopping") : t("dev.stop")}
-                  </Button>
-                </div>
+                <DevRow
+                  process={process}
+                  now={now()}
+                  open={openId() === process.id}
+                  onToggle={() => setOpenId(openId() === process.id ? null : process.id)}
+                  busy={busy() === process.id}
+                  onStop={() => void stop(process.id)}
+                  extra={
+                    /* Outside the row, not inside it: a button nested in a
+                        button is invalid markup and swallows the outer row's
+                        click. */
+                    <Button
+                      type="button"
+                      variant="quiet"
+                      size="xs"
+                      class="max-w-[9rem] shrink-0 truncate px-1.5 text-2xs underline decoration-dotted underline-offset-2"
+                      title={titleOf(process.session_id)}
+                      onClick={() => props.onOpenSession(process.session_id)}
+                    >
+                      {titleOf(process.session_id)}
+                    </Button>
+                  }
+                />
                 <Show when={openId() === process.id}>
+                  <DevRowDetail process={process} />
                   <FleetDevLogs processId={process.id} />
                 </Show>
               </li>

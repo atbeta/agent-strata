@@ -197,7 +197,6 @@ export default {
   "dev.logs.failed": "The logs did not load.",
   "dev.failed": "Did not start",
   "dev.pid": "PID {pid}",
-  "dev.uptime": "up {time}",
   "dev.stop.failed": "Could not stop: {reason}",
   "rail.resize": "Resize the panel",
   "content.resize": "Resize the reading column (double-click to reset)",
