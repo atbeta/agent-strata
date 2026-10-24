@@ -658,6 +658,41 @@ describe("OpencodeMapper", () => {
     expect(m.flushSettles().some((e) => e.type === "session.status")).toBe(false);
   });
 
+  test("an idle re-delivered on the slower bus cannot eat the next run's busy", () => {
+    // Measured on a live pair of buses: the project bus had finished run one
+    // and was already carrying the next turn while the global bus was still
+    // delivering run one's tail. The stale idle copies landed after the new
+    // user message had cleared `idleConfirmed` and re-armed it — so the run's
+    // own busy, and its copy on the other bus, were both dropped as stale
+    // claims and the run read as never having started. A goal continuation
+    // hits this on every step: it sends the next prompt the moment the idle
+    // lands, well inside the other bus's lag.
+    const m = new OpencodeMapper();
+    const states = (out: EventInput[]) =>
+      out.filter((e) => e.type === "session.status").map((e) => (e.data as { state: string }).state);
+    const status = (id: string, state: string) =>
+      m.handle({
+        id, type: "session.status", properties: { sessionID: sid, status: { type: state } },
+      } as unknown as Event);
+    const idle = (id: string) =>
+      m.handle({ id, type: "session.idle", properties: { sessionID: sid } } as unknown as Event);
+    const user = (id: string) =>
+      m.handle(msgUpdated({ id, sessionID: sid, role: "user", time: { created: 1 } }));
+
+    user("u1");
+    status("b1", "busy");
+    status("i1", "idle");
+    idle("i2");
+    // The next turn is already underway when the second bus re-delivers run
+    // one's idles — the same frames, under the same ids.
+    user("u2");
+    status("i1", "idle");
+    idle("i2");
+    expect(states(status("b2", "busy"))).toEqual(["busy"]);
+    // The other bus's copy of that same busy is a re-delivery, not a new one.
+    expect(states(status("b2", "busy"))).toEqual([]);
+  });
+
   test("a message stuck open past the quiet window says idle anyway", () => {
     // The case that kept a real session breathing for three hours: the turn's
     // last message ran a tool that sat awaiting a permission the reader never

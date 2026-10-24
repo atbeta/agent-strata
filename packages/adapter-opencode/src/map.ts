@@ -288,6 +288,15 @@ interface SessionState {
    * case for the measurement that made this necessary.
    */
   idleConfirmed?: boolean;
+  /**
+   * Status frames already applied, by the frame's own id. Both buses carry the
+   * same event and they do not keep step: a slower bus still delivering the
+   * last run's idle while the next turn has already started must not apply it
+   * a second time — doing so re-arms `idleConfirmed` after the turn's own
+   * message cleared it, and the run's busy is then dropped as a stale claim.
+   * Bounded: transitions are rare, so a small window of ids is enough.
+   */
+  seenStatusIds?: Set<string>;
 }
 
 export class OpencodeMapper {
@@ -1082,6 +1091,16 @@ export class OpencodeMapper {
         if (!sessionID) return out;
         const { s, out: pre } = this.ensureSession(sessionID);
         out.push(...pre);
+        // A re-delivery is not a new state. The slower bus hands over the same
+        // frame under the same id, and applying it twice is what let a stale
+        // idle re-latch the session mid-turn: the next run's busy — from both
+        // buses — was then dropped, and the run never read as having started.
+        if (evt.id) {
+          if (s.seenStatusIds?.has(evt.id)) return out;
+          const seen = (s.seenStatusIds ??= new Set());
+          seen.add(evt.id);
+          if (seen.size > 64) seen.delete(seen.keys().next().value!);
+        }
         const idle =
           evt.type === "session.idle" || evt.properties.status.type === "idle";
         /**
