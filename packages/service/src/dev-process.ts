@@ -379,7 +379,14 @@ export function createDevManager(options: DevManagerOptions = {}): DevManager {
     if (!options.pidFile) return;
     const live = [...entries.values()]
       .filter((entry) => entry.info.exit_code === null && entry.info.pid !== undefined)
-      .map((entry) => ({ pid: entry.info.pid, id: entry.info.id, command: entry.info.command }));
+      .map((entry) => ({
+        pid: entry.info.pid,
+        id: entry.info.id,
+        session_id: entry.info.session_id,
+        command: entry.info.command,
+        cwd: entry.info.cwd,
+        started_at: entry.info.started_at,
+      }));
     try {
       writeFileSync(options.pidFile, JSON.stringify(live));
     } catch {
@@ -623,7 +630,14 @@ export function createDevManager(options: DevManagerOptions = {}): DevManager {
       } catch {
         return 0;
       }
-      let stale: { pid?: number }[];
+      let stale: {
+        pid?: number;
+        id?: string;
+        session_id?: string;
+        command?: string;
+        cwd?: string;
+        started_at?: number;
+      }[];
       try {
         const parsed: unknown = JSON.parse(raw);
         stale = Array.isArray(parsed) ? parsed : [];
@@ -640,6 +654,24 @@ export function createDevManager(options: DevManagerOptions = {}): DevManager {
         if (!alive(pid)) continue;
         killTree(pid);
         killed += 1;
+        // A reader that cached this row has no other way to learn it is gone;
+        // tell the bus the same way a natural exit would.
+        if (typeof item.id === "string" && typeof item.session_id === "string") {
+          emit({
+            type: "dev.exited",
+            session_id: item.session_id,
+            process: {
+              id: item.id,
+              session_id: item.session_id,
+              command: String(item.command ?? ""),
+              cwd: String(item.cwd ?? ""),
+              pid,
+              started_at: typeof item.started_at === "number" ? item.started_at : Date.now(),
+              exit_code: 1,
+              stopped: true,
+            },
+          });
+        }
       }
       try {
         writeFileSync(options.pidFile, "[]");

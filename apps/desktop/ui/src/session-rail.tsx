@@ -123,7 +123,15 @@ export function SessionRail(props: {
       void refetchDev();
     };
     window.addEventListener("strata-stream-event", onStream);
-    onCleanup(() => window.removeEventListener("strata-stream-event", onStream));
+    // A restart can reap a process without an event reaching this session;
+    // only while something claims to be running does the truth need re-asking.
+    const tick = setInterval(() => {
+      if (devCount() > 0) void refetchDev();
+    }, 15_000);
+    onCleanup(() => {
+      window.removeEventListener("strata-stream-event", onStream);
+      clearInterval(tick);
+    });
   });
 
   /**
