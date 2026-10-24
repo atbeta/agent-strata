@@ -3,6 +3,7 @@ import {
   normalizeOpencodeEvent,
   OpencodeMapper,
   createIngestor,
+  runOpencodeStream,
   snapshotEvents,
   rebuildEvents,
   OPENCODE_REBUILT_TYPES,
@@ -3068,5 +3069,137 @@ describe("pickable providers", () => {
       ["groq"],
     ).map((row) => row.id);
     expect(ids).toEqual(["groq"]);
+  });
+});
+
+describe("runOpencodeStream", () => {
+  /** A queue-backed async generator: what the SSE client gives us. */
+  const feed = () => {
+    const q: { v: unknown }[] = [];
+    let wait: (() => void) | undefined;
+    const gen = (async function* () {
+      for (;;) {
+        if (!q.length) await new Promise<void>((r) => (wait = r));
+        yield q.shift()!.v;
+      }
+    })();
+    return {
+      gen,
+      push: (v: unknown) => {
+        q.push({ v });
+        wait?.();
+        wait = undefined;
+      },
+    };
+  };
+  const fakeClient = (sessions: { directory: string }[] = []) => {
+    const globals: ReturnType<typeof feed>[] = [];
+    const dirs = new Map<string, ReturnType<typeof feed>[]>();
+    const client = {
+      global: {
+        // server.connected is the first frame a real stream always sends.
+        event: async () => {
+          const f = feed();
+          globals.push(f);
+          f.push({ type: "server.connected" });
+          return { stream: f.gen };
+        },
+      },
+      event: {
+        subscribe: async (o: { directory?: string }) => {
+          const f = feed();
+          const d = o?.directory ?? "";
+          const list = dirs.get(d) ?? [];
+          list.push(f);
+          dirs.set(d, list);
+          return { stream: f.gen };
+        },
+      },
+      project: { list: async () => ({ data: [] }) },
+      session: { list: async () => ({ data: sessions }) },
+    };
+    return { client: client as never, globals, dirs };
+  };
+
+  test("a silent stream is re-opened through the global bus again", async () => {
+    const { client, globals, dirs } = fakeClient();
+    const abort = new AbortController();
+    let reconnects = 0;
+    await runOpencodeStream({
+      client,
+      abort,
+      connectTimeout: 500,
+      silenceMs: 150,
+      handle: () => {},
+      onReconnect: () => reconnects++,
+    });
+    expect(globals.length).toBe(1);
+    await Bun.sleep(1_800);
+    // The wedged stream was abandoned and a new one opened — on the global
+    // bus, not on a single-directory fallback.
+    expect(globals.length).toBeGreaterThanOrEqual(2);
+    expect(dirs.has("")).toBe(false);
+    expect(reconnects).toBeGreaterThanOrEqual(1);
+    abort.abort();
+  });
+
+  test("a stream that keeps talking is left alone", async () => {
+    const { client, globals } = fakeClient();
+    const abort = new AbortController();
+    await runOpencodeStream({
+      client,
+      abort,
+      connectTimeout: 500,
+      silenceMs: 200,
+      handle: () => {},
+      onReconnect: () => {},
+    });
+    const beat = setInterval(
+      () => globals[0]!.push({ type: "server.heartbeat" }),
+      60,
+    );
+    await Bun.sleep(500);
+    clearInterval(beat);
+    expect(globals.length).toBe(1);
+    abort.abort();
+  });
+
+  test("a session's directory is watched as soon as it is seen", async () => {
+    const { client, globals, dirs } = fakeClient();
+    const abort = new AbortController();
+    const got: string[] = [];
+    await runOpencodeStream({
+      client,
+      abort,
+      connectTimeout: 500,
+      silenceMs: 5_000,
+      handle: (e) => got.push(e.type),
+      onReconnect: () => {},
+    });
+    expect(dirs.size).toBe(0);
+    globals[0]!.push({
+      type: "session.updated",
+      properties: { info: { id: "s1", directory: "/tmp/learned" } },
+    });
+    await Bun.sleep(50);
+    expect(dirs.has("/tmp/learned")).toBe(true);
+    expect(got).toContain("session.updated");
+    abort.abort();
+  });
+
+  test("sessions in unregistered directories are watched at connect", async () => {
+    const { client, dirs } = fakeClient([{ directory: "/tmp/oddball" }]);
+    const abort = new AbortController();
+    await runOpencodeStream({
+      client,
+      abort,
+      connectTimeout: 500,
+      silenceMs: 5_000,
+      handle: () => {},
+      onReconnect: () => {},
+    });
+    await Bun.sleep(50);
+    expect(dirs.has("/tmp/oddball")).toBe(true);
+    abort.abort();
   });
 });

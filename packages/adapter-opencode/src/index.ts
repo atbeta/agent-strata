@@ -25,7 +25,7 @@ export {
   snapshotEvents,
 } from "./map";
 export { createIngestor } from "./ingest";
-export { normalizeOpencodeEvent } from "./stream";
+export { normalizeOpencodeEvent, runOpencodeStream } from "./stream";
 
 /**
  * Providers the model picker may offer.
