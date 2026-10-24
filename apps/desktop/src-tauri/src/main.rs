@@ -32,7 +32,8 @@ use std::time::{Duration, Instant};
 use embed::{
     child_env, cleanup_stale_opencode, command_for, detect_runtime, health_ok, plan_with_port,
     previous_port, read_mode, reap_opencode_on_port, resolve_mode, serve_args, service_env,
-    supervise, write_pid, write_runtime, write_status, OpencodeMode, OpencodeState, Spawned,
+    supervise, write_pid, write_runtime, write_status, OpencodeMode, OpencodePlan, OpencodeState,
+    Spawned,
 };
 
 use std::thread::JoinHandle;
@@ -52,6 +53,13 @@ struct Sidecars {
     /// The handshake a globally loaded plugin reads to find this service. Removed
     /// on a clean exit so a plugin cannot hand work to a process that is gone.
     handshake: PathBuf,
+    /// Kept for an on-demand start: switching to embed mid-run asks for a
+    /// supervisor that launch never built.
+    data: PathBuf,
+    log: Option<Log>,
+    /// The port the service listens on; an embedded server's plan needs it so
+    /// its plugin can find the service.
+    service_port: u16,
 }
 
 impl Sidecars {
@@ -64,6 +72,9 @@ impl Sidecars {
             service: Mutex::new(None),
             supervise: Mutex::new(None),
             handshake: PathBuf::new(),
+            data: data_dir(),
+            log: None,
+            service_port: 7700,
         }
     }
 
@@ -107,15 +118,41 @@ impl Sidecars {
         }
     }
 
-    /// Ask the supervisor to replace the running embedded server.
+    /// Ask the supervisor to replace the running embedded server — or stand a
+    /// supervisor up when none is alive. Launching in external mode never made
+    /// one, and a supervisor that kept failing has already exited; in both
+    /// cases the settings page's start button has nothing to signal, so this
+    /// builds the thread it needs instead of reporting the launch as final.
     fn request_restart(&self) -> Result<(), String> {
-        let supervise = self.supervise.lock().unwrap_or_else(|e| e.into_inner());
-        match supervise.as_ref() {
-            Some(handle) if !handle.is_finished() => {
+        let mut supervise = self.supervise.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(handle) = supervise.as_ref() {
+            if !handle.is_finished() {
                 self.restart.store(true, Ordering::SeqCst);
+                return Ok(());
+            }
+        }
+        // The file is the choice: a mode picked after launch counts, the mode
+        // the launch happened to read does not decide on its own.
+        if read_mode(&self.data.join("desktop.json")) != OpencodeMode::Embed {
+            return Err("the embedded OpenCode server is not the selected mode".into());
+        }
+        let Some(log) = self.log.clone() else {
+            return Err("the embedded OpenCode server is not being supervised".into());
+        };
+        let spawned = spawn_opencode_supervisor(
+            &self.data,
+            &log,
+            self.service_port,
+            self.shutdown.clone(),
+            self.restart.clone(),
+            self.opencode.clone(),
+        );
+        match spawned {
+            Some((handle, _plan)) => {
+                *supervise = Some(handle);
                 Ok(())
             }
-            _ => Err("the embedded OpenCode server is not being supervised".into()),
+            None => Err("could not start the embedded OpenCode server".into()),
         }
     }
 
@@ -322,6 +359,172 @@ fn kill_tree(pid: u32) {
     let _ = command.output();
 }
 
+/// Plan the embedded server and start the thread that keeps it alive.
+///
+/// The same path runs at launch and when the settings page asks for a server
+/// nothing supervises — a mode switched mid-run, or a supervisor that gave
+/// up. The plan comes back with the thread so the launch path can still hand
+/// the address to the service it is about to spawn.
+fn spawn_opencode_supervisor(
+    data: &Path,
+    log: &Log,
+    service_port: u16,
+    shutdown: Arc<AtomicBool>,
+    restart: Arc<AtomicBool>,
+    opencode: Arc<Mutex<Option<Child>>>,
+) -> Option<(JoinHandle<()>, OpencodePlan)> {
+    let status_path = data.join("opencode-status.json");
+    let pid_path = data.join("opencode.pid");
+    // Re-detect rather than trusting the launch result: a binary chosen or
+    // installed while the app was open should not need a relaunch.
+    let runtime = detect_runtime(data, OpencodeMode::Embed);
+    let _ = write_runtime(&data.join("opencode-runtime.json"), &runtime);
+    let Some(bin) = runtime
+        .bin
+        .as_deref()
+        .map(PathBuf::from)
+        .filter(|path| path.is_file())
+    else {
+        let _ = write_status(
+            &status_path,
+            OpencodeMode::Embed,
+            OpencodeState::Missing,
+            None,
+            None,
+        );
+        log_note(log, "no opencode binary found for embedded mode");
+        return None;
+    };
+
+    // A previous run may have left its embedded server behind. Reap it before
+    // planning so the last port is free again.
+    if let Some(pid) = cleanup_stale_opencode(&pid_path) {
+        eprintln!("agent-strata: stopped stale opencode process {pid}");
+        log_note(log, &format!("stopped stale opencode process {pid}"));
+    }
+    // The last run's port, if it is still free. A different port every launch
+    // would leave the app with a new remembered address every time it opened.
+    // If an older run left an opencode serve on that port, stop it first.
+    let preferred = previous_port(&status_path);
+    if let Some(port) = preferred {
+        if !embed::port_is_free(port) {
+            if let Some(pid) = reap_opencode_on_port(port) {
+                eprintln!("agent-strata: stopped opencode {pid} still holding port {port}");
+                log_note(log, &format!("stopped opencode {pid} still holding port {port}"));
+            }
+        }
+    }
+    let planned = match plan_with_port(OpencodeMode::Embed, preferred, service_port) {
+        Ok(planned) => planned,
+        Err(e) => {
+            eprintln!("agent-strata: could not plan embedded opencode: {e}");
+            log_note(log, &format!("could not plan embedded opencode: {e}"));
+            return None;
+        }
+    };
+    let supervise_log = log.clone();
+    // The closure needs its own handle: the global install runs outside it,
+    // and this one names the plugin.
+    let plugin_config_dir = plugin_install::opencode_config_dir();
+    let handle_plan = planned.clone();
+    let handle = std::thread::spawn(move || {
+        let wait_shutdown = shutdown.clone();
+        let wait_slot = opencode.clone();
+        let exited = Arc::new(AtomicBool::new(false));
+        let wait_exited = exited.clone();
+        supervise(
+            planned,
+            &status_path,
+            {
+                let shutdown_flag = shutdown.clone();
+                let opencode_slot = opencode.clone();
+                let exited = exited.clone();
+                let plugin_config_dir = plugin_config_dir.clone();
+                move |p| {
+                    if shutdown_flag.load(Ordering::SeqCst) {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::Interrupted,
+                            "shutdown",
+                        ));
+                    }
+                    let args = serve_args(p.port);
+                    let mut owned = child_env(p);
+                    // Named as well as discovered. The global install already
+                    // covers this server, and this keeps a config directory
+                    // that is not writable from taking the tools away from the
+                    // server we started.
+                    if let Some(dir) = plugin_config_dir.clone() {
+                        if let Ok(plugin) = plugin_install::install_plugin(&dir) {
+                            owned.push((
+                                "OPENCODE_CONFIG_CONTENT".into(),
+                                plugin_install::config_content(&plugin),
+                            ));
+                        }
+                    }
+                    let env_refs: Vec<(&str, String)> =
+                        owned.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
+                    let mut child = spawn(&bin, &args, &home_dir(), &env_refs, &supervise_log)
+                        .ok_or_else(|| {
+                            std::io::Error::new(std::io::ErrorKind::Other, "spawn opencode failed")
+                        })?;
+                    let _ = write_pid(&pid_path, child.id());
+                    let mut slot = opencode_slot.lock().map_err(|_| {
+                        std::io::Error::new(std::io::ErrorKind::Other, "opencode mutex poisoned")
+                    })?;
+                    if shutdown_flag.load(Ordering::SeqCst) {
+                        reap(&mut child);
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::Interrupted,
+                            "shutdown",
+                        ));
+                    }
+                    if let Some(mut prev) = slot.take() {
+                        reap(&mut prev);
+                    }
+                    *slot = Some(child);
+                    drop(slot);
+                    exited.store(false, Ordering::SeqCst);
+                    let kill_slot = opencode_slot.clone();
+                    Ok(Spawned {
+                        exited: exited.clone(),
+                        kill: Box::new(move || {
+                            if let Ok(mut slot) = kill_slot.lock() {
+                                if let Some(mut child) = slot.take() {
+                                    reap(&mut child);
+                                }
+                            }
+                        }),
+                    })
+                }
+            },
+            |p| health_ok(&p.url, &p.username, &p.password),
+            move |d| {
+                let start = Instant::now();
+                while start.elapsed() < d {
+                    if wait_shutdown.load(Ordering::SeqCst) {
+                        return;
+                    }
+                    if let Ok(mut guard) = wait_slot.lock() {
+                        if let Some(child) = guard.as_mut() {
+                            if let Ok(Some(_)) = child.try_wait() {
+                                wait_exited.store(true, Ordering::SeqCst);
+                            }
+                        }
+                    }
+                    let remaining = d.saturating_sub(start.elapsed());
+                    if remaining.is_zero() {
+                        break;
+                    }
+                    std::thread::sleep(remaining.min(Duration::from_millis(50)));
+                }
+            },
+            shutdown,
+            restart,
+        );
+    });
+    Some((handle, handle_plan))
+}
+
 impl Sidecars {
     fn start() -> Self {
         let shutdown = Arc::new(AtomicBool::new(false));
@@ -416,7 +619,7 @@ impl Sidecars {
         }
         match mode {
             OpencodeMode::External => {
-                let _ = write_status(&status_path, mode, OpencodeState::External, None);
+                let _ = write_status(&status_path, mode, OpencodeState::External, None, None);
                 for key in [
                     "STRATA_OPENCODE_URL",
                     "STRATA_OPENCODE_USERNAME",
@@ -439,174 +642,16 @@ impl Sidecars {
                 // The placement says which server the address belongs to, not
                 // whether the binary was there to start it.
                 extras.push(("STRATA_OPENCODE_PLACEMENT".to_string(), "embed".to_string()));
-                if let Some(bin) = runtime
-                    .bin
-                    .as_deref()
-                    .map(PathBuf::from)
-                    .filter(|path| path.is_file())
-                {
-                    // The last run's port, if it is still free. A different port
-                    // every launch would leave the app with a new remembered
-                    // address every time it opened. If an older run left an
-                    // opencode serve on that port, stop it first: the address in
-                    // the status file is ours, and reusing the port is better
-                    // than adding another one.
-                    let preferred = previous_port(&status_path);
-                    if let Some(port) = preferred {
-                        if !embed::port_is_free(port) {
-                            if let Some(pid) = reap_opencode_on_port(port) {
-                                eprintln!(
-                                    "agent-strata: stopped opencode {pid} still holding port {port}"
-                                );
-                                log_note(
-                                    &log,
-                                    &format!("stopped opencode {pid} still holding port {port}"),
-                                );
-                            }
-                        }
-                    }
-                    match plan_with_port(OpencodeMode::Embed, preferred, port) {
-                        Ok(planned) => {
-                            let supervise_log = Some(log.clone());
-                            if let Some(supervise_log) = supervise_log {
-                                extras.extend(service_env(&planned));
-                                let home = home_dir();
-                                let shutdown_flag = shutdown.clone();
-                                let restart_flag = restart.clone();
-                                let opencode_slot = opencode.clone();
-                                let exited = Arc::new(AtomicBool::new(false));
-                                let pid_path = pid_path.clone();
-                                // The closure needs its own handle: the global install
-                                // runs outside it, and this one names the plugin.
-                                let plugin_config_dir = plugin_install::opencode_config_dir();
-                                supervisor = Some(std::thread::spawn(move || {
-                                    let wait_shutdown = shutdown_flag.clone();
-                                    let wait_slot = opencode_slot.clone();
-                                    let wait_exited = exited.clone();
-                                    let pid_path = pid_path.clone();
-                                    supervise(
-                                        planned,
-                                        &status_path,
-                                        {
-                                            let shutdown_flag = shutdown_flag.clone();
-                                            let opencode_slot = opencode_slot.clone();
-                                            let exited = exited.clone();
-                                            let plugin_config_dir = plugin_config_dir.clone();
-                                            move |p| {
-                                                if shutdown_flag.load(Ordering::SeqCst) {
-                                                    return Err(std::io::Error::new(
-                                                        std::io::ErrorKind::Interrupted,
-                                                        "shutdown",
-                                                    ));
-                                                }
-                                                let args = serve_args(p.port);
-                                                let mut owned = child_env(p);
-                                                // Named as well as discovered. The global install
-                                                // above already covers this server, and this keeps a
-                                                // config directory that is not writable from taking
-                                                // the tools away from the server we started.
-                                                if let Some(dir) = plugin_config_dir.clone() {
-                                                    if let Ok(plugin) = plugin_install::install_plugin(&dir) {
-                                                        owned.push((
-                                                            "OPENCODE_CONFIG_CONTENT".into(),
-                                                            plugin_install::config_content(&plugin),
-                                                        ));
-                                                    }
-                                                }
-                                                let env_refs: Vec<(&str, String)> = owned
-                                                    .iter()
-                                                    .map(|(k, v)| (k.as_str(), v.clone()))
-                                                    .collect();
-                                                let mut child = spawn(
-                                                    &bin,
-                                                    &args,
-                                                    &home,
-                                                    &env_refs,
-                                                    &supervise_log,
-                                                )
-                                                .ok_or_else(|| {
-                                                    std::io::Error::new(
-                                                        std::io::ErrorKind::Other,
-                                                        "spawn opencode failed",
-                                                    )
-                                                })?;
-                                                let _ = write_pid(&pid_path, child.id());
-                                                let mut slot =
-                                                    opencode_slot.lock().map_err(|_| {
-                                                        std::io::Error::new(
-                                                            std::io::ErrorKind::Other,
-                                                            "opencode mutex poisoned",
-                                                        )
-                                                    })?;
-                                                if shutdown_flag.load(Ordering::SeqCst) {
-                                                    reap(&mut child);
-                                                    return Err(std::io::Error::new(
-                                                        std::io::ErrorKind::Interrupted,
-                                                        "shutdown",
-                                                    ));
-                                                }
-                                                if let Some(mut prev) = slot.take() {
-                                                    reap(&mut prev);
-                                                }
-                                                *slot = Some(child);
-                                                drop(slot);
-                                                exited.store(false, Ordering::SeqCst);
-                                                let kill_slot = opencode_slot.clone();
-                                                Ok(Spawned {
-                                                    exited: exited.clone(),
-                                                    kill: Box::new(move || {
-                                                        if let Ok(mut slot) = kill_slot.lock() {
-                                                            if let Some(mut child) = slot.take() {
-                                                                reap(&mut child);
-                                                            }
-                                                        }
-                                                    }),
-                                                })
-                                            }
-                                        },
-                                        |p| health_ok(&p.url, &p.username, &p.password),
-                                        move |d| {
-                                            let start = Instant::now();
-                                            while start.elapsed() < d {
-                                                if wait_shutdown.load(Ordering::SeqCst) {
-                                                    return;
-                                                }
-                                                if let Ok(mut guard) = wait_slot.lock() {
-                                                    if let Some(child) = guard.as_mut() {
-                                                        if let Ok(Some(_)) = child.try_wait() {
-                                                            wait_exited
-                                                                .store(true, Ordering::SeqCst);
-                                                        }
-                                                    }
-                                                }
-                                                let remaining = d.saturating_sub(start.elapsed());
-                                                if remaining.is_zero() {
-                                                    break;
-                                                }
-                                                std::thread::sleep(
-                                                    remaining.min(Duration::from_millis(50)),
-                                                );
-                                            }
-                                        },
-                                        shutdown_flag,
-                                        restart_flag.clone(),
-                                    );
-                                }));
-                            } else {
-                                eprintln!(
-                                    "agent-strata: could not open opencode log at {}",
-                                    log_path.display()
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            eprintln!("agent-strata: could not plan embedded opencode: {e}");
-                            log_note(&log, &format!("could not plan embedded opencode: {e}"));
-                        }
-                    }
-                } else {
-                    let _ = write_status(&status_path, mode, OpencodeState::Missing, None);
-                    log_note(&log, "no opencode binary found for embedded mode");
+                if let Some((handle, planned)) = spawn_opencode_supervisor(
+                    &data,
+                    &log,
+                    port,
+                    shutdown.clone(),
+                    restart.clone(),
+                    opencode.clone(),
+                ) {
+                    extras.extend(service_env(&planned));
+                    supervisor = Some(handle);
                 }
             }
         }
@@ -683,6 +728,9 @@ impl Sidecars {
             service: Mutex::new(service_child),
             supervise: Mutex::new(supervisor),
             handshake,
+            data,
+            log: Some(log),
+            service_port: port,
         }
     }
 }

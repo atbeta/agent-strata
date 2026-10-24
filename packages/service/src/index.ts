@@ -2,7 +2,7 @@
 // The desktop shell (Tauri) runs this as a sidecar and talks to it over
 // localhost. One store file, many backend connections, SSE fan-out to clients.
 
-import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, unlinkSync, watch, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { openStore, type Store, type EventQuery } from "@agent-strata/store";
@@ -502,6 +502,13 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   };
 
   const inflightConnects = new Map<string, Promise<{ id: string; indexed: number }>>();
+  /** The password each live connection was dialed with, for telling a respawned
+   *  embedded server — same address, fresh pair — from the one still running. */
+  const connPassword = new Map<string, string | undefined>();
+  /** Embedded endpoints the reader cut on purpose: url → password of the server
+   *  they cut. A respawn rotates the password, so only the dismissed server
+   *  stays dismissed — its replacement is a new server, not the same row back. */
+  const dismissedEmbedded = new Map<string, string>();
   const connectBackend = (body: ConnectBody): Promise<{ id: string; indexed: number }> => {
     const key = endpointOf(body);
     const pending = inflightConnects.get(key);
@@ -581,6 +588,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       throw new Error(`backend ${backend} is not registered`);
     }
     conns.set(driver.id, driver);
+    connPassword.set(driver.id, body.password);
     let indexed: string[] = [];
     try {
       indexed = await driver.indexSessions();
@@ -649,6 +657,60 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       }
     })();
   }
+
+  /**
+   * Follow the embedded server the shell supervises.
+   *
+   * The launch-time env reaches only a service that started with the app; a
+   * service restarted on its own, or a mode switched to embed mid-run, learns
+   * the address and credentials from the status file instead. A server that
+   * respawns keeps its port but rotates its password, so a live connection
+   * whose pair no longer matches is replaced rather than trusted.
+   */
+  const reconcileEmbedded = () => {
+    if (readOpencodeMode(desktopDir) !== "embed") return;
+    const status = readOpencodeStatus(desktopDir);
+    const url = status.url;
+    if (status.state !== "running" || !url || !status.username || !status.password) return;
+    if (dismissedEmbedded.get(url) === status.password) return;
+    const live = [...conns.values()].find((c) => c.baseUrl === url);
+    if (live) {
+      if (connPassword.get(live.id) === status.password) return;
+      live.stop();
+      conns.delete(live.id);
+      claims.release(live.id);
+      connPassword.delete(live.id);
+    }
+    if (attempts.has(url)) return;
+    const body: ConnectBody = {
+      baseUrl: url,
+      username: status.username,
+      password: status.password,
+      placement: "embed",
+      name: "embedded",
+    };
+    beginAttempt(body);
+    void connectBackend(body)
+      .then(() => memory.remember(body))
+      .catch((e) => failAttempt(body, e, true));
+  };
+  // Every status transition lands in that file — the watcher is the trigger
+  // and the slow interval the fallback for writes it missed.
+  try {
+    let reconcileTimer: ReturnType<typeof setTimeout> | undefined;
+    const watcher = watch(desktopDir, (_event, filename) => {
+      if (filename !== "opencode-status.json") return;
+      clearTimeout(reconcileTimer);
+      reconcileTimer = setTimeout(reconcileEmbedded, 200);
+    });
+    // An in-process service — a test — must be free to exit when done.
+    watcher.unref?.();
+  } catch {
+    // No desktop directory to watch; the interval below still catches up.
+  }
+  const reconcilePoll = setInterval(reconcileEmbedded, 10_000);
+  reconcilePoll.unref?.();
+  reconcileEmbedded();
 
   async function route(req: Request): Promise<Response> {
     const url = new URL(req.url);
@@ -1866,7 +1928,11 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     }
 
     if (path === "/desktop/opencode" && req.method === "GET") {
-      return json(readOpencodeStatus(desktopDir));
+      // The credentials the file carries are for the service, not the wire:
+      // the reconcile below reads them off disk so they never ride a response.
+      const { username: _username, password: _password, ...launch } =
+        readOpencodeStatus(desktopDir);
+      return json(launch);
     }
 
     if (path === "/desktop/opencode" && req.method === "PUT") {
@@ -1988,6 +2054,10 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       if (typeof endpoint !== "string" || endpoint.length === 0) {
         return json({ error: "endpoint required" }, 400);
       }
+      const status = readOpencodeStatus(desktopDir);
+      if (status.url === endpoint && status.password) {
+        dismissedEmbedded.set(endpoint, status.password);
+      }
       memory.forget(endpoint);
       attempts.delete(endpoint);
       return json({ ok: true });
@@ -1997,10 +2067,17 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     if (discMatch && req.method === "DELETE") {
       const conn = conns.get(decodeURIComponent(discMatch[1]!));
       if (!conn) return json({ error: "not found" }, 404);
+      // An embedded server the reader cut stays cut: the reconcile would
+      // otherwise put the still-running server back within a poll or two.
+      const status = readOpencodeStatus(desktopDir);
+      if (status.url && sameEndpoint(conn.baseUrl, status.url) && status.password) {
+        dismissedEmbedded.set(conn.baseUrl, status.password);
+      }
       conn.stop();
       conns.delete(conn.id);
       // Its sessions go back to the layer, so another channel may import them.
       claims.release(conn.id);
+      connPassword.delete(conn.id);
       memory.forget(conn.baseUrl);
       return json({ ok: true });
     }
@@ -2226,6 +2303,10 @@ function readOpencodeStatus(dir: string): {
   state: OpencodeLaunchState;
   url?: string;
   runtime?: OpencodeRuntime;
+  /** The pair the running embedded server answers to; the shell writes it so a
+   * service that was not told the address at launch can still connect. */
+  username?: string;
+  password?: string;
 } {
   const mode = readOpencodeMode(dir);
   const runtime = readOpencodeRuntime(dir);
@@ -2233,7 +2314,12 @@ function readOpencodeStatus(dir: string): {
   if (!parsed || typeof parsed !== "object" || parsed === null) {
     return runtime ? { mode, state: "unmanaged", runtime } : { mode, state: "unmanaged" };
   }
-  const rec = parsed as { state?: unknown; url?: unknown };
+  const rec = parsed as {
+    state?: unknown;
+    url?: unknown;
+    username?: unknown;
+    password?: unknown;
+  };
   if (!isOpencodeState(rec.state)) {
     return runtime ? { mode, state: "unmanaged", runtime } : { mode, state: "unmanaged" };
   }
@@ -2242,11 +2328,15 @@ function readOpencodeStatus(dir: string): {
     state: OpencodeLaunchState;
     url?: string;
     runtime?: OpencodeRuntime;
+    username?: string;
+    password?: string;
   } = {
     mode,
     state: rec.state,
   };
   if (typeof rec.url === "string") body.url = rec.url;
+  if (typeof rec.username === "string") body.username = rec.username;
+  if (typeof rec.password === "string") body.password = rec.password;
   if (runtime) body.runtime = runtime;
   return body;
 }

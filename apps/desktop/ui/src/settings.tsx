@@ -372,6 +372,10 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
           setRuntime(next.runtime);
           await refetchLaunch();
           setRuntimeNote(t("settings.opencode.restarted"));
+          // The service connects from the status file on its own; give it a
+          // moment, then let the backend list show the row it made.
+          props.conns.refetchConns();
+          setTimeout(() => props.conns.refetchConns(), 2_500);
           return;
         }
         if (next.state === "missing" || next.state === "stopped") {
@@ -506,6 +510,9 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
     setSaveErr("");
     try {
       await saveOpencodeMode(next);
+      // The saved mode decides what the state row offers — start for embed,
+      // nothing external — so it cannot be left showing the previous choice.
+      await refetchLaunch();
     } catch (e) {
       setMode(previous);
       setSaveErr(e instanceof Error ? e.message : String(e));
@@ -886,20 +893,48 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
               </>
             }
           >
-            <Show when={launchData()?.mode === "embed" && launchData()?.state !== "external"}>
+            {/* Keyed on the picked mode, not the launch snapshot: switching to
+                embed is exactly when there is no supervised server yet, which
+                is when the button matters most. The supervisor starts what it
+                does not already run, so one action covers start and restart. */}
+            <Show when={mode() === "embed"}>
               <Button
                 type="button"
                 size="sm"
                 variant="outline"
                 disabled={runtimeBusy() || !inDesktopShell()}
-                title={restartArmed() ? undefined : t("settings.opencode.restartHint")}
-                onClick={armRestart}
+                title={
+                  launchData()?.state === "running" && !restartArmed()
+                    ? t("settings.opencode.restartHint")
+                    : undefined
+                }
+                onClick={() =>
+                  launchData()?.state === "running" ? armRestart() : void restartRuntime()
+                }
               >
-                {restartArmed()
-                  ? t("settings.opencode.restartConfirm")
-                  : t("settings.opencode.restart")}
+                {launchData()?.state === "running"
+                  ? restartArmed()
+                    ? t("settings.opencode.restartConfirm")
+                    : t("settings.opencode.restart")
+                  : t("settings.opencode.start")}
               </Button>
             </Show>
+          </Row>
+        </Show>
+        {/* External mode owns no binary or process here — its connect form
+            lives with the other backends. Say so, and take the reader there. */}
+        <Show when={hydrated() && mode() === "external"}>
+          <Row label={t("settings.opencode.externalRow")} hint={t("settings.opencode.externalRowHint")}>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                location.hash = "/settings/backends";
+              }}
+            >
+              {t("settings.opencode.externalGo")}
+            </Button>
           </Row>
         </Show>
       </Card>

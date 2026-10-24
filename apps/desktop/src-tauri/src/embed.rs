@@ -44,6 +44,14 @@ pub struct OpencodeStatus {
     pub state: OpencodeState,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    /// The basic-auth pair the running server answers to. Written only while a
+    /// supervised server is up, so a service that was not told the address at
+    /// launch can still find its way back — connections.json already keeps
+    /// secrets like this in the same directory.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
 }
 
 /// Where the binary the app will run came from. The settings page shows this
@@ -332,11 +340,14 @@ pub fn write_status(
     mode: OpencodeMode,
     state: OpencodeState,
     url: Option<&str>,
+    creds: Option<(&str, &str)>,
 ) -> std::io::Result<()> {
     let status = OpencodeStatus {
         mode,
         state,
         url: url.map(str::to_string),
+        username: creds.map(|(username, _)| username.to_string()),
+        password: creds.map(|(_, password)| password.to_string()),
     };
     let json = serde_json::to_string(&status)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
@@ -376,6 +387,7 @@ pub fn supervise<S, H, W>(
                 plan.mode,
                 OpencodeState::Stopped,
                 Some(&plan.url),
+                None,
             );
             return;
         }
@@ -390,6 +402,7 @@ pub fn supervise<S, H, W>(
             plan.mode,
             OpencodeState::Starting,
             Some(&plan.url),
+            Some((plan.username.as_str(), plan.password.as_str())),
         );
 
         let spawned = match spawn(&plan) {
@@ -400,6 +413,7 @@ pub fn supervise<S, H, W>(
                     plan.mode,
                     OpencodeState::Stopped,
                     Some(&plan.url),
+                    None,
                 );
                 return;
             }
@@ -415,6 +429,7 @@ pub fn supervise<S, H, W>(
                         plan.mode,
                         OpencodeState::Running,
                         Some(&plan.url),
+                        Some((plan.username.as_str(), plan.password.as_str())),
                     );
                     attempt = 0;
                     unsuccessful = 0;
@@ -429,6 +444,7 @@ pub fn supervise<S, H, W>(
                         plan.mode,
                         OpencodeState::Stopped,
                         Some(&plan.url),
+                        None,
                     );
                     return;
                 }
@@ -449,6 +465,7 @@ pub fn supervise<S, H, W>(
                             plan.mode,
                             OpencodeState::Stopped,
                             Some(&plan.url),
+                            None,
                         );
                         return;
                     }
@@ -482,6 +499,7 @@ pub fn supervise<S, H, W>(
                     plan.mode,
                     OpencodeState::Stopped,
                     Some(&plan.url),
+                    None,
                 );
                 return;
             }
@@ -492,6 +510,7 @@ pub fn supervise<S, H, W>(
             plan.mode,
             OpencodeState::Restarting,
             Some(&plan.url),
+            Some((plan.username.as_str(), plan.password.as_str())),
         );
         attempt += 1;
         wait(backoff(attempt));
@@ -1333,6 +1352,7 @@ mod tests {
             OpencodeMode::Embed,
             OpencodeState::Running,
             Some("http://127.0.0.1:43123"),
+            None,
         )
         .expect("write running status");
         assert_eq!(previous_port(&status_path), Some(43123));
@@ -1346,6 +1366,7 @@ mod tests {
             &status_path,
             OpencodeMode::External,
             OpencodeState::External,
+            None,
             None,
         )
         .expect("write external status");
@@ -1370,6 +1391,7 @@ mod tests {
             OpencodeMode::Embed,
             OpencodeState::Running,
             Some("http://127.0.0.1:43123"),
+            None,
         )
         .expect("write running status");
         let status = read_status(&status_path).expect("read status");
@@ -1387,6 +1409,7 @@ mod tests {
             OpencodeMode::External,
             OpencodeState::Stopped,
             None,
+            None,
         )
         .expect("write stopped status");
         let stopped = read_status(&status_path).expect("read stopped status");
@@ -1398,12 +1421,27 @@ mod tests {
         assert!(stopped_json.get("url").is_none());
     }
 
+    /// The status file is the hand-off to a service that was not told the
+    /// address at launch: while a supervised server is up it needs the pair to
+    /// connect, and once the server is gone the pair goes with it.
     #[test]
-    fn status_json_does_not_contain_the_password() {
+    fn status_json_carries_the_pair_while_up_and_drops_it_when_stopped() {
         let plan = sample_plan();
         let path = temp_path("status.json");
-        write_status(&path, plan.mode, OpencodeState::Starting, Some(&plan.url))
-            .expect("write status");
+        write_status(
+            &path,
+            plan.mode,
+            OpencodeState::Running,
+            Some(&plan.url),
+            Some((plan.username.as_str(), plan.password.as_str())),
+        )
+        .expect("write running status");
+        let running = read_status(&path).expect("read running status");
+        assert_eq!(running.username.as_deref(), Some(plan.username.as_str()));
+        assert_eq!(running.password.as_deref(), Some(plan.password.as_str()));
+
+        write_status(&path, plan.mode, OpencodeState::Stopped, Some(&plan.url), None)
+            .expect("write stopped status");
         let text = fs::read_to_string(&path).unwrap();
         assert!(
             !text.contains(&plan.password),
