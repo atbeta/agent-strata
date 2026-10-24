@@ -21,9 +21,15 @@ import { makeEvent, type EventInput } from "@agent-strata/schema";
 
 const sid = "ses_1";
 
+// A real frame id is unique per emission — two `message.updated` for one
+// message still arrive as two frames. Test helpers mint theirs the same way,
+// so the mapper's re-delivery dedup sees only actual copies.
+let evtSeq = 0;
+const freshId = (hint: string) => `${hint}-${evtSeq++}`;
+
 const sessionCreated = (): Event =>
   ({
-    id: "e1",
+    id: freshId("e"),
     type: "session.created",
     properties: {
       sessionID: sid,
@@ -32,10 +38,10 @@ const sessionCreated = (): Event =>
   }) as unknown as Event;
 
 const msgUpdated = (info: object): Event =>
-  ({ id: `m-${(info as {id:string}).id}`, type: "message.updated", properties: { sessionID: sid, info } }) as unknown as Event;
+  ({ id: freshId(`m-${(info as {id:string}).id}`), type: "message.updated", properties: { sessionID: sid, info } }) as unknown as Event;
 
 const partUpdated = (part: object): Event =>
-  ({ id: `p-${(part as {id:string}).id}`, type: "message.part.updated", properties: { sessionID: sid, part, time: 0 } }) as unknown as Event;
+  ({ id: freshId(`p-${(part as {id:string}).id}`), type: "message.part.updated", properties: { sessionID: sid, part, time: 0 } }) as unknown as Event;
 
 const basicFixture = (): Event[] => [
   sessionCreated(),
@@ -327,7 +333,7 @@ describe("OpencodeMapper", () => {
     const m = new OpencodeMapper();
     const updated = (revert?: { messageID: string }): Event =>
       ({
-        id: "e",
+        id: freshId("su"),
         type: "session.updated",
         properties: {
           sessionID: sid,
@@ -459,6 +465,7 @@ describe("OpencodeMapper", () => {
     const out = basicFixture().flatMap((e) => m.handle(e));
     expect(out.map((e) => e.type)).toEqual([
       "session.started",
+      "session.status", // busy — the user message is work evidence on its own
       "turn.user",
       "turn.assistant", // partial stream snapshot from the first reasoning part
       "tool.call",
@@ -678,19 +685,63 @@ describe("OpencodeMapper", () => {
       m.handle({ id, type: "session.idle", properties: { sessionID: sid } } as unknown as Event);
     const user = (id: string) =>
       m.handle(msgUpdated({ id, sessionID: sid, role: "user", time: { created: 1 } }));
+    const assistant = (id: string, time: object) =>
+      m.handle(msgUpdated({
+        id, sessionID: sid, role: "assistant", parentID: "u2",
+        time, providerID: "anthropic", modelID: "claude",
+        agent: "build", mode: "build", path: { cwd: "/repo", root: "/repo" }, cost: 0,
+        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      }));
 
-    user("u1");
-    status("b1", "busy");
-    status("i1", "idle");
-    idle("i2");
+    // Run one's busy is opened by the user message itself; the frame that
+    // confirms it has nothing left to say.
+    expect(states(user("u1"))).toEqual(["busy"]);
+    expect(states(status("b1", "busy"))).toEqual([]);
+    expect(states(status("i1", "idle"))).toEqual(["idle"]);
+    // The idle's companion frame is a re-issue under a second id — no new
+    // transition, so nothing new to say.
+    expect(states(idle("i2"))).toEqual([]);
     // The next turn is already underway when the second bus re-delivers run
     // one's idles — the same frames, under the same ids.
-    user("u2");
-    status("i1", "idle");
-    idle("i2");
-    expect(states(status("b2", "busy"))).toEqual(["busy"]);
-    // The other bus's copy of that same busy is a re-delivery, not a new one.
+    expect(states(user("u2"))).toEqual(["busy"]);
+    expect(states(status("i1", "idle"))).toEqual([]);
+    expect(states(idle("i2"))).toEqual([]);
     expect(states(status("b2", "busy"))).toEqual([]);
+    // A stale idle re-issued under a fresh id does interrupt once — it is
+    // indistinguishable from a real end — but the run's next evidence speaks
+    // again, so it cannot leave the run invisible.
+    expect(states(status("i9", "idle"))).toEqual(["idle"]);
+    expect(states(assistant("a2", { created: 2 }))).toEqual(["busy"]);
+  });
+
+  test("a run whose status frames never arrive still reads busy, then settles", () => {
+    // Measured on embedded OpenCode: the server kept a session internally busy
+    // across turns, and `session.status` only travels on transitions — a whole
+    // run of user message, parts and completion went by with no frame at all,
+    // so nothing ever marked it running. Work evidence has to carry it: a user
+    // message in flight is already a turn.
+    const m = new OpencodeMapper();
+    const states = (out: EventInput[]) =>
+      out.filter((e) => e.type === "session.status").map((e) => (e.data as { state: string }).state);
+    m.handle(sessionCreated());
+    expect(states(m.handle(msgUpdated({
+      id: "u1", sessionID: sid, role: "user", time: { created: 10 },
+    })))).toEqual(["busy"]);
+    // The open assistant message keeps the claim; its completion queues the
+    // settle that speaks the idle the backend never sent.
+    expect(states(m.handle(msgUpdated({
+      id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
+      time: { created: 20 }, providerID: "anthropic", modelID: "claude",
+      agent: "build", mode: "build", path: { cwd: "/repo", root: "/repo" }, cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    })))).toEqual([]);
+    m.handle(msgUpdated({
+      id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
+      time: { created: 20, completed: 50 }, providerID: "anthropic", modelID: "claude",
+      agent: "build", mode: "build", path: { cwd: "/repo", root: "/repo" }, cost: 0, finish: "stop",
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    }));
+    expect(states(m.flushSettles())).toEqual(["idle"]);
   });
 
   test("a message stuck open past the quiet window says idle anyway", () => {
@@ -1734,6 +1785,70 @@ describe("the two opencode buses do not agree on when a session is idle", () => 
       .map((e) => (e as { data: { state: string } }).data.state);
     expect(states.at(-1)).toBe("idle");
     store.close();
+  });
+
+  test("a user message re-delivered after the turn's idle cannot revive busy", () => {
+    // The same `message.updated` frame is carried on both buses. When the
+    // slower copy lands after the run's idle, replaying it re-asserts busy on
+    // a finished turn — and nothing ever ends it. Reproduction from live
+    // traffic: idle at t+0ms, the second copy of the user message at t+1ms,
+    // session stuck busy until the process restarted.
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    const userMsg = msgUpdated({
+      id: "u1",
+      sessionID: sid,
+      role: "user",
+      time: { created: 10 },
+    });
+    const run1 = [
+      m.handle(userMsg), // dir bus: the turn starts — work evidence says busy
+      m.handle(
+        partUpdated({
+          id: "pt1",
+          sessionID: sid,
+          messageID: "u1",
+          type: "text",
+          text: "hi",
+          time: { start: 10 },
+        }),
+      ),
+      m.handle({ id: "st-idle", type: "session.status", properties: { sessionID: sid, status: { type: "idle" } } } as unknown as Event),
+      m.handle({ id: "st-idle2", type: "session.idle", properties: { sessionID: sid } } as unknown as Event),
+    ].flat();
+    expect(run1.filter((e) => e.type === "session.status").map((e) => e.data.state)).toEqual([
+      "busy",
+      "idle",
+    ]);
+    // The global bus's copy of the user message arrives now — same frame id,
+    // dropped by re-delivery dedup.
+    const late = m.handle(userMsg);
+    expect(late.filter((e) => e.type === "session.status")).toEqual([]);
+    // And OpenCode's own bookkeeping update — a different frame id, the turn
+    // already resolved — is not a new run either.
+    const bookkeeping = m.handle(
+      msgUpdated({
+        id: "u1",
+        sessionID: sid,
+        role: "user",
+        time: { created: 10 },
+      }),
+    );
+    expect(
+      bookkeeping.filter((e) => e.type === "session.status" && e.data.state === "busy"),
+    ).toEqual([]);
+    // The next turn is a NEW message id — its evidence still opens a run.
+    const run2 = m.handle(
+      msgUpdated({
+        id: "u2",
+        sessionID: sid,
+        role: "user",
+        time: { created: 20 },
+      }),
+    );
+    expect(run2.filter((e) => e.type === "session.status").map((e) => e.data.state)).toEqual([
+      "busy",
+    ]);
   });
 });
 

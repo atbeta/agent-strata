@@ -243,15 +243,25 @@ interface SessionState {
   messages: Map<string, MsgState>;
   pendingUserMsgs: Set<string>;
   /**
-   * Whether the backend currently says this session is generating.
+   * User messages whose turn already resolved. A message stays in the ledger
+   * after its turn ends and OpenCode keeps touching it — title, tokens,
+   * summaries — so "this user id is known" cannot mean "no work is coming";
+   * "its turn already finished" can. Updates to a resolved message are
+   * bookkeeping, and bookkeeping is not a new run.
+   */
+  resolvedUsers?: Set<string>;
+  /**
+   * Whether we have told downstream this session is generating.
    *
-   * Upstream is the authority for this, but it is not reliable enough to be the
-   * only source: a session that finished a turn after a permission was granted
-   * never got a `session.idle`, and its `busy` stayed true forever. A session
-   * that reads "running" while nothing is running is worse than one that reads
-   * "running" a moment too long — it is a breathing dot on a dead conversation,
-   * and it never corrects itself, so nobody can tell it apart from a real run.
-   * This is what lets us notice the disagreement.
+   * Two sources can open a run: the backend's `session.status` busy frame, and
+   * work evidence — a user message in flight or an assistant message still
+   * open — because the frame only travels on transitions and a session the
+   * server still counts as busy emits none for its next turn. Either way a
+   * missing `idle` must not leave it set forever: a session that reads
+   * "running" while nothing is running is worse than one that reads "running"
+   * a moment too long — it is a breathing dot on a dead conversation, and it
+   * never corrects itself, so nobody can tell it apart from a real run. The
+   * settle pass is what notices the disagreement.
    */
   sawBusy?: boolean;
   /**
@@ -288,21 +298,14 @@ interface SessionState {
    * case for the measurement that made this necessary.
    */
   idleConfirmed?: boolean;
-  /**
-   * Status frames already applied, by the frame's own id. Both buses carry the
-   * same event and they do not keep step: a slower bus still delivering the
-   * last run's idle while the next turn has already started must not apply it
-   * a second time — doing so re-arms `idleConfirmed` after the turn's own
-   * message cleared it, and the run's busy is then dropped as a stale claim.
-   * Bounded: transitions are rare, so a small window of ids is enough.
-   */
-  seenStatusIds?: Set<string>;
 }
 
 export class OpencodeMapper {
   sessions = new Map<string, SessionState>();
   /** assistant messages with text no snapshot has carried yet, by message id */
   private held = new Map<string, { s: SessionState; m: MsgState }>();
+  /** frames already applied, by `type:id` — see the dedup in `handle` */
+  private seenIds = new Set<string>();
 
   constructor(private opts: { directory?: string; now?: () => number } = {}) {}
 
@@ -670,6 +673,29 @@ export class OpencodeMapper {
     );
   }
 
+  /**
+   * Real work asserts a run more reliably than the backend's status frame
+   * does. `session.status` only travels on transitions, so a session the
+   * server still counts as busy emits no second frame for its next turn — a
+   * queued message produces user/assistant updates and tool parts while no
+   * `busy` ever arrives, and a run whose one frame went missing stays
+   * invisible forever. A user message in flight or an assistant message still
+   * open is work evidence enough to say the session is running.
+   */
+  private noteWork(s: SessionState, out: EventInput[], key: string): void {
+    if (s.sawBusy) return;
+    s.sawBusy = true;
+    this.queueSettle(s, `work:${key}`, false);
+    out.push(
+      this.ev(
+        s,
+        "session.status",
+        { state: "busy" },
+        `opencode:${s.sessionID}:status:work:${key}`,
+      ),
+    );
+  }
+
   private toolEvents(s: SessionState, m: MsgState, part: ToolPart, t: ToolTrack): EventInput[] {
     const out: EventInput[] = [];
     const st = part.state;
@@ -794,6 +820,24 @@ export class OpencodeMapper {
 
   handle(evt: Event): EventInput[] {
     const out: EventInput[] = [];
+    /**
+     * One frame, once. The same event travels on the global bus and the
+     * project bus and they do not keep step: a re-delivered user
+     * `message.updated` landing after the turn's idle re-asserts busy and a
+     * finished session reads running forever — exactly what a re-delivered
+     * idle did to `idleConfirmed` before, and what reconnect replay via
+     * Last-Event-ID would do to both. `type:` is in the key because OpenCode
+     * reuses an envelope id for its `sync` marker; `import:` frames are
+     * exempt because a re-import means the data changed.
+     */
+    if (evt.id && !evt.id.startsWith("import:")) {
+      const key = `${evt.type}:${evt.id}`;
+      if (this.seenIds.has(key)) return out;
+      this.seenIds.add(key);
+      if (this.seenIds.size > 8192) {
+        this.seenIds.delete(this.seenIds.keys().next().value!);
+      }
+    }
     const props = "properties" in evt ? evt.properties : undefined;
     const sessionID =
       props && "sessionID" in props ? (props.sessionID as string) : undefined;
@@ -881,12 +925,24 @@ export class OpencodeMapper {
         // already ended, and treating that as the start of a new one is what put
         // a finished session back to running for as long as the project kept
         // working. See the `session.idle` case.
-        s.idleConfirmed = false;
+        // A message whose turn already resolved is bookkeeping, not work —
+        // OpenCode keeps touching it after the run ends (title, tokens,
+        // summaries) and each such frame, carried on the slower bus past the
+        // turn's idle, would put a finished session back to running.
+        const resolved =
+          info.role === "user" ? (s.resolvedUsers?.has(info.id) ?? false) : m.emittedAssistant;
+        if (!resolved) s.idleConfirmed = false;
         if (info.role === "user") {
-          s.pendingUserMsgs.add(info.id);
+          if (!resolved) s.pendingUserMsgs.add(info.id);
+          // Queued or running, this message is a turn in flight — and the
+          // status frame that would say so may never come, so say it here.
+          if (!resolved && !evt.id.startsWith("import:")) this.noteWork(s, out, `msg:${info.id}`);
           return out;
         }
         if (info.role === "assistant") {
+          if (!resolved && info.time.completed === undefined && !evt.id.startsWith("import:")) {
+            this.noteWork(s, out, `msg:${info.id}`);
+          }
           m.parentID = info.parentID;
           (s.liveMsgs ??= new Map()).set(info.id, info.parentID);
           this.flushUser(s, out, info.parentID);
@@ -898,6 +954,7 @@ export class OpencodeMapper {
           }
           if (info.time.completed !== undefined && !m.emittedAssistant) {
             m.emittedAssistant = true;
+            if (info.parentID) (s.resolvedUsers ??= new Set()).add(info.parentID);
             this.held.delete(info.id);
             const content = [...m.parts.values()].filter((b) => b.type !== "file_ref");
             const failure = assistantFailure(info.error);
@@ -1091,16 +1148,6 @@ export class OpencodeMapper {
         if (!sessionID) return out;
         const { s, out: pre } = this.ensureSession(sessionID);
         out.push(...pre);
-        // A re-delivery is not a new state. The slower bus hands over the same
-        // frame under the same id, and applying it twice is what let a stale
-        // idle re-latch the session mid-turn: the next run's busy — from both
-        // buses — was then dropped, and the run never read as having started.
-        if (evt.id) {
-          if (s.seenStatusIds?.has(evt.id)) return out;
-          const seen = (s.seenStatusIds ??= new Set());
-          seen.add(evt.id);
-          if (seen.size > 64) seen.delete(seen.keys().next().value!);
-        }
         const idle =
           evt.type === "session.idle" || evt.properties.status.type === "idle";
         /**
@@ -1128,7 +1175,16 @@ export class OpencodeMapper {
          * the global bus keeps re-sending about a run that ended. The global
          * bus keeps discovering sessions; it is no longer allowed to end them.
          */
+        const wasBusy = s.sawBusy;
         if (idle) {
+          // Idle closes every open turn. A user message whose turn resolved —
+          // or never produced one — keeps getting bookkeeping frames after
+          // (title, tokens, summaries), and each would read as a new run.
+          // Text parts take a message off pending the moment they land, so
+          // resolved has to come from the message ledger, not the queue.
+          for (const [msgID, m2] of s.messages) {
+            if (m2.role === "user") (s.resolvedUsers ??= new Set()).add(msgID);
+          }
           for (const msgID of [...s.pendingUserMsgs]) this.flushUser(s, out, msgID);
           // a message that never finished is retired by the overlay at idle; a
           // late frame for it would bring it back
@@ -1136,11 +1192,18 @@ export class OpencodeMapper {
           s.sawBusy = false;
           s.liveMsgs?.clear();
           s.idleConfirmed = true;
+          // The backend re-issues idle under fresh ids — a status-idle and a
+          // session.idle for one transition, again on the other bus, again on
+          // reconnect. Only the busy→idle edge is a state worth announcing.
+          if (!wasBusy) return out;
         } else if (s.idleConfirmed) {
           // Stale: this run is over. Dropping it is what stops the last event to
           // arrive from being the one the projection keeps.
           return out;
         } else {
+          // Already running — work evidence or an earlier copy opened it — so
+          // the frame only renews the claim and emits nothing again.
+          if (s.sawBusy) return out;
           // Remember that the backend claimed work, so a later completion with
           // no idle behind it is something we can correct rather than guess at.
           s.sawBusy = true;
@@ -1169,6 +1232,7 @@ export class OpencodeMapper {
         const p = evt.properties;
         const { s, out: pre } = this.ensureSession(p.sessionID);
         out.push(...pre);
+        this.noteWork(s, out, `q:${p.id}`);
         out.push(
           this.ev(
             s,
@@ -1220,6 +1284,7 @@ export class OpencodeMapper {
         const p = evt.properties;
         const { s, out: pre } = this.ensureSession(p.sessionID);
         out.push(...pre);
+        this.noteWork(s, out, `perm:${p.id}`);
         const shell = SHELL_PERMS.has(p.permission);
         const input: Record<string, unknown> = { ...p.metadata, patterns: p.patterns };
         if (shell) input.command = p.patterns.join("\n");
