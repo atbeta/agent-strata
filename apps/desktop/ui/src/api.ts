@@ -1044,6 +1044,61 @@ export function terminalSocket(sessionId: string, ptyId: string): string {
 }
 
 /**
+ * A command a session left running — a dev server, a watcher.
+ *
+ * The service owns it, which is why it has an id that outlives a turn. `pid` is
+ * absent only when the spawn never produced one.
+ */
+export interface DevProcess {
+  id: string;
+  session_id: string;
+  command: string;
+  cwd: string;
+  pid?: number;
+  started_at: number;
+  exit_code: number | null;
+  stopped: boolean;
+  error?: string;
+  last_line?: string;
+}
+
+export interface DevLogLine {
+  at: number;
+  stream: "out" | "err";
+  text: string;
+}
+
+export function listDevProcesses(sessionId: string): Promise<{ processes: DevProcess[] }> {
+  return getJson(`/dev?session=${encodeURIComponent(sessionId)}`, { signal: AbortSignal.timeout(10_000) });
+}
+
+/**
+ * Every command every session left running.
+ *
+ * The overview answers "what is on port 3000" without knowing which session
+ * started it, so the read is deliberately unscoped: the service keeps one
+ * table and a reader with four sessions should not have to ask four times.
+ */
+export function listAllDevProcesses(): Promise<{ processes: DevProcess[] }> {
+  return getJson(`/dev`, { signal: AbortSignal.timeout(10_000) });
+}
+
+export async function readDevLogs(
+  processId: string,
+  tail = 200,
+): Promise<{ process: DevProcess; lines: DevLogLine[] }> {
+  return getJson(`/dev/${encodeURIComponent(processId)}/logs?tail=${tail}`, {
+    signal: AbortSignal.timeout(10_000),
+  });
+}
+
+export async function stopDevProcess(processId: string): Promise<void> {
+  await throwOnError(
+    await fetch(api(`/dev/${encodeURIComponent(processId)}/stop`), { method: "POST" }),
+  );
+}
+
+/**
  * Dollars, at a precision that matches the size of the number.
  *
  * Four places on every figure is false precision once a session costs dollars

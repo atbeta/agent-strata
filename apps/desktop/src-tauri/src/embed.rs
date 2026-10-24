@@ -34,6 +34,8 @@ pub struct OpencodePlan {
     pub username: String,
     pub password: String,
     pub url: String,
+    /// The service this shell started. A plugin inside OpenCode reaches it here.
+    pub service_port: u16,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -238,7 +240,11 @@ pub fn health_ok(url: &str, username: &str, password: &str) -> bool {
 /// A preferred port is only a preference: anything else already on the
 /// loopback — a second app, an `opencode serve` of the user's own — wins over
 /// it, and the server takes a free port instead.
-pub fn plan_with_port(mode: OpencodeMode, preferred: Option<u16>) -> std::io::Result<OpencodePlan> {
+pub fn plan_with_port(
+    mode: OpencodeMode,
+    preferred: Option<u16>,
+    service_port: u16,
+) -> std::io::Result<OpencodePlan> {
     match mode {
         OpencodeMode::External => Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -256,6 +262,7 @@ pub fn plan_with_port(mode: OpencodeMode, preferred: Option<u16>) -> std::io::Re
                 username: "opencode".into(),
                 password,
                 url: format!("http://127.0.0.1:{port}"),
+                service_port,
             })
         }
     }
@@ -275,6 +282,13 @@ pub fn child_env(plan: &OpencodePlan) -> Vec<(String, String)> {
     vec![
         ("OPENCODE_SERVER_USERNAME".into(), plan.username.clone()),
         ("OPENCODE_SERVER_PASSWORD".into(), plan.password.clone()),
+        // Where the service is. A plugin inside OpenCode uses it to hand a
+        // long-running command to something that can supervise it, instead of
+        // detaching it into a window nothing owns.
+        (
+            "STRATA_SERVICE_URL".into(),
+            format!("http://127.0.0.1:{}", plan.service_port),
+        ),
     ]
 }
 
@@ -949,6 +963,7 @@ mod tests {
             username: "opencode".into(),
             password: "unit-test-password-value".into(),
             url: "http://127.0.0.1:43123".into(),
+            service_port: 7700,
         }
     }
 
@@ -1202,6 +1217,10 @@ mod tests {
                     "OPENCODE_SERVER_PASSWORD".to_string(),
                     "unit-test-password-value".to_string()
                 ),
+                (
+                    "STRATA_SERVICE_URL".to_string(),
+                    "http://127.0.0.1:7700".to_string()
+                ),
             ]
         );
     }
@@ -1268,7 +1287,7 @@ mod tests {
 
     #[test]
     fn plan_embed_fills_loopback_url_and_username() {
-        let planned = plan_with_port(OpencodeMode::Embed, None).expect("embed plan");
+        let planned = plan_with_port(OpencodeMode::Embed, None, 7700).expect("embed plan");
         assert_eq!(planned.mode, OpencodeMode::Embed);
         assert_eq!(planned.username, "opencode");
         assert_eq!(planned.url, format!("http://127.0.0.1:{}", planned.port));
@@ -1277,7 +1296,7 @@ mod tests {
 
     #[test]
     fn plan_external_is_invalid_input() {
-        let err = plan_with_port(OpencodeMode::External, None).expect_err("external plan");
+        let err = plan_with_port(OpencodeMode::External, None, 7700).expect_err("external plan");
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
     }
 
@@ -1286,7 +1305,7 @@ mod tests {
         let _guard = FREE_PORT_TEST.lock().unwrap_or_else(|e| e.into_inner());
         for _ in 0..10 {
             let port = free_port().expect("free port");
-            let planned = plan_with_port(OpencodeMode::Embed, Some(port)).expect("embed plan");
+            let planned = plan_with_port(OpencodeMode::Embed, Some(port), 7700).expect("embed plan");
             if planned.port == port {
                 assert_eq!(planned.url, format!("http://127.0.0.1:{port}"));
                 return;
@@ -1300,7 +1319,7 @@ mod tests {
         let _guard = FREE_PORT_TEST.lock().unwrap_or_else(|e| e.into_inner());
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
         let taken = listener.local_addr().expect("addr").port();
-        let planned = plan_with_port(OpencodeMode::Embed, Some(taken)).expect("embed plan");
+        let planned = plan_with_port(OpencodeMode::Embed, Some(taken), 7700).expect("embed plan");
         assert_ne!(planned.port, taken);
         // Do not rebind `planned.port` here: another parallel test can claim it
         // after plan_with_port checked it, which tests the race, not the plan.

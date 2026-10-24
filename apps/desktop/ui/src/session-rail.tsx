@@ -1,9 +1,13 @@
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createEffect, createResource, createSignal, For, onCleanup, Show } from "solid-js";
 import {
+  listDevProcesses,
   readSessionDiff,
   readVcsDiff,
+  stopDevProcess,
+  type DevProcess,
   type SessionView,
 } from "./api";
+import { BackgroundPanel, devRunning } from "./background-panel";
 import { Icon } from "./icons";
 import { num, t, tn } from "./i18n";
 import { Tip } from "./tip";
@@ -93,6 +97,36 @@ export function SessionRail(props: {
   const effectiveTab = (): SidePanelTab => (props.opencode() ? props.tab() : "changes");
 
   /**
+   * The commands this session left running.
+   *
+   * Read here rather than inside the panel so the tab can carry the count: the
+   * reader should know a dev server is up without opening anything. A backend
+   * that cannot answer is not an error the rail should shout about — it just
+   * has nothing running.
+   */
+  const [devProcesses, { refetch: refetchDev }] = createResource(
+    () => props.sessionId(),
+    (id) => listDevProcesses(id).then((r) => r.processes).catch(() => [] as DevProcess[]),
+  );
+  const devCount = () => (devProcesses() ?? []).filter(devRunning).length;
+  const stopDev = async (id: string) => {
+    await stopDevProcess(id);
+    void refetchDev();
+  };
+  // The agent can start or stop one of these mid-turn; the tab count must not
+  // go stale while the panel is closed.
+  createEffect(() => {
+    const onStream = (ev: Event) => {
+      const evt = (ev as CustomEvent<{ session_id?: string; type?: string }>).detail;
+      if (!evt?.type?.startsWith("dev.")) return;
+      if (evt.session_id !== undefined && evt.session_id !== props.sessionId()) return;
+      void refetchDev();
+    };
+    window.addEventListener("strata-stream-event", onStream);
+    onCleanup(() => window.removeEventListener("strata-stream-event", onStream));
+  });
+
+  /**
    * How many files the changes view actually found. The rail header wears it
    * while open; the collapsed edge strip wears the same number while closed,
    * so the rail advertises what it holds before it takes any room.
@@ -152,10 +186,11 @@ export function SessionRail(props: {
             <MiniTabs
               kind="tabs"
               value={effectiveTab()}
-              onChange={(id) => props.onSelectTab(id as "changes" | "files")}
+              onChange={(id) => props.onSelectTab(id as SidePanelTab)}
               options={[
                 { id: "changes", label: t("panel.changes"), count: changeCount() },
                 { id: "files", label: t("panel.files") },
+                { id: "background", label: t("panel.background"), count: devCount() },
               ]}
               class="min-w-0 flex-1"
             />
@@ -172,6 +207,9 @@ export function SessionRail(props: {
         </div>
         <Show when={effectiveTab() === "files"}>
           <FileBrowser sessionId={props.sessionId()} />
+        </Show>
+        <Show when={effectiveTab() === "background"}>
+          <BackgroundPanel processes={() => devProcesses() ?? []} onStop={stopDev} />
         </Show>
         <Show when={effectiveTab() === "changes"}>
           <div class="flex min-h-0 flex-1 flex-col">

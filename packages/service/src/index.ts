@@ -43,7 +43,11 @@ import { editorLaunch } from "./editor";
 import { forkBefore, forkTitle } from "./fork";
 import { refused, shellCors } from "./shell-origin";
 import { terminalClose, terminalMessage, terminalOpen, terminalRoute, terminalUpgrade } from "./terminal";
+import { createDevManager, type DevEvent } from "./dev-process";
 import { SessionClaims } from "./identity";
+
+/** A log read is bounded by what a person can read, not by what the process wrote. */
+const MAX_DEV_LOG_TAIL = 5000;
 
 export interface ServiceOpts {
   db?: string;
@@ -147,6 +151,17 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   };
   const live = new LiveOverlay();
   const views = new ViewCache(store);
+  // Long-running commands belong to the service, not to a detached window.
+  // They are broadcast like any other event so the UI can show them without
+  // polling, and stopped with the session that started them.
+  const dev = createDevManager({ pidFile: join(desktopDir, "dev-processes.json") });
+  dev.subscribe((event: DevEvent) => broadcast(event));
+  // A service that was killed outright could not stop its dev servers. The
+  // pid file is what survives to tell this run which ones to clean up.
+  const reaped = dev.reapStale();
+  if (reaped > 0) {
+    console.error(`stopped ${reaped} dev process(es) left by a previous run`);
+  }
   const maintenanceDirsInfo = maintenanceDirs(opts.db, desktopDir);
   const maintenanceSnapshot = () => {
     const dbPath = maintenanceDirsInfo.dbPath;
@@ -1462,6 +1477,8 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       }
       const deleted = store.deleteSessions([casfId]);
       views.drop(casfId);
+      // A deleted session's dev servers have no owner left to stop them.
+      void dev.stopSession(casfId);
       broadcast({ type: "session.deleted", session_id: casfId });
       return json({ ok: true, backend, deleted, local: counts?.local ?? 0 });
     }
@@ -1852,6 +1869,66 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     const terminal = await terminalRoute(req, url, ownedTerminal);
     if (terminal) return terminal;
 
+    // Long-running commands a session started (a dev server, a watcher). They
+    // live here rather than in a detached shell so they can be read, stopped,
+    // and cleaned up with the session that owns them.
+    if (path === "/dev" && req.method === "GET") {
+      const sessionID = url.searchParams.get("session") ?? undefined;
+      return json({ processes: dev.list(sessionID) });
+    }
+
+    if (path === "/dev" && req.method === "POST") {
+      const body = (await req.json().catch(() => null)) as {
+        session_id?: unknown;
+        command?: unknown;
+        cwd?: unknown;
+      } | null;
+      if (typeof body?.session_id !== "string" || body.session_id.length === 0) {
+        return json({ error: "session_id required" }, 400);
+      }
+      if (typeof body.command !== "string" || body.command.trim().length === 0) {
+        return json({ error: "command required" }, 400);
+      }
+      // The workspace comes from the session, not from the caller: a dev server
+      // that can name any directory is a dev server that can leave the project.
+      // A session whose first events have not arrived yet has no workspace in
+      // its projection, so fall back to the connection that owns it.
+      const directory =
+        typeof body.cwd === "string" && body.cwd.length > 0
+          ? body.cwd
+          : (directoryOf(body.session_id) ?? driverFor(body.session_id)?.directory);
+      if (!directory) return json({ error: "session has no workspace" }, 400);
+      try {
+        const started = await dev.start({
+          session_id: body.session_id,
+          command: body.command,
+          cwd: directory,
+        });
+        return json(started, started.error ? 502 : 200);
+      } catch (e) {
+        return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+      }
+    }
+
+    const devHit = path.match(/^\/dev\/([A-Za-z0-9_]+)(?:\/(logs|stop))?$/);
+    if (devHit) {
+      const id = devHit[1];
+      const action = devHit[2];
+      if (id === undefined) return json({ error: "not found" }, 404);
+      const info = dev.get(id);
+      if (!info) return json({ error: "not found" }, 404);
+      if (!action && req.method === "GET") return json(info);
+      if (action === "logs" && req.method === "GET") {
+        const tail = Number(url.searchParams.get("tail") ?? 200) || 200;
+        return json({ process: info, lines: dev.logs(id, Math.min(Math.max(tail, 1), MAX_DEV_LOG_TAIL)) });
+      }
+      if (action === "stop" && req.method === "POST") {
+        await dev.stop(id);
+        return json({ ok: true });
+      }
+      return json({ error: "method not allowed" }, 405);
+    }
+
     const providers = await providerRoute(req, path, (id) => conns.get(id)?.extension?.providers);
     if (providers) return providers;
 
@@ -1996,6 +2073,9 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     sink,
     stop: () => {
       for (const c of conns.values()) c.stop();
+      // Nothing outlives the service: a dev server still listening after the
+      // app is gone is the orphan this module exists to prevent.
+      void dev.stopAll();
       server.stop();
       store.close();
     },

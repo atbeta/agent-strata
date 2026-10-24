@@ -18,6 +18,7 @@
 // and that wait returns only once the process groups are gone.
 
 mod embed;
+mod plugin_install;
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -292,9 +293,23 @@ fn reap(child: &mut Child) {
     kill_group(child.id());
     #[cfg(windows)]
     {
-        let _ = child.kill();
+        // `Child::kill` terminates one process. The service spawns a dev server
+        // per session, and those are grandchildren: killing the service alone
+        // leaves them running with nothing that can stop them.
+        kill_tree(child.id());
     }
     let _ = child.wait();
+}
+
+/// Terminate a process and everything it started.
+#[cfg(windows)]
+fn kill_tree(pid: u32) {
+    use std::os::windows::process::CommandExt;
+    let mut command = Command::new("taskkill");
+    command.args(["/PID", &pid.to_string(), "/T", "/F"]);
+    // Without this the helper opens a console window of its own.
+    command.creation_flags(0x08000000);
+    let _ = command.output();
 }
 
 impl Sidecars {
@@ -424,7 +439,7 @@ impl Sidecars {
                             }
                         }
                     }
-                    match plan_with_port(OpencodeMode::Embed, preferred) {
+                    match plan_with_port(OpencodeMode::Embed, preferred, port) {
                         Ok(planned) => {
                             let supervise_log = Some(log.clone());
                             if let Some(supervise_log) = supervise_log {
@@ -435,6 +450,9 @@ impl Sidecars {
                                 let opencode_slot = opencode.clone();
                                 let exited = Arc::new(AtomicBool::new(false));
                                 let pid_path = pid_path.clone();
+                                // The plugin lives in the app's data directory, so the
+                                // closure that spawns the server needs its own handle to it.
+                                let plugin_dir = data.clone();
                                 supervisor = Some(std::thread::spawn(move || {
                                     let wait_shutdown = shutdown_flag.clone();
                                     let wait_slot = opencode_slot.clone();
@@ -447,6 +465,7 @@ impl Sidecars {
                                             let shutdown_flag = shutdown_flag.clone();
                                             let opencode_slot = opencode_slot.clone();
                                             let exited = exited.clone();
+                                            let plugin_dir = plugin_dir.clone();
                                             move |p| {
                                                 if shutdown_flag.load(Ordering::SeqCst) {
                                                     return Err(std::io::Error::new(
@@ -455,7 +474,27 @@ impl Sidecars {
                                                     ));
                                                 }
                                                 let args = serve_args(p.port);
-                                                let owned = child_env(p);
+                                                let mut owned = child_env(p);
+                                                // The plugin that hands long-running commands
+                                                // to the service. Installed here rather than in the
+                                                // project, so it travels with the app and leaves with it.
+                                                match plugin_install::install_plugin(&plugin_dir) {
+                                                    Ok(plugin) => {
+                                                        owned.push((
+                                                            "OPENCODE_CONFIG_CONTENT".into(),
+                                                            plugin_install::config_content(&plugin),
+                                                        ));
+                                                    }
+                                                    Err(e) => {
+                                                        eprintln!(
+                                                            "agent-strata: could not install the dev-process plugin: {e}"
+                                                        );
+                                                        log_note(
+                                                            &supervise_log,
+                                                            &format!("could not install dev-process plugin: {e}"),
+                                                        );
+                                                    }
+                                                }
                                                 let env_refs: Vec<(&str, String)> = owned
                                                     .iter()
                                                     .map(|(k, v)| (k.as_str(), v.clone()))

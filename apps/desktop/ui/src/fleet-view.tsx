@@ -25,6 +25,7 @@ import {
   type TrendPoint,
 } from "./fleet";
 import { compactNum, num, t, tn } from "./i18n";
+import { FleetDevSection } from "./fleet-dev";
 import { displayTitle } from "./session-title";
 import { Tip } from "./tip";
 import { Icon } from "./icons";
@@ -136,6 +137,15 @@ export function FleetView(props: {
             running={status().running}
             now={props.now}
             onOpen={props.onOpen}
+          />
+
+          {/* What every session left running. It answers "what is on this
+              machine", which the per-session panel cannot: the reader does not
+              yet know which conversation owns the port. */}
+          <FleetDevSection
+            sessions={props.sessions}
+            refreshKey={props.refreshKey}
+            onOpenSession={props.onOpen}
           />
 
           <section>

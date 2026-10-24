@@ -139,6 +139,7 @@ export default {
   "fleet.status.running": "Running",
   "fleet.status.clear": "Nothing waiting or running",
   "fleet.usage": "Usage",
+  "fleet.dev": "Background processes",
   "fleet.rank": "Breakdown",
   "fleet.rank.projects": "Projects",
   "fleet.rank.models": "Models",

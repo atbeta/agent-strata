@@ -140,6 +140,7 @@ export default {
   "fleet.status.running": "运行中",
   "fleet.status.clear": "没有待处理或运行中的会话",
   "fleet.usage": "用量",
+  "fleet.dev": "后台进程",
   "fleet.rank": "排行",
   "fleet.rank.projects": "项目",
   "fleet.rank.models": "模型",
