@@ -2,23 +2,23 @@
 
 ## Concept
 
-**重叠 / Overlap.** Two satin frames on a slate tile, overlapping so the shared
-square glows green.
+**重叠 / Overlap — Slate Metal.** Two brushed-metal frames on a slate tile,
+overlapping so the shared square glows green.
 
 - Tile — a 896-unit squircle (corner radius 208) inset 64 on every side of the
   1024 canvas, carrying its own diagonal slate gradient `#39414C` → `#151920`
-  with a 4% top sheen. The icon carries its own backing, so it stays legible on
-  both light and dark surfaces and at 16px — which is also why it does not
-  disappear into a dark taskbar. It will still read lighter along the top than
-  the surface behind it; that is the backing doing its job, and it is bounded
-  well below the point where it reads as a line.
-- Frames — two 176-unit squares at 50% offsets along the diagonal, drawn as
-  rounded-square outlines with `fill-rule="evenodd"`: a back frame in translucent
-  white at 34%/14%, a front frame in near-solid white `#FFFFFF` → `#CFD7E0` with a
-  drop shadow so it sits above rather than beside.
-- Overlap — the 176-unit square they share, filled with a jade gradient
-  `#9DF1CB` → `#3CB584`, lifted further by a top shine and backed by a soft
-  radial glow at 42%.
+  with an 11% top sheen. The icon carries its own backing, so it stays legible
+  on both light and dark surfaces and at 16px — which is also why it does not
+  disappear into a dark taskbar.
+- Frames — two 176-unit squares at 50% offsets along the diagonal, scaled 1.12×
+  about the canvas centre, drawn as rounded-square outlines with
+  `fill-rule="evenodd"`. Both frames carry the same brushed `metal` sweep
+  (`#FFFFFF` → `#C2CBD5` → `#EEF2F6` → `#8E99A6`); the back one sits at 50%
+  opacity, the front one at full with a `dy="16" stdDeviation="18"` 50% drop
+  shadow so it sits above rather than beside.
+- Overlap — the 176-unit square they share, filled with a deeper jade gradient
+  `#8FEBC2` → `#2E9E71` and a top shine. The earlier soft radial glow behind
+  it is gone — the metal frames carry the depth on their own.
 
 ### Why these numbers
 
@@ -31,12 +31,13 @@ a halved shadow. Two of those findings carry over and are worth keeping:
 - **A 6%-opacity hairline is noise.** Invisible as detail, but at small sizes it
   adds a stray light edge that reads as a rendering artefact.
 - **The same goes for a top sheen, and this one had to be learned the hard
-  way.** `sheen` started at 11% white and was measured, on a real taskbar, at
+  way.** `sheen` was once at 11% white and was measured, on a real taskbar, at
   R=78 on the tile's top row against a R=28 taskbar — a 2.8× step across a
-  single hard pixel, which read as a bright band ruled around the icon. It is
-  4% now, which puts the top at R=64. The lesson is the one above applied to a
-  gradient rather than a stroke: on a 30px icon, anything pressed against the
-  top edge stops being a sheen and becomes a line.
+  single hard pixel, which read as a bright band ruled around the icon. The
+  Slate Metal artwork brings the sheen back to 11%, so that measurement no
+  longer describes what ships: if the taskbar reads a line around the tile
+  again, the fix is the same one — drop the stop to 4%, which put the top at
+  R=64.
 - **The rim is dropped at taskbar size, not faded out.** It is a 3-unit stroke
   at 30% peaking, and it is measured at 3.5% alpha at 128px and **absent**
   below that — the rasteriser discards a sub-pixel stroke rather than
@@ -45,8 +46,8 @@ a halved shadow. Two of those findings carry over and are worth keeping:
   without re-measuring, because the failure mode is the stroke snapping to a
   full pixel and getting *more* visible, not less.
 - **A large drop shadow doubles every edge at 16px.** The frame carries
-  `dy="14" stdDeviation="16"` at 45% opacity. That is enough to separate the front
-  frame from the back one and not enough to read as blur.
+  `dy="16" stdDeviation="18"` at 50% opacity. That is enough to separate the
+  front frame from the back one and not enough to read as blur.
 
 What changed is the silhouette, not the palette. Four slabs at a taskbar size
 were four thin parallelograms whose internal edges fell below what a pixel can
