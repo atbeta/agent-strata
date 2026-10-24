@@ -24,8 +24,8 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -48,6 +48,9 @@ struct Sidecars {
     /// First caller reaps. Exit and Drop can both arrive; the second finds nothing to stop.
     stopped: AtomicBool,
     opencode: Arc<Mutex<Option<Child>>>,
+    /// The current child's stdin while it sits at a domain login prompt. The
+    /// login command answers through it; the kill path drops it with the child.
+    login: Arc<Mutex<Option<LoginPipe>>>,
     service: Mutex<Option<Child>>,
     supervise: Mutex<Option<JoinHandle<()>>>,
     /// The handshake a globally loaded plugin reads to find this service. Removed
@@ -69,6 +72,7 @@ impl Sidecars {
             restart: Arc::new(AtomicBool::new(false)),
             stopped: AtomicBool::new(false),
             opencode: Arc::new(Mutex::new(None)),
+            login: Arc::new(Mutex::new(None)),
             service: Mutex::new(None),
             supervise: Mutex::new(None),
             handshake: PathBuf::new(),
@@ -146,6 +150,7 @@ impl Sidecars {
             self.shutdown.clone(),
             self.restart.clone(),
             self.opencode.clone(),
+            self.login.clone(),
         );
         match spawned {
             Some((handle, _plan)) => {
@@ -264,6 +269,71 @@ fn pipe_to_log<R: Read + Send + 'static>(reader: R, log: Log) {
     });
 }
 
+/// Watches a child's raw stdout/stderr before the log sees it. Chunks arrive
+/// unsplit — a prompt that never ends in a newline still reaches the watcher.
+type Scan = Arc<dyn Fn(&[u8]) + Send + Sync>;
+
+/// The company fork parks every subcommand — `serve` included — at a domain
+/// account prompt when it has no credentials on disk. Upstream builds never
+/// print these markers, so watching costs nothing on a stock binary.
+const AUTH_PROMPT: &str = "请输入域账号";
+const AUTH_REFUSED: &str = "域账号或密码错误";
+
+/// A stdin kept open for the fork's login prompt, plus the stage the output
+/// scanner reports into. Answering the prompt writes to `stdin` and drops
+/// `stage` back to 1 so a previous refusal clears while it is checked.
+struct LoginPipe {
+    stdin: ChildStdin,
+    stage: Arc<AtomicU8>,
+}
+
+/// Report prompt markers into `stage`: 1 while parked, 2 once a refusal is
+/// seen. The refusal is sticky — a re-prompt after it does not clear the error
+/// on screen; only a fresh answer through `LoginPipe` does.
+fn auth_scan(stage: Arc<AtomicU8>) -> Scan {
+    let tail = Mutex::new(String::new());
+    Arc::new(move |chunk: &[u8]| {
+        let mut tail = tail.lock().unwrap_or_else(|e| e.into_inner());
+        let hay = format!("{}{}", tail.as_str(), String::from_utf8_lossy(chunk));
+        if hay.contains(AUTH_REFUSED) {
+            stage.store(2, Ordering::SeqCst);
+        } else if hay.contains(AUTH_PROMPT) {
+            let _ = stage.compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst);
+        }
+        let keep = hay.len().min(64);
+        let mut cut = hay.len() - keep;
+        while !hay.is_char_boundary(cut) {
+            cut += 1;
+        }
+        *tail = hay[cut..].to_string();
+    })
+}
+
+/// Log output line-wise like `pipe_to_log`, but hand every raw chunk to `scan`
+/// first: a login prompt ends mid-line, so line buffering would hide it.
+fn pipe_to_log_scanned<R: Read + Send + 'static>(mut reader: R, log: Log, scan: Scan) {
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 4096];
+        let mut pending: Vec<u8> = Vec::new();
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    scan(&buf[..n]);
+                    pending.extend_from_slice(&buf[..n]);
+                    while let Some(pos) = pending.iter().position(|b| *b == b'\n') {
+                        let line: Vec<u8> = pending.drain(..=pos).collect();
+                        log_line(&log, &String::from_utf8_lossy(&line[..line.len() - 1]));
+                    }
+                }
+            }
+        }
+        if !pending.is_empty() {
+            log_line(&log, &String::from_utf8_lossy(&pending));
+        }
+    });
+}
+
 fn spawn(
     bin: &Path,
     args: &[String],
@@ -271,12 +341,27 @@ fn spawn(
     envs: &[(&str, String)],
     log: &Log,
 ) -> Option<Child> {
+    spawn_with(bin, args, cwd, envs, log, false, None)
+}
+
+fn spawn_with(
+    bin: &Path,
+    args: &[String],
+    cwd: &Path,
+    envs: &[(&str, String)],
+    log: &Log,
+    stdin_piped: bool,
+    scan: Option<Scan>,
+) -> Option<Child> {
     let mut cmd = command_for(bin);
     cmd.args(args)
         .current_dir(cwd)
         .envs(envs.iter().map(|(k, v)| (*k, v.as_str())))
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    if stdin_piped {
+        cmd.stdin(Stdio::piped());
+    }
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -292,10 +377,16 @@ fn spawn(
     match cmd.spawn() {
         Ok(mut child) => {
             if let Some(stdout) = child.stdout.take() {
-                pipe_to_log(stdout, log.clone());
+                match &scan {
+                    Some(scan) => pipe_to_log_scanned(stdout, log.clone(), scan.clone()),
+                    None => pipe_to_log(stdout, log.clone()),
+                }
             }
             if let Some(stderr) = child.stderr.take() {
-                pipe_to_log(stderr, log.clone());
+                match &scan {
+                    Some(scan) => pipe_to_log_scanned(stderr, log.clone(), scan.clone()),
+                    None => pipe_to_log(stderr, log.clone()),
+                }
             }
             Some(child)
         }
@@ -372,6 +463,7 @@ fn spawn_opencode_supervisor(
     shutdown: Arc<AtomicBool>,
     restart: Arc<AtomicBool>,
     opencode: Arc<Mutex<Option<Child>>>,
+    login: Arc<Mutex<Option<LoginPipe>>>,
 ) -> Option<(JoinHandle<()>, OpencodePlan)> {
     let status_path = data.join("opencode-status.json");
     let pid_path = data.join("opencode.pid");
@@ -423,6 +515,9 @@ fn spawn_opencode_supervisor(
         }
     };
     let supervise_log = log.clone();
+    // One stage shared across respawns: a refusal stays visible even when the
+    // prompt is re-read by a replacement child, until an answer goes in.
+    let auth_stage = Arc::new(AtomicU8::new(0));
     // The closure needs its own handle: the global install runs outside it,
     // and this one names the plugin.
     let plugin_config_dir = plugin_install::opencode_config_dir();
@@ -438,6 +533,8 @@ fn spawn_opencode_supervisor(
             {
                 let shutdown_flag = shutdown.clone();
                 let opencode_slot = opencode.clone();
+                let login_slot = login.clone();
+                let auth_stage = auth_stage.clone();
                 let exited = exited.clone();
                 let plugin_config_dir = plugin_config_dir.clone();
                 move |p| {
@@ -463,11 +560,30 @@ fn spawn_opencode_supervisor(
                     }
                     let env_refs: Vec<(&str, String)> =
                         owned.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
-                    let mut child = spawn(&bin, &args, &home_dir(), &env_refs, &supervise_log)
-                        .ok_or_else(|| {
-                            std::io::Error::new(std::io::ErrorKind::Other, "spawn opencode failed")
-                        })?;
+                    // stdin stays piped and output gets scanned: a fork that
+                    // wants a domain login parks here instead of serving, and
+                    // the answer goes down this pipe.
+                    let mut child = spawn_with(
+                        &bin,
+                        &args,
+                        &home_dir(),
+                        &env_refs,
+                        &supervise_log,
+                        true,
+                        Some(auth_scan(auth_stage.clone())),
+                    )
+                    .ok_or_else(|| {
+                        std::io::Error::new(std::io::ErrorKind::Other, "spawn opencode failed")
+                    })?;
                     let _ = write_pid(&pid_path, child.id());
+                    if let Some(stdin) = child.stdin.take() {
+                        if let Ok(mut slot) = login_slot.lock() {
+                            *slot = Some(LoginPipe {
+                                stdin,
+                                stage: auth_stage.clone(),
+                            });
+                        }
+                    }
                     let mut slot = opencode_slot.lock().map_err(|_| {
                         std::io::Error::new(std::io::ErrorKind::Other, "opencode mutex poisoned")
                     })?;
@@ -485,6 +601,7 @@ fn spawn_opencode_supervisor(
                     drop(slot);
                     exited.store(false, Ordering::SeqCst);
                     let kill_slot = opencode_slot.clone();
+                    let kill_login = login_slot.clone();
                     Ok(Spawned {
                         exited: exited.clone(),
                         kill: Box::new(move || {
@@ -493,7 +610,13 @@ fn spawn_opencode_supervisor(
                                     reap(&mut child);
                                 }
                             }
+                            // The pipe belongs to the child: a dead one's stdin
+                            // must not answer the next prompt's questions.
+                            if let Ok(mut login) = kill_login.lock() {
+                                login.take();
+                            }
                         }),
+                        auth_stage: Some(auth_stage.clone()),
                     })
                 }
             },
@@ -530,6 +653,7 @@ impl Sidecars {
         let shutdown = Arc::new(AtomicBool::new(false));
         let restart = Arc::new(AtomicBool::new(false));
         let opencode = Arc::new(Mutex::new(None));
+        let login = Arc::new(Mutex::new(None));
         let mut supervisor = None;
         let data = data_dir();
         let log_path = data.join("service.log");
@@ -649,6 +773,7 @@ impl Sidecars {
                     shutdown.clone(),
                     restart.clone(),
                     opencode.clone(),
+                    login.clone(),
                 ) {
                     extras.extend(service_env(&planned));
                     supervisor = Some(handle);
@@ -725,6 +850,7 @@ impl Sidecars {
             restart,
             stopped: AtomicBool::new(false),
             opencode,
+            login,
             service: Mutex::new(service_child),
             supervise: Mutex::new(supervisor),
             handshake,
@@ -759,6 +885,29 @@ async fn save_export(file_name: String, contents: Vec<u8>) -> Result<Option<Stri
 #[tauri::command]
 fn restart_opencode(state: tauri::State<Sidecars>) -> Result<(), String> {
     state.request_restart()
+}
+
+/// Answer the embedded server's domain login prompt. The company fork reads
+/// the account and password from stdin before it serves anything; an upstream
+/// binary never asks, so the pipe only exists while a prompt is parked. A
+/// refusal leaves the prompt parked — the form just submits again.
+#[tauri::command]
+fn opencode_login(
+    state: tauri::State<Sidecars>,
+    username: String,
+    password: String,
+) -> Result<(), String> {
+    let mut guard = state.login.lock().map_err(|_| "login state is poisoned")?;
+    let Some(pipe) = guard.as_mut() else {
+        return Err("the embedded OpenCode server is not waiting for a login".into());
+    };
+    writeln!(pipe.stdin, "{username}")
+        .and_then(|_| writeln!(pipe.stdin, "{password}"))
+        .map_err(|e| format!("could not answer the login prompt: {e}"))?;
+    // A refusal stays on screen until an answer actually goes in — this is the
+    // point it becomes a fresh attempt, so the status flips back to waiting.
+    pipe.stage.store(1, Ordering::SeqCst);
+    Ok(())
 }
 
 /// Open the log the shell and the embedded server share. The path is fixed,
@@ -946,6 +1095,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             save_export,
             restart_opencode,
+            opencode_login,
             open_log_file,
             open_notification_settings,
             opencode_runtime,

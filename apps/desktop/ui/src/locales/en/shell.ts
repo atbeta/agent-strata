@@ -327,7 +327,18 @@ export default {
   "settings.opencode.state.restarting": "Restarting",
   "settings.opencode.state.stopped": "Stopped",
   "settings.opencode.state.external": "External",
+  "settings.opencode.state.authRequired": "Sign-in required",
+  "settings.opencode.state.authFailed": "Sign-in failed",
   "settings.opencode.state.unmanaged": "Unmanaged",
+  "settings.opencode.login": "Domain sign-in",
+  "settings.opencode.loginHint":
+    "This opencode asks for a domain account before it serves; it continues starting once the sign-in passes.",
+  "settings.opencode.loginUser": "Domain account",
+  "settings.opencode.loginPass": "Domain password",
+  "settings.opencode.loginSubmit": "Sign in",
+  "settings.opencode.loginBusy": "Checking…",
+  "settings.opencode.loginFailed":
+    "The domain account or password was refused. Check them and try again.",
   "settings.provider.title": "Model providers",
   "settings.provider.hint": "API keys and sign-in are stored by OpenCode. This page does not keep them.",
   "settings.provider.offline": "Connect OpenCode to add an API key.",

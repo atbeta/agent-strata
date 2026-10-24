@@ -25,6 +25,11 @@ pub enum OpencodeState {
     Restarting,
     Stopped,
     External,
+    /// The child is parked at a login prompt: it is waiting for input, not
+    /// unhealthy. A reader answers the prompt and it converges on its own.
+    AuthRequired,
+    /// The last credentials written to that prompt were refused.
+    AuthFailed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -362,6 +367,10 @@ pub fn read_status(path: &Path) -> Option<OpencodeStatus> {
 pub struct Spawned {
     pub exited: Arc<AtomicBool>,
     pub kill: Box<dyn Fn() + Send>,
+    /// 0 while serving, 1 parked at a login prompt, 2 after the prompt refused
+    /// what it was fed. Forks that never prompt leave this `None` and behave
+    /// exactly as before.
+    pub auth_stage: Option<Arc<std::sync::atomic::AtomicU8>>,
 }
 
 pub fn supervise<S, H, W>(
@@ -422,7 +431,13 @@ pub fn supervise<S, H, W>(
         let mut reached_running = false;
 
         if !spawned.exited.load(Ordering::SeqCst) {
-            for _ in 0..40 {
+            let mut polls = 0u32;
+            let mut auth_written: i8 = -1;
+            while polls < 40 && !spawned.exited.load(Ordering::SeqCst) {
+                // Health wins over the prompt flag: a successful login leaves
+                // the stage marker stale while the server it unblocked comes
+                // up, so probe first and let the prompt branch only hold when
+                // the port really is still shut.
                 if healthy(&plan) {
                     let _ = write_status(
                         status_path,
@@ -436,7 +451,49 @@ pub fn supervise<S, H, W>(
                     reached_running = true;
                     break;
                 }
+                let stage = spawned
+                    .auth_stage
+                    .as_ref()
+                    .map(|s| s.load(Ordering::SeqCst))
+                    .unwrap_or(0);
+                if stage > 0 {
+                    // Parked at a login prompt: the child is waiting on input,
+                    // not unwell. Surface the state once per change and hold —
+                    // feeding the prompt is what moves it on, not more probing.
+                    if auth_written != stage as i8 {
+                        let _ = write_status(
+                            status_path,
+                            plan.mode,
+                            if stage == 2 {
+                                OpencodeState::AuthFailed
+                            } else {
+                                OpencodeState::AuthRequired
+                            },
+                            Some(&plan.url),
+                            Some((plan.username.as_str(), plan.password.as_str())),
+                        );
+                        auth_written = stage as i8;
+                    }
+                    wait(Duration::from_millis(400));
+                    if shutdown.load(Ordering::SeqCst) {
+                        (spawned.kill)();
+                        let _ = write_status(
+                            status_path,
+                            plan.mode,
+                            OpencodeState::Stopped,
+                            Some(&plan.url),
+                            None,
+                        );
+                        return;
+                    }
+                    if restart.swap(false, Ordering::SeqCst) {
+                        (spawned.kill)();
+                        break;
+                    }
+                    continue;
+                }
                 wait(Duration::from_millis(200));
+                polls += 1;
                 if shutdown.load(Ordering::SeqCst) {
                     (spawned.kill)();
                     let _ = write_status(
@@ -1497,6 +1554,7 @@ mod tests {
                             Arc::new(AtomicBool::new(false))
                         },
                         kill: Box::new(|| {}),
+                    auth_stage: None,
                     })
                 }
             },
@@ -1569,6 +1627,7 @@ mod tests {
                                 kills.fetch_add(1, Ordering::SeqCst);
                             }
                         }),
+                        auth_stage: None,
                     })
                 }
             },
@@ -1616,6 +1675,7 @@ mod tests {
                         kill: Box::new(move || {
                             kills.fetch_add(1, Ordering::SeqCst);
                         }),
+                        auth_stage: None,
                     })
                 }
             },
@@ -1661,6 +1721,7 @@ mod tests {
                                 first_kills.fetch_add(1, Ordering::SeqCst);
                             }
                         }),
+                        auth_stage: None,
                     })
                 }
             },
@@ -1708,6 +1769,7 @@ mod tests {
                     Ok(Spawned {
                         exited: Arc::new(AtomicBool::new(true)),
                         kill: Box::new(|| {}),
+                    auth_stage: None,
                     })
                 }
             },

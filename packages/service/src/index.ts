@@ -2205,6 +2205,8 @@ type OpencodeLaunchState =
   | "restarting"
   | "stopped"
   | "external"
+  | "authRequired"
+  | "authFailed"
   | "unmanaged";
 
 function isOpencodeMode(value: unknown): value is OpencodeLaunchMode {
@@ -2219,6 +2221,8 @@ function isOpencodeState(value: unknown): value is OpencodeLaunchState {
     value === "restarting" ||
     value === "stopped" ||
     value === "external" ||
+    value === "authRequired" ||
+    value === "authFailed" ||
     value === "unmanaged"
   );
 }

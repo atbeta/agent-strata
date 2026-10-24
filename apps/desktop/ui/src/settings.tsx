@@ -10,6 +10,7 @@ import {
   checkOpencodeRuntime,
   chooseOpencodeBinary,
   openOpencodeLog,
+  opencodeLogin,
   restartOpencode,
   setOpencodeBinary,
 } from "./opencode-runtime";
@@ -245,6 +246,9 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
   const [notifyOn, setNotifyOn] = createSignal(readNotify());
   const [notifyErr, setNotifyErr] = createSignal("");
   const [shellDefault, setShellDefault] = createSignal(readTerminalShell());
+  const [loginUser, setLoginUser] = createSignal("");
+  const [loginPass, setLoginPass] = createSignal("");
+  const [loginBusy, setLoginBusy] = createSignal(false);
 
   const patchFonts = (patch: Partial<FontChoice>) => {
     const next = { ...fonts(), ...patch };
@@ -278,7 +282,10 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
         return "bg-status-error";
       case "starting":
       case "restarting":
+      case "authRequired":
         return "bg-status-cancelled";
+      case "authFailed":
+        return "bg-status-error";
       default:
         return "bg-status-pending";
     }
@@ -297,6 +304,10 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
         return t("settings.opencode.state.stopped");
       case "external":
         return t("settings.opencode.state.external");
+      case "authRequired":
+        return t("settings.opencode.state.authRequired");
+      case "authFailed":
+        return t("settings.opencode.state.authFailed");
       case "unmanaged":
         return t("settings.opencode.state.unmanaged");
       default:
@@ -381,6 +392,12 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
         if (next.state === "missing" || next.state === "stopped") {
           throw new Error(t("settings.opencode.restartFailed"));
         }
+        // A parked login prompt is a terminal answer for the wait, not a slow
+        // one — stop so the form below becomes the thing to do next.
+        if (next.state === "authRequired" || next.state === "authFailed") {
+          await refetchLaunch();
+          return;
+        }
       }
       setRuntimeNote(t("settings.opencode.restartSlow"));
     } catch (e) {
@@ -402,6 +419,45 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
     }
     setRestartArmed(false);
     void restartRuntime();
+  };
+  const submitLogin = async () => {
+    const username = loginUser().trim();
+    const password = loginPass();
+    if (!username || !password || loginBusy()) return;
+    setLoginBusy(true);
+    setRuntimeErr("");
+    setRuntimeNote("");
+    try {
+      await opencodeLogin(username, password);
+      // The fork checks the pair itself: a refusal flips the launch state to
+      // authFailed within a moment, a good one ends in running — and the
+      // service connects off the status file on its own.
+      for (let i = 0; i < 30; i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        const next = await readOpencodeLaunch();
+        if (next.state === "running") {
+          setLoginPass("");
+          setRuntime(next.runtime);
+          await refetchLaunch();
+          setRuntimeNote(t("settings.opencode.restarted"));
+          props.conns.refetchConns();
+          setTimeout(() => props.conns.refetchConns(), 2_500);
+          return;
+        }
+        if (
+          next.state === "authFailed" ||
+          next.state === "stopped" ||
+          next.state === "missing"
+        ) {
+          break;
+        }
+      }
+      await refetchLaunch();
+    } catch (e) {
+      setRuntimeErr(e instanceof Error ? e.message : t("err.network"));
+    } finally {
+      setLoginBusy(false);
+    }
   };
   const testNotification = async () => {
     setDiagKey("notify");
@@ -896,8 +952,16 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
             {/* Keyed on the picked mode, not the launch snapshot: switching to
                 embed is exactly when there is no supervised server yet, which
                 is when the button matters most. The supervisor starts what it
-                does not already run, so one action covers start and restart. */}
-            <Show when={mode() === "embed"}>
+                does not already run, so one action covers start and restart.
+                While a login prompt is parked the form below is the way
+                forward — restarting would only re-park. */}
+            <Show
+              when={
+                mode() === "embed" &&
+                launchData()?.state !== "authRequired" &&
+                launchData()?.state !== "authFailed"
+              }
+            >
               <Button
                 type="button"
                 size="sm"
@@ -920,6 +984,72 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
               </Button>
             </Show>
           </Row>
+
+          {/* The forked CLI gates every command on a domain login while it has
+              no credentials saved; the answer goes down the parked child's
+              stdin, so the form only exists while that prompt is up. */}
+          <Show
+            when={
+              mode() === "embed" &&
+              (launchData()?.state === "authRequired" ||
+                launchData()?.state === "authFailed")
+            }
+          >
+            <Row
+              label={t("settings.opencode.login")}
+              hint={t("settings.opencode.loginHint")}
+              controlClass="w-auto"
+              note={
+                <Show when={launchData()?.state === "authFailed"}>
+                  <p class="mt-1.5 flex items-center gap-1.5 text-2xs text-destructive">
+                    <Icon name="alert" class="size-3 shrink-0" />
+                    {t("settings.opencode.loginFailed")}
+                  </p>
+                </Show>
+              }
+            >
+              <div class="flex w-56 flex-col items-stretch gap-2">
+                <TextFieldInput
+                  size="sm"
+                  value={loginUser()}
+                  onInput={(e) => setLoginUser(e.currentTarget.value)}
+                  class="bg-background px-2 text-2xs"
+                  placeholder={t("settings.opencode.loginUser")}
+                  aria-label={t("settings.opencode.loginUser")}
+                  autocomplete="username"
+                />
+                <TextFieldInput
+                  size="sm"
+                  type="password"
+                  value={loginPass()}
+                  onInput={(e) => setLoginPass(e.currentTarget.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void submitLogin();
+                  }}
+                  class="bg-background px-2 text-2xs"
+                  placeholder={t("settings.opencode.loginPass")}
+                  aria-label={t("settings.opencode.loginPass")}
+                  autocomplete="current-password"
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={
+                    loginBusy() ||
+                    !loginUser().trim() ||
+                    !loginPass() ||
+                    !inDesktopShell()
+                  }
+                  onClick={() => void submitLogin()}
+                >
+                  {loginBusy()
+                    ? t("settings.opencode.loginBusy")
+                    : t("settings.opencode.loginSubmit")}
+                </Button>
+              </div>
+            </Row>
+          </Show>
         </Show>
         {/* External mode owns no binary or process here — its connect form
             lives with the other backends. Say so, and take the reader there. */}

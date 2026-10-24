@@ -868,7 +868,16 @@ export type OpencodeRuntime = {
 
 export type OpencodeLaunch = {
   mode: OpencodeLaunchMode;
-  state: "starting" | "running" | "missing" | "restarting" | "stopped" | "external" | "unmanaged";
+  state:
+    | "starting"
+    | "running"
+    | "missing"
+    | "restarting"
+    | "stopped"
+    | "external"
+    | "authRequired"
+    | "authFailed"
+    | "unmanaged";
   url?: string;
   runtime?: OpencodeRuntime;
 };
