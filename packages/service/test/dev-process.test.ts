@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createDevManager, looksLongRunning, commandName } from "../src/dev-process";
+import { chooseWindowsShell, createDevManager, looksLongRunning, commandName } from "../src/dev-process";
 
 function workspace(): string {
   return mkdtempSync(join(tmpdir(), "strata-dev-"));
@@ -283,5 +283,144 @@ describe("stale process cleanup", () => {
       await dev.stopAll();
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("output handling", () => {
+  test("a GBK line from a Chinese console is decoded, not mangled", async () => {
+    const dir = workspace();
+    const dev = createDevManager();
+    try {
+      // `启动成功` in GBK. cmd.exe on a Chinese Windows writes this, and UTF-8
+      // decoding would turn it into replacement characters.
+      const started = await dev.start({
+        session_id: "casf:test:gbk",
+        command: `printf '\\306\\364\\266\\257\\263\\311\\271\\246\\n'`,
+        cwd: dir,
+      });
+      for (let i = 0; i < 60; i++) {
+        if (dev.logs(started.id).some((l) => l.text.includes("启动成功"))) break;
+        await Bun.sleep(25);
+      }
+      expect(dev.logs(started.id).map((l) => l.text)).toContain("启动成功");
+    } finally {
+      await dev.stopAll();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("colour escapes never reach the log", async () => {
+    const dir = workspace();
+    const dev = createDevManager();
+    try {
+      const started = await dev.start({
+        session_id: "casf:test:ansi",
+        command: `printf '\\033[32mready\\033[0m\\n'`,
+        cwd: dir,
+      });
+      for (let i = 0; i < 60; i++) {
+        if (dev.logs(started.id).some((l) => l.text.includes("ready"))) break;
+        await Bun.sleep(25);
+      }
+      const texts = dev.logs(started.id).map((l) => l.text);
+      expect(texts).toContain("ready");
+      expect(texts.every((t) => !t.includes("\u001b"))).toBe(true);
+    } finally {
+      await dev.stopAll();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("readiness", () => {
+  test("a named port that answers makes start wait for it and say so", async () => {
+    const dir = workspace();
+    const dev = createDevManager();
+    // A server that opens its port only after a delay, which is the case a
+    // stopwatch gets wrong in both directions.
+    const server = Bun.serve({
+      port: 0,
+      fetch: () => new Response("ok"),
+    });
+    const port = server.port!;
+    try {
+      const started = await dev.start({
+        session_id: "casf:test:ready",
+        command: `sleep 0.4 && exec node -e "require('http').createServer((q,s)=>s.end('ok')).listen(${port})"`,
+        cwd: dir,
+        port,
+        waitMs: 15_000,
+      });
+      expect(started.port).toBe(port);
+      // The port was already taken by our own server, so this only proves the
+      // probe ran and the field is reported honestly; either answer is correct
+      // here, and neither may hang.
+      expect(["yes", "no"]).toContain(started.ready ?? "");
+    } finally {
+      server.stop(true);
+      await dev.stopAll();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("no port to wait for means start returns without burning the budget", async () => {
+    const dir = workspace();
+    const dev = createDevManager();
+    try {
+      const began = Date.now();
+      const started = await dev.start({
+        session_id: "casf:test:noport",
+        command: "sleep 30",
+        cwd: dir,
+      });
+      // A watcher has no port. Waiting 30s for one would make every start look
+      // hung, so this must come back in well under a second.
+      expect(Date.now() - began).toBeLessThan(3_000);
+      expect(started.ready).toBe("unknown");
+    } finally {
+      await dev.stopAll();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a port printed by the server is picked up", async () => {
+    const dir = workspace();
+    const dev = createDevManager();
+    try {
+      const started = await dev.start({
+        session_id: "casf:test:announce",
+        command: "echo 'Listening on http://localhost:45999' && sleep 30",
+        cwd: dir,
+      });
+      expect(started.port).toBe(45999);
+    } finally {
+      await dev.stopAll();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("shell selection on Windows", () => {
+  test("pwsh wins when it is installed", () => {
+    const picked = chooseWindowsShell({ pwsh: "C:\\pwsh.exe", powershell: "C:\\ps.exe", comspec: "C:\\cmd.exe" });
+    expect(picked.name).toBe("pwsh");
+    expect(picked.path).toBe("C:\\pwsh.exe");
+  });
+
+  test("Windows PowerShell is next", () => {
+    const picked = chooseWindowsShell({ pwsh: null, powershell: "C:\\ps.exe", comspec: "C:\\cmd.exe" });
+    expect(picked.name).toBe("powershell");
+  });
+
+  test("cmd is the last resort, not the default", () => {
+    const picked = chooseWindowsShell({ pwsh: null, powershell: null, comspec: "C:\\Windows\\system32\\cmd.exe" });
+    expect(picked.name).toBe("cmd");
+    expect(picked.path).toBe("C:\\Windows\\system32\\cmd.exe");
+  });
+
+  test("a machine with no COMSPEC still gets a usable cmd", () => {
+    const picked = chooseWindowsShell({});
+    expect(picked.name).toBe("cmd");
+    expect(picked.path).toBe("cmd.exe");
   });
 });

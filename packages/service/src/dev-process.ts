@@ -14,6 +14,7 @@
 
 import { spawn as bunSpawn, type Subprocess } from "bun";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { connect } from "node:net";
 import { basename } from "node:path";
 
 /** One running command, as the UI and the agent both see it. */
@@ -32,6 +33,18 @@ export interface DevProcess {
   error?: string;
   /** Last line of output, for a one-line status. */
   last_line?: string;
+  /** The port it was asked to listen on, when the caller named one. */
+  port?: number;
+  /**
+   * Whether it has proved it can serve.
+   *
+   * `unknown` is the honest answer for a command nobody named a port for: a
+   * dev server that prints nothing recognisable is not a failure, and calling
+   * it ready would be a guess.
+   */
+  ready?: "yes" | "no" | "unknown";
+  /** The shell the command ran in, so a caller knows what syntax it accepted. */
+  shell?: string;
 }
 
 export interface DevLogLine {
@@ -44,6 +57,17 @@ export interface DevStartInput {
   session_id: string;
   command: string;
   cwd: string;
+  /**
+   * The port the command is expected to serve on.
+   *
+   * Given one, `start` waits until it accepts a connection before returning, so
+   * a caller that needs the server up does not have to sleep and guess. Omitted,
+   * a port printed in the output is used instead; failing that, `start` returns
+   * as soon as the process has proved it did not exit immediately.
+   */
+  port?: number;
+  /** How long to wait for the port, in milliseconds. */
+  waitMs?: number;
 }
 
 /** Bounded per-process output. A dev server that runs for hours must not grow without limit. */
@@ -53,6 +77,77 @@ const MAX_PROCESSES = 32;
 
 /** How long a start waits for the process to prove it is still alive. */
 const LIVENESS_MS = 400;
+
+/** Default wait for a named port to accept a connection. */
+const DEFAULT_WAIT_MS = 30_000;
+
+/**
+ * Grace period for a port read out of the output.
+ *
+ * Something that printed a URL is already listening, so this only covers the
+ * gap between writing the line and accepting the socket. A long wait here would
+ * be spent on ports that are never going to open.
+ */
+const ANNOUNCED_WAIT_MS = 2_000;
+
+/**
+ * Text decoders, tried in order.
+ *
+ * `cmd.exe` on a Chinese Windows writes GBK (code page 936), and decoding that
+ * as UTF-8 turns every message into `�����ɹ�`. UTF-8 is tried first because it is
+ * the common case and `fatal: true` makes it reject anything that is not UTF-8
+ * instead of silently producing replacement characters.
+ */
+const UTF8 = new TextDecoder("utf-8", { fatal: true });
+const GBK = new TextDecoder("gbk");
+
+function decodeLine(bytes: Uint8Array): string {
+  try {
+    return UTF8.decode(bytes);
+  } catch {
+    return GBK.decode(bytes);
+  }
+}
+
+/**
+ * Colour and cursor control, which a log pane has no terminal to interpret.
+ *
+ * `FORCE_COLOR=0` covers the libraries that honour it; plenty of tools write
+ * escapes regardless, and `[32m` in a transcript reads as corruption.
+ */
+const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b\][^\u0007]*\u0007/g;
+
+function stripAnsi(text: string): string {
+  return text.replace(ANSI, "");
+}
+
+/** Whether something accepts a connection on a loopback port right now. */
+function portAccepts(port: number, timeoutMs = 500): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = connect({ host: "127.0.0.1", port });
+    let settled = false;
+    const done = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(ok);
+    };
+    socket.setTimeout(timeoutMs);
+    socket.once("connect", () => done(true));
+    socket.once("timeout", () => done(false));
+    socket.once("error", () => done(false));
+  });
+}
+
+/** A port a dev server announced, when the caller did not name one. */
+const ANNOUNCED_PORT = /(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::\]):(\d{2,5})\b/i;
+
+function announcedPort(line: string): number | undefined {
+  const hit = ANNOUNCED_PORT.exec(line);
+  if (!hit) return undefined;
+  const port = Number(hit[1]);
+  return Number.isInteger(port) && port > 0 && port < 65536 ? port : undefined;
+}
 
 interface Entry {
   info: DevProcess;
@@ -105,8 +200,64 @@ function nextID(): string {
  * because that layer is ours it is also the layer we can tell not to open a
  * window.
  */
+/**
+ * The shell a command runs in, on Windows.
+ *
+ * `cmd` is the last resort, not the default. The model writes PowerShell —
+ * `-WindowStyle Hidden`, `$env:X`, `;` chaining — and handing that to `cmd /c`
+ * fails in ways that look like the command was wrong rather than the shell.
+ * OpenCode makes the same choice for its own shell tool: pwsh, then Windows
+ * PowerShell, then git bash, then cmd. This follows it without git bash, which
+ * would change the syntax the model is expected to write a second time.
+ */
+type WindowsShell = { path: string; name: "pwsh" | "powershell" | "cmd" };
+
+/**
+ * Pick a shell from what was found on the machine.
+ *
+ * Pure, and separate from the lookup, because the ordering is the whole point:
+ * `pwsh` first, `powershell` next, `cmd` only when neither exists. A model
+ * writes PowerShell, and handing that to cmd fails in a way that reads like the
+ * command was wrong.
+ */
+export function chooseWindowsShell(found: {
+  pwsh?: string | null;
+  powershell?: string | null;
+  comspec?: string | null;
+}): WindowsShell {
+  if (found.pwsh) return { path: found.pwsh, name: "pwsh" };
+  if (found.powershell) return { path: found.powershell, name: "powershell" };
+  return { path: found.comspec || "cmd.exe", name: "cmd" };
+}
+
+let windowsShell: WindowsShell | undefined;
+
+function resolveWindowsShell(): WindowsShell {
+  if (windowsShell) return windowsShell;
+  windowsShell = chooseWindowsShell({
+    pwsh: Bun.which("pwsh"),
+    powershell: Bun.which("powershell"),
+    comspec: process.env.COMSPEC,
+  });
+  return windowsShell;
+}
+
+/** The shell commands run in, for the UI and for the model to read. */
+export function commandShell(): string {
+  if (process.platform === "win32") return resolveWindowsShell().name;
+  return process.env.SHELL || "/bin/sh";
+}
+
 function argv(command: string): string[] {
-  if (process.platform === "win32") return ["cmd", "/C", command];
+  if (process.platform === "win32") {
+    const shell = resolveWindowsShell();
+    // `/d /s /c` is how a command string is handed to cmd.exe without its own
+    // quote-stripping rules mangling it; the PowerShell flags mirror what
+    // OpenCode passes, so a profile cannot print into the transcript and an
+    // interactive prompt cannot wait for input that will never come.
+    if (shell.name === "cmd") return [shell.path, "/d", "/s", "/c", command];
+    return [shell.path, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command];
+  }
   // `-c`, not `-lc`: a login shell sources the user's profile, which prints
   // whatever their prompt and tooling print and can fail on constructs a
   // non-interactive shell does not have. The environment is already inherited
@@ -257,21 +408,35 @@ export function createDevManager(options: DevManagerOptions = {}): DevManager {
   };
 
   const read = async (entry: Entry, stream: "out" | "err", source: ReadableStream<Uint8Array>) => {
-    const decoder = new TextDecoder();
-    let pending = "";
+    // Bytes are buffered and decoded a line at a time, not through a streaming
+    // decoder: the encoding is decided per line, because a Windows console and a
+    // Node tool can disagree about it inside one process's output.
+    let pending = new Uint8Array(0);
+    const flush = (bytes: Uint8Array) => {
+      let text = stripAnsi(decodeLine(bytes)).replace(/\r$/, "");
+      if (text.trim().length === 0) return;
+      push(entry, stream, text);
+      // A server that announces its port is telling the truth about where to
+      // look; a caller who named one is not overruled.
+      if (entry.info.port === undefined) {
+        const port = announcedPort(text);
+        if (port !== undefined) entry.info.port = port;
+      }
+    };
     try {
       for await (const chunk of source) {
-        pending += decoder.decode(chunk, { stream: true });
-        let index = pending.indexOf("\n");
-        while (index >= 0) {
-          const text = pending.slice(0, index).replace(/\r$/, "");
-          pending = pending.slice(index + 1);
-          if (text.trim().length > 0) push(entry, stream, text);
-          index = pending.indexOf("\n");
+        const merged = new Uint8Array(pending.length + chunk.length);
+        merged.set(pending);
+        merged.set(chunk, pending.length);
+        let start = 0;
+        for (let i = 0; i < merged.length; i++) {
+          if (merged[i] !== 0x0a) continue;
+          flush(merged.subarray(start, i));
+          start = i + 1;
         }
+        pending = merged.subarray(start);
       }
-      const rest = pending.trim();
-      if (rest.length > 0) push(entry, stream, rest);
+      if (pending.length > 0) flush(pending);
     } catch {
       // The pipe closing under us is how a killed process looks from here.
     }
@@ -335,6 +500,10 @@ export function createDevManager(options: DevManagerOptions = {}): DevManager {
         started_at: Date.now(),
         exit_code: null,
         stopped: false,
+        // Recorded so a caller reading the result knows what syntax the command
+        // was written in — the model writes PowerShell, and `cmd /c` would have
+        // silently failed on it.
+        shell: commandShell(),
       };
       const entry: Entry = { info, child: undefined, logs: [], listeners: new Set() };
       entries.set(id, entry);
@@ -372,6 +541,38 @@ export function createDevManager(options: DevManagerOptions = {}): DevManager {
       if (info.exit_code !== null && info.exit_code !== 0 && !info.stopped) {
         const tail = entry.logs.slice(-3).map((line) => line.text).join("\n");
         info.error = tail.length > 0 ? tail : `exited with ${info.exit_code}`;
+      }
+
+      // Wait for the port, not for a stopwatch.
+      //
+      // A caller that needs the server up has only one honest way to know: try
+      // to reach it. `Start-Sleep 7; curl` is the same idea with a guess in place
+      // of a check, and it is either too long or too short every time.
+      //
+      // The budget depends on where the port came from. A caller that named one
+      // is waiting for a server it expects to come up, so it gets the full
+      // budget. A port read out of the output was already announced by something
+      // that is listening, so it gets a short grace period: waiting thirty
+      // seconds for a port that is simply not going to open makes every start
+      // look hung.
+      if (info.exit_code === null) {
+        info.ready = "unknown";
+        const named = input.port !== undefined;
+        if (named) info.port = input.port;
+        if (info.port !== undefined) {
+          const budget = input.waitMs ?? (named ? DEFAULT_WAIT_MS : ANNOUNCED_WAIT_MS);
+          const deadline = Date.now() + budget;
+          while (info.exit_code === null && Date.now() < deadline) {
+            if (await portAccepts(info.port)) {
+              info.ready = "yes";
+              break;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 250));
+          }
+          // A port that never opened is not a failure: the command may still be
+          // compiling, or listening somewhere it has not printed yet.
+          if (info.ready !== "yes") info.ready = "no";
+        }
       }
 
       emit({ type: "dev.started", session_id: info.session_id, process: info });

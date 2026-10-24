@@ -1903,6 +1903,8 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         session_id?: unknown;
         command?: unknown;
         cwd?: unknown;
+        port?: unknown;
+        wait_ms?: unknown;
       } | null;
       if (typeof body?.session_id !== "string" || body.session_id.length === 0) {
         return json({ error: "session_id required" }, 400);
@@ -1910,6 +1912,16 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       if (typeof body.command !== "string" || body.command.trim().length === 0) {
         return json({ error: "command required" }, 400);
       }
+      // A caller that knows its port should say so: the start then waits until
+      // the port answers instead of returning on a stopwatch.
+      const port =
+        typeof body.port === "number" && Number.isInteger(body.port) && body.port > 0 && body.port < 65536
+          ? body.port
+          : undefined;
+      const waitMs =
+        typeof body.wait_ms === "number" && Number.isInteger(body.wait_ms) && body.wait_ms > 0
+          ? Math.min(body.wait_ms, 120_000)
+          : undefined;
       // The caller may speak either spelling of a session id; everything below
       // works in casf ids, because that is what the view and the owners table use.
       const sessionID = resolveSessionId(body.session_id);
@@ -1927,6 +1939,8 @@ export function startService(opts: ServiceOpts = {}): RunningService {
           session_id: sessionID,
           command: body.command,
           cwd: directory,
+          port,
+          waitMs,
         });
         return json(started, started.error ? 502 : 200);
       } catch (e) {

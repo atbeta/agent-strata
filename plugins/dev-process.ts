@@ -3,8 +3,9 @@
 // The agent has no way to start something that outlives a turn: the shell tool
 // takes a timeout and kills the process tree when it expires. So a dev server
 // gets started some other way, and the way a model knows is `Start-Process`,
-// which opens a console window per child on Windows and detaches it from
-// anything that could stop it later.
+// which detaches the child from anything that could stop it later. A hidden
+// window is not the problem — `-WindowStyle Hidden` handles that — the problem is
+// a process nothing owns.
 //
 // Four properties are deliberate, and each one exists because of a failure this
 // plugin already had:
@@ -134,10 +135,12 @@ A development server, a watcher, or anything else meant to keep running must be
 started with the \`dev_start\` tool.
 
 Do not use \`Start-Process\` (PowerShell), \`&\` (bash), \`nohup\`, \`start /b\`, or a
-background job to start one. On Windows every one of those opens a console
-window on the reader's desktop, and on every platform the process leaves behind
-anything that could read its output or stop it: its errors never reach the
-transcript, and closing the app leaves it holding its port.
+background job to start one. Hiding the window does not make the process owned:
+its output never reaches the transcript, it holds its port after the app closes,
+and stopping it means finding its pid by hand.
+
+Pass \`port\` when you know it — \`dev_start\` then returns once the port answers,
+so there is no need to sleep and guess.
 
 If \`dev_start\` reports that the shell is not running, say so and ask — do not
 fall back to \`Start-Process\`.
@@ -155,8 +158,11 @@ export default async () => ({
         "Start a long-running command (a dev server, a watcher) under the shell's supervision.",
         "",
         "Use this instead of `Start-Process`, `&`, `nohup`, or any other way of detaching a",
-        "process. The shell owns the process: it opens no window, it captures the output, and",
-        "it can stop the whole tree again.",
+        "process. The shell owns it: the output reaches this transcript, the process appears in",
+        "the app, and one call stops the whole tree.",
+        "",
+        "Pass `port` when you know it. The call then returns once that port accepts a",
+        "connection, so you do not need to sleep and guess before the first request.",
         "",
         "The command keeps running after this tool returns. Read it with `dev_logs`, end it",
         "with `dev_stop`.",
@@ -166,6 +172,11 @@ export default async () => ({
           type: "string",
           description: "The command to run, as a shell would take it",
         },
+        port: {
+          type: "number",
+          description:
+            "The port the command will serve on. When given, this call waits until it answers.",
+        },
       },
       async execute(args, context) {
         const started = await call("/dev", {
@@ -174,6 +185,7 @@ export default async () => ({
             session_id: context.sessionID,
             command: args.command,
             cwd: context.directory,
+            port: args.port,
           }),
         })
         if (started.error) {
@@ -186,8 +198,13 @@ export default async () => ({
         }
         return [
           "Started " + started.id + " (pid " + (started.pid ?? "?") + ") in " + started.cwd + ".",
+          started.ready === "yes"
+            ? "Port " + started.port + " accepts connections."
+            : started.ready === "no"
+              ? "It is running, but no port answered yet. Check `dev_logs`."
+              : "It is running.",
           "",
-          "It keeps running. Use `dev_logs` to read it and `dev_stop` to end it.",
+          "Use `dev_logs` to read it and `dev_stop` to end it.",
         ].join("\n")
       },
     },
@@ -265,8 +282,8 @@ export default async () => ({
         "Do not detach a process from the shell.",
         "",
         "`Start-Process`, `nohup`, and `start /b` leave a command that nothing owns: its output",
-        "never reaches the transcript, it holds its port after the app closes, and on Windows it",
-        "opens a console window on the reader's desktop.",
+        "never reaches the transcript, it holds its port after the app closes, and nobody can",
+        "stop it without hunting for its pid. Hiding the window does not fix any of that.",
         "",
         "Use the `dev_start` tool instead. It runs the command under the shell's supervision,",
         "keeps the output readable with `dev_logs`, and can stop the whole tree with `dev_stop`.",
