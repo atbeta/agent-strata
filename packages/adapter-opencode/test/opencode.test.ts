@@ -588,9 +588,7 @@ describe("OpencodeMapper", () => {
     // forever — a running dot on a conversation that ended hours ago, with
     // nothing able to tell it apart from a live one.
     const m = new OpencodeMapper();
-    m.handle({
-      id: "s1", type: "session.status", properties: { sessionID: sid, status: { type: "busy" } },
-    } as unknown as Event);
+    m.handle(msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 10 } }));
 
     m.handle(msgUpdated({
       id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
@@ -609,9 +607,7 @@ describe("OpencodeMapper", () => {
     // `busy` while the session is still working, which is worse than leaving it
     // set, because the run goes on with nothing marking it.
     const m = new OpencodeMapper();
-    m.handle({
-      id: "s1", type: "session.status", properties: { sessionID: sid, status: { type: "busy" } },
-    } as unknown as Event);
+    m.handle(msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 10 } }));
 
     const assistant = (id: string, time: object) =>
       msgUpdated({
@@ -629,9 +625,7 @@ describe("OpencodeMapper", () => {
     // order that matters is the real one: the second message is already open
     // when the first completes.
     const m2 = new OpencodeMapper();
-    m2.handle({
-      id: "s1", type: "session.status", properties: { sessionID: sid, status: { type: "busy" } },
-    } as unknown as Event);
+    m2.handle(msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 10 } }));
     m2.handle(assistant("a2", { created: 31 }));
     m2.handle(assistant("a1", { created: 20, completed: 30 }));
     expect(m2.flushSettles().some((e) => e.type === "session.status")).toBe(false);
@@ -669,12 +663,11 @@ describe("OpencodeMapper", () => {
   test("an idle re-delivered on the slower bus cannot eat the next run's busy", () => {
     // Measured on a live pair of buses: the project bus had finished run one
     // and was already carrying the next turn while the global bus was still
-    // delivering run one's tail. The stale idle copies landed after the new
-    // user message had cleared `idleConfirmed` and re-armed it — so the run's
-    // own busy, and its copy on the other bus, were both dropped as stale
-    // claims and the run read as never having started. A goal continuation
-    // hits this on every step: it sends the next prompt the moment the idle
-    // lands, well inside the other bus's lag.
+    // delivering run one's tail. Back when an idle re-armed a "finished" latch,
+    // those stale copies landed after the new turn started and the run's own
+    // busy was dropped as a stale claim — the run read as never having
+    // started. A goal continuation hits this on every step: it sends the next
+    // prompt the moment the idle lands, well inside the other bus's lag.
     const m = new OpencodeMapper();
     const states = (out: EventInput[]) =>
       out.filter((e) => e.type === "session.status").map((e) => (e.data as { state: string }).state);
@@ -1717,7 +1710,7 @@ describe("the two opencode buses do not agree on when a session is idle", () => 
    * one that discovers sessions, and the per-directory bus is the one allowed
    * to say a session is idle.
    */
-  test("a late busy on the global bus cannot undo the idle the project bus reported", async () => {
+  test("a late busy claim cannot undo the idle a finished turn reported", async () => {
     const { connectOpencode } = await import("../src/index");
     const enc = new TextEncoder();
     const sse = (chunks: string[]) =>
@@ -1732,39 +1725,31 @@ describe("the two opencode buses do not agree on when a session is idle", () => 
       `{"directory":"/repo","payload":{"id":"c-${id}","type":"session.created","properties":{"sessionID":"${id}","info":{"id":"${id}","directory":"/repo","title":"T","time":{"created":1,"updated":1}}}}}`;
     const status = (id: string, ev: string, state: string) =>
       `{"directory":"/repo","payload":{"id":"${ev}","type":"session.status","properties":{"sessionID":"${id}","status":{"type":"${state}"}}}}`;
-    const idle = (id: string, ev: string) =>
-      `{"directory":"/repo","payload":{"id":"${ev}","type":"session.idle","properties":{"sessionID":"${id}"}}}`;
+    const userMsg = (id: string, ev: string) =>
+      `{"directory":"/repo","payload":{"id":"${ev}","type":"message.updated","properties":{"sessionID":"${id}","info":{"id":"u1","sessionID":"${id}","role":"user","time":{"created":10}}}}}`;
 
     const sid = "ses_race";
-    let globalSent = false;
     const fakeFetch = async (input: Request | URL | string) => {
       const req = input instanceof Request ? input : new Request(String(input));
       const url = req.url;
-      if (url.includes("/project")) {
-        return Response.json([{ id: "p1", name: "repo", worktree: "/repo" }]);
-      }
-      // `/global/event` also contains `/event`, so it has to be tested first.
       if (url.includes("/global/event")) {
-        if (globalSent) return Response.json([]);
-        globalSent = true;
-        // The global bus: the session appears and claims work, and then the
-        // per-directory bus takes over before the stream goes quiet.
-        return new Response(
-          sse([created(sid), status(sid, "g1", "busy")]),
-          { status: 200, headers: { "content-type": "text/event-stream" } },
-        );
-      }
-      if (url.includes("/event")) {
-        // The project bus: idle arrives promptly, then the global bus's stale
-        // busy lands afterwards.
+        // One stream now. A real turn — the user message is the busy — then
+        // idle, then the stale busy claim every busy server's tail emits.
         return new Response(
           sse([
-            status(sid, "d1", "busy"),
-            idle(sid, "d2"),
+            created(sid),
+            userMsg(sid, "m1"),
+            status(sid, "d1", "idle"),
             status(sid, "g-stale-busy", "busy"),
           ]),
           { status: 200, headers: { "content-type": "text/event-stream" } },
         );
+      }
+      if (url.includes("/event")) {
+        return new Response(sse([created(sid)]), {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
       }
       return Response.json([]);
     };
@@ -1776,7 +1761,6 @@ describe("the two opencode buses do not agree on when a session is idle", () => 
       fetch: fakeFetch as typeof fetch,
       connectTimeoutMs: 5_000,
     });
-    // Let the project stream drain.
     await Bun.sleep(400);
     conn.stop();
 
@@ -1784,7 +1768,8 @@ describe("the two opencode buses do not agree on when a session is idle", () => 
       .read({ session_id: `opencode:${sid}` })
       .filter((e) => e.type === "session.status")
       .map((e) => (e as { data: { state: string } }).data.state);
-    expect(states.at(-1)).toBe("idle");
+    // busy came from the message, idle from the frame, the stale claim died.
+    expect(states).toEqual(["busy", "idle"]);
     store.close();
   });
 
@@ -3075,18 +3060,26 @@ describe("pickable providers", () => {
 describe("runOpencodeStream", () => {
   /** A queue-backed async generator: what the SSE client gives us. */
   const feed = () => {
-    const q: { v: unknown }[] = [];
+    const END = Symbol("end");
+    const q: unknown[] = [];
     let wait: (() => void) | undefined;
     const gen = (async function* () {
       for (;;) {
         if (!q.length) await new Promise<void>((r) => (wait = r));
-        yield q.shift()!.v;
+        const v = q.shift()!;
+        if (v === END) return;
+        yield v;
       }
     })();
     return {
       gen,
       push: (v: unknown) => {
-        q.push({ v });
+        q.push(v);
+        wait?.();
+        wait = undefined;
+      },
+      close: () => {
+        q.push(END);
         wait?.();
         wait = undefined;
       },
@@ -3143,6 +3136,23 @@ describe("runOpencodeStream", () => {
     abort.abort();
   });
 
+  test("a stream that ends re-opens", async () => {
+    const { client, globals } = fakeClient();
+    const abort = new AbortController();
+    await runOpencodeStream({
+      client,
+      abort,
+      connectTimeout: 500,
+      silenceMs: 5_000,
+      handle: () => {},
+      onReconnect: () => {},
+    });
+    globals[0]!.close();
+    await Bun.sleep(1_200);
+    expect(globals.length).toBeGreaterThanOrEqual(2);
+    abort.abort();
+  });
+
   test("a stream that keeps talking is left alone", async () => {
     const { client, globals } = fakeClient();
     const abort = new AbortController();
@@ -3161,45 +3171,6 @@ describe("runOpencodeStream", () => {
     await Bun.sleep(500);
     clearInterval(beat);
     expect(globals.length).toBe(1);
-    abort.abort();
-  });
-
-  test("a session's directory is watched as soon as it is seen", async () => {
-    const { client, globals, dirs } = fakeClient();
-    const abort = new AbortController();
-    const got: string[] = [];
-    await runOpencodeStream({
-      client,
-      abort,
-      connectTimeout: 500,
-      silenceMs: 5_000,
-      handle: (e) => got.push(e.type),
-      onReconnect: () => {},
-    });
-    expect(dirs.size).toBe(0);
-    globals[0]!.push({
-      type: "session.updated",
-      properties: { info: { id: "s1", directory: "/tmp/learned" } },
-    });
-    await Bun.sleep(50);
-    expect(dirs.has("/tmp/learned")).toBe(true);
-    expect(got).toContain("session.updated");
-    abort.abort();
-  });
-
-  test("sessions in unregistered directories are watched at connect", async () => {
-    const { client, dirs } = fakeClient([{ directory: "/tmp/oddball" }]);
-    const abort = new AbortController();
-    await runOpencodeStream({
-      client,
-      abort,
-      connectTimeout: 500,
-      silenceMs: 5_000,
-      handle: () => {},
-      onReconnect: () => {},
-    });
-    await Bun.sleep(50);
-    expect(dirs.has("/tmp/oddball")).toBe(true);
     abort.abort();
   });
 });

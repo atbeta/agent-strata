@@ -253,15 +253,15 @@ interface SessionState {
   /**
    * Whether we have told downstream this session is generating.
    *
-   * Two sources can open a run: the backend's `session.status` busy frame, and
-   * work evidence — a user message in flight or an assistant message still
-   * open — because the frame only travels on transitions and a session the
-   * server still counts as busy emits none for its next turn. Either way a
-   * missing `idle` must not leave it set forever: a session that reads
-   * "running" while nothing is running is worse than one that reads "running"
-   * a moment too long — it is a breathing dot on a dead conversation, and it
-   * never corrects itself, so nobody can tell it apart from a real run. The
-   * settle pass is what notices the disagreement.
+   * Only work evidence opens a run: a user message in flight, an assistant
+   * message still open, a permission waiting. The backend's `busy` frame is
+   * never trusted — the slower bus keeps claiming it for a run that already
+   * ended — but its `idle` is the authoritative close for a turn that
+   * completed nothing. Either way a missing `idle` must not leave it set
+   * forever: a session that reads "running" while nothing is running is worse
+   * than one that reads "running" a moment too long — it is a breathing dot on
+   * a dead conversation, and it never corrects itself, so nobody can tell it
+   * apart from a real run. The settle pass is what notices the disagreement.
    */
   sawBusy?: boolean;
   /**
@@ -291,13 +291,6 @@ interface SessionState {
    * rather than a pause, and one still receiving events is a live turn.
    */
   lastTouch?: number;
-  /**
-   * A run has been seen to finish. Held until real work arrives — a turn the
-   * user sent — so that a claim still arriving on the global bus about a run
-   * that ended cannot put the session back to running. See the `session.idle`
-   * case for the measurement that made this necessary.
-   */
-  idleConfirmed?: boolean;
 }
 
 export class OpencodeMapper {
@@ -448,9 +441,8 @@ export class OpencodeMapper {
    *
    * `afterCompletion` means an assistant message reported completion, so the
    * turn may be over and the short beat is enough to find out. `false` means
-   * the backend only claimed the session — nothing has finished, so the session
-   * may be a run that is starting, and it has to be quiet for a whole window
-   * before it can be called over.
+   * work was seen but nothing has finished yet — the run may only be starting,
+   * and it has to be quiet for a whole window before it can be called over.
    *
    * `key` names what queued it, so a session corrected twice under different
    * evidence does not collapse into one event id and replay as already seen.
@@ -459,8 +451,8 @@ export class OpencodeMapper {
 
   private queueSettle(s: SessionState, key: string, afterCompletion: boolean): void {
     if (!s.sawBusy) return;
-    // A completion is the stronger reason to be here; a claim queued behind it
-    // must not downgrade it into waiting for the whole quiet window.
+    // A completion is the stronger reason to be here; a work sighting queued
+    // behind it must not downgrade it into waiting for the whole quiet window.
     if (afterCompletion) this.pendingSettles.set(s, { key, afterCompletion });
     else if (!this.pendingSettles.has(s)) this.pendingSettles.set(s, { key, afterCompletion });
   }
@@ -518,7 +510,7 @@ export class OpencodeMapper {
       if (this.settleReady(s, entry)) return SETTLE_DELAY_MS;
       const until = Math.max(
         // Not ready because nothing finished: the whole quiet window is still
-        // owed before a claim alone can be called over.
+        // owed before work that never produced an ending can be called over.
         entry.afterCompletion ? SETTLE_DELAY_MS : SETTLE_QUIET_MS,
         // Not ready because a tool or an open message is holding it: whichever
         // ceiling is later.
@@ -825,7 +817,7 @@ export class OpencodeMapper {
      * project bus and they do not keep step: a re-delivered user
      * `message.updated` landing after the turn's idle re-asserts busy and a
      * finished session reads running forever — exactly what a re-delivered
-     * idle did to `idleConfirmed` before, and what reconnect replay via
+     * idle did to the session's latch before, and what reconnect replay via
      * Last-Event-ID would do to both. `type:` is in the key because OpenCode
      * reuses an envelope id for its `sync` marker; `import:` frames are
      * exempt because a re-import means the data changed.
@@ -920,18 +912,12 @@ export class OpencodeMapper {
         // message carries `completed` — so this reads it off one shape.
         const clock = info.time as { completed?: number } | undefined;
         if (clock?.completed !== undefined) m.completed = clock.completed;
-        // A message is real work, and real work is what lifts a confirmed idle.
-        // A claim is not: the global bus keeps sending one about a run that has
-        // already ended, and treating that as the start of a new one is what put
-        // a finished session back to running for as long as the project kept
-        // working. See the `session.idle` case.
         // A message whose turn already resolved is bookkeeping, not work —
         // OpenCode keeps touching it after the run ends (title, tokens,
         // summaries) and each such frame, carried on the slower bus past the
         // turn's idle, would put a finished session back to running.
         const resolved =
           info.role === "user" ? (s.resolvedUsers?.has(info.id) ?? false) : m.emittedAssistant;
-        if (!resolved) s.idleConfirmed = false;
         if (info.role === "user") {
           if (!resolved) s.pendingUserMsgs.add(info.id);
           // Queued or running, this message is a turn in flight — and the
@@ -1151,78 +1137,43 @@ export class OpencodeMapper {
         const idle =
           evt.type === "session.idle" || evt.properties.status.type === "idle";
         /**
-         * OpenCode serves two buses and they do not agree. `/event?directory=`
-         * follows one project and `/global/event` follows every project; a
-         * desktop session list has to take the global one or it would only know
-         * about the project it happened to be launched in. Measured on a live
-         * server, one run in D:\Code\lector read:
+         * The two directions of a status frame are not worth the same. A busy
+         * claim is never evidence: measured on a live server, the slower bus
+         * keeps carrying `busy` about a run that already ended, and a queued
+         * turn announces itself soon enough through its own messages. The
+         * ledger — a user message in flight, an assistant message still open,
+         * a tool still running — is what says a session is working.
          *
-         *   DIR     status busy
-         *   GLOBAL  status busy
-         *   ...
-         *   DIR     status idle
-         *   DIR     idle   IDLE
-         *   GLOBAL  status busy     <- the run is over and it keeps saying busy
-         *
-         * The global bus carries the state of a session that has already
-         * finished, so the last state to arrive is not the state of the run. A
-         * projection that is correct about every event it was given still reads
-         * idle forever while its tools are visibly working.
-         *
-         * So the buses are not interchangeable. An idle is taken as final, and
-         * only real work lifts it — a turn the user sent, a message the model
-         * produced. A bare claim does not, because a bare claim is exactly what
-         * the global bus keeps re-sending about a run that ended. The global
-         * bus keeps discovering sessions; it is no longer allowed to end them.
+         * Idle is different: a run the backend says is over is over, even
+         * while the ledger still holds a message it never finished. It is the
+         * authoritative close for the abort and error paths that complete
+         * nothing.
          */
+        if (!idle) return out;
         const wasBusy = s.sawBusy;
-        if (idle) {
-          // Idle closes every open turn. A user message whose turn resolved —
-          // or never produced one — keeps getting bookkeeping frames after
-          // (title, tokens, summaries), and each would read as a new run.
-          // Text parts take a message off pending the moment they land, so
-          // resolved has to come from the message ledger, not the queue.
-          for (const [msgID, m2] of s.messages) {
-            if (m2.role === "user") (s.resolvedUsers ??= new Set()).add(msgID);
-          }
-          for (const msgID of [...s.pendingUserMsgs]) this.flushUser(s, out, msgID);
-          // a message that never finished is retired by the overlay at idle; a
-          // late frame for it would bring it back
-          for (const [msgID, held] of this.held) if (held.s === s) this.held.delete(msgID);
-          s.sawBusy = false;
-          s.liveMsgs?.clear();
-          s.idleConfirmed = true;
-          // The backend re-issues idle under fresh ids — a status-idle and a
-          // session.idle for one transition, again on the other bus, again on
-          // reconnect. Only the busy→idle edge is a state worth announcing.
-          if (!wasBusy) return out;
-        } else if (s.idleConfirmed) {
-          // Stale: this run is over. Dropping it is what stops the last event to
-          // arrive from being the one the projection keeps.
-          return out;
-        } else {
-          // Already running — work evidence or an earlier copy opened it — so
-          // the frame only renews the claim and emits nothing again.
-          if (s.sawBusy) return out;
-          // Remember that the backend claimed work, so a later completion with
-          // no idle behind it is something we can correct rather than guess at.
-          s.sawBusy = true;
-          // Arm the correction here, on the claim, rather than waiting for a
-          // message to complete. Every earlier version armed it from the
-          // completion, which made the correction depend on the run producing
-          // one — and the runs that most need correcting are the ones that do
-          // not: a turn the reader aborted, a provider that dropped mid-answer,
-          // a run the backend discarded. Those never complete a message, so
-          // nothing queued a settle, `settleTimerMs()` answered undefined and
-          // no timer existed: `busy` then outlived the session and the
-          // composer queued every message sent to it from then on.
-          this.queueSettle(s, `busy:${evt.id}`, false);
+        // Idle closes every open turn. A user message whose turn resolved —
+        // or never produced one — keeps getting bookkeeping frames after
+        // (title, tokens, summaries), and each would read as a new run.
+        // Text parts take a message off pending the moment they land, so
+        // resolved has to come from the message ledger, not the queue.
+        for (const [msgID, m2] of s.messages) {
+          if (m2.role === "user") (s.resolvedUsers ??= new Set()).add(msgID);
         }
+        for (const msgID of [...s.pendingUserMsgs]) this.flushUser(s, out, msgID);
+        // a message that never finished is retired by the overlay at idle; a
+        // late frame for it would bring it back
+        for (const [msgID, held] of this.held) if (held.s === s) this.held.delete(msgID);
+        s.sawBusy = false;
+        s.liveMsgs?.clear();
+        // The backend re-issues idle under fresh ids — a status-idle and a
+        // session.idle for one transition, again on reconnect. Only the
+        // busy→idle edge is a state worth announcing.
+        if (!wasBusy) return out;
         out.push(
           this.ev(
             s,
             "session.status",
-            { state: idle ? "idle" : "busy" },
+            { state: "idle" },
             `opencode:${sessionID}:status:${evt.id}`,
           ),
         );
