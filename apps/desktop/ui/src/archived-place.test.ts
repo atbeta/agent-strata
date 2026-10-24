@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { visibleArchiveNote } from "./archived-section";
+import { visibleArchiveNote } from "./archived-note";
 
 const read = (file: string) => readFileSync(join(import.meta.dir, file), "utf8");
 
