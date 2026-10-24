@@ -48,6 +48,7 @@ import {
 import { builtinCommands, handoffTargets, resolveHandoff } from "./composer-input";
 import { copyText } from "./clipboard";
 import { messageText } from "./transcript-format";
+import { isDevEvent } from "./sync-events";
 import { Icon } from "./icons";
 import { t } from "./i18n";
 import { SessionEmpty } from "./session-empty";
@@ -1120,9 +1121,14 @@ const turns = () => shown().turns;
           type: string;
           data?: { state?: string; partial?: boolean };
         };
-        if (evt.session_id && evt.session_id !== props.id) {
+        if (evt.session_id && (evt.session_id !== props.id || isDevEvent(evt.type))) {
           window.dispatchEvent(new CustomEvent("strata-stream-event", { detail: evt }));
         }
+        // A dev server's output is not a turn. It is forwarded above, because the
+        // background panel reads it from that window event, and then it stops
+        // here: re-projecting the transcript for every line a server writes kept
+        // a running server from ever letting the view settle.
+        if (isDevEvent(evt.type)) return;
         if (evt.session_id === props.id && evt.type === "turn.assistant" && evt.data?.partial === true) {
           // An idle session keeps receiving a leftover snapshot. Painting it
           // puts the cursor back on a turn that has finished.

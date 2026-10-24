@@ -25,3 +25,19 @@ const LIST_EVENTS = new Set([
 export function changesSessionList(type: string | undefined): boolean {
   return type !== undefined && LIST_EVENTS.has(type);
 }
+
+/**
+ * Whether an event is about a background process rather than the session.
+ *
+ * `dev.*` events carry a `session_id`, because that is what owns the process,
+ * and they arrive on the same stream as everything else. That made them look
+ * like session activity to every reader that keyed on the id: a dev server
+ * writing a line re-fetched the session list and re-projected the transcript,
+ * so a running server kept the view from ever settling.
+ *
+ * A dev server's output is not a turn. It is not a status change, it does not
+ * move a row, and the transcript is exactly as it was.
+ */
+export function isDevEvent(type: string | undefined): boolean {
+  return type !== undefined && type.startsWith("dev.");
+}

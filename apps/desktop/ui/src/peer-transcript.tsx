@@ -18,6 +18,7 @@ import { Virtual, type VirtualApi } from "./virtual";
 import { PromptNavigator } from "./prompt-navigator";
 import { promptAt, promptEntries } from "./prompt-outline";
 import { applyStreamingSnapshot, mergeViewTail, runInProgress, type StreamingSnapshot } from "./live";
+import { isDevEvent } from "./sync-events";
 import {
   filesKeyOf,
   peekView,
@@ -203,6 +204,11 @@ export function PeerSessionTranscript(props: {
     const onStream = (ev: Event) => {
       const evt = (ev as CustomEvent<StreamEventPayload>).detail;
       if (!evt || evt.session_id !== props.sessionId) return;
+      // A dev server's output is not a turn. The focused pane still forwards it
+      // to the window event the background panel listens on, and this pane has
+      // nothing to say about it: reading it as activity made a running server
+      // keep a peer view from ever settling.
+      if (isDevEvent(evt.type)) return;
       if (evt.type === "turn.assistant" && evt.data?.partial === true) {
         // Same rule as the focused pane: a snapshot after idle is not a run.
         if (settled(view)?.busy !== true && row()?.busy !== true) return;

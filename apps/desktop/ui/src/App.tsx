@@ -27,7 +27,7 @@ import { installNotifyActions } from "./notify";
 import { StartupGate } from "./startup-gate";
 import { useStartup } from "./use-startup";
 import { SyncLine } from "./sync-line";
-import { changesSessionList } from "./sync-events";
+import { changesSessionList, isDevEvent } from "./sync-events";
 
 export function App() {
   const [route, setRoute] = createSignal<Route>(parseHash());
@@ -185,6 +185,14 @@ export function App() {
       // climb message by message and put "刚刚" on rows whose real time had
       // not been imported yet. Only a structural event gets through; the
       // finish does one full reread for everything else.
+      // A dev server's output is not session activity. It carries a
+      // `session_id` because that session owns the process, and it arrives on
+      // the same stream, so keying on the id alone made every line of output
+      // look like the session moved. Worse than a wasted fetch: this debounce is
+      // reset by each event, and a server writing steadily keeps resetting it,
+      // so the list never refreshes at all and every row sits at whatever state
+      // it had when the server started.
+      if (isDevEvent(type)) return;
       const behindSync = conns.syncTicks().size > 0;
       if (behindSync && !changesSessionList(type)) return;
       clearTimeout(timer);
