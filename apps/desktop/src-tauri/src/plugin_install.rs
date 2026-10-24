@@ -20,10 +20,47 @@ use std::path::{Path, PathBuf};
 /// not a runtime one, which is the right place for it to fail.
 pub const DEV_PROCESS_PLUGIN: &str = include_str!("../../../../plugins/dev-process.ts");
 
-/// Write the plugin next to the app's other data and return its path.
+/// Where OpenCode keeps its global config.
 ///
-/// The file is rewritten on every launch, so an upgraded shell never runs an
-/// older copy of its own plugin.
+/// Mirrors `xdg-basedir`: `%APPDATA%` on Windows, `$XDG_CONFIG_HOME` or
+/// `~/.config` everywhere else. A plugin placed here is loaded by every
+/// OpenCode the user starts, not only the one this shell launched — which is
+/// the point, and also the reason the plugin has to be inert without us.
+pub fn opencode_config_dir() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("OPENCODE_CONFIG_DIR") {
+        if !dir.is_empty() {
+            return Some(PathBuf::from(dir));
+        }
+    }
+    if let Some(dir) = std::env::var_os("XDG_CONFIG_HOME") {
+        if !dir.is_empty() {
+            return Some(PathBuf::from(dir).join("opencode"));
+        }
+    }
+    #[cfg(windows)]
+    {
+        if let Some(dir) = std::env::var_os("APPDATA") {
+            if !dir.is_empty() {
+                return Some(PathBuf::from(dir).join("opencode"));
+            }
+        }
+    }
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .filter(|value| !value.is_empty())
+        .map(|home| PathBuf::from(home).join(".config").join("opencode"))
+}
+
+/// The handshake a globally loaded plugin reads to find this service.
+///
+/// Beside the plugin, by construction: `<config>/plugin/dev-process.ts` looks
+/// for `<config>/strata-dev-process.json`, so neither side has to agree on a
+/// platform path.
+pub fn handshake_path(config_dir: &Path) -> PathBuf {
+    config_dir.join("strata-dev-process.json")
+}
+
+/// Install the plugin at `dir`, returning the file written.
 pub fn install_plugin(dir: &Path) -> std::io::Result<PathBuf> {
     let folder = dir.join("plugin");
     std::fs::create_dir_all(&folder)?;

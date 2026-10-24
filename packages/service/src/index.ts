@@ -268,6 +268,25 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     }
   };
 
+  /**
+   * The casf id for a session a caller named.
+   *
+   * A plugin runs inside OpenCode and sees the native session id (`ses_…`),
+   * while this layer keys everything by `opencode:<native>`. Both spellings are
+   * accepted: a caller that already speaks casf ids passes through untouched,
+   * and a native id is matched against each connection's own prefix. An id that
+   * matches nothing is returned as given — it is a session this layer has not
+   * indexed yet, and the caller's spelling is the best guess we have.
+   */
+  const resolveSessionId = (given: string): string => {
+    if (owners.has(given)) return given;
+    for (const conn of conns.values()) {
+      const candidate = `${conn.agent}:${given}`;
+      if (owners.has(candidate)) return candidate;
+    }
+    return given;
+  };
+
   const directoryOf = (casfId: string): string | undefined => {
     try {
       const ws = sessionView(casfId).workspace;
@@ -1873,7 +1892,9 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     // live here rather than in a detached shell so they can be read, stopped,
     // and cleaned up with the session that owns them.
     if (path === "/dev" && req.method === "GET") {
-      const sessionID = url.searchParams.get("session") ?? undefined;
+      const requested = url.searchParams.get("session");
+      // A plugin inside OpenCode knows the native id; this layer keys by casf.
+      const sessionID = requested === null ? undefined : resolveSessionId(requested);
       return json({ processes: dev.list(sessionID) });
     }
 
@@ -1889,6 +1910,9 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       if (typeof body.command !== "string" || body.command.trim().length === 0) {
         return json({ error: "command required" }, 400);
       }
+      // The caller may speak either spelling of a session id; everything below
+      // works in casf ids, because that is what the view and the owners table use.
+      const sessionID = resolveSessionId(body.session_id);
       // The workspace comes from the session, not from the caller: a dev server
       // that can name any directory is a dev server that can leave the project.
       // A session whose first events have not arrived yet has no workspace in
@@ -1896,11 +1920,11 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       const directory =
         typeof body.cwd === "string" && body.cwd.length > 0
           ? body.cwd
-          : (directoryOf(body.session_id) ?? driverFor(body.session_id)?.directory);
+          : (directoryOf(sessionID) ?? driverFor(sessionID)?.directory);
       if (!directory) return json({ error: "session has no workspace" }, 400);
       try {
         const started = await dev.start({
-          session_id: body.session_id,
+          session_id: sessionID,
           command: body.command,
           cwd: directory,
         });

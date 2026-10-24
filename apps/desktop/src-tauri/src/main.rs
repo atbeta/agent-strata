@@ -49,6 +49,9 @@ struct Sidecars {
     opencode: Arc<Mutex<Option<Child>>>,
     service: Mutex<Option<Child>>,
     supervise: Mutex<Option<JoinHandle<()>>>,
+    /// The handshake a globally loaded plugin reads to find this service. Removed
+    /// on a clean exit so a plugin cannot hand work to a process that is gone.
+    handshake: PathBuf,
 }
 
 impl Sidecars {
@@ -60,6 +63,7 @@ impl Sidecars {
             opencode: Arc::new(Mutex::new(None)),
             service: Mutex::new(None),
             supervise: Mutex::new(None),
+            handshake: PathBuf::new(),
         }
     }
 
@@ -94,6 +98,12 @@ impl Sidecars {
             .take()
         {
             reap(&mut child);
+        }
+        // Last, and only after the service is gone: a handshake that outlived
+        // its service would make every OpenCode on the machine probe a dead
+        // port before falling back.
+        if !self.handshake.as_os_str().is_empty() {
+            let _ = fs::remove_file(&self.handshake);
         }
     }
 
@@ -388,6 +398,22 @@ impl Sidecars {
         }
 
         let status_path = data.join("opencode-status.json");
+        // Installed for every mode, and outside the match below on purpose: the
+        // whole point of a global plugin is that the OpenCode the reader started
+        // themselves gets it too. Installing it only in the embed branch was the
+        // bug — the external server never saw the tools, so the model kept
+        // reaching for `Start-Process`.
+        if let Some(dir) = plugin_install::opencode_config_dir() {
+            match plugin_install::install_plugin(&dir) {
+                Ok(path) => {
+                    log_note(&log, &format!("installed dev-process plugin at {}", path.display()));
+                }
+                Err(e) => {
+                    eprintln!("agent-strata: could not install the dev-process plugin: {e}");
+                    log_note(&log, &format!("could not install dev-process plugin: {e}"));
+                }
+            }
+        }
         match mode {
             OpencodeMode::External => {
                 let _ = write_status(&status_path, mode, OpencodeState::External, None);
@@ -450,9 +476,9 @@ impl Sidecars {
                                 let opencode_slot = opencode.clone();
                                 let exited = Arc::new(AtomicBool::new(false));
                                 let pid_path = pid_path.clone();
-                                // The plugin lives in the app's data directory, so the
-                                // closure that spawns the server needs its own handle to it.
-                                let plugin_dir = data.clone();
+                                // The closure needs its own handle: the global install
+                                // runs outside it, and this one names the plugin.
+                                let plugin_config_dir = plugin_install::opencode_config_dir();
                                 supervisor = Some(std::thread::spawn(move || {
                                     let wait_shutdown = shutdown_flag.clone();
                                     let wait_slot = opencode_slot.clone();
@@ -465,7 +491,7 @@ impl Sidecars {
                                             let shutdown_flag = shutdown_flag.clone();
                                             let opencode_slot = opencode_slot.clone();
                                             let exited = exited.clone();
-                                            let plugin_dir = plugin_dir.clone();
+                                            let plugin_config_dir = plugin_config_dir.clone();
                                             move |p| {
                                                 if shutdown_flag.load(Ordering::SeqCst) {
                                                     return Err(std::io::Error::new(
@@ -475,24 +501,16 @@ impl Sidecars {
                                                 }
                                                 let args = serve_args(p.port);
                                                 let mut owned = child_env(p);
-                                                // The plugin that hands long-running commands
-                                                // to the service. Installed here rather than in the
-                                                // project, so it travels with the app and leaves with it.
-                                                match plugin_install::install_plugin(&plugin_dir) {
-                                                    Ok(plugin) => {
+                                                // Named as well as discovered. The global install
+                                                // above already covers this server, and this keeps a
+                                                // config directory that is not writable from taking
+                                                // the tools away from the server we started.
+                                                if let Some(dir) = plugin_config_dir.clone() {
+                                                    if let Ok(plugin) = plugin_install::install_plugin(&dir) {
                                                         owned.push((
                                                             "OPENCODE_CONFIG_CONTENT".into(),
                                                             plugin_install::config_content(&plugin),
                                                         ));
-                                                    }
-                                                    Err(e) => {
-                                                        eprintln!(
-                                                            "agent-strata: could not install the dev-process plugin: {e}"
-                                                        );
-                                                        log_note(
-                                                            &supervise_log,
-                                                            &format!("could not install dev-process plugin: {e}"),
-                                                        );
                                                     }
                                                 }
                                                 let env_refs: Vec<(&str, String)> = owned
@@ -639,6 +657,24 @@ impl Sidecars {
             None
         };
 
+        // The handshake a globally loaded plugin reads. Written only once the
+        // service is up: a file pointing at a port nothing listens on is worse
+        // than no file, because every OpenCode on the machine probes it first.
+        let handshake = plugin_install::opencode_config_dir()
+            .map(|dir| plugin_install::handshake_path(&dir))
+            .unwrap_or_default();
+        if service_child.is_some() && !handshake.as_os_str().is_empty() {
+            let url = format!("http://127.0.0.1:{port}");
+            if let Some(parent) = handshake.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            let body = serde_json::json!({ "url": url, "pid": std::process::id() });
+            if let Err(e) = fs::write(&handshake, format!("{body}\n")) {
+                eprintln!("agent-strata: could not write {}: {e}", handshake.display());
+                log_note(&log, &format!("could not write handshake: {e}"));
+            }
+        }
+
         Sidecars {
             shutdown,
             restart,
@@ -646,6 +682,7 @@ impl Sidecars {
             opencode,
             service: Mutex::new(service_child),
             supervise: Mutex::new(supervisor),
+            handshake,
         }
     }
 }
