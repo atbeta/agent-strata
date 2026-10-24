@@ -1,0 +1,6 @@
+# Every test file sees a clean desktop dir: a service started without an
+# explicit desktopDir would otherwise read the developer's real
+# ~/.agent-strata, where a running embedded server is a real backend the
+# reconnect logic would connect to mid-test.
+[test]
+preload = ["./packages/service/test/preload.ts"]

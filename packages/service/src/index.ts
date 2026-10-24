@@ -98,7 +98,11 @@ export interface RunningService {
 }
 
 export function startService(opts: ServiceOpts = {}): RunningService {
-  const desktopDir = opts.desktopDir ?? join(homedir(), ".agent-strata");
+  // STRATA_DESKTOP_DIR exists mostly for tests: without it a suite on a dev
+  // machine reads the real ~/.agent-strata — a running embedded server there
+  // is a real backend the reconcile would happily connect to.
+  const desktopDir =
+    opts.desktopDir ?? process.env.STRATA_DESKTOP_DIR ?? join(homedir(), ".agent-strata");
   const store = openStore(opts.db ?? ":memory:");
   const conns = new Map<string, BackendDriver>();
   // casf session id -> driver id, filled as sessions are indexed or created
