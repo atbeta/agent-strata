@@ -18,11 +18,15 @@ export type LaunchState =
   | "restarting"
   | "stopped"
   | "external"
+  | "authRequired"
+  | "authFailed"
   | "unmanaged";
 
 export type ConnectionPlacement = "embed" | "external";
 
-const SPAWNING = new Set<LaunchState>(["starting", "restarting"]);
+// A prompt parked for credentials is still on the way up, gated on the
+// reader rather than on the network — the pill should keep saying attaching.
+const SPAWNING = new Set<LaunchState>(["starting", "restarting", "authRequired", "authFailed"]);
 
 export function connectionPhase(input: {
   connected: boolean;

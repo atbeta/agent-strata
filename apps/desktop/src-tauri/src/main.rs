@@ -897,7 +897,15 @@ fn opencode_login(
     username: String,
     password: String,
 ) -> Result<(), String> {
-    let mut guard = state.login.lock().map_err(|_| "login state is poisoned")?;
+    answer_login(&state.login, &username, &password)
+}
+
+fn answer_login(
+    login: &Mutex<Option<LoginPipe>>,
+    username: &str,
+    password: &str,
+) -> Result<(), String> {
+    let mut guard = login.lock().map_err(|_| "login state is poisoned")?;
     let Some(pipe) = guard.as_mut() else {
         return Err("the embedded OpenCode server is not waiting for a login".into());
     };
@@ -1167,9 +1175,10 @@ fn main() {
 
 #[cfg(all(test, unix))]
 mod tests {
-    use super::{open_log, reap, spawn, Log};
+    use super::{answer_login, auth_scan, open_log, reap, spawn, LoginPipe, Log};
     use std::os::unix::process::CommandExt;
-    use std::process::Command;
+    use std::process::{Command, Stdio};
+    use std::sync::atomic::{AtomicU8, Ordering};
     use std::sync::{Arc, Mutex};
 
     extern "C" {
@@ -1209,6 +1218,69 @@ mod tests {
         assert_eq!(line.as_bytes().get(7), Some(&b'-'), "missing date: {line}");
         assert_eq!(line.as_bytes().get(10), Some(&b' '), "missing time: {line}");
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn prompt_markers_park_the_child_and_a_refusal_stays_up() {
+        let stage = Arc::new(AtomicU8::new(0));
+        let scan = auth_scan(stage.clone());
+        scan(b"listening on http://127.0.0.1:4096");
+        assert_eq!(stage.load(Ordering::SeqCst), 0);
+        scan("欢迎使用研发工具|xOpenCode\n◇ 请输入域账号:".as_bytes());
+        assert_eq!(stage.load(Ordering::SeqCst), 1);
+        scan("s000\n◇ 请输入域账号密码:".as_bytes());
+        assert_eq!(stage.load(Ordering::SeqCst), 1);
+        scan("域账号或密码错误，请重新输入\n◇ 请输入域账号:".as_bytes());
+        assert_eq!(stage.load(Ordering::SeqCst), 2);
+        // The re-prompt after a refusal does not clear the error — only a
+        // fresh answer down the pipe does (answer_login stores 1 itself).
+        scan("s000\n◇ 请输入域账号密码:".as_bytes());
+        assert_eq!(stage.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn a_marker_split_across_chunks_is_still_caught() {
+        let stage = Arc::new(AtomicU8::new(0));
+        let scan = auth_scan(stage.clone());
+        scan("请输入".as_bytes());
+        scan("域账号:".as_bytes());
+        assert_eq!(stage.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn an_upstream_boot_never_parks() {
+        let stage = Arc::new(AtomicU8::new(0));
+        let scan = auth_scan(stage.clone());
+        scan(b"opencode serve\nlistening on http://127.0.0.1:4096\n");
+        scan(b"session created\nmessage.updated\n");
+        assert_eq!(stage.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn answering_the_prompt_writes_both_lines_and_rearms_the_stage() {
+        let mut child = Command::new("/bin/cat")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("cat");
+        let stage = Arc::new(AtomicU8::new(2));
+        let login: Mutex<Option<LoginPipe>> = Mutex::new(Some(LoginPipe {
+            stdin: child.stdin.take().expect("stdin"),
+            stage: stage.clone(),
+        }));
+        answer_login(&login, "s000", "hunter2").expect("answer");
+        // Dropping the pipe gives cat its EOF, so wait_with_output returns.
+        drop(login.into_inner().unwrap());
+        let out = child.wait_with_output().expect("wait cat");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "s000\nhunter2\n");
+        assert_eq!(stage.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn answering_without_a_parked_prompt_is_an_error() {
+        let login: Mutex<Option<LoginPipe>> = Mutex::new(None);
+        let err = answer_login(&login, "s000", "hunter2").unwrap_err();
+        assert!(err.contains("not waiting"), "unexpected error: {err}");
     }
 
     #[test]

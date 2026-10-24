@@ -73,6 +73,23 @@ describe("embedded reconcile", () => {
     expect(list.connections[0]!.placement).toBe("embed");
   });
 
+  test("a parked login prompt connects nothing until the server runs", async () => {
+    dir = tempDir();
+    fake = fakeOpencode();
+    writeStatus(dir, "authRequired", fake.baseUrl, "pair-one");
+    svc = startService({ db: ":memory:", port: 0, desktopDir: dir });
+    await Bun.sleep(400);
+    expect((await connections(svc)).connections).toHaveLength(0);
+    // The sign-in passing flips the same file to running — same pair — and
+    // the reconcile picks it up on the next watch tick. Under a loaded suite
+    // the fs.watch event can be late enough that only the 10s poll catches it,
+    // so the timeout has to leave room for that fallback.
+    writeStatus(dir, "running", fake.baseUrl, "pair-one");
+    const list = await untilConnected(svc, fake.baseUrl, 12_000);
+    expect(list.connections).toHaveLength(1);
+    expect(list.connections[0]!.placement).toBe("embed");
+  }, 15_000);
+
   test("a stopped server carries no pair and connects nothing", async () => {
     dir = tempDir();
     writeStatus(dir, "stopped");

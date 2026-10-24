@@ -17,7 +17,7 @@ pub enum OpencodeMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "camelCase")]
 pub enum OpencodeState {
     Starting,
     Running,
@@ -1504,6 +1504,99 @@ mod tests {
             !text.contains(&plan.password),
             "status JSON must not contain the password: {text}"
         );
+    }
+
+    #[test]
+    fn auth_states_serialise_the_way_the_service_reads_them() {
+        // The status file's readers expect camelCase here; a `lowercase`
+        // rename would write "authrequired" and the service would drop the
+        // whole launch record as unrecognised.
+        assert_eq!(
+            serde_json::to_string(&OpencodeState::AuthRequired).unwrap(),
+            "\"authRequired\""
+        );
+        assert_eq!(
+            serde_json::to_string(&OpencodeState::AuthFailed).unwrap(),
+            "\"authFailed\""
+        );
+        assert_eq!(
+            serde_json::to_string(&OpencodeState::Running).unwrap(),
+            "\"running\""
+        );
+    }
+
+    /// A child parked at the fork's login prompt is waiting for an answer,
+    /// not crashing: the status file says so, the spawn is never retried, and
+    /// the health-poll budget is untouched. `stage` is what the output scanner
+    /// last reported — 1 parks as authRequired, 2 as authFailed.
+    fn supervise_holds_a_parked_child(stage: u8, want: OpencodeState) {
+        let plan = sample_plan();
+        let status_path = temp_path("status.json");
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let spawns = Arc::new(AtomicUsize::new(0));
+        let kills = Arc::new(AtomicUsize::new(0));
+        let states = Arc::new(Mutex::new(Vec::new()));
+
+        supervise(
+            plan,
+            &status_path,
+            {
+                let spawns = spawns.clone();
+                let kills = kills.clone();
+                move |_| {
+                    spawns.fetch_add(1, Ordering::SeqCst);
+                    Ok(Spawned {
+                        exited: Arc::new(AtomicBool::new(false)),
+                        kill: Box::new({
+                            let kills = kills.clone();
+                            move || {
+                                kills.fetch_add(1, Ordering::SeqCst);
+                            }
+                        }),
+                        auth_stage: Some(Arc::new(std::sync::atomic::AtomicU8::new(stage))),
+                    })
+                }
+            },
+            |_| false,
+            {
+                let shutdown = shutdown.clone();
+                let states = states.clone();
+                let status_path = status_path.clone();
+                let waits = AtomicUsize::new(0);
+                move |_| {
+                    if waits.fetch_add(1, Ordering::SeqCst) >= 2 {
+                        shutdown.store(true, Ordering::SeqCst);
+                    }
+                    if let Some(status) = read_status(&status_path) {
+                        let mut states = states.lock().unwrap();
+                        if states.last() != Some(&status.state) {
+                            states.push(status.state);
+                        }
+                    }
+                }
+            },
+            shutdown,
+            Arc::new(AtomicBool::new(false)),
+        );
+
+        assert_eq!(spawns.load(Ordering::SeqCst), 1, "a parked child was retried");
+        assert_eq!(kills.load(Ordering::SeqCst), 1);
+        let seen = states.lock().unwrap().clone();
+        assert!(seen.contains(&want), "expected {want:?} in {seen:?}");
+        assert_eq!(
+            read_status(&status_path).expect("status").state,
+            OpencodeState::Stopped
+        );
+    }
+
+    #[test]
+    fn a_child_parked_at_the_login_prompt_holds_instead_of_failing() {
+        supervise_holds_a_parked_child(1, OpencodeState::AuthRequired);
+    }
+
+    #[test]
+    fn a_refused_login_parks_again_as_authfailed() {
+        supervise_holds_a_parked_child(2, OpencodeState::AuthFailed);
     }
 
     #[test]
