@@ -7,7 +7,8 @@ import {
   type DevProcess,
   type SessionView,
 } from "./api";
-import { BackgroundPanel, devRunning } from "./background-panel";
+import { BackgroundPanel } from "./background-panel";
+import { devRunning } from "./dev-state";
 import { Icon } from "./icons";
 import { num, t, tn } from "./i18n";
 import { Tip } from "./tip";

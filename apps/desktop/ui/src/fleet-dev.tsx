@@ -2,7 +2,8 @@ import { createEffect, createResource, createSignal, For, onCleanup, Show } from
 import { listAllDevProcesses, readDevLogs, stopDevProcess, type DevLogLine, type DevProcess, type SessionRow } from "./api";
 import { t } from "./i18n";
 import { displayTitle } from "./session-title";
-import { devRunning, DevRow, DevRowDetail } from "./background-panel";
+import { DevRow, DevRowDetail } from "./background-panel";
+import { devRunning } from "./dev-state";
 import { Button } from "@/components/ui/button";
 
 /** How often the running time and an open log refresh. */

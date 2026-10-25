@@ -190,6 +190,8 @@ export default {
   "dev.empty.hint": "需要常驻的命令（如 npm run dev）会出现在这里，可以看日志、随时停掉。",
   "dev.running": "运行中",
   "dev.stopped": "已停止",
+  "dev.lost": "已消失",
+  "dev.orphaned": "残留已清理",
   "dev.exited": "已退出（{code}）",
   "dev.stop": "停止",
   "dev.stopping": "正在停止",

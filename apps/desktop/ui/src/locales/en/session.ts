@@ -188,6 +188,8 @@ export default {
   "dev.empty.hint": "A command that stays up — npm run dev, a watcher — lands here, where its output and its stop button live.",
   "dev.running": "running",
   "dev.stopped": "stopped",
+  "dev.lost": "gone",
+  "dev.orphaned": "residue cleaned up",
   "dev.exited": "exited ({code})",
   "dev.stop": "Stop",
   "dev.stopping": "Stopping",

@@ -1057,6 +1057,11 @@ export function terminalSocket(sessionId: string, ptyId: string): string {
  *
  * The service owns it, which is why it has an id that outlives a turn. `pid` is
  * absent only when the spawn never produced one.
+ *
+ * The table outlives the process, so "not running" is not one thing: a command
+ * that was stopped is stopped, one that vanished on its own is lost, and one
+ * that was found still running after a restart — an orphan, cleaned up — is
+ * neither.
  */
 export interface DevProcess {
   id: string;
@@ -1069,6 +1074,16 @@ export interface DevProcess {
   stopped: boolean;
   error?: string;
   last_line?: string;
+  /** Where it is in its life. */
+  state?: "running" | "stopped" | "lost" | "orphaned";
+  /** The port it was asked to serve on, when the caller named one. */
+  port?: number;
+  /** Whether it has proved it can serve. */
+  ready?: "yes" | "no" | "unknown";
+  /** How long the port took to answer, when it answered. */
+  ready_ms?: number;
+  /** When it stopped, for a record that outlived its process. */
+  stopped_at?: number;
 }
 
 export interface DevLogLine {

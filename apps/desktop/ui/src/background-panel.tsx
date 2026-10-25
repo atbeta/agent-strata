@@ -1,5 +1,6 @@
 import { createEffect, createSignal, For, onCleanup, Show, type JSX } from "solid-js";
 import { readDevLogs, type DevLogLine, type DevProcess } from "./api";
+import { dotClass, devRunning, stateClass, stateLabel } from "./dev-state";
 import { t } from "./i18n";
 import { fmtLatency } from "./transcript-format";
 import { Button } from "@/components/ui/button";
@@ -7,39 +8,6 @@ import { RowButton } from "@/components/ui/row-button";
 
 /** How often the running time and the open log refresh. */
 const TICK_MS = 1_000;
-
-/** Whether a process is still up, by the only definition the panel has. */
-export function devRunning(process: DevProcess): boolean {
-  return process.exit_code === null;
-}
-
-/**
- * What the row says about a process, in the order that matters.
- *
- * A process that never started has no exit code and no uptime: it has an error,
- * and that error is the whole story. A stopped one is not "exited 143" to a
- * reader who pressed the button — it is stopped.
- */
-export function stateLabel(process: DevProcess): string {
-  if (process.error && process.exit_code !== 0) return t("dev.failed");
-  if (devRunning(process)) return t("dev.running");
-  if (process.stopped) return t("dev.stopped");
-  return t("dev.exited", { code: process.exit_code ?? 0 });
-}
-
-export function stateClass(process: DevProcess): string {
-  if (process.error && process.exit_code !== 0) return "text-destructive";
-  if (devRunning(process)) return "text-status-active";
-  if (process.stopped) return "text-muted-foreground";
-  return "text-status-error";
-}
-
-function dotClass(process: DevProcess): string {
-  if (process.error && process.exit_code !== 0) return "bg-destructive";
-  if (devRunning(process)) return "bg-status-active";
-  if (process.stopped) return "bg-muted-foreground/50";
-  return "bg-status-error";
-}
 
 /**
  * One line per process: a status dot, the command, and the number that keeps
