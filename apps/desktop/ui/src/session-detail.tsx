@@ -1537,7 +1537,7 @@ const turns = () => shown().turns;
                         bindRef={(el) => (toolsTriggerEl = el)}
                       >
                         <span class="relative inline-flex">
-                          <Icon name="mcp" />
+                          <Icon name="plug" />
                           <McpAttentionMark tone={tools.attention()} />
                         </span>
                       </PanelToggle>

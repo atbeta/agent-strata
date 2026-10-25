@@ -10,6 +10,7 @@ import {
   type McpServerStatus,
 } from "./api";
 import { t } from "./i18n";
+import { Icon } from "./icons";
 import type { MessageKey } from "./locales/zh";
 import {
   mcpAddProblem,
@@ -285,7 +286,10 @@ export function McpToolsPanel(props: {
         }}
         class="max-h-80 overflow-y-auto px-2 pb-3 pt-2"
       >
-        <h2 class="px-1.5 text-2xs font-medium text-muted-foreground">{t("mcp.title")}</h2>
+        <h2 class="flex items-center gap-1.5 px-1.5 text-2xs font-medium text-muted-foreground">
+          <Icon name="mcp" class="size-3.5 shrink-0" />
+          <span>{t("mcp.title")}</span>
+        </h2>
         <Show when={mcpShowLoading(m().toolsReady(), m().mcpServers().length)}>
           <p class="mt-1.5 px-1.5 text-xs text-muted-foreground">{t("mcp.loading")}</p>
         </Show>

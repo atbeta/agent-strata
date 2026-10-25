@@ -91,10 +91,10 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
   // happened, which is what the trace drawer it opens shows.
   if (name === "replay")
     return (
-      <Glyph class={cls}>
-        <path d="M2.6 8A5.4 5.4 0 1 0 8 2.6 5.4 5.4 0 0 0 4.3 4.3L2.6 6" />
-        <path d="M2.6 2.8V6h3.2" />
-        <path d="M8 5.2V8l2.2 1.5" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+        <path d="M3 3v5h5" />
+        <path d="M12 7v5l4 2" />
       </Glyph>
     );
   // A panel with a rail — the drawer of files. The header's own switch for that
@@ -107,16 +107,15 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
         <path d="M9.5 3v10" />
       </Glyph>
     );
-  // A sheet with a folded corner and two lines of text. Reading a file is a
-  // document; the files glyph above is the drawer, and at 14px the two must
-  // not be the same picture.
+  // Lucide `file-text` on its own 24 grid, with the short metadata line left
+  // out. Two text lines keep the page quiet at activity-row size.
   if (name === "page")
     return (
-      <Glyph class={cls}>
-        <path d="M4 2.4h5.2L12 5.2V13.6H4z" />
-        <path d="M9.2 2.6V5.2H12" />
-        <path d="M6 8.2h4" />
-        <path d="M6 10.6h4" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+        <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+        <path d="M16 13H8" />
+        <path d="M16 17H8" />
       </Glyph>
     );
   if (name === "download")
@@ -206,32 +205,32 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
     );
   if (name === "search")
     return (
-      <Glyph class={cls}>
-        <circle cx="7" cy="7" r="3.2" />
-        <path d="M9.4 9.4 13 13" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <circle cx="11" cy="11" r="8" />
+        <path d="m21 21-4.35-4.35" />
       </Glyph>
     );
   if (name === "folder")
     return (
       <Glyph class={cls}>
-        <path d="M2.5 5.2c0-.7.5-1.2 1.2-1.2h2.2l1.2 1.3H12.3c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H3.7c-.7 0-1.2-.5-1.2-1.2z" />
+        <path d="M2 4.4c0-.8.6-1.4 1.4-1.4h2.5l1.4 1.5h5.3c.8 0 1.4.6 1.4 1.4v6.8c0 .8-.6 1.4-1.4 1.4H3.4c-.8 0-1.4-.6-1.4-1.4z" />
       </Glyph>
     );
   if (name === "folder-open")
     return (
       <Glyph class={cls}>
         {/* The closed folder's back half, cut where the flap covers it. */}
-        <path d="M2.5 12V5.2c0-.7.5-1.2 1.2-1.2h2.2l1.2 1.3h5.2c.7 0 1.2.5 1.2 1.2v.8" />
+        <path d="M2 12.5V4.4c0-.8.6-1.4 1.4-1.4h2.5l1.4 1.5h5.3c.8 0 1.4.6 1.4 1.4v1" />
         {/* The front flap: a parallelogram leaning right, its slant is what
             reads as "open" at 16px. */}
-        <path d="M2.5 12l1.3-3.9c.2-.6.7-.9 1.3-.9h7.3c.7 0 1.2.7 1 1.4l-1.2 3.7c-.2.6-.7 1-1.3 1H3.6c-.7 0-1.2-.6-1.1-1.3z" />
+        <path d="M2 12.5l1.4-4.2c.2-.7.8-1 1.5-1h7.5c.8 0 1.4.8 1.1 1.6l-1.3 4c-.2.7-.8 1-1.5 1H3.5c-.8 0-1.4-.7-1.3-1.4z" />
       </Glyph>
     );
   if (name === "folder-plus")
     return (
       <Glyph class={cls}>
-        <path d="M2.5 5.2c0-.7.5-1.2 1.2-1.2h2.2l1.2 1.3H12.3c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H3.7c-.7 0-1.2-.5-1.2-1.2z" />
-        <path d="M8 7.8v3.6M6.2 9.6h3.6" />
+        <path d="M2 4.4c0-.8.6-1.4 1.4-1.4h2.5l1.4 1.5h5.3c.8 0 1.4.6 1.4 1.4v6.8c0 .8-.6 1.4-1.4 1.4H3.4c-.8 0-1.4-.6-1.4-1.4z" />
+        <path d="M8 7v4.6M5.7 9.3h4.6" />
       </Glyph>
     );
   if (name === "filter")
@@ -329,35 +328,37 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
     );
   if (name === "terminal")
     return (
-      <Glyph class={cls}>
-        <rect x="2.2" y="3" width="11.6" height="10" rx="1.4" />
-        <path d="M4.4 6.4 6.4 8 4.4 9.6" />
-        <path d="M7.6 9.6h3.2" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <path d="m7 9 4 4-4 4" />
+        <path d="M11 17h6" />
       </Glyph>
     );
   if (name === "globe")
     return (
       <Glyph class={cls}>
-        <circle cx="8" cy="8" r="5.2" />
-        <path d="M2.8 8h10.4" />
-        <path d="M8 2.8c1.5 1.6 2.3 3.3 2.3 5.2s-.8 3.6-2.3 5.2c-1.5-1.6-2.3-3.3-2.3-5.2s.8-3.6 2.3-5.2z" />
+        <circle cx="8" cy="8" r="5.8" />
+        <path d="M2.2 8h11.6" />
+        <path d="M8 2.2c1.6 1.7 2.5 3.6 2.5 5.8s-.9 4.1-2.5 5.8c-1.6-1.7-2.5-3.6-2.5-5.8s.9-4.1 2.5-5.8z" />
       </Glyph>
     );
   if (name === "list")
     return (
       <Glyph class={cls}>
-        <path d="M6 4.2h7.2" />
+        <path d="M6 2.5h7.2" />
         <path d="M6 8h7.2" />
-        <path d="M6 11.8h7.2" />
-        <circle cx="3.4" cy="4.2" r="0.7" fill="currentColor" stroke="none" />
+        <path d="M6 13.5h7.2" />
+        <circle cx="3.4" cy="2.5" r="0.7" fill="currentColor" stroke="none" />
         <circle cx="3.4" cy="8" r="0.7" fill="currentColor" stroke="none" />
-        <circle cx="3.4" cy="11.8" r="0.7" fill="currentColor" stroke="none" />
+        <circle cx="3.4" cy="13.5" r="0.7" fill="currentColor" stroke="none" />
       </Glyph>
     );
   if (name === "wrench")
     return (
       <Glyph class={cls}>
-        <path d="M9.6 2.6a2.3 2.3 0 0 0-2.4 3.2L3.2 9.8 6.2 12.8l4-4a2.3 2.3 0 0 0 3.2-2.4L11.2 6.6 9.4 4.8z" />
+        <g transform="translate(-0.8 -0.8) scale(1.1)" stroke-width="1.36">
+          <path d="M9.6 2.6a2.3 2.3 0 0 0-2.4 3.2L3.2 9.8 6.2 12.8l4-4a2.3 2.3 0 0 0 3.2-2.4L11.2 6.6 9.4 4.8z" />
+        </g>
       </Glyph>
     );
   if (name === "branch")
@@ -409,11 +410,11 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
     );
   if (name === "plug")
     return (
-      <Glyph class={cls}>
-        <path d="M6 2.6v3.2" />
-        <path d="M10 2.6v3.2" />
-        <path d="M4.2 5.8h7.6v3.6a3.8 3.8 0 0 1-3.8 3.8 3.8 3.8 0 0 1-3.8-3.8z" />
-        <path d="M8 13.2v1.4" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M9 8V3" />
+        <path d="M15 8V3" />
+        <path d="M18 8v5a6 6 0 0 1-12 0V8Z" />
+        <path d="M12 21v-2" />
       </Glyph>
     );
   // The official MCP mark, in its stroked form — the filled silhouette it
@@ -424,16 +425,19 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
   if (name === "mcp")
     return (
       <Glyph class={cls} box="10 10 160 160" weight="14">
-        <path d="M23.5996 85.2532L86.2021 22.6507C94.8457 14.0071 108.86 14.0071 117.503 22.6507C126.147 31.2942 126.147 45.3083 117.503 53.9519L70.2254 101.23" />
-        <path d="M70.8789 100.578L117.504 53.952C126.148 45.3083 140.163 45.3083 148.806 53.952L149.132 54.278C157.776 62.9216 157.776 76.9357 149.132 85.5792L92.5139 142.198C89.6327 145.079 89.6327 149.75 92.5139 152.631L104.14 164.257" />
-        <path d="M101.853 38.3013L55.553 84.6011C46.9094 93.2447 46.9094 107.258 55.553 115.902C64.1966 124.546 78.2106 124.546 86.8543 115.902L133.154 69.6025" />
+        <g transform="translate(14 7.8) scale(0.88)" stroke-width="15.9">
+          <path d="M23.5996 85.2532L86.2021 22.6507C94.8457 14.0071 108.86 14.0071 117.503 22.6507C126.147 31.2942 126.147 45.3083 117.503 53.9519L70.2254 101.23" />
+          <path d="M70.8789 100.578L117.504 53.952C126.148 45.3083 140.163 45.3083 148.806 53.952L149.132 54.278C157.776 62.9216 157.776 76.9357 149.132 85.5792L92.5139 142.198C89.6327 145.079 89.6327 149.75 92.5139 152.631L104.14 164.257" />
+          <path d="M101.853 38.3013L55.553 84.6011C46.9094 93.2447 46.9094 107.258 55.553 115.902C64.1966 124.546 78.2106 124.546 86.8543 115.902L133.154 69.6025" />
+        </g>
       </Glyph>
     );
   // Two mirrored hemispheres with inner folds — the reasoning indicator.
+  // Its visible height matches the document and terminal marks beside it.
   if (name === "brain")
     return (
       <Glyph class={cls}>
-        <g stroke-width="1.25">
+        <g transform="translate(0.8 0.8) scale(0.9)" stroke-width="1.4">
           <path d="M8 3.2C8 1.3 4.5 1.1 4.2 3.2C2.4 3.1 1.7 5.4 2.8 6.6C1.2 8.1 1.8 10.7 3.6 11.2C3.3 13.2 5.1 14.5 6.8 13.5C7.6 13.4 8 12.9 8 12Z" />
           <path d="M8 3.2C8 1.3 11.5 1.1 11.8 3.2C13.6 3.1 14.3 5.4 13.2 6.6C14.8 8.1 14.2 10.7 12.4 11.2C12.7 13.2 10.9 14.5 9.2 13.5C8.4 13.4 8 12.9 8 12Z" />
           <path d="M4.2 3.2v1.2c0 .8.4 1.3 1.1 1.6M2.8 6.6h1.4M3.6 11.2v-1.1c0-.9.5-1.5 1.3-1.7" />

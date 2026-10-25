@@ -675,10 +675,10 @@ function AssistantMessage(props: {
         text={text}
         onFork={forkable() ? () => props.onFork!(props.message.msg_id!) : undefined}
       >
-      {/* `py-1` carries the beat between this paragraph and the tool row that
-          follows it: `space-y-2` margins cannot reach through MessageMenu's
+      {/* `py-0.5` carries the beat between this paragraph and the tool row that
+          follows it: `space-y-1` margins cannot reach through MessageMenu's
           `display:contents` wrapper, so the gap lives on the row itself. */}
-      <div class="transcript-message py-1" data-message-role="assistant">
+      <div class="transcript-message py-0.5" data-message-role="assistant">
         <div class="relative">
           <Show
             when={met()}
@@ -856,7 +856,7 @@ export function TurnBlock(props: {
 
   return (
     <div
-      class={`${props.entering?.() ? "rise-in " : ""}space-y-2 ${props.turn.reverted ? "opacity-50" : ""}`}
+      class={`${props.entering?.() ? "rise-in " : ""}space-y-1 ${props.turn.reverted ? "opacity-50" : ""}`}
     >
       <Show when={props.turn.user}>
         {(blocks) => (
