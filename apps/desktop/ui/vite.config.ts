@@ -3,6 +3,7 @@ import solid from "vite-plugin-solid";
 import tailwindcss from "@tailwindcss/vite";
 import { fileURLToPath, URL } from "node:url";
 import { readFileSync } from "node:fs";
+import { APP_NAME } from "./src/app-name";
 
 const service = process.env.STRATA_SERVICE_URL ?? "http://127.0.0.1:7700";
 
@@ -27,7 +28,16 @@ const version = (() => {
 })();
 
 export default defineConfig({
-  plugins: [tailwindcss(), solid()],
+  plugins: [
+    tailwindcss(),
+    solid(),
+    {
+      // The document title is the product's name as well, and HTML cannot
+      // import the constant the panels read — so the build fills it in.
+      name: "app-name",
+      transformIndexHtml: (html: string) => html.replace("%APP_NAME%", APP_NAME),
+    },
+  ],
   define: {
     __APP_VERSION__: JSON.stringify(version),
   },

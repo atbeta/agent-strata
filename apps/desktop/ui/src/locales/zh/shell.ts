@@ -170,7 +170,7 @@ export default {
   "startup.degraded": "OpenCode 还没有连接上",
   "startup.serviceError": "本地服务没有启动",
   "startup.sessionsError": "无法读取会话列表",
-  "startup.serviceHint": "Agent Strata 正在启动本地服务，通常只需要几秒。",
+  "startup.serviceHint": "本应用正在启动本地服务，通常只需要几秒。",
   "startup.opencodeHint": "正在等待 OpenCode 就绪；首次启动会久一点。",
   "startup.sessionsHint": "正在读取本地会话列表。",
   "startup.syncHint": "正在把 OpenCode 的历史会话同步到本地。同步可以在后台继续。",
@@ -200,7 +200,7 @@ export default {
   "time.older": "更早",
 
   // Failures
-  "error.serviceUnreachable": "无法连接到 strata 服务",
+  "error.serviceUnreachable": "无法连接到本地服务",
   "error.createSession": "无法创建会话",
 
   // Command search
@@ -244,7 +244,7 @@ export default {
   "settings.theme.light": "浅色",
   "settings.theme.system": "跟随系统",
   "settings.notify.title": "完成或等待时通知",
-  "settings.notify.hint": "会话结束或停下来等你批准/回答，而窗口在后台时，响一声并交给系统通知中心。桌面端不会单独弹权限申请；看不到横幅时请在系统通知设置里允许 Agent Strata。",
+  "settings.notify.hint": "会话结束或停下来等你批准/回答，而窗口在后台时，响一声并交给系统通知中心。桌面端不会单独弹权限申请；看不到横幅时请在系统通知设置里允许本应用。",
   "notify.needsInput": "等待你处理",
   "settings.notify.blocked": "系统没有允许通知。",
   "settings.thinking.title": "思考过程",
@@ -416,12 +416,12 @@ export default {
   "maintenance.archivedMoved": "已归档会话在侧栏列表底部，可以恢复或删除。",
   "maintenance.loading": "正在读取…",
   "notify.desktopOnly": "通知测试只在桌面应用中可用。",
-  "notify.test.title": "Agent Strata 测试通知",
+  "notify.test.title": "测试通知",
   "notify.test.body": "如果你看到这条横幅，后台通知已经接通。",
   "settings.about.testNotification": "发送测试通知",
   "settings.about.notificationSettings": "系统通知设置",
   "settings.about.testSent": "测试通知已交给系统；没看到横幅就去系统通知设置检查。",
-  "settings.about.notifyHint": "开发模式下系统通知归属于“终端”，macOS 会拒绝这类旧式通知，因此“终端”可能根本不出现在通知列表里；打包后的应用才使用 Agent Strata。请用打包版验证，或在系统设置 → 通知里允许 Agent Strata。",
+  "settings.about.notifyHint": "开发模式下系统通知归属于“终端”，macOS 会拒绝这类旧式通知，因此“终端”可能根本不出现在通知列表里；只有打包后的应用才以自己的名字通知。请用打包版验证，或在系统设置 → 通知里允许本应用。",
   "settings.about.log": "日志",
   "settings.about.report": "诊断信息",
   "settings.about.notifications": "通知",

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { APP_NAME } from "./app-name";
 import { permissionView, windowTitle } from "./permission-card";
 
 const PATCH = "@@ -1 +1 @@\n-a\n+b\n";
@@ -45,7 +46,7 @@ describe("permission card body", () => {
 
 describe("window title", () => {
   test("counts only when someone is waiting", () => {
-    expect(windowTitle(0)).toBe("Agent Strata");
-    expect(windowTitle(2)).toBe("(2) Agent Strata");
+    expect(windowTitle(0)).toBe(APP_NAME);
+    expect(windowTitle(2)).toBe(`(2) ${APP_NAME}`);
   });
 });

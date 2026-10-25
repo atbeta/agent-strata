@@ -1,4 +1,5 @@
 import { Show, createSignal, onCleanup, onMount, type JSX } from "solid-js";
+import { APP_NAME } from "./app-name";
 import { cn } from "./lib/utils";
 import { Button } from "./components/ui/button";
 import { inDesktopShell, usesCustomCaption } from "./shell";
@@ -181,7 +182,7 @@ export function AppMark() {
           draggable={false}
           class="pointer-events-none size-6 shrink-0"
         />
-        <span class="text-sm font-medium">Agent Strata</span>
+        <span class="text-sm font-medium">{APP_NAME}</span>
       </span>
     </Show>
   );

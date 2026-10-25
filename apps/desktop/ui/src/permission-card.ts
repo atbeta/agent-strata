@@ -1,3 +1,5 @@
+import { APP_NAME } from "./app-name";
+
 const SHELL = new Set(["bash", "pwsh", "powershell", "cmd"]);
 
 export type PermissionView =
@@ -43,5 +45,5 @@ export function permissionView(ask: { tool: string; input: Record<string, unknow
 
 /** `waiting` is how many sessions currently need the user. */
 export function windowTitle(waiting: number): string {
-  return waiting > 0 ? `(${waiting}) Agent Strata` : "Agent Strata";
+  return waiting > 0 ? `(${waiting}) ${APP_NAME}` : APP_NAME;
 }

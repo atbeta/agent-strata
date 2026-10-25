@@ -83,7 +83,7 @@ export default {
   "children.waiting.other": "{n} 个在等你",
   "children.running.one": "1 个进行中",
   "children.running.other": "{n} 个进行中",
-  "session.service_unreachable": "无法连接到 strata 服务。",
+  "session.service_unreachable": "无法连接到本地服务。",
   "session.retry": "重试",
   "session.service_unreachable_hint": "服务就绪后会自动重试，也可以手动重试一次。",
   // A prompt that will not load is worse than one that is visibly absent: the

@@ -31,7 +31,7 @@
 
 /** Said when the shell is not running, so a model knows what is missing. */
 const NO_SERVICE =
-  "The Agent Strata shell is not running, so there is no service to own this process. " +
+  "The desktop shell is not running, so there is no service to own this process. " +
   "Start the app, or run the command in the foreground."
 
 let resolved = undefined

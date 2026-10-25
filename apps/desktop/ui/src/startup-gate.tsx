@@ -1,4 +1,5 @@
 import { createMemo, Match, Show, Switch } from "solid-js";
+import { APP_NAME } from "./app-name";
 import type { ConnectionAttempt } from "./api";
 import { Button } from "./components/ui/button";
 import { Icon } from "./icons";
@@ -152,7 +153,7 @@ export function StartupGate(props: {
           </p>
           <div class="flex items-center gap-2.5">
             <img src="/favicon.svg" alt="" draggable={false} class="size-8 shrink-0" />
-            <span class="text-sm font-medium">Agent Strata</span>
+            <span class="text-sm font-medium">{APP_NAME}</span>
           </div>
 
           <h1 class="mt-6 text-lg font-medium">{copy().title}</h1>

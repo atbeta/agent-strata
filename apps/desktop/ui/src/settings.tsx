@@ -1,4 +1,5 @@
 import { createEffect, createMemo, createResource, createSignal, For, Show } from "solid-js";
+import { APP_NAME } from "./app-name";
 import {
   listTerminals,
   readOpencodeLaunch,
@@ -86,7 +87,8 @@ const UI_PRESETS = [
   "Source Han Sans SC",
 ];
 
-const PREVIEW_UI = "Agent Strata 会话与设置";
+/** A sample of the app's own prose, so the picker previews the real thing. */
+const PREVIEW_UI = "本地会话与设置";
 const PREVIEW_CODE = `const greeting = "你好";
 function width(ch: string) {
   return ch.codePointAt(0)! >= 255 ? 2 : 1;
@@ -510,7 +512,7 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
     setDiagNote("");
     const report = runtime();
     const lines = [
-      `Agent Strata v${__APP_VERSION__}`,
+      `${APP_NAME} v${__APP_VERSION__}`,
       `mode: ${launchData()?.mode ?? "—"}`,
       `state: ${launchData()?.state ?? "—"}`,
       `url: ${launchData()?.url ?? "—"}`,
@@ -1107,7 +1109,7 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
             class="size-16 shrink-0 rounded-2xl"
           />
           <div class="min-w-0">
-            <div class="text-sm font-medium">Agent Strata</div>
+            <div class="text-sm font-medium">{APP_NAME}</div>
             <p class="mt-0.5 text-2xs leading-4 text-muted-foreground">
               {t("settings.about.tagline")}
             </p>

@@ -83,7 +83,7 @@ export default {
   "children.waiting.other": "{n} waiting",
   "children.running.one": "1 running",
   "children.running.other": "{n} running",
-  "session.service_unreachable": "Can't reach the strata service.",
+  "session.service_unreachable": "Can't reach the local service.",
   "session.retry": "Try again",
   "session.service_unreachable_hint": "It retries on its own once the service is up, or try once by hand.",
   // A prompt that will not load is worse than one that is visibly absent: the

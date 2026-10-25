@@ -171,7 +171,7 @@ export default {
   "startup.degraded": "OpenCode did not connect",
   "startup.serviceError": "The local service did not start",
   "startup.sessionsError": "Could not load the session list",
-  "startup.serviceHint": "Agent Strata is starting its local service. This usually takes a few seconds.",
+  "startup.serviceHint": "The app is starting its local service. This usually takes a few seconds.",
   "startup.opencodeHint": "Waiting for OpenCode to come up; the first launch can take longer.",
   "startup.sessionsHint": "Reading the local session list.",
   "startup.syncHint":
@@ -205,7 +205,7 @@ export default {
   "time.older": "Older",
 
   // Failures
-  "error.serviceUnreachable": "Can't reach the strata service",
+  "error.serviceUnreachable": "Can't reach the local service",
   "error.createSession": "could not create a session",
 
   // Command search
@@ -249,7 +249,7 @@ export default {
   "settings.theme.light": "Light",
   "settings.theme.system": "System",
   "settings.notify.title": "Notify on finish or when waiting",
-  "settings.notify.hint": "A chime and a system notification when a session ends, or stops for your approval or answer, while this window is in the background. Desktop builds do not show a separate permission prompt; if no banner appears, allow Agent Strata in the system notification settings.",
+  "settings.notify.hint": "A chime and a system notification when a session ends, or stops for your approval or answer, while this window is in the background. Desktop builds do not show a separate permission prompt; if no banner appears, allow this app in the system notification settings.",
   "notify.needsInput": "Waiting for you",
   "settings.notify.blocked": "Notifications are blocked.",
   "settings.thinking.title": "Thinking",
@@ -424,12 +424,12 @@ export default {
   "maintenance.archivedMoved": "Archived sessions are at the bottom of the sidebar list, where they can be restored or deleted.",
   "maintenance.loading": "Reading…",
   "notify.desktopOnly": "Notification testing is only available in the desktop app.",
-  "notify.test.title": "Agent Strata test notification",
+  "notify.test.title": "Test notification",
   "notify.test.body": "If you see this banner, background notifications are connected.",
   "settings.about.testNotification": "Send test notification",
   "settings.about.notificationSettings": "System notification settings",
   "settings.about.testSent": "The test was handed to the system; if no banner appeared, check the system notification settings.",
-  "settings.about.notifyHint": "In development the notification belongs to Terminal, and macOS rejects that legacy identity, so Terminal may never appear in the notification list at all. A packaged build uses Agent Strata instead; verify with that build, or allow Agent Strata in System Settings > Notifications.",
+  "settings.about.notifyHint": "In development the notification belongs to Terminal, and macOS rejects that legacy identity, so Terminal may never appear in the notification list at all. Only a packaged build notifies under its own app name; verify with that build, or allow this app in System Settings > Notifications.",
   "settings.about.log": "Log",
   "settings.about.report": "Diagnostics report",
   "settings.about.notifications": "Notifications",
