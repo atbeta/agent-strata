@@ -87,9 +87,12 @@ function New-Buffer([int]$bytes) {
 }
 
 function New-Text([string]$text) {
-    $p = New-Buffer 4096
-    $b = [Text.Encoding]::Unicode.GetBytes($text + [char]0)
-    [Runtime.InteropServices.Marshal]::Copy($b, 0, $p, $b.Length)
+    # The buffer is sized to the text: a command line longer than a fixed
+    # buffer would be copied past its end, and the supervisor would die in a
+    # way that looks like the command was wrong.
+    $bytes = [Text.Encoding]::Unicode.GetBytes($text + [char]0)
+    $p = New-Buffer ([Math]::Max(64, $bytes.Length))
+    [Runtime.InteropServices.Marshal]::Copy($bytes, 0, $p, $bytes.Length)
     return $p
 }
 
