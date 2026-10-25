@@ -1116,10 +1116,34 @@ export async function readDevLogs(
   });
 }
 
-export async function stopDevProcess(processId: string): Promise<void> {
-  await throwOnError(
-    await fetch(api(`/dev/${encodeURIComponent(processId)}/stop`), { method: "POST" }),
-  );
+/**
+ * What a stop achieved.
+ *
+ * A stop that leaves the port held is not a stop, and the reader has to be
+ * told: the next command collides with it, and the collision looks like the
+ * next command's fault.
+ */
+export interface DevStopResult {
+  ok: boolean;
+  clean: boolean;
+  residual: number[];
+  port?: number;
+  port_free?: boolean;
+}
+
+export async function stopDevProcess(processId: string): Promise<DevStopResult> {
+  const res = await fetch(api(`/dev/${encodeURIComponent(processId)}/stop`), { method: "POST" });
+  if (!res.ok) await throwOnError(res);
+  const result = (await res.json()) as DevStopResult;
+  if (result.clean) return result;
+  // The service says what survived, so the reader is told what survived
+  // rather than being shown a stop that did not happen.
+  const leftovers: string[] = [];
+  if (result.residual.length > 0) leftovers.push(`still running: ${result.residual.join(", ")}`);
+  if (result.port !== undefined && result.port_free === false) {
+    leftovers.push(`port ${result.port} is still held`);
+  }
+  throw new Error(leftovers.length > 0 ? leftovers.join("; ") : "the command is still running");
 }
 
 /**

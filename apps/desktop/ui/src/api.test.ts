@@ -10,6 +10,7 @@ import {
   readMcp,
   readSkills,
   runCommand,
+  stopDevProcess,
 } from "./api";
 
 describe("a cost in dollars", () => {
@@ -114,6 +115,46 @@ describe("running a backend command", () => {
     const parts = [{ type: "file_ref" as const, path: "a.ts" }];
     await runCommand("opencode:ses_1", { name: "review", args: "be brief", parts }, { agent: "plan" });
     expect(sent[0]!.body).toEqual({ command: "review", arguments: "be brief", parts, agent: "plan" });
+  });
+});
+
+describe("stopping a dev command", () => {
+  const realFetch = globalThis.fetch;
+  let urls: string[] = [];
+  beforeEach(() => {
+    urls = [];
+  });
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  test("POSTs to the command's stop endpoint", async () => {
+    globalThis.fetch = (async (url: string) => {
+      urls.push(String(url));
+      return Response.json({ ok: true, clean: true, residual: [] });
+    }) as typeof fetch;
+    const result = await stopDevProcess("dev_1");
+    expect(urls).toEqual(["/api/dev/dev_1/stop"]);
+    expect(result).toEqual({ ok: true, clean: true, residual: [] });
+  });
+
+  test("says which processes survived a stop that did not take", async () => {
+    // The service already knows what is left. Swallowing that would show the
+    // reader a stop that did not happen.
+    globalThis.fetch = (async () =>
+      Response.json({ ok: false, clean: false, residual: [4321], port: 5173, port_free: false })) as typeof fetch;
+    await expect(stopDevProcess("dev_1")).rejects.toThrow("still running: 4321");
+    await expect(stopDevProcess("dev_1")).rejects.toThrow("port 5173 is still held");
+  });
+
+  test("says a stop left something behind even when it cannot name it", async () => {
+    globalThis.fetch = (async () => Response.json({ ok: false, clean: false, residual: [] })) as typeof fetch;
+    await expect(stopDevProcess("dev_1")).rejects.toThrow("the command is still running");
+  });
+
+  test("surfaces a service error", async () => {
+    globalThis.fetch = (async () => Response.json({ error: "nope" }, { status: 400 })) as typeof fetch;
+    await expect(stopDevProcess("dev_1")).rejects.toThrow("nope");
   });
 });
 
