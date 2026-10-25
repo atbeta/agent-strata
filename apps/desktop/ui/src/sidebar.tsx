@@ -138,16 +138,6 @@ export function Sidebar(props: {
   };
 
   /**
-   * Whether the section's tools stay in sight.
-   *
-   * They hide until the row is pointed at — but a tool that is already
-   * filtering, or that has already cut the list up another way, does not get
-   * to hide: a control that vanishes while it is in use is a control the
-   * reader has to hunt for.
-   */
-  const toolsVisible = () => list().lensActive() || list().lens().groupBy !== "project";
-
-  /**
    * The connection ids the sidebar's sessions are actually spread across.
    *
    * A session carries a `backend`, but that names the kind and never the
@@ -446,21 +436,14 @@ export function Sidebar(props: {
         </Show>
         <For each={metaKeys()}>{renderGroup}</For>
         {/* The label of the list below, and the two tools that decide what the
-            list shows. They are quiet until the row is pointed at, the way a
-            project's own "+" is: a permanent pair of icons above a list of
-            projects reads as a toolbar, and this is not one. A filter that is
-            on keeps its badge in sight — a hidden control that is already
-            filtering is worse than no control at all. */}
-        <div class="group/tools mb-0.5 flex items-center justify-between px-2 pb-0.5 pt-2.5">
+            list shows. They stay in sight: a control that hides until it is
+            hunted for is a control the reader has to find, and a filter that
+            is already on has nothing to announce. They are quiet instead —
+            muted icons beside a muted label read as a caption, where a filled
+            pair of buttons would read as a toolbar. */}
+        <div class="mb-0.5 flex items-center justify-between px-2 pb-0.5 pt-2.5">
           <span class="text-xs font-medium text-muted-foreground">{sectionLabel()}</span>
-          <div
-            class={cn(
-              "flex items-center gap-0.5 transition-opacity focus-within:opacity-100",
-              toolsVisible()
-                ? "opacity-100"
-                : "opacity-0 group-hover/tools:opacity-100",
-            )}
-          >
+          <div class="flex items-center gap-0.5">
             {/* The lens on this section, and the directory that adds to it.
                 Both are about which projects are here, so they sit together. */}
             <ProjectLensMenu list={props.list} />

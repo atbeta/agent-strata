@@ -49,9 +49,15 @@ describe("the views at the top of the rail", () => {
     expect(nav).toContain("border-b border-border");
   });
 
-  test("the tools over the list stay in sight while they are in use", () => {
-    expect(sidebar).toContain("const toolsVisible = () => list().lensActive()");
-    expect(sidebar).toContain("group-hover/tools:opacity-100");
+  test("the tools over the list stay in sight, not only while they are in use", () => {
+    // They used to hide until the row was pointed at, and come back on their
+    // own only while a filter was on. A control that vanishes until it is
+    // hunted for is a control the reader has to find, so they are simply
+    // there — quiet about it, as muted icons beside a muted label, rather
+    // than loud, as a filled pair of buttons.
+    expect(sidebar).not.toContain("group-hover/tools:opacity-100");
+    expect(sidebar).not.toContain("const toolsVisible");
+    expect(sidebar).toContain('class="flex items-center gap-0.5"');
   });
 
   test("the permission policy sits in the footer, beside the gear", () => {
