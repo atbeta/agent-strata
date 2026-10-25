@@ -260,6 +260,107 @@ describe("dev manager", () => {
     }
   });
 
+  test("a command that ends on its own is finished, not running", async () => {
+    const dir = workspace();
+    const dev = createDevManager({ pidFile: join(dir, "dev-processes.json") });
+    try {
+      // The state has to follow the process: a command that crashed on its
+      // own is not running, and a table that says otherwise counts it as one.
+      const started = await dev.start({
+        session_id: "casf:test:exit",
+        command: "node -e \"process.exit(0)\"",
+        cwd: dir,
+      });
+      for (let i = 0; i < 80; i++) {
+        if (dev.get(started.id)?.exit_code !== null) break;
+        await Bun.sleep(25);
+      }
+      const info = dev.get(started.id);
+      expect(info?.exit_code).toBe(0);
+      expect(info?.state).toBe("stopped");
+      // And the registry says the same thing, so a later run does not go
+      // looking for a process that ended hours ago.
+      const table = JSON.parse(readFileSync(join(dir, "dev-processes.json"), "utf8")) as {
+        processes: { id: string; state: string }[];
+      };
+      expect(table.processes.find((row) => row.id === started.id)?.state).toBe("stopped");
+    } finally {
+      await dev.stopAll();
+      cleanup(dir);
+    }
+  });
+
+  test("a command that cannot start says so instead of reporting itself running", async () => {
+    const dir = workspace();
+    const dev = createDevManager();
+    try {
+      // The supervisor needs a moment to come up before the command runs at
+      // all, so a window shorter than that calls a command that has already
+      // failed one that is running.
+      const started = await dev.start({
+        session_id: "casf:test:missing",
+        command: "definitely-not-a-real-command-xyz",
+        cwd: dir,
+      });
+      expect(started.exit_code).not.toBeNull();
+      expect(started.exit_code).not.toBe(0);
+      expect(started.error).toBeDefined();
+      expect(started.error!.length).toBeGreaterThan(0);
+      expect(started.state).toBe("stopped");
+    } finally {
+      await dev.stopAll();
+      cleanup(dir);
+    }
+  });
+
+  test("a stop that leaves the port held says so, and names who holds it", async () => {
+    const dir = workspace();
+    const dev = createDevManager();
+    const port = await freePort();
+    const script = join(dir, "server.cjs");
+    writeFileSync(
+      script,
+      `const http = require("http");\n` +
+        `http.createServer((q, s) => s.end("ok")).listen(${port}, "::1");\n`,
+    );
+    try {
+      const started = await dev.start({
+        session_id: "casf:test:dirty",
+        command: `node "${script}"`,
+        cwd: dir,
+        port,
+        waitMs: 20_000,
+      });
+      expect(started.ready).toBe("yes");
+
+      // The command is taken away from under the manager, and something else
+      // takes the port it was serving. The stop cannot prove the port is
+      // free, so it must not say that it is.
+      const killed = Bun.spawn(["taskkill", "/PID", String(started.pid!), "/T", "/F"], {
+        stdout: "ignore",
+        stderr: "ignore",
+      });
+      await killed.exited;
+      await Bun.sleep(200);
+      const held = Bun.serve({ port, hostname: "::1", fetch: () => new Response("ok") });
+      try {
+        const result = await dev.stop(started.id);
+        expect(result.clean).toBe(false);
+        expect(result.port_free).toBe(false);
+        // The pids holding it are named: they are what the next command will
+        // collide with.
+        expect(result.residual.length).toBeGreaterThan(0);
+        // The command itself is gone, so the record says it was stopped.
+        expect(dev.get(started.id)?.state).toBe("stopped");
+      } finally {
+        held.stop(true);
+      }
+    } finally {
+      await dev.stopAll();
+      cleanup(dir);
+    }
+  });
+
   test("marks a process stopped when someone asks", async () => {
     const dir = workspace();
     const dev = createDevManager();
@@ -426,6 +527,50 @@ describe("stale process cleanup", () => {
     expect(table.version).toBe(2);
     expect(table.processes.find((row) => row.id === "dev_a")?.state).toBe("orphaned");
     expect(table.processes.find((row) => row.id === "dev_b")?.state).toBe("lost");
+    cleanup(dir);
+  });
+
+  test("leaves a pid that now belongs to something else alone", async () => {
+    const dir = workspace();
+    const pidFile = join(dir, "dev-processes.json");
+    // A pid that is alive, but was created long after the record says the
+    // command started: the number was handed out again, and the process
+    // wearing it has nothing to do with this table.
+    const stranger = Bun.spawn(["sleep", "60"], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+    writeFileSync(
+      pidFile,
+      JSON.stringify({
+        version: 2,
+        processes: [
+          {
+            id: "dev_reused",
+            session_id: "casf:old:3",
+            command: "sleep 60",
+            cwd: dir,
+            pid: stranger.pid,
+            // Started before the stranger existed: the record is about a
+            // different process entirely.
+            started_at: Date.now() - 600_000,
+            state: "running",
+          },
+        ],
+      }),
+    );
+
+    const dev = createDevManager({ pidFile });
+    expect(await dev.reapStale()).toBe(0);
+    const row = dev.list().find((entry) => entry.id === "dev_reused");
+    expect(row?.state).toBe("lost");
+
+    // The stranger is still running: nothing here had the right to kill it.
+    let alive_ = true;
+    try {
+      process.kill(stranger.pid, 0);
+    } catch {
+      alive_ = false;
+    }
+    expect(alive_).toBe(true);
+    stranger.kill();
     cleanup(dir);
   });
 

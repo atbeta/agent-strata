@@ -114,9 +114,6 @@ const MAX_LOG_LINES = 2000;
 /** Bounded process table. Sessions that end take their processes with them. */
 const MAX_PROCESSES = 32;
 
-/** How long a start waits for the process to prove it is still alive. */
-const LIVENESS_MS = 400;
-
 /** Default wait for a named port to accept a connection. */
 const DEFAULT_WAIT_MS = 30_000;
 
@@ -225,7 +222,10 @@ async function portHolders(port: number): Promise<number[]> {
   if (process.platform !== "win32") return [];
   const out = await new Promise<string>((resolve) => {
     try {
-      const child = bunSpawn(["netstat", "-ano", "-p", "TCP"], {
+      // No `-p` here: with it, netstat lists only the IPv4 table, and a
+      // server that bound "localhost" on Windows is on ::1 — so the pids of
+      // exactly the processes worth naming would be missing.
+      const child = bunSpawn(["netstat", "-ano"], {
         stdin: "ignore",
         stdout: "pipe",
         stderr: "ignore",
@@ -577,6 +577,54 @@ export function readRecords(file: string): PersistedProcess[] {
   return records;
 }
 
+/**
+ * When a process was created, in the same clock the records keep.
+ *
+ * Undefined means there is no such process: it is gone, or it never was.
+ */
+function processStartedAt(pid: number): number | undefined {
+  if (process.platform === "win32") {
+    const script = `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").CreationDate.ToUniversalTime().ToString("o")`;
+    const out = Bun.spawnSync(["powershell", "-NoLogo", "-NoProfile", "-Command", script], {
+      stdout: "pipe",
+      stderr: "ignore",
+      windowsHide: true,
+    });
+    const text = out.stdout.toString().trim();
+    if (text.length === 0) return undefined;
+    const at = Date.parse(text);
+    return Number.isFinite(at) ? at : undefined;
+  }
+  const out = Bun.spawnSync(["ps", "-o", "lstart=", "-p", String(pid)], {
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  const text = out.stdout.toString().trim();
+  if (text.length === 0) return undefined;
+  const at = Date.parse(text);
+  return Number.isFinite(at) ? at : undefined;
+}
+
+/**
+ * Whether the pid in a record still belongs to the command it was written for.
+ *
+ * A pid is a number the operating system hands out again once it is free, so
+ * a record left behind by an earlier run may well name a process that has
+ * nothing to do with it — and killing that one takes an innocent tree with
+ * it. The clock is what tells them apart: the process the record is about was
+ * created when the record says the command started, and a process created
+ * later than that is somebody else wearing the same number.
+ */
+function stillOurs(record: PersistedProcess): boolean {
+  const pid = record.pid;
+  if (pid === undefined) return false;
+  const created = processStartedAt(pid);
+  if (created === undefined) return false;
+  // A moment of slack covers the spawn itself; anything beyond that is a
+  // different process.
+  return created <= record.started_at + 2_000;
+}
+
 export function createDevManager(options: DevManagerOptions = {}): DevManager {
   const entries = new Map<string, Entry>();
   const listeners = new Set<(event: DevEvent) => void>();
@@ -723,7 +771,10 @@ export function createDevManager(options: DevManagerOptions = {}): DevManager {
     if (entry.info.exit_code !== null) return;
     entry.info.exit_code = code ?? 0;
     entry.info.stopped_at = Date.now();
-    if (!entry.info.state) entry.info.state = "stopped";
+    // The process is gone, so the record is finished. It used to keep the
+    // state it was given at the start, which meant a command that crashed on
+    // its own still read as running — and the panel counted it as one.
+    entry.info.state = "stopped";
     entry.child = undefined;
     persist();
     emit({ type: "dev.exited", session_id: entry.info.session_id, process: entry.info });
@@ -788,11 +839,26 @@ export function createDevManager(options: DevManagerOptions = {}): DevManager {
     // Give the tree the moment it needs to go, then ask what is left.
     const { residual, portHeld } = await residualProcesses(pid, port);
     const clean = residual.length === 0 && !portHeld;
-    if (entry.info.exit_code === null) settle(entry, null);
-    entry.info.state = clean ? "stopped" : "orphaned";
+    // The command is still running if its root is: the record has to keep
+    // saying what is true, because a reader who is told "stopped" stops
+    // looking for the process that is still holding the port.
+    const stillUp = pid !== undefined && alive(pid);
+    if (stillUp) {
+      entry.info.stopped = false;
+      entry.info.state = "running";
+    } else {
+      // It is gone. If the port is still held, something else holds it —
+      // the answer names who, because that is what will collide with the
+      // next command.
+      if (entry.info.exit_code === null) settle(entry, null);
+      entry.info.stopped = true;
+      entry.info.state = "stopped";
+    }
     persist();
     return {
-      stopped: true,
+      // The answer says what happened: a root that is still standing was not
+      // stopped, whatever the stop asked for.
+      stopped: !stillUp,
       clean,
       residual,
       port,
@@ -994,78 +1060,66 @@ export function createDevManager(options: DevManagerOptions = {}): DevManager {
 
       void child.exited.then((code) => settle(entry, code)).catch(() => settle(entry, null));
 
-      // Give a command that dies immediately the chance to say so, so the caller
-      // gets "npm: command not found" instead of a process id that is already dead.
-      await Promise.race([
-        child.exited.then(() => undefined),
-        new Promise((resolve) => setTimeout(resolve, LIVENESS_MS)),
-      ]);
-
-      if (info.exit_code !== null && info.exit_code !== 0 && !info.stopped) {
-        const tail = entry.logs.slice(-3).map((line) => line.text).join("\n");
-        info.error = tail.length > 0 ? tail : `exited with ${info.exit_code}`;
-      }
-
       // Wait for the port, not for a stopwatch.
       //
       // A caller that needs the server up has only one honest way to know: try
       // to reach it. `Start-Sleep 7; curl` is the same idea with a guess in place
       // of a check, and it is either too long or too short every time.
       //
-      // The budget depends on where the port came from. A caller that named one
-      // is waiting for a server it expects to come up, so it gets the full
-      // budget. A port read out of the output was already announced by something
-      // that is listening, so it gets a short grace period: waiting thirty
-      // seconds for a port that is simply not going to open makes every start
-      // look hung.
+      // The two waits are one wait. A command that has not spoken yet has
+      // neither proved it is up nor said which port it serves, and the
+      // supervisor needs a moment to come up before the command runs at all —
+      // so a window shorter than that reports a command that has already
+      // failed as one that is running. The wait ends when the port answers,
+      // when the command dies, or when the command goes quiet: silence is
+      // what a watcher says when it is not going to announce anything.
+      //
+      // A command that fails at once says so and then exits, so the first
+      // thing it says is waited for with a moment's grace. The failure
+      // belongs in this answer, not in a later surprise.
       if (info.exit_code === null) {
         info.ready = "unknown";
         const named = input.port !== undefined;
         if (named) info.port = input.port;
-        if (info.port !== undefined) {
-          const budget = input.waitMs ?? (named ? DEFAULT_WAIT_MS : ANNOUNCED_WAIT_MS);
-          const deadline = Date.now() + budget;
-          while (info.exit_code === null && Date.now() < deadline) {
+        const budget = input.waitMs ?? (named ? DEFAULT_WAIT_MS : ANNOUNCE_WINDOW_MS);
+        const deadline = Date.now() + budget;
+        // A named port gets the whole budget to answer. A port that was
+        // announced was already listening, so it gets a short grace period.
+        let acceptUntil = named ? deadline : undefined;
+        let spoken = false;
+        while (info.exit_code === null && Date.now() < deadline) {
+          if (!spoken && entry.logs.length > 0) {
+            spoken = true;
+            const end = Date.now() + 250;
+            while (info.exit_code === null && Date.now() < end) {
+              await new Promise((resolve) => setTimeout(resolve, 25));
+            }
+          }
+          if (info.port !== undefined) {
+            if (acceptUntil === undefined) acceptUntil = Date.now() + ANNOUNCED_WAIT_MS;
+            if (Date.now() > acceptUntil) break;
             if (await portAccepts(info.port)) {
               info.ready = "yes";
               info.ready_ms = Date.now() - beganAt;
               break;
             }
-            await new Promise((resolve) => setTimeout(resolve, 250));
+          } else if (quiet(entry, beganAt)) {
+            // A command that has said nothing for a moment is not about to
+            // announce a port.
+            break;
           }
-          // A port that never opened is not a failure: the command may still be
-          // compiling, or listening somewhere it has not printed yet.
-          if (info.ready !== "yes") info.ready = "no";
-        } else {
-          // No port was named and none has been announced yet.
-          //
-          // The command may be about to print one: a dev server says which
-          // port it serves on a moment after it starts, and that moment is
-          // often longer than the liveness check because the supervisor has to
-          // come up first. So the wait continues for as long as the command
-          // keeps talking, and ends when it goes quiet — a command that says
-          // nothing is a watcher, and waiting on it would make every start
-          // look hung.
-          const deadline = Date.now() + ANNOUNCE_WINDOW_MS;
-          while (info.exit_code === null && info.port === undefined && Date.now() < deadline) {
-            if (quiet(entry, beganAt)) break;
-            await new Promise((resolve) => setTimeout(resolve, 100));
-          }
-          if (info.port !== undefined) {
-            // The port was announced, so it is already listening: all that is
-            // left is the gap between writing the line and accepting.
-            const acceptDeadline = Date.now() + ANNOUNCED_WAIT_MS;
-            while (info.exit_code === null && Date.now() < acceptDeadline) {
-              if (await portAccepts(info.port)) {
-                info.ready = "yes";
-                info.ready_ms = Date.now() - beganAt;
-                break;
-              }
-              await new Promise((resolve) => setTimeout(resolve, 150));
-            }
-            if (info.ready !== "yes") info.ready = "no";
-          }
+          await new Promise((resolve) => setTimeout(resolve, 100));
         }
+        // A port that never opened is not a failure: the command may still be
+        // compiling, or listening somewhere it has not printed yet.
+        if (info.port !== undefined && info.ready !== "yes") info.ready = "no";
+      }
+
+      // The command has had its chance to say so. A failure it reported
+      // belongs in the answer the caller is holding.
+      if (info.exit_code !== null && info.exit_code !== 0 && !info.stopped) {
+        const tail = entry.logs.slice(-3).map((line) => line.text).join("\n");
+        info.error = tail.length > 0 ? tail : `exited with ${info.exit_code}`;
       }
 
       emit({ type: "dev.started", session_id: info.session_id, process: info });
@@ -1133,7 +1187,11 @@ export function createDevManager(options: DevManagerOptions = {}): DevManager {
         }
         const pid = record.pid;
         const running = pid !== undefined && alive(pid);
-        if (running) {
+        // A pid that is alive is not enough: the number may have been handed
+        // to something else since the record was written. Killing that would
+        // take a tree nobody here started with it.
+        const ours = running && stillOurs(record);
+        if (ours) {
           // The root is a supervisor holding a job object: killing it closes
           // the job and the operating system takes the tree with it.
           killTree(pid!);
@@ -1141,6 +1199,9 @@ export function createDevManager(options: DevManagerOptions = {}): DevManager {
           record.exit_code = record.exit_code ?? 1;
           killed += 1;
         } else {
+          // The command is gone. Either it finished on its own, or the
+          // number it had belongs to something else now — and that something
+          // else is none of this table's business.
           record.state = "lost";
           record.exit_code = record.exit_code ?? 1;
         }
