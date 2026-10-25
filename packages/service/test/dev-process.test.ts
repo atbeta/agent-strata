@@ -55,6 +55,33 @@ function accepts(port: number): Promise<boolean> {
 }
 
 /**
+ * Take a process away, the way something outside this service would.
+ *
+ * The command is spawned detached, so on a machine that is not Windows it
+ * leads its own process group and the group is what has to be signalled.
+ * `taskkill` is the Windows spelling of the same move.
+ */
+async function takeAway(pid: number): Promise<void> {
+  if (process.platform === "win32") {
+    const killed = Bun.spawn(["taskkill", "/PID", String(pid), "/T", "/F"], {
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    await killed.exited;
+    return;
+  }
+  try {
+    process.kill(-pid, "SIGKILL");
+  } catch {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // Already gone.
+    }
+  }
+}
+
+/**
  * The processes below a root, by parent link.
  *
  * The whole point of a stop is that the tree goes with it, and the only way
@@ -336,12 +363,10 @@ describe("dev manager", () => {
       // The command is taken away from under the manager, and something else
       // takes the port it was serving. The stop cannot prove the port is
       // free, so it must not say that it is.
-      const killed = Bun.spawn(["taskkill", "/PID", String(started.pid!), "/T", "/F"], {
-        stdout: "ignore",
-        stderr: "ignore",
-      });
-      await killed.exited;
-      await Bun.sleep(200);
+      await takeAway(started.pid!);
+      // And the port has to actually come free before somebody else can have
+      // it: a listener that starts too early is refused by the kernel.
+      for (let i = 0; i < 80 && (await accepts(port)); i++) await Bun.sleep(25);
       const held = Bun.serve({ port, hostname: "::1", fetch: () => new Response("ok") });
       try {
         const result = await dev.stop(started.id);
@@ -391,12 +416,22 @@ describe("dev manager", () => {
     // The shape a dev command really has: a supervisor, a shell, and a
     // runtime that is the one holding the port. The runtime is the one a
     // naive stop leaves behind.
+    //
+    // The tree is built by the command itself rather than assumed of the
+    // shell. A shell that execs its only command leaves a process with no
+    // children at all, and a stop with no tree to walk is not being tested.
     const port = await freePort();
+    const runtime = join(dir, "runtime.cjs");
+    writeFileSync(
+      runtime,
+      `const http = require("http");\n` +
+        `http.createServer((q, s) => s.end("ok")).listen(${port}, "::1");\n`,
+    );
     const script = join(dir, "server.cjs");
     writeFileSync(
       script,
-      `const http = require("http");\n` +
-        `http.createServer((q, s) => s.end("ok")).listen(${port}, "::1");\n`,
+      `require("child_process").spawn(process.execPath, [${JSON.stringify(runtime)}], { stdio: "ignore" });\n` +
+        `setInterval(() => {}, 1000);\n`,
     );
     try {
       const started = await dev.start({

@@ -124,6 +124,12 @@ describe("embedded reconcile", () => {
   });
 
   test("a server the reader cut stays cut while the same pair stands", async () => {
+    // This one waits for a connection, watches the file, waits for another
+    // connection: up to twelve and a half seconds of it, and the suite's
+    // default budget is five. Under a loaded suite the watcher event is late
+    // enough that only the ten-second poll catches it, so the budget has to
+    // leave room for that fallback — the same reason the parked login above
+    // carries its own.
     dir = tempDir();
     fake = fakeOpencode();
     writeStatus(dir, "running", fake.baseUrl, "pair-one");
@@ -142,7 +148,10 @@ describe("embedded reconcile", () => {
 
     // A respawn is a different server: the dismissal bound the pair it cut.
     writeStatus(dir, "running", fake.baseUrl, "pair-two");
-    const revived = await untilConnected(svc, fake.baseUrl, 6_000);
+    // The watcher is the fast way to hear about the new pair, and on a busy
+    // machine its event can take seconds to arrive — the ten-second poll is
+    // the fallback, so the wait has to be long enough to reach it.
+    const revived = await untilConnected(svc, fake.baseUrl, 12_000);
     expect(revived.connections).toHaveLength(1);
-  });
+  }, 25_000);
 });
