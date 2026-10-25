@@ -369,11 +369,8 @@ fn spawn_with(
         // and take grandchildren (an ACP agent, a plugin) with it.
         cmd.process_group(0);
     }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000);
-    }
+    // The console is already hidden: the command comes from embed's
+    // `command_for`, which starts every one of them without a window.
     match cmd.spawn() {
         Ok(mut child) => {
             if let Some(stdout) = child.stdout.take() {
@@ -434,20 +431,12 @@ fn reap(child: &mut Child) {
         // `Child::kill` terminates one process. The service spawns a dev server
         // per session, and those are grandchildren: killing the service alone
         // leaves them running with nothing that can stop them.
-        kill_tree(child.id());
+        //
+        // The helper is a console program, so it lives in embed.rs, which
+        // starts every command without a console window.
+        embed::kill_tree(child.id());
     }
     let _ = child.wait();
-}
-
-/// Terminate a process and everything it started.
-#[cfg(windows)]
-fn kill_tree(pid: u32) {
-    use std::os::windows::process::CommandExt;
-    let mut command = Command::new("taskkill");
-    command.args(["/PID", &pid.to_string(), "/T", "/F"]);
-    // Without this the helper opens a console window of its own.
-    command.creation_flags(0x08000000);
-    let _ = command.output();
 }
 
 /// Plan the embedded server and start the thread that keeps it alive.

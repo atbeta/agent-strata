@@ -9,6 +9,26 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
+/// A command that starts without a console window.
+///
+/// The shell is a GUI program, so it has no console of its own. A console
+/// application it starts — `opencode --version`, `tasklist`, `taskkill` — is
+/// handed a brand new console, and that console is a window on the reader's
+/// screen for as long as the command runs. `opencode --version` runs at every
+/// launch, so the window flashed on every start.
+///
+/// One place to build a command, so that none of them can forget this.
+fn command<S: AsRef<std::ffi::OsStr>>(program: S) -> Command {
+    let mut command = Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW: the child runs without a console of its own.
+        command.creation_flags(0x08000000);
+    }
+    command
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum OpencodeMode {
@@ -680,7 +700,7 @@ pub fn read_pid(path: &Path) -> Option<u32> {
 /// The command line of a live process, or `None` when it has gone.
 #[cfg(unix)]
 fn process_command(pid: u32) -> Option<String> {
-    let output = Command::new("ps")
+    let output = command("ps")
         .args(["-p", &pid.to_string(), "-o", "command="])
         .output()
         .ok()?;
@@ -697,7 +717,7 @@ fn process_command(pid: u32) -> Option<String> {
 
 #[cfg(windows)]
 fn process_command(pid: u32) -> Option<String> {
-    let output = Command::new("tasklist")
+    let output = command("tasklist")
         .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
         .output()
         .ok()?;
@@ -734,8 +754,8 @@ fn kill_tree(pid: u32) {
 }
 
 #[cfg(windows)]
-fn kill_tree(pid: u32) {
-    let _ = Command::new("taskkill")
+pub(crate) fn kill_tree(pid: u32) {
+    let _ = command("taskkill")
         .args(["/PID", &pid.to_string(), "/T", "/F"])
         .output();
 }
@@ -748,7 +768,7 @@ fn kill_tree(pid: u32) {
 /// that merely happens to hold the port is not a candidate.
 #[cfg(unix)]
 fn opencode_pid_on_port(port: u16) -> Option<u32> {
-    let output = Command::new("ps")
+    let output = command("ps")
         .args(["-axo", "pid=,command="])
         .output()
         .ok()?;
@@ -868,19 +888,19 @@ pub fn command_for(bin: &Path) -> Command {
             .unwrap_or_default()
             .to_ascii_lowercase();
         if ext == "cmd" || ext == "bat" {
-            let mut command = Command::new("cmd");
+            let mut command = command("cmd");
             command.arg("/C").arg(bin);
             return command;
         }
         if ext == "ps1" {
-            let mut command = Command::new("powershell");
+            let mut command = command("powershell");
             command
                 .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
                 .arg(bin);
             return command;
         }
     }
-    Command::new(bin)
+    command(bin)
 }
 
 /// `opencode --version`, or the reason it could not be read.
@@ -1011,6 +1031,29 @@ mod tests {
     /// The free-port tests bind real ephemeral ports; serialise them so one
     /// test cannot claim the port another just reserved.
     static FREE_PORT_TEST: Mutex<()> = Mutex::new(());
+
+    #[cfg(windows)]
+    #[test]
+    fn every_command_starts_without_a_console() {
+        // The shell is a GUI program, so it has no console of its own: a
+        // console application it starts is handed a brand new console, and
+        // that console is a window on the reader's screen for as long as the
+        // command runs. `opencode --version` runs at every launch, so a
+        // command built outside `command()` is a window that flashes on every
+        // start.
+        let src = include_str!("embed.rs");
+        let body = &src[..src.find("mod tests {").unwrap_or(src.len())];
+        assert_eq!(
+            body.matches("Command::new(").count(),
+            1,
+            "a command is built outside command():\n{body}"
+        );
+        let helper = &body[body.find("fn command<").expect("command()")..];
+        assert!(
+            helper.contains("creation_flags(0x08000000)"),
+            "command() does not hide the console:\n{helper}"
+        );
+    }
 
     fn temp_path(name: &str) -> PathBuf {
         // Two tests can ask for the same `name` in the same nanosecond on a
