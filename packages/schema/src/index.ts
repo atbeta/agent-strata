@@ -284,11 +284,26 @@ export function parseEvent(e: unknown): Event {
 export function safeParseEvent(e: unknown): z.SafeParseReturnType<unknown, Event> {
   return Event.safeParse(e) as z.SafeParseReturnType<unknown, Event>;
 }
+/**
+ * An event, with an id and a clock.
+ *
+ * `clock: false` leaves the event without a timestamp at all. That is not the
+ * same as a timestamp of "now": a caller with no source clock has nothing to
+ * say about when the event happened, and a filled-in clock says it was now.
+ * The store reads a clock on a re-sent event as the source's own — that is
+ * how a corrected timestamp replaces the one it holds — so a filled-in clock
+ * on an event that has no source clock would rewrite a stored timestamp with
+ * the moment of the re-send. The write stamps one instead, where the row is
+ * actually created.
+ */
 export function makeEvent(
   input: Omit<EventInput, "id" | "ts"> & { id?: string; ts?: string },
+  options?: { clock?: boolean },
 ): EventInput {
   const parsed = EventInput.parse(input);
-  return { ...parsed, id: parsed.id ?? ulid(), ts: parsed.ts ?? new Date().toISOString() } as EventInput;
+  const id = parsed.id ?? ulid();
+  if (options?.clock === false) return { ...parsed, id } as EventInput;
+  return { ...parsed, id, ts: parsed.ts ?? new Date().toISOString() } as EventInput;
 }
 
 /** A mid-generation snapshot: shown while it lasts, superseded by the completed message, never stored. */

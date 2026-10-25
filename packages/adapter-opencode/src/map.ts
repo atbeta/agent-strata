@@ -327,8 +327,10 @@ export class OpencodeMapper {
       { turn_id: m.parentID, msg_id: messageID, partial: true, content },
       `opencode:${messageID}:assistant.partial:${Bun.hash(JSON.stringify(content)).toString(36)}`,
       // A snapshot has no clock of its own; the ingest clock would make it the
-      // newest thing in a replayed session and reorder the session list.
-      sourceTime(m.created ?? s.updated),
+      // newest thing in a replayed session and reorder the session list. It is
+      // published rather than stored, so it needs a clock to be a well-formed
+      // event either way — and here the moment it was taken is the truth.
+      sourceTime(m.created ?? s.updated) ?? new Date(this.now()).toISOString(),
     );
   }
 
@@ -353,13 +355,21 @@ export class OpencodeMapper {
     id?: string,
     ts?: string,
   ): EventInput {
-    const base = makeEvent({
-      session_id: s.casfId,
-      source: { backend: "opencode", native_id: s.sessionID },
-      type: kind,
-      data,
-      ...(ts ? { ts } : {}),
-    } as EventInput);
+    const base = makeEvent(
+      {
+        session_id: s.casfId,
+        source: { backend: "opencode", native_id: s.sessionID },
+        type: kind,
+        data,
+        ...(ts ? { ts } : {}),
+      } as EventInput,
+      // No source clock means the event carries none. `makeEvent` would fill
+      // one in, and the store reads a clock on a re-sent event as the
+      // source's own: re-indexing a session would then rewrite the timestamp
+      // it already holds with the moment of the re-index, and a row whose
+      // last event is that one reads as freshly active forever.
+      { clock: ts !== undefined },
+    );
     if (id) base.id = id;
     return base;
   }
@@ -522,7 +532,23 @@ export class OpencodeMapper {
     return candidate;
   }
 
-  private ensureSession(sessionID: string): { s: SessionState; out: EventInput[] } {
+  /**
+   * The session, and the `session.started` event that introduces it.
+   *
+   * `clock` is the session's own last-updated time, when the frame that
+   * brought us here carries it. It matters more than it looks: the store
+   * takes the newest event clock as the session's last activity, so a
+   * `session.started` stamped with the moment we read the session makes the
+   * session look like it was just used — and a re-index on every start would
+   * keep it looking that way, forever, whatever the session's real history
+   * says.
+   *
+   * So the started event carries the session's clock whenever the frame
+   * already knows it. When the frame does not — a session met through one of
+   * its messages — the event goes out without a clock and is re-stamped when
+   * one arrives.
+   */
+  private ensureSession(sessionID: string, clock?: number): { s: SessionState; out: EventInput[] } {
     const out: EventInput[] = [];
     let s = this.sessions.get(sessionID);
     if (!s) {
@@ -536,17 +562,31 @@ export class OpencodeMapper {
       };
       this.sessions.set(sessionID, s);
     }
+    if (clock != null && s.updated == null) s.updated = clock;
     if (!s.started) {
       s.started = true;
-      s.startedBlind = true;
-      out.push(
-        this.ev(
-          s,
-          "session.started",
-          { workspace: this.opts.directory ?? "unknown" },
-          `opencode:${sessionID}:session.started`,
-        ),
-      );
+      const at = sourceTime(s.updated);
+      if (at) {
+        out.push(
+          this.ev(
+            s,
+            "session.started",
+            { workspace: this.opts.directory ?? "unknown" },
+            `opencode:${sessionID}:session.started`,
+            at,
+          ),
+        );
+      } else {
+        s.startedBlind = true;
+        out.push(
+          this.ev(
+            s,
+            "session.started",
+            { workspace: this.opts.directory ?? "unknown" },
+            `opencode:${sessionID}:session.started`,
+          ),
+        );
+      }
     } else if (s.startedBlind && s.updated != null) {
       // The store rewrites a stored event's clock when it is handed a source
       // one, so re-sending the same event id with the real time corrects the
@@ -853,7 +893,10 @@ export class OpencodeMapper {
         // carries would arrive too late for the check that wants it.
         const known = this.sessions.get(p.sessionID);
         if (known) known.updated = p.info.time?.updated ?? p.info.time?.created ?? known.updated;
-        const { s, out: pre } = this.ensureSession(p.sessionID);
+        const { s, out: pre } = this.ensureSession(
+          p.sessionID,
+          p.info.time?.updated ?? p.info.time?.created,
+        );
         out.push(...pre);
         s.updated = p.info.time?.updated ?? p.info.time?.created ?? s.updated;
         if (!already) {
@@ -878,7 +921,15 @@ export class OpencodeMapper {
       }
       case "session.updated": {
         const p = evt.properties;
-        const { s, out: pre } = this.ensureSession(p.sessionID);
+        // The metadata crawl that indexes a session carries its clock, so the
+        // started event is written with the session's own time the first time
+        // we see it. Without that, the row's newest event would be the
+        // moment we read the session, and the session would read as freshly
+        // active on every start.
+        const { s, out: pre } = this.ensureSession(
+          p.sessionID,
+          p.info.time?.updated ?? p.info.time?.created,
+        );
         out.push(...pre);
         const meta = this.syncMeta(s, p.info, "updated");
         if (meta) out.push(meta);

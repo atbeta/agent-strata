@@ -1101,15 +1101,24 @@ describe("OpencodeMapper", () => {
   });
 
   test("a patch with no message time keeps the ingest clock rather than inventing one", () => {
+    const store = openStore(":memory:");
     const m = new OpencodeMapper();
     m.handle(sessionCreated());
     const fc = m.handle(partUpdated({
       id: "pp", sessionID: sid, messageID: "never-seen", type: "patch", hash: "h", files: ["x.ts"],
     }));
-    expect(fc[0]!.ts).toBeTruthy();
-    expect(Number.isNaN(Date.parse(fc[0]!.ts as string))).toBe(false);
+    // No source clock means no clock: the event says nothing about when it
+    // happened. The write stamps it, and the store reads a clock on a
+    // re-sent event as the source's own — a filled-in one here would rewrite
+    // the stored timestamp with the moment of the re-send.
+    expect(fc[0]!.ts).toBeUndefined();
+    store.append(fc);
+    const stored = store.read({ session_id: `opencode:${sid}` }).find((e) => e.type === "file.changed")!;
+    expect(stored.ts).toBeTruthy();
+    expect(Number.isNaN(Date.parse(stored.ts))).toBe(false);
     // and it must not be a made-up epoch either
-    expect(Date.parse(fc[0]!.ts as string)).toBeGreaterThan(1_700_000_000_000);
+    expect(Date.parse(stored.ts)).toBeGreaterThan(1_700_000_000_000);
+    store.close();
   });
 
   test("a session met through a message re-stamps its start once the real time arrives", () => {
@@ -1142,8 +1151,75 @@ describe("OpencodeMapper", () => {
     store.close();
   });
 
-  test("lazy session.started is corrected when the real session.created arrives", () => {
+  test("re-indexing a session does not move it to the moment of the re-index", () => {
+    // The metadata crawl writes a `session.started` for every session it sees,
+    // on every start. The store takes the newest event clock as the session's
+    // last activity, so a started event stamped with the moment we read the
+    // session made the session read as freshly active — and the next start
+    // stamped it again, so a session with a real history in September sat on
+    // "just now" for good.
     const store = openStore(":memory:");
+    const info = {
+      id: sid, directory: "/repo", title: "T",
+      time: { created: 1_700_000_000_000, updated: 1_700_000_060_000 },
+    };
+    const crawl = (mapper: OpencodeMapper) =>
+      mapper.handle({
+        id: `sync:${sid}:${info.time.updated}`,
+        type: "session.updated",
+        properties: { sessionID: sid, info },
+      } as unknown as Event);
+
+    // a first run: the session is indexed and its clock is the session's own
+    const first = new OpencodeMapper({ directory: "/repo" });
+    store.append(crawl(first));
+    const started = store.read({ session_id: `opencode:${sid}` }).find((e) => e.type === "session.started")!;
+    expect(started.ts).toBe(new Date(1_700_000_060_000).toISOString());
+
+    // a second run — a fresh mapper over the same store — must not move it
+    const second = new OpencodeMapper({ directory: "/repo" });
+    store.append(crawl(second));
+    const after = store.read({ session_id: `opencode:${sid}` }).find((e) => e.type === "session.started")!;
+    expect(after.ts).toBe(new Date(1_700_000_060_000).toISOString());
+    // and the session's own last activity is that clock, not the re-index
+    expect(store.listSessions()[0]!.last_ts).toBe(new Date(1_700_000_060_000).toISOString());
+    store.close();
+  });
+
+  test("a session that was indexed before keeps the clock it was given", () => {
+    // The row a previous run wrote with the wrong clock — the moment it read
+    // the session — is corrected by the next run's crawl, in place.
+    const store = openStore(":memory:");
+    const info = {
+      id: sid, directory: "/repo", title: "T",
+      time: { created: 1_700_000_000_000, updated: 1_700_000_060_000 },
+    };
+    const stale = new Date(Date.now() - 60_000).toISOString();
+    store.append([
+      makeEvent({
+        id: `opencode:${sid}:session.started`,
+        session_id: `opencode:${sid}`,
+        source: { backend: "opencode" },
+        type: "session.started",
+        data: { workspace: "/repo" },
+        ts: stale,
+      } as EventInput),
+    ]);
+    expect(store.listSessions()[0]!.last_ts).toBe(stale);
+
+    const mapper = new OpencodeMapper({ directory: "/repo" });
+    store.append(
+      mapper.handle({
+        id: `sync:${sid}:${info.time.updated}`,
+        type: "session.updated",
+        properties: { sessionID: sid, info },
+      } as unknown as Event),
+    );
+    expect(store.listSessions()[0]!.last_ts).toBe(new Date(1_700_000_060_000).toISOString());
+    store.close();
+  });
+
+  test("lazy session.started is corrected when the real session.created arrives", () => {    const store = openStore(":memory:");
     const m = new OpencodeMapper({ directory: "/lazy" });
     store.append(m.handle(msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 1 } })));
     const created = sessionCreated();
@@ -3059,10 +3135,11 @@ describe("pickable providers", () => {
 
 describe("runOpencodeStream", () => {
   /** A queue-backed async generator: what the SSE client gives us. */
-  const feed = () => {
+  const feed = (signal?: AbortSignal) => {
     const END = Symbol("end");
     const q: unknown[] = [];
     let wait: (() => void) | undefined;
+    let ended = false;
     const gen = (async function* () {
       for (;;) {
         if (!q.length) await new Promise<void>((r) => (wait = r));
@@ -3071,6 +3148,16 @@ describe("runOpencodeStream", () => {
         yield v;
       }
     })();
+    const stop = () => {
+      if (ended) return;
+      ended = true;
+      q.push(END);
+      wait?.();
+      wait = undefined;
+    };
+    // A real SSE stream is torn down by its abort signal, so the double is
+    // too: that is how a closed bus is told apart from an idle one.
+    signal?.addEventListener("abort", stop, { once: true });
     return {
       gen,
       push: (v: unknown) => {
@@ -3078,33 +3165,42 @@ describe("runOpencodeStream", () => {
         wait?.();
         wait = undefined;
       },
-      close: () => {
-        q.push(END);
-        wait?.();
-        wait = undefined;
-      },
+      close: stop,
+      ended: () => ended,
     };
   };
-  const fakeClient = (sessions: { directory: string }[] = []) => {
+  const fakeClient = (
+    sessions: { directory: string }[] = [],
+    opts: { globalFails?: number } = {},
+  ) => {
     const globals: ReturnType<typeof feed>[] = [];
     const dirs = new Map<string, ReturnType<typeof feed>[]>();
+    let globalFails = opts.globalFails ?? 0;
     const client = {
       global: {
         // server.connected is the first frame a real stream always sends.
-        event: async () => {
-          const f = feed();
+        event: async (o?: { signal?: AbortSignal }) => {
+          // A server that is not ready yet rejects the global bus: measured on
+          // an embedded server still warming up, it answers the root bus first.
+          if (globalFails > 0) {
+            globalFails -= 1;
+            throw new Error("global bus unavailable");
+          }
+          const f = feed(o?.signal);
           globals.push(f);
           f.push({ type: "server.connected" });
           return { stream: f.gen };
         },
       },
       event: {
-        subscribe: async (o: { directory?: string }) => {
-          const f = feed();
+        subscribe: async (o: { directory?: string; signal?: AbortSignal }) => {
+          const f = feed(o?.signal);
           const d = o?.directory ?? "";
           const list = dirs.get(d) ?? [];
           list.push(f);
           dirs.set(d, list);
+          // a real bus opens with server.connected, whatever it watches
+          f.push({ type: "server.connected" });
           return { stream: f.gen };
         },
       },
@@ -3171,6 +3267,144 @@ describe("runOpencodeStream", () => {
     await Bun.sleep(500);
     clearInterval(beat);
     expect(globals.length).toBe(1);
+    abort.abort();
+  });
+
+  test("the global bus carries every project, so no other socket is opened", async () => {
+    // The global bus reaches every directory. A socket per project on top of
+    // it is what the server's listener limit complained about — 52 of them
+    // at steady state — so it is opened only when the global one is missing.
+    const { client, globals, dirs } = fakeClient([{ directory: "/repo" }]);
+    const abort = new AbortController();
+    await runOpencodeStream({
+      client,
+      abort,
+      connectTimeout: 500,
+      silenceMs: 5_000,
+      handle: () => {},
+      onReconnect: () => {},
+    });
+    await Bun.sleep(200);
+    expect(globals.length).toBe(1);
+    expect(dirs.size).toBe(0);
+    abort.abort();
+  });
+
+  test("a session in another directory is reached when the global bus is missing", async () => {
+    // The global bus is the one that carries every project, but it is not
+    // always there: an embedded server still warming up when the service
+    // attaches answers the single-directory bus first. That bus watches the
+    // server's own root, and the root carries nothing for a session that
+    // lives elsewhere — measured on a live server, the root bus delivered
+    // `server.connected` and heartbeats while a session in a project
+    // directory produced every frame of its turn elsewhere.
+    //
+    // A session nobody hears from is a session that never says it is working:
+    // the busy mark comes from work evidence, and work evidence is a frame.
+    // So the session's own directory gets a bus, and the frames come back.
+    const dirs = new Map<string, ReturnType<typeof feed>[]>();
+    const client = {
+      global: {
+        event: async () => {
+          throw new Error("404 not found");
+        },
+      },
+      event: {
+        subscribe: async (o: { directory?: string }) => {
+          const f = feed();
+          const d = o?.directory ?? "";
+          const list = dirs.get(d) ?? [];
+          list.push(f);
+          dirs.set(d, list);
+          f.push({ type: "server.connected" });
+          return { stream: f.gen };
+        },
+      },
+      project: { list: async () => ({ data: [{ id: "p1", worktree: "/repo" }] }) },
+      session: { list: async () => ({ data: [{ id: "ses_1", directory: "/repo" }] }) },
+    };
+    const abort = new AbortController();
+    const seen: string[] = [];
+    await runOpencodeStream({
+      client: client as never,
+      abort,
+      connectTimeout: 500,
+      silenceMs: 5_000,
+      handle: (evt) => {
+        seen.push(evt.type);
+      },
+      onReconnect: () => {},
+    });
+    await Bun.sleep(200);
+    // the session's own directory is watched
+    expect(dirs.has("/repo")).toBe(true);
+    // and its frames reach the mapper
+    dirs.get("/repo")![0]!.push({
+      type: "message.updated",
+      properties: {
+        sessionID: "ses_1",
+        info: { id: "u1", sessionID: "ses_1", role: "user", time: { created: 10 } },
+      },
+    });
+    await Bun.sleep(100);
+    expect(seen).toContain("message.updated");
+    abort.abort();
+  });
+
+  test("a fallback keeps asking for the global bus and closes the per-directory buses when it arrives", async () => {
+    // The global bus is missing for a reason that may pass: an embedded
+    // server still warming up when the service attaches answers the root bus
+    // first and the global one a second later. A fallback that never asks
+    // again is stuck on the root bus for the life of the process — and the
+    // root bus carries nothing for a session that lives outside the server's
+    // own root, so the per-directory buses have to make up for it with a
+    // socket each. When the global bus finally answers, it reaches every
+    // directory on its own and those sockets are not needed any more.
+    const { client, globals, dirs } = fakeClient([{ directory: "/repo" }], { globalFails: 1 });
+    const abort = new AbortController();
+    await runOpencodeStream({
+      client,
+      abort,
+      connectTimeout: 500,
+      silenceMs: 5_000,
+      globalProbeMs: 100,
+      globalRetryMs: 300,
+      handle: () => {},
+      onReconnect: () => {},
+    });
+    await Bun.sleep(200);
+    // the global bus refused, so the root bus is in use and the directory
+    // that is known gets a bus of its own
+    expect(dirs.has("/repo")).toBe(true);
+    expect(dirs.get("/repo")![0]!.ended()).toBe(false);
+    // and the retry finds the global bus
+    await Bun.sleep(1_800);
+    expect(globals.length).toBeGreaterThanOrEqual(1);
+    // the per-directory bus is closed: the global one reaches it
+    expect(dirs.get("/repo")![0]!.ended()).toBe(true);
+    abort.abort();
+  });
+
+  test("a fallback that never gets the global bus keeps the sockets it opened", async () => {
+    // The other half of the promise: a server that never offers the global
+    // bus must not be left with a session nobody hears from. The per-directory
+    // buses stay open, and a directory that appears later is still learned.
+    const { client, globals, dirs } = fakeClient([{ directory: "/repo" }], { globalFails: 99 });
+    const abort = new AbortController();
+    await runOpencodeStream({
+      client,
+      abort,
+      connectTimeout: 500,
+      silenceMs: 5_000,
+      globalProbeMs: 50,
+      globalRetryMs: 150,
+      handle: () => {},
+      onReconnect: () => {},
+    });
+    await Bun.sleep(600);
+    expect(dirs.has("/repo")).toBe(true);
+    expect(dirs.get("/repo")![0]!.ended()).toBe(false);
+    expect(globals.length).toBe(0);
     abort.abort();
   });
 });
