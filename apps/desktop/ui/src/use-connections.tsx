@@ -243,11 +243,14 @@ const HEADLINE_KEY = {
 } as const;
 
 /**
- * The sidebar's bottom strip: the live connections, and a way into settings.
+ * The sidebar's bottom strip: the live connections, and a way into the rules
+ * this window runs under.
  *
  * Adding, disconnecting and forgetting an address are a list with actions, and
  * this corner is one line tall. The rows here are the situation — which
- * backends are up, and whether one of them is still syncing.
+ * backends are up, and whether one of them is still syncing. Beside them sit
+ * the two doors that change what this window may do: the permission policy,
+ * which decides what an agent can run without asking, and the settings gear.
  */
 export function ConnectionsFooter(props: {
   conns: ConnectionsCtl;
@@ -315,6 +318,19 @@ export function ConnectionsFooter(props: {
             </Button>
           </Tip>
         </Show>
+        <Tip label={t("sidebar.permission.policy")}>
+          <Button
+            variant="icon"
+            size="icon-2xs"
+            class="text-muted-foreground"
+            aria-label={t("sidebar.permission.policy")}
+            onClick={() => {
+              location.hash = "/settings/permission";
+            }}
+          >
+            <Icon name="shield" class="size-3.5" />
+          </Button>
+        </Tip>
         <Tip label={t("settings.open")}>
           <Button
             variant="icon"

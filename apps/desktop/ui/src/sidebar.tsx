@@ -7,10 +7,10 @@ import {
   type StrataEvent,
 } from "./api";
 import { settled } from "./resource";
-import { relTime } from "./fleet";
+import { fleetStatus, relTime } from "./fleet";
 import { t } from "./i18n";
 import { displayTitle } from "./session-title";
-import { Icon } from "./icons";
+import { Icon, type Name as IconName } from "./icons";
 import { Tip } from "./tip";
 import { openSessionInSplit } from "./session-chrome";
 import { hostsTrafficLights, inDesktopShell, usesCustomCaption } from "./shell";
@@ -19,6 +19,7 @@ import { explain } from "./errors";
 import { TopLeftControls } from "./chrome";
 import type { SessionListCtl, SidebarGroup } from "./use-session-list";
 import { ProjectLensMenu } from "./project-lens";
+import type { StatusLens } from "./project-view";
 import type { ConnectionsCtl } from "./use-connections";
 import { endpointHost, endpointShort, ConnectionsFooter } from "./use-connections";
 import { sidebarEmptyKind } from "./connection-status";
@@ -49,7 +50,46 @@ export type SidebarSearch = {
 };
 
 /**
- * The whole left rail: search + new session, the project picker, the fleet
+ * A count of the sessions that want something from the reader.
+ *
+ * The number comes from the whole list, not from what the list is showing: a
+ * filter that happens to be on must not be able to make the answer to "is
+ * anything waiting for me" read as zero. The row is that filter — it cuts the
+ * list by status, and pressing it again lets the list go back to everything.
+ *
+ * A row with nothing behind it stays on screen and goes quiet. A count that
+ * comes and goes is not a place; a count that says zero is an answer.
+ */
+function StatusRow(props: {
+  label: string;
+  count: number;
+  icon: IconName;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <RowButton
+      class={cn(
+        "h-8 items-center gap-2 px-2",
+        props.active
+          ? "bg-accent text-foreground hover:bg-accent"
+          : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+        props.count === 0 && !props.active ? "opacity-60" : "",
+      )}
+      aria-pressed={props.active}
+      onClick={props.onClick}
+    >
+      <Icon name={props.icon} class="size-3.5 shrink-0" />
+      <span class="truncate">{props.label}</span>
+      <span class="ml-auto shrink-0 font-mono text-2xs tabular-nums text-muted-foreground/70">
+        {props.count}
+      </span>
+    </RowButton>
+  );
+}
+
+/**
+ * The whole left rail: the window's own views, the project picker, the fleet
  * row, the grouped session list, and the connections
  * footer. State lives in the `list`/`ws`/`conns` hooks; this only composes
  * and wires them to rows.
@@ -79,6 +119,33 @@ export function Sidebar(props: {
   clearFocusDir?: () => void;
 }) {
   const list = () => props.list;
+
+  /**
+   * The counts the window's own views answer with.
+   *
+   * Taken from the whole library rather than from the filtered list: these
+   * numbers say what is happening in the fleet, and a filter must not be able
+   * to change the answer to that.
+   */
+  const counts = createMemo(() => fleetStatus(list().sessions()));
+  const waitingCount = () => counts().waiting.length;
+  const runningCount = () => counts().running.length;
+
+  /** The status cut the list by; pressing the row again takes it off. */
+  const toggleStatus = (status: StatusLens) => () => {
+    const lens = list().lens();
+    list().setStatus(lens.status === status ? "all" : status);
+  };
+
+  /**
+   * Whether the section's tools stay in sight.
+   *
+   * They hide until the row is pointed at — but a tool that is already
+   * filtering, or that has already cut the list up another way, does not get
+   * to hide: a control that vanishes while it is in use is a control the
+   * reader has to hunt for.
+   */
+  const toolsVisible = () => list().lensActive() || list().lens().groupBy !== "project";
 
   /**
    * The connection ids the sidebar's sessions are actually spread across.
@@ -297,27 +364,56 @@ export function Sidebar(props: {
           />
         </div>
       </Show>
-      {/* The old header was a full row whose only content was a plus pushed
-          to the right, so the corner under the wordmark was a blank band.
-          New sessions now start from a project group's "+", which also says
-          where the session will live — the search row keeps the width. */}
-      {/* Search and the overview are the two places the rail goes that are
-          not a session, so they sit together as one block with one style.
-          A rule between them made the overview a section of one row. */}
-      <nav class="flex flex-col gap-px px-1.5 pt-2 pb-1">
-        <RowButton
-          class={cn(
-            "h-8 items-center px-2",
-            props.fleetActive
-              ? "bg-accent text-foreground"
-              : "text-foreground/80 hover:bg-accent/70",
-          )}
-          aria-current={props.fleetActive ? "page" : undefined}
-          onClick={() => props.onOpenFleet()}
-        >
-          <Icon name="list" class="size-3.5 shrink-0 text-muted-foreground" />
-          <span class="truncate">{t("fleet.nav")}</span>
-        </RowButton>
+      {/* The window's own views.
+          They sit above the list because they are about the list: the overview
+          is the fleet page, and the two counts answer what the list itself
+          cannot — whether something is waiting on a person, and what is still
+          working. A rule closes the block, so the views read as a block and the
+          sessions below read as another thing. */}
+      <nav class="flex flex-col gap-px border-b border-border px-1.5 pt-2 pb-1.5">
+        <div class="flex items-center gap-1">
+          <RowButton
+            class={cn(
+              "h-8 min-w-0 flex-1 items-center px-2",
+              props.fleetActive
+                ? "bg-accent text-foreground hover:bg-accent"
+                : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+            )}
+            aria-current={props.fleetActive ? "page" : undefined}
+            onClick={() => props.onOpenFleet()}
+          >
+            <Icon name="list" class="size-3.5 shrink-0" />
+            <span class="truncate">{t("fleet.nav")}</span>
+          </RowButton>
+          {/* A new session belongs to wherever the reader is standing, and the
+              reader is standing in the list. This is the one place that says so
+              without asking which project first. */}
+          <Tip label={t("action.newSession")}>
+            <Button
+              type="button"
+              variant="icon"
+              size="icon-sm"
+              aria-label={t("action.newSession")}
+              onClick={() => props.onNewSession()}
+            >
+              <Icon name="plus" class="size-4" />
+            </Button>
+          </Tip>
+        </div>
+        <StatusRow
+          label={t("sidebar.status.waiting")}
+          count={waitingCount()}
+          icon="alert"
+          active={list().lens().status === "waiting"}
+          onClick={toggleStatus("waiting")}
+        />
+        <StatusRow
+          label={t("sidebar.status.running")}
+          count={runningCount()}
+          icon="activity"
+          active={list().lens().status === "busy"}
+          onClick={toggleStatus("busy")}
+        />
       </nav>
       <Show when={list().actionErr()}>
         <p class="truncate px-3 pb-1.5 font-mono text-2xs text-destructive" title={list().actionErr()}>
@@ -349,9 +445,22 @@ export function Sidebar(props: {
           </div>
         </Show>
         <For each={metaKeys()}>{renderGroup}</For>
-        <div class="mb-0.5 flex items-center justify-between px-2 pb-0.5 pt-2.5">
+        {/* The label of the list below, and the two tools that decide what the
+            list shows. They are quiet until the row is pointed at, the way a
+            project's own "+" is: a permanent pair of icons above a list of
+            projects reads as a toolbar, and this is not one. A filter that is
+            on keeps its badge in sight — a hidden control that is already
+            filtering is worse than no control at all. */}
+        <div class="group/tools mb-0.5 flex items-center justify-between px-2 pb-0.5 pt-2.5">
           <span class="text-xs font-medium text-muted-foreground">{sectionLabel()}</span>
-          <div class="flex items-center gap-0.5">
+          <div
+            class={cn(
+              "flex items-center gap-0.5 transition-opacity focus-within:opacity-100",
+              toolsVisible()
+                ? "opacity-100"
+                : "opacity-0 group-hover/tools:opacity-100",
+            )}
+          >
             {/* The lens on this section, and the directory that adds to it.
                 Both are about which projects are here, so they sit together. */}
             <ProjectLensMenu list={props.list} />
@@ -500,11 +609,12 @@ export function Sidebar(props: {
             </div>
           </Show>
         </Show>
-        {/* After the working set. A block above the pinned lane is the first
-            thing the rail says, and an archived conversation is the one you
-            set aside. */}
-        <ArchivedSection list={props.list} now={props.clock} onOpen={props.onOpenSession} />
       </div>
+      {/* The archive has a fixed place at the foot of the rail. Inside the
+          list it sank below every project and every session the reader had,
+          and the only way back to it was to scroll to the very end. A place
+          you have to look for is not a place. */}
+      <ArchivedSection list={props.list} now={props.clock} onOpen={props.onOpenSession} />
       <ConnectionsFooter
         conns={props.conns}
         compareReady={props.compareSel.length === 2}

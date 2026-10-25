@@ -6,9 +6,9 @@ import { visibleArchiveNote } from "./archived-note";
 const read = (file: string) => readFileSync(join(import.meta.dir, file), "utf8");
 
 /**
- * Archived sessions are not part of the working set. A block above the pinned
- * lane is the first thing the rail says, which is the opposite of a pile you
- * set aside. The entry stays, under the projects, and it stays quiet.
+ * Archived sessions are not part of the working set, but they still need a
+ * place: a fixed band at the foot of the rail, quiet, and answering "how many
+ * are set aside" even when the answer is zero.
  */
 describe("archived sessions sit under the working list", () => {
   test("the entry comes after the project groups and before the footer", () => {
@@ -21,11 +21,30 @@ describe("archived sessions sit under the working list", () => {
     expect(archived).toBeLessThan(footer);
   });
 
+  test("the archive is a band under the list, not another item in it", () => {
+    const sidebar = read("sidebar.tsx");
+    const scroll = sidebar.indexOf("overflow-y-auto");
+    const archived = sidebar.indexOf("<ArchivedSection");
+    expect(scroll).toBeGreaterThan(-1);
+    expect(archived).toBeGreaterThan(scroll);
+    // The scrolling area closes before the archive: the band is a fixed place
+    // under the list, not the last thing the list happens to hold.
+    expect(sidebar.slice(scroll, archived)).toContain("</div>");
+  });
+
   test("the entry is a quiet line, not a section divider", () => {
     const src = read("archived-section.tsx");
     const head = src.slice(src.indexOf("return ("), src.indexOf("</RowButton>"));
-    expect(head).not.toContain("border-b");
+    // The row itself carries no rule; the band above it does, so the fixed
+    // place reads as separate from the list that scrolls above it.
+    expect(head.slice(head.indexOf("<RowButton"))).not.toContain("border");
     expect(head).toContain("text-2xs");
+    expect(head).toContain("border-t");
+  });
+
+  test("the band stays and reports zero when nothing is archived", () => {
+    const src = read("archived-section.tsx");
+    expect(src).not.toContain("rows().length > 0");
   });
 
   test("a delete note leaves with the row it named", () => {

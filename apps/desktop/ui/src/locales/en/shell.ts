@@ -58,7 +58,16 @@ export default {
   // Sidebar groups. The waiting lane holds only sessions stopped on a person,
   // the same set the fleet page lists under "Needs you".
   "sidebar.group.pinned": "Pinned",
-  "sidebar.group.waiting": "Waiting on you",
+  "sidebar.group.waiting": "Needs you",
+
+  // The window's own views. These two are the counts the list below cannot
+  // give: what is waiting on a person, and what is still working.
+  "sidebar.status.waiting": "Needs you",
+  "sidebar.status.running": "Running",
+  // The rail's way into the rules that decide what an agent may do without
+  // asking. It lives with the connection, because both answer "what is this
+  // window allowed to do".
+  "sidebar.permission.policy": "Permission policy",
   "sidebar.archived": "Archived {n}",
   "sidebar.archived.restore": "Restore",
   "sidebar.archived.delete": "Delete",

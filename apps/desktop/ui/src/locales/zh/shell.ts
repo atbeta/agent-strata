@@ -59,7 +59,16 @@ export default {
   // Sidebar groups. The waiting lane holds only sessions stopped on a person,
   // the same set the fleet page lists under 需要处理.
   "sidebar.group.pinned": "置顶",
-  "sidebar.group.waiting": "等待处理",
+  "sidebar.group.waiting": "需要处理",
+
+  // The window's own views. These two are the counts the list below cannot
+  // give: what is waiting on a person, and what is still working.
+  "sidebar.status.waiting": "需要处理",
+  "sidebar.status.running": "运行中",
+  // The rail's way into the rules that decide what an agent may do without
+  // asking. It lives with the connection, because both answer "what is this
+  // window allowed to do".
+  "sidebar.permission.policy": "权限策略",
   "sidebar.archived": "已归档 {n}",
   "sidebar.archived.restore": "恢复",
   "sidebar.archived.delete": "删除",

@@ -47,6 +47,7 @@ export type Name =
   | "grid"
   | "single-pane"
   | "panel-left"
+  | "activity"
   | "maximize"
   | "minimize"
   | "pin"
@@ -493,6 +494,17 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
         <rect x="2.5" y="3" width="11" height="10" rx="1.4" />
         <path d="M6.4 3v10" />
         <rect x="3.4" y="3.9" width="2" height="8.2" rx="0.7" fill="currentColor" stroke="none" />
+      </Glyph>
+    );
+  /**
+   * A heartbeat line: work happening right now. Drawn here rather than
+   * borrowed because every other mark on this grid is hand-drawn, and a
+   * borrowed one would have to be re-fitted to sit at the same weight.
+   */
+  if (name === "activity")
+    return (
+      <Glyph class={cls}>
+        <path d="M2 8h2.4l1.3-3.4 2.1 6.6 1.7-3.2H14" />
       </Glyph>
     );
   if (name === "maximize")
