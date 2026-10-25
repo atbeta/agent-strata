@@ -541,7 +541,12 @@ export function App() {
           spans the whole window and carries the switch already. */}
       <Show when={!sidebarOpen() && !usesCustomCaption()}>
         <div class="flex w-10 shrink-0 flex-col items-center gap-1 border-r border-border bg-sidebar pt-2">
+          {/* The strip is one button wide and the corner carries two. Side by
+              side they are 58px of buttons in a 40px strip, and the second one
+              falls off the edge — so they stack here. Same two switches the
+              caption bar puts side by side, in a column with room for one. */}
           <TopLeftControls
+            class="flex-col"
             sidebarOpen={sidebarOpen()}
             onToggleSidebar={toggleSidebar}
             onOpenPalette={openPalette}

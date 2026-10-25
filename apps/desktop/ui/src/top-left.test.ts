@@ -49,4 +49,16 @@ describe("the top-left corner of the window", () => {
     expect(sidebar).not.toContain("onOpenSearch");
     expect(sidebar).toContain("onOpenPalette");
   });
+
+  test("the strip a folded column leaves holds what it carries", () => {
+    // The strip is one button wide and the corner carries two: the switch that
+    // unfolds the column, and the palette. Side by side they are 58px of
+    // buttons in a 40px strip, and the second one falls off the edge, so the
+    // strip stacks them.
+    const strip = app.indexOf('class="flex w-10 shrink-0 flex-col items-center gap-1');
+    expect(strip).toBeGreaterThan(-1);
+    const controls = app.indexOf("<TopLeftControls", strip);
+    expect(controls).toBeGreaterThan(strip);
+    expect(app.slice(controls, controls + 120)).toContain('class="flex-col"');
+  });
 });
