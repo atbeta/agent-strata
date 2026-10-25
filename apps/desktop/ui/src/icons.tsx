@@ -46,6 +46,7 @@ export type Name =
   | "split-col"
   | "grid"
   | "single-pane"
+  | "panel-left"
   | "maximize"
   | "minimize"
   | "pin"
@@ -479,6 +480,19 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
       <Glyph class={cls}>
         <rect x="2.5" y="3" width="11" height="10" rx="1.4" />
         <path d="M8 3v10M2.5 8h11" />
+      </Glyph>
+    );
+  /**
+   * A pane with its left column filled: the shape of a window that has a side
+   * column open. The fill is what tells it apart from `split-col` — that one
+   * names two equal halves, this one names the narrow one on the left.
+   */
+  if (name === "panel-left")
+    return (
+      <Glyph class={cls}>
+        <rect x="2.5" y="3" width="11" height="10" rx="1.4" />
+        <path d="M6.4 3v10" />
+        <rect x="3.4" y="3.9" width="2" height="8.2" rx="0.7" fill="currentColor" stroke="none" />
       </Glyph>
     );
   if (name === "maximize")

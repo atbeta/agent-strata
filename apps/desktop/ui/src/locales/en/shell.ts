@@ -9,10 +9,14 @@ export default {
   "window.caption.maximize": "Maximize",
   "window.caption.restore": "Restore",
   "window.caption.close": "Close",
+  "window.caption.palette": "Search and commands — {shortcut}",
+  "window.caption.sidebar.hide": "Hide the session list",
+  "window.caption.sidebar.show": "Show the session list",
 
   // Projects
   "project.root": "Root",
   "sidebar.projects": "Projects",
+  "sidebar.toggle": "Show or hide the session list",
   "sidebar.recent": "Recent",
   "sidebar.recent.empty": "No session matches.",
   "sidebar.project.none": "No project",
@@ -209,13 +213,7 @@ export default {
   "error.createSession": "could not create a session",
 
   // Command search
-  "search.label": "Search",
-  "search.placeholder": "Sessions and transcripts",
-  "search.hint": "Search every session and its transcript.",
   "search.searching": "Searching…",
-  "search.noMatches": "No matches",
-  "search.results.sessions": "Sessions",
-  "search.results.transcript": "Transcript",
   "palette.title": "Commands",
   "palette.placeholder": "Type a command or session",
   "palette.empty": "No matches",

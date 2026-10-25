@@ -1,7 +1,8 @@
 import { Show, createSignal, onCleanup, onMount, type JSX } from "solid-js";
-import { APP_NAME } from "./app-name";
 import { cn } from "./lib/utils";
 import { Button } from "./components/ui/button";
+import { formatChord } from "./commands";
+import { Icon } from "./icons";
 import { inDesktopShell, usesCustomCaption } from "./shell";
 import { t } from "./i18n";
 import { Tip } from "./tip";
@@ -136,7 +137,7 @@ export function CaptionButtons() {
 }
 
 /**
- * The window's own 44px strip, spanning every column — Windows only.
+ * The window's own strip, spanning every column — Windows only.
  *
  * The caption gets this row to itself rather than sharing the right edge of
  * one column: a drawer docked at the right would otherwise take the corner
@@ -147,15 +148,28 @@ export function CaptionButtons() {
  * macOS draws nothing here: its overlay traffic lights land in the sidebar's
  * top-left corner, which lets every screen's own header reach the top edge
  * instead of sitting under an empty band.
+ *
+ * The left end of this row is the window's top-left corner, and it carries
+ * the mark and the window's own switches — the same cluster the other shells
+ * put beside their traffic lights.
  */
-export function WindowCaptionBar() {
+export function WindowCaptionBar(props: {
+  sidebarOpen: boolean;
+  onToggleSidebar: () => void;
+  onOpenPalette: () => void;
+}) {
   return (
     <Show when={usesCustomCaption()}>
       <div
-        class="flex h-9 shrink-0 select-none items-center gap-3 border-b border-border pl-5"
+        class="flex h-9 shrink-0 select-none items-center gap-2 border-b border-border pl-3"
         data-tauri-drag-region={inDesktopShell() ? "" : undefined}
       >
         <AppMark />
+        <TopLeftControls
+          sidebarOpen={props.sidebarOpen}
+          onToggleSidebar={props.onToggleSidebar}
+          onOpenPalette={props.onOpenPalette}
+        />
         <div class="ml-auto flex h-full self-stretch">
           <CaptionButtons />
         </div>
@@ -165,25 +179,82 @@ export function WindowCaptionBar() {
 }
 
 /**
- * Product mark for the caption bar. Windows has no traffic lights to fill its
- * top-left corner, so it carries the wordmark instead; macOS keeps that space.
+ * The window's own switches, in the corner that owns them.
+ *
+ * They live at the top-left of the window rather than inside the sidebar for
+ * one reason: the button that folds the sidebar away cannot live inside the
+ * thing it folds. Everything here is a way into the window, and the window
+ * is what stays on screen when the sidebar does not.
+ *
+ * The palette used to be opened from a row in the sidebar, one row below this
+ * corner. It is a window-level thing — it lists commands, sessions and the
+ * lines inside them — and the row was the only place that said so, with the
+ * shortcut written on it. The shortcut is written on the tooltip here
+ * instead, and the row is gone: two ways to open the same panel is one too
+ * many.
+ */
+export function TopLeftControls(props: {
+  sidebarOpen: boolean;
+  onToggleSidebar: () => void;
+  onOpenPalette: () => void;
+  class?: string;
+}) {
+  const paletteLabel = () => t("window.caption.palette", { shortcut: formatChord({ key: "k" }) });
+  const sidebarLabel = () =>
+    props.sidebarOpen ? t("window.caption.sidebar.hide") : t("window.caption.sidebar.show");
+
+  return (
+    <div class={cn("flex items-center gap-0.5", props.class)}>
+      <Tip label={sidebarLabel()}>
+        <Button
+          type="button"
+          variant="icon"
+          size="icon-sm"
+          aria-label={sidebarLabel()}
+          aria-pressed={props.sidebarOpen}
+          onClick={props.onToggleSidebar}
+        >
+          <Icon name="panel-left" class="size-4" />
+        </Button>
+      </Tip>
+      <Tip label={paletteLabel()}>
+        <Button
+          type="button"
+          variant="icon"
+          size="icon-sm"
+          aria-label={t("palette.title")}
+          onClick={props.onOpenPalette}
+        >
+          <Icon name="search" class="size-4" />
+        </Button>
+      </Tip>
+    </div>
+  );
+}
+
+/**
+ * The mark for the caption bar. Windows has no traffic lights to fill its
+ * top-left corner, so it carries the picture instead; macOS keeps that space.
  *
  * The picture is the window icon itself, not a tinted silhouette of it. A mask
  * can only be one colour, and the corner then reads as an empty grey dash
  * rather than the mark on the taskbar.
+ *
+ * It is the picture alone: the wordmark used to sit beside it, but the title
+ * bar of every other window on the machine says what is running, and a second
+ * copy of the name in the corner of our own is what made the corner feel
+ * loud. The name still says itself where it is asked for — the window title,
+ * the About panel, the taskbar entry.
  */
 export function AppMark() {
   return (
     <Show when={usesCustomCaption()}>
-      <span class="flex shrink-0 items-center gap-2">
-        <img
-          src="/favicon.svg"
-          alt=""
-          draggable={false}
-          class="pointer-events-none size-6 shrink-0"
-        />
-        <span class="text-sm font-medium">{APP_NAME}</span>
-      </span>
+      <img
+        src="/favicon.svg"
+        alt=""
+        draggable={false}
+        class="pointer-events-none size-5 shrink-0"
+      />
     </Show>
   );
 }

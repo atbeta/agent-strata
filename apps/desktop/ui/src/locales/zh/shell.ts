@@ -10,10 +10,14 @@ export default {
   "window.caption.maximize": "最大化",
   "window.caption.restore": "还原",
   "window.caption.close": "关闭",
+  "window.caption.palette": "搜索与命令 — {shortcut}",
+  "window.caption.sidebar.hide": "隐藏会话列表",
+  "window.caption.sidebar.show": "显示会话列表",
 
   // Projects
   "project.root": "根目录",
   "sidebar.projects": "项目",
+  "sidebar.toggle": "显示或隐藏会话列表",
   "sidebar.recent": "最近",
   "sidebar.recent.empty": "没有匹配的会话。",
   "sidebar.project.none": "无项目",
@@ -204,13 +208,7 @@ export default {
   "error.createSession": "无法创建会话",
 
   // Command search
-  "search.label": "搜索",
-  "search.placeholder": "会话与会话记录",
-  "search.hint": "搜索所有会话及其记录。",
   "search.searching": "搜索中…",
-  "search.noMatches": "没有匹配结果",
-  "search.results.sessions": "会话",
-  "search.results.transcript": "会话记录",
   "palette.title": "命令",
   "palette.placeholder": "输入命令或会话",
   "palette.empty": "没有匹配",

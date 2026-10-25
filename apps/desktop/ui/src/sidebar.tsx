@@ -13,10 +13,10 @@ import { displayTitle } from "./session-title";
 import { Icon } from "./icons";
 import { Tip } from "./tip";
 import { openSessionInSplit } from "./session-chrome";
-import { hostsTrafficLights, inDesktopShell } from "./shell";
+import { hostsTrafficLights, inDesktopShell, usesCustomCaption } from "./shell";
 import { sessionStatus } from "./session-status";
 import { explain } from "./errors";
-import { formatChord } from "./commands";
+import { TopLeftControls } from "./chrome";
 import type { SessionListCtl, SidebarGroup } from "./use-session-list";
 import { ProjectLensMenu } from "./project-lens";
 import type { ConnectionsCtl } from "./use-connections";
@@ -58,7 +58,10 @@ export function Sidebar(props: {
   list: SessionListCtl;
   ws: WorkspaceCtl;
   conns: ConnectionsCtl;
-  onOpenSearch: () => void;
+  /** The window's own switches, drawn in the corner that owns them. */
+  sidebarOpen: boolean;
+  onToggleSidebar: () => void;
+  onOpenPalette: () => void;
   fleetActive: boolean;
   compareOn: boolean;
   compareSel: string[];
@@ -273,39 +276,35 @@ export function Sidebar(props: {
 
   return (
     <aside class="flex w-[300px] shrink-0 flex-col border-r border-border bg-sidebar">
-      {/* macOS hides its title bar and paints the traffic lights over the
-          webview's top-left — this corner of the sidebar is where they land,
-          so the column gives them the 32px they sit in and the spot doubles
-          as drag space. Every other platform's shell keeps its own chrome
-          and the column starts at the window edge. */}
-      <Show when={hostsTrafficLights()}>
-        <div class="h-8 shrink-0 select-none" data-tauri-drag-region="" />
+      {/* The window's top-left corner. macOS hides its title bar and paints
+          the traffic lights over the webview's top-left, so this band keeps
+          their space clear and puts the window's switches beside them; on the
+          shells that draw no caption of their own the band is where those
+          switches live. Windows draws its own caption strip above this column
+          and keeps them there. */}
+      <Show when={!usesCustomCaption()}>
+        <div
+          class={cn(
+            "flex h-9 shrink-0 items-center gap-0.5 select-none",
+            hostsTrafficLights() ? "pl-[76px]" : "pl-2",
+          )}
+          data-tauri-drag-region={inDesktopShell() ? "" : undefined}
+        >
+          <TopLeftControls
+            sidebarOpen={props.sidebarOpen}
+            onToggleSidebar={props.onToggleSidebar}
+            onOpenPalette={props.onOpenPalette}
+          />
+        </div>
       </Show>
       {/* The old header was a full row whose only content was a plus pushed
           to the right, so the corner under the wordmark was a blank band.
           New sessions now start from a project group's "+", which also says
           where the session will live — the search row keeps the width. */}
-      {/* One panel now, so this row opens it. It stays because the shortcut is
-          written on it and nowhere else — removing the row to reach for the
-          keyboard would take away how anyone finds the thing that finds
-          everything else. */}
       {/* Search and the overview are the two places the rail goes that are
           not a session, so they sit together as one block with one style.
           A rule between them made the overview a section of one row. */}
       <nav class="flex flex-col gap-px px-1.5 pt-2 pb-1">
-        <RowButton
-          class="h-8 items-center px-2 text-foreground/80 hover:bg-accent/70"
-          aria-label={t("palette.title")}
-          onClick={props.onOpenSearch}
-        >
-          <Icon name="search" class="size-3.5 shrink-0 text-muted-foreground" />
-          <span>{t("search.label")}</span>
-          {/* Spelled by the same function as the command panel, so the row and
-              the panel it opens never disagree about what the keys are. */}
-          <kbd class="ml-auto font-sans text-2xs text-muted-foreground/80">
-            {formatChord({ key: "k" })}
-          </kbd>
-        </RowButton>
         <RowButton
           class={cn(
             "h-8 items-center px-2",

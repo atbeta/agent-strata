@@ -10,7 +10,9 @@ import { applyFonts, readFonts } from "./font";
 import { commandForChord, registerCommand } from "./commands";
 import { CommandPalette } from "./palette";
 import { SessionSwitcher } from "./switcher";
-import { PageShell, WindowCaptionBar } from "./chrome";
+import { PageShell, TopLeftControls, WindowCaptionBar } from "./chrome";
+import { canCollapseSidebar, usesCustomCaption } from "./shell";
+import { readSidebarOpen, writeSidebarOpen } from "./sidebar-visibility";
 import { t } from "./i18n";
 import { displayTitle } from "./session-title";
 import { isStreamingSnapshotMessage } from "./live";
@@ -92,6 +94,25 @@ export function App() {
   const [paletteOpen, setPaletteOpen] = createSignal(false);
   const [compareOn, setCompareOn] = createSignal(false);
   const [compareSel, setCompareSel] = createSignal<string[]>([]);
+
+  /**
+   * Whether the left column is on screen.
+   *
+   * The switch that folds it away sits in the window's top-left corner and
+   * not in the column: a button that folds the sidebar cannot live inside
+   * the thing it folds. macOS keeps its traffic lights over that corner, so
+   * there the column stays and only the palette moves up.
+   */
+  const [sidebarOpen, setSidebarOpen] = createSignal(
+    canCollapseSidebar() ? readSidebarOpen() : true,
+  );
+  const toggleSidebar = () => {
+    const next = !sidebarOpen();
+    writeSidebarOpen(next);
+    setSidebarOpen(next);
+  };
+  const openPalette = () => setPaletteOpen(true);
+
   let chordHeld = false;
   const switcher = useSessionSwitcher({
     sessions: () => list.sessions(),
@@ -399,6 +420,16 @@ export function App() {
   );
   onCleanup(
     registerCommand({
+      id: "app.sidebar",
+      title: () => t("sidebar.toggle"),
+      // macOS keeps the traffic lights over that corner, so the column stays
+      // there and the command has nothing to do.
+      enabled: () => canCollapseSidebar(),
+      run: () => toggleSidebar(),
+    }),
+  );
+  onCleanup(
+    registerCommand({
       id: "app.fleet",
       title: () => t("fleet.nav"),
       run: () => openFleet(),
@@ -452,7 +483,11 @@ export function App() {
 
   return (
     <div class="flex h-full min-h-0 flex-col bg-background">
-      <WindowCaptionBar />
+      <WindowCaptionBar
+        sidebarOpen={sidebarOpen()}
+        onToggleSidebar={toggleSidebar}
+        onOpenPalette={openPalette}
+      />
       <Show
         when={boot.ready()}
         fallback={
@@ -478,25 +513,41 @@ export function App() {
       >
       <>
       <div class="flex min-h-0 flex-1">
-      <Sidebar
-        list={list}
-        ws={ws}
-        conns={conns}
-        onOpenSearch={() => setPaletteOpen(true)}
-        fleetActive={route().name === "fleet"}
-        compareOn={compareOn()}
-        compareSel={compareSel()}
-        onStartCompare={startCompare}
-        onCancelCompare={cancelCompare}
-        onOpenCompare={openCompare}
-        activeId={activeId}
-        clock={clock}
-        onOpenSession={openSession}
-        onNewSession={requestNewSession}
-        onOpenFleet={openFleet}
-        focusDir={focusDir}
-        clearFocusDir={() => setFocusDir(undefined)}
-      />
+      <Show when={sidebarOpen()}>
+        <Sidebar
+          list={list}
+          ws={ws}
+          conns={conns}
+          sidebarOpen={sidebarOpen()}
+          onToggleSidebar={toggleSidebar}
+          onOpenPalette={openPalette}
+          fleetActive={route().name === "fleet"}
+          compareOn={compareOn()}
+          compareSel={compareSel()}
+          onStartCompare={startCompare}
+          onCancelCompare={cancelCompare}
+          onOpenCompare={openCompare}
+          activeId={activeId}
+          clock={clock}
+          onOpenSession={openSession}
+          onNewSession={requestNewSession}
+          onOpenFleet={openFleet}
+          focusDir={focusDir}
+          clearFocusDir={() => setFocusDir(undefined)}
+        />
+      </Show>
+      {/* The folded column leaves a strip behind, so the switch that unfolds it
+          is still on screen. Windows does not need one: its caption strip
+          spans the whole window and carries the switch already. */}
+      <Show when={!sidebarOpen() && !usesCustomCaption()}>
+        <div class="flex w-10 shrink-0 flex-col items-center gap-1 border-r border-border bg-sidebar pt-2">
+          <TopLeftControls
+            sidebarOpen={sidebarOpen()}
+            onToggleSidebar={toggleSidebar}
+            onOpenPalette={openPalette}
+          />
+        </div>
+      </Show>
 
       <main class="@container/main relative min-w-0 flex-1">
         <SyncLine ticks={conns.syncTicks()} show={conns.syncShown()} />

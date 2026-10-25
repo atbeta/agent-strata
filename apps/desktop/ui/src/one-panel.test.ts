@@ -19,6 +19,7 @@ const read = (file: string) => readFileSync(join(import.meta.dir, file), "utf8")
 describe("one panel, and every way in leads to it", () => {
   const app = read("App.tsx");
   const sidebar = read("sidebar.tsx");
+  const chrome = read("chrome.tsx");
 
   test("Ctrl K opens the panel that lists commands", () => {
     // It used to open a search with no commands in it at all, which is the half
@@ -34,13 +35,13 @@ describe("one panel, and every way in leads to it", () => {
     expect(cmd.slice(0, 900)).toContain("setPaletteOpen((open) => !open)");
   });
 
-  test("the sidebar row opens it too", () => {
-    // The row stays whatever else happens: the shortcut is written on it and
-    // nowhere else, so removing it would take away how anyone finds the thing
-    // that finds everything else.
-    expect(sidebar).toContain("onOpenSearch");
-    expect(sidebar).toContain("props.onOpenSearch");
-    expect(app).toContain("onOpenSearch={() => setPaletteOpen(true)}");
+  test("the window's own corner opens it too", () => {
+    // The row that used to carry the shortcut moved up to the top-left corner
+    // of the window, where the tooltip still spells out the keys. Two ways to
+    // open the same panel is one too many, so the row is gone.
+    expect(chrome).toContain("onOpenPalette");
+    expect(app).toContain("onOpenPalette={openPalette}");
+    expect(sidebar).not.toContain("onOpenSearch");
   });
 
   test("the old search overlay is gone from the sidebar", () => {

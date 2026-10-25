@@ -35,3 +35,15 @@ export function usesCustomCaption(): boolean {
 export function hostsTrafficLights(): boolean {
   return isMac();
 }
+
+/**
+ * Whether the left column may be folded away.
+ *
+ * macOS paints its traffic lights over the window's top-left corner, and that
+ * corner belongs to the OS: the sidebar is what keeps them off the content,
+ * so a gutter wide enough to hold them instead would take more room than the
+ * column it replaced. Everywhere else the corner is ours to spend.
+ */
+export function canCollapseSidebar(): boolean {
+  return !isMac();
+}
