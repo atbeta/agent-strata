@@ -162,10 +162,14 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   dev.subscribe((event: DevEvent) => broadcast(event));
   // A service that was killed outright could not stop its dev servers. The
   // pid file is what survives to tell this run which ones to clean up.
-  const reaped = dev.reapStale();
-  if (reaped > 0) {
-    console.error(`stopped ${reaped} dev process(es) left by a previous run`);
-  }
+  // The cleanup runs in the background, and a dev command waits for it: an
+  // orphan of the previous run may still be holding the port the command
+  // wants, and starting into that collision hides the real cause.
+  void dev.reapStale().then((reaped) => {
+    if (reaped > 0) {
+      console.error(`stopped ${reaped} dev process(es) left by a previous run`);
+    }
+  });
   const maintenanceDirsInfo = maintenanceDirs(opts.db, desktopDir);
   const maintenanceSnapshot = () => {
     const dbPath = maintenanceDirsInfo.dbPath;
@@ -2031,8 +2035,11 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         return json({ process: info, lines: dev.logs(id, Math.min(Math.max(tail, 1), MAX_DEV_LOG_TAIL)) });
       }
       if (action === "stop" && req.method === "POST") {
-        await dev.stop(id);
-        return json({ ok: true });
+        // The answer says what is left, not just that a stop was asked for: a
+        // stop that leaves the port held has to be reported as the failure it
+        // is, or the next command collides with it and nobody knows why.
+        const result = await dev.stop(id);
+        return json({ ...result, ok: result.stopped && result.clean });
       }
       return json({ error: "method not allowed" }, 405);
     }

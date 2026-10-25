@@ -108,14 +108,24 @@ async function call(path, init) {
   return body
 }
 
-/** One line a person can read, without pretending a stopped process is running. */
+/**
+ * One line a person can read, without pretending a stopped process is running.
+ *
+ * The states are the four the table can be in, not two. A command that
+ * vanished on its own is not the same as one that was stopped, and one that
+ * was found running after a restart — an orphan, cleaned up — is neither.
+ */
 function describe(process) {
   const state =
-    process.exit_code === null
-      ? "running (pid " + (process.pid ?? "?") + ")"
-      : process.stopped
-        ? "stopped"
-        : "exited " + process.exit_code
+    process.state === "lost"
+      ? "lost"
+      : process.state === "orphaned"
+        ? "orphaned"
+        : process.exit_code === null
+          ? "running (pid " + (process.pid ?? "?") + ")"
+          : process.stopped
+            ? "stopped"
+            : "exited " + process.exit_code
   const tail = process.last_line ? " — " + process.last_line.slice(0, 120) : ""
   return process.id + " [" + state + "] " + process.command + tail
 }
@@ -141,6 +151,10 @@ and stopping it means finding its pid by hand.
 
 Pass \`port\` when you know it — \`dev_start\` then returns once the port answers,
 so there is no need to sleep and guess.
+
+A port that is already served is refused, with the reason. Stop what holds it
+first; starting a second command on the same port only produces a failure that
+looks like it belongs to the new command.
 
 If \`dev_start\` reports that the shell is not running, say so and ask — do not
 fall back to \`Start-Process\`.
@@ -179,15 +193,30 @@ export default async () => ({
         },
       },
       async execute(args, context) {
-        const started = await call("/dev", {
-          method: "POST",
-          body: JSON.stringify({
-            session_id: context.sessionID,
-            command: args.command,
-            cwd: context.directory,
-            port: args.port,
-          }),
-        })
+        let started
+        try {
+          started = await call("/dev", {
+            method: "POST",
+            body: JSON.stringify({
+              session_id: context.sessionID,
+              command: args.command,
+              cwd: context.directory,
+              port: args.port,
+            }),
+          })
+        } catch (e) {
+          // The service refused, and the reason is the whole answer: a port
+          // that is already served, a command that could not start, a
+          // directory that is not there. It is passed on rather than
+          // swallowed, because the next thing to do depends on which of them
+          // it is.
+          return [
+            "The command did not start: " + (e && e.message ? e.message : String(e)),
+            "",
+            "Read the message above before retrying — a missing binary, a wrong",
+            "directory and a port that is already served are different problems.",
+          ].join("\n")
+        }
         if (started.error) {
           return [
             "The command did not start: " + started.error,
@@ -199,7 +228,8 @@ export default async () => ({
         return [
           "Started " + started.id + " (pid " + (started.pid ?? "?") + ") in " + started.cwd + ".",
           started.ready === "yes"
-            ? "Port " + started.port + " accepts connections."
+            ? "Port " + started.port + " accepts connections" +
+              (typeof started.ready_ms === "number" ? " (ready in " + started.ready_ms + "ms)." : ".")
             : started.ready === "no"
               ? "It is running, but no port answered yet. Check `dev_logs`."
               : "It is running.",
@@ -245,8 +275,32 @@ export default async () => ({
         },
       },
       async execute(args) {
-        await call("/dev/" + encodeURIComponent(args.process_id) + "/stop", { method: "POST" })
-        return "Stopped " + args.process_id + "."
+        let result
+        try {
+          result = await call("/dev/" + encodeURIComponent(args.process_id) + "/stop", { method: "POST" })
+        } catch (e) {
+          // Nothing to stop under that name. Saying so is more useful than
+          // letting the failure look like a stop that did not work.
+          return "There is no process called " + args.process_id + ": " +
+            (e && e.message ? e.message : String(e))
+        }
+        if (result.clean) return "Stopped " + args.process_id + "."
+        // A stop that could not prove the port is free is reported as what it
+        // is. "Stopped" on its own would be a lie the next command pays for.
+        const leftovers = []
+        if (Array.isArray(result.residual) && result.residual.length > 0) {
+          leftovers.push("still running: " + result.residual.join(", "))
+        }
+        if (result.port && result.port_free === false) {
+          leftovers.push("port " + result.port + " is still held")
+        }
+        return [
+          "Stopped " + args.process_id + ", but not cleanly.",
+          leftovers.length > 0 ? leftovers.join("; ") + "." : "The command itself is gone.",
+          "",
+          "Something of it survived and may still hold its port. Find it by hand",
+          "before starting it again, or the next start collides with it.",
+        ].join("\n")
       },
     },
 
@@ -260,7 +314,7 @@ export default async () => ({
       args: {},
       async execute(_args, context) {
         const result = await call("/dev?session=" + encodeURIComponent(context.sessionID))
-        if (result.processes.length === 0) return "No processes running for this session."
+        if (result.processes.length === 0) return "No background processes for this session."
         return result.processes.map(describe).join("\n")
       },
     },
