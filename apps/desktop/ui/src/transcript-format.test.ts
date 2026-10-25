@@ -445,6 +445,39 @@ describe("tool call icons", () => {
   });
 });
 
+describe("transcript reading details", () => {
+  const transcript = readFileSync(join(import.meta.dir, "transcript.tsx"), "utf8");
+  const markdown = readFileSync(join(import.meta.dir, "md.tsx"), "utf8");
+  const theme = readFileSync(join(import.meta.dir, "theme.css"), "utf8");
+
+  test("the streaming caret lives at the end of the markdown, not on a new line", () => {
+    expect(transcript).toContain('text={block().text} live={props.live}');
+    expect(markdown).toContain("syncCursor(host, live)");
+    expect(markdown).toContain("target.append(caret)");
+    expect(transcript).not.toContain("props.message.content.some((block) => block.type === \"text\")");
+  });
+
+  test("every expanded shell command stays available in full", () => {
+    const command = transcript.slice(transcript.indexOf("const command = () =>"), transcript.indexOf("/** A pending call"));
+    expect(command).toContain('return typeof c === "string" ? c : undefined');
+    expect(command).not.toContain("c.length");
+    expect(command).not.toContain('c.includes("\\n")');
+  });
+
+  test("copy controls cannot cover the first output line", () => {
+    const shell = transcript.slice(transcript.indexOf("function ShellWell"), transcript.indexOf("function diffLineClass"));
+    const output = transcript.slice(transcript.indexOf("function OutputWell"), transcript.indexOf("type ChildSession"));
+    expect(shell).toContain("pr-16");
+    expect(output).toContain('class="pr-16"');
+    expect(output).toContain("py-2 pr-16");
+  });
+
+  test("user bubbles keep the space between paragraphs", () => {
+    expect(theme).toContain(".md-bubble p + p { @apply mt-2.5; }");
+    expect(theme).not.toContain(".md-bubble p { margin: 0; }");
+  });
+});
+
 describe("ACP tool kinds", () => {
   test("ACP's kinds read like their OpenCode counterparts", () => {
     expect(toolKind("execute")).toBe("shell");

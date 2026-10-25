@@ -437,10 +437,10 @@ textarea {
     @apply text-base leading-[1.7] text-foreground/90;
     word-break: break-word;
   }
-  .md-bubble p { margin: 0; }
   .md > :first-child { margin-top: 0; }
   .md > :last-child { margin-bottom: 0; }
   .md p { @apply my-2.5; }
+  .md-bubble p + p { @apply mt-2.5; }
   .md h1, .md h2, .md h3, .md h4 {
     @apply mb-2 mt-4 font-semibold text-foreground;
   }

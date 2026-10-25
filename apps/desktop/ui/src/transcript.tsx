@@ -267,7 +267,7 @@ function TranscriptBlock(props: { block: ContentBlock; tight?: boolean; live?: b
         {(block) => <ImageBlock block={block()} />}
       </Match>
       <Match when={props.block.type === "text" ? props.block : undefined}>
-        {(block) => <Md class={props.tight ? "md-bubble" : ""} text={block().text} />}
+        {(block) => <Md class={props.tight ? "md-bubble" : ""} text={block().text} live={props.live} />}
       </Match>
     </Switch>
   );
@@ -321,11 +321,10 @@ function PendingDots() {
 
 /**
  * A shell call reads as the terminal it ran in: the command echoed on a `$`
- * line and the output beneath it, in one well. The command only repeats when
- * the row's one line could not hold it — a short command already sits in the
- * row, so echoing it again is noise. The copy button prefers the output the
- * way a reader does: the answer is the thing worth keeping, the command only
- * when there is no answer yet.
+ * line and the output beneath it, in one well. The row may truncate, so the
+ * well always keeps the complete command available. The copy button prefers
+ * the output: the answer is the thing worth keeping, the command only when
+ * there is no answer yet.
  */
 function ShellWell(props: { call: ToolCallView; command?: string; running: boolean }) {
   const output = () => props.call.output;
@@ -334,14 +333,14 @@ function ShellWell(props: { call: ToolCallView; command?: string; running: boole
     <Show when={props.command || output() || props.running}>
       <div class="group relative overflow-hidden rounded-md border border-border bg-secondary/40">
         <Show when={props.command}>
-          <p class="whitespace-pre-wrap break-words px-2.5 pb-1.5 pt-2 font-mono text-2xs leading-5 text-muted-foreground">
+          <p class="whitespace-pre-wrap break-words px-2.5 pb-1.5 pr-16 pt-2 font-mono text-2xs leading-5 text-muted-foreground">
             <span class="select-none text-muted-foreground/60">$ </span>
             {props.command}
           </p>
         </Show>
         <Show when={output()}>
           <div class={props.command ? "border-t border-border" : undefined}>
-            <Code source={output()!} maxHeight="max-h-72" class="rounded-none border-0 bg-transparent" />
+            <Code source={output()!} maxHeight="max-h-72" class="rounded-none border-0 bg-transparent pr-16" />
           </div>
         </Show>
         <Show when={!output() && props.running}>
@@ -377,9 +376,9 @@ function OutputWell(props: { text: string; kind: ToolKind }) {
     <div class="group relative">
       <Show
         when={diff()}
-        fallback={<Code source={clean()} maxHeight="max-h-72" />}
+        fallback={<Code source={clean()} maxHeight="max-h-72" class="pr-16" />}
       >
-        <pre class="max-h-72 overflow-auto rounded-md border border-border bg-secondary/40 px-3 py-2 font-mono text-xs leading-5">
+        <pre class="max-h-72 overflow-auto rounded-md border border-border bg-secondary/40 px-3 py-2 pr-16 font-mono text-xs leading-5">
         <For each={clean().split("\n")}>
           {(line) => <div class={`break-words whitespace-pre-wrap ${diffLineClass(line)}`}>{line || " "}</div>}
         </For>
@@ -424,10 +423,7 @@ function ToolCallCard(props: {
   const command = () => {
     if (headline().kind !== "shell") return undefined;
     const c = props.call.input?.command;
-    if (typeof c !== "string") return undefined;
-    // A short single-line command already fits the row — echoing it again is
-    // noise. Only multiline or truncation-length commands earn the repeat.
-    return c.includes("\n") || c.length > 60 ? c : undefined;
+    return typeof c === "string" ? c : undefined;
   };
   /** A pending call is only "running" while the session is. */
   const running = () => props.call.status === "pending" && props.live === true;
@@ -709,9 +705,6 @@ function AssistantMessage(props: {
                 <span class="min-w-0 flex-1 whitespace-pre-wrap break-words">{n().text}</span>
               </p>
             )}
-          </Show>
-          <Show when={!met() && props.message.partial && props.message.content.some((block) => block.type === "text")}>
-            <span class="ml-0.5 inline-block h-[1em] w-[2px] translate-y-0.5 motion-safe:animate-pulse bg-foreground/70 align-text-bottom" />
           </Show>
         </div>
         <Show when={props.footer && hasFooter()}>

@@ -9,7 +9,7 @@ import { t } from "./i18n";
 
 marked.setOptions({ gfm: true, breaks: true });
 
-export function Md(props: { text: string; class?: string }) {
+export function Md(props: { text: string; class?: string; live?: boolean }) {
   let host: HTMLDivElement | undefined;
   let frame = 0;
   let started = false;
@@ -18,7 +18,7 @@ export function Md(props: { text: string; class?: string }) {
   /** How many of `host`'s child nodes belong to that slice. The rest is the tail. */
   let stableCount = 0;
 
-  const paint = (source: string) => {
+  const paint = (source: string, live: boolean) => {
     if (!host) return;
     const cut = stableBoundary(source);
     const stable = source.slice(0, cut);
@@ -46,6 +46,7 @@ export function Md(props: { text: string; class?: string }) {
 
     dropTail(host, stableCount);
     if (tail.length > 0) host.append(nodesFrom(tail, false));
+    syncCursor(host, live);
   };
 
   /**
@@ -61,16 +62,17 @@ export function Md(props: { text: string; class?: string }) {
    */
   createEffect(() => {
     const source = props.text;
+    const live = props.live === true;
     if (!host) return;
     if (!started) {
       started = true;
-      paint(source);
+      paint(source, live);
       return;
     }
     if (frame) return;
     frame = requestAnimationFrame(() => {
       frame = 0;
-      paint(props.text);
+      paint(props.text, props.live === true);
     });
   });
 
@@ -79,6 +81,33 @@ export function Md(props: { text: string; class?: string }) {
   });
 
   return <div ref={host} class={`md ${props.class ?? ""}`} />;
+}
+
+function syncCursor(host: HTMLElement, live: boolean) {
+  host.querySelector(".streaming-caret")?.remove();
+  if (!live) return;
+  const last = host.lastElementChild;
+  const target = last ? cursorTarget(last) : undefined;
+  if (!target) return;
+  const caret = document.createElement("span");
+  caret.className = "streaming-caret ml-0.5 inline-block h-[1em] w-[2px] translate-y-0.5 motion-safe:animate-pulse bg-foreground/70 align-text-bottom";
+  caret.setAttribute("aria-hidden", "true");
+  target.append(caret);
+}
+
+function cursorTarget(block: Element): Element | undefined {
+  if (/^(P|H[1-6])$/.test(block.tagName)) return block;
+  if (block.tagName === "BLOCKQUOTE") {
+    const last = block.lastElementChild;
+    return last ? cursorTarget(last) : block;
+  }
+  if (!/^(UL|OL)$/.test(block.tagName)) return undefined;
+  const item = block.lastElementChild;
+  if (!item) return undefined;
+  const last = item.lastElementChild;
+  if (!last) return item;
+  if (last.tagName === "PRE") return undefined;
+  return /^(P|UL|OL)$/.test(last.tagName) ? cursorTarget(last) : item;
 }
 
 function dropTail(host: HTMLElement, stableCount: number) {
