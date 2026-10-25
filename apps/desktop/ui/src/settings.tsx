@@ -314,11 +314,6 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
         return "—";
     }
   };
-  /** A version this build was not tuned against is worth naming, not blocking. */
-  const versionAhead = () => {
-    const version = runtime()?.version;
-    return Boolean(version && !version.includes("1.18."));
-  };
   const checkRuntime = async () => {
     setRuntimeBusy(true);
     setRuntimeErr("");
@@ -862,11 +857,6 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
                 <Show when={runtime()?.source === "env"}>
                   <p class="mt-1.5 text-2xs leading-4 text-muted-foreground">
                     {t("settings.opencode.envHint")}
-                  </p>
-                </Show>
-                <Show when={versionAhead()}>
-                  <p class="mt-1.5 text-2xs leading-4 text-muted-foreground">
-                    {t("settings.opencode.versionHint")}
                   </p>
                 </Show>
                 <Show when={runtimeErr()}>

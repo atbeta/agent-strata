@@ -314,8 +314,6 @@ export default {
   "settings.opencode.binCleared": "Custom path cleared. It takes effect after the app restarts.",
   "settings.opencode.desktopOnly": "Choosing a path and re-checking are available in the desktop app.",
   "settings.opencode.envHint": "The path comes from STRATA_OPENCODE_BIN. Remove that variable to use the path in Settings.",
-  "settings.opencode.versionHint":
-    "This build targets OpenCode 1.18.x. If another version shows connection or capability problems, try 1.18.x.",
   "settings.opencode.source.setting": "Settings",
   "settings.opencode.source.env": "STRATA_OPENCODE_BIN",
   "settings.opencode.source.path": "PATH / system directories",

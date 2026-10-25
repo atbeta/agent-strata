@@ -309,8 +309,6 @@ export default {
   "settings.opencode.binCleared": "已清除自定义路径，重启应用后生效。",
   "settings.opencode.desktopOnly": "选择路径和重新检测只在桌面应用里可用。",
   "settings.opencode.envHint": "路径来自 STRATA_OPENCODE_BIN；要改用设置里的路径，先移除这个环境变量。",
-  "settings.opencode.versionHint":
-    "当前构建按 OpenCode 1.18.x 适配。其他版本如果出现连接或能力异常，请切换到 1.18.x 再试。",
   "settings.opencode.source.setting": "设置",
   "settings.opencode.source.env": "环境变量 STRATA_OPENCODE_BIN",
   "settings.opencode.source.path": "PATH / 系统目录",
