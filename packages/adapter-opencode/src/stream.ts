@@ -233,17 +233,25 @@ export async function runOpencodeStream(opts: {
     // The global bus already carries this directory. A second socket for it
     // would buy nothing.
     if (usingGlobal || projectStreams.has(directory)) return;
-    const streamAbort = new AbortController();
-    projectStreams.set(directory, streamAbort);
-    const stop = () => streamAbort.abort();
-    abort.signal.addEventListener("abort", stop, { once: true });
+    // One controller for the whole watch: it means "stop watching this
+    // directory", and it outlives every attempt.
+    const watched = new AbortController();
+    projectStreams.set(directory, watched);
     void (async () => {
       let pause = 1_000;
       for (;;) {
-        // The bus of this directory was closed on purpose — the global one
-        // took over, or the whole connection went down. Re-opening it with a
-        // signal that is already aborted would spin forever.
-        if (abort.signal.aborted || streamAbort.signal.aborted) return;
+        // The watch was stopped on purpose — the global one took over, or the
+        // whole connection went down.
+        if (abort.signal.aborted || watched.signal.aborted) return;
+        // Each attempt gets its own signal. The one that closed the socket
+        // must not also close the next one: a single controller for the whole
+        // watch was aborted by the attempt that ended, and the loop then
+        // found it aborted and left — so the bus of this directory was
+        // opened exactly once and never again.
+        const streamAbort = new AbortController();
+        const stop = () => streamAbort.abort();
+        abort.signal.addEventListener("abort", stop, { once: true });
+        watched.signal.addEventListener("abort", stop, { once: true });
         let iter: AsyncIterator<unknown> | undefined;
         let wedged = false;
         const seen = { at: Date.now() };
@@ -265,18 +273,19 @@ export async function runOpencodeStream(opts: {
             seen.at = Date.now();
             dispatch(r.value);
           }
-          if (abort.signal.aborted || streamAbort.signal.aborted) return;
+          if (abort.signal.aborted || watched.signal.aborted) return;
           streamAbort.abort();
           if (!wedged) {
             await Bun.sleep(pause);
             pause = Math.min(pause * 2, 30_000);
           }
         } catch {
-          if (abort.signal.aborted || streamAbort.signal.aborted) return;
+          if (abort.signal.aborted || watched.signal.aborted) return;
           await Bun.sleep(pause);
           pause = Math.min(pause * 2, 30_000);
         } finally {
           abort.signal.removeEventListener("abort", stop);
+          watched.signal.removeEventListener("abort", stop);
           streamAbort.abort();
           void iter?.return?.(undefined)?.catch?.(() => {});
         }

@@ -3385,6 +3385,42 @@ describe("runOpencodeStream", () => {
     abort.abort();
   });
 
+  test("a directory bus that ends is opened again", async () => {
+    // The per-directory bus is the only thing carrying a session that lives
+    // outside the server's own root. When it ends — a server restart, a
+    // socket the network dropped — the session in it goes quiet, and the
+    // reader sees a session that never says it is working.
+    //
+    // The attempt that ended used to abort the controller the next attempt
+    // was about to use, so the loop found itself aborted and left: the bus
+    // of that directory was opened exactly once and never again, and the
+    // entry in the table kept it from being opened even later.
+    const { client, globals, dirs } = fakeClient([{ directory: "/repo" }], { globalFails: 99 });
+    const abort = new AbortController();
+    await runOpencodeStream({
+      client,
+      abort,
+      connectTimeout: 500,
+      silenceMs: 5_000,
+      globalProbeMs: 50,
+      globalRetryMs: 150,
+      handle: () => {},
+      onReconnect: () => {},
+    });
+    await Bun.sleep(600);
+    expect(dirs.get("/repo")!.length).toBe(1);
+
+    // The bus ends.
+    dirs.get("/repo")![0]!.close();
+    // And a new one is opened for the same directory.
+    for (let i = 0; i < 60; i++) {
+      if (dirs.get("/repo")!.length > 1) break;
+      await Bun.sleep(50);
+    }
+    expect(dirs.get("/repo")!.length).toBeGreaterThan(1);
+    abort.abort();
+  });
+
   test("a fallback that never gets the global bus keeps the sockets it opened", async () => {
     // The other half of the promise: a server that never offers the global
     // bus must not be left with a session nobody hears from. The per-directory
