@@ -1580,6 +1580,11 @@ const turns = () => shown().turns;
                    * weight to advertise 288px. A button in this row says the
                    * same thing from where the reader's eye already is, and the
                    * reading column gets a hairline back.
+                   *
+                   * The mark says "panel", not "files": it is the fold button
+                   * for this side of the window, and the window's other side
+                   * has one drawn the same way. The drawer still holds files,
+                   * but what this button does is open a side.
                    */}
                   <Tip label={t(panelOpen() ? "panel.hide" : "panel.show")}>
                     <PanelToggle
@@ -1588,7 +1593,7 @@ const turns = () => shown().turns;
                       pressed={panelOpen()}
                       onClick={togglePanel}
                     >
-                      <Icon name="files" />
+                      <Icon name="panel-right" />
                     </PanelToggle>
                   </Tip>
                 </span>

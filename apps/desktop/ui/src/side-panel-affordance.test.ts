@@ -42,7 +42,9 @@ describe("the side panel is opened from the header, not from a strip on the edge
     // that opens something.
     expect(detail.slice(at - 400, at)).toContain("pressed={panelOpen()}");
     expect(detail).toContain('on={panelOpen()}');
-    expect(detail).toContain('<Icon name="files" />');
+    // The mark says which side of the window this is: the fold button on the
+    // other side draws the same way.
+    expect(detail).toContain('<Icon name="panel-right" />');
   });
 
   test("export left the overflow menu, and the menu with it", () => {

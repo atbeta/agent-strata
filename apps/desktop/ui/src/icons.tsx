@@ -47,6 +47,7 @@ export type Name =
   | "grid"
   | "single-pane"
   | "panel-left"
+  | "panel-right"
   | "activity"
   | "maximize"
   | "minimize"
@@ -96,7 +97,9 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
         <path d="M8 5.2V8l2.2 1.5" />
       </Glyph>
     );
-  // A panel with a rail, matching the drawer it opens.
+  // A panel with a rail — the drawer of files. The header's own switch for that
+  // drawer is `panel-right`, which says which side it opens on; this one says
+  // what is in it, and stays with the places that mean files.
   if (name === "files")
     return (
       <Glyph class={cls}>
@@ -484,16 +487,31 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
       </Glyph>
     );
   /**
-   * A pane with its left column filled: the shape of a window that has a side
-   * column open. The fill is what tells it apart from `split-col` — that one
-   * names two equal halves, this one names the narrow one on the left.
+   * A window with a column on its left, and the mirror of `panel-right`.
+   *
+   * The column used to be a solid block, and that fill was the reason the two
+   * buttons that fold the window's two sides did not match: one was a heavy
+   * shape with a bright stripe, the other a thin outline, and at a glance they
+   * were not a pair at all. Both are outlines now, one divider each, so the
+   * pair reads as the same mark turned around.
    */
   if (name === "panel-left")
     return (
       <Glyph class={cls}>
-        <rect x="2.5" y="3" width="11" height="10" rx="1.4" />
+        <rect x="2.5" y="3" width="11" height="10" rx="1.5" />
         <path d="M6.4 3v10" />
-        <rect x="3.4" y="3.9" width="2" height="8.2" rx="0.7" fill="currentColor" stroke="none" />
+      </Glyph>
+    );
+  /**
+   * A window with a column on its right: the drawer that opens beside the
+   * session. The divider sits where the left one mirrors it, so the two fold
+   * buttons are one drawing and its reflection.
+   */
+  if (name === "panel-right")
+    return (
+      <Glyph class={cls}>
+        <rect x="2.5" y="3" width="11" height="10" rx="1.5" />
+        <path d="M9.6 3v10" />
       </Glyph>
     );
   /**
