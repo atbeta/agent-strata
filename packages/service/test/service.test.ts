@@ -182,13 +182,13 @@ describe("agent-strata service", () => {
       fetch(`${base}${p}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
     const connected = await post("/connect", {
-      backend: "acp", command: process.execPath, args: [MOCK], agentName: "mock", cwd: "/tmp",
+      backend: "acp", command: process.execPath, args: [MOCK], agentName: "mock", cwd: tmpdir(),
     }).then((r) => r.json());
     expect(connected.id).toStartWith("acp:mock:");
     const conns = await fetch(`${base}/connections`).then((r) => r.json());
     expect(conns.connections[0]).toMatchObject({ backend: "acp", capabilities: { prompt: true, models: false } });
 
-    const created = await post("/sessions", { connection_id: connected.id, directory: "/tmp" }).then((r) => r.json());
+    const created = await post("/sessions", { connection_id: connected.id, directory: tmpdir() }).then((r) => r.json());
     expect(created.id).toStartWith("acp:mock:");
     expect((await post(`/sessions/${encodeURIComponent(created.id)}/prompt`, { text: "diff" })).status).toBe(200);
     const withImage = await post(`/sessions/${encodeURIComponent(created.id)}/prompt`, {
@@ -240,9 +240,9 @@ describe("agent-strata service", () => {
     // `opencode acp` names itself opencode, so its sessions are the same ones
     // `opencode serve` lists over HTTP — the case that used to show up twice.
     const connected = await post("/connect", {
-      backend: "acp", command: process.execPath, args: [MOCK], agentName: "opencode", cwd: "/tmp",
+      backend: "acp", command: process.execPath, args: [MOCK], agentName: "opencode", cwd: tmpdir(),
     }).then((r) => r.json());
-    const created = await post("/sessions", { connection_id: connected.id, directory: "/tmp" }).then((r) => r.json());
+    const created = await post("/sessions", { connection_id: connected.id, directory: tmpdir() }).then((r) => r.json());
     const native = created.native_id;
     const shadow = `opencode:${native}`;
     expect(created.id).toBe(`acp:opencode:${native}`);
@@ -1836,7 +1836,7 @@ describe("handoff", () => {
       command: process.execPath,
       args: [MOCK],
       agentName: "mock",
-      cwd: "/tmp",
+      cwd: tmpdir(),
     }).then((r) => r.json());
 
     expect((await post(`/sessions/${encodeURIComponent(sid)}/handoff`, {})).status).toBe(400);
@@ -1869,7 +1869,7 @@ describe("handoff", () => {
     expect(prompt).not.toContain("INPUT_SENTINEL");
     expect(prompt).not.toContain("DIFF_SENTINEL");
 
-    const owned = await post("/sessions", { connection_id: connected.id, directory: "/tmp" }).then((r) => r.json());
+    const owned = await post("/sessions", { connection_id: connected.id, directory: tmpdir() }).then((r) => r.json());
     const same = await post(`/sessions/${encodeURIComponent(owned.id)}/handoff`, { connection_id: connected.id });
     expect(same.status).toBe(400);
     expect(((await same.json()) as { error: string }).error).toMatch(/already runs/);

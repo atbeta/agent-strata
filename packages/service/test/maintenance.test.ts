@@ -58,15 +58,17 @@ describe("maintenance files", () => {
   });
 
   test("maintenance dirs follow the database and fall back to the desktop dir", () => {
-    expect(maintenanceDirs("/tmp/profile/events.db", "/tmp/desktop")).toEqual({
-      dir: "/tmp/profile",
-      dbPath: "/tmp/profile/events.db",
-      backupDir: "/tmp/profile/backups",
+    const profile = join(tmpdir(), "profile");
+    const desktop = join(tmpdir(), "desktop");
+    expect(maintenanceDirs(join(profile, "events.db"), desktop)).toEqual({
+      dir: profile,
+      dbPath: join(profile, "events.db"),
+      backupDir: join(profile, "backups"),
     });
-    expect(maintenanceDirs(":memory:", "/tmp/desktop")).toEqual({
-      dir: "/tmp/desktop",
+    expect(maintenanceDirs(":memory:", desktop)).toEqual({
+      dir: desktop,
       dbPath: null,
-      backupDir: "/tmp/desktop/backups",
+      backupDir: join(desktop, "backups"),
     });
   });
 });

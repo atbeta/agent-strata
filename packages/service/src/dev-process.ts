@@ -147,6 +147,17 @@ const ANNOUNCE_WINDOW_MS = 8_000;
 const SILENCE_MS = 1_200;
 
 /**
+ * How long "no output at all" is tolerated before silence counts.
+ *
+ * On Windows the supervisor — a PowerShell process that compiles its job
+ * helpers — has to come up before the command can print anything, and on a
+ * slow machine that alone outlasts the silence window. Treating "nothing
+ * said yet" as a watcher would return answers about a command that has not
+ * actually started yet.
+ */
+const FIRST_OUTPUT_GRACE_MS = 5_000;
+
+/**
  * Text decoders, tried in order.
  *
  * `cmd.exe` on a Chinese Windows writes GBK (code page 936), and decoding that
@@ -821,16 +832,34 @@ export function createDevManager(options: DevManagerOptions = {}): DevManager {
    * nothing for a moment is a watcher, not a server that is about to print
    * its port.
    */
-  const quiet = (entry: Entry, began: number): boolean =>
-    Date.now() - (entry.lastOutputAt ?? began) > SILENCE_MS;
+  const quiet = (entry: Entry, began: number): boolean => {
+    // No output at all yet is "still coming up", not "silent": the supervisor
+    // itself has to start before the command can print, and on a slow machine
+    // that alone outlasts the silence window.
+    if (entry.logs.length === 0) return Date.now() - began > FIRST_OUTPUT_GRACE_MS;
+    return Date.now() - (entry.lastOutputAt ?? began) > SILENCE_MS;
+  };
 
   const read = async (entry: Entry, stream: "out" | "err", source: ReadableStream<Uint8Array>) => {
     // Bytes are buffered and decoded a line at a time, not through a streaming
     // decoder: the encoding is decided per line, because a Windows console and a
     // Node tool can disagree about it inside one process's output.
     let pending = new Uint8Array(0);
+    let clixml = false;
     const flush = (bytes: Uint8Array) => {
       let text = stripAnsi(decodeLine(bytes)).replace(/\r$/, "");
+      // A progress record reaching a redirected PowerShell stream is written
+      // as a `#< CLIXML` blob — readable by a CLIXML reader, noise in a log.
+      if (text.trimStart().startsWith("#< CLIXML")) {
+        clixml = true;
+        return;
+      }
+      if (clixml) {
+        // The blob's XML lines follow the marker; the first non-XML line is
+        // output again.
+        if (text.trimStart().startsWith("<")) return;
+        clixml = false;
+      }
       if (text.trim().length === 0) return;
       push(entry, stream, text);
       // A server that announces its port is telling the truth about where to
@@ -1120,7 +1149,7 @@ export function createDevManager(options: DevManagerOptions = {}): DevManager {
         // tree — the shell, the runtime and everything the runtime started —
         // without anyone having to walk a tree that is already coming apart.
         const commandArgv = argv(command);
-        const plan = jobPlan(commandArgv, input.cwd, resolveSupervisorPath());
+        const plan = jobPlan(command, input.cwd, resolveSupervisorPath());
         const env = childEnv();
         let file: string;
         let args: string[];
