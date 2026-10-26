@@ -495,8 +495,8 @@ export async function finishMcpLogin(
   code: string,
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(
-    api(`/sessions/${encodeURIComponent(sessionId)}/mcp/${encodeURIComponent(name)}/auth/callback`),
+  const res = await apiFetch(
+    `/sessions/${encodeURIComponent(sessionId)}/mcp/${encodeURIComponent(name)}/auth/callback`,
     {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -900,8 +900,8 @@ export async function finishProviderLogin(
   code: string | undefined,
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(
-    api(`/connections/${encodeURIComponent(connectionId)}/providers/${encodeURIComponent(providerId)}/oauth/callback`),
+  const res = await apiFetch(
+    `/connections/${encodeURIComponent(connectionId)}/providers/${encodeURIComponent(providerId)}/oauth/callback`,
     {
       method: "POST",
       headers: { "content-type": "application/json" },
