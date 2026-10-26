@@ -1,4 +1,4 @@
-import { api } from "./api";
+import { apiFetch } from "./api";
 import { t } from "./i18n";
 
 export interface ClassStats {
@@ -65,7 +65,7 @@ export interface CleanResult {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(api(path), init);
+  const res = await apiFetch(path, init);
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(body.error ?? t("api.err.service", { status: res.status }));

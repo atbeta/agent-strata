@@ -71,6 +71,9 @@ pub struct OpencodePlan {
     pub url: String,
     /// The service this shell started. A plugin inside OpenCode reaches it here.
     pub service_port: u16,
+    /// The capability token the service expects. The plugin inside OpenCode
+    /// presents it, so a request it makes is one the service accepts.
+    pub api_token: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -347,6 +350,9 @@ pub fn plan_with_port(
                 password,
                 url: format!("http://127.0.0.1:{port}"),
                 service_port,
+                // The caller fills this in: the token belongs to the service
+                // this shell starts, not to the server it starts.
+                api_token: None,
             })
         }
     }
@@ -363,7 +369,7 @@ pub fn serve_args(port: u16) -> Vec<String> {
 }
 
 pub fn child_env(plan: &OpencodePlan) -> Vec<(String, String)> {
-    vec![
+    let mut env = vec![
         ("OPENCODE_SERVER_USERNAME".into(), plan.username.clone()),
         ("OPENCODE_SERVER_PASSWORD".into(), plan.password.clone()),
         // Where the service is. A plugin inside OpenCode uses it to hand a
@@ -373,7 +379,13 @@ pub fn child_env(plan: &OpencodePlan) -> Vec<(String, String)> {
             "STRATA_SERVICE_URL".into(),
             format!("http://127.0.0.1:{}", plan.service_port),
         ),
-    ]
+    ];
+    // The capability token the service expects. The plugin presents it, so the
+    // request it makes is one the service accepts rather than a 401.
+    if let Some(token) = &plan.api_token {
+        env.push(("STRATA_API_TOKEN".into(), token.clone()));
+    }
+    env
 }
 
 pub fn service_env(plan: &OpencodePlan) -> Vec<(String, String)> {
@@ -427,7 +439,11 @@ pub fn write_status(
     };
     let json = serde_json::to_string(&status)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    std::fs::write(path, json)
+    std::fs::write(path, json)?;
+    // The pair the running server answers to is in that file, so it is read
+    // only by the account that owns it.
+    owner_only(path);
+    Ok(())
 }
 
 pub fn read_status(path: &Path) -> Option<OpencodeStatus> {
@@ -896,6 +912,22 @@ pub fn cleanup_stale_opencode(path: &Path) -> Option<u32> {
     }
 }
 
+/// Keep a file to its owner.
+///
+/// The status file carries the embedded server's basic-auth pair, so a mode
+/// that lets another account read it is a secret on disk. The mode is set
+/// after the write: a file created with the process umask can be world
+/// readable for a moment before it is narrowed.
+#[cfg(unix)]
+fn owner_only(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+}
+
+/// Windows has no unix mode to set; the file inherits the directory's ACL.
+#[cfg(not(unix))]
+fn owner_only(_path: &Path) {}
+
 /// Save or clear the chosen binary without dropping the mode or any field a
 /// later version of the app may have written there.
 pub fn write_desktop_bin(path: &Path, bin: Option<&str>) -> std::io::Result<()> {
@@ -922,7 +954,9 @@ pub fn write_desktop_bin(path: &Path, bin: Option<&str>) -> std::io::Result<()> 
     }
     let json = serde_json::to_string_pretty(&value)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    std::fs::write(path, format!("{json}\n"))
+    std::fs::write(path, format!("{json}\n"))?;
+    owner_only(path);
+    Ok(())
 }
 
 /// The real executable a `.cmd`/`.bat`/`.ps1` shim forwards to, if it can be
@@ -1271,7 +1305,9 @@ pub fn write_runtime(path: &Path, runtime: &OpencodeRuntime) -> std::io::Result<
     }
     let json = serde_json::to_string_pretty(runtime)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    std::fs::write(path, format!("{json}\n"))
+    std::fs::write(path, format!("{json}\n"))?;
+    owner_only(path);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1339,6 +1375,7 @@ mod tests {
             password: "unit-test-password-value".into(),
             url: "http://127.0.0.1:43123".into(),
             service_port: 7700,
+            api_token: None,
         }
     }
 
@@ -1644,6 +1681,18 @@ mod tests {
                 ),
             ]
         );
+    }
+
+    #[test]
+    fn child_env_carries_the_capability_token_when_there_is_one() {
+        // The plugin inside OpenCode presents the token, so the request it
+        // makes is one the service accepts rather than a 401.
+        let mut plan = sample_plan();
+        plan.api_token = Some("unit-test-token".into());
+        let env = child_env(&plan);
+        assert!(env
+            .iter()
+            .any(|(key, value)| key == "STRATA_API_TOKEN" && value == "unit-test-token"));
     }
 
     #[test]

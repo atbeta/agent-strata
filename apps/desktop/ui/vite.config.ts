@@ -8,6 +8,15 @@ import { APP_NAME } from "./src/app-name";
 const service = process.env.STRATA_SERVICE_URL ?? "http://127.0.0.1:7700";
 
 /**
+ * The capability token the service expects, when there is one.
+ *
+ * A browser tab cannot read the token the desktop shell generated — only the
+ * shell can — so the dev proxy presents it on the way through. The page in
+ * the shell asks the shell for the token and sends it itself.
+ */
+const token = process.env.STRATA_API_TOKEN;
+
+/**
  * The About tab has to name the build it is running in, and `tauri.conf.json`
  * is the one file that decides what that build is called — Cargo and the UI
  * package.json both copy it. Reading it here rather than asking Tauri for
@@ -56,6 +65,9 @@ export default defineConfig({
         target: service,
         ws: true,
         rewrite: (p) => p.replace(/^\/api/, ""),
+        // The proxy presents the token on everything it forwards, the socket
+        // upgrade included.
+        ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
       },
     },
   },

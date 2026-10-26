@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
-import { api, SERVICE_BOOT_MS } from "./api";
+import { apiFetch, SERVICE_BOOT_MS } from "./api";
 import { settled } from "./resource";
 import {
   STARTUP_SLOW_MS,
@@ -25,7 +25,7 @@ async function healthOk(): Promise<boolean> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 1_200);
   try {
-    const res = await fetch(api("/health"), { signal: controller.signal });
+    const res = await apiFetch("/health", { signal: controller.signal });
     return res.ok;
   } catch {
     return false;

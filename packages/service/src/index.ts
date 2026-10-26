@@ -42,6 +42,7 @@ import {
 import { editorLaunch } from "./editor";
 import { forkBefore, forkTitle } from "./fork";
 import { refused, shellCors } from "./shell-origin";
+import { queryTokenOk, readApiToken, tokenOk } from "./api-token";
 import { terminalClose, terminalMessage, terminalOpen, terminalRoute, terminalUpgrade } from "./terminal";
 import { createDevManager, type DevEvent } from "./dev-process";
 import { SessionClaims } from "./identity";
@@ -52,6 +53,8 @@ const MAX_DEV_LOG_TAIL = 5000;
 export interface ServiceOpts {
   db?: string;
   port?: number;
+  // the capability token every request has to present; unset means no check
+  apiToken?: string;
   // optional JSON file the live policy is loaded from / persisted to
   policyFile?: string;
   // backend baseUrl to connect on boot, retried until autoConnectTimeoutMs.
@@ -103,6 +106,9 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   // is a real backend the reconcile would happily connect to.
   const desktopDir =
     opts.desktopDir ?? process.env.STRATA_DESKTOP_DIR ?? join(homedir(), ".agent-strata");
+  // The capability token, when there is one. The desktop sets it for every
+  // launch; a service started by hand runs without it and asks for nothing.
+  const apiToken = readApiToken(opts);
   const store = openStore(opts.db ?? ":memory:");
   const conns = new Map<string, BackendDriver>();
   // casf session id -> driver id, filled as sessions are indexed or created
@@ -1973,10 +1979,11 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     }
 
     if (path === "/dev" && req.method === "POST") {
+      // No `cwd`: the workspace is the session's, and a caller that could name
+      // a directory would be a caller that could leave the project.
       const body = (await req.json().catch(() => null)) as {
         session_id?: unknown;
         command?: unknown;
-        cwd?: unknown;
         port?: unknown;
         wait_ms?: unknown;
       } | null;
@@ -2003,10 +2010,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       // that can name any directory is a dev server that can leave the project.
       // A session whose first events have not arrived yet has no workspace in
       // its projection, so fall back to the connection that owns it.
-      const directory =
-        typeof body.cwd === "string" && body.cwd.length > 0
-          ? body.cwd
-          : (directoryOf(sessionID) ?? driverFor(sessionID)?.directory);
+      const directory = directoryOf(sessionID) ?? driverFor(sessionID)?.directory;
       if (!directory) return json({ error: "session has no workspace" }, 400);
       try {
         const started = await dev.start({
@@ -2176,10 +2180,22 @@ export function startService(opts: ServiceOpts = {}): RunningService {
           headers: {
             ...allow,
             "access-control-allow-methods": "GET,POST,PUT,DELETE,OPTIONS",
-            "access-control-allow-headers": "content-type",
+            "access-control-allow-headers": "authorization, x-strata-token, content-type",
           },
         });
-      const upgraded = terminalUpgrade(req, new URL(req.url), server, ownedTerminal);
+      const url = new URL(req.url);
+      // The token is the capability; the Host and Origin rules above are the
+      // other half. A browser cannot put a header on an EventSource or on a
+      // WebSocket, so those two requests carry the token in the URL instead —
+      // and the health check carries none, so a probe can ask whether the
+      // service is up without holding a secret.
+      const upgrade = req.headers.get("upgrade")?.toLowerCase() === "websocket";
+      const browserless = upgrade || url.pathname === "/stream";
+      const authorized = tokenOk(req, apiToken) || (browserless && queryTokenOk(url, apiToken));
+      const health = req.method === "GET" && url.pathname === "/health";
+      if (!health && !authorized)
+        return Response.json({ error: "unauthorized" }, { status: 401, headers: allow });
+      const upgraded = terminalUpgrade(req, url, server, ownedTerminal);
       if (upgraded === "upgraded") return undefined;
       let res: Response;
       try {
@@ -2371,6 +2387,9 @@ if (import.meta.main) {
     db,
     port,
     policyFile,
+    // The capability token. The desktop sets one for every launch; a service
+    // started by hand runs without it and asks for nothing.
+    apiToken: process.env.STRATA_API_TOKEN,
     // e.g. STRATA_OPENCODE_URL=http://127.0.0.1:4096 (Tauri embed sets this)
     autoConnect: process.env.STRATA_OPENCODE_URL,
     autoConnectUsername: process.env.STRATA_OPENCODE_USERNAME,

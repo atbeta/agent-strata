@@ -37,16 +37,19 @@ const NO_SERVICE =
 let resolved = undefined
 
 /**
- * Where the service is: the environment the shell sets on a server it starts,
- * or the handshake file it leaves for one it did not.
+ * Where the service is, and the token that says we are allowed to ask.
+ *
+ * The shell that started the service hands the token on in the environment,
+ * and leaves it in the handshake file for a server it did not start. A plugin
+ * without one is talking to a service that asks for nothing.
  */
-async function serviceURL() {
+async function serviceTarget() {
   const fromEnv = process.env.STRATA_SERVICE_URL
-  if (fromEnv) return fromEnv
+  if (fromEnv) return { url: fromEnv, token: process.env.STRATA_API_TOKEN || "" }
   resolved ??= probeHandshake()
-  const url = await resolved
-  if (!url) throw new Error(NO_SERVICE)
-  return url
+  const target = await resolved
+  if (!target) throw new Error(NO_SERVICE)
+  return target
 }
 
 /** The handshake file, if a live service is actually behind it. */
@@ -70,7 +73,8 @@ async function probeHandshake() {
     // plugin can hand a process to.
     const res = await fetch(new URL("/health", url), { signal: AbortSignal.timeout(700) })
     if (!res.ok) return undefined
-    return url
+    const token = parsed && typeof parsed.token === "string" ? parsed.token : ""
+    return { url, token }
   } catch {
     return undefined
   }
@@ -79,7 +83,7 @@ async function probeHandshake() {
 /** Whether the shell is there right now. Never throws. */
 async function available() {
   try {
-    await serviceURL()
+    await serviceTarget()
     return true
   } catch {
     return false
@@ -87,9 +91,14 @@ async function available() {
 }
 
 async function call(path, init) {
-  const response = await fetch(new URL(path, await serviceURL()), {
+  const target = await serviceTarget()
+  const headers = { "content-type": "application/json", ...(init?.headers ?? {}) }
+  // The service may want the token the shell gave it. The handshake is the
+  // fallback for a server this shell did not start.
+  if (target.token) headers["authorization"] = "Bearer " + target.token
+  const response = await fetch(new URL(path, target.url), {
     ...init,
-    headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
+    headers,
   })
   const text = await response.text()
   let body
@@ -200,7 +209,6 @@ export default async () => ({
             body: JSON.stringify({
               session_id: context.sessionID,
               command: args.command,
-              cwd: context.directory,
               port: args.port,
             }),
           })

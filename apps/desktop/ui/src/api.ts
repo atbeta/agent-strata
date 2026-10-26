@@ -270,8 +270,68 @@ const DESKTOP_SERVICE = "http://127.0.0.1:7700";
 
 export const api = (p: string) => (inDesktopShell() ? `${DESKTOP_SERVICE}${p}` : `/api${p}`);
 
+/**
+ * The capability token the service expects, when there is one.
+ *
+ * The desktop shell generates one per launch and the service asks for it on
+ * everything but the health check. A browser tab has no way to read it — the
+ * dev proxy adds the header itself — so the read is a no-op there.
+ *
+ * It is read once and kept: the token does not change while the app is open,
+ * and a page that asked again would only pay for the same answer twice.
+ */
+let tokenRead: Promise<string> | undefined;
+
+export function apiToken(): Promise<string> {
+  if (!inDesktopShell()) return Promise.resolve("");
+  tokenRead ??= (async () => {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      return (await invoke<string>("api_token")) ?? "";
+    } catch {
+      // A shell that cannot answer has no token to present, and a service
+      // without one asks for nothing.
+      return "";
+    }
+  })();
+  return tokenRead;
+}
+
+/** The request with the token folded in, when the service expects one. */
+export async function withAuth(init?: RequestInit): Promise<RequestInit> {
+  const token = await apiToken();
+  if (!token) return init ?? {};
+  const headers = new Headers(init?.headers);
+  headers.set("authorization", `Bearer ${token}`);
+  return { ...init, headers };
+}
+
+/**
+ * The one way this page talks to the service.
+ *
+ * Every request goes through here, so the token cannot be left off one of
+ * them by accident: a page that half works is worse than one that does not.
+ */
+export async function apiFetch(p: string, init?: RequestInit): Promise<Response> {
+  return fetch(api(p), await withAuth(init));
+}
+
+/**
+ * The address of a stream, with the token the service expects.
+ *
+ * An EventSource cannot carry a header — that is the browser's rule, not
+ * ours — so the token rides in the query. The address is only known once the
+ * shell has handed the token over, which is why this is a promise.
+ */
+export async function streamUrl(p: string): Promise<string> {
+  const token = await apiToken();
+  const url = api(p);
+  if (!token) return url;
+  return `${url}?${new URLSearchParams({ token }).toString()}`;
+}
+
 export async function getJson<T>(p: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(api(p), init);
+  const res = await apiFetch(p, init);
   if (!res.ok) throw new Error(t("api.err.service", { status: res.status }));
   return (await res.json()) as T;
 }
@@ -317,7 +377,7 @@ export async function readOpencode<T>(
   query?: Record<string, string | number>,
   signal?: AbortSignal,
 ): Promise<T | undefined> {
-  const res = await fetch(api(opencodePath(sessionId, path, query)), { signal });
+  const res = await apiFetch(opencodePath(sessionId, path, query), { signal });
   if (res.status === 404) return undefined;
   await throwOnError(res);
   return (await res.json()) as T;
@@ -367,7 +427,7 @@ export function readFileBody(sessionId: string, path: string): Promise<FileBody 
 }
 
 export async function openInEditor(editor: "cursor" | "vscode", path: string): Promise<void> {
-  const res = await fetch(api("/desktop/editor"), {
+  const res = await apiFetch("/desktop/editor", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ editor, path }),
@@ -408,7 +468,7 @@ export async function addMcp(
   server: { name: string; command?: string; url?: string },
 ): Promise<void> {
   await throwOnError(
-    await fetch(api(`/sessions/${encodeURIComponent(sessionId)}/mcp`), {
+    await apiFetch(`/sessions/${encodeURIComponent(sessionId)}/mcp`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(server),
@@ -421,7 +481,7 @@ export async function beginMcpLogin(
   name: string,
   signal?: AbortSignal,
 ): Promise<{ url: string } | { ok: true }> {
-  const res = await fetch(api(`/sessions/${encodeURIComponent(sessionId)}/mcp/${encodeURIComponent(name)}/auth`), {
+  const res = await apiFetch(`/sessions/${encodeURIComponent(sessionId)}/mcp/${encodeURIComponent(name)}/auth`, {
     method: "POST",
     signal,
   });
@@ -449,7 +509,7 @@ export async function finishMcpLogin(
 
 export async function connectMcp(sessionId: string, name: string): Promise<void> {
   await throwOnError(
-    await fetch(api(`/sessions/${encodeURIComponent(sessionId)}/mcp/${encodeURIComponent(name)}/connect`), {
+    await apiFetch(`/sessions/${encodeURIComponent(sessionId)}/mcp/${encodeURIComponent(name)}/connect`, {
       method: "POST",
     }),
   );
@@ -457,7 +517,7 @@ export async function connectMcp(sessionId: string, name: string): Promise<void>
 
 export async function disconnectMcp(sessionId: string, name: string): Promise<void> {
   await throwOnError(
-    await fetch(api(`/sessions/${encodeURIComponent(sessionId)}/mcp/${encodeURIComponent(name)}/disconnect`), {
+    await apiFetch(`/sessions/${encodeURIComponent(sessionId)}/mcp/${encodeURIComponent(name)}/disconnect`, {
       method: "POST",
     }),
   );
@@ -469,7 +529,7 @@ export function findFiles(sessionId: string, query: string, signal?: AbortSignal
 
 export async function sendPrompt(sessionId: string, parts: PromptPart[], choice: PromptChoice): Promise<void> {
   await throwOnError(
-    await fetch(api(`/sessions/${encodeURIComponent(sessionId)}/prompt`), {
+    await apiFetch(`/sessions/${encodeURIComponent(sessionId)}/prompt`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ parts, ...choice }),
@@ -483,7 +543,7 @@ export async function runCommand(
   choice: PromptChoice,
 ): Promise<void> {
   await throwOnError(
-    await fetch(api(`/sessions/${encodeURIComponent(sessionId)}/command`), {
+    await apiFetch(`/sessions/${encodeURIComponent(sessionId)}/command`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -534,7 +594,7 @@ export function fetchDailyUsage(tz: string): Promise<DailyUsageRow[]> {
  * panel — and its answer comes back so the button can say where it went.
  */
 export async function downloadExport(sessionId: string): Promise<string | undefined> {
-  const res = await fetch(api(`/export?session_id=${encodeURIComponent(sessionId)}`));
+  const res = await apiFetch(`/export?session_id=${encodeURIComponent(sessionId)}`);
   await throwOnError(res);
   const blob = await res.blob();
   if (inDesktopShell()) {
@@ -592,7 +652,7 @@ export async function searchSession(
 }
 
 export async function importSession(id: string): Promise<void> {
-  const res = await fetch(api(`/sessions/${encodeURIComponent(id)}/import`), { method: "POST" });
+  const res = await apiFetch(`/sessions/${encodeURIComponent(id)}/import`, { method: "POST" });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(body.error ?? t("api.err.service", { status: res.status }));
@@ -600,7 +660,7 @@ export async function importSession(id: string): Promise<void> {
 }
 
 export async function renameSession(id: string, title: string): Promise<void> {
-  const res = await fetch(api(`/sessions/${encodeURIComponent(id)}/rename`), {
+  const res = await apiFetch(`/sessions/${encodeURIComponent(id)}/rename`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ title }),
@@ -609,11 +669,11 @@ export async function renameSession(id: string, title: string): Promise<void> {
 }
 
 export async function archiveSession(id: string): Promise<void> {
-  await throwOnError(await fetch(api(`/sessions/${encodeURIComponent(id)}/archive`), { method: "POST" }));
+  await throwOnError(await apiFetch(`/sessions/${encodeURIComponent(id)}/archive`, { method: "POST" }));
 }
 
 export async function abortSession(id: string): Promise<void> {
-  const res = await fetch(api(`/sessions/${encodeURIComponent(id)}/abort`), { method: "POST" });
+  const res = await apiFetch(`/sessions/${encodeURIComponent(id)}/abort`, { method: "POST" });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(body.error ?? t("api.err.service", { status: res.status }));
@@ -622,7 +682,7 @@ export async function abortSession(id: string): Promise<void> {
 
 export async function revertSession(id: string, messageId: string): Promise<void> {
   await throwOnError(
-    await fetch(api(`/sessions/${encodeURIComponent(id)}/revert`), {
+    await apiFetch(`/sessions/${encodeURIComponent(id)}/revert`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ message_id: messageId }),
@@ -631,12 +691,12 @@ export async function revertSession(id: string, messageId: string): Promise<void
 }
 
 export async function unrevertSession(id: string): Promise<void> {
-  await throwOnError(await fetch(api(`/sessions/${encodeURIComponent(id)}/unrevert`), { method: "POST" }));
+  await throwOnError(await apiFetch(`/sessions/${encodeURIComponent(id)}/unrevert`, { method: "POST" }));
 }
 
 /** Opens a new session on another connection, with this session's briefing as its first prompt. */
 export async function handoffSession(id: string, connectionId: string): Promise<string> {
-  const res = await fetch(api(`/sessions/${encodeURIComponent(id)}/handoff`), {
+  const res = await apiFetch(`/sessions/${encodeURIComponent(id)}/handoff`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ connection_id: connectionId }),
@@ -655,7 +715,7 @@ export async function forkSession(
   at: { before: string } | { through: string } | "all",
 ): Promise<string> {
   const body = at === "all" ? {} : "before" in at ? { message_id: at.before } : { message_id: at.through, through: true };
-  const res = await fetch(api(`/sessions/${encodeURIComponent(id)}/fork`), {
+  const res = await apiFetch(`/sessions/${encodeURIComponent(id)}/fork`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -670,7 +730,7 @@ export async function summarizeSession(
   model?: { providerID: string; modelID: string },
 ): Promise<void> {
   await throwOnError(
-    await fetch(api(`/sessions/${encodeURIComponent(id)}/summarize`), {
+    await apiFetch(`/sessions/${encodeURIComponent(id)}/summarize`, {
       method: "POST",
       headers: model ? { "content-type": "application/json" } : undefined,
       body: model ? JSON.stringify({ model }) : undefined,
@@ -680,14 +740,14 @@ export async function summarizeSession(
 
 /** Publishes the session; resolves with its share URL when the backend hands one back. */
 export async function shareSession(id: string): Promise<string | undefined> {
-  const res = await fetch(api(`/sessions/${encodeURIComponent(id)}/share`), { method: "POST" });
+  const res = await apiFetch(`/sessions/${encodeURIComponent(id)}/share`, { method: "POST" });
   await throwOnError(res);
   const body = (await res.json().catch(() => ({}))) as { url?: string | null };
   return body.url ?? undefined;
 }
 
 export async function unshareSession(id: string): Promise<void> {
-  await throwOnError(await fetch(api(`/sessions/${encodeURIComponent(id)}/unshare`), { method: "POST" }));
+  await throwOnError(await apiFetch(`/sessions/${encodeURIComponent(id)}/unshare`, { method: "POST" }));
 }
 
 export async function respondQuestion(
@@ -695,7 +755,7 @@ export async function respondQuestion(
   decision: "reply" | "reject",
   answers?: string[][],
 ): Promise<void> {
-  const res = await fetch(api(`/questions/${encodeURIComponent(requestId)}/respond`), {
+  const res = await apiFetch(`/questions/${encodeURIComponent(requestId)}/respond`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ decision, answers }),
@@ -708,7 +768,7 @@ export async function respondPermission(
   decision: "allow" | "deny",
   scope?: "once" | "always",
 ): Promise<void> {
-  const res = await fetch(api(`/permissions/${encodeURIComponent(requestId)}/respond`), {
+  const res = await apiFetch(`/permissions/${encodeURIComponent(requestId)}/respond`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ decision, scope }),
@@ -720,14 +780,14 @@ export async function respondPermission(
 export type SessionPolicyMode = "auto" | "inherit";
 
 export async function readSessionPolicy(id: string): Promise<SessionPolicyMode> {
-  const res = await fetch(api(`/sessions/${encodeURIComponent(id)}/policy`));
+  const res = await apiFetch(`/sessions/${encodeURIComponent(id)}/policy`);
   if (!res.ok) throw new Error(t("api.err.service", { status: res.status }));
   const body = (await res.json()) as { mode?: string };
   return body.mode === "auto" ? "auto" : "inherit";
 }
 
 export async function setSessionPolicy(id: string, mode: SessionPolicyMode): Promise<void> {
-  const res = await fetch(api(`/sessions/${encodeURIComponent(id)}/policy`), {
+  const res = await apiFetch(`/sessions/${encodeURIComponent(id)}/policy`, {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ mode }),
@@ -737,7 +797,7 @@ export async function setSessionPolicy(id: string, mode: SessionPolicyMode): Pro
 
 export async function setGoal(sessionId: string, text: string): Promise<void> {
   await throwOnError(
-    await fetch(api(`/sessions/${encodeURIComponent(sessionId)}/goal`), {
+    await apiFetch(`/sessions/${encodeURIComponent(sessionId)}/goal`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ text }),
@@ -747,7 +807,7 @@ export async function setGoal(sessionId: string, text: string): Promise<void> {
 
 export async function setGoalPaused(sessionId: string, paused: boolean): Promise<void> {
   await throwOnError(
-    await fetch(api(`/sessions/${encodeURIComponent(sessionId)}/goal`), {
+    await apiFetch(`/sessions/${encodeURIComponent(sessionId)}/goal`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ paused }),
@@ -757,7 +817,7 @@ export async function setGoalPaused(sessionId: string, paused: boolean): Promise
 
 export async function clearGoal(sessionId: string): Promise<void> {
   await throwOnError(
-    await fetch(api(`/sessions/${encodeURIComponent(sessionId)}/goal`), { method: "DELETE" }),
+    await apiFetch(`/sessions/${encodeURIComponent(sessionId)}/goal`, { method: "DELETE" }),
   );
 }
 
@@ -803,7 +863,7 @@ export function listProviders(connectionId: string): Promise<{ providers: ApiPro
 }
 
 export async function saveProviderKey(connectionId: string, providerId: string, key: string): Promise<void> {
-  const res = await fetch(api(`/connections/${encodeURIComponent(connectionId)}/providers/${encodeURIComponent(providerId)}`), {
+  const res = await apiFetch(`/connections/${encodeURIComponent(connectionId)}/providers/${encodeURIComponent(providerId)}`, {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ key }),
@@ -812,7 +872,7 @@ export async function saveProviderKey(connectionId: string, providerId: string, 
 }
 
 export async function removeProviderKey(connectionId: string, providerId: string): Promise<void> {
-  const res = await fetch(api(`/connections/${encodeURIComponent(connectionId)}/providers/${encodeURIComponent(providerId)}`), {
+  const res = await apiFetch(`/connections/${encodeURIComponent(connectionId)}/providers/${encodeURIComponent(providerId)}`, {
     method: "DELETE",
   });
   await throwOnError(res);
@@ -824,7 +884,7 @@ export async function beginProviderLogin(
   method: number,
   inputs?: Record<string, string>,
 ): Promise<OAuthStart> {
-  const res = await fetch(api(`/connections/${encodeURIComponent(connectionId)}/providers/${encodeURIComponent(providerId)}/oauth`), {
+  const res = await apiFetch(`/connections/${encodeURIComponent(connectionId)}/providers/${encodeURIComponent(providerId)}/oauth`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ method, ...(inputs ? { inputs } : {}) }),
@@ -889,7 +949,7 @@ export function readOpencodeLaunch(): Promise<OpencodeLaunch> {
 export async function saveOpencodeMode(
   mode: OpencodeLaunchMode,
 ): Promise<{ mode: OpencodeLaunchMode; applied: "next-launch" }> {
-  const res = await fetch(api("/desktop/opencode"), {
+  const res = await apiFetch("/desktop/opencode", {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ mode }),
@@ -899,7 +959,7 @@ export async function saveOpencodeMode(
 }
 
 export async function savePolicy(policy: Policy): Promise<void> {
-  const res = await fetch(api("/policy"), {
+  const res = await apiFetch("/policy", {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(policy),
@@ -908,11 +968,11 @@ export async function savePolicy(policy: Policy): Promise<void> {
 }
 
 export async function clearPolicy(): Promise<void> {
-  await throwOnError(await fetch(api("/policy"), { method: "DELETE" }));
+  await throwOnError(await apiFetch("/policy", { method: "DELETE" }));
 }
 
 export async function syncBackend(): Promise<{ connected: boolean; imported: number }> {
-  const res = await fetch(api("/sync"), { method: "POST" });
+  const res = await apiFetch("/sync", { method: "POST" });
   const data = (await res.json().catch(() => ({}))) as {
     connected?: boolean;
     imported?: number;
@@ -933,7 +993,7 @@ export async function connectBackend(body: {
   username?: string;
   password?: string;
 }): Promise<string> {
-  const res = await fetch(api("/connect"), {
+  const res = await apiFetch("/connect", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -944,13 +1004,13 @@ export async function connectBackend(body: {
 }
 
 export async function disconnectBackend(id: string): Promise<void> {
-  await throwOnError(await fetch(api(`/connections/${encodeURIComponent(id)}`), { method: "DELETE" }));
+  await throwOnError(await apiFetch(`/connections/${encodeURIComponent(id)}`, { method: "DELETE" }));
 }
 
 /** Drop a remembered address so the next launch does not dial it again. */
 export async function forgetBackend(endpoint: string): Promise<void> {
   await throwOnError(
-    await fetch(api("/connections/forget"), {
+    await apiFetch("/connections/forget", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ endpoint }),
@@ -963,7 +1023,7 @@ export async function testPolicy(body: {
   input: Record<string, unknown>;
   policy?: unknown;
 }): Promise<PolicyDecision> {
-  const res = await fetch(api("/policy/test"), {
+  const res = await apiFetch("/policy/test", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -1015,7 +1075,7 @@ export async function openTerminal(
   if (opts.shell) body.shell = opts.shell;
   // No timeout meant a stuck spawn pinned the pane's `opening` latch forever
   // and every later "+" press silently no-oped.
-  const res = await fetch(api(`/sessions/${encodeURIComponent(sessionId)}/terminal`), {
+  const res = await apiFetch(`/sessions/${encodeURIComponent(sessionId)}/terminal`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -1028,7 +1088,7 @@ export async function openTerminal(
 
 export async function closeTerminal(sessionId: string, ptyId: string): Promise<void> {
   await throwOnError(
-    await fetch(api(`/sessions/${encodeURIComponent(sessionId)}/terminal/${encodeURIComponent(ptyId)}`), {
+    await apiFetch(`/sessions/${encodeURIComponent(sessionId)}/terminal/${encodeURIComponent(ptyId)}`, {
       method: "DELETE",
     }),
   );
@@ -1036,7 +1096,7 @@ export async function closeTerminal(sessionId: string, ptyId: string): Promise<v
 
 export async function resizeTerminal(sessionId: string, ptyId: string, rows: number, cols: number): Promise<void> {
   await throwOnError(
-    await fetch(api(`/sessions/${encodeURIComponent(sessionId)}/terminal/${encodeURIComponent(ptyId)}/size`), {
+    await apiFetch(`/sessions/${encodeURIComponent(sessionId)}/terminal/${encodeURIComponent(ptyId)}/size`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ rows, cols }),
@@ -1044,12 +1104,20 @@ export async function resizeTerminal(sessionId: string, ptyId: string, rows: num
   );
 }
 
-/** The page socket. Strata dials OpenCode; this URL has neither the password nor the ticket. */
-export function terminalSocket(sessionId: string, ptyId: string): string {
+/**
+ * The page socket. Strata dials OpenCode; this URL has neither the password nor the ticket.
+ *
+ * A WebSocket cannot carry a header either, so the token the service expects
+ * rides in the query — the same place the event stream puts it.
+ */
+export async function terminalSocket(sessionId: string, ptyId: string): Promise<string> {
   const path = `/sessions/${encodeURIComponent(sessionId)}/terminal/${encodeURIComponent(ptyId)}/connect`;
-  if (inDesktopShell()) return `ws://127.0.0.1:7700${path}`;
-  const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${location.host}/api${path}`;
+  const base = inDesktopShell()
+    ? `ws://127.0.0.1:7700${path}`
+    : `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/api${path}`;
+  const token = await apiToken();
+  if (!token) return base;
+  return `${base}?${new URLSearchParams({ token }).toString()}`;
 }
 
 /**
@@ -1132,7 +1200,7 @@ export interface DevStopResult {
 }
 
 export async function stopDevProcess(processId: string): Promise<DevStopResult> {
-  const res = await fetch(api(`/dev/${encodeURIComponent(processId)}/stop`), { method: "POST" });
+  const res = await apiFetch(`/dev/${encodeURIComponent(processId)}/stop`, { method: "POST" });
   if (!res.ok) await throwOnError(res);
   const result = (await res.json()) as DevStopResult;
   if (result.clean) return result;

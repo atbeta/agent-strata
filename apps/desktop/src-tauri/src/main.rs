@@ -63,6 +63,12 @@ struct Sidecars {
     /// The port the service listens on; an embedded server's plan needs it so
     /// its plugin can find the service.
     service_port: u16,
+    /// The capability token every request to the service has to present.
+    ///
+    /// The shell generates it once per launch and hands it to the service, to
+    /// the embedded server's plugin, and to the page. A service without one
+    /// asks for nothing, which is what a service started by hand gets.
+    api_token: String,
 }
 
 impl Sidecars {
@@ -79,6 +85,7 @@ impl Sidecars {
             data: data_dir(),
             log: None,
             service_port: 7700,
+            api_token: String::new(),
         }
     }
 
@@ -147,6 +154,7 @@ impl Sidecars {
             &self.data,
             &log,
             self.service_port,
+            &self.api_token,
             self.shutdown.clone(),
             self.restart.clone(),
             self.opencode.clone(),
@@ -242,6 +250,21 @@ fn port_open(port: u16) -> bool {
 fn open_log(path: &Path) -> Option<File> {
     OpenOptions::new().create(true).append(true).open(path).ok()
 }
+
+/// Keep a file to its owner.
+///
+/// The handshake carries the capability token, and the token file carries
+/// nothing else. A mode that lets another account read them is a secret on
+/// disk, so the mode is set after the write rather than left to the umask.
+#[cfg(unix)]
+fn owner_only(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
+}
+
+/// Windows has no unix mode to set; the file inherits the directory's ACL.
+#[cfg(not(unix))]
+fn owner_only(_path: &Path) {}
 
 type Log = Arc<Mutex<File>>;
 
@@ -483,6 +506,7 @@ fn spawn_opencode_supervisor(
     data: &Path,
     log: &Log,
     service_port: u16,
+    api_token: &str,
     shutdown: Arc<AtomicBool>,
     restart: Arc<AtomicBool>,
     opencode: Arc<Mutex<Option<Child>>>,
@@ -525,7 +549,7 @@ fn spawn_opencode_supervisor(
             }
         }
     }
-    let planned = match plan_with_port(OpencodeMode::Embed, preferred, service_port) {
+    let mut planned = match plan_with_port(OpencodeMode::Embed, preferred, service_port) {
         Ok(planned) => planned,
         Err(e) => {
             eprintln!("agent-strata: could not plan embedded opencode: {e}");
@@ -533,6 +557,10 @@ fn spawn_opencode_supervisor(
             return None;
         }
     };
+    // The plugin inside the server asks the service for things, so it needs
+    // the token the service expects. The plan carries it into the child's
+    // environment.
+    planned.api_token = Some(api_token.to_string());
     let supervise_log = log.clone();
     // One stage shared across respawns: a refusal stays visible even when the
     // prompt is re-read by a replacement child, until an answer goes in.
@@ -700,6 +728,11 @@ impl Sidecars {
         let log: Log = Arc::new(Mutex::new(log_file));
         log_note(&log, "---- agent-strata shell starting ----");
 
+        // The capability token, once per launch. It is what turns "a process
+        // on this machine" into "this shell": the service asks for it on every
+        // request but the health check, and only this run knows it.
+        let api_token = embed::random_password();
+
         let db = std::env::var("STRATA_DB")
             .unwrap_or_else(|_| data.join("events.db").to_string_lossy().into_owned());
         if let Some(parent) = Path::new(&db).parent() {
@@ -811,6 +844,7 @@ impl Sidecars {
                     &data,
                     &log,
                     port,
+                    &api_token,
                     shutdown.clone(),
                     restart.clone(),
                     opencode.clone(),
@@ -826,6 +860,9 @@ impl Sidecars {
             ("STRATA_DB", db),
             ("STRATA_PORT", port.to_string()),
             ("STRATA_POLICY", policy),
+            // The token, always: the service asks for it on everything but the
+            // health check, and the page gets it from the shell.
+            ("STRATA_API_TOKEN", api_token.clone()),
         ];
         for (key, value) in &extras {
             envs.push((key.as_str(), value.clone()));
@@ -879,11 +916,29 @@ impl Sidecars {
             if let Some(parent) = handshake.parent() {
                 let _ = fs::create_dir_all(parent);
             }
-            let body = serde_json::json!({ "url": url, "pid": std::process::id() });
+            // The token rides along: a plugin that finds the service also has
+            // to be allowed to ask it anything.
+            let body = serde_json::json!({
+                "url": url,
+                "pid": std::process::id(),
+                "token": api_token.clone(),
+            });
             if let Err(e) = fs::write(&handshake, format!("{body}\n")) {
                 eprintln!("agent-strata: could not write {}: {e}", handshake.display());
                 log_note(&log, &format!("could not write handshake: {e}"));
+            } else {
+                owner_only(&handshake);
             }
+        }
+
+        // The token on its own, for a script that has to reach the service
+        // without the shell: `curl -H "Authorization: Bearer $(cat ...)"`
+        let token_path = data.join("api-token");
+        if let Err(e) = fs::write(&token_path, format!("{api_token}\n")) {
+            eprintln!("agent-strata: could not write {}: {e}", token_path.display());
+            log_note(&log, &format!("could not write api-token: {e}"));
+        } else {
+            owner_only(&token_path);
         }
 
         Sidecars {
@@ -898,6 +953,7 @@ impl Sidecars {
             data,
             log: Some(log),
             service_port: port,
+            api_token,
         }
     }
 }
@@ -985,6 +1041,16 @@ fn answer_login(
     // point it becomes a fresh attempt, so the status flips back to waiting.
     pipe.stage.store(1, Ordering::SeqCst);
     Ok(())
+}
+
+/// The capability token the service expects, for the page that talks to it.
+///
+/// The service asks for the token on every request but the health check, and
+/// a page in the webview has no other way to get it. An empty string is a
+/// service that asks for nothing — a shell that never started one.
+#[tauri::command]
+fn api_token(state: tauri::State<Sidecars>) -> String {
+    state.api_token.clone()
 }
 
 /// Open the log the shell and the embedded server share. The path is fixed,
@@ -1173,6 +1239,7 @@ fn main() {
             save_export,
             restart_opencode,
             opencode_login,
+            api_token,
             open_log_file,
             open_notification_settings,
             opencode_runtime,
