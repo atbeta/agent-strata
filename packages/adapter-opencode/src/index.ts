@@ -467,18 +467,42 @@ export async function connectOpencode(opts: {
       await client.question.reject({ requestID: requestId, directory: directory ?? opts.directory });
     },
     async abort(sessionID: string, directory?: string) {
-      await client.session.abort({ sessionID, directory: directory ?? opts.directory });
-      // Abort returns when the request is accepted, not when a status event
-      // arrives. A session that was already idle accepts it and sends nothing,
-      // so the stored `busy` flag — the thing the stop button is reading —
-      // never moves. Saying idle here is the same event a real stop produces;
-      // a run that is genuinely still going sends `busy` again and the button
-      // comes back with it.
+      const dir = directory ?? opts.directory;
+      await client.session.abort({ sessionID, directory: dir });
+      // The official client clears its synced todo store on stop: the queued
+      // next steps belong to the run that just ended. Same move here — the
+      // projector folds it into an empty plan and the strip goes away until
+      // the next real `todo.updated`.
       ingestor.handle({
-        id: `abort:${sessionID}:${Date.now()}`,
-        type: "session.idle",
-        properties: { sessionID },
+        id: `abort:${sessionID}:todos:${Date.now()}`,
+        type: "todo.updated",
+        properties: { sessionID, todos: [] },
       } as Event);
+      // Abort returns when the request is accepted, not when a status event
+      // arrives. A session that was already idle accepts it and sends
+      // nothing, so a stale stored `busy` flag — the thing the stop button
+      // reads — never moves; the synthesized idle is what clears it. But a
+      // session the server still reports as running will send its own idle
+      // once the interrupt lands, and an early synthesized one only flicks
+      // the button off and back on — so only say idle when the server is
+      // not running the session right now. A status read that fails says
+      // nothing about the run; keep the close-out in that case so the stale
+      // flag still clears.
+      let running = false;
+      try {
+        const statuses = await client.session.status({ directory: dir });
+        const kind = (statuses.data ?? {})[sessionID]?.type;
+        running = kind === "busy" || kind === "retry";
+      } catch {
+        running = false;
+      }
+      if (!running) {
+        ingestor.handle({
+          id: `abort:${sessionID}:${Date.now()}`,
+          type: "session.idle",
+          properties: { sessionID },
+        } as Event);
+      }
     },
     async mcpConnect(name: string, directory?: string) {
       await client.mcp.connect({ name, directory: directory ?? opts.directory });
