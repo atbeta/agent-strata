@@ -7,6 +7,7 @@
   "scripts": {
     "test": "bun test packages",
     "test:ui": "bun test --cwd=apps/desktop/ui",
+    "check:secrets": "bun run scripts/check-secrets-perms.ts",
     "sidecar": "bun run scripts/build-sidecar.ts",
     "sidecar:force": "bun run scripts/build-sidecar.ts --force",
     "icons:providers": "bun run scripts/provider-icons.ts",

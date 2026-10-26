@@ -1,5 +1,6 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { writeSecureJson } from "./secure-write";
 
 export interface ConnectBody {
   backend?: string;
@@ -14,6 +15,16 @@ export interface ConnectBody {
   directory?: string;
   username?: string;
   password?: string;
+  /**
+   * Where the credentials of this address live, when they are not in this
+   * file.
+   *
+   * The embedded server's basic-auth pair is the shell's secret: the shell
+   * writes it to `opencode-status.json` while the server is up, and a copy in
+   * here would be a second copy of a secret in a file that has no reason to
+   * hold one.
+   */
+  credentials?: "opencode-status";
   policy?: unknown;
   connectTimeoutMs?: number;
   /**
@@ -89,8 +100,7 @@ export function connectionMemory(db: string | undefined) {
   const write = (list: ConnectBody[]) => {
     if (!file) return;
     try {
-      mkdirSync(dirname(file), { recursive: true });
-      writeFileSync(file, JSON.stringify(list, null, 2) + "\n");
+      writeSecureJson(file, list);
     } catch (e) {
       console.error(`could not save connections: ${e}`);
     }
@@ -99,7 +109,8 @@ export function connectionMemory(db: string | undefined) {
     saved,
     remember(body: ConnectBody) {
       const key = endpointOf(body);
-      const { policy: _policy, connectTimeoutMs: _timeout, ...kept } = body;
+      const { policy: _policy, connectTimeoutMs: _timeout, ...raw } = body;
+      const kept: ConnectBody = { ...raw };
       const rest = saved().filter((c) => endpointOf(c) !== key);
       // The embedded server is ours, and it gets a new address when the app
       // starts again. Its slot holds one address: the new one replaces the
@@ -108,6 +119,13 @@ export function connectionMemory(db: string | undefined) {
       // server of the user's is settled by whether it answers, not by its
       // shape.
       const others = body.placement === "embed" ? rest.filter((c) => c.placement !== "embed") : rest;
+      // The pair the embedded server answers to is not written down here. The
+      // shell owns it and keeps it in the status file; what is left is a
+      // reference to where to read it from.
+      if (body.placement === "embed" || looksEmbedded(body)) {
+        delete kept.password;
+        kept.credentials = "opencode-status";
+      }
       write([...others, kept]);
     },
     /**

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connectionMemory, endpointOf, looksEmbedded } from "../src/connections";
@@ -17,6 +17,9 @@ const list = (dir: string) =>
   JSON.parse(readFileSync(join(dir, "connections.json"), "utf8")) as {
     baseUrl?: string;
     placement?: string;
+    username?: string;
+    password?: string;
+    credentials?: string;
   }[];
 
 describe("connection memory", () => {
@@ -148,5 +151,47 @@ describe("connection memory", () => {
     expect(looksEmbedded({ ...embedded(53507), username: "someone" })).toBe(false);
     expect(looksEmbedded({ ...embedded(53507), password: "short" })).toBe(false);
     expect(looksEmbedded({ ...embedded(53507), baseUrl: "http://192.168.1.10:4096" })).toBe(false);
+  });
+
+  test("the embedded server's password is not written down here", () => {
+    // The pair is the shell's secret, and the shell keeps it in the status
+    // file. A copy here would be a second copy of a secret in a file that
+    // has no reason to hold one.
+    const dir = tempDir("embed-secret");
+    const memory = connectionMemory(join(dir, "events.db"));
+
+    memory.remember({ ...embedded(53507), placement: "embed" });
+
+    const text = readFileSync(join(dir, "connections.json"), "utf8");
+    expect(text).not.toContain(embedded(53507).password);
+    const saved = list(dir);
+    expect(saved[0]?.password).toBeUndefined();
+    // What is left is a reference to where the pair can be read.
+    expect(saved[0]?.credentials).toBe("opencode-status");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a server of the user's keeps its password, so it can be dialed again", () => {
+    const dir = tempDir("external-secret");
+    const memory = connectionMemory(join(dir, "events.db"));
+
+    memory.remember({ baseUrl: "http://127.0.0.1:4096", username: "me", password: "hunter2" });
+
+    const saved = list(dir);
+    expect(saved[0]?.password).toBe("hunter2");
+    expect(saved[0]?.credentials).toBeUndefined();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("the file of remembered addresses is read only by its owner", () => {
+    const dir = tempDir("embed-mode");
+    const memory = connectionMemory(join(dir, "events.db"));
+
+    memory.remember({ ...embedded(53507), placement: "embed" });
+
+    // A file another account on the machine can read is a secret in the open.
+    const mode = statSync(join(dir, "connections.json")).mode & 0o777;
+    expect(mode).toBe(0o600);
+    rmSync(dir, { recursive: true, force: true });
   });
 });
