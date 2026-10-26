@@ -749,6 +749,12 @@ export function useSessionComposer(args: {
     // re-fetch, that round trip is long enough for the watchdog to fire first and
     // report a stop that worked as one that did not.
     closeHandover();
+    // Queued follow-ups drain automatically once the session idles, and a stop
+    // brings that idle: without the pause the first queued message would fire
+    // the moment the abort lands — the same drop the official client makes on
+    // its unsent submission. The items stay listed and removable, and any new
+    // send clears the pause like the send-failure path already does.
+    setQueuePaused(true);
     try {
       await abortSession(args.sessionId());
       // The backend returns once it has taken the abort, which is the strongest
