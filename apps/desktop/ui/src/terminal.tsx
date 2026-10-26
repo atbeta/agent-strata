@@ -137,25 +137,34 @@ export function TerminalPane(props: { sessionId: string; onEmpty?: () => void })
     term.loadAddon(fit);
     term.open(el);
     fit.fit();
-    const ws = new WebSocket(terminalSocket(props.sessionId, id));
-    ws.binaryType = "arraybuffer";
+    // The socket's address carries the token the service expects, and a
+    // WebSocket cannot carry a header — so the address is only known once the
+    // shell has handed the token over.
+    let ws: WebSocket | undefined;
+    let wsClosed = false;
     let fitted = false;
     const applySize = () => {
       fit.fit();
       if (term.cols < 1 || term.rows < 1) return;
       void resizeTerminal(props.sessionId, id, term.rows, term.cols).catch(() => {});
     };
-    ws.onopen = () => {
-      fitted = true;
-      applySize();
-    };
-    ws.onmessage = (ev) => {
-      if (typeof ev.data === "string") term.write(ev.data);
-      else term.write(new Uint8Array(ev.data as ArrayBuffer));
-    };
-    ws.onclose = () => term.write(`\r\n${t("terminal.closed")}\r\n`);
-    term.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(data);
+    void terminalSocket(props.sessionId, id).then((url) => {
+      if (wsClosed) return;
+      const socket = new WebSocket(url);
+      ws = socket;
+      socket.binaryType = "arraybuffer";
+      socket.onopen = () => {
+        fitted = true;
+        applySize();
+      };
+      socket.onmessage = (ev) => {
+        if (typeof ev.data === "string") term.write(ev.data);
+        else term.write(new Uint8Array(ev.data as ArrayBuffer));
+      };
+      socket.onclose = () => term.write(`\r\n${t("terminal.closed")}\r\n`);
+      term.onData((data) => {
+        if (socket.readyState === WebSocket.OPEN) socket.send(data);
+      });
     });
     const observer = new ResizeObserver(() => {
       if (fitted) applySize();
@@ -170,8 +179,11 @@ export function TerminalPane(props: { sessionId: string; onEmpty?: () => void })
     onCleanup(() => {
       window.removeEventListener("strata-fonts", onFonts);
       observer.disconnect();
-      ws.onclose = null;
-      ws.close();
+      wsClosed = true;
+      if (ws) {
+        ws.onclose = null;
+        ws.close();
+      }
       term.dispose();
     });
   });

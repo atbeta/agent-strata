@@ -1,5 +1,5 @@
 import { createEffect, createResource, createSignal, onCleanup, onMount, Show } from "solid-js";
-import { api, getJson, syncBackend, type StrataEvent } from "./api";
+import { apiFetch, getJson, streamUrl, syncBackend, type StrataEvent } from "./api";
 import { settled } from "./resource";
 import { FleetView } from "./fleet-view";
 import { SessionDetail } from "./session-detail";
@@ -136,7 +136,11 @@ export function App() {
     };
     scheme.addEventListener("change", onScheme);
     const clockTimer = setInterval(() => setClock(Date.now()), 30_000);
-    const es = new EventSource(api("/stream"));
+    // The stream's address carries the token the service expects, and an
+    // EventSource cannot carry a header — so the address is only known once
+    // the shell has handed the token over.
+    let es: EventSource | undefined;
+    let esClosed = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const pull = () => {
       // During launch the gate owns the wait and the service is already
@@ -164,7 +168,7 @@ export function App() {
     };
     document.addEventListener("visibilitychange", onVisibility);
     let wsStale = false;
-    es.onmessage = (m) => {
+    const onStreamMessage = (m: MessageEvent) => {
       if (isStreamingSnapshotMessage(m.data)) return;
       let type: string | undefined;
       // The project list costs a round trip to every backend, and only a
@@ -229,6 +233,11 @@ export function App() {
         behindSync ? 900 : 200,
       );
     };
+    void streamUrl("/stream").then((url) => {
+      if (esClosed) return;
+      es = new EventSource(url);
+      es.onmessage = onStreamMessage;
+    });
     const onKey = (e: KeyboardEvent) => {
       if (e.isComposing) return;
       // The gate owns the window until launch is over; a shortcut that only
@@ -308,7 +317,8 @@ export function App() {
       conns.clearSyncGrace();
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisibility);
-      es.close();
+      esClosed = true;
+      es?.close();
     });
   });
 
@@ -316,7 +326,7 @@ export function App() {
     list.setActionErr("");
     const directory = dir ?? defaultDir();
     try {
-      const res = await fetch(api("/sessions"), {
+      const res = await apiFetch("/sessions", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ directory, connection_id: conns.newSessionConnection() }),

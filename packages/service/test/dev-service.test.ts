@@ -134,4 +134,26 @@ describe("dev commands over the service", () => {
     const stopped = await post("/dev/dev_missing/stop", {});
     expect(stopped.status).toBe(404);
   }, 30_000);
+
+  test("the workspace is the session's, whatever the caller says", async () => {
+    // A caller that could name a directory would be a caller that could
+    // leave the project. The path in the body is ignored: the session's
+    // workspace is the answer.
+    const elsewhere = mkdtempSync(join(tmpdir(), "strata-devsvc-elsewhere-"));
+    try {
+      const started = await post("/dev", {
+        session_id: "opencode:ses_x",
+        command: "node -e \"setTimeout(() => {}, 500)\"",
+        cwd: elsewhere,
+      });
+      expect(started.status).toBe(200);
+      const info = (await started.json()) as { id: string; cwd: string };
+      expect(info.cwd).toBe(work);
+
+      const stopped = await post(`/dev/${info.id}/stop`, {});
+      expect(stopped.status).toBe(200);
+    } finally {
+      rmSync(elsewhere, { recursive: true, force: true });
+    }
+  }, 30_000);
 });

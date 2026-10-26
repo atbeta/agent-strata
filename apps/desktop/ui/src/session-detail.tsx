@@ -38,6 +38,7 @@ import {
   summarizeSession,
   unshareSession,
   unrevertSession,
+  streamUrl,
   type CommandInfo,
   type Connection,
   type OptionsResponse,
@@ -1111,10 +1112,14 @@ const turns = () => shown().turns;
         })
         .catch(() => {});
     }, 3_000);
-    const es = new EventSource(api("/stream"));
+    // The stream's address carries the token the service expects, and an
+    // EventSource cannot carry a header — so the address is only known once
+    // the shell has handed the token over.
+    let es: EventSource | undefined;
+    let esClosed = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let rebuilt = false;
-    es.onmessage = (m) => {
+    const onStreamMessage = (m: MessageEvent) => {
       try {
         const evt = JSON.parse(m.data) as {
           session_id?: string;
@@ -1181,10 +1186,16 @@ const turns = () => shown().turns;
         // service.connected and heartbeats
       }
     };
+    void streamUrl("/stream").then((url) => {
+      if (esClosed) return;
+      es = new EventSource(url);
+      es.onmessage = onStreamMessage;
+    });
     onCleanup(() => {
       clearInterval(poll);
       clearTimeout(timer);
-      es.close();
+      esClosed = true;
+      es?.close();
       window.removeEventListener("strata-connections", onConns);
       window.removeEventListener("focus", onFocus);
     });

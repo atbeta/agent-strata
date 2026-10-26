@@ -1594,7 +1594,8 @@ describe("only the desktop shell reaches the service from a browser", () => {
     expect(shell.status).toBe(204);
     expect(shell.headers.get("access-control-allow-origin")).toBe("http://tauri.localhost");
     expect(shell.headers.get("access-control-allow-methods")).toContain("POST");
-    expect(shell.headers.get("access-control-allow-headers")).toBe("content-type");
+    expect(shell.headers.get("access-control-allow-headers")).toContain("authorization");
+    expect(shell.headers.get("access-control-allow-headers")).toContain("content-type");
     expect((await ask("https://evil.example")).status).toBe(403);
   });
 
