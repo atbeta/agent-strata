@@ -764,6 +764,11 @@ export function useSessionComposer(args: {
       void args.refreshView(false);
     } catch (err) {
       setStopping(false);
+      // The pause exists to stop the queue draining on the idle a stop brings.
+      // A stop that did not land brings no idle, so keeping the pause would
+      // leave the queue parked with nothing coming to release it — the items
+      // would sit there looking queued and never send.
+      setQueuePaused(false);
       setSendErr(explainSend(err instanceof Error ? err.message : "", t("err.abort")));
     }
   };

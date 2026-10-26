@@ -94,6 +94,17 @@ function errorMessage(e: unknown): string {
 /** Shown when a prompt was refused or never accepted. Callers must not repeat the text. */
 export const PROMPT_NOT_ACCEPTED = "prompt was not accepted";
 
+/**
+ * How long a stop's status re-read may take before it stops mattering.
+ *
+ * The stop button is already showing "stopping" by the time this runs, so a
+ * read that hangs holds the button there. It has to be bounded on its own:
+ * every call in this adapter goes through `abortingFetch`, which returns a
+ * promise that never settles once the connection is gone — waiting on that is
+ * waiting forever.
+ */
+const ABORT_STATUS_MS = 5_000;
+
 export function promptFailure(err: unknown, text: string): string {
   const name = err instanceof Error ? err.name : "";
   if (name === "TimeoutError" || name === "AbortError") return PROMPT_NOT_ACCEPTED;
@@ -490,8 +501,15 @@ export async function connectOpencode(opts: {
       // flag still clears.
       let running = false;
       try {
-        const statuses = await client.session.status({ directory: dir });
-        const kind = (statuses.data ?? {})[sessionID]?.type;
+        // Bounded on its own, not by the signal: `abortingFetch` never settles
+        // once the connection is gone, so a read with no deadline of its own
+        // holds the stop button at "stopping" forever. A timeout reads as
+        // "could not tell", which is the same answer a failure gives.
+        const statuses = await Promise.race([
+          client.session.status({ directory: dir }),
+          Bun.sleep(ABORT_STATUS_MS).then(() => undefined),
+        ]);
+        const kind = statuses === undefined ? undefined : (statuses.data ?? {})[sessionID]?.type;
         running = kind === "busy" || kind === "retry";
       } catch {
         running = false;

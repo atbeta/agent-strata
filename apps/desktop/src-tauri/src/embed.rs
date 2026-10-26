@@ -26,6 +26,9 @@ pub(crate) const AUTH_REFUSED: &str = "域账号或密码错误";
 ///
 /// One place to build a command, so that none of them can forget this.
 fn command<S: AsRef<std::ffi::OsStr>>(program: S) -> Command {
+    // `mut` is only needed on Windows, where the block below sets creation
+    // flags; the compiler on the other platforms sees an unused binding.
+    #[allow(unused_mut)]
     let mut command = Command::new(program);
     #[cfg(windows)]
     {
