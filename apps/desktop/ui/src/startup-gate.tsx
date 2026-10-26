@@ -1,6 +1,6 @@
-import { createMemo, Match, Show, Switch } from "solid-js";
+import { createMemo, createResource, Match, onCleanup, Show, Switch } from "solid-js";
 import { APP_NAME } from "./app-name";
-import type { ConnectionAttempt } from "./api";
+import { readOpencodeLaunch, type ConnectionAttempt } from "./api";
 import { Button } from "./components/ui/button";
 import { Icon } from "./icons";
 import { t } from "./i18n";
@@ -96,8 +96,30 @@ export function StartupGate(props: {
   onEnter: () => void;
   onRetry: () => void;
   onSettings: () => void;
+  onLogin: () => void;
 }) {
+  // The embedded server's launch state answers a question the connection
+  // list cannot: an address that will not dial may just be a login prompt
+  // parked in front of it. While the gate is on screen the state is worth
+  // polling — a refused login clears back to the prompt on its own.
+  const [launch, { refetch: refetchLaunch }] = createResource(() =>
+    readOpencodeLaunch().catch(() => undefined),
+  );
+  const launchPoll = setInterval(() => void refetchLaunch(), 2_000);
+  onCleanup(() => clearInterval(launchPoll));
+
+  const needsLogin = () => {
+    const state = launch()?.state;
+    return state === "authRequired" || state === "authFailed";
+  };
+
   const copy = createMemo(() => {
+    if (
+      needsLogin() &&
+      (props.stage === "opencode" || props.stage === "degraded")
+    ) {
+      return { title: t("startup.authRequired"), hint: t("startup.authRequiredHint") };
+    }
     switch (props.stage) {
       case "service":
         return { title: t("startup.service"), hint: t("startup.serviceHint") };
@@ -217,7 +239,21 @@ export function StartupGate(props: {
               </>
             </Show>
 
-            <Show when={props.stage === "degraded"}>
+            {/* A parked domain-login prompt is what "cannot connect" means
+                for the fork: point at the form that answers it, not at the
+                backend list where no login lives. */}
+            <Show when={needsLogin() && (props.stage === "opencode" || props.stage === "degraded")}>
+              <>
+                <Button size="sm" onClick={props.onLogin}>
+                  {t("startup.login")}
+                </Button>
+                <Button variant="ghost" size="sm" onClick={props.onEnter}>
+                  {t("startup.enterLocal")}
+                </Button>
+              </>
+            </Show>
+
+            <Show when={props.stage === "degraded" && !needsLogin()}>
               <>
                 <Button size="sm" onClick={props.onSettings}>
                   {t("startup.settings")}
@@ -234,7 +270,7 @@ export function StartupGate(props: {
               </Button>
             </Show>
 
-            <Show when={props.stage === "opencode" && props.slow}>
+            <Show when={props.stage === "opencode" && props.slow && !needsLogin()}>
               <>
                 <Button variant="ghost" size="sm" onClick={props.onSettings}>
                   {t("startup.settings")}
