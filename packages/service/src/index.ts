@@ -2,7 +2,7 @@
 // The desktop shell (Tauri) runs this as a sidecar and talks to it over
 // localhost. One store file, many backend connections, SSE fan-out to clients.
 
-import { mkdirSync, readFileSync, unlinkSync, watch, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, unlinkSync, watch } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { openStore, type Store, type EventQuery } from "@agent-strata/store";
@@ -43,6 +43,7 @@ import { editorLaunch } from "./editor";
 import { forkBefore, forkTitle } from "./fork";
 import { refused, shellCors } from "./shell-origin";
 import { queryTokenOk, readApiToken, tokenOk } from "./api-token";
+import { writeSecureJson } from "./secure-write";
 import { terminalClose, terminalMessage, terminalOpen, terminalRoute, terminalUpgrade } from "./terminal";
 import { createDevManager, type DevEvent } from "./dev-process";
 import { SessionClaims } from "./identity";
@@ -151,7 +152,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       return;
     }
     mkdirSync(dirname(opts.policyFile), { recursive: true });
-    writeFileSync(opts.policyFile, JSON.stringify(currentPolicy, null, 2) + "\n");
+    writeSecureJson(opts.policyFile, currentPolicy);
   };
   const pendingAsks = new Map<string, PendingAsk>();
   const pendingQuestions = new Map<string, PendingQuestion>();
@@ -615,6 +616,22 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     return { id: driver.id, indexed: indexed.length };
   };
 
+  // The pair an embedded address is dialed with, when the address itself does
+  // not carry it.
+  //
+  // The password of the embedded server is the shell's secret and lives in
+  // the status file, not in connections.json. A remembered address that names
+  // our own server is read from there — while that server is up, which is
+  // exactly when a reconnect is worth trying.
+  const withEmbeddedCredentials = (body: ConnectBody): ConnectBody => {
+    if (body.password) return body;
+    if (body.placement !== "embed" && body.credentials !== "opencode-status") return body;
+    const status = readOpencodeStatus(desktopDir);
+    if (!status.url || !status.username || !status.password) return body;
+    if (!sameEndpoint(status.url, body.baseUrl ?? "")) return body;
+    return { ...body, username: status.username, password: status.password };
+  };
+
   // boot auto-connect. The address we mean to use retries until the deadline
   // (an embedded server may still be starting). Every other remembered address
   // is probed once, so a dead one does not sit on the connect timeout.
@@ -632,9 +649,11 @@ export function startService(opts: ServiceOpts = {}): RunningService {
           password: opts.autoConnectPassword,
           placement,
         },
-        ...remembered.filter((c) => endpointOf(c) !== opts.autoConnect),
+        ...remembered
+          .filter((c) => endpointOf(c) !== opts.autoConnect)
+          .map(withEmbeddedCredentials),
       ]
-    : remembered;
+    : remembered.map(withEmbeddedCredentials);
   for (const { body, mode } of bootPlan(boot, opts.autoConnect)) {
     const endpoint = endpointOf(body);
     const deadline = Date.now() + (opts.autoConnectTimeoutMs ?? 15_000);
@@ -643,7 +662,9 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       for (;;) {
         try {
           const { id } = await connectBackend(
-            mode === "once" ? { ...body, connectTimeoutMs: REMEMBERED_PROBE_MS } : body,
+            mode === "once"
+              ? { ...body, connectTimeoutMs: REMEMBERED_PROBE_MS }
+              : body,
           );
           memory.remember(body);
           console.log(`auto-connected backend ${id}`);
@@ -1635,7 +1656,10 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         await Promise.all(
           memory.saved().map(async (saved) => {
             try {
-              await connectBackend({ ...saved, connectTimeoutMs: REMEMBERED_PROBE_MS });
+              await connectBackend({
+                ...withEmbeddedCredentials(saved),
+                connectTimeoutMs: REMEMBERED_PROBE_MS,
+              });
             } catch (e) {
               console.error(`reconnect ${endpointOf(saved)} failed: ${e}`);
               failAttempt(saved, e, false);
@@ -1961,7 +1985,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
           ? { ...(previous as Record<string, unknown>), opencode: mode }
           : { opencode: mode };
       mkdirSync(desktopDir, { recursive: true });
-      writeFileSync(join(desktopDir, "desktop.json"), JSON.stringify(next, null, 2) + "\n");
+      writeSecureJson(join(desktopDir, "desktop.json"), next);
       return json({ mode, applied: "next-launch" });
     }
 

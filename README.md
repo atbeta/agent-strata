@@ -47,6 +47,10 @@ v0 ACP limitations: sessions live as long as the agent process (no `session/load
 
 The policy engine performs advisory static analysis of commands — it is not a sandbox. Constructs it cannot analyze safely are downgraded to `ask`; real enforcement requires a sandboxed execution layer (future work). The HTTP API listens on the loopback address only and refuses any request whose Host is not `127.0.0.1`/`localhost` (a DNS-rebound page) or that another site's page made the browser send; only the desktop shell's origins can read its responses cross-origin. Extension reads (`/…/opencode/<path>`) reach files on this machine, so on top of that they are GET-only and allow-listed.
 
+On top of that, the desktop generates a **capability token** per launch (`STRATA_API_TOKEN`) and the service asks for it on every request but the health check: `Authorization: Bearer <token>` or `X-Strata-Token: <token>`, and `?token=` for the two requests a browser cannot put a header on (the event stream and the terminal socket). The loopback Host/Origin rules still apply on top of it. A service started by hand runs without a token and asks for nothing; the desktop always sets one.
+
+The embedded OpenCode's basic-auth password is **not** stored in `connections.json` — that file keeps a reference (`credentials: "opencode-status"`) to the status file the shell writes it to instead. The files that hold a secret (`connections.json`, `opencode-status.json`, `desktop.json`, `policy.json`, `api-token`) are written with mode `0600`; `bun run scripts/check-secrets-perms.ts` reports the modes of the ones that are present.
+
 ### Auto-accept, per session
 
 The shield in a session's header puts **that one session** on auto (`GET/PUT/DELETE /sessions/:id/policy`, body `{ "mode": "auto" | "inherit" }`). It is not persisted and does not survive a service restart — it is a stance about a conversation in progress, so a session nobody switched back on should not come back unattended.
@@ -65,13 +69,15 @@ Answering a permission card with **always** is a different thing and stays what 
 ```sh
 bun install
 bun test          # all package tests
-bun run typecheck # tsc --noEmit per package
+bun run typecheck # tsc --noEmit per package and the desktop UI
 
 # strata service (local API for UIs)
 # STRATA_POLICY persists the live permission policy (default ~/.agent-strata/policy.json)
 # STRATA_OPENCODE_URL auto-connects a backend on boot, retrying until it is up
 #   (the Tauri shell sets this to its spawned `opencode serve` in embed mode);
 #   otherwise attach later via POST /connect or the fleet "backends" panel
+# STRATA_API_TOKEN makes the API ask for a capability token on every request
+#   but the health check; the desktop sets one per launch
 STRATA_DB=~/.agent-strata/events.db STRATA_PORT=7700 bun run packages/service/src/index.ts
 
 # desktop UI dev (proxies /api -> service) — in its own terminal
