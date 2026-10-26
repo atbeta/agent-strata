@@ -276,19 +276,30 @@ type Scan = Arc<dyn Fn(&[u8]) + Send + Sync>;
 /// A stdin kept open for the fork's login prompt, plus the stage the output
 /// scanner reports into. Answering the prompt writes to `stdin` and drops
 /// `stage` back to 1 so a previous refusal clears while it is checked.
+/// `prompts` counts how many prompt markers the child has printed — the fork
+/// asks twice, so the account line and the password line can be staged.
 struct LoginPipe {
     stdin: ChildStdin,
     stage: Arc<AtomicU8>,
+    prompts: Arc<AtomicU8>,
 }
 
 /// Report prompt markers into `stage`: 1 while parked, 2 once a refusal is
 /// seen. The refusal is sticky — a re-prompt after it does not clear the error
-/// on screen; only a fresh answer through `LoginPipe` does.
-fn auth_scan(stage: Arc<AtomicU8>) -> Scan {
+/// on screen; only a fresh answer through `LoginPipe` does. `prompts` counts
+/// each marker shown, so an answer knows when the password prompt is really
+/// on screen rather than written into a buffer the fork will flush.
+fn auth_scan(stage: Arc<AtomicU8>, prompts: Arc<AtomicU8>) -> Scan {
     let tail = Mutex::new(String::new());
     Arc::new(move |chunk: &[u8]| {
         let mut tail = tail.lock().unwrap_or_else(|e| e.into_inner());
         let hay = format!("{}{}", tail.as_str(), String::from_utf8_lossy(chunk));
+        // Occurrences already counted live in the tail; only the growth is new.
+        let seen = hay.matches(AUTH_PROMPT).count();
+        let prior = tail.matches(AUTH_PROMPT).count();
+        if seen > prior {
+            prompts.fetch_add((seen - prior) as u8, Ordering::SeqCst);
+        }
         if hay.contains(AUTH_REFUSED) {
             stage.store(2, Ordering::SeqCst);
         } else if hay.contains(AUTH_PROMPT) {
@@ -497,6 +508,7 @@ fn spawn_opencode_supervisor(
     // One stage shared across respawns: a refusal stays visible even when the
     // prompt is re-read by a replacement child, until an answer goes in.
     let auth_stage = Arc::new(AtomicU8::new(0));
+    let auth_prompts = Arc::new(AtomicU8::new(0));
     // The closure needs its own handle: the global install runs outside it,
     // and this one names the plugin.
     let plugin_config_dir = plugin_install::opencode_config_dir();
@@ -555,7 +567,7 @@ fn spawn_opencode_supervisor(
                         &env_refs,
                         &supervise_log,
                         true,
-                        Some(auth_scan(auth_stage.clone())),
+                        Some(auth_scan(auth_stage.clone(), auth_prompts.clone())),
                     )
                     .ok_or_else(|| {
                         std::io::Error::new(std::io::ErrorKind::Other, "spawn opencode failed")
@@ -566,6 +578,7 @@ fn spawn_opencode_supervisor(
                             *slot = Some(LoginPipe {
                                 stdin,
                                 stage: auth_stage.clone(),
+                                prompts: auth_prompts.clone(),
                             });
                         }
                     }
@@ -899,8 +912,19 @@ fn answer_login(
     let Some(pipe) = guard.as_mut() else {
         return Err("the embedded OpenCode server is not waiting for a login".into());
     };
+    // The fork asks twice — account, then password — and may flush pending
+    // input or read raw bytes between them, so the two lines are staged: the
+    // password goes in only once a fresh prompt is actually on screen. The
+    // deadline keeps an upstream binary or a changed prompt from hanging the
+    // command; a fork that never re-asks still gets both lines.
+    let prompts_seen = pipe.prompts.load(Ordering::SeqCst);
     writeln!(pipe.stdin, "{username}")
-        .and_then(|_| writeln!(pipe.stdin, "{password}"))
+        .map_err(|e| format!("could not answer the login prompt: {e}"))?;
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while pipe.prompts.load(Ordering::SeqCst) <= prompts_seen && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    writeln!(pipe.stdin, "{password}")
         .map_err(|e| format!("could not answer the login prompt: {e}"))?;
     // A refusal stays on screen until an answer actually goes in — this is the
     // point it becomes a fresh attempt, so the status flips back to waiting.
@@ -1213,34 +1237,42 @@ mod tests {
     #[test]
     fn prompt_markers_park_the_child_and_a_refusal_stays_up() {
         let stage = Arc::new(AtomicU8::new(0));
-        let scan = auth_scan(stage.clone());
+        let prompts = Arc::new(AtomicU8::new(0));
+        let scan = auth_scan(stage.clone(), prompts.clone());
         scan(b"listening on http://127.0.0.1:4096");
         assert_eq!(stage.load(Ordering::SeqCst), 0);
         scan("欢迎使用研发工具|xOpenCode\n◇ 请输入域账号:".as_bytes());
         assert_eq!(stage.load(Ordering::SeqCst), 1);
+        assert_eq!(prompts.load(Ordering::SeqCst), 1);
         scan("s000\n◇ 请输入域账号密码:".as_bytes());
         assert_eq!(stage.load(Ordering::SeqCst), 1);
+        assert_eq!(prompts.load(Ordering::SeqCst), 2);
         scan("域账号或密码错误，请重新输入\n◇ 请输入域账号:".as_bytes());
         assert_eq!(stage.load(Ordering::SeqCst), 2);
+        assert_eq!(prompts.load(Ordering::SeqCst), 3);
         // The re-prompt after a refusal does not clear the error — only a
         // fresh answer down the pipe does (answer_login stores 1 itself).
         scan("s000\n◇ 请输入域账号密码:".as_bytes());
         assert_eq!(stage.load(Ordering::SeqCst), 2);
+        assert_eq!(prompts.load(Ordering::SeqCst), 4);
     }
 
     #[test]
     fn a_marker_split_across_chunks_is_still_caught() {
         let stage = Arc::new(AtomicU8::new(0));
-        let scan = auth_scan(stage.clone());
+        let prompts = Arc::new(AtomicU8::new(0));
+        let scan = auth_scan(stage.clone(), prompts.clone());
         scan("请输入".as_bytes());
         scan("域账号:".as_bytes());
         assert_eq!(stage.load(Ordering::SeqCst), 1);
+        assert_eq!(prompts.load(Ordering::SeqCst), 1);
     }
 
     #[test]
     fn an_upstream_boot_never_parks() {
         let stage = Arc::new(AtomicU8::new(0));
-        let scan = auth_scan(stage.clone());
+        let prompts = Arc::new(AtomicU8::new(0));
+        let scan = auth_scan(stage.clone(), prompts);
         scan(b"opencode serve\nlistening on http://127.0.0.1:4096\n");
         scan(b"session created\nmessage.updated\n");
         assert_eq!(stage.load(Ordering::SeqCst), 0);
@@ -1257,6 +1289,9 @@ mod tests {
         let login: Mutex<Option<LoginPipe>> = Mutex::new(Some(LoginPipe {
             stdin: child.stdin.take().expect("stdin"),
             stage: stage.clone(),
+            // cat never prompts: the staged password falls back to the
+            // deadline and the pair still lands in one read.
+            prompts: Arc::new(AtomicU8::new(0)),
         }));
         answer_login(&login, "s000", "hunter2").expect("answer");
         // Dropping the pipe gives cat its EOF, so wait_with_output returns.

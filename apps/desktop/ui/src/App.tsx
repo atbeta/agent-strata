@@ -507,6 +507,10 @@ export function App() {
                 boot.enter();
                 location.hash = "/settings/backends";
               }}
+              onLogin={() => {
+                boot.enter();
+                location.hash = "/settings/opencode";
+              }}
             />
           </Show>
         }
