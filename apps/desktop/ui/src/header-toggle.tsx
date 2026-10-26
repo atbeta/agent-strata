@@ -17,9 +17,9 @@ import type { JSX } from "solid-js";
  */
 export function ToggleIcon(props: { on: boolean; tone?: string; children: JSX.Element }) {
   return (
-    // 18px inside the 28px buttons: the row reads at toolbar weight, not at
-    // the smaller menu-item scale the 16px default belongs to.
-    <span class={`[&_svg]:size-4.5 transition-colors ${props.tone ?? (props.on ? "text-foreground" : "text-muted-foreground")}`}>
+    // A fixed flex box keeps plain SVGs and the MCP icon's attention-mark wrapper
+    // on the same baseline inside the 28px button.
+    <span class={`inline-flex size-4.5 items-center justify-center [&_svg]:size-4.5 transition-colors ${props.tone ?? (props.on ? "text-foreground" : "text-muted-foreground")}`}>
       {props.children}
     </span>
   );

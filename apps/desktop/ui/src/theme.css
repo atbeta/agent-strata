@@ -239,7 +239,7 @@ html[data-theme="light"] {
     overflow: hidden;
   }
   body {
-    @apply bg-background text-foreground font-sans antialiased;
+    @apply bg-background text-sm text-foreground font-sans antialiased;
   }
   ::selection {
     background: color-mix(in srgb, var(--ring) 35%, transparent);

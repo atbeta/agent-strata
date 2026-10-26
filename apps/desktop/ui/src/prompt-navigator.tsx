@@ -372,7 +372,7 @@ export function PromptNavigator(props: {
               id="prompt-nav-tip"
               role="tooltip"
               ref={card}
-              class="pointer-events-none fixed z-[70] w-[280px] max-w-[min(280px,calc(100vw-24px))] rounded-lg border border-border bg-popover p-2.5 text-popover-foreground shadow-lg"
+              class="surface-popover pointer-events-none fixed z-[70] w-[280px] max-w-[min(280px,calc(100vw-24px))] rounded-lg bg-popover p-2.5 text-popover-foreground"
               style={{
                 left: `${pos()?.x ?? (anchor()?.right ?? 0) + 8}px`,
                 top: `${pos()?.y ?? anchor()?.top ?? 0}px`,

@@ -39,7 +39,7 @@ function DropdownMenuContent(props: ContentProps) {
     <DropdownMenuPrimitive.Portal>
       <DropdownMenuPrimitive.Content
         class={cn(
-          "surface-popover menu-pop z-50 min-w-48 overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground",
+          "surface-popover menu-pop z-50 min-w-48 overflow-hidden rounded-lg bg-popover p-1 text-popover-foreground",
           local.class,
         )}
         {...rest}
@@ -122,7 +122,7 @@ function DropdownMenuSubContent(props: SubContentProps) {
     <DropdownMenuPrimitive.Portal>
       <DropdownMenuPrimitive.SubContent
         class={cn(
-          "surface-popover menu-pop z-50 min-w-36 overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground",
+          "surface-popover menu-pop z-50 min-w-36 overflow-hidden rounded-lg bg-popover p-1 text-popover-foreground",
           local.class,
         )}
         {...rest}

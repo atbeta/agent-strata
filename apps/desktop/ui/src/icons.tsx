@@ -411,10 +411,12 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
   if (name === "plug")
     return (
       <Glyph class={cls} box="0 0 24 24" weight="2.25">
-        <path d="M9 8V3" />
-        <path d="M15 8V3" />
-        <path d="M18 8v5a6 6 0 0 1-12 0V8Z" />
-        <path d="M12 21v-2" />
+        {/* A 12-unit plug reads a size smaller than the search and terminal
+            marks beside it. The 16-unit body keeps the same 18-unit height. */}
+        <path d="M8 7V3" />
+        <path d="M16 7V3" />
+        <path d="M20 7v5a8 8 0 0 1-16 0V7Z" />
+        <path d="M12 21v-1" />
       </Glyph>
     );
   // The official MCP mark, in its stroked form — the filled silhouette it

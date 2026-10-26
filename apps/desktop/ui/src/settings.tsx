@@ -98,6 +98,8 @@ function width(ch: string) {
 /** Where a question about this build should end up. */
 const SOURCE_URL = "https://github.com/atbeta/agent-strata";
 
+const pickerTrigger = "h-8 w-full justify-between gap-3 border border-border px-2.5 text-sm hover:bg-secondary/60";
+
 /**
  * A font picker that shows what is chosen. The dropdown carries the families
  * this computer actually has, and anything else is reached through one text
@@ -119,7 +121,7 @@ function FontPicker(props: {
   return (
     <div class="w-full">
       <DropdownMenu>
-        <DropdownMenuTrigger class="h-8 w-full justify-between gap-3 border border-border px-2.5 text-sm hover:bg-secondary/60">
+        <DropdownMenuTrigger class={pickerTrigger}>
           <span class={`truncate ${missing() ? "text-destructive" : ""}`}>{chosen()}</span>
           <Icon name="chevron" class="size-3 shrink-0 text-muted-foreground" />
         </DropdownMenuTrigger>
@@ -190,7 +192,7 @@ function TerminalShellPicker(props: { label: string; value: string; onChange: (n
     <div class="w-full">
       <DropdownMenu>
         <DropdownMenuTrigger
-          class="h-8 w-full justify-between gap-3 border border-border px-2.5 text-sm hover:bg-secondary/60"
+          class={pickerTrigger}
           aria-label={props.label}
         >
           <span class={`truncate ${props.value ? "font-mono text-xs" : ""} ${missing() ? "text-destructive" : ""}`}>
@@ -589,7 +591,7 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
                 aria-controls="settings-panel"
                 class={`block w-auto shrink-0 whitespace-nowrap px-2.5 py-1.5 hover:bg-secondary/60 @min-[880px]/main:w-full ${
                   section() === item.id ? "bg-secondary text-foreground" : ""
-                }`}
+                } ${section() === item.id ? "font-medium" : ""}`}
                 active={section() === item.id}
                 onClick={() => {
                   location.hash = item.id === SETTINGS_SECTIONS[0].id ? "/settings" : `/settings/${item.id}`;
@@ -743,12 +745,12 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
             />
           </Row>
 
-          <Row label={t("settings.font.size")} controlClass="w-72">
+          <Row label={t("settings.font.size")} hint={t("settings.font.size.hint")} controlClass="w-72">
             <PillGroup
               label={t("settings.font.size")}
               value={fonts().size}
               options={[
-                { id: "", label: t("settings.font.system") },
+                { id: "", label: t("settings.font.default") },
                 ...CODE_SIZES.map((size: CodeSize) => ({ id: size, label: size })),
               ]}
               onChange={(size) => patchFonts({ size: size as CodeSize | "" })}
@@ -763,7 +765,7 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
                 id: option,
                 label:
                   option === ""
-                    ? t("settings.font.system")
+                    ? t("settings.font.default")
                     : t(`settings.font.leading.${option}`),
               }))}
               onChange={(leading) =>
@@ -1006,7 +1008,7 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
                   size="sm"
                   value={loginUser()}
                   onInput={(e) => setLoginUser(e.currentTarget.value)}
-                  class="bg-background px-2 text-2xs"
+                  class="bg-background"
                   placeholder={t("settings.opencode.loginUser")}
                   aria-label={t("settings.opencode.loginUser")}
                   autocomplete="username"
@@ -1019,7 +1021,7 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
                   onKeyDown={(e) => {
                     if (e.key === "Enter") void submitLogin();
                   }}
-                  class="bg-background px-2 text-2xs"
+                  class="bg-background"
                   placeholder={t("settings.opencode.loginPass")}
                   aria-label={t("settings.opencode.loginPass")}
                   autocomplete="current-password"

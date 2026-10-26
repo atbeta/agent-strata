@@ -286,7 +286,7 @@ export function ConnectionsFooter(props: {
                 return (
                   <div
                     class="flex min-w-0 items-center gap-2 px-1.5 py-0 text-xs"
-                    title={syncText() ?? conn.baseUrl}
+                    title={syncText()}
                   >
                     <Show
                       when={tick()}
@@ -298,13 +298,14 @@ export function ConnectionsFooter(props: {
                         aria-label={syncText() ?? t("sidebar.sync.busy")}
                       />
                     </Show>
-                    <span class="truncate">
-                      {backendLabel(conn.backend)}
-                      <Show when={placementWord(conn.placement)}>
-                        {(word) => <span class="text-2xs text-muted-foreground"> {word()}</span>}
-                      </Show>
-                      <span class="font-mono text-2xs text-muted-foreground"> · {endpointHost(conn.baseUrl)}</span>
-                    </span>
+                    <Tip label={endpointHost(conn.baseUrl)} class="min-w-0">
+                      <span class="truncate">
+                        {backendLabel(conn.backend)}
+                        <Show when={placementWord(conn.placement)}>
+                          {(word) => <span class="text-2xs text-muted-foreground"> {word()}</span>}
+                        </Show>
+                      </span>
+                    </Tip>
                   </div>
                 );
               }}

@@ -48,8 +48,8 @@ export function SessionListItem(props: {
   const [hot, setHot] = createSignal(false);
   const [menuOpen, setMenuOpen] = createSignal(false);
   let input: HTMLInputElement | undefined;
-  // Rename, archive, and the rest stay behind one hover control. The menu is a
-  // portal, so it has to count as "still on the row" or the control disappears.
+  // Pointer hover is immediate; group-focus-within below offers the same control
+  // to keyboard navigation. An open portal menu also counts as staying on the row.
   const reveal = () => props.actions && (hot() || menuOpen());
 
   createEffect(() => {
@@ -115,7 +115,7 @@ export function SessionListItem(props: {
           disabled={editing()}
           onMouseEnter={() => setHot(true)}
           onMouseLeave={() => setHot(false)}
-          class="hover:bg-accent/70"
+          class="group hover:bg-accent/70"
         >
           {/* The one place a row says what state it is in. It used to be a
               six-pixel dot that only appeared while busy — no word, no name for a
@@ -173,18 +173,20 @@ export function SessionListItem(props: {
             <span
               class={`pointer-events-none absolute right-2 top-1/2 w-[4.5rem] -translate-y-1/2 text-right text-2xs text-muted-foreground tabular-nums ${
                 reveal() ? "invisible" : ""
-              }`}
+              } ${props.actions ? "group-focus-within:invisible" : ""}`}
             >
               {props.time}
             </span>
             <DropdownMenu placement="bottom-end" open={menuOpen()} onOpenChange={setMenuOpen}>
               <DropdownMenuTrigger
                 class={`absolute right-1 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground ${
-                  reveal() ? "" : "invisible pointer-events-none"
+                  reveal()
+                    ? ""
+                    : "invisible pointer-events-none group-focus-within:visible group-focus-within:pointer-events-auto"
                 }`}
                 aria-label={t("sidebar.session.actions")}
                 data-row-menu=""
-                tabIndex={reveal() ? 0 : -1}
+                tabIndex={props.actions ? 0 : -1}
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => e.stopPropagation()}
               >

@@ -36,7 +36,7 @@ function PopoverContent(props: ContentProps) {
       <PopoverPrimitive.Content
         ref={(el) => (content = el)}
         class={cn(
-          "surface-popover menu-pop z-50 overflow-hidden rounded-lg border border-border bg-popover p-4 text-popover-foreground",
+          "surface-popover menu-pop z-50 overflow-hidden rounded-lg bg-popover p-4 text-popover-foreground",
           // The panel takes focus on open, not its first control.
           "focus:outline-none",
           local.class,

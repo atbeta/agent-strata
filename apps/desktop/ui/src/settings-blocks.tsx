@@ -20,7 +20,7 @@ export function Group(props: {
   return (
     <section class="mt-8">
       <div class="flex items-baseline justify-between gap-3">
-        <h2 class="text-xs text-muted-foreground">{props.label}</h2>
+        <h2 class="text-2xs font-medium text-muted-foreground">{props.label}</h2>
         {props.aside}
       </div>
       <Show when={props.hint}>
@@ -66,7 +66,7 @@ export function Row(props: {
   return (
     <div class="flex flex-col gap-3 py-3 @min-[560px]/main:flex-row @min-[560px]/main:items-start @min-[560px]/main:justify-between @min-[560px]/main:gap-6">
       <div class="min-w-0 pt-1">
-        <div class="text-sm text-foreground">{props.label}</div>
+        <div class="text-sm font-medium text-foreground">{props.label}</div>
         <Show when={props.hint}>
           <div class="mt-0.5 text-2xs leading-4 text-muted-foreground">{props.hint}</div>
         </Show>
@@ -91,7 +91,7 @@ export function Segmented(props: {
 }) {
   return (
     <div
-      class="inline-flex max-w-full overflow-x-auto rounded-lg border border-border p-0.5"
+      class="inline-flex max-w-full overflow-x-auto rounded-md border border-border p-0.5"
       role="radiogroup"
       aria-label={props.label}
     >

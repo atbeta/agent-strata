@@ -278,7 +278,7 @@ export function McpToolsPanel(props: {
   return (
     <div
       ref={props.bindPanel}
-      class="absolute right-4 top-11 z-30 w-80 max-w-[calc(100%-2rem)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg"
+      class="surface-popover absolute right-4 top-11 z-30 w-80 max-w-[calc(100%-2rem)] overflow-hidden rounded-lg bg-popover"
     >
       <div
         ref={(el) => {

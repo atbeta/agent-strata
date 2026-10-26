@@ -35,4 +35,17 @@ describe("a glyph's pen is scaled with its grid", () => {
     const widened = src.match(/<Glyph(?![^>]*box=)[^>]*weight=/g) ?? [];
     expect(widened).toEqual([]);
   });
+
+  test("the header plug keeps its height without reading narrower than its neighbours", () => {
+    const at = src.indexOf('if (name === "plug")');
+    const plug = src.slice(at, src.indexOf('if (name === "mcp")', at));
+    expect(plug).toContain("M20 7v5a8 8 0 0 1-16 0V7Z");
+    expect(plug).toContain("M12 21v-1");
+    expect(plug).toContain('weight="2.25"');
+  });
+
+  test("every header icon sits in the same fixed flex box", () => {
+    const toggle = readFileSync(join(import.meta.dir, "header-toggle.tsx"), "utf8");
+    expect(toggle).toContain("inline-flex size-4.5 items-center justify-center");
+  });
 });

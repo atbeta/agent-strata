@@ -48,43 +48,47 @@ export function BackendSettings(props: { conns: ConnectionsCtl }) {
           >
             <For each={live()}>
               {(conn) => (
-                <div class="flex items-center gap-3 px-4 py-3">
-                  <span class="size-1.5 shrink-0 rounded-full bg-status-active" />
-                  <span class="shrink-0 text-sm">{backendLabel(conn.backend)}</span>
-                  <Show when={placementWord(conn.placement)}>
-                    {(word) => (
-                      <span class="shrink-0 rounded bg-secondary/60 px-1 py-0.5 text-2xs text-muted-foreground">
-                        {word()}
-                      </span>
-                    )}
-                  </Show>
+                <div class="flex flex-col gap-2.5 px-4 py-3 @min-[560px]/main:flex-row @min-[560px]/main:items-center @min-[560px]/main:gap-3">
+                  <div class="flex shrink-0 items-center gap-2.5">
+                    <span class="size-1.5 shrink-0 rounded-full bg-status-active" />
+                    <span class="text-sm font-medium">{backendLabel(conn.backend)}</span>
+                    <Show when={placementWord(conn.placement)}>
+                      {(word) => (
+                        <span class="rounded bg-secondary/60 px-1.5 py-0.5 text-2xs text-muted-foreground">
+                          {word()}
+                        </span>
+                      )}
+                    </Show>
+                  </div>
                   <span
-                    class="min-w-0 flex-1 truncate font-mono text-2xs text-muted-foreground"
+                    class="min-w-0 truncate font-mono text-2xs text-muted-foreground @min-[560px]/main:flex-1"
                     title={conn.baseUrl}
                   >
                     {conn.baseUrl}
                   </span>
-                  <Show when={live().length > 1 && c().newSessionConnection() !== conn.id}>
+                  <div class="flex shrink-0 flex-wrap items-center gap-2">
+                    <Show when={live().length > 1 && c().newSessionConnection() !== conn.id}>
+                      <Button
+                        size="sm"
+                        variant="quiet"
+                        onClick={() => c().chooseNewConn(conn.id)}
+                      >
+                        {t("settings.backends.useForNew")}
+                      </Button>
+                    </Show>
+                    <Show when={live().length > 1 && c().newSessionConnection() === conn.id}>
+                      <span class="text-2xs text-muted-foreground">
+                        {t("sidebar.backend.newTarget")}
+                      </span>
+                    </Show>
                     <Button
                       size="sm"
-                      variant="quiet"
-                      onClick={() => c().chooseNewConn(conn.id)}
+                      variant="outline"
+                      onClick={() => c().disconnect(conn.id)}
                     >
-                      {t("settings.backends.useForNew")}
+                      {t("settings.backends.disconnect")}
                     </Button>
-                  </Show>
-                  <Show when={live().length > 1 && c().newSessionConnection() === conn.id}>
-                    <span class="shrink-0 text-2xs text-muted-foreground">
-                      {t("sidebar.backend.newTarget")}
-                    </span>
-                  </Show>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => c().disconnect(conn.id)}
-                  >
-                    {t("settings.backends.disconnect")}
-                  </Button>
+                  </div>
                 </div>
               )}
             </For>
@@ -97,28 +101,30 @@ export function BackendSettings(props: { conns: ConnectionsCtl }) {
           <Card class="px-0">
             <For each={pending()}>
               {(attempt) => (
-                <div class="flex items-center gap-3 px-4 py-3">
-                  <span class="min-w-0 flex-1 truncate text-sm">
-                    {backendLabel(attempt.backend)}
+                <div class="flex flex-col gap-2.5 px-4 py-3 @min-[560px]/main:flex-row @min-[560px]/main:items-center @min-[560px]/main:gap-3">
+                  <span class="min-w-0 truncate text-sm @min-[560px]/main:flex-1">
+                    <span class="font-medium">{backendLabel(attempt.backend)}</span>
                     <span class="font-mono text-2xs text-muted-foreground">
                       {" "}
                       · {attemptLine(attempt)}
                     </span>
                   </span>
-                  <span class="shrink-0 text-2xs text-muted-foreground">
-                    {attempt.phase === "retrying"
-                      ? t("sidebar.backend.connecting")
-                      : t("sidebar.backend.failed")}
-                  </span>
-                  <Show when={attempt.phase === "failed"}>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => c().forget(attempt.endpoint)}
-                    >
-                      {t("settings.backends.forget")}
-                    </Button>
-                  </Show>
+                  <div class="flex shrink-0 items-center gap-2">
+                    <span class="text-2xs text-muted-foreground">
+                      {attempt.phase === "retrying"
+                        ? t("sidebar.backend.connecting")
+                        : t("sidebar.backend.failed")}
+                    </span>
+                    <Show when={attempt.phase === "failed"}>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => c().forget(attempt.endpoint)}
+                      >
+                        {t("settings.backends.forget")}
+                      </Button>
+                    </Show>
+                  </div>
                 </div>
               )}
             </For>
@@ -155,7 +161,7 @@ export function BackendSettings(props: { conns: ConnectionsCtl }) {
                       mono
                       value={c().connUrl()}
                       onInput={(e) => c().setConnUrl(e.currentTarget.value)}
-                      class="bg-background text-2xs"
+                      class="bg-background"
                       placeholder="http://127.0.0.1:4096"
                     />
                   </div>
@@ -169,7 +175,7 @@ export function BackendSettings(props: { conns: ConnectionsCtl }) {
                         size="sm"
                         value={c().connName()}
                         onInput={(e) => c().setConnName(e.currentTarget.value)}
-                        class="bg-background px-2 text-2xs"
+                        class="bg-background"
                       />
                     </div>
                     <div>
@@ -181,7 +187,7 @@ export function BackendSettings(props: { conns: ConnectionsCtl }) {
                         size="sm"
                         value={c().connUser()}
                         onInput={(e) => c().setConnUser(e.currentTarget.value)}
-                        class="bg-background px-2 text-2xs"
+                        class="bg-background"
                       />
                     </div>
                     <div>
@@ -194,7 +200,7 @@ export function BackendSettings(props: { conns: ConnectionsCtl }) {
                         type="password"
                         value={c().connPass()}
                         onInput={(e) => c().setConnPass(e.currentTarget.value)}
-                        class="bg-background px-2 text-2xs"
+                        class="bg-background"
                       />
                     </div>
                   </div>
@@ -211,7 +217,7 @@ export function BackendSettings(props: { conns: ConnectionsCtl }) {
                   mono
                   value={c().connCmd()}
                   onInput={(e) => c().setConnCmd(e.currentTarget.value)}
-                  class="bg-background text-2xs"
+                  class="bg-background"
                   placeholder="opencode acp"
                 />
               </div>
@@ -224,7 +230,7 @@ export function BackendSettings(props: { conns: ConnectionsCtl }) {
                   size="sm"
                   value={c().connName()}
                   onInput={(e) => c().setConnName(e.currentTarget.value)}
-                  class="bg-background px-2 text-2xs"
+                  class="bg-background"
                 />
               </div>
             </Show>

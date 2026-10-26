@@ -187,7 +187,7 @@ export function SearchPanel(props: {
   return (
     <div
       ref={props.bindPanel}
-      class="absolute right-4 top-11 z-30 w-[26rem] max-w-[calc(100%-2rem)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg"
+      class="surface-popover absolute right-4 top-11 z-30 w-[26rem] max-w-[calc(100%-2rem)] overflow-hidden rounded-lg bg-popover"
     >
       <div class="flex items-center gap-2 border-b border-border px-3 py-2">
         <Icon name="search" class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
