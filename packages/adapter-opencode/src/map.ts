@@ -556,6 +556,48 @@ export class OpencodeMapper {
    * its messages — the event goes out without a clock and is re-stamped when
    * one arrives.
    */
+  /**
+   * Reconcile what this generation believes against what the backend says.
+   *
+   * Everything else here infers `busy` from the event stream, which is right
+   * most of the time and has one failure mode: a frame that never arrives
+   * leaves the inference wrong forever. The store's projection is durable and
+   * this ledger is not, so a restart or a fresh connect can start believing a
+   * session is running while the backend finished it long ago — and no future
+   * event is guaranteed to mention that session again.
+   *
+   * Called once when a connection opens. Not polled: the cost is a single
+   * request, and a session that drifts while the stream is healthy has an event
+   * to say so. This is the correction for the gap between connections, which is
+   * exactly where the information was lost.
+   *
+   * Only `idle` is acted on. A `busy` in this answer is not evidence the run is
+   * live — the same rule the stream handler follows — and announcing it would
+   * put a running dot on a session whose frames are simply late.
+   */
+  reconcileIdle(idleSessionIDs: Iterable<string>): EventInput[] {
+    const out: EventInput[] = [];
+    for (const sessionID of idleSessionIDs) {
+      const s = this.sessions.get(sessionID);
+      // A session this generation has never heard of has nothing to correct:
+      // the store learned about it from an earlier generation, and its own
+      // projection is the only record of a run that is already over.
+      if (!s || !s.sawBusy) continue;
+      s.sawBusy = false;
+      s.emittedIdle = true;
+      s.liveMsgs?.clear();
+      out.push(
+        this.ev(
+          s,
+          "session.status",
+          { state: "idle" },
+          `opencode:${sessionID}:reconcile:idle`,
+        ),
+      );
+    }
+    return out;
+  }
+
   private ensureSession(sessionID: string, clock?: number): { s: SessionState; out: EventInput[] } {
     const out: EventInput[] = [];
     let s = this.sessions.get(sessionID);

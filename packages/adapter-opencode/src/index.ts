@@ -303,8 +303,43 @@ export async function connectOpencode(opts: {
       void sessionImport.refreshSessions().catch((err) =>
         console.error("opencode catch-up failed:", err),
       );
+      void reconcileIdle();
     },
   });
+
+  /**
+   * Ask the backend which sessions it is not running, and believe it.
+   *
+   * Everything else in this adapter infers `busy` from the event stream, which
+   * is right until a frame goes missing — and then it is wrong forever, because
+   * no later event is guaranteed to mention that session again. The store's
+   * projection is durable, this process's memory is not, so a restart or a
+   * reconnect is exactly where the two can disagree with nothing to correct it.
+   *
+   * Once per connection, not on a timer: a session that drifts while the stream
+   * is healthy produces an event, and a poll would spend a request per period
+   * to cover a case that only opens at a boundary. A failure here is silence,
+   * not an error the reader can act on — the stream still works, and the next
+   * connect asks again.
+   */
+  const reconcileIdle = async () => {
+    try {
+      const statuses = await client.session.status({ directory: opts.directory });
+      const idle = Object.entries(statuses.data ?? {})
+        .filter(([, status]) => (status as { type?: string }).type === "idle")
+        .map(([sessionID]) => sessionID);
+      if (idle.length > 0) ingestor.append(mapper.reconcileIdle(idle));
+    } catch (err) {
+      // A backend that cannot answer says nothing about the run; leave the
+      // projection alone rather than guessing in either direction.
+      console.error("opencode status reconcile failed:", err);
+    }
+  };
+
+  // The first connect is the one that matters most: it is where a restarted
+  // service meets a projection written by the process before it. `onReconnect`
+  // alone would miss it, because nothing has reconnected yet.
+  void reconcileIdle();
 
   const mcpAuthFetch = (path: string, directory: string | undefined, signal: AbortSignal, body?: unknown) => {
     const q = new URLSearchParams();

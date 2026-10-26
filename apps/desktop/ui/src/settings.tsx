@@ -55,6 +55,7 @@ import { RowButton } from "@/components/ui/row-button";
 import { Switch } from "@/components/ui/switch";
 import { TextFieldInput } from "@/components/ui/text-field";
 import { Card, Group, PillGroup, Row, Segmented } from "./settings-blocks";
+import { runtimeErrorText } from "./runtime-error";
 import { BackendSettings } from "./backend-settings";
 import type { ConnectionsCtl } from "./use-connections";
 import { PolicyEditor } from "./policy";
@@ -870,7 +871,7 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
                 <Show when={runtime()?.error}>
                   <p class="mt-1.5 flex items-center gap-1.5 text-2xs text-destructive">
                     <Icon name="alert" class="size-3 shrink-0" />
-                    {runtime()?.error}
+                    {runtimeErrorText(runtime()?.error)}
                   </p>
                 </Show>
               </>

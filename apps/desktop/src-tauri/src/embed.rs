@@ -107,6 +107,46 @@ pub enum RuntimeSource {
     External,
 }
 
+/// Why a version read failed, as a value the UI can translate.
+///
+/// These used to be prose built in Rust, which meant every one of them was
+/// English-only inside a translated screen. The code says what happened; the
+/// locale says how to say it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "code", rename_all = "camelCase")]
+pub enum RuntimeError {
+    /// The company fork parked at its domain login before answering.
+    AuthParked,
+    /// The binary is not a file, or could not be executed.
+    NotRunnable { detail: String },
+    /// `--version` exited non-zero, with its first non-empty stderr line.
+    VersionExited { detail: String },
+    /// `--version` said nothing.
+    VersionEmpty,
+    /// `--version` did not answer in time.
+    VersionTimeout { seconds: u64 },
+    /// Nothing on PATH, in a setting, or in the environment.
+    NotFound,
+}
+
+impl RuntimeError {
+    /// The stored form: a code, plus the one detail a message needs.
+    ///
+    /// Kept as a plain string because `OpencodeRuntime` is read back from a
+    /// file by an older build after an upgrade, and that file has to remain
+    /// something a human can read.
+    pub fn to_stored(&self) -> String {
+        match self {
+            RuntimeError::AuthParked => "authParked".into(),
+            RuntimeError::NotRunnable { detail } => format!("notRunnable:{detail}"),
+            RuntimeError::VersionExited { detail } => format!("versionExited:{detail}"),
+            RuntimeError::VersionEmpty => "versionEmpty".into(),
+            RuntimeError::VersionTimeout { seconds } => format!("versionTimeout:{seconds}"),
+            RuntimeError::NotFound => "notFound".into(),
+        }
+    }
+}
+
 /// What the shell knows about the OpenCode binary, written beside the status of
 /// the process it started.
 ///
@@ -121,6 +161,7 @@ pub struct OpencodeRuntime {
     pub bin: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
+    /// A `RuntimeError::to_stored()` value: a code, then an optional detail.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     /// Unix seconds. The UI formats it in the reader's zone.
@@ -968,7 +1009,7 @@ pub fn command_for(bin: &Path) -> Command {
 /// domain login prompt forever when unauthenticated — running it on the
 /// launch path once meant the window never appeared. Seeing the prompt is an
 /// answer in itself, so the child is killed as soon as the marker shows.
-pub fn version_of(bin: &Path) -> Result<String, String> {
+pub fn version_of(bin: &Path) -> Result<String, RuntimeError> {
     const DEADLINE: Duration = Duration::from_secs(10);
     let mut child = command_for(bin)
         .arg("--version")
@@ -976,7 +1017,9 @@ pub fn version_of(bin: &Path) -> Result<String, String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("could not run {}: {e}", bin.display()))?;
+        .map_err(|e| RuntimeError::NotRunnable {
+            detail: format!("{}: {e}", bin.display()),
+        })?;
     // Each stream drains on its own thread, so a child that never exits
     // cannot block the wait below on a full pipe, and the prompt marker is
     // visible while the child still runs.
@@ -1018,27 +1061,21 @@ pub fn version_of(bin: &Path) -> Result<String, String> {
     let status = loop {
         let output = seen(&stdout, &stderr);
         if output.contains(AUTH_PROMPT) || output.contains(AUTH_REFUSED) {
-            break Err(format!(
-                "{} is parked at the domain login prompt",
-                bin.display()
-            ));
+            break Err(RuntimeError::AuthParked);
         }
         match child.try_wait() {
             Ok(Some(status)) => break Ok(status),
             Ok(None) => {}
             Err(e) => {
-                return Err(format!(
-                    "could not wait on {} --version: {e}",
-                    bin.display()
-                ))
+                return Err(RuntimeError::NotRunnable {
+                    detail: format!("{}: {e}", bin.display()),
+                })
             }
         }
         if start.elapsed() >= DEADLINE {
-            break Err(format!(
-                "{} --version did not answer within {}s",
-                bin.display(),
-                DEADLINE.as_secs()
-            ));
+            break Err(RuntimeError::VersionTimeout {
+                seconds: DEADLINE.as_secs(),
+            });
         }
         std::thread::sleep(Duration::from_millis(50));
     };
@@ -1066,24 +1103,65 @@ pub fn version_of(bin: &Path) -> Result<String, String> {
             .map(str::trim)
             .find(|line| !line.is_empty())
             .unwrap_or("");
-        return Err(if line.is_empty() {
-            format!("{} --version exited with {}", bin.display(), status)
-        } else {
-            line.to_string()
+        return Err(RuntimeError::VersionExited {
+            detail: if line.is_empty() {
+                format!("exit {status}")
+            } else {
+                line.to_string()
+            },
         });
     }
     let stdout = stdout.lock().map(|v| v.clone()).unwrap_or_default();
     let text = String::from_utf8_lossy(&stdout);
-    let version = text
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .unwrap_or("");
+    // A version, not the first thing printed. The company fork prints a banner
+    // first, so the column showed a greeting instead of `1.18.29-h3`.
+    let version = text.lines().map(str::trim).find_map(version_token).unwrap_or("");
     if version.is_empty() {
-        Err(format!("{} --version printed nothing", bin.display()))
+        Err(RuntimeError::VersionEmpty)
     } else {
         Ok(version.to_string())
     }
+}
+
+/// The version token on a line, if that line is the version.
+///
+/// Returns the token exactly as printed: the fork's build is `1.18.29-h3`, and
+/// dropping the suffix would lose the one part that says which build it is.
+///
+/// Deliberately narrow about what counts as a version, because the company
+/// fork prints a banner before it — `欢迎使用研发工具|xOpenCode` — and taking the
+/// first non-empty line put that greeting in the version column. A version is
+/// a dotted numeric core with an optional `-suffix`; anything else is
+/// decoration.
+fn version_token(line: &str) -> Option<&str> {
+    let text = line
+        .strip_prefix("opencode ")
+        .or_else(|| line.strip_prefix("OpenCode "))
+        .unwrap_or(line)
+        .trim();
+    let text = text.strip_prefix('v').unwrap_or(text);
+    // One whitespace-delimited token, kept whole.
+    let token = text.split([' ', '\t']).next()?;
+    if token.is_empty() {
+        return None;
+    }
+    // The core must be numeric and dotted; a suffix (`-h3`, `-beta.2`) and a
+    // `+build` are allowed after it and stay on the token.
+    let core = token.split(['-', '+']).next()?;
+    let mut parts = core.split('.');
+    let first = parts.next()?;
+    if first.is_empty() || !first.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let rest: Vec<&str> = parts.collect();
+    // `1.19.3` and `1.18.29-h3`, never a bare `1`.
+    if rest.is_empty() {
+        return None;
+    }
+    let numeric = rest
+        .iter()
+        .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()));
+    numeric.then_some(token)
 }
 
 fn runtime_for(bin: PathBuf, source: RuntimeSource, checked_at: u64) -> OpencodeRuntime {
@@ -1092,7 +1170,12 @@ fn runtime_for(bin: PathBuf, source: RuntimeSource, checked_at: u64) -> Opencode
             source,
             bin: Some(bin.to_string_lossy().into_owned()),
             version: None,
-            error: Some(format!("not a file: {}", bin.display())),
+            error: Some(
+                RuntimeError::NotRunnable {
+                    detail: format!("not a file: {}", bin.display()),
+                }
+                .to_stored(),
+            ),
             checked_at,
         };
     }
@@ -1108,7 +1191,7 @@ fn runtime_for(bin: PathBuf, source: RuntimeSource, checked_at: u64) -> Opencode
             source,
             bin: Some(bin.to_string_lossy().into_owned()),
             version: None,
-            error: Some(error),
+            error: Some(error.to_stored()),
             checked_at,
         },
     }
@@ -1147,7 +1230,7 @@ pub fn detect_runtime_with(
         source: RuntimeSource::Missing,
         bin: None,
         version: None,
-        error: Some("opencode was not found on PATH".into()),
+        error: Some(RuntimeError::NotFound.to_stored()),
         checked_at,
     }
 }
@@ -1301,6 +1384,52 @@ mod tests {
         assert_eq!(runtime.source, RuntimeSource::External);
         assert!(runtime.bin.is_none());
         assert!(runtime.version.is_none());
+    }
+
+    /// The company fork prints a banner before its version, with blank lines
+    /// around it. Taking the first non-empty line put the greeting in the
+    /// version column; the reader could not tell which build they had.
+    #[test]
+    fn a_banner_before_the_version_is_skipped() {
+        assert_eq!(version_token("欢迎使用研发工具|xOpenCode"), None);
+        assert_eq!(version_token(""), None);
+        assert_eq!(version_token("1.18.29-h3"), Some("1.18.29-h3"));
+        assert_eq!(version_token("1.19.3"), Some("1.19.3"));
+        assert_eq!(version_token("v1.19.3"), Some("1.19.3"));
+        assert_eq!(version_token("opencode 1.19.3"), Some("1.19.3"));
+    }
+
+    /// The suffix is the build, not decoration: `-h3` is the one part that says
+    /// this is the company fork rather than upstream.
+    #[test]
+    fn a_version_suffix_is_kept_whole() {
+        assert_eq!(version_token("1.18.29-h3"), Some("1.18.29-h3"));
+        assert_eq!(version_token("0.6.0-beta.2"), Some("0.6.0-beta.2"));
+    }
+
+    #[test]
+    fn a_bare_number_is_not_a_version() {
+        // `1` alone could be a count, a column heading, a line number.
+        assert_eq!(version_token("1"), None);
+        assert_eq!(version_token("2026"), None);
+    }
+
+    #[test]
+    fn a_stored_error_is_a_code_and_an_optional_detail() {
+        assert_eq!(RuntimeError::AuthParked.to_stored(), "authParked");
+        assert_eq!(RuntimeError::NotFound.to_stored(), "notFound");
+        assert_eq!(RuntimeError::VersionEmpty.to_stored(), "versionEmpty");
+        assert_eq!(
+            RuntimeError::VersionTimeout { seconds: 10 }.to_stored(),
+            "versionTimeout:10"
+        );
+        assert_eq!(
+            RuntimeError::VersionExited {
+                detail: "boom".into()
+            }
+            .to_stored(),
+            "versionExited:boom"
+        );
     }
 
     #[cfg(unix)]

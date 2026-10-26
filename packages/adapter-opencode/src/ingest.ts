@@ -25,6 +25,8 @@ export function createIngestor(opts: {
 }): {
   handle: (evt: Event) => void;
   handleBatch: (events: Event[]) => void;
+  /** Events the mapper produced outside a stream frame — a reconcile at connect. */
+  append: (events: EventInput[]) => void;
   stop: () => void;
 } {
   const { mapper, sink } = opts;
@@ -269,6 +271,12 @@ export function createIngestor(opts: {
         batch = null;
         if (buf.length) sink.append(buf);
       }
+    },
+    // Events the mapper produced outside a stream frame — a reconcile at
+    // connect time. Same sink, same batching rules; there is simply no frame
+    // to carry them.
+    append(events: EventInput[]) {
+      emit(events);
     },
     stop() {
       clearTimeout(flushTimer);
