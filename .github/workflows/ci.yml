@@ -1,0 +1,55 @@
+name: CI
+
+# A release tag used to be the only thing that ever built the app, and it
+# built it with no test gate at all: a broken build only surfaced after the
+# tag was pushed. This workflow runs the checks that exist today on every
+# push and pull request, so a regression is caught before it reaches a tag.
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      # The service tests ask the kernel who holds a port, and they use
+      # lsof to do it. Without it they cannot tell a free port from a busy
+      # one and the dev-process tests fail.
+      - name: Install Linux test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lsof
+
+      - name: Install workspace dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install desktop UI dependencies
+        working-directory: apps/desktop/ui
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      # Scoped to packages: the desktop UI is a separate install with its own
+      # lockfile and dependency versions, so it is tested on its own.
+      - name: Test packages
+        run: bun test packages
+
+      # Follow-up: the Rust sidecar (apps/desktop/src-tauri) has no test gate
+      # either. `cargo test` needs the WebKitGTK development packages that
+      # only the release workflow installs, so it belongs in a heavier job of
+      # its own rather than slowing this one down.

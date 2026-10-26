@@ -5,7 +5,8 @@
     "packages/*"
   ],
   "scripts": {
-    "test": "bun test",
+    "test": "bun test packages",
+    "test:ui": "bun --cwd=apps/desktop/ui test",
     "sidecar": "bun run scripts/build-sidecar.ts",
     "sidecar:force": "bun run scripts/build-sidecar.ts --force",
     "icons:providers": "bun run scripts/provider-icons.ts",
