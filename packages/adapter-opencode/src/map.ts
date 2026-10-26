@@ -291,6 +291,14 @@ interface SessionState {
    * rather than a pause, and one still receiving events is a live turn.
    */
   lastTouch?: number;
+  /**
+   * Whether this mapper generation has announced an idle for the session.
+   *
+   * The ledger is memory: a restart or a reconnect rebuilds it, and the store's
+   * projection keeps whatever `busy` the previous generation wrote. A guard that
+   * only trusted its own memory would refuse the very idle that clears it.
+   */
+  emittedIdle?: boolean;
 }
 
 export class OpencodeMapper {
@@ -717,6 +725,9 @@ export class OpencodeMapper {
   private noteWork(s: SessionState, out: EventInput[], key: string): void {
     if (s.sawBusy) return;
     s.sawBusy = true;
+    // A new run gets to announce its own ending: the correction above is one
+    // per generation, and reusing it here would silence the idle that follows.
+    s.emittedIdle = false;
     this.queueSettle(s, `work:${key}`, false);
     out.push(
       this.ev(
@@ -875,6 +886,9 @@ export class OpencodeMapper {
       props && "sessionID" in props ? (props.sessionID as string) : undefined;
     if (sessionID) {
       const known = this.sessions.get(sessionID);
+      // Every frame the backend emits for this session is activity, including
+      // a `retry`: a run that is being retried has not ended, and the settle
+      // fallback must not call it over while it is still moving.
       if (known) known.lastTouch = this.now();
     }
 
@@ -1201,7 +1215,7 @@ export class OpencodeMapper {
          * nothing.
          */
         if (!idle) return out;
-        const wasBusy = s.sawBusy;
+        const sawBusyHere = s.sawBusy;
         // Idle closes every open turn. A user message whose turn resolved —
         // or never produced one — keeps getting bookkeeping frames after
         // (title, tokens, summaries), and each would read as a new run.
@@ -1219,7 +1233,20 @@ export class OpencodeMapper {
         // The backend re-issues idle under fresh ids — a status-idle and a
         // session.idle for one transition, again on reconnect. Only the
         // busy→idle edge is a state worth announcing.
-        if (!wasBusy) return out;
+        //
+        // Except once per generation. `sawBusy` is memory, and the store's
+        // `busy` is not: a restart or a fresh connect starts with an empty
+        // ledger while the projection still says running from a generation
+        // that is gone. Refusing the backend's idle because *this* generation
+        // never saw the busy left that stale flag with nothing able to clear
+        // it — the session read as running forever, and a stop went through
+        // the same guard and changed nothing.
+        //
+        // So the first idle a generation hears is always announced; after
+        // that the busy→idle edge alone decides, and the duplicate frames a
+        // reconnect re-delivers stay quiet.
+        if (!sawBusyHere && s.emittedIdle) return out;
+        s.emittedIdle = true;
         out.push(
           this.ev(
             s,

@@ -580,6 +580,51 @@ describe("OpencodeMapper", () => {
     expect(idle.find((e) => e.type === "session.status")!.data).toEqual({ state: "idle" });
   });
 
+  test("a fresh generation's first idle is announced even without seeing the busy", () => {
+    // The store's `busy` outlives the mapper that wrote it. A restart, or a
+    // fresh connect, starts with an empty ledger while the projection still
+    // says running — and a guard that only trusted its own memory refused the
+    // one frame able to clear it. Measured on a session stuck that way: the
+    // stop button went through the same path and changed nothing, while the
+    // official client — which asks the server rather than remembering — drew
+    // the session as idle.
+    const m = new OpencodeMapper();
+    const out = m.handle({
+      id: "idle-gen1",
+      type: "session.idle",
+      properties: { sessionID: sid },
+    } as unknown as Event);
+    expect(out.find((e) => e.type === "session.status")?.data).toEqual({ state: "idle" });
+  });
+
+  test("the second idle in one generation stays quiet", () => {
+    // The correction is once per generation. The backend re-issues idle under
+    // fresh ids for one transition, and again on reconnect; announcing each
+    // would stack duplicates on a session that is already idle.
+    const m = new OpencodeMapper();
+    m.handle({ id: "idle-a", type: "session.idle", properties: { sessionID: sid } } as unknown as Event);
+    const again = m.handle({
+      id: "idle-b",
+      type: "session.idle",
+      properties: { sessionID: sid },
+    } as unknown as Event);
+    expect(again.find((e) => e.type === "session.status")).toBeUndefined();
+  });
+
+  test("a new run gets its own idle after the correction was spent", () => {
+    // Work reset the latch, so the idle that ends this run is the busy→idle
+    // edge again — not swallowed as a duplicate of the earlier correction.
+    const m = new OpencodeMapper();
+    m.handle({ id: "idle-pre", type: "session.idle", properties: { sessionID: sid } } as unknown as Event);
+    m.handle(msgUpdated({ id: "u9", sessionID: sid, role: "user", time: { created: 10 } }));
+    const ended = m.handle({
+      id: "idle-post",
+      type: "session.idle",
+      properties: { sessionID: sid },
+    } as unknown as Event);
+    expect(ended.find((e) => e.type === "session.status")?.data).toEqual({ state: "idle" });
+  });
+
   test("a finished turn says idle when the backend never did", () => {
     // The case that left a dead session breathing in every list. Measured on a
     // real one: a turn that finished after a permission was granted ended on
