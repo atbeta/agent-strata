@@ -285,6 +285,13 @@ struct LoginPipe {
     stdin: ChildStdin,
     stage: Arc<AtomicU8>,
     prompts: Arc<AtomicU32>,
+    /// Whether the prompt is drawn by a TUI rather than read line by line.
+    ///
+    /// It decides what "Enter" is. A TUI puts the terminal in raw mode, where
+    /// the submit key is a bare CR; a line prompt reads a line and wants LF. A
+    /// TUI handed LF shows the typed text and then sits there — which reads as
+    /// "the login button does nothing".
+    tui: Arc<AtomicBool>,
 }
 
 /// Report prompt markers into `stage`: 1 while parked, 2 once a refusal is
@@ -292,9 +299,15 @@ struct LoginPipe {
 /// on screen; only a fresh answer through `LoginPipe` does. `prompts` counts
 /// each marker shown, so an answer knows when the password prompt is really
 /// on screen rather than written into a buffer the fork will flush.
-fn auth_scan(stage: Arc<AtomicU8>, prompts: Arc<AtomicU32>) -> Scan {
+fn auth_scan(stage: Arc<AtomicU8>, prompts: Arc<AtomicU32>, tui: Arc<AtomicBool>) -> Scan {
     let tail = Mutex::new(String::new());
     Arc::new(move |chunk: &[u8]| {
+        // A redraw is the tell. A line prompt prints text and waits; a TUI
+        // hides the cursor and repaints in place, which no line-oriented
+        // prompt has a reason to do.
+        if chunk.contains(&0x1b) {
+            tui.store(true, Ordering::SeqCst);
+        }
         let mut tail = tail.lock().unwrap_or_else(|e| e.into_inner());
         let hay = format!("{}{}", tail.as_str(), String::from_utf8_lossy(chunk));
         // Occurrences already counted live in the tail; only the growth is new.
@@ -323,15 +336,28 @@ fn pipe_to_log_scanned<R: Read + Send + 'static>(mut reader: R, log: Log, scan: 
     std::thread::spawn(move || {
         let mut buf = [0u8; 4096];
         let mut pending: Vec<u8> = Vec::new();
+        // A TUI repaints in place and ends its lines with a bare CR, never an
+        // LF. Splitting only on LF left everything a prompt drew sitting in
+        // `pending` — which is why a second login attempt produced no log at
+        // all: the output existed, it just never reached a line boundary.
+        let flush = |pending: &mut Vec<u8>, upto: usize, log: &Log| {
+            let mut line: Vec<u8> = pending.drain(..=upto).collect();
+            while matches!(line.last(), Some(b'\n' | b'\r')) {
+                line.pop();
+            }
+            // A CRLF boundary would otherwise leave an empty line per redraw.
+            if !line.is_empty() {
+                log_line(log, &String::from_utf8_lossy(&line));
+            }
+        };
         loop {
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
                     scan(&buf[..n]);
                     pending.extend_from_slice(&buf[..n]);
-                    while let Some(pos) = pending.iter().position(|b| *b == b'\n') {
-                        let line: Vec<u8> = pending.drain(..=pos).collect();
-                        log_line(&log, &String::from_utf8_lossy(&line[..line.len() - 1]));
+                    while let Some(pos) = pending.iter().position(|b| *b == b'\n' || *b == b'\r') {
+                        flush(&mut pending, pos, &log);
                     }
                 }
             }
@@ -512,6 +538,9 @@ fn spawn_opencode_supervisor(
     // prompt is re-read by a replacement child, until an answer goes in.
     let auth_stage = Arc::new(AtomicU8::new(0));
     let auth_prompts = Arc::new(AtomicU32::new(0));
+    // Set by the scanner the first time the child draws with escapes: what
+    // "Enter" means depends on it.
+    let auth_tui = Arc::new(AtomicBool::new(false));
     // The closure needs its own handle: the global install runs outside it,
     // and this one names the plugin.
     let plugin_config_dir = plugin_install::opencode_config_dir();
@@ -535,6 +564,7 @@ fn spawn_opencode_supervisor(
                 let opencode_slot = opencode.clone();
                 let login_slot = login.clone();
                 let auth_stage = auth_stage.clone();
+                let auth_tui = auth_tui.clone();
                 let exited = exited.clone();
                 let plugin_config_dir = plugin_config_dir.clone();
                 move |p| {
@@ -570,7 +600,11 @@ fn spawn_opencode_supervisor(
                         &env_refs,
                         &supervise_log,
                         true,
-                        Some(auth_scan(auth_stage.clone(), auth_prompts.clone())),
+                        Some(auth_scan(
+                            auth_stage.clone(),
+                            auth_prompts.clone(),
+                            auth_tui.clone(),
+                        )),
                     )
                     .ok_or_else(|| {
                         std::io::Error::new(std::io::ErrorKind::Other, "spawn opencode failed")
@@ -582,6 +616,7 @@ fn spawn_opencode_supervisor(
                                 stdin,
                                 stage: auth_stage.clone(),
                                 prompts: auth_prompts.clone(),
+                                tui: auth_tui.clone(),
                             });
                         }
                     }
@@ -915,20 +950,37 @@ fn answer_login(
     let Some(pipe) = guard.as_mut() else {
         return Err("the embedded OpenCode server is not waiting for a login".into());
     };
+    // What "Enter" means depends on who is asking.
+    //
+    // A TUI puts the terminal in raw mode and submits on a bare CR; a line
+    // prompt reads a line and wants LF. Handing LF to a TUI shows the typed
+    // text and then waits forever, which reads exactly like a login button
+    // that does nothing — the text appears, nothing is submitted.
+    let submit = if pipe.tui.load(Ordering::SeqCst) { "\r" } else { "\n" };
+    // Both halves go in with the same terminator: a raw-mode reader that never
+    // sees CR leaves the field open and swallows the password into it.
+    let write = |stdin: &mut ChildStdin, value: &str| -> Result<(), String> {
+        // No `writeln!`: its LF is the whole problem on a TUI. The CR is
+        // written as part of the value, and the pipe is flushed because
+        // `ChildStdin` does not buffer for us.
+        stdin
+            .write_all(value.as_bytes())
+            .and_then(|()| stdin.write_all(submit.as_bytes()))
+            .and_then(|()| stdin.flush())
+            .map_err(|e| format!("could not answer the login prompt: {e}"))
+    };
     // The fork asks twice — account, then password — and may flush pending
     // input or read raw bytes between them, so the two lines are staged: the
     // password goes in only once a fresh prompt is actually on screen. The
     // deadline keeps an upstream binary or a changed prompt from hanging the
     // command; a fork that never re-asks still gets both lines.
     let prompts_seen = pipe.prompts.load(Ordering::SeqCst);
-    writeln!(pipe.stdin, "{username}")
-        .map_err(|e| format!("could not answer the login prompt: {e}"))?;
+    write(&mut pipe.stdin, username)?;
     let deadline = Instant::now() + Duration::from_secs(3);
     while pipe.prompts.load(Ordering::SeqCst) <= prompts_seen && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(50));
     }
-    writeln!(pipe.stdin, "{password}")
-        .map_err(|e| format!("could not answer the login prompt: {e}"))?;
+    write(&mut pipe.stdin, password)?;
     // A refusal stays on screen until an answer actually goes in — this is the
     // point it becomes a fresh attempt, so the status flips back to waiting.
     pipe.stage.store(1, Ordering::SeqCst);
@@ -1195,7 +1247,7 @@ mod tests {
     use super::{answer_login, auth_scan, open_log, reap, spawn, LoginPipe, Log};
     use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
-    use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
     use std::sync::{Arc, Mutex};
 
     extern "C" {
@@ -1241,7 +1293,8 @@ mod tests {
     fn prompt_markers_park_the_child_and_a_refusal_stays_up() {
         let stage = Arc::new(AtomicU8::new(0));
         let prompts = Arc::new(AtomicU32::new(0));
-        let scan = auth_scan(stage.clone(), prompts.clone());
+        let tui = Arc::new(AtomicBool::new(false));
+        let scan = auth_scan(stage.clone(), prompts.clone(), tui);
         scan(b"listening on http://127.0.0.1:4096");
         assert_eq!(stage.load(Ordering::SeqCst), 0);
         scan("欢迎使用研发工具|xOpenCode\n◇ 请输入域账号:".as_bytes());
@@ -1264,7 +1317,8 @@ mod tests {
     fn a_marker_split_across_chunks_is_still_caught() {
         let stage = Arc::new(AtomicU8::new(0));
         let prompts = Arc::new(AtomicU32::new(0));
-        let scan = auth_scan(stage.clone(), prompts.clone());
+        let tui = Arc::new(AtomicBool::new(false));
+        let scan = auth_scan(stage.clone(), prompts.clone(), tui);
         scan("请输入".as_bytes());
         scan("域账号:".as_bytes());
         assert_eq!(stage.load(Ordering::SeqCst), 1);
@@ -1275,7 +1329,8 @@ mod tests {
     fn an_upstream_boot_never_parks() {
         let stage = Arc::new(AtomicU8::new(0));
         let prompts = Arc::new(AtomicU32::new(0));
-        let scan = auth_scan(stage.clone(), prompts);
+        let tui = Arc::new(AtomicBool::new(false));
+        let scan = auth_scan(stage.clone(), prompts, tui);
         scan(b"opencode serve\nlistening on http://127.0.0.1:4096\n");
         scan(b"session created\nmessage.updated\n");
         assert_eq!(stage.load(Ordering::SeqCst), 0);
@@ -1295,6 +1350,8 @@ mod tests {
             // cat never prompts: the staged password falls back to the
             // deadline and the pair still lands in one read.
             prompts: Arc::new(AtomicU32::new(0)),
+            // cat never draws a TUI, so the answer goes in as lines.
+            tui: Arc::new(AtomicBool::new(false)),
         }));
         answer_login(&login, "s000", "hunter2").expect("answer");
         // Dropping the pipe gives cat its EOF, so wait_with_output returns.
@@ -1309,6 +1366,50 @@ mod tests {
         let login: Mutex<Option<LoginPipe>> = Mutex::new(None);
         let err = answer_login(&login, "s000", "hunter2").unwrap_err();
         assert!(err.contains("not waiting"), "unexpected error: {err}");
+    }
+
+    /// A TUI puts the terminal in raw mode, where the submit key is a bare CR.
+    /// Handing it LF shows the typed text and then waits forever, which is the
+    /// shape of "the login button does nothing".
+    #[test]
+    fn a_tui_prompt_is_answered_with_a_carriage_return() {
+        let mut child = Command::new("/bin/cat")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("cat");
+        let login: Mutex<Option<LoginPipe>> = Mutex::new(Some(LoginPipe {
+            stdin: child.stdin.take().expect("stdin"),
+            stage: Arc::new(AtomicU8::new(2)),
+            prompts: Arc::new(AtomicU32::new(0)),
+            tui: Arc::new(AtomicBool::new(true)),
+        }));
+        answer_login(&login, "s000", "hunter2").expect("answer");
+        drop(login.into_inner().unwrap());
+        let out = child.wait_with_output().expect("wait cat");
+        // No LF anywhere: a raw-mode reader would treat it as a stray newline.
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "s000\rhunter2\r");
+    }
+
+    /// The flag is read from the stream, not configured: a redraw is the tell.
+    #[test]
+    fn escapes_in_the_output_mark_the_prompt_as_a_tui() {
+        let stage = Arc::new(AtomicU8::new(0));
+        let prompts = Arc::new(AtomicU32::new(0));
+        let tui = Arc::new(AtomicBool::new(false));
+        let scan = auth_scan(stage, prompts, tui.clone());
+        scan("\u{1b}[?25l".as_bytes());
+        assert!(tui.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn a_plain_line_prompt_is_not_marked_as_a_tui() {
+        let stage = Arc::new(AtomicU8::new(0));
+        let prompts = Arc::new(AtomicU32::new(0));
+        let tui = Arc::new(AtomicBool::new(false));
+        let scan = auth_scan(stage, prompts, tui.clone());
+        scan("◇ 请输入域账号:".as_bytes());
+        assert!(!tui.load(Ordering::SeqCst));
     }
 
     #[test]
