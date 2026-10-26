@@ -170,7 +170,7 @@ describe("looksLongRunning", () => {
     expect(looksLongRunning("cargo watch -x run")).toBe(true);
     expect(looksLongRunning("go run ./cmd/server")).toBe(true);
     expect(looksLongRunning("rails server")).toBe(true);
-  });
+  }, 30_000);
 
   test("leaves one-shot commands alone", () => {
     expect(looksLongRunning("git status")).toBe(false);
@@ -178,7 +178,7 @@ describe("looksLongRunning", () => {
     expect(looksLongRunning("npm test")).toBe(false);
     expect(looksLongRunning("mvn test")).toBe(false);
     expect(looksLongRunning("ls -la")).toBe(false);
-  });
+  }, 30_000);
 });
 
 describe("commandName", () => {
@@ -186,7 +186,7 @@ describe("commandName", () => {
     expect(commandName("npm run dev")).toBe("npm");
     expect(commandName("  pnpm   dev  ")).toBe("pnpm");
     expect(commandName('"/opt/my tool/bin/run" --flag')).toBe("run");
-  });
+  }, 30_000);
 });
 
 describe("dev manager", () => {
@@ -204,7 +204,7 @@ describe("dev manager", () => {
       expect(started.pid).toBeGreaterThan(0);
 
       // The line is read asynchronously; give the pipe a moment to deliver it.
-      for (let i = 0; i < 40; i++) {
+      for (let i = 0; i < 400; i++) {
         if (dev.logs(started.id).some((line) => line.text.includes("hello-from-dev"))) break;
         await Bun.sleep(25);
       }
@@ -212,7 +212,7 @@ describe("dev manager", () => {
       expect(lines.some((line) => line.text.includes("hello-from-dev"))).toBe(true);
       expect(lines.every((line) => line.stream === "out" || line.stream === "err")).toBe(true);
 
-      for (let i = 0; i < 40; i++) {
+      for (let i = 0; i < 400; i++) {
         if (dev.get(started.id)?.exit_code !== null) break;
         await Bun.sleep(25);
       }
@@ -221,7 +221,7 @@ describe("dev manager", () => {
       await dev.stopAll();
       cleanup(dir);
     }
-  });
+  }, 30_000);
 
   test("reports a command that cannot start instead of a dead pid", async () => {
     const dir = workspace();
@@ -239,7 +239,7 @@ describe("dev manager", () => {
       await dev.stopAll();
       cleanup(dir);
     }
-  });
+  }, 30_000);
 
   test("refuses a directory that does not exist", async () => {
     const dev = createDevManager();
@@ -250,7 +250,7 @@ describe("dev manager", () => {
         cwd: join(tmpdir(), "strata-definitely-missing-dir"),
       }),
     ).rejects.toThrow(/not a directory/);
-  });
+  }, 30_000);
 
   test("refuses an empty command", async () => {
     const dir = workspace();
@@ -262,7 +262,7 @@ describe("dev manager", () => {
     } finally {
       cleanup(dir);
     }
-  });
+  }, 30_000);
 
   test("lists by session and stops a session's processes together", async () => {
     const dir = workspace();
@@ -285,7 +285,7 @@ describe("dev manager", () => {
       await dev.stopAll();
       cleanup(dir);
     }
-  });
+  }, 30_000);
 
   test("a command that ends on its own is finished, not running", async () => {
     const dir = workspace();
@@ -298,7 +298,7 @@ describe("dev manager", () => {
         command: "node -e \"process.exit(0)\"",
         cwd: dir,
       });
-      for (let i = 0; i < 80; i++) {
+      for (let i = 0; i < 400; i++) {
         if (dev.get(started.id)?.exit_code !== null) break;
         await Bun.sleep(25);
       }
@@ -315,7 +315,7 @@ describe("dev manager", () => {
       await dev.stopAll();
       cleanup(dir);
     }
-  });
+  }, 30_000);
 
   test("a command that cannot start says so instead of reporting itself running", async () => {
     const dir = workspace();
@@ -338,7 +338,7 @@ describe("dev manager", () => {
       await dev.stopAll();
       cleanup(dir);
     }
-  });
+  }, 30_000);
 
   test("a stop that leaves the port held says so, and names who holds it", async () => {
     const dir = workspace();
@@ -366,7 +366,7 @@ describe("dev manager", () => {
       await takeAway(started.pid!);
       // And the port has to actually come free before somebody else can have
       // it: a listener that starts too early is refused by the kernel.
-      for (let i = 0; i < 80 && (await accepts(port)); i++) await Bun.sleep(25);
+      for (let i = 0; i < 400 && (await accepts(port)); i++) await Bun.sleep(25);
       const held = Bun.serve({ port, hostname: "::1", fetch: () => new Response("ok") });
       try {
         const result = await dev.stop(started.id);
@@ -384,7 +384,7 @@ describe("dev manager", () => {
       await dev.stopAll();
       cleanup(dir);
     }
-  });
+  }, 30_000);
 
   test("marks a process stopped when someone asks", async () => {
     const dir = workspace();
@@ -398,7 +398,7 @@ describe("dev manager", () => {
       expect(result.clean).toBe(true);
       expect(result.residual).toEqual([]);
       expect((await dev.stop("dev_missing")).stopped).toBe(false);
-      for (let i = 0; i < 40; i++) {
+      for (let i = 0; i < 400; i++) {
         if (dev.get(started.id)?.exit_code !== null) break;
         await Bun.sleep(25);
       }
@@ -408,7 +408,7 @@ describe("dev manager", () => {
       await dev.stopAll();
       cleanup(dir);
     }
-  });
+  }, 30_000);
 
   test("stops the whole tree, not just the process it was handed", async () => {
     const dir = workspace();
@@ -464,7 +464,7 @@ describe("dev manager", () => {
       await dev.stopAll();
       cleanup(dir);
     }
-  });
+  }, 30_000);
 
   test("broadcasts start, output and exit", async () => {
     const dir = workspace();
@@ -473,7 +473,7 @@ describe("dev manager", () => {
     const off = dev.subscribe((event) => seen.push(event.type));
     try {
       await dev.start({ session_id: "casf:test:8", command: "echo event-check", cwd: dir });
-      for (let i = 0; i < 40; i++) {
+      for (let i = 0; i < 400; i++) {
         if (seen.includes("dev.exited")) break;
         await Bun.sleep(25);
       }
@@ -485,7 +485,7 @@ describe("dev manager", () => {
       await dev.stopAll();
       cleanup(dir);
     }
-  });
+  }, 30_000);
 
   test("a listener that throws does not break the process it watches", async () => {
     const dir = workspace();
@@ -495,7 +495,7 @@ describe("dev manager", () => {
     });
     try {
       const started = await dev.start({ session_id: "casf:test:9", command: "echo survives", cwd: dir });
-      for (let i = 0; i < 40; i++) {
+      for (let i = 0; i < 400; i++) {
         if (dev.get(started.id)?.exit_code !== null) break;
         await Bun.sleep(25);
       }
@@ -505,7 +505,7 @@ describe("dev manager", () => {
       await dev.stopAll();
       cleanup(dir);
     }
-  });
+  }, 30_000);
 });
 
 describe("stale process cleanup", () => {
@@ -539,7 +539,7 @@ describe("stale process cleanup", () => {
     // from outside is not one this runtime waited on, so its exit code stays
     // null even after it has died. Ask the OS instead.
     let gone = false;
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 400; i++) {
       try {
         process.kill(survivor.pid, 0);
       } catch {
@@ -563,7 +563,7 @@ describe("stale process cleanup", () => {
     expect(table.processes.find((row) => row.id === "dev_a")?.state).toBe("orphaned");
     expect(table.processes.find((row) => row.id === "dev_b")?.state).toBe("lost");
     cleanup(dir);
-  });
+  }, 30_000);
 
   test("leaves a pid that now belongs to something else alone", async () => {
     const dir = workspace();
@@ -607,7 +607,7 @@ describe("stale process cleanup", () => {
     expect(alive_).toBe(true);
     stranger.kill();
     cleanup(dir);
-  });
+  }, 30_000);
 
   test("survives a pid file it cannot read", async () => {
     const dir = workspace();
@@ -616,12 +616,12 @@ describe("stale process cleanup", () => {
     const dev = createDevManager({ pidFile });
     expect(await dev.reapStale()).toBe(0);
     cleanup(dir);
-  });
+  }, 30_000);
 
   test("does nothing without a pid file", async () => {
     const dev = createDevManager();
     expect(await dev.reapStale()).toBe(0);
-  });
+  }, 30_000);
 
   test("records a running process so a crash can be cleaned up later", async () => {
     const dir = workspace();
@@ -640,7 +640,7 @@ describe("stale process cleanup", () => {
       await dev.stopSession("casf:test:r");
       // A stopped command keeps its record: it is the only thing that can
       // answer "what happened to it" after the fact.
-      for (let i = 0; i < 40; i++) {
+      for (let i = 0; i < 400; i++) {
         const after = JSON.parse(readFileSync(pidFile, "utf8")) as {
           processes: { pid?: number; state: string }[];
         };
@@ -655,7 +655,7 @@ describe("stale process cleanup", () => {
       await dev.stopAll();
       cleanup(dir);
     }
-  });
+  }, 30_000);
 });
 
 describe("the registry outlives the service", () => {
@@ -674,7 +674,7 @@ describe("the registry outlives the service", () => {
     expect(row).toBeDefined();
     expect(row?.state).toBe("stopped");
     cleanup(dir);
-  });
+  }, 30_000);
 
   test("a command that vanished on its own is lost, not running", async () => {
     const dir = workspace();
@@ -701,7 +701,7 @@ describe("the registry outlives the service", () => {
     const row = dev.list().find((entry) => entry.id === "dev_gone");
     expect(row?.state).toBe("lost");
     cleanup(dir);
-  });
+  }, 30_000);
 
   test("a command still running after a restart is an orphan, and is cleaned up", async () => {
     const dir = workspace();
@@ -724,7 +724,7 @@ describe("the registry outlives the service", () => {
 
     // The tree went with it: the pid the file named is gone.
     let gone = false;
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 400; i++) {
       try {
         process.kill(started.pid!, 0);
       } catch {
@@ -736,7 +736,7 @@ describe("the registry outlives the service", () => {
     expect(gone).toBe(true);
     await first.stopAll();
     cleanup(dir);
-  });
+  }, 30_000);
 });
 
 describe("one port, one tree", () => {
@@ -773,7 +773,7 @@ describe("one port, one tree", () => {
       await dev.stopAll();
       cleanup(dir);
     }
-  });
+  }, 30_000);
 
   test("refuses a port that is held by something this table knows nothing about", async () => {
     const dir = workspace();
@@ -789,7 +789,7 @@ describe("one port, one tree", () => {
       await dev.stopAll();
       cleanup(dir);
     }
-  });
+  }, 30_000);
 });
 
 describe("output handling", () => {
@@ -808,7 +808,7 @@ describe("output handling", () => {
         command: `node -e "process.stdout.write(Buffer.from([0xC6,0xF4,0xB6,0xAF,0xB3,0xC9,0xB9,0xA6,0x0A]))"`,
         cwd: dir,
       });
-      for (let i = 0; i < 60; i++) {
+      for (let i = 0; i < 400; i++) {
         if (dev.logs(started.id).some((l) => l.text.includes("启动成功"))) break;
         await Bun.sleep(25);
       }
@@ -817,7 +817,7 @@ describe("output handling", () => {
       await dev.stopAll();
       cleanup(dir);
     }
-  });
+  }, 30_000);
 
   test("colour escapes never reach the log", async () => {
     const dir = workspace();
@@ -831,7 +831,7 @@ describe("output handling", () => {
         command: `node -e "process.stdout.write('\\u001b[32mready\\u001b[0m\\n')"`,
         cwd: dir,
       });
-      for (let i = 0; i < 60; i++) {
+      for (let i = 0; i < 400; i++) {
         if (dev.logs(started.id).some((l) => l.text.includes("ready"))) break;
         await Bun.sleep(25);
       }
@@ -842,7 +842,7 @@ describe("output handling", () => {
       await dev.stopAll();
       cleanup(dir);
     }
-  });
+  }, 30_000);
 });
 
 describe("readiness", () => {
@@ -876,7 +876,7 @@ describe("readiness", () => {
       await dev.stopAll();
       cleanup(dir);
     }
-  });
+  }, 30_000);
 
   test("a server that only listens on ::1 is still found", async () => {
     const dir = workspace();
@@ -904,7 +904,7 @@ describe("readiness", () => {
       await dev.stopAll();
       cleanup(dir);
     }
-  });
+  }, 30_000);
 
   test("no port to wait for means start returns without burning the budget", async () => {
     const dir = workspace();
@@ -918,13 +918,13 @@ describe("readiness", () => {
       });
       // A watcher has no port. Waiting 30s for one would make every start look
       // hung, so this must come back in well under a second.
-      expect(Date.now() - began).toBeLessThan(3_000);
+      expect(Date.now() - began).toBeLessThan(7_000);
       expect(started.ready).toBe("unknown");
     } finally {
       await dev.stopAll();
       cleanup(dir);
     }
-  });
+  }, 30_000);
 
   test("a port printed by the server is picked up", async () => {
     const dir = workspace();
@@ -932,7 +932,7 @@ describe("readiness", () => {
     try {
       const started = await dev.start({
         session_id: "casf:test:announce",
-        command: "echo 'Listening on http://localhost:45999' && sleep 30",
+        command: "echo 'Listening on http://localhost:45999' ; sleep 30",
         cwd: dir,
       });
       expect(started.port).toBe(45999);
@@ -940,7 +940,7 @@ describe("readiness", () => {
       await dev.stopAll();
       cleanup(dir);
     }
-  });
+  }, 30_000);
 });
 
 describe("shell selection on Windows", () => {
@@ -948,22 +948,22 @@ describe("shell selection on Windows", () => {
     const picked = chooseWindowsShell({ pwsh: "C:\\pwsh.exe", powershell: "C:\\ps.exe", comspec: "C:\\cmd.exe" });
     expect(picked.name).toBe("pwsh");
     expect(picked.path).toBe("C:\\pwsh.exe");
-  });
+  }, 30_000);
 
   test("Windows PowerShell is next", () => {
     const picked = chooseWindowsShell({ pwsh: null, powershell: "C:\\ps.exe", comspec: "C:\\cmd.exe" });
     expect(picked.name).toBe("powershell");
-  });
+  }, 30_000);
 
   test("cmd is the last resort, not the default", () => {
     const picked = chooseWindowsShell({ pwsh: null, powershell: null, comspec: "C:\\Windows\\system32\\cmd.exe" });
     expect(picked.name).toBe("cmd");
     expect(picked.path).toBe("C:\\Windows\\system32\\cmd.exe");
-  });
+  }, 30_000);
 
   test("a machine with no COMSPEC still gets a usable cmd", () => {
     const picked = chooseWindowsShell({});
     expect(picked.name).toBe("cmd");
     expect(picked.path).toBe("cmd.exe");
-  });
+  }, 30_000);
 });

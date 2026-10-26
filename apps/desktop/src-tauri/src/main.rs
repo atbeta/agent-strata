@@ -33,7 +33,7 @@ use embed::{
     child_env, cleanup_stale_opencode, command_for, detect_runtime, health_ok, plan_with_port,
     previous_port, read_mode, reap_opencode_on_port, resolve_mode, serve_args, service_env,
     supervise, write_pid, write_runtime, write_status, OpencodeMode, OpencodePlan, OpencodeState,
-    Spawned,
+    resolve_bin, Spawned, AUTH_PROMPT, AUTH_REFUSED,
 };
 
 use std::thread::JoinHandle;
@@ -273,12 +273,6 @@ fn pipe_to_log<R: Read + Send + 'static>(reader: R, log: Log) {
 /// unsplit — a prompt that never ends in a newline still reaches the watcher.
 type Scan = Arc<dyn Fn(&[u8]) + Send + Sync>;
 
-/// The company fork parks every subcommand — `serve` included — at a domain
-/// account prompt when it has no credentials on disk. Upstream builds never
-/// print these markers, so watching costs nothing on a stock binary.
-const AUTH_PROMPT: &str = "请输入域账号";
-const AUTH_REFUSED: &str = "域账号或密码错误";
-
 /// A stdin kept open for the fork's login prompt, plus the stage the output
 /// scanner reports into. Answering the prompt writes to `stdin` and drops
 /// `stage` back to 1 so a previous refusal clears while it is checked.
@@ -456,16 +450,12 @@ fn spawn_opencode_supervisor(
 ) -> Option<(JoinHandle<()>, OpencodePlan)> {
     let status_path = data.join("opencode-status.json");
     let pid_path = data.join("opencode.pid");
-    // Re-detect rather than trusting the launch result: a binary chosen or
-    // installed while the app was open should not need a relaunch.
-    let runtime = detect_runtime(data, OpencodeMode::Embed);
-    let _ = write_runtime(&data.join("opencode-runtime.json"), &runtime);
-    let Some(bin) = runtime
-        .bin
-        .as_deref()
-        .map(PathBuf::from)
-        .filter(|path| path.is_file())
-    else {
+    // Re-resolve rather than trusting the launch result: a binary chosen or
+    // installed while the app was open should not need a relaunch. This stays
+    // a path check only — the version probe that would park on a fork's domain
+    // login belongs to the supervisor thread, where a wait cannot hold the
+    // window shut.
+    let Some(bin) = resolve_bin(data).filter(|path| path.is_file()) else {
         let _ = write_status(
             &status_path,
             OpencodeMode::Embed,
@@ -511,7 +501,13 @@ fn spawn_opencode_supervisor(
     // and this one names the plugin.
     let plugin_config_dir = plugin_install::opencode_config_dir();
     let handle_plan = planned.clone();
+    let thread_data = data.to_path_buf();
     let handle = std::thread::spawn(move || {
+        // The version probe runs here, not on the launch path: it costs
+        // seconds on a fork parked at its domain login, and a synchronous
+        // probe once kept the window from ever appearing.
+        let runtime = detect_runtime(&thread_data, OpencodeMode::Embed);
+        let _ = write_runtime(&thread_data.join("opencode-runtime.json"), &runtime);
         let wait_shutdown = shutdown.clone();
         let wait_slot = opencode.clone();
         let exited = Arc::new(AtomicBool::new(false));
@@ -674,20 +670,25 @@ impl Sidecars {
         };
         let mode = resolve_mode(env_embed.as_deref(), Some(file_mode));
 
-        // Read the binary and its version before anything is started. The
-        // result is what the settings page shows, and it is separate from the
-        // process status the supervisor rewrites on every transition.
-        let runtime = detect_runtime(&data, mode);
-        let runtime_path = data.join("opencode-runtime.json");
-        if let Err(e) = write_runtime(&runtime_path, &runtime) {
-            eprintln!(
-                "agent-strata: could not write {}: {e}",
-                runtime_path.display()
-            );
-            log_note(
-                &log,
-                &format!("could not write {}: {e}", runtime_path.display()),
-            );
+        // What the settings page shows about the binary. External mode
+        // answers without touching one; embed mode's probe runs on the
+        // supervisor thread instead — a version check is bounded now but
+        // still costs seconds when the binary is parked at a domain login,
+        // and running it on this synchronous path once kept the window from
+        // ever appearing.
+        if mode == OpencodeMode::External {
+            let runtime = detect_runtime(&data, mode);
+            let runtime_path = data.join("opencode-runtime.json");
+            if let Err(e) = write_runtime(&runtime_path, &runtime) {
+                eprintln!(
+                    "agent-strata: could not write {}: {e}",
+                    runtime_path.display()
+                );
+                log_note(
+                    &log,
+                    &format!("could not write {}: {e}", runtime_path.display()),
+                );
+            }
         }
 
         let mut extras: Vec<(String, String)> = Vec::new();

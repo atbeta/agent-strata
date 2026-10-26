@@ -2,12 +2,19 @@ use std::env;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
+
+/// The company fork parks every subcommand — `serve` and `--version`
+/// included — at a domain account prompt when it has no credentials on disk.
+/// Upstream builds never print these markers, so watching for them costs
+/// nothing on a stock binary.
+pub(crate) const AUTH_PROMPT: &str = "请输入域账号";
+pub(crate) const AUTH_REFUSED: &str = "域账号或密码错误";
 
 /// A command that starts without a console window.
 ///
@@ -874,6 +881,51 @@ pub fn write_desktop_bin(path: &Path, bin: Option<&str>) -> std::io::Result<()> 
     std::fs::write(path, format!("{json}\n"))
 }
 
+/// The real executable a `.cmd`/`.bat`/`.ps1` shim forwards to, if it can be
+/// seen from here.
+///
+/// `cmd /C` hides its own console through `command()`, but the console
+/// application the shim then starts is a grandchild: it is handed a brand new
+/// console, and that console is a window on screen for as long as the child
+/// runs — the flash every launch used to show. Running the target directly
+/// keeps the whole chain windowless and skips a shell hop.
+///
+/// npm's shims name the real exe, usually relative to `%~dp0` (the shim's own
+/// directory); a sibling `<name>.exe` covers wrappers written by hand. When
+/// neither pans out the caller falls back to running the shim.
+#[cfg(windows)]
+fn exe_behind_shim(bin: &Path) -> Option<PathBuf> {
+    let ext = bin.extension()?.to_str()?.to_ascii_lowercase();
+    if ext != "cmd" && ext != "bat" && ext != "ps1" {
+        return None;
+    }
+    let dir = bin.parent()?;
+    if let Some(stem) = bin.file_stem() {
+        let sibling = dir.join(stem).with_extension("exe");
+        if sibling.is_file() {
+            return Some(sibling);
+        }
+    }
+    let text = std::fs::read_to_string(bin).ok()?;
+    for token in text.split(|c: char| c == '"' || c.is_whitespace()) {
+        let token = token.trim_matches('\'');
+        if !token.to_ascii_lowercase().ends_with(".exe") {
+            continue;
+        }
+        let expanded = token.replace("%~dp0", &dir.to_string_lossy().replace('\\', "/"));
+        let candidate = PathBuf::from(&expanded);
+        let candidate = if candidate.is_absolute() {
+            candidate
+        } else {
+            dir.join(candidate)
+        };
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
 /// The command to run a binary, including the shims Windows needs.
 ///
 /// `CreateProcess` cannot execute a `.cmd` or `.ps1` file directly. npm's
@@ -882,6 +934,9 @@ pub fn write_desktop_bin(path: &Path, bin: Option<&str>) -> std::io::Result<()> 
 pub fn command_for(bin: &Path) -> Command {
     #[cfg(windows)]
     {
+        if let Some(exe) = exe_behind_shim(bin) {
+            return command(exe);
+        }
         let ext = bin
             .extension()
             .and_then(|value| value.to_str())
@@ -904,25 +959,118 @@ pub fn command_for(bin: &Path) -> Command {
 }
 
 /// `opencode --version`, or the reason it could not be read.
+///
+/// The wait is bounded on purpose: this used to be `.output()`, which blocks
+/// until the child exits, and the company fork parks this subcommand at its
+/// domain login prompt forever when unauthenticated — running it on the
+/// launch path once meant the window never appeared. Seeing the prompt is an
+/// answer in itself, so the child is killed as soon as the marker shows.
 pub fn version_of(bin: &Path) -> Result<String, String> {
-    let output = command_for(bin)
+    const DEADLINE: Duration = Duration::from_secs(10);
+    let mut child = command_for(bin)
         .arg("--version")
-        .output()
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|e| format!("could not run {}: {e}", bin.display()))?;
-    if !output.status.success() {
-        let detail = String::from_utf8_lossy(&output.stderr);
+    // Each stream drains on its own thread, so a child that never exits
+    // cannot block the wait below on a full pipe, and the prompt marker is
+    // visible while the child still runs.
+    fn drain_into<R: Read + Send + 'static>(
+        mut stream: R,
+        slot: Arc<Mutex<Vec<u8>>>,
+    ) -> std::thread::JoinHandle<()> {
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 4096];
+            loop {
+                match stream.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        if let Ok(mut slot) = slot.lock() {
+                            slot.extend_from_slice(&buf[..n]);
+                        }
+                    }
+                }
+            }
+        })
+    }
+    let stdout: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
+    let stderr: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
+    let mut readers = Vec::new();
+    if let Some(stream) = child.stdout.take() {
+        readers.push(drain_into(stream, Arc::clone(&stdout)));
+    }
+    if let Some(stream) = child.stderr.take() {
+        readers.push(drain_into(stream, Arc::clone(&stderr)));
+    }
+    let seen = |stdout: &Arc<Mutex<Vec<u8>>>, stderr: &Arc<Mutex<Vec<u8>>>| -> String {
+        let stdout = stdout.lock().map(|v| v.clone()).unwrap_or_default();
+        let stderr = stderr.lock().map(|v| v.clone()).unwrap_or_default();
+        let mut both = String::from_utf8_lossy(&stdout).into_owned();
+        both.push_str(&String::from_utf8_lossy(&stderr));
+        both
+    };
+    let start = Instant::now();
+    let status = loop {
+        let output = seen(&stdout, &stderr);
+        if output.contains(AUTH_PROMPT) || output.contains(AUTH_REFUSED) {
+            break Err(format!(
+                "{} is parked at the domain login prompt",
+                bin.display()
+            ));
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => break Ok(status),
+            Ok(None) => {}
+            Err(e) => {
+                return Err(format!(
+                    "could not wait on {} --version: {e}",
+                    bin.display()
+                ))
+            }
+        }
+        if start.elapsed() >= DEADLINE {
+            break Err(format!(
+                "{} --version did not answer within {}s",
+                bin.display(),
+                DEADLINE.as_secs()
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let status = match status {
+        Ok(status) => status,
+        Err(reason) => {
+            // The tree, not just the shim: a parked `cmd /C` would leave the
+            // real binary still waiting on a prompt nobody can answer.
+            kill_tree(child.id());
+            let _ = child.wait();
+            for reader in readers {
+                let _ = reader.join();
+            }
+            return Err(reason);
+        }
+    };
+    for reader in readers {
+        let _ = reader.join();
+    }
+    let stderr = stderr.lock().map(|v| v.clone()).unwrap_or_default();
+    if !status.success() {
+        let detail = String::from_utf8_lossy(&stderr);
         let line = detail
             .lines()
             .map(str::trim)
             .find(|line| !line.is_empty())
             .unwrap_or("");
         return Err(if line.is_empty() {
-            format!("{} --version exited with {}", bin.display(), output.status)
+            format!("{} --version exited with {}", bin.display(), status)
         } else {
             line.to_string()
         });
     }
-    let text = String::from_utf8_lossy(&output.stdout);
+    let stdout = stdout.lock().map(|v| v.clone()).unwrap_or_default();
+    let text = String::from_utf8_lossy(&stdout);
     let version = text
         .lines()
         .map(str::trim)
@@ -1006,6 +1154,28 @@ pub fn detect_runtime(dir: &Path, mode: OpencodeMode) -> OpencodeRuntime {
         dir,
         mode,
         env::var_os("STRATA_OPENCODE_BIN").map(PathBuf::from),
+    )
+}
+
+/// The binary embed mode would use, without running it.
+///
+/// The path half of `detect_runtime`: a chosen binary, then the environment,
+/// then PATH and the fallback directories. Whether the file exists is left to
+/// the caller, because a missing binary and one parked at a login prompt are
+/// different answers and only the first can be given cheaply.
+pub fn resolve_bin(dir: &Path) -> Option<PathBuf> {
+    if let Some(chosen) = read_desktop_bin(&dir.join("desktop.json")) {
+        return Some(chosen);
+    }
+    if let Some(from_env) = env::var_os("STRATA_OPENCODE_BIN")
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+    {
+        return Some(from_env);
+    }
+    find_in(
+        env::split_paths(&env::var_os("PATH").unwrap_or_default())
+            .chain(fallback_dirs().into_iter()),
     )
 }
 

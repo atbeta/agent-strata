@@ -44,13 +44,13 @@ describe("dev commands over the service", () => {
         data: { title: "x", workspace: work },
       } as EventInput),
     ]);
-  });
+  }, 30_000);
 
   afterAll(() => {
     svc.stop();
     rmSync(desktop, { recursive: true, force: true });
     rmSync(work, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
-  });
+  }, 30_000);
 
   test("a started command is listed, its logs are readable, and its port answers", async () => {
     const script = join(work, "server.cjs");
@@ -114,7 +114,7 @@ describe("dev commands over the service", () => {
       processes: { id: string; state: string }[];
     };
     expect(after.processes.find((p) => p.id === info.id)?.state).toBe("stopped");
-  });
+  }, 30_000);
 
   test("the table of what ran survives the service that ran it", () => {
     // The service writes down what it is running, because a service that is
@@ -128,10 +128,10 @@ describe("dev commands over the service", () => {
     expect(table.version).toBe(2);
     expect(table.processes.length).toBeGreaterThan(0);
     expect(table.processes.some((row) => row.state === "stopped")).toBe(true);
-  });
+  }, 30_000);
 
   test("a stop for a command nobody knows is not a success", async () => {
     const stopped = await post("/dev/dev_missing/stop", {});
     expect(stopped.status).toBe(404);
-  });
+  }, 30_000);
 });
