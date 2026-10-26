@@ -6,11 +6,11 @@
   ],
   "scripts": {
     "test": "bun test packages",
-    "test:ui": "bun --cwd=apps/desktop/ui test",
+    "test:ui": "bun test --cwd=apps/desktop/ui",
     "sidecar": "bun run scripts/build-sidecar.ts",
     "sidecar:force": "bun run scripts/build-sidecar.ts --force",
     "icons:providers": "bun run scripts/provider-icons.ts",
-    "typecheck": "tsc --noEmit -p packages/schema && tsc --noEmit -p packages/store && tsc --noEmit -p packages/projector && tsc --noEmit -p packages/policy && tsc --noEmit -p packages/adapter-acp && tsc --noEmit -p packages/adapter-opencode && tsc --noEmit -p packages/core && tsc --noEmit -p packages/service"
+    "typecheck": "tsc --noEmit -p packages/schema && tsc --noEmit -p packages/store && tsc --noEmit -p packages/projector && tsc --noEmit -p packages/policy && tsc --noEmit -p packages/adapter-acp && tsc --noEmit -p packages/adapter-opencode && tsc --noEmit -p packages/core && tsc --noEmit -p packages/service && tsc --noEmit -p apps/desktop/ui"
   },
   "devDependencies": {
     "@types/bun": "^1.2.0",

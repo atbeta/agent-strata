@@ -100,7 +100,7 @@ describe("running a backend command", () => {
     globalThis.fetch = (async (url: string, init?: RequestInit) => {
       sent.push({ url, body: JSON.parse(String(init?.body)) });
       return new Response("{}", { status: 200 });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
   });
   afterEach(() => {
     globalThis.fetch = realFetch;
@@ -132,7 +132,7 @@ describe("stopping a dev command", () => {
     globalThis.fetch = (async (url: string) => {
       urls.push(String(url));
       return Response.json({ ok: true, clean: true, residual: [] });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
     const result = await stopDevProcess("dev_1");
     expect(urls).toEqual(["/api/dev/dev_1/stop"]);
     expect(result).toEqual({ ok: true, clean: true, residual: [] });
@@ -142,18 +142,18 @@ describe("stopping a dev command", () => {
     // The service already knows what is left. Swallowing that would show the
     // reader a stop that did not happen.
     globalThis.fetch = (async () =>
-      Response.json({ ok: false, clean: false, residual: [4321], port: 5173, port_free: false })) as typeof fetch;
+      Response.json({ ok: false, clean: false, residual: [4321], port: 5173, port_free: false })) as unknown as typeof fetch;
     await expect(stopDevProcess("dev_1")).rejects.toThrow("still running: 4321");
     await expect(stopDevProcess("dev_1")).rejects.toThrow("port 5173 is still held");
   });
 
   test("says a stop left something behind even when it cannot name it", async () => {
-    globalThis.fetch = (async () => Response.json({ ok: false, clean: false, residual: [] })) as typeof fetch;
+    globalThis.fetch = (async () => Response.json({ ok: false, clean: false, residual: [] })) as unknown as typeof fetch;
     await expect(stopDevProcess("dev_1")).rejects.toThrow("the command is still running");
   });
 
   test("surfaces a service error", async () => {
-    globalThis.fetch = (async () => Response.json({ error: "nope" }, { status: 400 })) as typeof fetch;
+    globalThis.fetch = (async () => Response.json({ error: "nope" }, { status: 400 })) as unknown as typeof fetch;
     await expect(stopDevProcess("dev_1")).rejects.toThrow("nope");
   });
 });
@@ -172,7 +172,7 @@ describe("reading MCP servers and skills", () => {
     globalThis.fetch = (async (url: string) => {
       urls.push(String(url));
       return Response.json({ srv: { status: "connected" } });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
     const mcp = await readMcp("opencode:ses_1");
     expect(urls).toEqual(["/api/sessions/opencode%3Ases_1/opencode/mcp"]);
     expect(mcp).toEqual({ srv: { status: "connected" } });
@@ -183,13 +183,13 @@ describe("reading MCP servers and skills", () => {
     globalThis.fetch = (async (url: string) => {
       urls.push(String(url));
       return Response.json(skills);
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
     expect(await readSkills("opencode:ses_1")).toEqual(skills);
     expect(urls).toEqual(["/api/sessions/opencode%3Ases_1/opencode/skill"]);
   });
 
   test("treats a missing extension as undefined", async () => {
-    globalThis.fetch = (async () => new Response("", { status: 404 })) as typeof fetch;
+    globalThis.fetch = (async () => new Response("", { status: 404 })) as unknown as typeof fetch;
     expect(await readMcp("acp:1")).toBeUndefined();
     expect(await readSkills("acp:1")).toBeUndefined();
   });
@@ -203,7 +203,7 @@ describe("connecting and disconnecting an MCP server", () => {
     globalThis.fetch = (async (url: string, init?: RequestInit) => {
       sent.push({ url: String(url), method: init?.method, body: init?.body as string | undefined });
       return new Response("{}", { status: 200 });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
   });
   afterEach(() => {
     globalThis.fetch = realFetch;
@@ -219,7 +219,7 @@ describe("connecting and disconnecting an MCP server", () => {
   });
 
   test("surfaces a service error", async () => {
-    globalThis.fetch = (async () => Response.json({ error: "nope" }, { status: 400 })) as typeof fetch;
+    globalThis.fetch = (async () => Response.json({ error: "nope" }, { status: 400 })) as unknown as typeof fetch;
     await expect(connectMcp("s", "srv")).rejects.toThrow("nope");
     await expect(disconnectMcp("s", "srv")).rejects.toThrow("nope");
   });
