@@ -1,4 +1,4 @@
-import { createEffect, createResource, createSignal, For, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
 import {
   listDevProcesses,
   readSessionDiff,
@@ -15,7 +15,7 @@ import { Tip } from "./tip";
 import { DiffBlock } from "./diff";
 import { FileBrowser } from "./files";
 import { ReviewPane } from "./review";
-import { clampRailWidth, readRailWidth, writeRailWidth, RAIL_MAX, RAIL_MIN } from "./rail-width";
+import { clampRailWidth, railWidthLimit, readRailWidth, writeRailWidth, RAIL_MIN } from "./rail-width";
 import { inDesktopShell } from "./shell";
 import type { SidePanelTab } from "./right-pane";
 import { Button } from "@/components/ui/button";
@@ -39,7 +39,7 @@ export function SessionRail(props: {
   /** the settled view; the rail only renders once the transcript exists */
   view: () => SessionView;
   opencode: () => boolean;
-  /** the reader asked for the rail — collapsed shows only the edge strip */
+  /** whether the reader asked for the rail */
   open: () => boolean;
   tab: () => SidePanelTab;
   onSelectTab: (tab: SidePanelTab) => void;
@@ -59,14 +59,31 @@ export function SessionRail(props: {
    *
    * It was `w-72` on one tab and `min(600px, 48vw)` on the rest, so every tab
    * click resized the panel and re-wrapped the transcript beside it. Only the
-   * reader moves it now — the drag edge below, or the arrow keys — and the
-   * window only ever clamps it.
+   * reader moves it now — the drag edge below, or the arrow keys. The available
+   * column only clamps the visible width, leaving the saved preference intact.
    */
-  const [railWidth, setRailWidth] = createSignal(readRailWidth(window.innerWidth));
+  let observer: ResizeObserver | undefined;
+  let container: HTMLElement | undefined;
+  const [availableWidth, setAvailableWidth] = createSignal(window.innerWidth);
+  const [preferredWidth, setPreferredWidth] = createSignal(readRailWidth(window.innerWidth));
+  const railWidth = createMemo(() => clampRailWidth(preferredWidth(), availableWidth()));
+  const measure = () => setAvailableWidth(container?.clientWidth || window.innerWidth);
+  const bindRail = (el: HTMLElement) => {
+    container = el.parentElement ?? undefined;
+    if (!container) return;
+    measure();
+    observer?.disconnect();
+    observer = new ResizeObserver(measure);
+    observer.observe(container);
+  };
+  window.addEventListener("resize", measure);
+  onCleanup(() => {
+    observer?.disconnect();
+    window.removeEventListener("resize", measure);
+  });
   const resizeRail = (px: number, remember: boolean) => {
-    const next = clampRailWidth(px, window.innerWidth);
-    setRailWidth(next);
-    if (remember) writeRailWidth(next);
+    setPreferredWidth(px);
+    if (remember) writeRailWidth(railWidth());
   };
   const startRailDrag = (e: PointerEvent & { currentTarget: HTMLDivElement }) => {
     e.preventDefault();
@@ -135,11 +152,7 @@ export function SessionRail(props: {
     });
   });
 
-  /**
-   * How many files the changes view actually found. The rail header wears it
-   * while open; the collapsed edge strip wears the same number while closed,
-   * so the rail advertises what it holds before it takes any room.
-   */
+  /** How many files the changes view actually found. */
   const changeCount = () =>
     props.opencode()
       ? (reviewDiff() ?? []).filter((f) => f.file).length
@@ -148,14 +161,15 @@ export function SessionRail(props: {
   const files = () => props.view().files_changed;
   /** An empty diff reads differently per baseline, so it says which. */
   const emptyNote = () => t(reviewSource() === "git" ? "review.empty.git" : "review.empty");
-  // The list of names is worthless at 288px next to a real diff, so the
-  // panel borrows room only while a reader is actually reading one.
+  // A selected file borrows room only while it is open; below 560px its list
+  // stacks above the diff instead of crushing it into a narrow column.
   const open = () => files().find((f) => f.path === openFile()) ?? null;
   const toggleFile = (path: string) => setOpenFile(openFile() === path ? null : path);
 
   return (
     <Show when={props.open()}>
       <aside
+        ref={bindRail}
         class="relative flex shrink-0 flex-col border-l border-border"
         style={{ width: `${railWidth()}px` }}
       >
@@ -164,7 +178,7 @@ export function SessionRail(props: {
           aria-orientation="vertical"
           aria-label={t("rail.resize")}
           aria-valuemin={RAIL_MIN}
-          aria-valuemax={RAIL_MAX}
+          aria-valuemax={railWidthLimit(availableWidth())}
           aria-valuenow={railWidth()}
           tabindex={0}
           class="absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize outline-none focus-visible:bg-ring/40"
@@ -194,6 +208,8 @@ export function SessionRail(props: {
           >
             <MiniTabs
               kind="tabs"
+              label={t("panel.show")}
+              panelId="session-rail-panel"
               value={effectiveTab()}
               onChange={(id) => props.onSelectTab(id as SidePanelTab)}
               options={[
@@ -214,6 +230,12 @@ export function SessionRail(props: {
             ×
           </Button>
         </div>
+        <div
+          id="session-rail-panel"
+          role={props.opencode() ? "tabpanel" : undefined}
+          aria-labelledby={props.opencode() ? `session-rail-panel-tab-${effectiveTab()}` : undefined}
+          class="flex min-h-0 flex-1 flex-col"
+        >
         <Show when={effectiveTab() === "files"}>
           <FileBrowser sessionId={props.sessionId()} />
         </Show>
@@ -266,10 +288,12 @@ export function SessionRail(props: {
               </div>
             </Show>
             <Show when={!props.opencode()}>
-              <div class="flex min-h-0 flex-1">
+              <div class="@container flex min-h-0 flex-1 flex-col @min-[560px]:flex-row">
                 <div
                   class={`min-h-0 overflow-x-hidden overflow-y-auto px-2 py-3 ${
-                    open() ? "w-44 shrink-0 border-r border-border" : "w-full px-3"
+                    open()
+                      ? "max-h-[40%] shrink-0 border-b border-border @min-[560px]:max-h-none @min-[560px]:w-44 @min-[560px]:border-b-0 @min-[560px]:border-r"
+                      : "w-full px-3"
                   }`}
                 >
                   <Show
@@ -395,6 +419,7 @@ export function SessionRail(props: {
             </Show>
           </div>
         </Show>
+        </div>
       </aside>
     </Show>
   );

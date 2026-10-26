@@ -1,7 +1,7 @@
 export const FONT_KEY = "strata.fonts";
 
-export const CODE_SIZES = ["12", "13", "14", "15", "16"] as const;
-export type CodeSize = (typeof CODE_SIZES)[number];
+export const CONTENT_SIZES = ["12", "13", "14", "15", "16"] as const;
+export type ContentSize = (typeof CONTENT_SIZES)[number];
 
 export const CODE_LEADINGS = ["compact", "normal", "relaxed"] as const;
 export type CodeLeading = (typeof CODE_LEADINGS)[number];
@@ -11,7 +11,7 @@ export type FontChoice = {
   code: string;
   /** Empty follows the code font. */
   terminal: string;
-  size: CodeSize | "";
+  size: ContentSize | "";
   leading: CodeLeading | "";
   ligatures: boolean;
 };
@@ -28,7 +28,7 @@ export const DEFAULT_FONTS: FontChoice = {
 const SANS_FALLBACK = "ui-sans-serif, system-ui, sans-serif";
 const MONO_FALLBACK = 'ui-monospace, "SF Mono", "Cascadia Code", monospace';
 
-const SIZE_PX: Record<CodeSize, string> = {
+const SIZE_PX: Record<ContentSize, string> = {
   "12": "12px",
   "13": "13px",
   "14": "14px",
@@ -92,8 +92,8 @@ export function isInstalled(family: string): boolean {
   }, family);
 }
 
-function isSize(value: unknown): value is CodeSize {
-  return typeof value === "string" && (CODE_SIZES as readonly string[]).includes(value);
+function isSize(value: unknown): value is ContentSize {
+  return typeof value === "string" && (CONTENT_SIZES as readonly string[]).includes(value);
 }
 
 function isLeading(value: unknown): value is CodeLeading {
@@ -138,11 +138,11 @@ export function applyFonts(choice: FontChoice) {
   else root.style.removeProperty("--font-terminal");
 
   if (choice.size) {
-    root.dataset.codeSize = choice.size;
-    root.style.setProperty("--code-size", SIZE_PX[choice.size]);
+    root.dataset.contentSize = choice.size;
+    root.style.setProperty("--content-size", SIZE_PX[choice.size]);
   } else {
-    delete root.dataset.codeSize;
-    root.style.removeProperty("--code-size");
+    delete root.dataset.contentSize;
+    root.style.removeProperty("--content-size");
   }
   if (choice.leading) {
     root.dataset.codeLeading = choice.leading;

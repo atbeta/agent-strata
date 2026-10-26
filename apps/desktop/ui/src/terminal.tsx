@@ -129,7 +129,7 @@ export function TerminalPane(props: { sessionId: string; onEmpty?: () => void })
     const term = new Terminal({
       cursorBlink: true,
       fontFamily: termFont(),
-      fontSize: codeSize(),
+      fontSize: contentSize(),
       theme: termTheme(),
       scrollback: 2000,
     });
@@ -172,7 +172,7 @@ export function TerminalPane(props: { sessionId: string; onEmpty?: () => void })
     observer.observe(el);
     const onFonts = () => {
       term.options.fontFamily = termFont();
-      term.options.fontSize = codeSize();
+      term.options.fontSize = contentSize();
       if (fitted) applySize();
     };
     window.addEventListener("strata-fonts", onFonts);
@@ -288,8 +288,8 @@ function termFont(): string {
   return terminal || mono || "ui-monospace, monospace";
 }
 
-function codeSize(): number {
-  const raw = document.documentElement.dataset.codeSize;
+function contentSize(): number {
+  const raw = document.documentElement.dataset.contentSize;
   const n = raw ? Number(raw) : 13;
   return Number.isFinite(n) && n >= 12 && n <= 16 ? n : 13;
 }

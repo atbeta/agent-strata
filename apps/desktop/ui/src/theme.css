@@ -736,10 +736,10 @@ textarea {
   }
 }
 
-/* A chosen code face overrides the per-element size utilities. Unlayered so it
-   beats Tailwind's `.text-xs` / `.text-2xs` on the same node. */
-html[data-code-size] .font-mono {
-  font-size: var(--code-size);
+/* A chosen content size covers the transcript and monospaced content, not the
+   application chrome. Unlayered so it beats per-element size utilities. */
+html[data-content-size] :is(.md, .md code, .font-mono) {
+  font-size: var(--content-size);
 }
 html[data-code-leading] .font-mono {
   line-height: var(--code-leading);

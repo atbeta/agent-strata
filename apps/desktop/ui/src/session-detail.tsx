@@ -487,14 +487,16 @@ export function SessionDetail(props: {
     setPanelOpen(true);
     writePanelOpen(true);
   };
+  const panelVisible = () => panelOpen() && !traceBlock();
   const closePanel = () => {
     setPanelOpen(false);
     writePanelOpen(false);
+    panelTriggerEl?.focus();
   };
   const togglePanel = () => {
     // The trace drawer borrows the same edge while the panel stays open, so the
     // reader's next click still means "show me the panel", not "close nothing".
-    if (panelOpen() && !traceBlock()) closePanel();
+    if (panelVisible()) closePanel();
     else openPanel();
   };
   const selectTab = (tab: SidePanelTab) => {
@@ -793,6 +795,7 @@ export function SessionDetail(props: {
   let searchTriggerEl: HTMLButtonElement | undefined;
   let toolsPanelEl: HTMLDivElement | undefined;
   let toolsTriggerEl: HTMLButtonElement | undefined;
+  let panelTriggerEl: HTMLButtonElement | undefined;
   useDismiss(search.searchOpen, search.closeSearch, () => searchPanelEl, () => searchTriggerEl);
   useDismiss(tools.toolsOpen, tools.closeTools, () => toolsPanelEl, () => toolsTriggerEl);
 
@@ -1597,11 +1600,12 @@ const turns = () => shown().turns;
                    * has one drawn the same way. The drawer still holds files,
                    * but what this button does is open a side.
                    */}
-                  <Tip label={t(panelOpen() ? "panel.hide" : "panel.show")}>
+                  <Tip label={t(panelVisible() ? "panel.hide" : "panel.show")}>
                     <PanelToggle
-                      label={t(panelOpen() ? "panel.hide" : "panel.show")}
-                      on={panelOpen()}
-                      pressed={panelOpen()}
+                      label={t(panelVisible() ? "panel.hide" : "panel.show")}
+                      on={panelVisible()}
+                      pressed={panelVisible()}
+                      bindRef={(el) => (panelTriggerEl = el)}
                       onClick={togglePanel}
                     >
                       <Icon name="panel-right" />

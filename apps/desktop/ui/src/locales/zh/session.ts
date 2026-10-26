@@ -178,11 +178,11 @@ export default {
   "session.search.empty": "当前会话没有匹配内容。",
   "session.search.turn": "第 {n} 轮",
 
-  // The changes / files side panel, and the plan strip under the composer.
-  "panel.show": "改动与文件",
+  // The session side panel, and the plan strip under the composer.
+  "panel.show": "会话面板",
   // Not "隐藏侧栏" — the sidebar has its own toggle two buttons away, and a
   // tooltip that names the wrong control sends the user to close the wrong one.
-  "panel.hide": "隐藏改动与文件",
+  "panel.hide": "隐藏会话面板",
   "panel.changes": "改动",
   "panel.files": "文件",
   "panel.background": "后台",
@@ -209,6 +209,7 @@ export default {
   "plan.progress": "{done}/{total}",
   "plan.done": "全部完成",
   "files.pick": "选择一个文件查看。",
+  "files.empty": "这个目录是空的。",
   "files.loading": "正在读取。",
   "files.listErr": "这一层没有读出来。",
   "files.readErr": "文件内容没有读出来。",

@@ -102,6 +102,8 @@ macOS already overlays the traffic lights in that strip (`pl-[76px]`). Windows i
 
 `main` is `@container/main`, so a screen responds to the column it actually has rather than to the window minus a guessed sidebar. Settings keeps its left rail at 880px and above, switches to horizontal section tabs below it, and stacks a setting's label and control below 560px. New main-column breakpoints use the same named container.
 
+The session rail keeps the reader's preferred width globally, but a `ResizeObserver` on its actual parent clamps only the visible width as that column changes; the saved preference is not rewritten by a temporary window resize. Its file list and diff stack below 560px and sit side by side above it. `MiniTabs` owns roving focus and arrow/Home/End navigation, and closing the rail returns focus to its header toggle. Trace can borrow the edge without leaving the rail toggle pressed.
+
 ### Type and radius
 System sans for UI, mono for paths, ids, commands, and money. Radius follows the OpenCode desktop scale — `sm` 4px, `md` 6px on rows/fields/buttons, `lg` 8px on cards and menus, `xl` 10px on dialogs and the message bubble, `2xl` 12px reserved for the composer dock — so `rounded-full` is for pills, dots and switches only, never for buttons.
 

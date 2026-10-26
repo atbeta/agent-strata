@@ -89,6 +89,11 @@ function NodeList(props: {
       <Show when={props.error}>
         <p class="px-2 py-1 text-xs text-destructive">{t("files.listErr")}</p>
       </Show>
+      <Show when={!props.loading && !props.error && props.nodes.length === 0}>
+        <p class="px-2 py-1 text-xs text-muted-foreground" style={{ "padding-left": `${(props.depth + 1) * 12}px` }}>
+          {t("files.empty")}
+        </p>
+      </Show>
       <ul>
         <For each={props.nodes}>
           {(node) => (

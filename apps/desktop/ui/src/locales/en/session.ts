@@ -178,9 +178,9 @@ export default {
   "session.search.empty": "Nothing in this session matches.",
   "session.search.turn": "turn #{n}",
 
-  // The changes / files side panel, and the plan strip under the composer.
-  "panel.show": "Changes & files",
-  "panel.hide": "Hide changes & files",
+  // The session side panel, and the plan strip under the composer.
+  "panel.show": "Session panel",
+  "panel.hide": "Hide session panel",
   "panel.changes": "Changes",
   "panel.files": "Files",
   "panel.background": "Running",
@@ -207,6 +207,7 @@ export default {
   "plan.progress": "{done}/{total}",
   "plan.done": "All done",
   "files.pick": "Choose a file to read.",
+  "files.empty": "This folder is empty.",
   "files.loading": "Reading.",
   "files.listErr": "This folder did not load.",
   "files.readErr": "The file did not load.",

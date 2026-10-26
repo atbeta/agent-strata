@@ -14,14 +14,17 @@ export const RAIL_MAX = 900;
 /** No stored width yet: wide enough for a unified diff, narrow enough to talk over. */
 export const RAIL_DEFAULT = 420;
 
+export function railWidthLimit(available: number): number {
+  return Math.min(RAIL_MAX, Math.max(RAIL_MIN, Math.round(available * RAIL_CEILING)));
+}
+
 /**
  * A width the reader can live with. Past `RAIL_CEILING` the transcript beside it
  * stops being readable, so a width chosen on a wide window still yields on a
  * narrow one rather than running it off the edge.
  */
-export function clampRailWidth(px: number, viewport: number): number {
-  const ceiling = Math.max(RAIL_MIN, Math.round(viewport * RAIL_CEILING));
-  const high = Math.min(RAIL_MAX, ceiling);
+export function clampRailWidth(px: number, available: number): number {
+  const high = railWidthLimit(available);
   if (!Number.isFinite(px)) return Math.min(RAIL_DEFAULT, high);
   return Math.min(high, Math.max(RAIL_MIN, Math.round(px)));
 }

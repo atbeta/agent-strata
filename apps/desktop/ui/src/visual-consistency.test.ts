@@ -53,10 +53,11 @@ describe("quiet visual consistency", () => {
     expect(row).toContain("tabIndex={props.actions ? 0 : -1}");
   });
 
-  test("code preferences name their scope and the footer keeps addresses on demand", () => {
+  test("content preferences cover prose and mono, and the footer keeps addresses on demand", () => {
     const settings = read("settings.tsx");
     expect(settings).toContain('hint={t("settings.font.size.hint")}');
-    expect(settings).not.toContain('{ id: "", label: t("settings.font.system") },\n                ...CODE_SIZES');
+    expect(settings).not.toContain('{ id: "", label: t("settings.font.system") },\n                ...CONTENT_SIZES');
+    expect(read("theme.css")).toContain("html[data-content-size] :is(.md, .md code, .font-mono)");
 
     const footer = read("use-connections.tsx");
     expect(footer).toContain('<Tip label={endpointHost(conn.baseUrl)}');

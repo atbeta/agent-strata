@@ -35,11 +35,11 @@ import {
   sendTestNotification,
 } from "./notify";
 import {
-  CODE_SIZES,
+  CONTENT_SIZES,
   isInstalled,
   readFonts,
   saveFonts,
-  type CodeSize,
+  type ContentSize,
   type FontChoice,
 } from "./font";
 import { readThinkingOpen, saveThinkingOpen } from "./thinking";
@@ -751,9 +751,9 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
               value={fonts().size}
               options={[
                 { id: "", label: t("settings.font.default") },
-                ...CODE_SIZES.map((size: CodeSize) => ({ id: size, label: size })),
+                ...CONTENT_SIZES.map((size: ContentSize) => ({ id: size, label: size })),
               ]}
-              onChange={(size) => patchFonts({ size: size as CodeSize | "" })}
+              onChange={(size) => patchFonts({ size: size as ContentSize | "" })}
             />
           </Row>
 

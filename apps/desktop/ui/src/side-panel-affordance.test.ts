@@ -5,7 +5,7 @@ import { join } from "node:path";
 const read = (file: string) => readFileSync(join(import.meta.dir, file), "utf8");
 
 /**
- * The changes-and-files panel opened from a 24px strip on the right edge.
+ * The session panel opened from a 24px strip on the right edge.
  *
  * That strip was permanently on screen and said one thing: something optional
  * existed on the other side of it. It held the visual weight of the 288px panel
@@ -38,10 +38,11 @@ describe("the side panel is opened from the header, not from a strip on the edge
     expect(detail).toContain("onClick={togglePanel}");
     const at = detail.indexOf("onClick={togglePanel}");
     expect(at).toBeGreaterThan(-1);
-    // Lit state and aria follow `panelOpen`, so it is a toggle and not a button
-    // that opens something.
-    expect(detail.slice(at - 400, at)).toContain("pressed={panelOpen()}");
-    expect(detail).toContain('on={panelOpen()}');
+    // Lit state and aria follow actual visibility: trace can borrow the edge
+    // without leaving a pressed button that claims the rail is still visible.
+    expect(detail.slice(at - 400, at)).toContain("pressed={panelVisible()}");
+    expect(detail).toContain('on={panelVisible()}');
+    expect(detail).toContain("const panelVisible = () => panelOpen() && !traceBlock();");
     // The mark says which side of the window this is: the fold button on the
     // other side draws the same way.
     expect(detail).toContain('<Icon name="panel-right" />');

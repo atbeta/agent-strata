@@ -76,8 +76,8 @@ export function ReviewPane(props: {
         ]}
         class="shrink-0 gap-1 border-b border-border px-2 py-1.5"
       />
-      <div class="flex min-h-0 flex-1">
-      <ul class="w-44 shrink-0 space-y-0.5 overflow-y-auto border-r border-border px-2 py-2">
+      <div class="@container flex min-h-0 flex-1 flex-col @min-[560px]:flex-row">
+      <ul class="max-h-[40%] shrink-0 space-y-0.5 overflow-y-auto border-b border-border px-2 py-2 @min-[560px]:max-h-none @min-[560px]:w-44 @min-[560px]:border-b-0 @min-[560px]:border-r">
         <For each={named()}>
           {(f) => (
             <li>
