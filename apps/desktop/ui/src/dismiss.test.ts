@@ -17,30 +17,30 @@ const asElement = (e: El) => e as unknown as Element;
 
 describe("what counts as outside", () => {
   test("the trigger itself is inside", () => {
-    const trigger = asElement(el());
-    expect(isOutside(trigger, [trigger])).toBe(false);
+    const trigger = el();
+    expect(isOutside(asElement(trigger), [asElement(trigger)])).toBe(false);
   });
 
   test("anything the panel contains is inside", () => {
-    const input = asElement(el());
-    const panel = asElement(el(input));
-    expect(isOutside(input, [panel])).toBe(false);
-    expect(isOutside(panel, [panel])).toBe(false);
+    const input = el();
+    const panel = el(input);
+    expect(isOutside(asElement(input), [asElement(panel)])).toBe(false);
+    expect(isOutside(asElement(panel), [asElement(panel)])).toBe(false);
   });
 
   test("the page under it is outside", () => {
-    const panel = asElement(el());
-    const page = asElement(el());
-    expect(isOutside(page, [panel])).toBe(true);
+    const panel = el();
+    const page = el();
+    expect(isOutside(asElement(page), [asElement(panel)])).toBe(true);
   });
 
   test("naming only the panel and not the trigger is the bug that sticks the button", () => {
     // The press that dismisses and the press that reopens both arrive on the
     // trigger; only the second one is named, so the panel closes as it opens.
-    const trigger = asElement(el());
-    const panel = asElement(el());
-    expect(isOutside(trigger, [panel])).toBe(true);
-    expect(isOutside(trigger, [panel, trigger])).toBe(false);
+    const trigger = el();
+    const panel = el();
+    expect(isOutside(asElement(trigger), [asElement(panel)])).toBe(true);
+    expect(isOutside(asElement(trigger), [asElement(panel), asElement(trigger)])).toBe(false);
   });
 
   test("a detached element does not make the panel undismissable", () => {
@@ -54,13 +54,13 @@ describe("what counts as outside", () => {
   });
 
   test("a panel and its trigger together cover both", () => {
-    const input = asElement(el());
-    const panel = asElement(el(input));
-    const trigger = asElement(el());
-    const inside = [panel, trigger];
+    const input = el();
+    const panel = el(input);
+    const trigger = el();
+    const inside = [asElement(panel), asElement(trigger)];
     expect(isOutside(asElement(el()), inside)).toBe(true);
-    expect(isOutside(input, inside)).toBe(false);
-    expect(isOutside(trigger, inside)).toBe(false);
-    expect(isOutside(panel, inside)).toBe(false);
+    expect(isOutside(asElement(input), inside)).toBe(false);
+    expect(isOutside(asElement(trigger), inside)).toBe(false);
+    expect(isOutside(asElement(panel), inside)).toBe(false);
   });
 });

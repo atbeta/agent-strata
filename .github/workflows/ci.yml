@@ -49,6 +49,13 @@ jobs:
       - name: Test packages
         run: bun test packages
 
+      # The UI has its own install, so it runs with its own runner too. Its
+      # tests are plain bun tests over the modules that decide what the screen
+      # shows, and they need nothing from the machine.
+      - name: Test desktop UI
+        working-directory: apps/desktop/ui
+        run: bun test
+
       # Follow-up: the Rust sidecar (apps/desktop/src-tauri) has no test gate
       # either. `cargo test` needs the WebKitGTK development packages that
       # only the release workflow installs, so it belongs in a heavier job of
