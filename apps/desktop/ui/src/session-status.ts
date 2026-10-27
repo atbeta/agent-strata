@@ -1,4 +1,6 @@
 import type { MessageKey } from "./locales/zh";
+import type { RetryAction, SessionDiagnostic, SessionRetry } from "./api";
+import { isOpenableUrl } from "./external-link";
 
 /**
  * What a session is doing, and how loudly the list should say it.
@@ -15,6 +17,8 @@ import type { MessageKey } from "./locales/zh";
 export type SessionStatusKind =
   | "needs-input"
   | "running"
+  | "retrying"
+  | "compacting"
   | "failed"
   | "stopped"
   | "done"
@@ -78,16 +82,28 @@ export function sessionStatus(row: {
   status?: string;
   busy?: boolean;
   needs_input?: boolean;
+  retry?: SessionRetry;
+  compacting?: boolean;
+  session_error?: SessionDiagnostic;
 }): SessionStatus {
   // Waiting outranks running: a session that has stopped for a decision is the
   // one going nowhere, and a session that is both is waiting, not merely busy.
   if (row.needs_input) {
     return { kind: "needs-input", label: "session.status.needsInput", tone: PERMISSION, badge: true };
   }
+  if (row.retry) {
+    return { kind: "retrying", label: "session.status.retrying", tone: ACTIVE, badge: true };
+  }
+  if (row.compacting) {
+    return { kind: "compacting", label: "session.status.compacting", tone: ACTIVE, badge: true };
+  }
   // `busy` before `status`: the projector clears `busy` on `session.ended`, so
   // an error from an earlier turn cannot outrank work happening right now.
   if (row.busy) {
     return { kind: "running", label: "session.status.running", tone: ACTIVE, badge: false };
+  }
+  if (row.session_error) {
+    return { kind: "failed", label: "session.status.failed", tone: ERROR, badge: true };
   }
   switch (row.status) {
     case "error":
@@ -104,4 +120,50 @@ export function sessionStatus(row: {
 /** Whether the state draws a visible mark — the two badges, or running's grid. */
 export function showsMark(s: SessionStatus): boolean {
   return s.badge || s.kind === "running";
+}
+
+/**
+ * What the dock says while the session cannot move on its own — a retry the
+ * backend already scheduled, or the failure that stopped it. The badge names
+ * the state; this carries the why. Same precedence as `sessionStatus`: a live
+ * retry outranks a stored error, which the projector has already cleared on
+ * real work anyway.
+ */
+export interface SessionNotice {
+  kind: "retry" | "error";
+  title: { key: MessageKey; vars?: Record<string, string | number> };
+  /** the backend's own words — the failure behind the retry, or the error itself */
+  detail?: string;
+  /** when the backend said the next attempt fires, epoch ms */
+  next?: number;
+  /** the recovery the backend suggested, kept only when its link can open safely */
+  action?: { label: string; link: string };
+}
+
+export function sessionNotice(row: {
+  retry?: SessionRetry;
+  session_error?: SessionDiagnostic;
+}): SessionNotice | undefined {
+  const r = row.retry;
+  if (r) {
+    const link = r.action?.link;
+    return {
+      kind: "retry",
+      title: { key: "session.notice.retrying", vars: { n: r.attempt } },
+      detail: r.message || r.error?.message || r.action?.message,
+      next: r.next,
+      // A suggested action without a link it can use is just words — the
+      // detail line already carries those.
+      ...(r.action?.label && isOpenableUrl(link)
+        ? { action: { label: r.action.label, link: link! } }
+        : {}),
+    };
+  }
+  const e = row.session_error;
+  if (!e) return undefined;
+  return {
+    kind: "error",
+    title: { key: "session.notice.error" },
+    detail: e.name && e.name !== e.message ? `${e.name}: ${e.message}` : e.message,
+  };
 }

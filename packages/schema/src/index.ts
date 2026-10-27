@@ -62,6 +62,36 @@ const EnvelopeBase = z.object({
   source: Source,
 });
 
+export const SessionDiagnostic = z.object({
+  message: z.string(),
+  name: z.string().optional(),
+  statusCode: z.number().int().optional(),
+  isRetryable: z.boolean().optional(),
+  retries: z.number().int().min(0).optional(),
+  ref: z.string().optional(),
+  providerID: z.string().optional(),
+});
+export type SessionDiagnostic = z.infer<typeof SessionDiagnostic>;
+
+export const RetryAction = z.object({
+  reason: z.string().optional(),
+  provider: z.string().optional(),
+  title: z.string().optional(),
+  message: z.string().optional(),
+  label: z.string().optional(),
+  link: z.string().optional(),
+});
+export type RetryAction = z.infer<typeof RetryAction>;
+
+export const SessionRetry = z.object({
+  attempt: z.number().int().min(0),
+  message: z.string(),
+  next: z.number().optional(),
+  error: SessionDiagnostic.optional(),
+  action: RetryAction.optional(),
+});
+export type SessionRetry = z.infer<typeof SessionRetry>;
+
 const data = {
   "session.started": z.object({
     workspace: z.string(),
@@ -75,7 +105,12 @@ const data = {
     error: z.string().optional(),
   }),
   "session.status": z.object({
-    state: z.enum(["busy", "idle"]),
+    state: z.enum(["busy", "idle", "retry", "compacting"]),
+    retry: SessionRetry.optional(),
+  }),
+  // null clears the previous failure; omitted response bodies and headers never enter CASF.
+  "session.error": z.object({
+    error: SessionDiagnostic.nullable(),
   }),
   // later snapshot of title / directory / archive. Omitted fields stay as they were.
   "session.updated": z.object({
@@ -100,6 +135,8 @@ const data = {
   "session.compacted": z.object({
     message_id: z.string().min(1),
     auto: z.boolean().optional(),
+    /** set when the trigger was a context-overflow error, not a size threshold */
+    overflow: z.boolean().optional(),
   }),
   "turn.user": z.object({
     turn_id: z.string(),
@@ -123,6 +160,8 @@ const data = {
     stop_reason: z.string().optional(),
     /** why this message has nothing to show, when the backend reported a failure */
     error: z.string().optional(),
+    /** this message IS the compaction summary, not a reply — label it, don't hide it */
+    summary: z.boolean().optional(),
   }),
   "tool.call": z.object({
     turn_id: z.string(),
@@ -248,6 +287,7 @@ export const EVENT_DATA_CLASS: Record<EventType, "rebuildable" | "local"> = {
   "session.ended": "local",
   "session.deleted": "local",
   "session.status": "local",
+  "session.error": "local",
   "session.goal": "local",
   "plan.updated": "local",
   "permission.requested": "local",

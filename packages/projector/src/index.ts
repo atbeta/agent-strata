@@ -1,4 +1,4 @@
-import type { ContentBlock, Event, Usage } from "@agent-strata/schema";
+import type { ContentBlock, Event, SessionDiagnostic, SessionRetry, Usage } from "@agent-strata/schema";
 
 export { runningShell, type RunningShell, type RunningShellView } from "./shell";
 
@@ -47,12 +47,14 @@ export interface Turn {
     seq?: number;
     /** set when the backend finished the message by failing, and there may be no text */
     error?: string;
+    /** this message IS the compaction summary — label it, don't hide it */
+    summary?: boolean;
   }[];
   tool_calls: ToolCallView[];
   /** this turn sits on the revert boundary, or after it */
   reverted?: boolean;
-  /** a divider after this turn */
-  compaction?: boolean;
+  /** a divider after this turn, carrying why the backend compacted when it says so */
+  compaction?: { auto?: boolean; overflow?: boolean };
 }
 
 export interface Totals {
@@ -132,8 +134,14 @@ export interface SessionView {
   archived?: boolean;
   deleted?: boolean;
   status: "active" | "completed" | "cancelled" | "error";
-  /** backend is mid-generation; last session.status wins */
+  /** backend is mid-generation, retrying, or compacting; last session.status wins */
   busy: boolean;
+  /** current retry, including its safe recovery action; absent once work resumes or stops */
+  retry?: SessionRetry;
+  /** the backend is compacting this session right now, not merely recording a past compaction */
+  compacting?: boolean;
+  /** latest session-level failure; new work clears it, idle alone does not */
+  session_error?: SessionDiagnostic;
   /** the message the revert boundary names; absent when there is none */
   revert_turn_id?: string;
   /** what this session is working toward; absent when nobody set one */
@@ -248,7 +256,7 @@ export function projectSession(events: Event[]): SessionView {
   const files = new Map<string, { path: string; records: ChangeRecord[] }>();
   const questions = new Map<string, QuestionPrompt>();
   const orphanResults: { call_id: string; status: string; output?: string; latency_ms?: number }[] = [];
-  const compacted: string[] = [];
+  const compacted: { message_id: string; auto?: boolean; overflow?: boolean }[] = [];
 
   const getTurn = (id: string): Turn => {
     let t = turns.get(id);
@@ -270,9 +278,24 @@ export function projectSession(events: Event[]): SessionView {
       case "session.ended":
         view.status = e.data.reason;
         view.busy = false;
+        delete view.retry;
+        delete view.compacting;
         break;
       case "session.status":
-        view.busy = e.data.state === "busy";
+        view.busy = e.data.state !== "idle";
+        if (e.data.state === "retry") view.retry = e.data.retry;
+        else delete view.retry;
+        if (e.data.state === "compacting") view.compacting = true;
+        else delete view.compacting;
+        // Active work supersedes an earlier failure; idle deliberately keeps it.
+        if (e.data.state !== "idle") delete view.session_error;
+        break;
+      case "session.error":
+        view.busy = false;
+        delete view.retry;
+        delete view.compacting;
+        if (e.data.error) view.session_error = e.data.error;
+        else delete view.session_error;
         break;
       case "session.updated":
         if (e.data.title !== undefined) view.title = e.data.title;
@@ -286,7 +309,7 @@ export function projectSession(events: Event[]): SessionView {
         }
         break;
       case "session.compacted":
-        compacted.push(e.data.message_id);
+        compacted.push(e.data);
         break;
       case "session.deleted":
         view.deleted = true;
@@ -308,11 +331,13 @@ export function projectSession(events: Event[]): SessionView {
         }
         break;
       case "turn.user": {
+        delete view.session_error;
         const t = getTurn(e.data.turn_id);
         t.user = e.data.content;
         break;
       }
       case "turn.assistant": {
+        delete view.session_error;
         const t = getTurn(e.data.turn_id);
         const addUsage = (sign: 1 | -1, u?: Usage, cost?: number) => {
           if (u) {
@@ -349,6 +374,7 @@ export function projectSession(events: Event[]): SessionView {
             ts: e.ts,
             seq: e.seq,
             error: e.data.error,
+            summary: e.data.summary ?? old.summary,
           };
         } else {
           t.assistant.push({
@@ -365,12 +391,14 @@ export function projectSession(events: Event[]): SessionView {
             ts: e.ts,
             seq: e.seq,
             error: e.data.error,
+            summary: e.data.summary,
           });
         }
         addUsage(1, e.data.usage, e.data.cost_usd);
         break;
       }
       case "tool.call": {
+        delete view.session_error;
         const known = calls.get(e.data.call_id);
         // A call the mapper learned more about after writing it — a task tool
         // names the session it opened one update after it starts running. The
@@ -403,6 +431,7 @@ export function projectSession(events: Event[]): SessionView {
         break;
       }
       case "tool.result": {
+        delete view.session_error;
         const call = calls.get(e.data.call_id);
         if (!call) {
           orphanResults.push(e.data);
@@ -532,9 +561,11 @@ export function projectSession(events: Event[]): SessionView {
       for (let i = start; i < view.turns.length; i++) view.turns[i]!.reverted = true;
     }
   }
-  for (const id of compacted) {
-    const i = messageTurn(id);
-    if (i >= 0) view.turns[i]!.compaction = true;
+  for (const c of compacted) {
+    const i = messageTurn(c.message_id);
+    if (i < 0) continue;
+    const old = view.turns[i]!.compaction;
+    view.turns[i]!.compaction = { auto: c.auto ?? old?.auto, overflow: c.overflow ?? old?.overflow };
   }
 
   const turnOfCall = new Map<string, number>();

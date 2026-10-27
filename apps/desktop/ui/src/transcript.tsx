@@ -731,6 +731,15 @@ function AssistantMessage(props: {
           `display:contents` wrapper, so the gap lives on the row itself. */}
       <div class="transcript-message py-0.5" data-message-role="assistant">
         <div class="relative">
+          {/* The compaction summary arrives as an ordinary assistant message —
+             the label is what keeps "everything before this was summarised"
+             from reading as just another reply. */}
+          <Show when={props.message.summary === true}>
+            <p class="mb-1 flex items-center gap-1.5 text-2xs text-muted-foreground">
+              <Icon name="archive" class="size-3 shrink-0" />
+              {t("message.summary_label")}
+            </p>
+          </Show>
           <Show
             when={met()}
             fallback={
@@ -986,7 +995,21 @@ export function TurnBlock(props: {
         </div>
       </Show>
       <Show when={props.turn.compaction}>
-        <TranscriptDivider>{t("message.compacted")}</TranscriptDivider>
+        {(c) => (
+          <TranscriptDivider icon="archive">
+            {[
+              t("message.compacted"),
+              c().auto === true
+                ? t("message.compacted.auto")
+                : c().auto === false
+                  ? t("message.compacted.manual")
+                  : undefined,
+              c().overflow === true ? t("message.compacted.overflow") : undefined,
+            ]
+              .filter((s): s is string => s !== undefined)
+              .join(" · ")}
+          </TranscriptDivider>
+        )}
       </Show>
     </div>
   );

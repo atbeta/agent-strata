@@ -26,10 +26,15 @@ export default {
   // states that are not the same. These five are the whole vocabulary now.
   "session.status.needsInput": "Needs you",
   "session.status.running": "Running",
+  "session.status.retrying": "Retrying",
+  "session.status.compacting": "Compacting",
   "session.status.failed": "Failed",
   "session.status.stopped": "Stopped",
   "session.status.done": "Done",
   "session.status.idle": "Idle",
+  "session.notice.retrying": "The last request failed · retry {n} next",
+  "session.notice.retry_at": "next try {when}",
+  "session.notice.error": "The session reported an error",
   "session.shell.running": "This session's shell is still on this command: {command}",
 
   // A permission request sitting above the composer.
@@ -371,6 +376,10 @@ export default {
   "message.restore": "Restore",
   "message.reverted": "Reverted",
   "message.compacted": "Conversation compacted",
+  "message.compacted.auto": "automatic",
+  "message.compacted.manual": "manual",
+  "message.compacted.overflow": "context overflow",
+  "message.summary_label": "Compaction summary",
   "message.truncated": "This reply reached the model's length limit and may be incomplete.",
 
   // The prompt outline on the transcript's left edge.

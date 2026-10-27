@@ -6,6 +6,9 @@ import {
   type ContentBlock,
   type EventInput,
   type EventType,
+  type RetryAction,
+  type SessionDiagnostic,
+  type SessionRetry,
 } from "@agent-strata/schema";
 import { createPatch } from "diff";
 
@@ -94,6 +97,43 @@ function assistantFailure(error: unknown): string | undefined {
   return typeof name === "string" && name ? name : undefined;
 }
 
+function textField(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/** Only diagnostics that are safe to persist and show. Provider payloads and metadata stay behind. */
+function sessionDiagnostic(error: unknown): SessionDiagnostic {
+  const outer = error && typeof error === "object" ? (error as Record<string, unknown>) : {};
+  const data = outer.data && typeof outer.data === "object" ? (outer.data as Record<string, unknown>) : {};
+  const name = textField(outer.name);
+  const message = textField(data.message) ?? name ?? "Unknown session error";
+  const statusCode = typeof data.statusCode === "number" && Number.isInteger(data.statusCode) ? data.statusCode : undefined;
+  const retries = typeof data.retries === "number" && Number.isInteger(data.retries) && data.retries >= 0 ? data.retries : undefined;
+  return {
+    message,
+    ...(name ? { name } : {}),
+    ...(statusCode !== undefined ? { statusCode } : {}),
+    ...(typeof data.isRetryable === "boolean" ? { isRetryable: data.isRetryable } : {}),
+    ...(retries !== undefined ? { retries } : {}),
+    ...(textField(data.ref) ? { ref: textField(data.ref) } : {}),
+    ...(textField(data.providerID) ? { providerID: textField(data.providerID) } : {}),
+  };
+}
+
+function recoveryAction(action: unknown): RetryAction | undefined {
+  if (!action || typeof action !== "object") return undefined;
+  const raw = action as Record<string, unknown>;
+  const out: RetryAction = {
+    ...(textField(raw.reason) ? { reason: textField(raw.reason) } : {}),
+    ...(textField(raw.provider) ? { provider: textField(raw.provider) } : {}),
+    ...(textField(raw.title) ? { title: textField(raw.title) } : {}),
+    ...(textField(raw.message) ? { message: textField(raw.message) } : {}),
+    ...(textField(raw.label) ? { label: textField(raw.label) } : {}),
+    ...(textField(raw.link) ? { link: textField(raw.link) } : {}),
+  };
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 // Deltas arrive per token; a reader needs about twenty frames a second.
 export const STREAM_SNAPSHOT_MS = 50;
 
@@ -139,7 +179,7 @@ export const SETTLE_QUIET_MS = 30_000;
 export const SETTLE_STALL_MS = 300_000;
 
 /** Bump when the mapping changes; stored sessions mapped by an older version are rebuilt. */
-export const OPENCODE_MAPPER_VERSION = "opencode-10";
+export const OPENCODE_MAPPER_VERSION = "opencode-11";
 
 /** The event types an import reproduces from OpenCode's own record of a session. */
 export const OPENCODE_REBUILT_TYPES: EventType[] = [...REBUILDABLE_EVENT_TYPES];
@@ -225,6 +265,8 @@ interface MsgState {
   parts: Map<string, ContentBlock>;
   toolParts: Map<string, ToolTrack>;
   emittedAssistant: boolean;
+  /** message.updated declared this a compaction summary while parts still stream */
+  summary?: boolean;
   lastStreamAt?: number;
   /** parts a live delta has extended */
   streamed?: Set<string>;
@@ -270,6 +312,18 @@ interface SessionState {
    * apart from a real run. The settle pass is what notices the disagreement.
    */
   sawBusy?: boolean;
+  /** fingerprint and attempt of the retry currently projected, for status/part dedup */
+  retryKey?: string;
+  retryAttempt?: number;
+  retryError?: SessionDiagnostic;
+  /** OpenCode's compacting clock while that operation is active */
+  compacting?: number;
+  /**
+   * The compaction assistant message still in flight. Post-rewrite servers
+   * never write `time.compacting` — the summary message itself is the live
+   * signal they still send.
+   */
+  summaryMsg?: string;
   /**
    * Assistant messages seen in this session, by id, carrying the turn they
    * belong to. A turn is finished when every assistant message in it has
@@ -338,7 +392,13 @@ export class OpencodeMapper {
     return this.ev(
       s,
       "turn.assistant",
-      { turn_id: m.parentID, msg_id: messageID, partial: true, content },
+      {
+        turn_id: m.parentID,
+        msg_id: messageID,
+        partial: true,
+        content,
+        ...(m.summary ? { summary: true } : {}),
+      },
       `opencode:${messageID}:assistant.partial:${Bun.hash(JSON.stringify(content)).toString(36)}`,
       // A snapshot has no clock of its own; the ingest clock would make it the
       // newest thing in a replayed session and reorder the session list. It is
@@ -441,6 +501,11 @@ export class OpencodeMapper {
       if (!this.settleReady(s, entry)) continue;
       this.pendingSettles.delete(s);
       s.sawBusy = false;
+      s.retryKey = undefined;
+      s.retryAttempt = undefined;
+      s.retryError = undefined;
+      s.compacting = undefined;
+      s.summaryMsg = undefined;
       s.liveMsgs?.clear();
       // The same retirement a real idle does. Leaving the open message held
       // meant the stream flush published one more partial after this idle, and
@@ -591,6 +656,11 @@ export class OpencodeMapper {
       if (!s || !s.sawBusy) continue;
       s.sawBusy = false;
       s.emittedIdle = true;
+      s.retryKey = undefined;
+      s.retryAttempt = undefined;
+      s.retryError = undefined;
+      s.compacting = undefined;
+      s.summaryMsg = undefined;
       s.liveMsgs?.clear();
       out.push(
         this.ev(
@@ -771,12 +841,14 @@ export class OpencodeMapper {
    * open is work evidence enough to say the session is running.
    */
   private noteWork(s: SessionState, out: EventInput[], key: string): void {
-    if (s.sawBusy) return;
-    s.sawBusy = true;
-    // A new run gets to announce its own ending: the correction above is one
-    // per generation, and reusing it here would silence the idle that follows.
-    s.emittedIdle = false;
-    this.queueSettle(s, `work:${key}`, false);
+    // Real output after a retry is recovery evidence. A bare busy frame still
+    // gets no such authority, but this work must retire the retry even when the
+    // session was already busy.
+    if (s.sawBusy && s.retryKey === undefined) return;
+    s.retryKey = undefined;
+    s.retryAttempt = undefined;
+    s.retryError = undefined;
+    this.markWork(s, key);
     out.push(
       this.ev(
         s,
@@ -785,6 +857,94 @@ export class OpencodeMapper {
         `opencode:${s.sessionID}:status:work:${key}`,
       ),
     );
+  }
+
+  private markWork(s: SessionState, key: string): void {
+    s.sawBusy = true;
+    // A new run gets to announce its own ending: the correction above is one
+    // per generation, and reusing it here would silence the idle that follows.
+    s.emittedIdle = false;
+    this.queueSettle(s, `work:${key}`, false);
+  }
+
+  private noteRetry(
+    s: SessionState,
+    out: EventInput[],
+    retry: SessionRetry,
+    id: string,
+    ts?: string,
+  ): void {
+    const current = {
+      ...retry,
+      ...(retry.error === undefined && s.retryAttempt === retry.attempt && s.retryError
+        ? { error: s.retryError }
+        : {}),
+    };
+    const key = Bun.hash(JSON.stringify(current)).toString(36);
+    if (s.retryKey === key) return;
+    this.markWork(s, `retry:${current.attempt}`);
+    s.retryKey = key;
+    s.retryAttempt = current.attempt;
+    s.retryError = current.error;
+    s.compacting = undefined;
+    s.summaryMsg = undefined;
+    out.push(this.ev(s, "session.status", { state: "retry", retry: current }, id, ts));
+  }
+
+  private syncCompacting(
+    s: SessionState,
+    out: EventInput[],
+    info: { time?: { compacting?: number; updated?: number } },
+  ): void {
+    const active = info.time?.compacting;
+    if (active !== undefined && Number.isFinite(active) && active > 0) {
+      if (s.compacting === active) return;
+      this.markWork(s, `compacting:${active}`);
+      s.compacting = active;
+      s.retryKey = undefined;
+      s.retryAttempt = undefined;
+      s.retryError = undefined;
+      out.push(
+        this.ev(
+          s,
+          "session.status",
+          { state: "compacting" },
+          `opencode:${s.sessionID}:compacting:${active}`,
+          sourceTime(active),
+        ),
+      );
+      return;
+    }
+    if (s.compacting === undefined) return;
+    const finished = s.compacting;
+    s.compacting = undefined;
+    // A compaction message still open means the operation goes on: the session
+    // clock ended but its assistant has not finished writing the summary yet.
+    if (s.summaryMsg !== undefined) return;
+    // Compaction finishing is not the session going idle: its assistant turn
+    // may resume immediately, and the usual idle/settle path owns that close.
+    out.push(
+      this.ev(
+        s,
+        "session.status",
+        { state: "busy" },
+        `opencode:${s.sessionID}:compacting:${finished}:done`,
+        sourceTime(info.time?.updated),
+      ),
+    );
+  }
+
+  private noteSessionError(s: SessionState, out: EventInput[], error: unknown, id: string): void {
+    s.sawBusy = false;
+    s.retryKey = undefined;
+    s.retryAttempt = undefined;
+    s.retryError = undefined;
+    s.compacting = undefined;
+    s.summaryMsg = undefined;
+    s.liveMsgs?.clear();
+    this.pendingSettles.delete(s);
+    for (const [msgID, held] of this.held) if (held.s === s) this.held.delete(msgID);
+    out.push(this.ev(s, "session.error", { error: sessionDiagnostic(error) }, id));
   }
 
   private toolEvents(s: SessionState, m: MsgState, part: ToolPart, t: ToolTrack): EventInput[] {
@@ -977,6 +1137,7 @@ export class OpencodeMapper {
           if (i >= 0) out[i] = started;
           else out.push(started);
         }
+        this.syncCompacting(s, out, p.info);
         const meta = this.syncMeta(s, p.info, already ? "updated" : "created");
         if (meta) out.push(meta);
         return out;
@@ -993,8 +1154,16 @@ export class OpencodeMapper {
           p.info.time?.updated ?? p.info.time?.created,
         );
         out.push(...pre);
+        this.syncCompacting(s, out, p.info);
         const meta = this.syncMeta(s, p.info, "updated");
         if (meta) out.push(meta);
+        return out;
+      }
+      case "session.error": {
+        if (!sessionID) return out;
+        const { s, out: pre } = this.ensureSession(sessionID);
+        out.push(...pre);
+        this.noteSessionError(s, out, evt.properties.error, `opencode:${sessionID}:error:${evt.id}`);
         return out;
       }
       case "session.deleted": {
@@ -1039,6 +1208,44 @@ export class OpencodeMapper {
           return out;
         }
         if (info.role === "assistant") {
+          // A summary:true assistant message IS the compaction running — the
+          // one live signal post-rewrite servers still send, since nothing
+          // writes session.time.compacting anymore.
+          if (info.summary === true && !evt.id.startsWith("import:")) {
+            if (info.time.completed === undefined && !info.error) {
+              if (s.summaryMsg !== info.id) {
+                s.summaryMsg = info.id;
+                this.markWork(s, `compaction:${info.id}`);
+                if (s.compacting === undefined) {
+                  out.push(
+                    this.ev(
+                      s,
+                      "session.status",
+                      { state: "compacting" },
+                      `opencode:${info.id}:compacting`,
+                      sourceTime(info.time.created ?? s.updated),
+                    ),
+                  );
+                }
+              }
+            } else if (s.summaryMsg === info.id) {
+              s.summaryMsg = undefined;
+              // Finished, not failed: the turn resumes, so the state falls back
+              // to busy — idle belongs to the usual idle/settle path.
+              if (info.time.completed !== undefined && !info.error && s.compacting === undefined) {
+                out.push(
+                  this.ev(
+                    s,
+                    "session.status",
+                    { state: "busy" },
+                    `opencode:${info.id}:compacted`,
+                    sourceTime(info.time.completed),
+                  ),
+                );
+              }
+            }
+          }
+          if (info.summary === true) m.summary = true;
           if (!resolved && info.time.completed === undefined && !evt.id.startsWith("import:")) {
             this.noteWork(s, out, `msg:${info.id}`);
           }
@@ -1085,6 +1292,7 @@ export class OpencodeMapper {
                   latency_ms: Math.max(0, Math.round(info.time.completed - info.time.created)),
                   stop_reason: info.finish ?? (failure ? "error" : undefined),
                   ...(failure ? { error: failure } : {}),
+                  ...(info.summary === true ? { summary: true } : {}),
                 },
                 `opencode:${info.id}:turn.assistant`,
                 sourceTime(info.time.completed ?? info.time.created ?? s.updated),
@@ -1151,6 +1359,19 @@ export class OpencodeMapper {
           out.push(...this.toolEvents(s, m, part, t));
           return out;
         }
+        if (part.type === "retry") {
+          // A stored retry is history, not proof the session is still waiting.
+          if (evt.id.startsWith("import:") || s.retryAttempt === part.attempt) return out;
+          const error = sessionDiagnostic(part.error);
+          this.noteRetry(
+            s,
+            out,
+            { attempt: part.attempt, message: error.message, error },
+            `opencode:${part.id}:retry`,
+            sourceTime(part.time.created),
+          );
+          return out;
+        }
         if (part.type === "compaction") {
           const seen = (m.compactionSeen ??= new Set());
           if (seen.has(part.id)) return out;
@@ -1162,7 +1383,16 @@ export class OpencodeMapper {
             this.ev(
               s,
               "session.compacted",
-              { message_id: part.messageID, auto: part.auto },
+              {
+                message_id: part.messageID,
+                auto: part.auto,
+                // The SDK type stops at `auto`; the wire also carries
+                // `overflow` — the trigger was a context-overflow error rather
+                // than the size threshold.
+                ...((part as { overflow?: unknown }).overflow === true
+                  ? { overflow: true }
+                  : {}),
+              },
               `opencode:${part.id}:compaction`,
               sourceTime(m.created ?? m.completed ?? s.updated),
             ),
@@ -1249,8 +1479,36 @@ export class OpencodeMapper {
         if (!sessionID) return out;
         const { s, out: pre } = this.ensureSession(sessionID);
         out.push(...pre);
-        const idle =
-          evt.type === "session.idle" || evt.properties.status.type === "idle";
+        const status = evt.type === "session.status" ? evt.properties.status : undefined;
+        if (status?.type === "retry") {
+          if (!Number.isInteger(status.attempt) || status.attempt < 0) return out;
+          const action = recoveryAction(status.action);
+          this.noteRetry(
+            s,
+            out,
+            {
+              attempt: status.attempt,
+              message: status.message,
+              ...(Number.isFinite(status.next) ? { next: status.next } : {}),
+              ...(action ? { action } : {}),
+            },
+            `opencode:${sessionID}:status:${evt.id}`,
+          );
+          return out;
+        }
+        // A busy frame retires a pending retry — work resumed. It says nothing
+        // about compaction, though: the summarising call runs inside the same
+        // busy span, so mid-compaction busy frames are noise, not an end.
+        if (status?.type === "busy" && s.retryKey !== undefined) {
+          s.retryKey = undefined;
+          s.retryAttempt = undefined;
+          s.retryError = undefined;
+          out.push(
+            this.ev(s, "session.status", { state: "busy" }, `opencode:${sessionID}:status:${evt.id}`),
+          );
+          return out;
+        }
+        const idle = evt.type === "session.idle" || status?.type === "idle";
         /**
          * The two directions of a status frame are not worth the same. A busy
          * claim is never evidence: measured on a live server, the slower bus
@@ -1279,6 +1537,11 @@ export class OpencodeMapper {
         // late frame for it would bring it back
         for (const [msgID, held] of this.held) if (held.s === s) this.held.delete(msgID);
         s.sawBusy = false;
+        s.retryKey = undefined;
+        s.retryAttempt = undefined;
+        s.retryError = undefined;
+        s.compacting = undefined;
+        s.summaryMsg = undefined;
         s.liveMsgs?.clear();
         // The backend re-issues idle under fresh ids — a status-idle and a
         // session.idle for one transition, again on reconnect. Only the

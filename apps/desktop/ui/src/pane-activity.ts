@@ -67,7 +67,7 @@ export function clearPaneBusy(sessionId: string): void {
  */
 export function paneStatus(
   sessionId: string,
-  row: { status?: string; busy?: boolean; needs_input?: boolean } | undefined,
+  row: Parameters<typeof sessionStatus>[0] | undefined,
 ): SessionStatus | undefined {
   if (!row) return undefined;
   return sessionStatus({ ...row, busy: row.busy === true || seen().get(sessionId) === true });

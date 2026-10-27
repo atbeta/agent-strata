@@ -26,10 +26,15 @@ export default {
   // states that are not the same. These five are the whole vocabulary now.
   "session.status.needsInput": "待处理",
   "session.status.running": "进行中",
+  "session.status.retrying": "重试中",
+  "session.status.compacting": "压缩中",
   "session.status.failed": "失败",
   "session.status.stopped": "已停止",
   "session.status.done": "已完成",
   "session.status.idle": "空闲",
+  "session.notice.retrying": "上一次请求失败 · 接下来重试第 {n} 次",
+  "session.notice.retry_at": "下次尝试 {when}",
+  "session.notice.error": "会话报错了",
   "session.shell.running": "这个会话的终端还停在这条命令上：{command}",
 
   // A permission request sitting above the composer.
@@ -372,6 +377,10 @@ export default {
   "message.restore": "恢复",
   "message.reverted": "已撤回",
   "message.compacted": "对话已压缩",
+  "message.compacted.auto": "自动",
+  "message.compacted.manual": "手动",
+  "message.compacted.overflow": "上下文溢出",
+  "message.summary_label": "压缩摘要",
   "message.truncated": "这条回复因达到长度上限而结束，内容可能不完整。",
 
   // The prompt outline on the transcript's left edge.

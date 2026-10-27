@@ -461,6 +461,197 @@ describe("OpencodeMapper", () => {
     expect(ev?.ts).toBe(new Date(updated).toISOString());
   });
 
+  test("a compaction part keeps the overflow flag the wire sends", () => {
+    // The SDK type stops at `auto`; the payload still carries `overflow`, and
+    // that is the difference between "past the threshold" and "blew the
+    // context mid-request" — the two reasons OpenCode compacts on its own.
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    const part = {
+      id: "pc3",
+      sessionID: sid,
+      messageID: "a1",
+      type: "compaction",
+      auto: true,
+      overflow: true,
+    };
+    const evs = m.handle(partUpdated(part)).filter((e) => e.type === "session.compacted");
+    expect(evs[0]!.data).toEqual({ message_id: "a1", auto: true, overflow: true });
+  });
+
+  test("an unfinished summary message is the live compaction signal", () => {
+    // Post-rewrite servers never write `session.time.compacting` — the
+    // summary:true assistant message itself is what says the compact is on.
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    m.handle(msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 10 } }));
+    const tokens = { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } };
+    const open = m.handle(
+      msgUpdated({
+        id: "a1",
+        sessionID: sid,
+        role: "assistant",
+        parentID: "u1",
+        summary: true,
+        time: { created: 20 },
+        providerID: "p",
+        modelID: "m",
+        agent: "build",
+        tokens,
+      }),
+    );
+    expect(
+      open.some((e) => e.type === "session.status" && (e.data as { state: string }).state === "compacting"),
+    ).toBe(true);
+    // A busy frame inside the same run says nothing about the compact: the
+    // summarising call is the busy span, so the state stays.
+    const mid = m.handle({
+      id: freshId("s"),
+      type: "session.status",
+      properties: { sessionID: sid, status: { type: "busy" } },
+    } as unknown as Event);
+    expect(mid.filter((e) => e.type === "session.status")).toEqual([]);
+    // Completing the summary returns the session to plain busy — idle is for
+    // the idle/settle path to announce, not for the message to.
+    const done = m.handle(
+      msgUpdated({
+        id: "a1",
+        sessionID: sid,
+        role: "assistant",
+        parentID: "u1",
+        summary: true,
+        time: { created: 20, completed: 40 },
+        providerID: "p",
+        modelID: "m",
+        agent: "build",
+        finish: "stop",
+        tokens,
+      }),
+    );
+    expect(done.find((e) => e.type === "session.status")?.data).toEqual({ state: "busy" });
+    // And the completed message names itself the summary, so the transcript
+    // can label it rather than draw it as one more reply.
+    const ta = done.find((e) => e.type === "turn.assistant");
+    expect((ta?.data as { summary?: boolean }).summary).toBe(true);
+  });
+
+  test("a completed summary message clears compaction before it resumes", () => {
+    // Import order lands the close before the open: a stored session replays
+    // part updates first, so the completed summary arrives once, both flags
+    // set, and must not leave the session stuck in compacting.
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    const info = { id: sid, directory: "/repo", title: "T", time: { created: 1, updated: 2 } };
+    const tokens = { input: 1, output: 1, reasoning: 0, cache: { read: 0, write: 0 } };
+    const messages = [
+      { info: { id: "u1", sessionID: sid, role: "user", time: { created: 10 } }, parts: [{ id: "pt1", sessionID: sid, messageID: "u1", type: "text", text: "hi" }] },
+      {
+        info: {
+          id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
+          summary: true, time: { created: 20, completed: 40 },
+          providerID: "p", modelID: "m", agent: "build", finish: "stop", tokens,
+        },
+        parts: [{ id: "pt2", sessionID: sid, messageID: "a1", type: "text", text: "summary body" }],
+      },
+    ];
+    const out = snapshotEvents(sid, info as never, messages as never).flatMap((e) => m.handle(e));
+    expect(out.filter((e) => e.type === "session.status" && (e.data as { state: string }).state === "compacting")).toEqual([]);
+    const ta = out.find((e) => e.type === "turn.assistant" && !(e.data as { partial?: boolean }).partial);
+    expect((ta?.data as { summary?: boolean }).summary).toBe(true);
+  });
+
+  test("the legacy compacting clock still announces and closes", () => {
+    // Pre-rewrite servers set `time.compacting` while the operation ran and
+    // cleared it after. The writer is gone from current code, but the field
+    // is still declared — keep reading it for the servers that send it.
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    const t0 = Date.parse("2026-10-20T10:00:00.000Z");
+    const on = m.handle({
+      id: freshId("s"),
+      type: "session.updated",
+      properties: {
+        sessionID: sid,
+        info: { id: sid, directory: "/repo", title: "T", time: { created: 1, updated: t0, compacting: t0 } },
+      },
+    } as unknown as Event);
+    expect(on.find((e) => e.type === "session.status")?.data).toEqual({ state: "compacting" });
+    const off = m.handle({
+      id: freshId("s"),
+      type: "session.updated",
+      properties: {
+        sessionID: sid,
+        info: { id: sid, directory: "/repo", title: "T", time: { created: 1, updated: t0 + 5000 } },
+      },
+    } as unknown as Event);
+    expect(off.find((e) => e.type === "session.status")?.data).toEqual({ state: "busy" });
+  });
+
+  test("a retry status frame carries attempt, timing and the safe recovery action", () => {
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    const next = Date.parse("2026-10-20T10:00:30.000Z");
+    const action = {
+      reason: "rate_limit",
+      provider: "anthropic",
+      title: "Usage limited",
+      message: "Add credits or wait",
+      label: "Open console",
+      link: "https://console.anthropic.com/",
+    };
+    const frame = () => ({
+      id: freshId("s"),
+      type: "session.status",
+      properties: {
+        sessionID: sid,
+        status: { type: "retry", attempt: 2, message: "rate limited", next, action },
+      },
+    });
+    const out = m.handle(frame() as unknown as Event);
+    const ev = out.find((e) => e.type === "session.status");
+    expect(ev?.data).toEqual({
+      state: "retry",
+      retry: { attempt: 2, message: "rate limited", next, action },
+    });
+    // The same wait restated is a no-op — polling the status endpoint
+    // re-describes the retry without moving it.
+    expect(m.handle(frame() as unknown as Event).filter((e) => e.type === "session.status")).toEqual([]);
+    // Work resuming retires the retry: the next busy frame is the answer.
+    const busy = m.handle({
+      id: freshId("s"),
+      type: "session.status",
+      properties: { sessionID: sid, status: { type: "busy" } },
+    } as unknown as Event);
+    expect(busy.find((e) => e.type === "session.status")?.data).toEqual({ state: "busy" });
+  });
+
+  test("session.error stores a safe diagnostic and stills the session", () => {
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    m.handle(msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 10 } }));
+    const out = m.handle({
+      id: freshId("s"),
+      type: "session.error",
+      properties: {
+        sessionID: sid,
+        error: {
+          name: "ProviderAuthError",
+          data: { message: "bad key", statusCode: 401, isRetryable: false, providerID: "anthropic" },
+        },
+      },
+    } as unknown as Event);
+    const ev = out.find((e) => e.type === "session.error");
+    expect(ev?.data).toEqual({
+      error: {
+        name: "ProviderAuthError",
+        message: "bad key",
+        statusCode: 401,
+        isRetryable: false,
+        providerID: "anthropic",
+      },
+    });
+  });
+
   test("basic turn with reasoning+text+tool", () => {
     const m = new OpencodeMapper();
     const out = basicFixture().flatMap((e) => m.handle(e));
@@ -2766,7 +2957,7 @@ describe("what the user sent", () => {
   });
 
   test("the mapping version moved, so stored sessions are rebuilt", () => {
-    expect(OPENCODE_MAPPER_VERSION).toBe("opencode-10");
+    expect(OPENCODE_MAPPER_VERSION).toBe("opencode-11");
   });
 
   test("a reasoning part keeps the clock the backend reported", () => {

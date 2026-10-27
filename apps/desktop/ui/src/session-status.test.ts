@@ -11,7 +11,7 @@ import { sessionStatus, showsMark } from "./session-status";
  * ratchet at the bottom stops a list going back to picking its own colours.
  */
 
-const row = (patch: { status?: string; busy?: boolean; needs_input?: boolean }) => patch;
+const row = (patch: Parameters<typeof sessionStatus>[0]) => patch;
 
 describe("session status", () => {
   test("waiting outranks running", () => {
@@ -19,6 +19,30 @@ describe("session status", () => {
     // nowhere. Calling that "running" tells the reader to wait patiently for
     // something that will not move until they answer.
     expect(sessionStatus(row({ busy: true, needs_input: true })).kind).toBe("needs-input");
+  });
+
+  test("retrying and compacting outrank plain busy, and needs-input outranks them", () => {
+    // A session waiting out a rate limit or mid-compaction is still working,
+    // but "running" does not say which. These get the word because waiting is
+    // a different thing to watch than writing.
+    const retry = { attempt: 2, message: "rate limited" };
+    expect(sessionStatus(row({ busy: true, retry })).kind).toBe("retrying");
+    expect(sessionStatus(row({ busy: true, compacting: true })).kind).toBe("compacting");
+    expect(
+      sessionStatus(row({ busy: true, needs_input: true, retry, compacting: true })).kind,
+    ).toBe("needs-input");
+    // A retry also outranks a stored error — the retry is the live thing.
+    expect(
+      sessionStatus(row({ retry, session_error: { message: "boom" } })).kind,
+    ).toBe("retrying");
+  });
+
+  test("a stored session_error reads as failed even when status looks clean", () => {
+    // The projector keeps the diagnostic past idle so the list can still say
+    // the session stopped on a failure, not just on nothing.
+    const s = sessionStatus(row({ status: "active", session_error: { message: "boom" } }));
+    expect(s.kind).toBe("failed");
+    expect(s.badge).toBe(true);
   });
 
   test("busy is running, and running draws the moving mark without a word", () => {
@@ -65,6 +89,8 @@ describe("session status", () => {
     );
     labels.push(sessionStatus(row({ busy: true })).label);
     labels.push(sessionStatus(row({ needs_input: true })).label);
+    labels.push(sessionStatus(row({ retry: { attempt: 1, message: "m" } })).label);
+    labels.push(sessionStatus(row({ compacting: true })).label);
     expect(new Set(labels).size).toBe(labels.length);
   });
 
@@ -72,14 +98,18 @@ describe("session status", () => {
     // A row with nothing in front of the title has no status, and on a list of
     // finished sessions that is most rows. Marks are reserved for the states
     // that are actually asking for the eye: waiting, running, failed.
-    const drawn = ["needs-input", "running", "failed"] as const;
+    const drawn = ["needs-input", "running", "retrying", "compacting", "failed"] as const;
     for (const kind of drawn) {
       const s = sessionStatus(
         kind === "needs-input"
           ? row({ needs_input: true })
           : kind === "running"
             ? row({ busy: true })
-            : row({ status: "error" }),
+            : kind === "retrying"
+              ? row({ retry: { attempt: 1, message: "m" } })
+              : kind === "compacting"
+                ? row({ compacting: true })
+                : row({ status: "error" }),
       );
       expect(s.kind).toBe(kind);
       expect(showsMark(s)).toBe(true);

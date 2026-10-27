@@ -605,15 +605,101 @@ describe("projector", () => {
     expect(v.files_changed[1]!.edits[0]!.turn_index).toBe(-1);
   });
 
-  test("session.compacted marks that turn", () => {
+  test("session.compacted marks that turn with its cause", () => {
     const v = projectSession([
       mk("s", "session.started", { workspace: "/w" }),
       mk("s", "turn.user", { turn_id: "t1", content: [{ type: "text", text: "hi" }] }),
       mk("s", "turn.user", { turn_id: "t2", content: [{ type: "text", text: "later" }] }),
-      mk("s", "session.compacted", { message_id: "t1", auto: true }),
+      mk("s", "session.compacted", { message_id: "t1", auto: true, overflow: true }),
     ]);
-    expect(v.turns[0]!.compaction).toBe(true);
+    expect(v.turns[0]!.compaction).toEqual({ auto: true, overflow: true });
     expect(v.turns[1]!.compaction).toBeUndefined();
+  });
+
+  test("an older session.compacted without the new fields still marks the turn", () => {
+    // Events written before `auto`/`overflow` existed replay as {}-ish data —
+    // the turn still gets its divider, just without a cause to name.
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      mk("s", "turn.user", { turn_id: "t1", content: [] }),
+      mk("s", "session.compacted", { message_id: "t1" }),
+    ]);
+    expect(v.turns[0]!.compaction).toEqual({});
+  });
+
+  test("a summary flag on turn.assistant survives a partial replace", () => {
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      mk("s", "turn.user", { turn_id: "t1", content: [] }),
+      mk("s", "turn.assistant", {
+        turn_id: "t1",
+        msg_id: "m1",
+        partial: true,
+        summary: true,
+        content: [{ type: "text", text: "…" }],
+      }),
+      mk("s", "turn.assistant", {
+        turn_id: "t1",
+        msg_id: "m1",
+        summary: true,
+        content: [{ type: "text", text: "the summary" }],
+      }),
+    ]);
+    expect(v.turns[0]!.assistant).toHaveLength(1);
+    expect(v.turns[0]!.assistant[0]!.summary).toBe(true);
+  });
+
+  test("retry state projects and a busy frame retires it", () => {
+    const retry = { attempt: 2, message: "rate limited", next: 1760966430000 };
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      mk("s", "session.status", { state: "retry", retry }),
+    ]);
+    expect(v.busy).toBe(true);
+    expect(v.retry).toEqual(retry);
+    const resumed = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      mk("s", "session.status", { state: "retry", retry }),
+      mk("s", "session.status", { state: "busy" }),
+    ]);
+    expect(resumed.retry).toBeUndefined();
+    expect(resumed.busy).toBe(true);
+  });
+
+  test("session.error stills the session and stays put on idle", () => {
+    // The failure is the thing a reader came back for — a bare idle must not
+    // quietly stand in for it. New work is what clears it.
+    const err = { name: "ProviderAuthError", message: "bad key", statusCode: 401 };
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      mk("s", "session.status", { state: "busy" }),
+      mk("s", "session.error", { error: err }),
+      mk("s", "session.status", { state: "idle" }),
+    ]);
+    expect(v.busy).toBe(false);
+    expect(v.session_error).toEqual(err);
+    const healed = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      mk("s", "session.error", { error: err }),
+      mk("s", "turn.user", { turn_id: "t1", content: [] }),
+    ]);
+    expect(healed.session_error).toBeUndefined();
+  });
+
+  test("a compacting status sets the flag and the next state drops it", () => {
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      mk("s", "session.status", { state: "compacting" }),
+    ]);
+    expect(v.compacting).toBe(true);
+    expect(v.busy).toBe(true);
+    const done = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      mk("s", "session.status", { state: "compacting" }),
+      mk("s", "session.status", { state: "busy" }),
+    ]);
+    expect(done.compacting).toBeUndefined();
+    expect(done.busy).toBe(true);
   });
 
   test("entries carry the ts of the event that wrote them", () => {

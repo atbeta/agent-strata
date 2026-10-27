@@ -12,7 +12,12 @@ import type {
   Turn,
 } from "../../../../packages/projector/src/index";
 
-export type { ContentBlock } from "../../../../packages/schema/src/index";
+export type {
+  ContentBlock,
+  RetryAction,
+  SessionDiagnostic,
+  SessionRetry,
+} from "../../../../packages/schema/src/index";
 export type {
   FileChangeView as FileChange,
   FileEditView as FileEdit,
@@ -36,6 +41,9 @@ export interface SessionRow {
   };
   status: string;
   busy?: boolean;
+  retry?: SessionView["retry"];
+  compacting?: boolean;
+  session_error?: SessionView["session_error"];
   title?: string;
   workspace?: string;
   /** set for subagent / child sessions; the sidebar hides these */

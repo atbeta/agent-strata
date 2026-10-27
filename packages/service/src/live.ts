@@ -26,6 +26,7 @@ export class LiveOverlay {
     if (!messages) return;
     const ends =
       (e.type === "session.status" && e.data.state === "idle") ||
+      e.type === "session.error" ||
       e.type === "session.ended" ||
       e.type === "session.deleted";
     if (ends) {

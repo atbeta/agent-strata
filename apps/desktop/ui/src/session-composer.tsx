@@ -645,6 +645,9 @@ export function useSessionComposer(args: {
               status={v().status}
               busy={v().busy}
               needsInput={v().pending_permissions.length > 0 || v().pending_questions.length > 0}
+              retry={v().retry}
+              compacting={v().compacting}
+              sessionError={v().session_error}
               workspace={v().workspace}
               branch={args.branch?.()}
             />
