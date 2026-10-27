@@ -445,18 +445,21 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
         </g>
       </Glyph>
     );
-  // Two mirrored hemispheres — the reasoning indicator. At row size the
-  // inner folds merge into the outline, so the mark keeps only the silhouette;
-  // and it sits one step smaller than its neighbours, because a solid-looking
-  // shape reads larger than an open outline at the same box. The inner
-  // stroke-width puts the rendered pen back at the set's 1.5.
+  // Lucide `brain` on its own 24 grid (verbatim) — the reasoning indicator.
+  // The hand-drawn hemispheres it replaces never sat right: dense enough to
+  // blob at 14px, yet drawn small enough to read as a speck beside the
+  // library marks it shares the row with.
   if (name === "brain")
     return (
-      <Glyph class={cls}>
-        <g transform="translate(1.2 1.4) scale(0.85)" stroke-width="1.76">
-          <path d="M8 3.2C8 1.3 4.5 1.1 4.2 3.2C2.4 3.1 1.7 5.4 2.8 6.6C1.2 8.1 1.8 10.7 3.6 11.2C3.3 13.2 5.1 14.5 6.8 13.5C7.6 13.4 8 12.9 8 12Z" />
-          <path d="M8 3.2C8 1.3 11.5 1.1 11.8 3.2C13.6 3.1 14.3 5.4 13.2 6.6C14.8 8.1 14.2 10.7 12.4 11.2C12.7 13.2 10.9 14.5 9.2 13.5C8.4 13.4 8 12.9 8 12Z" />
-        </g>
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M12 18V5" />
+        <path d="M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4" />
+        <path d="M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5" />
+        <path d="M17.997 5.125a4 4 0 0 1 2.526 5.77" />
+        <path d="M18 18a4 4 0 0 0 2-7.464" />
+        <path d="M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517" />
+        <path d="M6 18a4 4 0 0 1-2-7.464" />
+        <path d="M6.003 5.125a4 4 0 0 0-2.526 5.77" />
       </Glyph>
     );
   if (name === "stop")
