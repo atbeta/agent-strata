@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { fileKind } from "./file-icon";
+import { fileKind } from "./file-kind";
 
 describe("file browser icons", () => {
   test("common source and document types have compact marks", () => {
