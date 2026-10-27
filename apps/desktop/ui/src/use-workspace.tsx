@@ -48,9 +48,16 @@ export function useWorkspace() {
     localStorage.setItem(LAST_DIR_KEY, dir);
   };
 
-  const addDir = (dir: string) => {
+  /**
+   * Add a directory the list should know about.
+   *
+   * Returns whether it became a place to work in, so a caller that reacts to
+   * that — switching which axis the list is cut by, for one — does not act on
+   * an empty or unchanged path.
+   */
+  const addDir = (dir: string): boolean => {
     const d = dir.trim();
-    if (!d) return;
+    if (!d) return false;
     if (!addedDirs().includes(d)) {
       const next = [...addedDirs(), d];
       setAddedDirs(next);
@@ -59,14 +66,20 @@ export function useWorkspace() {
     rememberDir(d);
     setDirOpen(false);
     setDirDraft("");
+    return true;
   };
 
   /** The desktop shell's directory chooser. Browsers can't reach the native
-      dialog, so the sidebar keeps the typed-path popover as its fallback. */
-  const pickDir = async () => {
+      dialog, so the sidebar keeps the typed-path popover as its fallback.
+      Returns the directory when one was actually chosen: a cancelled picker
+      resolves with nothing, and a caller that switches what the list shows has
+      to know the difference. */
+  const pickDir = async (): Promise<string | undefined> => {
     const { open } = await import("@tauri-apps/plugin-dialog");
     const dir = await open({ directory: true });
-    if (typeof dir === "string") addDir(dir);
+    if (typeof dir !== "string") return undefined;
+    addDir(dir);
+    return dir;
   };
 
   return {

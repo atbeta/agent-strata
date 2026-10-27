@@ -20,6 +20,7 @@ import { TopLeftControls } from "./chrome";
 import type { SessionListCtl, SidebarGroup } from "./use-session-list";
 import { ProjectLensMenu } from "./project-lens";
 import type { StatusLens } from "./project-view";
+import { needsProjectView } from "./project-view";
 import type { ConnectionsCtl } from "./use-connections";
 import { endpointHost, endpointShort, ConnectionsFooter } from "./use-connections";
 import { sidebarEmptyKind } from "./connection-status";
@@ -243,6 +244,19 @@ export function Sidebar(props: {
   /** What the section is called: the places, or the days they are cut by. */
   const sectionLabel = () =>
     list().lens().groupBy === "day" ? t("sidebar.recent") : t("sidebar.projects");
+
+  /**
+   * A directory is a place, so opening one brings the places back into view.
+   *
+   * The date view cuts the list by when each session last ran: it has no group
+   * for a folder and no per-project "+" to start work from, so a directory
+   * added there had nowhere to appear and the button read as doing nothing.
+   * Done once here rather than at each call site, so the typed path and the
+   * native picker cannot drift apart.
+   */
+  const afterOpeningDirectory = () => {
+    if (needsProjectView(list().lens())) list().setGroupBy("project");
+  };
 
   const renderGroup = (key: string) => {
     // The last known shape outlives the key by the frame `<For>` takes to
@@ -470,7 +484,9 @@ export function Sidebar(props: {
                       class="px-2 py-1.5"
                       onSubmit={(e) => {
                         e.preventDefault();
-                        props.ws.addDir(props.ws.dirDraft());
+                        // Only a directory that was actually taken changes what
+                        // the list is showing; an empty draft adds nothing.
+                        if (props.ws.addDir(props.ws.dirDraft())) afterOpeningDirectory();
                       }}
                       onPointerDown={(e) => e.stopPropagation()}
                     >
@@ -498,7 +514,13 @@ export function Sidebar(props: {
                   variant="icon"
                   size="icon-2xs"
                   class="text-muted-foreground/60"
-                  onClick={() => void props.ws.pickDir()}
+                  onClick={() => {
+                    void props.ws.pickDir().then((dir) => {
+                      // A cancelled picker resolves with nothing; switching the
+                      // view for it would be the button acting on a no-op.
+                      if (dir !== undefined) afterOpeningDirectory();
+                    });
+                  }}
                 >
                   <Icon name="folder-plus" class="size-3.5" />
                 </Button>

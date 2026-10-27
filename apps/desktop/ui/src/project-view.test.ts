@@ -4,6 +4,7 @@ import {
   groupVisible,
   lensActive,
   lensCount,
+  needsProjectView,
   lensTypes,
   NO_LENS,
   readLens,
@@ -120,6 +121,15 @@ describe("the project lens", () => {
     // set, and they do not announce themselves as a filter in force.
     expect(lensActive({ ...NO_LENS, hideEmpty: true })).toBe(false);
     expect(lensActive({ ...NO_LENS, groupBy: "day" })).toBe(false);
+  });
+
+  test("a directory opened from the date view brings the places back", () => {
+    // The date view has no group for a folder and no per-project "+", so a
+    // directory added there had nowhere to appear — the button read as doing
+    // nothing. Opening one asks for places, so the list answers in places.
+    expect(needsProjectView({ ...NO_LENS, groupBy: "day" })).toBe(true);
+    expect(needsProjectView({ ...NO_LENS, groupBy: "project" })).toBe(false);
+    expect(needsProjectView(NO_LENS)).toBe(false);
   });
 
   test("the count is one per axis that hides sessions, and a standing arrangement is not one", () => {

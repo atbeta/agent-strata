@@ -198,6 +198,21 @@ export function lensActive(lens: ProjectLens): boolean {
 }
 
 /**
+ * Whether opening a directory has to change what the list is showing.
+ *
+ * A directory is a place, and the date view has no places in it: it cuts the
+ * list by when each session last ran, so a folder the reader just picked has
+ * nowhere to appear — no group to live in, and no per-project "+" to start work
+ * from. Adding it there looked like the button did nothing.
+ *
+ * So a directory opened from the date view brings the list back to projects.
+ * The reader asked to open a place; showing them places is the answer.
+ */
+export function needsProjectView(lens: ProjectLens): boolean {
+  return lens.groupBy === "day";
+}
+
+/**
  * The backends the list actually holds.
  *
  * The type menu offers what is there and nothing else: a reader who has only
