@@ -4,6 +4,8 @@ import { t } from "./i18n";
 import { Code } from "./payload";
 import { RowButton } from "@/components/ui/row-button";
 import { Button } from "@/components/ui/button";
+import { Icon } from "./icons";
+import { FileTypeIcon } from "./file-icon";
 
 const PREVIEW_LIMIT = 200_000;
 
@@ -46,12 +48,14 @@ function Branch(props: {
     >
       <li>
         <RowButton
-          class="gap-1 px-1 py-0.5 hover:bg-secondary"
+          class="gap-1.5 px-1 py-0.5 hover:bg-secondary"
           style={{ "padding-left": `${props.depth * 12}px` }}
           aria-expanded={open()}
           onClick={() => setOpen((v) => !v)}
         >
-          <span class="w-3 shrink-0 text-2xs text-muted-foreground">{open() ? "▾" : "▸"}</span>
+          <span aria-hidden="true" class="inline-flex size-4 shrink-0 items-center justify-center text-muted-foreground/65">
+            <Icon name={open() ? "chevron" : "chevron-right"} class="size-3.5" />
+          </span>
           <span class="truncate">{props.path.split(/[/\\]/).filter(Boolean).at(-1)}</span>
         </RowButton>
         <Show when={open()}>
@@ -102,13 +106,14 @@ function NodeList(props: {
               fallback={
                 <li>
                   <RowButton
-                    class={`block truncate px-1 py-0.5 hover:bg-secondary ${
+                    class={`gap-1.5 px-1 py-0.5 hover:bg-secondary ${
                       props.selected() === node.path ? "bg-secondary" : ""
                     }`}
-                    style={{ "padding-left": `${(props.depth + 1) * 12 + 16}px` }}
+                    style={{ "padding-left": `${(props.depth + 1) * 12 + 22}px` }}
                     onClick={() => props.onOpen(node)}
                   >
-                    {node.name}
+                    <FileTypeIcon name={node.name} />
+                    <span class="truncate">{node.name}</span>
                   </RowButton>
                 </li>
               }
