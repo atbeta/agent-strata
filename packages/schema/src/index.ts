@@ -36,6 +36,17 @@ export const ContentBlock = z.union([
      */
     mime: z.string().optional(),
   }),
+  /**
+   * A subagent task statement, as a user message's `subtask` part carries it.
+   * The prompt is the message's real payload for a subagent session — without
+   * the block the turn echoes nothing at all.
+   */
+  z.object({
+    type: z.literal("subtask"),
+    prompt: z.string(),
+    description: z.string().optional(),
+    agent: z.string().optional(),
+  }),
 ]);
 export type ContentBlock = z.infer<typeof ContentBlock>;
 
@@ -47,6 +58,20 @@ export const Usage = z.object({
   cache_write: z.number().int().min(0).optional(),
 });
 export type Usage = z.infer<typeof Usage>;
+
+/**
+ * One model call inside an assistant message. A turn's message may run several
+ * — plan, call a tool, call again — and the backend prices each separately.
+ * Detail, never a contribution to totals: the message-level `usage`/`cost_usd`
+ * already carry the sum, and counting steps again would report every dollar
+ * twice.
+ */
+export const AssistantStep = z.object({
+  reason: z.string(),
+  usage: Usage,
+  cost_usd: z.number().min(0),
+});
+export type AssistantStep = z.infer<typeof AssistantStep>;
 
 const Source = z.object({
   backend: z.string(),
@@ -162,6 +187,10 @@ const data = {
     error: z.string().optional(),
     /** this message IS the compaction summary, not a reply — label it, don't hide it */
     summary: z.boolean().optional(),
+    /** each model call the message ran, in order — diagnostics, not extra turns */
+    steps: z.array(AssistantStep).optional(),
+    /** the answer in the schema the caller asked for, when the format was json_schema */
+    structured: z.unknown().optional(),
   }),
   "tool.call": z.object({
     turn_id: z.string(),
@@ -186,6 +215,8 @@ const data = {
     call_id: z.string(),
     status: z.enum(["ok", "error", "interrupted"]),
     output: z.string().optional(),
+    /** what the tool produced besides text — screenshots, generated files, web finds */
+    attachments: z.array(ContentBlock).optional(),
     latency_ms: z.number().int().min(0).optional(),
     child_session_id: z.string().min(1).optional(),
   }),

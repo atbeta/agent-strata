@@ -3,6 +3,7 @@ import {
   REBUILDABLE_EVENT_TYPES,
   isStreamingSnapshot,
   makeEvent,
+  type AssistantStep,
   type ContentBlock,
   type EventInput,
   type EventType,
@@ -179,7 +180,7 @@ export const SETTLE_QUIET_MS = 30_000;
 export const SETTLE_STALL_MS = 300_000;
 
 /** Bump when the mapping changes; stored sessions mapped by an older version are rebuilt. */
-export const OPENCODE_MAPPER_VERSION = "opencode-11";
+export const OPENCODE_MAPPER_VERSION = "opencode-12";
 
 /** The event types an import reproduces from OpenCode's own record of a session. */
 export const OPENCODE_REBUILT_TYPES: EventType[] = [...REBUILDABLE_EVENT_TYPES];
@@ -245,6 +246,27 @@ function fileBlock(part: Extract<Part, { type: "file" }>): ContentBlock {
   return { type: "file_ref", path: part.filename ?? (inline ? part.mime : part.url), mime: part.mime };
 }
 
+/**
+ * A completed tool's attachments, as content blocks. Inline `data:` payloads
+ * are capped: a screenshot the size of a small repo belongs to the tool's own
+ * record, not to a durable event every reader of it pays to load — past the
+ * cap the block keeps the file reference instead of the bytes.
+ */
+const ATTACH_INLINE_MAX = 1_000_000;
+
+function attachmentBlocks(
+  attachments: Array<Extract<Part, { type: "file" }>> | undefined,
+): { attachments: ContentBlock[] } | {} {
+  if (!attachments?.length) return {};
+  const blocks = attachments.map((a) => {
+    if (a.url.startsWith("data:") && a.url.length > ATTACH_INLINE_MAX) {
+      return { type: "file_ref" as const, path: a.filename ?? a.mime, mime: a.mime };
+    }
+    return fileBlock(a);
+  });
+  return blocks.length ? { attachments: blocks } : {};
+}
+
 interface ToolTrack {
   emittedCall: boolean;
   emittedResult: boolean;
@@ -275,6 +297,8 @@ interface MsgState {
   editedPaths?: Set<string>;
   /** compaction parts this message already emitted, by part.id */
   compactionSeen?: Set<string>;
+  /** one entry per model call this message ran, keyed by the step part's id */
+  steps?: Map<string, AssistantStep>;
 }
 
 interface SessionState {
@@ -398,6 +422,7 @@ export class OpencodeMapper {
         partial: true,
         content,
         ...(m.summary ? { summary: true } : {}),
+        ...(m.steps?.size ? { steps: [...m.steps.values()] } : {}),
       },
       `opencode:${messageID}:assistant.partial:${Bun.hash(JSON.stringify(content)).toString(36)}`,
       // A snapshot has no clock of its own; the ingest clock would make it the
@@ -1011,6 +1036,7 @@ export class OpencodeMapper {
             call_id: part.callID,
             status: st.status === "completed" ? "ok" : "error",
             output: st.status === "completed" ? st.output : st.error,
+            ...(st.status === "completed" ? attachmentBlocks(st.attachments) : {}),
             latency_ms: Math.max(0, Math.round(st.time.end - st.time.start)),
             ...(child ? { child_session_id: child } : {}),
           },
@@ -1293,6 +1319,12 @@ export class OpencodeMapper {
                   stop_reason: info.finish ?? (failure ? "error" : undefined),
                   ...(failure ? { error: failure } : {}),
                   ...(info.summary === true ? { summary: true } : {}),
+                  ...(m.steps?.size ? { steps: [...m.steps.values()] } : {}),
+                  // The SDK type does not declare `structured`; the wire sets
+                  // it when the caller asked for a json_schema answer.
+                  ...((info as { structured?: unknown }).structured !== undefined
+                    ? { structured: (info as { structured?: unknown }).structured }
+                    : {}),
                 },
                 `opencode:${info.id}:turn.assistant`,
                 sourceTime(info.time.completed ?? info.time.created ?? s.updated),
@@ -1334,6 +1366,38 @@ export class OpencodeMapper {
           m.parts.set(part.id, { type: "thinking", text: part.text, ...thinkingTimes(part.time) });
         } else if (part.type === "file") {
           m.parts.set(part.id, fileBlock(part));
+        } else if (part.type === "subtask") {
+          // A subagent session's opening message is nothing else: the prompt
+          // the task was given. Without the block the turn echoes empty.
+          m.parts.set(part.id, {
+            type: "subtask",
+            prompt: part.prompt,
+            description: part.description,
+            agent: part.agent,
+          });
+        } else if (part.type === "step-finish") {
+          // Detail for the trace, not content — the message's own usage and
+          // cost already carry the sum.
+          const t = part.tokens;
+          const clamp = (n: number | undefined) =>
+            n === undefined ? undefined : Math.max(0, Math.round(n));
+          (m.steps ??= new Map()).set(part.id, {
+            reason: part.reason,
+            usage: {
+              input: clamp(t.input) ?? 0,
+              output: clamp(t.output) ?? 0,
+              reasoning: clamp(t.reasoning),
+              cache_read: clamp(t.cache.read),
+              cache_write: clamp(t.cache.write),
+            },
+            cost_usd: Math.max(0, part.cost),
+          });
+          return out;
+        } else if (part.type === "step-start" || part.type === "snapshot" || part.type === "agent") {
+          // step-start and snapshot mark bookkeeping the transcript never
+          // shows; an agent part restates the "@name" the message's text
+          // already carries.
+          return out;
         } else if (part.type === "tool") {
           // Parts are created in the order the model declared them, so first
           // sight is the declaration order. tool.call is not emitted until the

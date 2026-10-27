@@ -13,6 +13,7 @@ import type {
 } from "../../../../packages/projector/src/index";
 
 export type {
+  AssistantStep,
   ContentBlock,
   RetryAction,
   SessionDiagnostic,

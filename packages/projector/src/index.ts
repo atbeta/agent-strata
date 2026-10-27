@@ -1,4 +1,4 @@
-import type { ContentBlock, Event, SessionDiagnostic, SessionRetry, Usage } from "@agent-strata/schema";
+import type { AssistantStep, ContentBlock, Event, SessionDiagnostic, SessionRetry, Usage } from "@agent-strata/schema";
 
 export { runningShell, type RunningShell, type RunningShellView } from "./shell";
 
@@ -25,6 +25,8 @@ export interface ToolCallView {
   /** When the call was declared — the `tool.call` event's ts, not its result's. */
   ts?: string;
   child_session_id?: string;
+  /** what the tool produced besides text — screenshots, files, web finds */
+  attachments?: ContentBlock[];
 }
 
 export interface Turn {
@@ -49,6 +51,10 @@ export interface Turn {
     error?: string;
     /** this message IS the compaction summary — label it, don't hide it */
     summary?: boolean;
+    /** each model call the message ran — trace detail, never added to totals */
+    steps?: AssistantStep[];
+    /** the answer in the caller's json_schema, when the format asked for one */
+    structured?: unknown;
   }[];
   tool_calls: ToolCallView[];
   /** this turn sits on the revert boundary, or after it */
@@ -375,6 +381,8 @@ export function projectSession(events: Event[]): SessionView {
             seq: e.seq,
             error: e.data.error,
             summary: e.data.summary ?? old.summary,
+            steps: e.data.steps ?? old.steps,
+            structured: e.data.structured ?? old.structured,
           };
         } else {
           t.assistant.push({
@@ -392,6 +400,8 @@ export function projectSession(events: Event[]): SessionView {
             seq: e.seq,
             error: e.data.error,
             summary: e.data.summary,
+            steps: e.data.steps,
+            structured: e.data.structured,
           });
         }
         addUsage(1, e.data.usage, e.data.cost_usd);
@@ -439,6 +449,7 @@ export function projectSession(events: Event[]): SessionView {
         }
         call.status = e.data.status;
         call.output = e.data.output;
+        call.attachments = e.data.attachments;
         call.latency_ms = e.data.latency_ms;
         if (e.data.child_session_id) call.child_session_id = e.data.child_session_id;
         if (e.data.status === "error" || e.data.status === "interrupted")
@@ -524,9 +535,12 @@ export function projectSession(events: Event[]): SessionView {
 
   if (!view.title) {
     for (const t of view.turns) {
-      const block = t.user?.find((b) => b.type === "text" && b.text.trim());
-      if (block?.type === "text") {
-        view.title = block.text.trim().slice(0, 80);
+      const block = t.user?.find(
+        (b) => (b.type === "text" && b.text.trim()) || (b.type === "subtask" && b.prompt.trim()),
+      );
+      const text = block?.type === "subtask" ? block.prompt : block?.type === "text" ? block.text : undefined;
+      if (text?.trim()) {
+        view.title = text.trim().slice(0, 80);
         break;
       }
     }

@@ -23,6 +23,7 @@ export default {
   "trace.view": "回放视图",
   "trace.action.close": "关闭",
   "trace.section.result": "结果",
+  "trace.section.steps": "模型调用",
   "trace.section.input": "输入",
   "trace.field.started": "开始",
   "trace.field.elapsed": "耗时",

@@ -381,6 +381,8 @@ export default {
   "message.compacted.manual": "手动",
   "message.compacted.overflow": "上下文溢出",
   "message.summary_label": "压缩摘要",
+  "message.subtask": "子代理任务",
+  "message.subtask.named": "子代理 · {agent}",
   "message.truncated": "这条回复因达到长度上限而结束，内容可能不完整。",
 
   // The prompt outline on the transcript's left edge.

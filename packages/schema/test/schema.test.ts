@@ -31,7 +31,13 @@ const fixtures: Record<string, unknown> = {
   "session.goal": { text: "ship the fix" },
   "session.compacted": { message_id: "m1", auto: true, overflow: true },
   "session.error": { error: { message: "boom", name: "ProviderError", isRetryable: true } },
-  "turn.user": { turn_id: "t1", content: [{ type: "text", text: "hi" }] },
+  "turn.user": {
+    turn_id: "t1",
+    content: [
+      { type: "text", text: "hi" },
+      { type: "subtask", prompt: "find the auth flow", description: "locate auth", agent: "explore" },
+    ],
+  },
   "turn.assistant": {
     turn_id: "t1",
     content: [{ type: "thinking", text: "hmm" }],
@@ -41,9 +47,17 @@ const fixtures: Record<string, unknown> = {
     latency_ms: 5,
     stop_reason: "end",
     summary: true,
+    steps: [{ reason: "stop", usage: { input: 1, output: 2 }, cost_usd: 0.01 }],
+    structured: { answer: 42 },
   },
   "tool.call": { turn_id: "t1", call_id: "c1", tool: "bash", input: { command: "ls" } },
-  "tool.result": { call_id: "c1", status: "ok", output: "done", latency_ms: 3 },
+  "tool.result": {
+    call_id: "c1",
+    status: "ok",
+    output: "done",
+    latency_ms: 3,
+    attachments: [{ type: "image", mime: "image/png", data: "c2hvdA==" }],
+  },
   "permission.requested": {
     request_id: "r1",
     call_id: "c1",

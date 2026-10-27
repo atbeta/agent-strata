@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createResource, createSignal, For, onCleanup, Show, type JSX } from "solid-js";
-import { fmtDuration, fmtUsd, getJson, type StrataEvent } from "./api";
+import { fmtDuration, fmtUsd, getJson, type AssistantStep, type StrataEvent } from "./api";
 import { inDesktopShell } from "./shell";
 import { Md } from "./md";
 import { Tip } from "./tip";
@@ -37,6 +37,8 @@ export interface TraceBlock {
    *  interesting ones and a total hides them. */
   usage?: TraceUsage;
   costUsd?: number;
+  /** Each model call the message ran — which step cost, which step stopped. */
+  steps?: AssistantStep[];
   model?: string;
   agent?: string;
   variant?: string;
@@ -166,6 +168,7 @@ export function traceBlocks(events: StrataEvent[]): TraceBlock[] {
       const latencyMs = numOf(d.latency_ms);
       const usage = usageOf(d.usage);
       const costUsd = numOf(d.cost_usd);
+      const steps = Array.isArray(d.steps) ? (d.steps as AssistantStep[]) : undefined;
       const prev = assistants.get(id);
       if (prev) {
         prev.seq = e.seq;
@@ -176,6 +179,7 @@ export function traceBlocks(events: StrataEvent[]): TraceBlock[] {
         prev.agent = agent ?? prev.agent;
         prev.variant = variant ?? prev.variant;
         prev.stopReason = stopReason ?? prev.stopReason;
+        prev.steps = steps ?? prev.steps;
         if (latencyMs !== undefined) prev.latencyMs = latencyMs;
         if (usage) prev.usage = usage;
         if (costUsd !== undefined) prev.costUsd = costUsd;
@@ -192,6 +196,7 @@ export function traceBlocks(events: StrataEvent[]): TraceBlock[] {
           latencyMs,
           usage,
           costUsd,
+          steps,
           model,
           agent,
           variant,
@@ -683,6 +688,35 @@ export function TraceDrawer(props: { block: TraceBlock; onClose: () => void }) {
                 {t("trace.section.result")}
               </h3>
               <Payload value={props.block.result} maxHeight="max-h-48" />
+            </section>
+          </Show>
+
+          {/* One row per model call inside this message. The message-level
+              figures above are their sum; the steps say which call spent it
+              and how each one ended. */}
+          <Show when={props.block.steps?.length}>
+            <section class="mt-4">
+              <h3 class="mb-1.5 text-2xs font-medium text-muted-foreground">
+                {t("trace.section.steps")}
+              </h3>
+              <ul class="divide-y divide-border border-t border-border">
+                <For each={props.block.steps}>
+                  {(step, i) => (
+                    <li class="flex items-baseline justify-between gap-3 py-1.5">
+                      <span class="min-w-0 truncate text-xs">
+                        <span class="font-mono text-2xs text-muted-foreground">{i() + 1}</span>
+                        {" · "}
+                        {step.reason}
+                      </span>
+                      <span class="shrink-0 font-mono text-2xs tabular-nums text-muted-foreground">
+                        {num(step.usage.input + step.usage.output + (step.usage.reasoning ?? 0))}
+                        {" · "}
+                        {fmtUsd(step.cost_usd)}
+                      </span>
+                    </li>
+                  )}
+                </For>
+              </ul>
             </section>
           </Show>
         </Show>

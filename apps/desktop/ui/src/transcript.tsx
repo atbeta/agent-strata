@@ -323,7 +323,26 @@ function TranscriptBlock(props: { block: ContentBlock; tight?: boolean; live?: b
       <Match when={props.block.type === "text" ? props.block : undefined}>
         {(block) => <Md class={props.tight ? "md-bubble" : ""} text={block().text} live={props.live} />}
       </Match>
+      <Match when={props.block.type === "subtask" ? props.block : undefined}>
+        {(block) => <SubtaskBlock block={block()} />}
+      </Match>
     </Switch>
+  );
+}
+
+/** The task a subagent session opened with — what it was asked to do, by whom. */
+function SubtaskBlock(props: { block: Extract<ContentBlock, { type: "subtask" }> }) {
+  return (
+    <div class="my-1 rounded-md border border-border bg-card/50 px-3 py-2">
+      <p class="flex items-center gap-1.5 text-2xs font-medium text-muted-foreground">
+        <Icon name="fork" class="size-3 shrink-0" />
+        {props.block.agent
+          ? t("message.subtask.named", { agent: props.block.agent })
+          : t("message.subtask")}
+        {props.block.description ? ` · ${props.block.description}` : ""}
+      </p>
+      <p class="mt-1 text-sm whitespace-pre-wrap">{props.block.prompt}</p>
+    </div>
   );
 }
 
@@ -689,6 +708,16 @@ function ToolCallCard(props: {
           >
             <ShellWell call={props.call} command={command()} running={running()} />
           </Show>
+          {/* What the tool produced besides its text output — a screenshot,
+              a generated file, a fetched page. */}
+          <Show when={props.call.attachments?.length}>
+            <div class="mt-2 border-t border-border/60 pt-2">
+              <BlockText
+                blocks={props.call.attachments!}
+                scope={`${props.call.call_id}:att`}
+              />
+            </div>
+          </Show>
         </div>
       </Show>
     </div>
@@ -721,7 +750,14 @@ function AssistantMessage(props: {
   const forkable = () => Boolean(props.onFork && props.message.msg_id);
   const hasFooter = () => !met() && text().trim() !== "";
   return (
-    <Show when={hasMessageContent(props.message.content) || notice() || truncated()}>
+    <Show
+      when={
+        hasMessageContent(props.message.content) ||
+        notice() ||
+        truncated() ||
+        props.message.structured !== undefined
+      }
+    >
       <MessageMenu
         text={text}
         onFork={forkable() ? () => props.onFork!(props.message.msg_id!) : undefined}
@@ -751,6 +787,14 @@ function AssistantMessage(props: {
             }
           >
             <TranscriptDivider icon="check">{t("goal.met_reply")}</TranscriptDivider>
+          </Show>
+          {/* The caller asked for json_schema — this object IS the answer, and
+              the text beside it is usually preamble. */}
+          <Show when={props.message.structured !== undefined}>
+            <Code
+              source={JSON.stringify(props.message.structured, null, 2)}
+              class="my-2"
+            />
           </Show>
           <Show when={truncated()}>
             <p role="status" class="mt-2 flex items-start gap-1.5 text-xs text-event-permission">

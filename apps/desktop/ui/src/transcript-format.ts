@@ -12,11 +12,18 @@ export function hasMessageContent(blocks: readonly ContentBlock[]): boolean {
   );
 }
 
-/** Text blocks only, joined by newline — the copyable public text of a message. */
+/**
+ * The copyable public text of a message: its text blocks, and the task
+ * statement of a subtask block — for a subagent's opening message that prompt
+ * IS the text, and leaving it out would copy nothing.
+ */
 export function messageText(blocks: readonly ContentBlock[]): string {
   return blocks
-    .filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text")
-    .map((b) => b.text)
+    .filter(
+      (b): b is Extract<ContentBlock, { type: "text" | "subtask" }> =>
+        b.type === "text" || b.type === "subtask",
+    )
+    .map((b) => (b.type === "subtask" ? b.prompt : b.text))
     .join("\n");
 }
 

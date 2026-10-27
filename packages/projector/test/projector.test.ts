@@ -649,6 +649,65 @@ describe("projector", () => {
     expect(v.turns[0]!.assistant[0]!.summary).toBe(true);
   });
 
+  test("steps and structured data ride the final message and survive its partials", () => {
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      mk("s", "turn.user", { turn_id: "t1", content: [] }),
+      // A mid-stream snapshot knows nothing of either yet.
+      mk("s", "turn.assistant", {
+        turn_id: "t1",
+        msg_id: "m1",
+        partial: true,
+        content: [{ type: "text", text: "…" }],
+      }),
+      mk("s", "turn.assistant", {
+        turn_id: "t1",
+        msg_id: "m1",
+        content: [{ type: "text", text: "done" }],
+        steps: [
+          { reason: "tool-calls", usage: { input: 10, output: 5 }, cost_usd: 0.01 },
+          { reason: "stop", usage: { input: 20, output: 8 }, cost_usd: 0.02 },
+        ],
+        structured: { answer: 42 },
+      }),
+    ]);
+    const a = v.turns[0]!.assistant[0]!;
+    expect(a.steps).toHaveLength(2);
+    expect(a.steps![1]!.reason).toBe("stop");
+    expect(a.structured).toEqual({ answer: 42 });
+    // Steps are detail, not a contribution — the message-level usage is the
+    // only thing totals counts.
+    expect(v.totals.input).toBe(0);
+  });
+
+  test("a tool result's attachments land on the call", () => {
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      mk("s", "turn.user", { turn_id: "t1", content: [] }),
+      mk("s", "tool.call", { turn_id: "t1", call_id: "c1", tool: "browser", input: {} }),
+      mk("s", "tool.result", {
+        call_id: "c1",
+        status: "ok",
+        output: "ok",
+        attachments: [{ type: "file_ref", path: "shot.png", mime: "image/png" }],
+      }),
+    ]);
+    expect(v.turns[0]!.tool_calls[0]!.attachments).toEqual([
+      { type: "file_ref", path: "shot.png", mime: "image/png" },
+    ]);
+  });
+
+  test("a subtask prompt gives an untitled session its name", () => {
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      mk("s", "turn.user", {
+        turn_id: "t1",
+        content: [{ type: "subtask", prompt: "find the auth flow", agent: "explore" }],
+      }),
+    ]);
+    expect(v.title).toBe("find the auth flow");
+  });
+
   test("retry state projects and a busy frame retires it", () => {
     const retry = { attempt: 2, message: "rate limited", next: 1760966430000 };
     const v = projectSession([

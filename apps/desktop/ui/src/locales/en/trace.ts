@@ -24,6 +24,7 @@ export default {
   "trace.view": "Trace view",
   "trace.action.close": "Close",
   "trace.section.result": "Result",
+  "trace.section.steps": "Model calls",
   "trace.section.input": "Input",
   "trace.field.started": "Started",
   "trace.field.elapsed": "Elapsed",

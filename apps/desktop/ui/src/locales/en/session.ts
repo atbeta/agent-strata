@@ -380,6 +380,8 @@ export default {
   "message.compacted.manual": "manual",
   "message.compacted.overflow": "context overflow",
   "message.summary_label": "Compaction summary",
+  "message.subtask": "Subagent task",
+  "message.subtask.named": "Subagent · {agent}",
   "message.truncated": "This reply reached the model's length limit and may be incomplete.",
 
   // The prompt outline on the transcript's left edge.

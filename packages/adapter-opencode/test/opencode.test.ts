@@ -652,6 +652,135 @@ describe("OpencodeMapper", () => {
     });
   });
 
+  test("each model call inside a message lands as a step, deduped by part id", () => {
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    m.handle(msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 10 } }));
+    const open = {
+      id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
+      time: { created: 20 }, providerID: "p", modelID: "m", agent: "build", mode: "build",
+      path: { cwd: "/repo", root: "/repo" }, cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    };
+    m.handle(msgUpdated(open));
+    const step = {
+      id: "ps1", sessionID: sid, messageID: "a1", type: "step-finish",
+      reason: "tool-calls", cost: 0.1,
+      tokens: { input: 10, output: 5, reasoning: 2, cache: { read: 1, write: 0 } },
+    };
+    m.handle(partUpdated(step));
+    // The same step part delivered again is the same call, not a second one.
+    m.handle(partUpdated({ ...step, id: "ps1" }));
+    const out = m.handle(
+      msgUpdated({ ...open, time: { created: 20, completed: 50 }, cost: 0.12, finish: "stop" }),
+    );
+    const ta = out.find((e) => e.type === "turn.assistant")!;
+    const d = ta.data as { steps?: { reason: string; usage: { input: number }; cost_usd: number }[] };
+    expect(d.steps).toEqual([
+      {
+        reason: "tool-calls",
+        usage: { input: 10, output: 5, reasoning: 2, cache_read: 1, cache_write: 0 },
+        cost_usd: 0.1,
+      },
+    ]);
+  });
+
+  test("a step-finish part emits no turn events of its own", () => {
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    m.handle(msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 10 } }));
+    const out = m.handle(
+      partUpdated({
+        id: "ps9", sessionID: sid, messageID: "a1", type: "step-finish",
+        reason: "stop", cost: 0.01,
+        tokens: { input: 3, output: 1, reasoning: 0, cache: { read: 0, write: 0 } },
+      }),
+    );
+    // Bookkeeping, not content: nothing for the transcript, nothing for the ledger.
+    expect(out.filter((e) => e.type.startsWith("turn.") || e.type.startsWith("tool."))).toEqual([]);
+  });
+
+  test("a subtask part is the subagent session's opening message", () => {
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    m.handle(msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 10 } }));
+    const out = m.handle(
+      partUpdated({
+        id: "pt7", sessionID: sid, messageID: "u1", type: "subtask",
+        prompt: "find the auth flow", description: "locate auth", agent: "explore",
+      }),
+    );
+    const tu = out.find((e) => e.type === "turn.user")!;
+    expect((tu.data as { content: unknown[] }).content).toEqual([
+      { type: "subtask", prompt: "find the auth flow", description: "locate auth", agent: "explore" },
+    ]);
+  });
+
+  test("a completed tool's attachments ride its result; a huge data payload stays a reference", () => {
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    m.handle(msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 10 } }));
+    m.handle(
+      msgUpdated({
+        id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
+        time: { created: 20 }, providerID: "p", modelID: "m", agent: "build", mode: "build",
+        path: { cwd: "/repo", root: "/repo" }, cost: 0,
+        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      }),
+    );
+    const huge = `data:image/png;base64,${"A".repeat(1_100_000)}`;
+    const out = m.handle(
+      partUpdated({
+        id: "pt8", sessionID: sid, messageID: "a1", type: "tool", callID: "c1", tool: "browser",
+        state: {
+          status: "completed", input: { url: "https://x" }, output: "ok", title: "browser",
+          metadata: {}, time: { start: 21, end: 31 },
+          attachments: [
+            {
+              id: "att1", sessionID: sid, messageID: "a1", type: "file",
+              mime: "image/png", filename: "shot.png",
+              url: "data:image/png;base64,c2hvdA==",
+            },
+            {
+              id: "att2", sessionID: sid, messageID: "a1", type: "file",
+              mime: "image/png", filename: "big.png", url: huge,
+            },
+            {
+              id: "att3", sessionID: sid, messageID: "a1", type: "file",
+              mime: "image/png", filename: "remote.png", url: "https://x/r.png",
+            },
+          ],
+        },
+      }),
+    );
+    const tr = out.find((e) => e.type === "tool.result")!;
+    const d = tr.data as { attachments?: { type: string; data?: string; uri?: string; path?: string }[] };
+    expect(d.attachments).toEqual([
+      // Small inline image keeps its bytes; a megabyte-plus payload keeps only
+      // its name; a remote URL never inlines — the CSP only draws data:/blob:.
+      { type: "image", mime: "image/png", data: "c2hvdA==" },
+      { type: "file_ref", path: "big.png", mime: "image/png" },
+      { type: "file_ref", path: "remote.png", mime: "image/png" },
+    ]);
+  });
+
+  test("a json_schema answer lands as structured on the finished message", () => {
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    m.handle(msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 10 } }));
+    const out = m.handle(
+      msgUpdated({
+        id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
+        time: { created: 20, completed: 30 }, providerID: "p", modelID: "m", agent: "build",
+        mode: "build", path: { cwd: "/repo", root: "/repo" }, cost: 0.02, finish: "stop",
+        tokens: { input: 5, output: 3, reasoning: 0, cache: { read: 0, write: 0 } },
+        structured: { answer: 42 },
+      }),
+    );
+    const ta = out.find((e) => e.type === "turn.assistant")!;
+    expect((ta.data as { structured?: unknown }).structured).toEqual({ answer: 42 });
+  });
+
   test("basic turn with reasoning+text+tool", () => {
     const m = new OpencodeMapper();
     const out = basicFixture().flatMap((e) => m.handle(e));
@@ -2957,7 +3086,7 @@ describe("what the user sent", () => {
   });
 
   test("the mapping version moved, so stored sessions are rebuilt", () => {
-    expect(OPENCODE_MAPPER_VERSION).toBe("opencode-11");
+    expect(OPENCODE_MAPPER_VERSION).toBe("opencode-12");
   });
 
   test("a reasoning part keeps the clock the backend reported", () => {
