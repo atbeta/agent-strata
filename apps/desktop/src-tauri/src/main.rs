@@ -897,6 +897,12 @@ impl Sidecars {
             // The token, always: the service asks for it on everything but the
             // health check, and the page gets it from the shell.
             ("STRATA_API_TOKEN", api_token.clone()),
+            // The service keeps its own state here — the embedded server's
+            // status file, the desktop marker, the dev-process table. Without
+            // this it reads `~/.agent-strata` whatever the brand says, so a
+            // white-label build cannot see its own embedded server and the two
+            // builds overwrite each other's files.
+            ("STRATA_DESKTOP_DIR", data.to_string_lossy().into_owned()),
         ];
         for (key, value) in &extras {
             envs.push((key.as_str(), value.clone()));

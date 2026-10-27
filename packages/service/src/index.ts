@@ -1327,6 +1327,16 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         // sent the wrong field, and a shell handed "" exits silently.
         if (typeof body?.command !== "string" || !body.command.trim())
           return json({ error: "command required" }, 400);
+        // The optional fields are checked here rather than trusted: a malformed
+        // `model` would reach the backend and come back as an opaque 502, which
+        // reads like the backend broke rather than like the request was wrong.
+        if (body.model !== undefined) {
+          const m = body.model as { providerID?: unknown; modelID?: unknown } | null;
+          if (!m || typeof m.providerID !== "string" || typeof m.modelID !== "string")
+            return json({ error: "model must be { providerID, modelID }" }, 400);
+        }
+        if (body.agent !== undefined && typeof body.agent !== "string")
+          return json({ error: "agent must be a string" }, 400);
         goalPaused.delete(casfId);
         try {
           await conn.shell(native, body.command, {

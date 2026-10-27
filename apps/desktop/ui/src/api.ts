@@ -566,11 +566,15 @@ export async function runCommand(
  * call, surfacing as the same permission asks a tool call would produce.
  */
 export async function runShell(sessionId: string, command: string, choice: PromptChoice): Promise<void> {
+  // `variant` is dropped deliberately: it is the prompt path's reasoning-effort
+  // knob, and v1's shell body has no such field. Sending it would look like it
+  // worked while the backend ignored it.
+  const { variant: _variant, ...rest } = choice;
   await throwOnError(
     await apiFetch(`/sessions/${encodeURIComponent(sessionId)}/shell`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ command, ...choice }),
+      body: JSON.stringify({ command, ...rest }),
     }),
   );
 }

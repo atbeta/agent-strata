@@ -28,19 +28,42 @@ const conf = JSON.parse(readFileSync(`${tauriDir}tauri.conf.json`, "utf8")) as {
 const overlayPath = `${tauriDir}brand.overlay.json`;
 
 describe("app name", () => {
-  test("the committed config carries the upstream name", () => {
+  /**
+   * The brand a build of this checkout resolves to.
+   *
+   * `app-name.ts` keeps its own `UPSTREAM` as the fallback a browser tab and a
+   * test process see, while the value a real build injects comes from
+   * `scripts/brand.ts`. Two copies of the same facts, in two modules — which is
+   * exactly the drift these tests exist to catch, and could not while they
+   * compared the config only to the copy sitting beside it.
+   */
+  const brand = () => resolveBrand({});
+
+  test("the committed config carries the upstream name", async () => {
     // A fork must not edit this file: the overlay is how it renames the build,
     // and an edit here would conflict on every upstream change to it.
-    expect(conf.productName).toBe(UPSTREAM.productName);
+    expect(conf.productName).toBe((await brand()).productName);
   });
 
-  test("the window opens with that name", () => {
-    expect(conf.app?.windows?.[0]?.title).toBe(UPSTREAM.productName);
+  test("the window opens with that name", async () => {
+    expect(conf.app?.windows?.[0]?.title).toBe((await brand()).productName);
   });
 
-  test("the page falls back to the upstream name", () => {
-    // What a browser tab and a test process see when nothing was injected.
-    expect(APP_NAME).toBe(UPSTREAM.productName);
+  test("the page's fallback agrees with the generator's upstream", async () => {
+    // What a browser tab and a test process see when nothing was injected. If
+    // these two ever disagree, a real build shows the script's name while an
+    // unbundled page shows the other one.
+    const resolved = await brand();
+    expect(UPSTREAM.productName).toBe(resolved.productName);
+    expect(UPSTREAM.identifier).toBe(resolved.identifier);
+    expect(UPSTREAM.dataDir).toBe(resolved.dataDir);
+    expect(APP_NAME).toBe(resolved.productName);
+    // The identifier has to keep agreeing too, or a machine would treat the
+    // white-label build and the upstream one as the same application.
+    const committed = JSON.parse(readFileSync(`${tauriDir}tauri.conf.json`, "utf8")) as {
+      identifier?: string;
+    };
+    expect(committed.identifier).toBe(resolved.identifier);
   });
 
   test("the overlay, when present, is what the environment asks for", async () => {
@@ -64,9 +87,9 @@ describe("app name", () => {
       identifier?: string;
       app?: { windows?: { title?: string }[] };
     };
-    const brand = await resolveBrand();
-    expect(overlay.productName).toBe(brand.productName);
-    expect(overlay.identifier).toBe(brand.identifier);
-    expect(overlay.app?.windows?.[0]?.title).toBe(brand.productName);
+    const fresh = await resolveBrand();
+    expect(overlay.productName).toBe(fresh.productName);
+    expect(overlay.identifier).toBe(fresh.identifier);
+    expect(overlay.app?.windows?.[0]?.title).toBe(fresh.productName);
   });
 });

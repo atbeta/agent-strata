@@ -502,7 +502,10 @@ export function useSessionComposer(args: {
     // to go. Sending anyway would clear the strip and drop the file without a
     // word — the reader would see it leave and never see it arrive. Refused
     // here, before anything is cleared, so the strip stays put to be removed.
-    if (shellOf(out.text) && out.attachments.length > 0) {
+    // Gated on the same capability the send path uses: on a backend without
+    // `shell`, a `!` draft is an ordinary prompt, and refusing it for carrying
+    // an attachment would block a message that was never going to the shell.
+    if (args.caps()?.shell && shellOf(out.text) && out.attachments.length > 0) {
       setAttachErr(t("composer.shell.noAttachments"));
       return;
     }

@@ -13,7 +13,7 @@ export const MAX_ATTACHMENTS = 10;
  * backend cannot be an arbitrary string in a field the adapter formats into a
  * data URL.
  */
-const MIME = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i;
+const MIME = /^[a-z0-9][a-z0-9!$&^_.+-]*\/[a-z0-9][a-z0-9!$&^_.+-]*$/i;
 
 const inWorkspace = (path: string) =>
   path.length > 0 && !isAbsolute(path) && !/^[a-zA-Z]:/.test(path) && !/^[\\/]/.test(path) && !path.split(/[\\/]/).includes("..");

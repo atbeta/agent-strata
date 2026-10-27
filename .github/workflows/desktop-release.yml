@@ -98,8 +98,15 @@ jobs:
           # `--config` merges this over tauri.conf.json. The file is absent for
           # an upstream build, and `--config` on a missing file is an error, so
           # the flag is only added when there is something to merge.
+          #
+          # `$GITHUB_WORKSPACE`, not a bare relative path: tauri-action runs the
+          # CLI with `projectPath` as its cwd (apps/desktop/src-tauri), and the
+          # CLI reads `--config` relative to that cwd. A repo-root path would
+          # resolve to `.../src-tauri/apps/desktop/src-tauri/...` and the build
+          # would fail on a missing file — so a white-label release produced
+          # nothing at all.
           if [ -f apps/desktop/src-tauri/brand.overlay.json ]; then
-            echo "config=--config apps/desktop/src-tauri/brand.overlay.json" >> "$GITHUB_OUTPUT"
+            echo "config=--config $GITHUB_WORKSPACE/apps/desktop/src-tauri/brand.overlay.json" >> "$GITHUB_OUTPUT"
           else
             echo "config=" >> "$GITHUB_OUTPUT"
           fi

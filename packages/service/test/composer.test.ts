@@ -23,6 +23,12 @@ describe("the composer through strata", () => {
       if (command === "slow") await Bun.sleep(60_000);
       return Response.json({ info: { id: "msg_1", role: "assistant" }, parts: [] });
     },
+    "/agent": () =>
+      Response.json([
+        { name: "build", mode: "primary", builtIn: true },
+        { name: "helper", mode: "subagent", builtIn: true },
+        { name: "hidden-one", mode: "primary", builtIn: true, hidden: true },
+      ]),
     "/session/ses_x/shell": async (_url, req) => {
       const body = (await req.json()) as { command?: string; agent?: string };
       // v1 requires an agent; a request without one is the bug this route checks for.
@@ -136,6 +142,30 @@ describe("the composer through strata", () => {
     expect(res.status).toBe(200);
     const body = JSON.parse(upstream.seen.filter((s) => s.path === "/session/ses_x/shell").at(-1)!.body);
     expect(body).toMatchObject({ command: "ls -la && git status", agent: "build" });
+  });
+
+  test("a shell command with no agent still carries one", async () => {
+    // v1 declares `agent` required, and the UI sends `agent: undefined` until
+    // its agent list has loaded. Without the adapter's lookup this request is
+    // one the server rejects — so the path is load-bearing, not defensive.
+    const res = await post(`${session}/shell`, { command: "ls" });
+    expect(res.status).toBe(200);
+    const body = JSON.parse(upstream.seen.filter((s) => s.path === "/session/ses_x/shell").at(-1)!.body);
+    // The first agent that is neither a subagent nor hidden.
+    expect(body.agent).toBe("build");
+  });
+
+  test("a malformed model or agent never reaches the backend", async () => {
+    const before = upstream.seen.filter((s) => s.path === "/session/ses_x/shell").length;
+    for (const body of [
+      { command: "ls", model: "anthropic/claude" },
+      { command: "ls", model: { providerID: "anthropic" } },
+      { command: "ls", agent: 42 },
+    ]) {
+      const res = await post(`${session}/shell`, body);
+      expect(res.status).toBe(400);
+    }
+    expect(upstream.seen.filter((s) => s.path === "/session/ses_x/shell").length).toBe(before);
   });
 
   test("a shell command with nothing in it is refused", async () => {
