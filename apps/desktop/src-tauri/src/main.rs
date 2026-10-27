@@ -17,6 +17,7 @@
 // `Drop` never reaps these children. They are stopped on `RunEvent::Exit`,
 // and that wait returns only once the process groups are gone.
 
+mod brand;
 mod embed;
 mod plugin_install;
 
@@ -235,7 +236,11 @@ fn which(name: &str) -> Option<PathBuf> {
 }
 
 fn data_dir() -> PathBuf {
-    let dir = home_dir().join(".agent-strata");
+    // The folder is the brand's, not a constant: a white-label build keeps its
+    // database, its token and its pid table somewhere of its own, so one
+    // machine can hold both a company build and the upstream one without the
+    // two reading each other's sessions.
+    let dir = home_dir().join(brand::get().data_dir);
     let _ = fs::create_dir_all(&dir);
     dir
 }

@@ -5,4 +5,16 @@ target/
 .DS_Store
 apps/desktop/src-tauri/gen/
 apps/desktop/src-tauri/binaries/
+
+# Generated per build by `bun run brand`. A white-label build writes these; the
+# upstream build removes them, so the committed defaults are what a checkout
+# means until someone asks for a different brand.
+apps/desktop/src-tauri/brand.generated.rs
+apps/desktop/src-tauri/brand.overlay.json
+
+# A fork's own identity. Deliberately not committed: this repository stays
+# free of any one company's name, so upstream commits keep applying to a
+# fork without a conflict in every file that mentions it.
+scripts/brand.local.ts
+
 .tmp-*

@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createResource, createSignal, For, Show } from "solid-js";
-import { APP_NAME } from "./app-name";
+import { APP_NAME, SOURCE_LABEL, SOURCE_URL } from "./app-name";
 import {
   listTerminals,
   readOpencodeLaunch,
@@ -95,8 +95,8 @@ function width(ch: string) {
   return ch.codePointAt(0)! >= 255 ? 2 : 1;
 }`;
 
-/** Where a question about this build should end up. */
-const SOURCE_URL = "https://github.com/atbeta/agent-strata";
+// The source link comes from the brand, so a white-label build points wherever
+// its own build points rather than at the upstream repository.
 
 const pickerTrigger = "h-8 w-full justify-between gap-3 border border-border px-2.5 text-sm hover:bg-secondary/60";
 
@@ -1138,7 +1138,7 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
               class="inline-flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
             >
               <Icon name="globe" class="size-3.5 shrink-0" />
-              <span class="truncate">atbeta/agent-strata</span>
+              <span class="truncate">{SOURCE_LABEL}</span>
             </a>
           </Row>
         </Card>

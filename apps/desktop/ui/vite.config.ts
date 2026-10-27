@@ -3,7 +3,18 @@ import solid from "vite-plugin-solid";
 import tailwindcss from "@tailwindcss/vite";
 import { fileURLToPath, URL } from "node:url";
 import { readFileSync } from "node:fs";
-import { APP_NAME } from "./src/app-name";
+import { resolveBrand } from "../../../scripts/brand";
+
+/**
+ * The brand this build carries.
+ *
+ * Resolved here from the environment rather than imported from `app-name.ts`:
+ * that module reads `__BRAND__`, which is the value this file is about to
+ * define. Importing it would close the loop and always see the upstream
+ * default — the build would ignore every white-label setting and say nothing.
+ */
+const brand = await resolveBrand();
+const APP_NAME = brand.productName;
 
 const service = process.env.STRATA_SERVICE_URL ?? "http://127.0.0.1:7700";
 
@@ -36,7 +47,7 @@ const version = (() => {
   }
 })();
 
-export default defineConfig({
+export default defineConfig(async () => ({
   plugins: [
     tailwindcss(),
     solid(),
@@ -49,6 +60,10 @@ export default defineConfig({
   ],
   define: {
     __APP_VERSION__: JSON.stringify(version),
+    // The brand, resolved once by `scripts/brand.ts` and read back by the page.
+    // `app-name.ts` falls back to the upstream values when nothing was injected,
+    // which is how a browser tab during development behaves.
+    __BRAND__: JSON.stringify(brand),
   },
   resolve: {
     alias: {
@@ -71,4 +86,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

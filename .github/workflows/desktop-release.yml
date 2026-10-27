@@ -63,6 +63,31 @@ jobs:
           $tag = $env:GITHUB_REF_NAME
           if ($tag -ne "v$conf") { throw "tag $tag does not match tauri.conf.json version $conf" }
 
+      # The brand is resolved here, once: `scripts/brand.ts` writes the Tauri
+      # overlay, the Rust constants, and (through Vite) the page's copy. A fork
+      # sets STRATA_BRAND or the STRATA_BRAND_* variables as repository
+      # variables; upstream sets nothing, and the step removes any stale files
+      # a previous local build left behind.
+      #
+      # The name is read back for the release title: the workflow cannot know it
+      # otherwise, and a white-label build whose release page still said the
+      # upstream name would be the one place the rename missed.
+      - name: Resolve the brand
+        id: brand
+        shell: bash
+        run: |
+          bun run brand
+          name=$(bun run brand --print | bun -e 'const b = JSON.parse(await Bun.stdin.text()); process.stdout.write(b.brand.productName)')
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          # `--config` merges this over tauri.conf.json. The file is absent for
+          # an upstream build, and `--config` on a missing file is an error, so
+          # the flag is only added when there is something to merge.
+          if [ -f apps/desktop/src-tauri/brand.overlay.json ]; then
+            echo "config=--config apps/desktop/src-tauri/brand.overlay.json" >> "$GITHUB_OUTPUT"
+          else
+            echo "config=" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Compile the service sidecar
         run: bun run sidecar:force
 
@@ -73,8 +98,8 @@ jobs:
         with:
           projectPath: apps/desktop/src-tauri
           tauriScript: bunx --bun @tauri-apps/cli@2
-          args: --bundles ${{ matrix.bundles }}
+          args: --bundles ${{ matrix.bundles }} ${{ steps.brand.outputs.config }}
           tagName: ${{ github.ref_name }}
-          releaseName: Agent Strata v__VERSION__
-          releaseBody: ${{ matrix.artifact }} for Agent Strata v__VERSION__.
+          releaseName: ${{ steps.brand.outputs.name }} v__VERSION__
+          releaseBody: ${{ matrix.artifact }} for ${{ steps.brand.outputs.name }} v__VERSION__.
           uploadUpdaterJson: false
