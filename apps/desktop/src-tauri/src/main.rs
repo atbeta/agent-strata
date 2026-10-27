@@ -579,7 +579,15 @@ fn spawn_opencode_supervisor(
         // seconds on a fork parked at its domain login, and a synchronous
         // probe once kept the window from ever appearing.
         let runtime = detect_runtime(&thread_data, OpencodeMode::Embed);
-        let _ = write_runtime(&thread_data.join("opencode-runtime.json"), &runtime);
+        let runtime_path = thread_data.join("opencode-runtime.json");
+        let _ = write_runtime(&runtime_path, &runtime);
+        // The probe above ran before the server could answer, so a fork parked
+        // at its domain login wrote `authParked` and nothing ever replaced it.
+        // The reader signed in, the server came up, and the settings page went
+        // on saying the login was still pending. Health passing is the proof
+        // that `--version` can be read now, so the answer is taken again once —
+        // and only once, because each probe spawns the binary.
+        let reprobed = Arc::new(AtomicBool::new(false));
         let wait_shutdown = shutdown.clone();
         let wait_slot = opencode.clone();
         let exited = Arc::new(AtomicBool::new(false));
@@ -595,6 +603,9 @@ fn spawn_opencode_supervisor(
                 let auth_tui = auth_tui.clone();
                 let exited = exited.clone();
                 let plugin_config_dir = plugin_config_dir.clone();
+                // The spawn closure re-arms the one-shot probe for each child it
+                // starts, so it needs its own handle.
+                let reprobed = reprobed.clone();
                 move |p| {
                     if shutdown_flag.load(Ordering::SeqCst) {
                         return Err(std::io::Error::new(
@@ -664,6 +675,10 @@ fn spawn_opencode_supervisor(
                     *slot = Some(child);
                     drop(slot);
                     exited.store(false, Ordering::SeqCst);
+                    // A replacement child may park at the login prompt again, so
+                    // the one-shot re-probe is armed again with it. Without this
+                    // a restart after a sign-out wrote `authParked` and kept it.
+                    reprobed.store(false, Ordering::SeqCst);
                     let kill_slot = opencode_slot.clone();
                     let kill_login = login_slot.clone();
                     Ok(Spawned {
@@ -684,7 +699,21 @@ fn spawn_opencode_supervisor(
                     })
                 }
             },
-            |p| health_ok(&p.url, &p.username, &p.password),
+            {
+                let reprobed = reprobed.clone();
+                let runtime_path = runtime_path.clone();
+                let reprobe_data = thread_data.clone();
+                move |p| {
+                    let ok = health_ok(&p.url, &p.username, &p.password);
+                    if ok && !reprobed.swap(true, Ordering::SeqCst) {
+                        // Written before `supervise` records Running, so the
+                        // next launch read cannot see the stale error either.
+                        let fresh = detect_runtime(&reprobe_data, OpencodeMode::Embed);
+                        let _ = write_runtime(&runtime_path, &fresh);
+                    }
+                    ok
+                }
+            },
             move |d| {
                 let start = Instant::now();
                 while start.elapsed() < d {
