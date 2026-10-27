@@ -180,7 +180,7 @@ export const SETTLE_QUIET_MS = 30_000;
 export const SETTLE_STALL_MS = 300_000;
 
 /** Bump when the mapping changes; stored sessions mapped by an older version are rebuilt. */
-export const OPENCODE_MAPPER_VERSION = "opencode-12";
+export const OPENCODE_MAPPER_VERSION = "opencode-13";
 
 /** The event types an import reproduces from OpenCode's own record of a session. */
 export const OPENCODE_REBUILT_TYPES: EventType[] = [...REBUILDABLE_EVENT_TYPES];
@@ -1191,7 +1191,7 @@ export class OpencodeMapper {
           // Skill and plugin failures carry no session — nothing to hang the
           // diagnostic on. Dropping it silently made a broken skill invisible;
           // the log is where a session-less fault can still be found.
-          console.error("opencode session error:", evt.properties.error);
+          console.error("opencode session error:", sessionDiagnostic(evt.properties.error));
           return out;
         }
         const { s, out: pre } = this.ensureSession(sessionID);

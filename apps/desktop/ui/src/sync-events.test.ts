@@ -12,6 +12,7 @@ describe("what may move the list during a sync", () => {
       "permission.resolved",
       "question.asked",
       "question.resolved",
+      "session.error",
     ]) {
       expect(changesSessionList(type)).toBe(true);
     }

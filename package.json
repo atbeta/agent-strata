@@ -12,7 +12,7 @@
     "sidecar": "bun run scripts/build-sidecar.ts",
     "sidecar:force": "bun run scripts/build-sidecar.ts --force",
     "icons:providers": "bun run scripts/provider-icons.ts",
-    "typecheck": "tsc --noEmit -p packages/schema && tsc --noEmit -p packages/store && tsc --noEmit -p packages/projector && tsc --noEmit -p packages/policy && tsc --noEmit -p packages/adapter-acp && tsc --noEmit -p packages/adapter-opencode && tsc --noEmit -p packages/core && tsc --noEmit -p packages/service && tsc --noEmit -p apps/desktop/ui"
+    "typecheck": "rc=0; for p in packages/schema packages/store packages/projector packages/policy packages/adapter-acp packages/adapter-opencode packages/core packages/service apps/desktop/ui; do tsc --noEmit -p \"$p\" || rc=1; done; exit $rc"
   },
   "devDependencies": {
     "@types/bun": "^1.2.0",

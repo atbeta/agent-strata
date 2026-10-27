@@ -3086,7 +3086,7 @@ describe("what the user sent", () => {
   });
 
   test("the mapping version moved, so stored sessions are rebuilt", () => {
-    expect(OPENCODE_MAPPER_VERSION).toBe("opencode-12");
+    expect(OPENCODE_MAPPER_VERSION).toBe("opencode-13");
   });
 
   test("a reasoning part keeps the clock the backend reported", () => {
