@@ -45,7 +45,7 @@ jobs:
       STRATA_BRAND_SOURCE_URL: ${{ vars.STRATA_BRAND_SOURCE_URL }}
       STRATA_BRAND_SOURCE_LABEL: ${{ vars.STRATA_BRAND_SOURCE_LABEL }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
