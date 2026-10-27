@@ -96,13 +96,33 @@ export function Tip(props: {
     });
   });
 
-  onCleanup(() => document.removeEventListener("pointermove", watch, true));
+  /**
+   * The pointer listener exists only while a bubble is showing.
+   *
+   * It used to be installed on every enter and focus, and `hide()` only cleared
+   * the anchor — so a tooltip that had been hovered once kept a capture-phase
+   * `pointermove` listener on the document for the rest of its life. Every
+   * pointer move in the app then ran one handler per tooltip ever hovered, and
+   * a transcript full of them (tool outputs, permissions, status chips) made
+   * moving the mouse over the composer cost the sum of all of it. Scrolling
+   * mounted more rows carrying more tips, which is why it got worse the further
+   * the reader went.
+   *
+   * Put in an effect keyed on the anchor rather than in the handlers: the effect
+   * re-runs when the bubble opens or closes, and `onCleanup` inside it removes
+   * the listener on the way out of both.
+   */
+  createEffect(() => {
+    if (!anchor()) return;
+    document.addEventListener("pointermove", watch, true);
+    onCleanup(() => document.removeEventListener("pointermove", watch, true));
+  });
 
   function watch(e: PointerEvent) {
     const t = e.target as Node | null;
     // The bubble is pointer-events-none, so containment against the wrapper is
     // enough to decide whether the pointer is still on the trigger.
-    if (anchor() && (!t || !wrap?.contains(t))) hide();
+    if (!t || !wrap?.contains(t)) hide();
   }
 
   return (
@@ -112,12 +132,10 @@ export function Tip(props: {
       onMouseEnter={(e) => {
         if (props.disabled) return;
         place(e.currentTarget);
-        document.addEventListener("pointermove", watch, true);
       }}
       onFocusIn={(e) => {
         if (props.disabled) return;
         place(e.currentTarget);
-        document.addEventListener("pointermove", watch, true);
       }}
       onFocusOut={hide}
     >
