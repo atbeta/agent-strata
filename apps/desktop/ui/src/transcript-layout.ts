@@ -94,6 +94,20 @@ export function rowAtOffset(offsets: Float64Array, y: number): number {
   return lo;
 }
 
+export function anchorFromOffsets(
+  scrollTop: number,
+  offsets: Float64Array,
+  idAt: (index: number) => string | undefined,
+): { turnId: string; offset: number } | undefined {
+  const count = offsets.length - 1;
+  if (count <= 0) return undefined;
+  let i = rowAtOffset(offsets, Math.max(0, scrollTop));
+  if (i >= count) i = count - 1;
+  const turnId = idAt(i);
+  if (!turnId) return undefined;
+  return { turnId, offset: scrollTop - offsets[i]! };
+}
+
 export function anchorAt(
   scrollTop: number,
   ids: readonly string[],
@@ -101,13 +115,7 @@ export function anchorAt(
   estimate: number,
   gap: number,
 ): { turnId: string; offset: number } | undefined {
-  if (!ids.length) return undefined;
-  const offsets = prefixOffsets(ids, known, estimate, gap);
-  let i = rowAtOffset(offsets, Math.max(0, scrollTop));
-  if (i >= ids.length) i = ids.length - 1;
-  const turnId = ids[i];
-  if (!turnId) return undefined;
-  return { turnId, offset: scrollTop - offsets[i]! };
+  return anchorFromOffsets(scrollTop, prefixOffsets(ids, known, estimate, gap), (i) => ids[i]);
 }
 
 /** Scroll position that puts `anchor` the same distance into its row. Missing row: undefined. */

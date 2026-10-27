@@ -36,7 +36,6 @@ import {
   layoutKey,
   placeReading,
   readRowHeights,
-  readingFromScroll,
   rememberReading,
   writeRowHeight,
 } from "./transcript-layout";
@@ -435,15 +434,7 @@ const turns = () => shown().turns;
           setPinned(isPinned);
           setActiveTurn(list?.indexAtTop() ?? 0);
           const key = layoutKey(props.paneId, props.sessionId);
-          rememberReading(
-            key,
-            readingFromScroll(
-              key,
-              el.scrollTop,
-              isPinned,
-              turns().map((turn) => turn.turn_id),
-            ),
-          );
+          rememberReading(key, list?.readingAtTop(isPinned) ?? { pinned: true });
           rememberPaneScroll(props.paneId, props.sessionId, {
             scrollTop: el.scrollTop,
             pinned: isPinned,

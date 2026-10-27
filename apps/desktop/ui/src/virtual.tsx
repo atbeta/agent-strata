@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createRenderEffect, createSignal, For, on, onCleanup, onMount, type JSX } from "solid-js";
-import { pinScroll } from "./transcript-layout";
+import { anchorFromOffsets, pinScroll, type Reading } from "./transcript-layout";
 import { atTail, scrollTopForRow, scrollTopToCentreRow } from "./virtual-tail";
 
 /**
@@ -94,6 +94,8 @@ export interface VirtualApi {
   scrollToIndex: (index: number, align?: "center" | "start") => void;
   /** Index of the row nearest the top of the viewport. */
   indexAtTop: () => number;
+  /** Reading position derived from the offsets the list already maintains. */
+  readingAtTop: (pinned: boolean) => Reading;
 }
 
 export function Virtual<T>(props: VirtualProps<T>) {
@@ -113,13 +115,14 @@ export function Virtual<T>(props: VirtualProps<T>) {
   const [following, setFollowing] = createSignal(props.follow !== false);
   /** Layout key adopted by the render effect below. Measurements are stored under it. */
   let activeKey = props.layoutKey ?? "";
-  const publish = (next: Map<string, number>) => {
+  const publish = (next: Map<string, number>, changed: readonly string[]) => {
     const prev = measured();
     setMeasured(next);
     const cb = props.onHeight;
     if (!cb || !activeKey) return;
-    for (const [id, height] of next) {
-      if (prev.get(id) !== height) cb(activeKey, id, height);
+    for (const id of changed) {
+      const height = next.get(id);
+      if (height !== undefined && prev.get(id) !== height) cb(activeKey, id, height);
     }
   };
   /**
@@ -172,57 +175,42 @@ export function Virtual<T>(props: VirtualProps<T>) {
    */
   const ro = new ResizeObserver((entries) => {
     const el = props.scroller?.();
-    const next = new Map(measured());
+    const current = measured();
+    let next: Map<string, number> | undefined;
+    const changed: string[] = [];
     const o = offsets();
     // Read the live offset, not props.scrollTop. The parent mirrors scroll
     // position into a signal through an onScroll handler, and that mirror can
     // be a frame behind when the browser reports sizes — trusting it here
     // writes a stale position back and throws the reader to the wrong place.
     const top = el?.scrollTop ?? props.scrollTop;
-    let changed = false;
     let correction = 0;
-    let index: Map<string, number> | undefined;
     for (const e of entries) {
-      const key = observed.get(e.target)?.key;
-      if (key === undefined) continue;
+      const observation = observed.get(e.target);
+      if (!observation) continue;
+      const key = observation.key;
       const h = e.borderBoxSize?.[0]?.blockSize ?? (e.target as HTMLElement).offsetHeight;
       if (!h) continue;
-      const prev = next.get(key);
+      const prev = (next ?? current).get(key);
       // A row never measured still occupies `estimate` in the prefix sum, so
       // its first real height displaces everything below it exactly like a
       // change does — `prev` falls back to the estimate, not to "skip".
       const prevH = prev ?? props.estimate;
       if (Math.abs(prevH - h) < EPS) continue;
+      next ??= new Map(current);
       next.set(key, h);
-      changed = true;
+      changed.push(key);
       // Only rows entirely above the viewport push the content the reader is
       // looking at. Rows below it are already off-screen and cost nothing.
-      index ??= rowIndex();
-      const i = index.get(key);
-      if (i !== undefined && o[i]! + prevH <= top) correction += h - prevH;
+      if (o[observation.i]! + prevH <= top) correction += h - prevH;
     }
-    if (!changed) return;
-    publish(next);
+    if (!next) return;
+    publish(next, changed);
     // While following, the effect above re-pins using the new extent. The
     // per-row correction is for a reader who has scrolled away, where the
     // content they are reading must not move underneath them.
     if (!following() && correction !== 0 && el) el.scrollTop = top + correction;
   });
-
-  /**
-   * Turn id to its row number, so a measurement does not have to search.
-   *
-   * A plain function, not a memo: it walks every item in the session — 1,589 of
-   * them in the largest one held — and a memo made that walk happen on every
-   * streaming tick to have it ready for a resize callback that mostly never
-   * needs it. It is now built by the resize callback, and only when a row that
-   * was already on screen has changed height.
-   */
-  const rowIndex = (): Map<string, number> => {
-    const m = new Map<string, number>();
-    for (let i = 0; i < props.items.length; i++) m.set(props.id(props.items[i], i), i);
-    return m;
-  };
 
   /** Prefix sums of row height + gap. Index n is the top edge of row n. */
   const offsets = createMemo(() => {
@@ -377,6 +365,16 @@ export function Virtual<T>(props: VirtualProps<T>) {
     props.api?.({
       scrollToIndex,
       indexAtTop: () => rowAt(offsets(), Math.max(0, props.scrollTop)),
+      readingAtTop: (pinned) => {
+        if (pinned) return { pinned: true };
+        const anchor = anchorFromOffsets(props.scrollTop, offsets(), (i) => {
+          const item = props.items[i];
+          return item === undefined ? undefined : props.id(item, i);
+        });
+        return anchor
+          ? { pinned: false, turnId: anchor.turnId, offset: anchor.offset }
+          : { pinned: true };
+      },
     });
     onCleanup(() => rov.disconnect());
   });
@@ -405,6 +403,7 @@ export function Virtual<T>(props: VirtualProps<T>) {
       // unmeasured cost twenty full passes, on the scroll path, and that is
       // what made dragging the window stutter.
       let next: Map<string, number> | undefined;
+      const changed: string[] = [];
       for (const [el, entry] of [...observed]) {
         if (!el.isConnected) {
           ro.unobserve(el);
@@ -436,8 +435,9 @@ export function Virtual<T>(props: VirtualProps<T>) {
         if (!h) continue;
         next ??= new Map(measured());
         next.set(key, h);
+        changed.push(key);
       }
-      if (next) publish(next);
+      if (next) publish(next, changed);
     });
   });
 

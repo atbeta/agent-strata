@@ -5,6 +5,7 @@ import {
   ROW_ESTIMATE,
   ROW_GAP,
   anchorAt,
+  anchorFromOffsets,
   pinScroll,
   placeReading,
   readingFromScroll,
@@ -55,6 +56,22 @@ describe("a pane keeps the layout it already measured", () => {
     const anchor = anchorAt(scrollTop, ids, heights, ROW_ESTIMATE, ROW_GAP);
     expect(anchor).toEqual({ turnId: "b", offset: 36 });
     expect(scrollTopForAnchor(anchor!, ids, heights, ROW_ESTIMATE, ROW_GAP)).toBe(scrollTop);
+  });
+
+  test("an anchor can come from offsets the virtual list already has", () => {
+    const ids = ["a", "b", "c"];
+    const heights = new Map([
+      ["a", 600],
+      ["b", 240],
+      ["c", 900],
+    ]);
+    const offsets = prefixOffsets(ids, heights, ROW_ESTIMATE, ROW_GAP);
+    for (const top of [0, 36, offsets[1]! + 17, offsets[2]! + 23, offsets[3]! + 50]) {
+      expect(anchorFromOffsets(top, offsets, (i) => ids[i])).toEqual(
+        anchorAt(top, ids, heights, ROW_ESTIMATE, ROW_GAP),
+      );
+    }
+    expect(anchorFromOffsets(0, new Float64Array(1), () => "missing")).toBeUndefined();
   });
 
   test("a row above the anchor growing does not move the anchor row", () => {

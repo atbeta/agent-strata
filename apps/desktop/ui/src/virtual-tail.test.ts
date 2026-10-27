@@ -12,6 +12,36 @@ const read = (file: string) => readFileSync(join(import.meta.dir, file), "utf8")
  * below the fold. These hold the cases that broke it.
  */
 
+describe("scroll hot paths reuse work already done", () => {
+  test("reading memory uses the virtual list's offsets", () => {
+    for (const file of ["session-detail.tsx", "peer-transcript.tsx"]) {
+      const src = read(file);
+      expect(src).toContain("list?.readingAtTop(isPinned)");
+      expect(src).not.toContain("readingFromScroll(");
+      const start = src.indexOf("onScroll={(e)");
+      const onScroll = src.slice(start, src.indexOf("rememberPaneScroll", start));
+      expect(onScroll).not.toContain("turns().map((turn) => turn.turn_id)");
+    }
+  });
+
+  test("a measurement uses its observed row instead of indexing every turn", () => {
+    const src = read("virtual.tsx");
+    expect(src).not.toContain("const rowIndex");
+    expect(src).toContain("const observation = observed.get(e.target)");
+    expect(src).toContain("o[observation.i]");
+  });
+
+  test("measurement publication only walks the changed rows", () => {
+    const src = read("virtual.tsx");
+    const publish = src.slice(src.indexOf("const publish"), src.indexOf("Element →"));
+    expect(publish).toContain("for (const id of changed)");
+    expect(publish).not.toContain("for (const [id, height] of next)");
+    const observer = src.slice(src.indexOf("new ResizeObserver"), src.indexOf("Prefix sums"));
+    expect(observer).toContain("next ??= new Map(current)");
+    expect(observer).not.toContain("const next = new Map(measured())");
+  });
+});
+
 describe("a reader who leaves a conversation and comes back", () => {
   /**
    * Scrolling up in a conversation, switching the pane to another and switching
