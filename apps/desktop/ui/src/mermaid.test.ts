@@ -18,7 +18,7 @@ describe("mermaid rendering ratchet", () => {
     // that is still being written, and drawing it again on the next frame.
     const src = read("md.tsx");
     expect(src).toContain("if (finished) drawDiagrams(tpl.content)");
-    expect(src).toMatch(/nodesFrom\(tail, false\)/);
+    expect(src).toMatch(/nodesFrom\(tail, false, !live\)/);
   });
 
   test("the engine is loaded on first use, never at import", () => {

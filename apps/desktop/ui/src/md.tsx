@@ -6,8 +6,11 @@ import { grammarFor, guessGrammar, tokenize, tokenizeDiff } from "./highlight";
 import { stableBoundary } from "./md-stream";
 import { drawDiagram, isDiagramBlock } from "./mermaid";
 import { t } from "./i18n";
+import { MarkdownHtmlCache } from "./md-cache";
 
 marked.setOptions({ gfm: true, breaks: true });
+
+const htmlCache = new MarkdownHtmlCache();
 
 export function Md(props: { text: string; class?: string; live?: boolean }) {
   let host: HTMLDivElement | undefined;
@@ -37,7 +40,7 @@ export function Md(props: { text: string; class?: string; live?: boolean }) {
       // The new finished region includes the previous tail. Drop that tail
       // before appending, or the closed fence would sit after its own leftover.
       dropTail(host, stableCount);
-      const frag = nodesFrom(stable.slice(renderedStable.length), true);
+      const frag = nodesFrom(stable.slice(renderedStable.length), true, !live);
       const count = frag.childNodes.length;
       host.append(frag);
       stableCount += count;
@@ -45,7 +48,7 @@ export function Md(props: { text: string; class?: string; live?: boolean }) {
     }
 
     dropTail(host, stableCount);
-    if (tail.length > 0) host.append(nodesFrom(tail, false));
+    if (tail.length > 0) host.append(nodesFrom(tail, false, !live));
     syncCursor(host, live);
   };
 
@@ -121,12 +124,19 @@ function dropTail(host: HTMLElement, stableCount: number) {
  * It is what decides whether a diagram is drawn or left as source: a fence that
  * is still arriving is not a diagram yet, it is half of one, and drawing it
  * would mean parsing a source that is still being written and drawing it again
- * on the next frame.
+ * on the next frame. Settled slices can replay the sanitised, highlighted HTML;
+ * diagrams are still drawn against the new nodes below.
  */
-function nodesFrom(markdown: string, finished: boolean): DocumentFragment {
+function nodesFrom(markdown: string, finished: boolean, useCache: boolean): DocumentFragment {
   const tpl = document.createElement("template");
-  tpl.innerHTML = DOMPurify.sanitize(marked.parse(markdown, { async: false }) as string);
-  highlightCode(tpl.content);
+  const cached = useCache ? htmlCache.get(markdown) : undefined;
+  if (cached === undefined) {
+    tpl.innerHTML = DOMPurify.sanitize(marked.parse(markdown, { async: false }) as string);
+    highlightCode(tpl.content);
+    if (useCache) htmlCache.set(markdown, tpl.innerHTML);
+  } else {
+    tpl.innerHTML = cached;
+  }
   if (finished) drawDiagrams(tpl.content);
   return tpl.content;
 }
