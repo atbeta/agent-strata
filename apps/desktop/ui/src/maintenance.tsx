@@ -18,18 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { TextFieldInput } from "@/components/ui/text-field";
 import { Icon } from "./icons";
-
-function fmtBytes(n: number): string {
-  if (!Number.isFinite(n) || n <= 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB"];
-  let value = n;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${unit === 0 || value >= 10 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
-}
+import { fmtBytes } from "./bytes";
 
 /**
  * The maintenance screen.

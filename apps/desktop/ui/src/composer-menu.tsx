@@ -1,6 +1,8 @@
 import { createEffect, For, Show } from "solid-js";
 import { Icon } from "./icons";
 import { t } from "./i18n";
+import { Tip } from "./tip";
+import { fmtBytes } from "./bytes";
 import type { Attachment } from "./composer-input";
 
 export interface MenuItem {
@@ -87,10 +89,25 @@ export function AttachmentStrip(props: { items: Attachment[]; onRemove: (id: str
             <Show
               when={a.mime.startsWith("image/")}
               fallback={
-                <div class="flex h-12 max-w-48 items-center gap-1.5 rounded-md bg-secondary px-2.5 text-xs">
-                  <Icon name="files" class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span class="truncate">{a.name}</span>
-                </div>
+                // A file has no thumbnail, so the chip is the whole of what the
+                // reader sees: the name truncated to fit, and a tooltip for
+                // everything truncation took — full name, type and size. Without
+                // it a long name is unrecoverable and two attachments can look
+                // identical.
+                <Tip
+                  label={`${a.name}\n${a.mime}${a.size === undefined ? "" : ` · ${fmtBytes(a.size)}`}`}
+                >
+                  <div class="flex h-12 min-w-40 max-w-64 items-center gap-1.5 rounded-md bg-secondary px-2.5">
+                    <Icon name="files" class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span class="min-w-0 flex-1">
+                      <span class="block truncate text-xs leading-tight">{a.name}</span>
+                      <span class="block truncate text-2xs leading-tight text-muted-foreground">
+                        {a.mime}
+                        <Show when={a.size !== undefined}> · {fmtBytes(a.size!)}</Show>
+                      </span>
+                    </span>
+                  </div>
+                </Tip>
               }
             >
               <img src={a.url} alt={a.name} class="h-12 w-12 rounded-md border border-border object-cover" />

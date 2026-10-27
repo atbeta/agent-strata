@@ -2598,9 +2598,13 @@ describe("what the user sent", () => {
       { type: "text", text: "what colour" },
       { type: "image", mime: "image/png", data: "iVBORw0KGgo=" },
       // the desktop only shows images from data: and blob: URLs
-      { type: "file_ref", path: "r.png" },
-      { type: "file_ref", path: "spec.pdf" },
-      { type: "file_ref", path: "image/svg+xml" },
+      //
+      // Each carries its mime: an attachment has no workspace path, so without
+      // it the transcript would show three bare names and a dropped PDF would
+      // read exactly like a mentioned text file.
+      { type: "file_ref", path: "r.png", mime: "image/png" },
+      { type: "file_ref", path: "spec.pdf", mime: "application/pdf" },
+      { type: "file_ref", path: "image/svg+xml", mime: "image/svg+xml" },
     ]);
   });
 
@@ -2760,7 +2764,7 @@ describe("what the user sent", () => {
   });
 
   test("the mapping version moved, so stored sessions are rebuilt", () => {
-    expect(OPENCODE_MAPPER_VERSION).toBe("opencode-8");
+    expect(OPENCODE_MAPPER_VERSION).toBe("opencode-9");
   });
 
   test("a reasoning part keeps the clock the backend reported", () => {

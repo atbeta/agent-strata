@@ -205,20 +205,38 @@ function ThinkingBlock(props: {
   );
 }
 
-function FileChip(props: { path: string; range?: { start: number; end: number } }) {
+function FileChip(props: { path: string; range?: { start: number; end: number }; mime?: string }) {
   const name = () => {
     const parts = props.path.split(/[/\\]/);
     return parts[parts.length - 1] || props.path;
   };
   const range = () =>
     props.range ? `${props.range.start}–${props.range.end}` : undefined;
+  /**
+   * The type, when it says something the name does not.
+   *
+   * A workspace mention is usually a source file, and its extension already
+   * says `text/plain`; printing that would be noise on every mention. An
+   * attachment has no path to imply anything, so the chip says what it is —
+   * otherwise a dropped PDF and a mentioned text file look identical.
+   */
+  const kind = () => {
+    const mime = props.mime;
+    if (!mime) return undefined;
+    const base = mime.split(";")[0]!.trim().toLowerCase();
+    if (!base || base === "application/octet-stream") return undefined;
+    return base;
+  };
   return (
     <span
       class="my-1 inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-secondary/50 px-2 py-0.5 align-middle font-mono text-2xs text-event-file"
-      title={props.path}
+      title={kind() ? `${props.path}\n${props.mime}` : props.path}
     >
       <Icon name="files" class="size-3 shrink-0" />
       <span class="truncate">{name()}</span>
+      <Show when={kind()}>
+        <span class="shrink-0 text-muted-foreground">{kind()}</span>
+      </Show>
       <Show when={range()}>
         <span class="shrink-0 text-muted-foreground">{range()}</span>
       </Show>
@@ -261,7 +279,7 @@ function TranscriptBlock(props: { block: ContentBlock; tight?: boolean; live?: b
         )}
       </Match>
       <Match when={props.block.type === "file_ref" ? props.block : undefined}>
-        {(block) => <FileChip path={block().path} range={block().range} />}
+        {(block) => <FileChip path={block().path} range={block().range} mime={block().mime} />}
       </Match>
       <Match when={props.block.type === "image" ? props.block : undefined}>
         {(block) => <ImageBlock block={block()} />}

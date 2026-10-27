@@ -352,7 +352,9 @@ describe("attachments", () => {
 
   test("a file becomes a data URL of its own type", async () => {
     const a = await toAttachment(new File([new Uint8Array([1, 2, 3])], "x.png", { type: "image/png" }), "k");
-    expect(a).toEqual({ id: "k", name: "x.png", mime: "image/png", url: "data:image/png;base64,AQID" });
+    // `size` is carried for the chip's tooltip. Nothing sends it: the bytes go
+    // as the data URL, and the service measures those itself.
+    expect(a).toEqual({ id: "k", name: "x.png", mime: "image/png", url: "data:image/png;base64,AQID", size: 3 });
   });
 
   test("a file larger than one chunk encodes whole", async () => {
@@ -367,6 +369,7 @@ describe("attachments", () => {
     const a = await toAttachment(new File([new Uint8Array([1, 2, 3])], "x.ts"), "k");
     expect(a.mime).toBe("application/octet-stream");
     expect(a.url).toBe("data:application/octet-stream;base64,AQID");
+    expect(a.size).toBe(3);
   });
 });
 

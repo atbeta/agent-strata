@@ -26,6 +26,15 @@ export const ContentBlock = z.union([
     type: z.literal("file_ref"),
     path: z.string(),
     range: z.object({ start: z.number(), end: z.number() }).optional(),
+    /**
+     * What the file is, when the backend said.
+     *
+     * A file that arrived as an attachment has no workspace path to imply its
+     * type, so without this the transcript can only show a bare name — and an
+     * attached `.pdf` would look exactly like an `@` mention of a text file.
+     * Optional because a mention of a workspace file has no mime to report.
+     */
+    mime: z.string().optional(),
   }),
 ]);
 export type ContentBlock = z.infer<typeof ContentBlock>;

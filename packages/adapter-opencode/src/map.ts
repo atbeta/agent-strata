@@ -139,7 +139,7 @@ export const SETTLE_QUIET_MS = 30_000;
 export const SETTLE_STALL_MS = 300_000;
 
 /** Bump when the mapping changes; stored sessions mapped by an older version are rebuilt. */
-export const OPENCODE_MAPPER_VERSION = "opencode-8";
+export const OPENCODE_MAPPER_VERSION = "opencode-9";
 
 /** The event types an import reproduces from OpenCode's own record of a session. */
 export const OPENCODE_REBUILT_TYPES: EventType[] = [...REBUILDABLE_EVENT_TYPES];
@@ -195,8 +195,14 @@ function fileBlock(part: Extract<Part, { type: "file" }>): ContentBlock {
     if (comma > 0 && part.url.slice(0, comma).endsWith(";base64"))
       return { type: "image", mime: part.mime, data: part.url.slice(comma + 1) };
   }
+  // A workspace mention keeps only its path. Its extension already says what it
+  // is, and a `text/plain` badge on every `@file` would be noise on the most
+  // common kind of reference there is.
   if (part.source && "path" in part.source) return { type: "file_ref", path: part.source.path };
-  return { type: "file_ref", path: part.filename ?? (inline ? part.mime : part.url) };
+  // An attachment has no workspace path, so `mime` is the only thing that says
+  // what it was: without it the transcript shows a bare filename, and a dropped
+  // PDF reads exactly like a mentioned text file.
+  return { type: "file_ref", path: part.filename ?? (inline ? part.mime : part.url), mime: part.mime };
 }
 
 interface ToolTrack {

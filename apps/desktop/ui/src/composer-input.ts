@@ -65,6 +65,8 @@ export interface Attachment {
   mime: string;
   /** data: URL */
   url: string;
+  /** bytes on disk; shown in the tooltip, never sent */
+  size?: number;
 }
 
 /** A file picked from the menu goes along only while the draft still mentions it. */
@@ -367,5 +369,5 @@ export async function toAttachment(file: File, id: string): Promise<Attachment> 
   const bytes = new Uint8Array(await file.arrayBuffer());
   let binary = "";
   for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return { id, name: file.name, mime, url: `data:${mime};base64,${btoa(binary)}` };
+  return { id, name: file.name, mime, url: `data:${mime};base64,${btoa(binary)}`, size: file.size };
 }
