@@ -25,6 +25,9 @@ describe("projector", () => {
         turn_id: "t1",
         content: [{ type: "text", text: "yo" }],
         model: "m1",
+        agent: "build",
+        variant: "high",
+        stop_reason: "length",
         usage: assistantUsage,
         cost_usd: 0.5,
       }),
@@ -34,7 +37,12 @@ describe("projector", () => {
     expect(v.workspace).toBe("/w");
     expect(v.turns.length).toBe(1);
     expect(v.turns[0]!.user![0]).toEqual({ type: "text", text: "hi" });
-    expect(v.turns[0]!.assistant[0]!.model).toBe("m1");
+    expect(v.turns[0]!.assistant[0]).toMatchObject({
+      model: "m1",
+      agent: "build",
+      variant: "high",
+      stop_reason: "length",
+    });
     expect(v.totals).toMatchObject({
       input: 10, output: 5, reasoning: 2, cache_read: 1, cache_write: 3, cost_usd: 0.5,
     });

@@ -35,9 +35,12 @@ export interface Turn {
     msg_id?: string;
     partial?: boolean;
     model?: string;
+    agent?: string;
+    variant?: string;
     usage?: Usage;
     cost_usd?: number;
     latency_ms?: number;
+    stop_reason?: string;
     /** When the event that produced this entry was written. */
     ts?: string;
     /** The event that wrote this entry, so a later goal can tell it is older. */
@@ -337,9 +340,12 @@ export function projectSession(events: Event[]): SessionView {
             msg_id: e.data.msg_id,
             partial: e.data.partial,
             model: e.data.model ?? old.model,
+            agent: e.data.agent ?? old.agent,
+            variant: e.data.variant ?? old.variant,
             usage: e.data.usage,
             cost_usd: e.data.cost_usd,
             latency_ms: e.data.latency_ms,
+            stop_reason: e.data.stop_reason ?? old.stop_reason,
             ts: e.ts,
             seq: e.seq,
             error: e.data.error,
@@ -350,9 +356,12 @@ export function projectSession(events: Event[]): SessionView {
             msg_id: e.data.msg_id,
             partial: e.data.partial,
             model: e.data.model,
+            agent: e.data.agent,
+            variant: e.data.variant,
             usage: e.data.usage,
             cost_usd: e.data.cost_usd,
             latency_ms: e.data.latency_ms,
+            stop_reason: e.data.stop_reason,
             ts: e.ts,
             seq: e.seq,
             error: e.data.error,

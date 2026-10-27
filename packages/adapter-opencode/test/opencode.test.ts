@@ -67,7 +67,7 @@ const basicFixture = (): Event[] => [
   msgUpdated({
     id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
     time: { created: 20, completed: 50 }, providerID: "anthropic", modelID: "claude", agent: "build",
-    mode: "build", path: { cwd: "/repo", root: "/repo" }, cost: 0.25, finish: "stop",
+    mode: "build", path: { cwd: "/repo", root: "/repo" }, cost: 0.25, finish: "stop", variant: "high",
     tokens: { input: 100, output: 40, reasoning: 5, cache: { read: 3, write: 2 } },
   }),
   {
@@ -481,9 +481,11 @@ describe("OpencodeMapper", () => {
     const partial = assistants[0]!.data as { partial?: boolean; msg_id?: string };
     expect(partial).toMatchObject({ partial: true, msg_id: "a1" });
     const ta = assistants.at(-1)!;
-    const d = ta.data as { model: string; usage: { input: number; cache_read: number }; cost_usd: number; latency_ms: number; stop_reason: string; content: object[]; turn_id: string };
+    const d = ta.data as { model: string; agent: string; variant: string; usage: { input: number; cache_read: number }; cost_usd: number; latency_ms: number; stop_reason: string; content: object[]; turn_id: string };
     expect(d.turn_id).toBe("u1");
     expect(d.model).toBe("anthropic/claude");
+    expect(d.agent).toBe("build");
+    expect(d.variant).toBe("high");
     expect(d.usage).toMatchObject({ input: 100, output: 40, reasoning: 5, cache_read: 3, cache_write: 2 });
     expect(d.cost_usd).toBe(0.25);
     expect(d.latency_ms).toBe(30);
@@ -2764,7 +2766,7 @@ describe("what the user sent", () => {
   });
 
   test("the mapping version moved, so stored sessions are rebuilt", () => {
-    expect(OPENCODE_MAPPER_VERSION).toBe("opencode-9");
+    expect(OPENCODE_MAPPER_VERSION).toBe("opencode-10");
   });
 
   test("a reasoning part keeps the clock the backend reported", () => {

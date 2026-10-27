@@ -38,6 +38,9 @@ export interface TraceBlock {
   usage?: TraceUsage;
   costUsd?: number;
   model?: string;
+  agent?: string;
+  variant?: string;
+  stopReason?: string;
   tone: string;
   error?: boolean;
   /** thinking only, no user-visible text */
@@ -154,6 +157,9 @@ export function traceBlocks(events: StrataEvent[]): TraceBlock[] {
       const spoken = textOf(d.content, "spoken");
       const thought = textOf(d.content, "thinking");
       const model = d.model ? String(d.model) : undefined;
+      const agent = d.agent ? String(d.agent) : undefined;
+      const variant = d.variant ? String(d.variant) : undefined;
+      const stopReason = d.stop_reason ? String(d.stop_reason) : undefined;
       // Each of these is its own field. They used to be joined into one "detail"
       // string, which put the model id and the price under a label reading
       // "Elapsed" and forced the strip to regex the milliseconds back out.
@@ -167,6 +173,9 @@ export function traceBlocks(events: StrataEvent[]): TraceBlock[] {
         prev.preview = spoken || thought.slice(0, 280) || prev.preview;
         prev.quiet = !spoken;
         prev.model = model ?? prev.model;
+        prev.agent = agent ?? prev.agent;
+        prev.variant = variant ?? prev.variant;
+        prev.stopReason = stopReason ?? prev.stopReason;
         if (latencyMs !== undefined) prev.latencyMs = latencyMs;
         if (usage) prev.usage = usage;
         if (costUsd !== undefined) prev.costUsd = costUsd;
@@ -184,6 +193,9 @@ export function traceBlocks(events: StrataEvent[]): TraceBlock[] {
           usage,
           costUsd,
           model,
+          agent,
+          variant,
+          stopReason,
           tone: "bg-event-assistant",
           quiet: !spoken,
         };
@@ -599,7 +611,12 @@ export function TraceDrawer(props: { block: TraceBlock; onClose: () => void }) {
   };
 
   const hasFacts = () =>
-    !!props.block.model || !!props.block.usage || props.block.costUsd !== undefined;
+    !!props.block.model ||
+    !!props.block.agent ||
+    !!props.block.variant ||
+    !!props.block.stopReason ||
+    !!props.block.usage ||
+    props.block.costUsd !== undefined;
 
   return (
     <aside class="flex w-80 shrink-0 flex-col border-l border-border bg-card/30">
@@ -641,6 +658,15 @@ export function TraceDrawer(props: { block: TraceBlock; onClose: () => void }) {
             <dl class="mt-3 divide-y divide-border border-t border-border">
               <Show when={props.block.model}>
                 <Fact label={t("info.model")} value={props.block.model!} />
+              </Show>
+              <Show when={props.block.agent}>
+                <Fact label={t("trace.field.agent")} value={props.block.agent!} />
+              </Show>
+              <Show when={props.block.variant}>
+                <Fact label={t("trace.field.variant")} value={props.block.variant!} />
+              </Show>
+              <Show when={props.block.stopReason}>
+                <Fact label={t("trace.field.finish")} value={props.block.stopReason!} />
               </Show>
               <Show when={props.block.usage}>
                 <TokenFacts usage={props.block.usage!} />

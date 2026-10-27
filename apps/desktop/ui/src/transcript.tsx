@@ -29,6 +29,7 @@ import {
   goalMetReply,
   isDiff,
   isInteractiveTool,
+  isLengthStop,
   messageText,
   permissionLabel,
   toolStatusLabel,
@@ -716,10 +717,11 @@ function AssistantMessage(props: {
   const met = () => goalMetReply(props.message.content);
   const text = () => (met() ? t("goal.met_reply") : messageText(props.message.content));
   const notice = () => assistantNotice(props.message.error);
+  const truncated = () => isLengthStop(props.message.stop_reason);
   const forkable = () => Boolean(props.onFork && props.message.msg_id);
   const hasFooter = () => !met() && text().trim() !== "";
   return (
-    <Show when={hasMessageContent(props.message.content) || notice()}>
+    <Show when={hasMessageContent(props.message.content) || notice() || truncated()}>
       <MessageMenu
         text={text}
         onFork={forkable() ? () => props.onFork!(props.message.msg_id!) : undefined}
@@ -740,6 +742,12 @@ function AssistantMessage(props: {
             }
           >
             <TranscriptDivider icon="check">{t("goal.met_reply")}</TranscriptDivider>
+          </Show>
+          <Show when={truncated()}>
+            <p role="status" class="mt-2 flex items-start gap-1.5 text-xs text-event-permission">
+              <Icon name="alert" class="mt-0.5 size-3 shrink-0" />
+              <span>{t("message.truncated")}</span>
+            </p>
           </Show>
           <Show when={notice()?.kind === "stopped" ? notice() : undefined}>
             {(n) => (

@@ -51,6 +51,10 @@ const STOPPED_ERRORS = new Set([
   "the operation was aborted.",
 ]);
 
+export function isLengthStop(reason: string | undefined): boolean {
+  return reason === "length" || reason === "max_tokens";
+}
+
 export function assistantNotice(
   error: string | undefined,
 ): { kind: "stopped" | "error"; text: string } | undefined {

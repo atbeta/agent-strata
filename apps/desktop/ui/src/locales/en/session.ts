@@ -371,6 +371,7 @@ export default {
   "message.restore": "Restore",
   "message.reverted": "Reverted",
   "message.compacted": "Conversation compacted",
+  "message.truncated": "This reply reached the model's length limit and may be incomplete.",
 
   // The prompt outline on the transcript's left edge.
   "nav.outline": "Prompt outline, {n} prompts",

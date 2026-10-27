@@ -21,6 +21,7 @@ const {
   thinkingDuration,
   hasMessageContent,
   isInteractiveTool,
+  isLengthStop,
   messageText,
   permissionLabel,
   statusLabel,
@@ -592,5 +593,13 @@ describe("assistantNotice", () => {
       kind: "error",
       text: "Request failed: Aborted upstream connection",
     });
+  });
+
+  test("only explicit length finishes read as truncated", () => {
+    expect(isLengthStop("length")).toBe(true);
+    expect(isLengthStop("max_tokens")).toBe(true);
+    expect(isLengthStop("stop")).toBe(false);
+    expect(isLengthStop("tool-calls")).toBe(false);
+    expect(isLengthStop(undefined)).toBe(false);
   });
 });

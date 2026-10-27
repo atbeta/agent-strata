@@ -115,6 +115,8 @@ const data = {
     // supersedes this content
     partial: z.boolean().optional(),
     model: z.string().optional(),
+    agent: z.string().optional(),
+    variant: z.string().optional(),
     usage: Usage.optional(),
     cost_usd: z.number().min(0).optional(),
     latency_ms: z.number().int().min(0).optional(),

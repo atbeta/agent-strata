@@ -26,6 +26,9 @@ export default {
   "trace.section.input": "输入",
   "trace.field.started": "开始",
   "trace.field.elapsed": "耗时",
+  "trace.field.agent": "智能体",
+  "trace.field.variant": "推理档位",
+  "trace.field.finish": "结束原因",
   "trace.empty": "无",
 
   // 会话对比

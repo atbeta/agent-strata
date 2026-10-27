@@ -372,6 +372,7 @@ export default {
   "message.restore": "恢复",
   "message.reverted": "已撤回",
   "message.compacted": "对话已压缩",
+  "message.truncated": "这条回复因达到长度上限而结束，内容可能不完整。",
 
   // The prompt outline on the transcript's left edge.
   "nav.outline": "提问导航，共 {n} 条",

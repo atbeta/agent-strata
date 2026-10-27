@@ -27,6 +27,9 @@ export default {
   "trace.section.input": "Input",
   "trace.field.started": "Started",
   "trace.field.elapsed": "Elapsed",
+  "trace.field.agent": "Agent",
+  "trace.field.variant": "Reasoning effort",
+  "trace.field.finish": "Finish reason",
   "trace.empty": "None",
 
   // Compare
