@@ -3,6 +3,8 @@ import solid from "vite-plugin-solid";
 import tailwindcss from "@tailwindcss/vite";
 import { fileURLToPath, URL } from "node:url";
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { resolveBrand } from "../../../scripts/brand";
 
 /**
@@ -25,7 +27,34 @@ const service = process.env.STRATA_SERVICE_URL ?? "http://127.0.0.1:7700";
  * shell can — so the dev proxy presents it on the way through. The page in
  * the shell asks the shell for the token and sends it itself.
  */
-const token = process.env.STRATA_API_TOKEN;
+const tokenEnv = process.env.STRATA_API_TOKEN;
+const tokenPath = join(homedir(), brand.dataDir, "api-token");
+
+/**
+ * The token, read per request.
+ *
+ * The packaged build has it in the environment. The dev build cannot use that:
+ * the shell generates the token when it launches, which is after vite has read
+ * this file, and hands it to the service as that service's environment — the
+ * vite process never sees it. The shell also writes it to the brand's data
+ * directory, so that is where the proxy looks, and it looks per request
+ * because the file does not exist yet when this module is evaluated.
+ */
+let tokenCache: { at: number; value: string } = { at: 0, value: "" };
+const readToken = (): string => {
+  if (tokenEnv) return tokenEnv;
+  const now = Date.now();
+  // The file is written once per launch, so it is read at most once a second.
+  if (now - tokenCache.at < 1_000) return tokenCache.value;
+  let value = "";
+  try {
+    value = readFileSync(tokenPath, "utf8").trim();
+  } catch {
+    // No shell, no token: the service asks for nothing.
+  }
+  tokenCache = { at: now, value };
+  return value;
+};
 
 /**
  * The About tab has to name the build it is running in, and `tauri.conf.json`
@@ -82,7 +111,14 @@ export default defineConfig(async () => ({
         rewrite: (p) => p.replace(/^\/api/, ""),
         // The proxy presents the token on everything it forwards, the socket
         // upgrade included.
-        ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
+        configure: (proxy) => {
+          const present = (req: { setHeader(name: string, value: string): void }) => {
+            const t = readToken();
+            if (t) req.setHeader("authorization", `Bearer ${t}`);
+          };
+          proxy.on("proxyReq", present);
+          proxy.on("proxyReqWs", present);
+        },
       },
     },
   },
