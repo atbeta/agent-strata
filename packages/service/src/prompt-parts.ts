@@ -7,8 +7,8 @@ export const MAX_ATTACHMENTS = 10;
 /**
  * A mime type as a browser or a client library would write it.
  *
- * The type itself is not restricted: OpenCode hands a file part to the model
- * whatever it is, and the model decides whether it can read it. What is checked
+ * The type itself is not restricted: `toOpencodeParts` routes text payloads
+ * through `text/plain` and lets the provider judge genuine media. What is checked
  * is that the declared type is a mime type at all, so the value that reaches the
  * backend cannot be an arbitrary string in a field the adapter formats into a
  * data URL.
