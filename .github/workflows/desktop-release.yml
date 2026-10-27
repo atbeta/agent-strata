@@ -27,6 +27,11 @@ jobs:
             bundles: appimage
             artifact: Linux AppImage
     runs-on: ${{ matrix.os }}
+    # A tag suffixed `-intranet` builds under the `intranet` environment, whose
+    # variables carry the company's brand; anything else runs under `release`,
+    # an empty environment where repository variables still flow through.
+    environment:
+      name: ${{ endsWith(github.ref_name, '-intranet') && 'intranet' || 'release' }}
     # A fork renames its build by setting repository variables. GitHub does not
     # export `vars.*` on its own, so each one is mapped here by hand; upstream
     # sets none and every expression resolves to an empty string, which
