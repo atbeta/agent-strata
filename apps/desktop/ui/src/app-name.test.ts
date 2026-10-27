@@ -44,11 +44,21 @@ describe("app name", () => {
   });
 
   test("the overlay, when present, is what the environment asks for", async () => {
-    // `bun run brand` leaves this file behind. A stale one — written under a
-    // different `STRATA_BRAND`, then built without regenerating — would ship a
-    // name the environment no longer asks for, so it is held to a fresh
+    // `bun run brand` leaves this file behind, and a release job runs that step
+    // before the build. A stale overlay — written under one `STRATA_BRAND`, then
+    // built under another — would ship a name the environment no longer asks
+    // for, so when the environment names a brand the file is held to a fresh
     // resolution of the same variables.
+    //
+    // With no brand named, a leftover overlay belongs to somebody's earlier
+    // local white-label build and says nothing about this one. Failing there
+    // would turn every white-label build into a red test suite afterwards, and
+    // `bun run brand` removes the file anyway on the next plain build.
     if (!existsSync(overlayPath)) return;
+    const named = Object.keys(process.env).some(
+      (key) => key.startsWith("STRATA_BRAND") && process.env[key]?.trim(),
+    );
+    if (!named) return;
     const overlay = JSON.parse(readFileSync(overlayPath, "utf8")) as {
       productName?: string;
       identifier?: string;

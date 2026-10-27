@@ -101,10 +101,20 @@ const clean = (value: string | undefined): string | undefined => {
  * field of it. A preset applied first and a field after it means a build can
  * take a company's identity and change one thing without restating the rest.
  *
- * An unknown preset is not an error. A build that names one this tree has never
- * heard of still has to build, and carrying the upstream name is a better
- * outcome than a failed release — with a warning, because a silently wrong name
- * is worse than a slow one.
+ * A preset that was named but cannot be found is an error, not a warning.
+ *
+ * The temptation is to carry on with the upstream name and let the build
+ * succeed. That is the worse outcome: a release that says the wrong company's
+ * name looks like it worked, ships, and is only noticed when someone reads the
+ * installer. A CI job that fails on a missing preset costs one re-run; a
+ * mislabelled release costs a recall.
+ *
+ * The specific way to hit this: `brand.local.ts` is git-ignored, so it is not in
+ * CI. A fork that sets `STRATA_BRAND=company` as a repository variable but
+ * never provides that file gets here — and should.
+ *
+ * Overriding with `STRATA_BRAND_*` alone stays fine: that names no preset, so
+ * there is nothing to resolve and nothing to be missing.
  */
 export async function resolveBrand(
   env: Record<string, string | undefined> = process.env,
@@ -114,11 +124,18 @@ export async function resolveBrand(
   let base = UPSTREAM;
   if (preset) {
     const hit = known[preset.toLowerCase()];
-    if (hit) base = hit;
-    else if (Object.keys(known).length > 0) {
-      console.warn(`brand: no preset "${preset}"; known: ${Object.keys(known).join(", ")}`);
+    if (hit) {
+      base = hit;
+    } else if (Object.keys(known).length > 0) {
+      throw new Error(
+        `brand: no preset "${preset}" in ${localPath}; known: ${Object.keys(known).join(", ")}`,
+      );
     } else {
-      console.warn(`brand: no preset "${preset}"; ${localPath} does not exist`);
+      throw new Error(
+        `brand: no preset "${preset}": ${localPath} does not exist.\n` +
+          `  A fork supplies it with \`bun run brand --scaffold\`, or sets the\n` +
+          `  STRATA_BRAND_* variables instead and leaves STRATA_BRAND unset.`,
+      );
     }
   }
   return {

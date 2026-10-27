@@ -27,6 +27,23 @@ jobs:
             bundles: appimage
             artifact: Linux AppImage
     runs-on: ${{ matrix.os }}
+    # A fork renames its build by setting repository variables. GitHub does not
+    # export `vars.*` on its own, so each one is mapped here by hand; upstream
+    # sets none and every expression resolves to an empty string, which
+    # `scripts/brand.ts` reads as "no brand" and leaves the defaults alone.
+    #
+    # Job-level rather than per-step, and that is the whole point: the overlay
+    # is written in one step while the page is built in another (Tauri runs
+    # `beforeBuildCommand` later), and both have to resolve the same brand. A
+    # step-scoped variable would reach only the first, and the installer would
+    # carry one name while the window it opens carried another.
+    env:
+      STRATA_BRAND: ${{ vars.STRATA_BRAND }}
+      STRATA_BRAND_NAME: ${{ vars.STRATA_BRAND_NAME }}
+      STRATA_BRAND_IDENTIFIER: ${{ vars.STRATA_BRAND_IDENTIFIER }}
+      STRATA_BRAND_DATA_DIR: ${{ vars.STRATA_BRAND_DATA_DIR }}
+      STRATA_BRAND_SOURCE_URL: ${{ vars.STRATA_BRAND_SOURCE_URL }}
+      STRATA_BRAND_SOURCE_LABEL: ${{ vars.STRATA_BRAND_SOURCE_LABEL }}
     steps:
       - uses: actions/checkout@v4
 
@@ -64,10 +81,9 @@ jobs:
           if ($tag -ne "v$conf") { throw "tag $tag does not match tauri.conf.json version $conf" }
 
       # The brand is resolved here, once: `scripts/brand.ts` writes the Tauri
-      # overlay, the Rust constants, and (through Vite) the page's copy. A fork
-      # sets STRATA_BRAND or the STRATA_BRAND_* variables as repository
-      # variables; upstream sets nothing, and the step removes any stale files
-      # a previous local build left behind.
+      # overlay and the Rust constants, and Vite injects the same answer into
+      # the page when Tauri later runs `beforeBuildCommand`. The environment
+      # comes from the job-level `env` above.
       #
       # The name is read back for the release title: the workflow cannot know it
       # otherwise, and a white-label build whose release page still said the

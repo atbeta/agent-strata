@@ -15,6 +15,13 @@ upstream commit keeps applying without a conflict.
 | `sourceLabel` | How that link reads | The About panel's label |
 | `icons` (optional) | The bundled marks | Overrides `bundle.icon` |
 
+`sourceUrl` is a plain link, not a build input, so a fork points it at its own
+repository — an internal Git host included: `https://git.example.internal/ai/agent`.
+The panel hands it to the system browser; only `http`, `https` and `mailto` are
+ever opened (`external-link.ts`), so an internal HTTPS URL works unchanged. An
+`ssh://` or `git@` address does not: it is not a web page, and clicking it would
+do nothing. Link the web view of the repository, not its clone URL.
+
 The upstream build is `Agent Strata` / `me.pbeta.agent-strata` / `.agent-strata`.
 Those are the defaults in `tauri.conf.json`, `src-tauri/src/brand.rs`, and
 `apps/desktop/ui/src/app-name.ts`, and a checkout that never sets a brand uses
@@ -72,6 +79,8 @@ CI, as repository variables so a fork's release workflow needs no edit:
 | Repository variable | Value |
 |---|---|
 | `STRATA_BRAND` | the preset name, e.g. `company` |
+| `STRATA_BRAND_SOURCE_URL` | e.g. `https://git.example.internal/ai/agent` |
+| `STRATA_BRAND_SOURCE_LABEL` | e.g. `AI platform / agent` |
 | or `STRATA_BRAND_NAME` | e.g. `Example Agent` |
 | `STRATA_BRAND_IDENTIFIER` | e.g. `com.example.agent` |
 | `STRATA_BRAND_DATA_DIR` | e.g. `.example-agent` |

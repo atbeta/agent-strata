@@ -17,8 +17,6 @@
  * white-label build, `scripts/brand.ts` writes an overlay that both this build
  * and that config read, so the two are renamed together.
  */
-const injected = (globalThis as { __BRAND__?: Brand }).__BRAND__;
-
 export type Brand = {
   productName: string;
   identifier: string;
@@ -26,6 +24,16 @@ export type Brand = {
   sourceUrl: string;
   sourceLabel: string;
 };
+
+// A bare `__BRAND__`, not `globalThis.__BRAND__`: Vite's `define` rewrites an
+// identifier, and a member expression is not one — the object would survive
+// into the bundle unsubstituted and the page would fall back to the upstream
+// name while the window title, which is computed separately in `vite.config.ts`,
+// carried the brand. Two names in one window was the bug.
+//
+// `typeof` is safe on an identifier that was never defined, so a browser tab and
+// a test process both reach the fallback instead of a ReferenceError.
+const injected: Brand | undefined = typeof __BRAND__ === "undefined" ? undefined : __BRAND__;
 
 /** The upstream build. Every field is what the app has always been. */
 export const UPSTREAM: Brand = {
