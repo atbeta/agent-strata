@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { APP_NAME, UPSTREAM } from "./app-name";
-import { resolveBrand } from "../../../../scripts/brand";
+import { overlay as brandOverlay, resolveBrand } from "../../../../scripts/brand";
 
 /**
  * The packaged build and the panels have to call the same thing the same way.
@@ -91,5 +91,53 @@ describe("app name", () => {
     expect(overlay.productName).toBe(fresh.productName);
     expect(overlay.identifier).toBe(fresh.identifier);
     expect(overlay.app?.windows?.[0]?.title).toBe(fresh.productName);
+  });
+});
+
+/**
+ * What `--config` does to the window, which is the part no test covered.
+ *
+ * `tauri build --config` is an RFC 7386 merge patch: arrays are replaced, not
+ * merged element by element. An overlay carrying `app.windows` therefore
+ * rewrites the window wholesale, and the list it carries is the whole truth for
+ * every field it leaves out. This shipped once — a title-only entry silently
+ * dropped `visible: false`, the window size, the macOS overlay title bar, the
+ * dark background, and `dragDropEnabled: false`, which hands file drops to
+ * Tauri and breaks dropping a file onto the composer.
+ *
+ * Every suite was green at the time, because they all checked the overlay's own
+ * fields instead of what the window becomes after the merge.
+ */
+describe("the overlay and the window it merges into", () => {
+  const committed = JSON.parse(readFileSync(`${tauriDir}tauri.conf.json`, "utf8")) as {
+    app?: { windows?: Record<string, unknown>[] };
+  };
+  const brand = { ...UPSTREAM, productName: "Agent Carrier", identifier: "com.example.agent" };
+
+  test("the merge keeps every window field the config sets", () => {
+    const before = committed.app?.windows?.[0] ?? {};
+    const after = (brandOverlay(brand) as { app?: { windows?: Record<string, unknown>[] } }).app?.windows?.[0] ?? {};
+    // A field the overlay drops is a field Tauri resets to its own default.
+    for (const key of Object.keys(before)) {
+      expect({ field: key, present: key in after }).toEqual({ field: key, present: true });
+    }
+    expect(Object.keys(after).sort()).toEqual(Object.keys(before).sort());
+  });
+
+  test("only the title changes", () => {
+    const before = committed.app?.windows?.[0] ?? {};
+    const after = (brandOverlay(brand) as { app?: { windows?: Record<string, unknown>[] } }).app?.windows?.[0] ?? {};
+    const { title: _t, ...restAfter } = after;
+    const { title: _b, ...restBefore } = before;
+    expect(restAfter).toEqual(restBefore);
+    expect(after.title).toBe(brand.productName);
+  });
+
+  test("the two settings whose loss is invisible until it bites are carried", () => {
+    const after = (brandOverlay(brand) as { app?: { windows?: Record<string, unknown>[] } }).app?.windows?.[0] ?? {};
+    // `visible: false` prevents the blank-window flash before the shell shows it.
+    expect(after.visible).toBe(false);
+    // `dragDropEnabled: false` is what lets the page, not Tauri, receive a drop.
+    expect(after.dragDropEnabled).toBe(false);
   });
 });
