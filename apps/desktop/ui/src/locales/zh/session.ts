@@ -289,6 +289,7 @@ export default {
   "composer.attach.too_big": "{name} 超过 5 MB",
   "composer.attach.unreadable": "{name} 无法读取",
   "composer.attach.too_many": "最多 {n} 个附件",
+  "composer.shell.noAttachments": "shell 命令不能带附件，请先移除",
   "composer.attachments.one": "1 个附件",
   "composer.attachments.other": "{n} 个附件",
 

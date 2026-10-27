@@ -161,6 +161,15 @@ export async function connectOpencode(opts: {
       parts?: FilePartInput[];
     },
   ) => Promise<void>;
+  shell: (
+    sessionID: string,
+    command: string,
+    opts?: {
+      agent?: string;
+      model?: { providerID: string; modelID: string };
+      directory?: string;
+    },
+  ) => Promise<void>;
   listModels: () => Promise<
     { providerID: string; modelID: string; name: string; variants: string[]; context?: number }[]
   >;
@@ -444,6 +453,61 @@ export async function connectOpencode(opts: {
       if (early === undefined) {
         const report = (err: unknown) => {
           if (!abort.signal.aborted) console.error(`opencode command /${c.command} failed:`, err);
+        };
+        void run.then((r) => r.error && report(r.error), report);
+        return;
+      }
+      if ("thrown" in early) throw early.thrown;
+      if (early.r.error) throw new Error(errorMessage(early.r.error));
+    },
+    /**
+     * Run a command in the session's shell, with the agent answering for it.
+     *
+     * This is what a leading `!` in OpenCode's own composer does, and it is not
+     * a local exec: the command goes to the session and the agent's reply comes
+     * back as a normal turn. Nothing here decides whether the command is safe —
+     * the backend's own permission rules do, and they arrive as asks like any
+     * other tool call.
+     *
+     * v1 declares `agent` required. The desktop always names one; the lookup
+     * below is for a caller that did not, so the request cannot be rejected for
+     * a field this side could have filled.
+     */
+    async shell(
+      sessionID: string,
+      command: string,
+      shellOpts?: {
+        agent?: string;
+        model?: { providerID: string; modelID: string };
+        directory?: string;
+      },
+    ) {
+      const directory = shellOpts?.directory ?? opts.directory;
+      let agent = shellOpts?.agent;
+      if (!agent) {
+        const listed = await client.app.agents({ directory });
+        agent = (listed.data ?? []).find((a) => a.mode !== "subagent" && a.hidden !== true)?.name;
+        if (!agent) throw new Error("no agent to run a shell command as");
+      }
+      const run = client.session.shell({
+        sessionID,
+        directory,
+        agent,
+        model: shellOpts?.model,
+        command,
+      });
+      // Same shape as `command`: the run answers when it is done, so a failure
+      // to start arrives early and everything after that is the run's own.
+      const early = await Promise.race([
+        run.then(
+          (r) => ({ r }),
+          (thrown: unknown) => ({ thrown }),
+        ),
+        Bun.sleep(COMMAND_START_MS).then(() => undefined),
+      ]);
+      if (early === undefined) {
+        const report = (err: unknown) => {
+          if (!abort.signal.aborted) console.error(`opencode shell failed:`, err);
         };
         void run.then((r) => r.error && report(r.error), report);
         return;

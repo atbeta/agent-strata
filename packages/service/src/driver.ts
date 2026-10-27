@@ -71,6 +71,8 @@ export interface BackendCapabilities {
   manage: boolean;
   /** run the backend's own commands (`/init`, …) */
   commands?: boolean;
+  /** run a command in the session's shell with the agent answering (`!ls`) */
+  shell?: boolean;
   /** file and attachment parts in a prompt; without it only text goes through */
   attachments?: boolean;
   revert?: boolean;
@@ -133,6 +135,15 @@ export interface BackendDriver {
   prompt(nativeId: string, parts: PromptPart[], opts?: PromptOpts): Promise<void>;
   /** run one of the backend's commands; resolves once it has started */
   command?(nativeId: string, name: string, args: string, opts?: CommandOpts): Promise<void>;
+  /**
+   * Run a command in the session's shell, the agent answering for it.
+   *
+   * Not a local exec: this is what OpenCode's own composer does with a leading
+   * `!`, and the reply arrives as an ordinary turn. Whether the command is
+   * allowed is the backend's decision, surfacing as the same permission asks a
+   * tool call produces.
+   */
+  shell?(nativeId: string, command: string, opts?: PromptOpts): Promise<void>;
   abort(nativeId: string, directory?: string): Promise<void>;
   mcpConnect?(name: string, directory?: string): Promise<void>;
   mcpDisconnect?(name: string, directory?: string): Promise<void>;

@@ -8,6 +8,7 @@ import {
   resolveHandoff,
   commandOf,
   commandParts,
+  shellOf,
   slashMenuEnter,
   slashRowSelect,
   insertPick,
@@ -366,6 +367,34 @@ describe("attachments", () => {
     const a = await toAttachment(new File([new Uint8Array([1, 2, 3])], "x.ts"), "k");
     expect(a.mime).toBe("application/octet-stream");
     expect(a.url).toBe("data:application/octet-stream;base64,AQID");
+  });
+});
+
+describe("a command for the shell", () => {
+  test("a leading bang and its command", () => {
+    expect(shellOf("!ls -la")).toBe("ls -la");
+    expect(shellOf("  !git status")).toBe("git status");
+    expect(shellOf("!  npm  run  build  ")).toBe("npm  run  build");
+  });
+
+  test("the command is passed through, not interpreted", () => {
+    // Shells use `!` for history expansion. Editing it out here would be this
+    // app rewriting the reader's command before it ran.
+    expect(shellOf("!!!")).toBe("!!");
+    expect(shellOf("!echo hi !")).toBe("echo hi !");
+  });
+
+  test("a bang that is not a command is not one", () => {
+    // Shift-1 and nothing else: sending "" to a shell would do nothing while
+    // looking like a send.
+    expect(shellOf("!")).toBeUndefined();
+    expect(shellOf("!   ")).toBeUndefined();
+  });
+
+  test("only a leading bang counts", () => {
+    expect(shellOf("ls -la")).toBeUndefined();
+    expect(shellOf("/init")).toBeUndefined();
+    expect(shellOf("echo hi ! world")).toBeUndefined();
   });
 });
 

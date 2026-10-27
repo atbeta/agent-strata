@@ -208,6 +208,8 @@ export interface SessionCapabilities {
   prompt?: boolean;
   abort?: boolean;
   commands?: boolean;
+  /** a leading `!` runs a shell command with the agent answering */
+  shell?: boolean;
   attachments?: boolean;
   /** rename, archive, delete */
   manage?: boolean;
@@ -552,6 +554,23 @@ export async function runCommand(
         ...(command.parts?.length ? { parts: command.parts } : {}),
         ...choice,
       }),
+    }),
+  );
+}
+
+/**
+ * A command for the session's shell, the agent answering for it.
+ *
+ * Not a local exec: this is OpenCode's own `!` behaviour, and the reply comes
+ * back as an ordinary turn. Whether the command is allowed is the backend's
+ * call, surfacing as the same permission asks a tool call would produce.
+ */
+export async function runShell(sessionId: string, command: string, choice: PromptChoice): Promise<void> {
+  await throwOnError(
+    await apiFetch(`/sessions/${encodeURIComponent(sessionId)}/shell`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ command, ...choice }),
     }),
   );
 }

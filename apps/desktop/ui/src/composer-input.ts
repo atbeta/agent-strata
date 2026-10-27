@@ -126,6 +126,28 @@ export function commandOf(draft: string, names: readonly string[]): { name: stri
   return { name, args: (m[2] ?? "").trim() };
 }
 
+/**
+ * A leading `!` and the command after it, or undefined.
+ *
+ * OpenCode's own composer treats this prefix as "run it in the session's shell
+ * and let the agent answer", and so does this one. The `!` is a prefix rather
+ * than a command name because what follows is free text — a path, a pipe, a
+ * git subcommand — and there is no list to match it against.
+ *
+ * Everything after the `!` goes to the shell verbatim, including a second `!`:
+ * shells use that for history expansion, and stripping or interpreting it here
+ * would be this app editing the reader's command.
+ *
+ * `!` alone is not a command. It is someone who has just pressed shift-1, and
+ * sending an empty string to a shell would do nothing while looking like a send.
+ */
+export function shellOf(draft: string): string | undefined {
+  const trimmed = draft.trimStart();
+  if (!trimmed.startsWith("!")) return undefined;
+  const command = trimmed.slice(1).trim();
+  return command ? command : undefined;
+}
+
 export interface SlashEntry {
   name: string;
   source?: "builtin" | "command" | "mcp" | "skill";

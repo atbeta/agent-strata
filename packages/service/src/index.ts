@@ -1183,6 +1183,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         prompt: c.prompt,
         abort: c.abort,
         commands: c.commands === true,
+        shell: c.shell === true,
         attachments: c.attachments === true,
         manage: c.manage === true,
         ...(c.revert ? { revert: true } : {}),
@@ -1194,7 +1195,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     }
 
     const sessionCmd = path.match(
-      /^\/sessions\/([^/]+)\/(prompt|command|abort|import|rebuild|rename|archive|unarchive)$/,
+      /^\/sessions\/([^/]+)\/(prompt|command|shell|abort|import|rebuild|rename|archive|unarchive)$/,
     );
     if (sessionCmd) {
       const casfId = decodeURIComponent(sessionCmd[1]!);
@@ -1313,6 +1314,29 @@ export function startService(opts: ServiceOpts = {}): RunningService {
           return json({ ok: true });
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, e instanceof UnknownCommandError ? 400 : 502);
+        }
+      }
+      if (cmd === "shell" && req.method === "POST") {
+        if (!conn.capabilities.shell || !conn.shell) return json({ error: "backend cannot run shell commands" }, 400);
+        const body = (await req.json().catch(() => null)) as {
+          command?: unknown;
+          model?: { providerID: string; modelID: string };
+          agent?: string;
+        } | null;
+        // An empty command is not a request to run nothing; it is a client that
+        // sent the wrong field, and a shell handed "" exits silently.
+        if (typeof body?.command !== "string" || !body.command.trim())
+          return json({ error: "command required" }, 400);
+        goalPaused.delete(casfId);
+        try {
+          await conn.shell(native, body.command, {
+            model: body.model,
+            agent: body.agent,
+            directory,
+          });
+          return json({ ok: true });
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 502);
         }
       }
     }

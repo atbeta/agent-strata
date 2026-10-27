@@ -57,6 +57,7 @@ export async function connectOpencodeDriver(opts: {
       import: true,
       manage: true,
       commands: true,
+      shell: true,
       attachments: true,
       revert: true,
       fork: true,
@@ -91,6 +92,12 @@ export async function connectOpencodeDriver(opts: {
           : undefined,
       }),
     abort: (nativeId, directory) => conn.abort(nativeId, directory),
+    shell: (nativeId, command, shellOpts) =>
+      conn.shell(nativeId, command, {
+        agent: shellOpts?.agent,
+        model: shellOpts?.model,
+        directory: shellOpts?.directory ?? opts.directory,
+      }),
     mcpConnect: (name, directory) => conn.mcpConnect(name, directory),
     mcpDisconnect: (name, directory) => conn.mcpDisconnect(name, directory),
     mcpAdd: (name, config, directory) => conn.mcpAdd(name, config, directory),

@@ -23,6 +23,12 @@ describe("the composer through strata", () => {
       if (command === "slow") await Bun.sleep(60_000);
       return Response.json({ info: { id: "msg_1", role: "assistant" }, parts: [] });
     },
+    "/session/ses_x/shell": async (_url, req) => {
+      const body = (await req.json()) as { command?: string; agent?: string };
+      // v1 requires an agent; a request without one is the bug this route checks for.
+      if (!body.agent) return Response.json({ name: "BadRequest", data: { message: "agent required" } }, { status: 400 });
+      return Response.json({ info: { id: "msg_sh", role: "assistant" }, parts: [] });
+    },
     "/session/ses_x/share": (_url, req) =>
       req.method === "DELETE"
         ? Response.json({ id: "ses_x" })
@@ -70,6 +76,7 @@ describe("the composer through strata", () => {
       prompt: true,
       abort: true,
       commands: true,
+      shell: true,
       attachments: true,
       manage: true,
       revert: true,
@@ -118,6 +125,29 @@ describe("the composer through strata", () => {
     expect(res.status).toBe(400);
     expect(((await res.json()) as { error: string }).error).toMatch(/workspace/);
     expect(upstream.seen.length).toBe(before);
+  });
+
+  test("a shell command goes to the session's shell, not to a local exec", async () => {
+    const res = await post(`${session}/shell`, {
+      command: "ls -la && git status",
+      agent: "build",
+      model: { providerID: "anthropic", modelID: "claude" },
+    });
+    expect(res.status).toBe(200);
+    const body = JSON.parse(upstream.seen.filter((s) => s.path === "/session/ses_x/shell").at(-1)!.body);
+    expect(body).toMatchObject({ command: "ls -la && git status", agent: "build" });
+  });
+
+  test("a shell command with nothing in it is refused", async () => {
+    const before = upstream.seen.filter((s) => s.path === "/session/ses_x/shell").length;
+    for (const body of [{}, { command: "" }, { command: "   " }, { command: 42 }]) {
+      const res = await post(`${session}/shell`, body);
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toMatch(/command required/);
+    }
+    // Nothing left the service: a shell handed "" exits silently, which would
+    // look like a send that did nothing.
+    expect(upstream.seen.filter((s) => s.path === "/session/ses_x/shell").length).toBe(before);
   });
 
   test("a command runs with its arguments, agent, model and files", async () => {

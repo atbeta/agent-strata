@@ -288,6 +288,7 @@ export default {
   "composer.attach.too_big": "{name} is over 5 MB",
   "composer.attach.unreadable": "{name} could not be read",
   "composer.attach.too_many": "At most {n} attachments",
+  "composer.shell.noAttachments": "A shell command cannot carry attachments; remove them first",
   "composer.attachments.one": "1 attachment",
   "composer.attachments.other": "{n} attachments",
 

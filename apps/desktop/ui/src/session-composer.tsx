@@ -15,6 +15,7 @@ import {
   findFiles,
   revertSession,
   runCommand,
+  runShell,
   sendPrompt,
   type CommandInfo,
   type OptionsResponse,
@@ -48,6 +49,7 @@ import {
   composerValueWrite,
   commandOf,
   commandParts,
+  shellOf,
   insertPick,
   matchCommands,
   slashMenuEnter,
@@ -434,7 +436,15 @@ export function useSessionComposer(args: {
       ? { providerID: source.providerID, modelID: source.modelID }
       : splitModel(modelSel());
     const choice = { model, agent: agentSel() || undefined, variant: variantSel() || undefined };
-    const command = args.caps()?.commands ? commandOf(out.text, (args.commands() ?? []).map((c) => c.name)) : undefined;
+    // A leading `!` is a shell command, not a prompt and not a slash command.
+    // Checked first: `/` and `!` cannot both lead, and reading the draft twice
+    // would let a command named like a shell call win on a tie that cannot exist.
+    const shell = args.caps()?.shell ? shellOf(out.text) : undefined;
+    const command = shell
+      ? undefined
+      : args.caps()?.commands
+        ? commandOf(out.text, (args.commands() ?? []).map((c) => c.name))
+        : undefined;
     try {
       if (out.revertTurnId) {
         try {
@@ -445,7 +455,12 @@ export function useSessionComposer(args: {
           throw err;
         }
       }
-      if (command) {
+      if (shell) {
+        // Deliberately no attachments: the shell endpoint takes a command
+        // string, and a file the reader attached would be dropped in silence if
+        // this path were chosen with one in hand.
+        await runShell(args.sessionId(), shell, choice);
+      } else if (command) {
         await runCommand(args.sessionId(), { ...command, parts: commandParts(out.text, out.picked, out.attachments) }, choice);
       } else {
         await sendPrompt(args.sessionId(), promptParts(out.text, out.picked, out.attachments), choice);
@@ -483,6 +498,14 @@ export function useSessionComposer(args: {
       ...(revertTurnId ? { revertTurnId } : {}),
     };
     if (!out.text && out.attachments.length === 0) return;
+    // A `!` command goes to the shell as a string, so an attachment has nowhere
+    // to go. Sending anyway would clear the strip and drop the file without a
+    // word — the reader would see it leave and never see it arrive. Refused
+    // here, before anything is cleared, so the strip stays put to be removed.
+    if (shellOf(out.text) && out.attachments.length > 0) {
+      setAttachErr(t("composer.shell.noAttachments"));
+      return;
+    }
     setQueuePaused(false);
     setDraft("");
     setPicked([]);
