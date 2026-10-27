@@ -260,7 +260,8 @@ function attachmentBlocks(
   if (!attachments?.length) return {};
   const blocks = attachments.map((a) => {
     if (a.url.startsWith("data:") && a.url.length > ATTACH_INLINE_MAX) {
-      return { type: "file_ref" as const, path: a.filename ?? a.mime, mime: a.mime };
+      const source = a.source && "path" in a.source ? a.source.path : undefined;
+      return { type: "file_ref" as const, path: source ?? a.filename ?? a.mime, mime: a.mime };
     }
     return fileBlock(a);
   });
@@ -1186,7 +1187,13 @@ export class OpencodeMapper {
         return out;
       }
       case "session.error": {
-        if (!sessionID) return out;
+        if (!sessionID) {
+          // Skill and plugin failures carry no session — nothing to hang the
+          // diagnostic on. Dropping it silently made a broken skill invisible;
+          // the log is where a session-less fault can still be found.
+          console.error("opencode session error:", evt.properties.error);
+          return out;
+        }
         const { s, out: pre } = this.ensureSession(sessionID);
         out.push(...pre);
         this.noteSessionError(s, out, evt.properties.error, `opencode:${sessionID}:error:${evt.id}`);
@@ -1320,11 +1327,9 @@ export class OpencodeMapper {
                   ...(failure ? { error: failure } : {}),
                   ...(info.summary === true ? { summary: true } : {}),
                   ...(m.steps?.size ? { steps: [...m.steps.values()] } : {}),
-                  // The SDK type does not declare `structured`; the wire sets
-                  // it when the caller asked for a json_schema answer.
-                  ...((info as { structured?: unknown }).structured !== undefined
-                    ? { structured: (info as { structured?: unknown }).structured }
-                    : {}),
+                  // The answer in the caller's schema, when the format asked
+                  // for a json_schema reply. `null` is a valid answer too.
+                  ...(info.structured !== undefined ? { structured: info.structured } : {}),
                 },
                 `opencode:${info.id}:turn.assistant`,
                 sourceTime(info.time.completed ?? info.time.created ?? s.updated),
@@ -1450,12 +1455,9 @@ export class OpencodeMapper {
               {
                 message_id: part.messageID,
                 auto: part.auto,
-                // The SDK type stops at `auto`; the wire also carries
-                // `overflow` — the trigger was a context-overflow error rather
-                // than the size threshold.
-                ...((part as { overflow?: unknown }).overflow === true
-                  ? { overflow: true }
-                  : {}),
+                // `overflow` says the trigger was a context-overflow error
+                // rather than the size threshold.
+                ...(part.overflow === true ? { overflow: true } : {}),
               },
               `opencode:${part.id}:compaction`,
               sourceTime(m.created ?? m.completed ?? s.updated),

@@ -680,6 +680,28 @@ describe("projector", () => {
     expect(v.totals.input).toBe(0);
   });
 
+  test("a null structured answer survives the partial replace", () => {
+    // `null` is a legitimate json_schema reply. Treating it as "absent" on
+    // the replace path dropped it before it could reach the reader.
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      mk("s", "turn.user", { turn_id: "t1", content: [] }),
+      mk("s", "turn.assistant", {
+        turn_id: "t1",
+        msg_id: "m1",
+        partial: true,
+        content: [{ type: "text", text: "…" }],
+      }),
+      mk("s", "turn.assistant", {
+        turn_id: "t1",
+        msg_id: "m1",
+        content: [{ type: "text", text: "done" }],
+        structured: null,
+      }),
+    ]);
+    expect(v.turns[0]!.assistant[0]!.structured).toBeNull();
+  });
+
   test("a tool result's attachments land on the call", () => {
     const v = projectSession([
       mk("s", "session.started", { workspace: "/w" }),

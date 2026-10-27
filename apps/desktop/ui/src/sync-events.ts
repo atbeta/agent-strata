@@ -16,6 +16,7 @@ const LIST_EVENTS = new Set([
   "session.deleted",
   "session.status",
   "session.ended",
+  "session.error",
   "permission.requested",
   "permission.resolved",
   "question.asked",

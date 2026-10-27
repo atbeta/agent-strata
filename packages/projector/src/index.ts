@@ -382,7 +382,9 @@ export function projectSession(events: Event[]): SessionView {
             error: e.data.error,
             summary: e.data.summary ?? old.summary,
             steps: e.data.steps ?? old.steps,
-            structured: e.data.structured ?? old.structured,
+            // `null` is a real answer — the schema says `unknown`, and a
+            // json_schema reply can legitimately be it. `??` would eat it.
+            structured: e.data.structured !== undefined ? e.data.structured : old.structured,
           };
         } else {
           t.assistant.push({

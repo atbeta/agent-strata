@@ -18,7 +18,7 @@ import { loadPolicy } from "@agent-strata/policy";
 import type { Event } from "@opencode-ai/sdk/v2";
 import { openStore } from "@agent-strata/store";
 import { projectSession } from "@agent-strata/projector";
-import { makeEvent, type EventInput } from "@agent-strata/schema";
+import { makeEvent, type AssistantStep, type ContentBlock, type EventInput } from "@agent-strata/schema";
 
 const sid = "ses_1";
 
@@ -675,7 +675,7 @@ describe("OpencodeMapper", () => {
       msgUpdated({ ...open, time: { created: 20, completed: 50 }, cost: 0.12, finish: "stop" }),
     );
     const ta = out.find((e) => e.type === "turn.assistant")!;
-    const d = ta.data as { steps?: { reason: string; usage: { input: number }; cost_usd: number }[] };
+    const d = ta.data as { steps?: AssistantStep[] };
     expect(d.steps).toEqual([
       {
         reason: "tool-calls",
@@ -754,7 +754,7 @@ describe("OpencodeMapper", () => {
       }),
     );
     const tr = out.find((e) => e.type === "tool.result")!;
-    const d = tr.data as { attachments?: { type: string; data?: string; uri?: string; path?: string }[] };
+    const d = tr.data as { attachments?: ContentBlock[] };
     expect(d.attachments).toEqual([
       // Small inline image keeps its bytes; a megabyte-plus payload keeps only
       // its name; a remote URL never inlines — the CSP only draws data:/blob:.
