@@ -553,7 +553,7 @@ function ToolCallCard(props: {
           onOpen={() => setOpen((v) => !v)}
         >
           <Icon
-            name={toolIcon(props.call.tool)}
+            name={toolIcon(props.call.tool, props.call.input)}
             class={`size-3.5 shrink-0 ${denied() ? "text-destructive" : "text-muted-foreground"}`}
           />
           <span class={`shrink-0 text-xs font-medium ${denied() ? "text-destructive" : "text-muted-foreground"}`}>

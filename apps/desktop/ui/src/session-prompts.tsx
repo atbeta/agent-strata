@@ -11,11 +11,15 @@ import { Button } from "@/components/ui/button";
 import { ChoiceCard } from "@/components/ui/choice-card";
 import { TextFieldInput } from "@/components/ui/text-field";
 
-function askIcon(detail: PermissionView, tool: string): ReturnType<typeof toolIcon> {
+function askIcon(
+  detail: PermissionView,
+  tool: string,
+  input: Record<string, unknown>,
+): ReturnType<typeof toolIcon> {
   if (detail.kind === "command") return "terminal";
   if (detail.kind === "diff") return "pencil";
   if (detail.kind === "url") return "globe";
-  return toolIcon(tool);
+  return toolIcon(tool, input);
 }
 
 export function AskCard(props: {
@@ -58,7 +62,7 @@ export function AskCard(props: {
   return (
     <div class="overflow-hidden rounded-lg border border-event-permission/40 bg-card">
       <div class="flex items-center gap-2 bg-event-permission/8 px-3 py-2">
-        <Icon name={askIcon(detail(), props.ask.tool)} class="size-3.5 shrink-0 text-event-permission" />
+        <Icon name={askIcon(detail(), props.ask.tool, props.ask.input)} class="size-3.5 shrink-0 text-event-permission" />
         <span class="text-xs font-medium">{props.ask.tool}</span>
         <span class="text-2xs text-muted-foreground">{t("permission.wants_to_run")}</span>
         <Show when={props.from}>

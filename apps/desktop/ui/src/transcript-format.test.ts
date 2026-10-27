@@ -434,13 +434,22 @@ describe("tool call icons", () => {
     expect(toolIcon("todowrite")).toBe("list");
   });
 
+  test("a read whose path is an image is a picture, not a page", () => {
+    expect(toolIcon("read", { filePath: "/tmp/shot.png" })).toBe("image");
+    expect(toolIcon("read", { path: "a/b/pic.webp" })).toBe("image");
+    expect(toolIcon("read", { filePath: "/tmp/notes.txt" })).toBe("page");
+    expect(toolIcon("read", { filePath: "/tmp/shot.png.zip" })).toBe("page");
+    expect(toolIcon("read")).toBe("page");
+    expect(toolIcon("browser_screenshot")).toBe("image");
+  });
+
   test("the transcript row and the permission card both ask for that mark", () => {
     const transcript = readFileSync(join(import.meta.dir, "transcript.tsx"), "utf8");
     const prompts = readFileSync(join(import.meta.dir, "session-prompts.tsx"), "utf8");
     const icons = readFileSync(join(import.meta.dir, "icons.tsx"), "utf8");
-    expect(transcript).toContain("toolIcon(props.call.tool)");
+    expect(transcript).toContain("toolIcon(props.call.tool, props.call.input)");
     expect(transcript).not.toContain('return "files"');
-    expect(prompts).toContain("return toolIcon(tool)");
+    expect(prompts).toContain("return toolIcon(tool, input)");
     expect(prompts).not.toContain('return "files"');
     expect(icons).toContain('name === "page"');
   });

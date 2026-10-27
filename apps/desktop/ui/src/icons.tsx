@@ -10,6 +10,7 @@ export type Name =
   | "shield-check"
   | "columns"
   | "search"
+  | "image"
   | "folder"
   | "folder-open"
   | "folder-plus"
@@ -208,6 +209,16 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
       <Glyph class={cls} box="0 0 24 24" weight="2.25">
         <circle cx="11" cy="11" r="8" />
         <path d="m21 21-4.35-4.35" />
+      </Glyph>
+    );
+  // Lucide `image` on its own 24 grid: the framed picture with a sun and a
+  // mountain ridge — reading an image file is not reading a page.
+  if (name === "image")
+    return (
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <circle cx="9" cy="9" r="2" />
+        <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
       </Glyph>
     );
   if (name === "folder")
@@ -434,16 +445,17 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
         </g>
       </Glyph>
     );
-  // Two mirrored hemispheres with inner folds — the reasoning indicator.
-  // Its visible height matches the document and terminal marks beside it.
+  // Two mirrored hemispheres — the reasoning indicator. At row size the
+  // inner folds merge into the outline, so the mark keeps only the silhouette;
+  // and it sits one step smaller than its neighbours, because a solid-looking
+  // shape reads larger than an open outline at the same box. The inner
+  // stroke-width puts the rendered pen back at the set's 1.5.
   if (name === "brain")
     return (
       <Glyph class={cls}>
-        <g transform="translate(0.8 0.8) scale(0.9)" stroke-width="1.4">
+        <g transform="translate(1.2 1.4) scale(0.85)" stroke-width="1.76">
           <path d="M8 3.2C8 1.3 4.5 1.1 4.2 3.2C2.4 3.1 1.7 5.4 2.8 6.6C1.2 8.1 1.8 10.7 3.6 11.2C3.3 13.2 5.1 14.5 6.8 13.5C7.6 13.4 8 12.9 8 12Z" />
           <path d="M8 3.2C8 1.3 11.5 1.1 11.8 3.2C13.6 3.1 14.3 5.4 13.2 6.6C14.8 8.1 14.2 10.7 12.4 11.2C12.7 13.2 10.9 14.5 9.2 13.5C8.4 13.4 8 12.9 8 12Z" />
-          <path d="M4.2 3.2v1.2c0 .8.4 1.3 1.1 1.6M2.8 6.6h1.4M3.6 11.2v-1.1c0-.9.5-1.5 1.3-1.7" />
-          <path d="M11.8 3.2v1.2c0 .8-.4 1.3-1.1 1.6M13.2 6.6h-1.4M12.4 11.2v-1.1c0-.9-.5-1.5-1.3-1.7" />
         </g>
       </Glyph>
     );
