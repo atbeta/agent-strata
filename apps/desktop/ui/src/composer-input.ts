@@ -315,21 +315,35 @@ export function composerValueWrite(input: { composing: boolean; domValue: string
   return !input.composing && input.domValue !== input.draft;
 }
 
-export const ATTACHMENT_ACCEPT = "image/png,image/jpeg,image/gif,image/webp,application/pdf";
-const ATTACHMENT_MIMES = new Set(ATTACHMENT_ACCEPT.split(","));
 export const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 export const MAX_ATTACHMENTS = 10;
 
-export function attachmentProblem(file: { type: string; size: number }): "type" | "size" | undefined {
-  if (!ATTACHMENT_MIMES.has(file.type)) return "type";
+/**
+ * Why a file cannot go, or nothing.
+ *
+ * The type is deliberately not consulted. This used to allow four image types
+ * and PDF, which was our guess at what a model can read — and OpenCode has no
+ * such rule: it hands a `file` part to the model as it is and lets the model
+ * answer. A picker that second-guessed that turned "the model cannot read a
+ * .ts" into "the app will not take a .ts", which is not the same claim.
+ *
+ * Size is still ours to enforce: the bytes travel as base64 inside a JSON body,
+ * so this is a transport limit rather than a judgement about content.
+ */
+export function attachmentProblem(file: { type: string; size: number }): "size" | undefined {
   if (file.size > MAX_ATTACHMENT_BYTES) return "size";
   return undefined;
 }
 
 export async function toAttachment(file: File, id: string): Promise<Attachment> {
-  if (!file.type) throw new Error(`${file.name} has no type`);
+  // A file the OS has no type for — a `.ts`, a `.gitignore`, a binary with no
+  // registered handler — still has to go. `application/octet-stream` is the
+  // registered name for "unrecognised bytes", and it is what the model is told
+  // it received. Refusing the file instead would be refusing on the strength of
+  // a fact about the desktop's icon table.
+  const mime = file.type || "application/octet-stream";
   const bytes = new Uint8Array(await file.arrayBuffer());
   let binary = "";
   for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return { id, name: file.name, mime: file.type, url: `data:${file.type};base64,${btoa(binary)}` };
+  return { id, name: file.name, mime, url: `data:${mime};base64,${btoa(binary)}` };
 }

@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  ATTACHMENT_ACCEPT,
   MAX_ATTACHMENT_BYTES as UI_MAX_ATTACHMENT_BYTES,
   MAX_ATTACHMENTS as UI_MAX_ATTACHMENTS,
   commandParts,
@@ -8,7 +7,6 @@ import {
   type Attachment,
 } from "./composer-input";
 import {
-  ATTACHMENT_MIMES,
   MAX_ATTACHMENT_BYTES,
   MAX_ATTACHMENTS,
   readPromptParts,
@@ -47,8 +45,25 @@ describe("what the composer sends, the service takes", () => {
   });
 
   test("the same attachment limits", () => {
-    expect(new Set(ATTACHMENT_ACCEPT.split(","))).toEqual(new Set(ATTACHMENT_MIMES));
     expect(UI_MAX_ATTACHMENT_BYTES).toBe(MAX_ATTACHMENT_BYTES);
     expect(UI_MAX_ATTACHMENTS).toBe(MAX_ATTACHMENTS);
+  });
+
+  test("a file that is not an image still reaches the service", () => {
+    // The composer used to allow four image types and PDF, which was our guess
+    // at what a model can read. The service held the same list, so the guess was
+    // enforced twice and a `.ts` never left the app. Both sides take it now.
+    const typed = (i: number, name: string, mime: string): Attachment => ({
+      id: String(i),
+      name,
+      mime,
+      url: `data:${mime};base64,AA==`,
+    });
+    const parts = promptParts("look", [], [
+      typed(0, "a.ts", "application/typescript"),
+      typed(1, "notes.md", "text/markdown"),
+      typed(2, "blob.bin", "application/octet-stream"),
+    ]);
+    expect(readPromptParts({ parts })).toEqual(parts);
   });
 });

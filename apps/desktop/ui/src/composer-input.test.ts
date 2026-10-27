@@ -336,10 +336,14 @@ describe("tab through agents", () => {
 });
 
 describe("attachments", () => {
-  test("only images and PDFs up to 5 MB", () => {
+  test("any file up to 5 MB", () => {
     expect(attachmentProblem({ type: "image/png", size: 10 })).toBeUndefined();
     expect(attachmentProblem({ type: "application/pdf", size: 10 })).toBeUndefined();
-    expect(attachmentProblem({ type: "text/plain", size: 10 })).toBe("type");
+    // Not a guess at what a model can read: OpenCode passes a file part
+    // through whatever its type, and the model decides what to make of it.
+    expect(attachmentProblem({ type: "text/plain", size: 10 })).toBeUndefined();
+    expect(attachmentProblem({ type: "application/typescript", size: 10 })).toBeUndefined();
+    expect(attachmentProblem({ type: "", size: 10 })).toBeUndefined();
     expect(attachmentProblem({ type: "image/png", size: 5 * 1024 * 1024 })).toBeUndefined();
     expect(attachmentProblem({ type: "image/png", size: 5 * 1024 * 1024 + 1 })).toBe("size");
     expect(MAX_ATTACHMENTS).toBe(10);
@@ -356,8 +360,12 @@ describe("attachments", () => {
     expect(a.url).toBe(`data:application/pdf;base64,${Buffer.from(bytes).toString("base64")}`);
   });
 
-  test("a file without a type is refused", async () => {
-    await expect(toAttachment(new File([new Uint8Array([1])], "x"), "k")).rejects.toThrow();
+  test("a file the OS has no type for still goes, as octet-stream", async () => {
+    // `.ts`, `.gitignore`, an extension no handler is registered for: refusing
+    // these was refusing on the strength of the desktop's icon table.
+    const a = await toAttachment(new File([new Uint8Array([1, 2, 3])], "x.ts"), "k");
+    expect(a.mime).toBe("application/octet-stream");
+    expect(a.url).toBe("data:application/octet-stream;base64,AQID");
   });
 });
 

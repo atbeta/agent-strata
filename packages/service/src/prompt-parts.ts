@@ -1,15 +1,19 @@
 import { isAbsolute } from "node:path";
 import type { PromptPart } from "./driver";
 
-export const ATTACHMENT_MIMES: ReadonlySet<string> = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/gif",
-  "image/webp",
-  "application/pdf",
-]);
 export const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 export const MAX_ATTACHMENTS = 10;
+
+/**
+ * A mime type as a browser or a client library would write it.
+ *
+ * The type itself is not restricted: OpenCode hands a file part to the model
+ * whatever it is, and the model decides whether it can read it. What is checked
+ * is that the declared type is a mime type at all, so the value that reaches the
+ * backend cannot be an arbitrary string in a field the adapter formats into a
+ * data URL.
+ */
+const MIME = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i;
 
 const inWorkspace = (path: string) =>
   path.length > 0 && !isAbsolute(path) && !/^[a-zA-Z]:/.test(path) && !/^[\\/]/.test(path) && !path.split(/[\\/]/).includes("..");
@@ -30,7 +34,7 @@ function readPart(p: unknown): PromptPart | string {
     return { type: "file_ref", path, mention: { start: m.start as number, end: m.end as number } };
   }
   if (o.type === "attachment") {
-    if (typeof o.mime !== "string" || !ATTACHMENT_MIMES.has(o.mime)) return "attachments must be an image or PDF";
+    if (typeof o.mime !== "string" || !MIME.test(o.mime)) return "attachment mime must be a mime type";
     const prefix = `data:${o.mime};base64,`;
     if (typeof o.url !== "string" || !o.url.startsWith(prefix)) return "attachment url must be a data URL of its mime";
     const payload = o.url.slice(prefix.length);

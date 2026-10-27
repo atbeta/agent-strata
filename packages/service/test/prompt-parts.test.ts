@@ -21,6 +21,17 @@ describe("a prompt's parts", () => {
     expect(readPromptParts({ parts: [{ type: "attachment", mime: "application/pdf", url: "data:application/pdf;base64,JVBERi0=" }] })).toHaveLength(1);
   });
 
+  test("a type that is not an image is still a file", () => {
+    // The service used to allow four image types and PDF, mirroring a guess in
+    // the composer. OpenCode has no such rule — it hands the part to the model
+    // and the model decides — so enforcing the guess here only meant the file
+    // never left the app.
+    for (const mime of ["text/plain", "application/typescript", "text/markdown", "application/octet-stream"]) {
+      const part = { type: "attachment", mime, url: `data:${mime};base64,AA==` };
+      expect(readPromptParts({ parts: [part] })).toEqual([part] as never);
+    }
+  });
+
   test("a workspace path written with backslashes goes out with slashes", () => {
     expect(
       readPromptParts({
@@ -70,7 +81,9 @@ describe("a prompt's parts", () => {
     expect(bad({ parts: [{ type: "file_ref", path: "src/../../x" }] })).toMatch(/workspace/);
     expect(bad({ parts: [{ type: "file_ref", path: "a.ts", mention: { start: 3, end: 1 } }] })).toMatch(/part 0/);
     expect(bad({ parts: [{ type: "text", text: "@a.ts" }, { type: "file_ref", path: "a.ts", mention: null }] })).toMatch(/part 1: mention/);
-    expect(bad({ parts: [{ type: "attachment", mime: "text/html", url: "data:text/html;base64,PGI+" }] })).toMatch(/image or PDF/);
+    expect(bad({ parts: [{ type: "attachment", mime: "not a mime", url: "data:not a mime;base64,PGI+" }] })).toMatch(/mime type/);
+    expect(bad({ parts: [{ type: "attachment", mime: "", url: "data:;base64,PGI+" }] })).toMatch(/mime type/);
+    expect(bad({ parts: [{ type: "attachment", mime: "text/plain; charset=utf-8", url: "data:text/plain; charset=utf-8;base64,PGI+" }] })).toMatch(/mime type/);
     expect(bad({ parts: [{ type: "attachment", mime: "image/png", url: "https://x/y.png" }] })).toMatch(/data URL/);
     expect(bad({ parts: [{ type: "attachment", mime: "image/png", url: "data:image/jpeg;base64,AA==" }] })).toMatch(/data URL/);
     expect(bad({ parts: [{ type: "attachment", mime: "image/png", url: "data:image/png;base64,<b>hi</b>" }] })).toMatch(

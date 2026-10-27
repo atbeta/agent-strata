@@ -42,7 +42,6 @@ import {
   writeHistory,
 } from "./prompt-memory";
 import {
-  ATTACHMENT_ACCEPT,
   attachmentProblem,
   COMPOSER_MAX_HEIGHT,
   composerResize,
@@ -306,9 +305,7 @@ export function useSessionComposer(args: {
       if (full()) return;
       const problem = attachmentProblem(file);
       if (problem) {
-        setAttachErr(
-          t(problem === "type" ? "composer.attach.bad_type" : "composer.attach.too_big", { name: file.name || "file" }),
-        );
+        setAttachErr(t("composer.attach.too_big", { name: file.name || "file" }));
         continue;
       }
       let a: Attachment;
@@ -1176,7 +1173,9 @@ export function SessionComposer(props: {
               ref={c().bindFileInput}
               type="file"
               multiple
-              accept={ATTACHMENT_ACCEPT}
+              // No `accept`: the picker offers every file. Filtering here would
+              // have been our guess at what a model can read, and the guess was
+              // wrong — OpenCode passes a file part through whatever its type.
               class="hidden"
               onChange={(e) => {
                 const input = e.currentTarget;
