@@ -10,6 +10,18 @@ function baseName(path: string): string {
   return i >= 0 ? path.slice(i + 1) : path;
 }
 
+const STATUS_LABEL = {
+  added: "file.added",
+  deleted: "file.deleted",
+  modified: "file.edited",
+} as const;
+
+function statusClass(status: NonNullable<ReviewDiff["status"]>): string {
+  if (status === "added") return "text-diff-add-fg";
+  if (status === "deleted") return "text-diff-del-fg";
+  return "text-muted-foreground";
+}
+
 function cellClass(kind: SplitCell["kind"]): string {
   if (kind === "add") return "bg-diff-add-bg text-diff-add-fg";
   if (kind === "del") return "bg-diff-del-bg text-diff-del-fg";
@@ -90,6 +102,13 @@ export function ReviewPane(props: {
                 <span class="min-w-0 flex-1 truncate text-sm" title={f.file}>
                   {baseName(f.file!)}
                 </span>
+                <Show when={f.status}>
+                  {(status) => (
+                    <span class={`shrink-0 text-2xs ${statusClass(status())}`}>
+                      {t(STATUS_LABEL[status()])}
+                    </span>
+                  )}
+                </Show>
                 <span class="shrink-0 font-mono text-2xs">
                   <span class="text-diff-add-fg">+{f.additions}</span>{" "}
                   <span class="text-diff-del-fg">−{f.deletions}</span>

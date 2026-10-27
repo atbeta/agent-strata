@@ -1280,6 +1280,12 @@ export function fmtDuration(ms: number): string {
   return `${m} m ${String(Math.round((ms % 60_000) / 1_000)).padStart(2, "0")} s`;
 }
 
+export function fmtDurationDelta(ms: number | null): string {
+  if (ms == null || !Number.isFinite(ms)) return "—";
+  const sign = ms > 0 ? "+" : ms < 0 ? "-" : "";
+  return `${sign}${fmtDuration(Math.abs(ms))}`;
+}
+
 /** Placeholder workspaces the adapter emits before a real directory is known. */
 export function realWorkspace(ws?: string | null): string | undefined {
   if (!ws || ws === "unknown" || ws === "no workspace") return undefined;

@@ -4,6 +4,7 @@ import {
   disconnectMcp,
   exportFileName,
   fmtDuration,
+  fmtDurationDelta,
   fmtUsd,
   fmtUsdFlat,
   opencodePath,
@@ -70,6 +71,14 @@ describe("a duration", () => {
     expect(fmtDuration(-1)).toBe("—");
     expect(fmtDuration(Number.NaN)).toBe("—");
     expect(fmtDuration(Number.POSITIVE_INFINITY)).toBe("—");
+  });
+
+  test("a delta keeps its sign and never turns a missing measurement into zero", () => {
+    expect(fmtDurationDelta(1_580)).toBe("+1.58 s");
+    expect(fmtDurationDelta(-1_580)).toBe("-1.58 s");
+    expect(fmtDurationDelta(0)).toBe("0 ms");
+    expect(fmtDurationDelta(null)).toBe("—");
+    expect(fmtDurationDelta(Number.NaN)).toBe("—");
   });
 });
 

@@ -1,11 +1,17 @@
 import { createResource, For, Show } from "solid-js";
-import { fmtUsd, getJson, type SessionComparison, type TurnPair } from "./api";
+import { fmtDurationDelta, fmtUsd, getJson, type SessionComparison, type TurnPair } from "./api";
 import { num, t, tn } from "./i18n";
 
-function Delta(props: { value: number; unit?: string; money?: boolean }) {
+function Delta(props: { value: number | null; unit?: string; money?: boolean; duration?: boolean }) {
   const cls = () =>
-    props.value > 0 ? "text-cost-up" : props.value < 0 ? "text-cost-down" : "text-cost-flat";
+    props.value != null && props.value > 0
+      ? "text-cost-up"
+      : props.value != null && props.value < 0
+        ? "text-cost-down"
+        : "text-cost-flat";
   const text = () => {
+    if (props.duration) return fmtDurationDelta(props.value);
+    if (props.value == null) return "—";
     const v = props.money ? Math.abs(props.value).toFixed(4) : num(Math.abs(props.value));
     const sign = props.value > 0 ? "+" : props.value < 0 ? "-" : "";
     return `${sign}${props.money ? "$" : ""}${v}${props.unit ?? ""}`;
@@ -27,7 +33,8 @@ function TurnPairRow(props: { pair: TurnPair; i: number }) {
         </Show>
         <span class="ml-auto font-mono tabular-nums">
           Δ tok <Delta value={props.pair.delta.input + props.pair.delta.output} /> · Δ{" "}
-          <Delta value={props.pair.delta.cost_usd} money />
+          <Delta value={props.pair.delta.cost_usd} money /> · Δ{" "}
+          <Delta value={props.pair.delta.duration_ms} duration />
         </span>
       </div>
       <div class="mt-2 grid grid-cols-2 gap-3">
