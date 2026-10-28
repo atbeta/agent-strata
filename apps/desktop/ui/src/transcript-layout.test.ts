@@ -159,6 +159,34 @@ describe("a pane keeps the layout it already measured", () => {
     expect(placed).toEqual({ scrollTop: 48, pinned: false });
   });
 
+  test("a viewport nobody has measured cannot place the tail", () => {
+    // Without a viewport the tail is the whole extent, and the extent is a
+    // guess: three turns of a session with thirty-eight, at the height of a
+    // row nobody has seen. The number that came out of it was a pixel into a
+    // session that does not exist yet, and the reader was put under the first
+    // turn of a conversation they had just opened.
+    //
+    // A pinned reader wants the tail, and the list follows the tail by
+    // itself. Handing it a pixel from a guess only fights that.
+    const placed = placeReading({
+      key: "pane-a:unmeasured",
+      ids: ["a", "b", "c"],
+      viewport: 0,
+    });
+    expect(placed.pinned).toBe(true);
+    expect(placed.scrollTop).toBe(0);
+  });
+
+  test("a measured viewport still places the tail", () => {
+    const placed = placeReading({
+      key: "pane-a:measured",
+      ids: ["a", "b", "c"],
+      viewport: 300,
+    });
+    expect(placed.pinned).toBe(true);
+    expect(placed.scrollTop).toBe(ROW_ESTIMATE + ROW_GAP + ROW_ESTIMATE + ROW_GAP + ROW_ESTIMATE + ROW_GAP - 300);
+  });
+
   test("a scroll remembers the row, and a pinned one forgets the pixel", () => {
     const key = "pane-a:note";
     writeRowHeight(key, "a", 500);

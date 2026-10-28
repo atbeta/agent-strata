@@ -183,6 +183,10 @@ export function placeReading(input: {
     if (top !== undefined) return { pinned: false, scrollTop: top };
   }
   if (reading?.pinned === true || !input.fallback || input.fallback.pinned) {
+    // A viewport that has not been measured yet makes "the tail" meaningless:
+    // without it the tail is the whole extent, and that extent was guessed
+    // from a handful of turns of a session with thousands.
+    if (input.viewport <= 0) return { pinned: true, scrollTop: 0 };
     return {
       pinned: true,
       scrollTop: scrollTopForTail(input.ids, known, ROW_ESTIMATE, ROW_GAP, input.viewport),

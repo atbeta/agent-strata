@@ -52,6 +52,7 @@ import { messageText } from "./transcript-format";
 import { isDevEvent } from "./sync-events";
 import { Icon } from "./icons";
 import { stamp, t } from "./i18n";
+import { carryLive, injectionBatches } from "./inject";
 import { sessionNotice } from "./session-status";
 import { SessionEmpty } from "./session-empty";
 import { displayTitle } from "./session-title";
@@ -283,11 +284,116 @@ export function SessionDetail(props: {
   let forceFull = false;
   let fetchGen = 0;
   let viewAlive = true;
+  /**
+   * The whole view, waiting to be shown a batch at a time.
+   *
+   * It is the source of what lands on screen, not what the reader holds: the
+   * view below carries only the turns already laid down. It is set while a
+   * view is still arriving, and cleared when the last turn is on screen.
+   */
+  let injectFull: SessionView | undefined;
+  /** How many of `injectFull`'s leading turns are already on screen. */
+  let injectShown = 0;
+  /** The batches to land, as the number of turns on screen after each. */
+  let injectPlan: number[] = [];
+  let injectFrame = 0;
   /** Consecutive automatic reload attempts after a failed one. */
   let retries = 0;
   onCleanup(() => {
     viewAlive = false;
+    cancelInject();
   });
+  /**
+   * Cancel a batch that is still arriving.
+   *
+   * A new view supersedes the one being laid down, and its frames have to stop
+   * with it — otherwise the turns of a session the reader has left keep
+   * arriving on top of the session they are now reading.
+   */
+  function cancelInject() {
+    if (injectFrame) cancelAnimationFrame(injectFrame);
+    injectFrame = 0;
+    injectFull = undefined;
+    injectShown = 0;
+    injectPlan = [];
+  }
+
+  /**
+   * Add the next batch of turns.
+   *
+   * The turns of a reply still being written are not in the stored view at
+   * all — they arrive on the stream — so whatever the reader already holds of
+   * them is carried across: without that, the reply blinks out for the length
+   * of a batch and the cursor that marked it goes with it.
+   */
+  function stepInject() {
+    const full = injectFull;
+    if (!full || !viewAlive) return;
+    const at = injectPlan.indexOf(injectShown);
+    const next = at >= 0 ? injectPlan[at + 1] : undefined;
+    // The reader has left the tail: a batch that reaches further back shifts
+    // the text under them, so the rest of the view lands in one piece instead.
+    const last = next === undefined || !pinned();
+    injectShown = last ? full.turns.length : next!;
+    const shown = full.turns.slice(0, injectShown);
+    const known = new Set(full.turns.map((t) => t.turn_id));
+    mutate((v) => {
+      if (!v) return v;
+      const live = carryLive(v.turns, known);
+      return { ...full, turns: live.length ? [...shown, ...live] : shown };
+    });
+    if (last) {
+      injectFull = undefined;
+      // A refresh that arrived while the batches were landing is owed.
+      if (nextRefresh) {
+        const want = nextRefresh;
+        nextRefresh = undefined;
+        void refreshView(want === "full");
+      }
+      return;
+    }
+    injectFrame = requestAnimationFrame(() => {
+      injectFrame = 0;
+      stepInject();
+    });
+  }
+
+  /**
+   * Put a whole view on screen in batches.
+   *
+   * The batches grow the transcript forward: the first batch is the head of
+   * the session and each later batch adds the turns after it. The reason it
+   * grows forward rather than backward is the cost, not the order: a batch
+   * that reaches further back has to move the turns already on screen, and
+   * moving a node costs an order of magnitude more than adding one.
+   *
+   * The whole view is still what gets cached and what the tail is measured
+   * against; only what is on screen is a piece of it.
+   *
+   * `keep` carries the turns the stored view cannot hold — a reply still being
+   * written lives on the stream, not in the log — so that landing the first
+   * batch does not take it off the screen.
+   *
+   * A session long enough that the batches would take longer than the single
+   * landing they were meant to improve on lands whole.
+   */
+  function startInject(full: SessionView, keep?: SessionView["turns"]): SessionView {
+    cancelInject();
+    const plan = injectionBatches(full.turns.length);
+    if (plan.length <= 1) return full;
+    injectFull = full;
+    injectPlan = plan;
+    injectShown = plan[0]!;
+    injectFrame = requestAnimationFrame(() => {
+      injectFrame = 0;
+      stepInject();
+    });
+    const shown = full.turns.slice(0, injectShown);
+    const known = new Set(full.turns.map((t) => t.turn_id));
+    const live = carryLive(keep, known);
+    return { ...full, turns: live.length ? [...shown, ...live] : shown };
+  }
+
   const [view, { refetch, mutate }] = createResource(
     () => ({ id: props.id, pos: replayPos() }),
     (key: { id: string; pos: number | null }) => {
@@ -304,31 +410,35 @@ export function SessionDetail(props: {
             filesKey = filesKeyOf(full);
             rememberView(key.id, full, filesKey);
           }
-          return full;
+          return startInject(full);
         });
       }
       const hit = peekView(key.id);
       if (hit) {
         if (hit.filesKey) filesKey = hit.filesKey;
-        return Promise.resolve(hit.view);
+        return Promise.resolve(startInject(hit.view));
       }
       // Paint the tail, then replace it with the settled view. The preview is
       // not cached: storing it would make the next open a transcript with no history.
       return readViewTail(key.id, TAIL_TURNS).then(async (tail) => {
         if (gen !== fetchGen) return viewFromTail(tail);
+        const preview = viewFromTail(tail);
         if (viewAlive) {
           filesKey = tail.files_key;
-          mutate(viewFromTail(tail));
+          mutate(preview);
         }
         const full = await getJson<SessionView>(path).catch(() => undefined);
-        if (gen !== fetchGen || !full) return viewFromTail(tail);
+        if (gen !== fetchGen || !full) return preview;
         const keyOf = filesKeyOf(full);
         if (viewAlive) filesKey = keyOf;
         rememberView(key.id, full, keyOf);
-        return full;
+        return startInject(full, preview.turns);
       });
     },
-    opening ? { initialValue: opening.view } : undefined,
+    // The cached view is the whole session, and landing it whole is the very
+    // thing the batches are there to avoid — so the opening value is the first
+    // batch of it, and the rest arrives on the frames that follow.
+    opening ? { initialValue: startInject(opening.view) } : undefined,
   );
   const [maxSeq, { refetch: refetchSeq }] = createResource(() => props.id, readHead);
 
@@ -558,6 +668,13 @@ export function SessionDetail(props: {
             rememberView(props.id, fullView, filesKey);
           }
         } else {
+          if (injectFull) {
+            // The view on screen is still arriving. The tail is measured
+            // against the whole session, and a half-landed view cannot answer
+            // for it, so the refresh waits for the last batch.
+            nextRefresh = nextRefresh ?? "tail";
+            break;
+          }
           const tail = await readViewTail(props.id, TAIL_TURNS, filesKey);
           if (!viewAlive || replayPos() !== null) return;
           if (view.loading) {
@@ -921,7 +1038,10 @@ const turns = () => shown().turns;
     retries = 0;
     setBooting(!hit);
     setImporting(!hit);
-    if (hit) mutate(hit.view);
+    // The cached view is the whole session, and landing it whole is the very
+    // thing the batches are there to avoid — so the switch shows the first
+    // batch of it, and the rest arrives on the frames that follow.
+    if (hit) mutate(startInject(hit.view));
     setReplayPos(null);
     setTraceOn(false);
     setTraceBlock(null);
