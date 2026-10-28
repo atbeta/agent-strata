@@ -72,6 +72,7 @@ import { Button } from "@/components/ui/button";
 import { Picker } from "@/components/ui/picker";
 import { ProviderIcon } from "./provider-icon";
 import { hiddenProviders, modelPickerOptions, visibleModels } from "./provider-visibility";
+import { modelForComposer, readPreferredModel, writePreferredModel } from "./model-preference";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 function sessionModel(v: SessionView | undefined): string | undefined {
@@ -382,15 +383,16 @@ export function useSessionComposer(args: {
   const shownModels = () => visibleModels(allModels());
 
   createEffect(() => {
-    if (modelTouched()) return;
-    const inherited = sessionModel(args.view());
-    if (inherited) {
-      setModelSel(inherited);
-      return;
-    }
-    if (args.booting() || !args.view()) return;
-    const models = shownModels();
-    if (models[0]) setModelSel(`${models[0].providerID}/${models[0].modelID}`);
+    const view = args.view();
+    const ready = !!view && view.session_id === args.sessionId() && !args.booting();
+    const next = modelForComposer({
+      touched: modelTouched(),
+      ready,
+      inherited: ready ? sessionModel(view) : undefined,
+      models: shownModels(),
+      remembered: readPreferredModel(),
+    });
+    if (next !== undefined) setModelSel(next);
   });
 
   const selectedModel = () =>
@@ -674,6 +676,7 @@ export function useSessionComposer(args: {
         setModelTouched(true);
         setModelSel(value);
         setVariantSel("");
+        writePreferredModel(value);
       }}
     />
   );
