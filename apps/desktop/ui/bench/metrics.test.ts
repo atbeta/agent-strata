@@ -133,13 +133,35 @@ describe("openStats", () => {
     expect(openStats(s, short, 0, 10).headShown).toBe(false);
   });
 
-  test("a short session that showed turns above where it settled did pass through them", () => {
+  test("a short session that showed turns well above where it settled did pass through them", () => {
     const short = Array.from({ length: 9 }, (_, i) => `t${i}`);
     const s = [
       sample(10, { ids: ["t0", "t1"], tops: [0, 300] }),
       sample(20, { ids: ["t6", "t7", "t8"], tops: [0, 200, 400], st: 600, sh: 1100, ch: 500 }),
     ];
     expect(openStats(s, short, 0, 20).headShown).toBe(true);
+  });
+
+  test("a tail screen that loses its top row as rows above grow is not the head", () => {
+    // Measured on a real 9-turn session: pinned at the bottom showing 3..8,
+    // then a row painted taller and the pinned tail moved on to 4..8.
+    const short = Array.from({ length: 9 }, (_, i) => `t${i}`);
+    const s = [
+      sample(10, { ids: ["t3", "t4", "t5", "t6", "t7", "t8"], tops: [-30, 50, 130, 236, 403, 509], st: 286, sh: 978, ch: 692 }),
+      sample(20, { ids: ["t4", "t5", "t6", "t7", "t8"], tops: [25, 131, 236, 403, 509], st: 413, sh: 1105, ch: 692 }),
+    ];
+    const o = openStats(s, short, 0, 20);
+    expect(o.headShown).toBe(false);
+    expect(o.atTail).toBe(true);
+  });
+
+  test("the crawl through a 20-turn session is still the head", () => {
+    const twenty = Array.from({ length: 20 }, (_, i) => `t${i}`);
+    const s = [
+      sample(10, { ids: ["t2"], tops: [0] }),
+      sample(20, { ids: ["t18", "t19"], tops: [-200, 300], st: 9000, sh: 9500, ch: 500 }),
+    ];
+    expect(openStats(s, twenty, 0, 20).headShown).toBe(true);
   });
 
   test("not at the tail when the last turn is off screen, even at the end of the range", () => {

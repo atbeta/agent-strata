@@ -150,6 +150,9 @@ export interface OpenStats {
   atTail: boolean;
 }
 
+/** Rows above the final screen a settling tail may show without counting as the head. */
+export const HEAD_SLACK_ROWS = 2;
+
 /** A turn index counts as "the head" when it is further than this from the end. */
 export function headLimit(count: number): number {
   return count - Math.max(5, Math.ceil(count * 0.1));
@@ -176,9 +179,11 @@ export function openStats(samples: readonly Sample[], order: readonly string[], 
     !!last && last.sh - last.st - last.ch <= TAIL_PX && order.length > 0 && last.ids.includes(order.at(-1)!);
   // A short session can have its head on the final screen. Only turns above
   // both the head limit and the first turn the open settled on were passed
-  // through on the way.
+  // through on the way — with a couple of rows of slack, because a tail screen
+  // whose rows are still growing into their painted height legitimately shows
+  // a row or two above where it ends up.
   const finalFirst = last?.ids.length ? index.get(last.ids[0]!) : undefined;
-  const limit = Math.min(headLimit(order.length), finalFirst ?? Number.POSITIVE_INFINITY);
+  const limit = Math.min(headLimit(order.length), (finalFirst ?? Number.POSITIVE_INFINITY) - HEAD_SLACK_ROWS);
   return {
     firstContentMs: first ? first.t - from : null,
     minIndexShown: minIndex,
