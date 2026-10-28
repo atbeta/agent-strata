@@ -184,8 +184,11 @@ export function placeReading(input: {
   }
   if (reading?.pinned === true || !input.fallback || input.fallback.pinned) {
     // A viewport that has not been measured yet makes "the tail" meaningless:
-    // without it the tail is the whole extent, and that extent was guessed
-    // from a handful of turns of a session with thousands.
+    // without it the tail is the whole extent, and that extent is guessed from
+    // however many turns happen to be loaded. Opening on that number put the
+    // reader 396px into a conversation 274,907px tall — the first turn of the
+    // session they had just opened. Being pinned is not a pixel to restore; the
+    // list follows the tail itself, so say so and let it.
     if (input.viewport <= 0) return { pinned: true, scrollTop: 0 };
     return {
       pinned: true,

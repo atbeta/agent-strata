@@ -149,6 +149,40 @@ describe("a pane keeps the layout it already measured", () => {
     expect(placed.scrollTop).toBe(700 + ROW_GAP + 700 + ROW_GAP - 300);
   });
 
+  test("an unmeasured viewport is not asked where the tail is", () => {
+    // The first frame before layout has clientHeight 0. The tail computed from
+    // it is "the whole extent of whatever is loaded", which for a session that
+    // is opening is a handful of turns of a conversation thousands of pixels
+    // tall — so the reader was put 396px into a 274,907px transcript, on its
+    // first turn. Being pinned is not a pixel to restore: the list follows the
+    // tail itself, and it can only do that if it is told the truth.
+    const key = "pane-a:unmeasured";
+    writeRowHeight(key, "a", 400);
+    rememberReading(key, { pinned: true });
+    const placed = placeReading({
+      key,
+      ids: ["a"],
+      viewport: 0,
+      fallback: { scrollTop: 0, pinned: true },
+    });
+    expect(placed).toEqual({ pinned: true, scrollTop: 0 });
+  });
+
+  test("a measured viewport still places the tail", () => {
+    // The counterpart to the guard above: a viewport that has been measured
+    // answers the question, and the tail is a real pixel rather than "follow
+    // it yourself". Without this, the guard could quietly swallow every case.
+    const placed = placeReading({
+      key: "pane-a:measured",
+      ids: ["a", "b", "c"],
+      viewport: 300,
+    });
+    expect(placed.pinned).toBe(true);
+    expect(placed.scrollTop).toBe(
+      ROW_ESTIMATE + ROW_GAP + ROW_ESTIMATE + ROW_GAP + ROW_ESTIMATE + ROW_GAP - 300,
+    );
+  });
+
   test("with no reading yet, the pixel fallback is what comes back", () => {
     const placed = placeReading({
       key: "pane-z:fresh",
@@ -157,34 +191,6 @@ describe("a pane keeps the layout it already measured", () => {
       fallback: { scrollTop: 48, pinned: false },
     });
     expect(placed).toEqual({ scrollTop: 48, pinned: false });
-  });
-
-  test("a viewport nobody has measured cannot place the tail", () => {
-    // Without a viewport the tail is the whole extent, and the extent is a
-    // guess: three turns of a session with thirty-eight, at the height of a
-    // row nobody has seen. The number that came out of it was a pixel into a
-    // session that does not exist yet, and the reader was put under the first
-    // turn of a conversation they had just opened.
-    //
-    // A pinned reader wants the tail, and the list follows the tail by
-    // itself. Handing it a pixel from a guess only fights that.
-    const placed = placeReading({
-      key: "pane-a:unmeasured",
-      ids: ["a", "b", "c"],
-      viewport: 0,
-    });
-    expect(placed.pinned).toBe(true);
-    expect(placed.scrollTop).toBe(0);
-  });
-
-  test("a measured viewport still places the tail", () => {
-    const placed = placeReading({
-      key: "pane-a:measured",
-      ids: ["a", "b", "c"],
-      viewport: 300,
-    });
-    expect(placed.pinned).toBe(true);
-    expect(placed.scrollTop).toBe(ROW_ESTIMATE + ROW_GAP + ROW_ESTIMATE + ROW_GAP + ROW_ESTIMATE + ROW_GAP - 300);
   });
 
   test("a scroll remembers the row, and a pinned one forgets the pixel", () => {
