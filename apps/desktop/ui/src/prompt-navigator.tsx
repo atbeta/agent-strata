@@ -37,7 +37,28 @@ export function PromptNavigator(props: {
   let nav: HTMLDivElement | undefined;
   let rail: HTMLDivElement | undefined;
   let card: HTMLDivElement | undefined;
-  const [chrome, setChrome] = createSignal(false);
+  /**
+   * Room the rail has, measured. A signal because it comes from the host's
+   * height; the flag below is derived from it rather than stored beside it.
+   *
+   * `chrome` used to be its own signal, written by the measuring effect. It
+   * outlived the session it was measured in: switching to a conversation with
+   * fewer prompts left the flag `true` from the last one, so the rail drew at
+   * the full 360px cap until the effect ran again — the size visibly carrying
+   * over from the previous session. Deriving it means a switch cannot show a
+   * stale answer, because the answer is recomputed from the count in hand.
+   */
+  const [navRoom, setNavRoom] = createSignal(0);
+  const chrome = createMemo(() => {
+    const room = navRoom();
+    // 0 is "not measured yet". Claiming chrome before there is a height to
+    // compare against would put arrows on a rail that may not need them.
+    if (room <= 0) return false;
+    const cap = Math.max(0, Math.min(360, room - 24));
+    const raw = nav ? getComputedStyle(nav).getPropertyValue("--nav-row-size").trim() : "";
+    const row = parseFloat(raw);
+    return railOverflows(props.entries.length, Number.isFinite(row) ? row : 8, cap);
+  });
   const steps = createMemo(() => navSteps(
     props.entries.map((e) => e.turnId),
     props.activeId,
@@ -83,10 +104,10 @@ export function PromptNavigator(props: {
     const measure = () => {
       const host = el.parentElement;
       const room = host ? host.clientHeight - 24 : 360;
-      const cap = Math.max(0, Math.min(360, room));
-      const raw = getComputedStyle(el).getPropertyValue("--nav-row-size").trim();
-      const row = parseFloat(raw);
-      setChrome(railOverflows(props.entries.length, Number.isFinite(row) ? row : 8, cap));
+      // Only the room. Whether that room needs chrome is derived from the
+      // entry count, so a switch to another session cannot inherit the last
+      // one's answer.
+      setNavRoom(room);
     };
     measure();
     const host = el.parentElement;

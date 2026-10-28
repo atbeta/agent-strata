@@ -76,6 +76,7 @@ import {
   writeRowHeight,
 } from "./transcript-layout";
 import { PromptNavigator } from "./prompt-navigator";
+import { scrollCoalescer } from "./scroll-frame";
 import { promptAt, promptEntries } from "./prompt-outline";
 import { applyStreamingSnapshot, mergeViewTail, type StreamingSnapshot } from "./live";
 import { ECHO_TURN_ID } from "./prompt-echo";
@@ -976,6 +977,28 @@ const turns = () => shown().turns;
     placing = false;
     return true;
   };
+  /**
+   * One pass per frame, not one per scroll event.
+   *
+   * Built here rather than inline in the JSX: it registers a cleanup, and a
+   * handler written in the markup would register it against whatever owner
+   * happens to be current when that attribute is first created.
+   */
+  const onScrolled = scrollCoalescer((el) => {
+    if (placing) return;
+    const isPinned = el.scrollHeight - el.scrollTop - el.clientHeight < 96;
+    setScrollTop(el.scrollTop);
+    setViewport(el.clientHeight);
+    setPinned(isPinned);
+    setActiveTurn(list?.indexAtTop() ?? 0);
+    const paneId = paneWorkspace().focusedPaneId;
+    const key = layoutKey(paneId, props.id);
+    rememberReading(key, list?.readingAtTop(isPinned) ?? { pinned: true });
+    rememberPaneScroll(paneId, props.id, {
+      scrollTop: el.scrollTop,
+      pinned: isPinned,
+    });
+  });
   createRenderEffect(() => {
     const paneId = paneWorkspace().focusedPaneId;
     const id = props.id;
@@ -1736,22 +1759,7 @@ const turns = () => shown().turns;
                  * transcript still streaming gives up before it is tall enough.
                  */
                 class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
-                onScroll={(e) => {
-                  if (placing) return;
-                  const el = e.currentTarget;
-                  const isPinned = el.scrollHeight - el.scrollTop - el.clientHeight < 96;
-                  setScrollTop(el.scrollTop);
-                  setViewport(el.clientHeight);
-                  setPinned(isPinned);
-                  setActiveTurn(list?.indexAtTop() ?? 0);
-                  const paneId = paneWorkspace().focusedPaneId;
-                  const key = layoutKey(paneId, props.id);
-                  rememberReading(key, list?.readingAtTop(isPinned) ?? { pinned: true });
-                  rememberPaneScroll(paneId, props.id, {
-                    scrollTop: el.scrollTop,
-                    pinned: isPinned,
-                  });
-                }}
+                onScroll={onScrolled}
               >
                 <div
                   class={`${showNav() ? "mx-auto w-full px-11 py-4" : "mx-auto w-full px-5 py-4"}${

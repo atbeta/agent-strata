@@ -40,6 +40,7 @@ import {
   writeRowHeight,
 } from "./transcript-layout";
 import { ContentSashes, LoadingTranscript } from "./content-sashes";
+import { scrollCoalescer } from "./scroll-frame";
 import type { SessionRowSummary } from "./pane-stage";
 import { Button } from "@/components/ui/button";
 import { SessionEmpty } from "./session-empty";
@@ -338,6 +339,24 @@ const turns = () => shown().turns;
     placing = false;
     return true;
   };
+  /**
+   * One pass per frame, not one per scroll event. See `scroll-frame.ts`; the
+   * transcript's handler writes four signals and reads layout on every call.
+   */
+  const onScrolled = scrollCoalescer((el) => {
+    if (placing) return;
+    const isPinned = el.scrollHeight - el.scrollTop - el.clientHeight < 96;
+    setScrollTop(el.scrollTop);
+    setViewport(el.clientHeight);
+    setPinned(isPinned);
+    setActiveTurn(list?.indexAtTop() ?? 0);
+    const key = layoutKey(props.paneId, props.sessionId);
+    rememberReading(key, list?.readingAtTop(isPinned) ?? { pinned: true });
+    rememberPaneScroll(props.paneId, props.sessionId, {
+      scrollTop: el.scrollTop,
+      pinned: isPinned,
+    });
+  });
   createRenderEffect(() => {
     const paneId = props.paneId;
     const id = props.sessionId;
@@ -424,21 +443,7 @@ const turns = () => shown().turns;
           // after having left it.
         }}
         class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
-        onScroll={(e) => {
-          if (placing) return;
-          const el = e.currentTarget;
-          const isPinned = el.scrollHeight - el.scrollTop - el.clientHeight < 96;
-          setScrollTop(el.scrollTop);
-          setViewport(el.clientHeight);
-          setPinned(isPinned);
-          setActiveTurn(list?.indexAtTop() ?? 0);
-          const key = layoutKey(props.paneId, props.sessionId);
-          rememberReading(key, list?.readingAtTop(isPinned) ?? { pinned: true });
-          rememberPaneScroll(props.paneId, props.sessionId, {
-            scrollTop: el.scrollTop,
-            pinned: isPinned,
-          });
-        }}
+        onScroll={onScrolled}
       >
         <div
           class={`${showNav() ? "mx-auto w-full px-11 py-4" : "mx-auto w-full px-5 py-4"}${
