@@ -146,11 +146,16 @@ async function waitUp(
   }
 }
 
-/**
- * Copy a live store without writing to it: VACUUM INTO is SQLite's online
- * backup — it reads the source under a normal read snapshot while another
- * process may still be writing, and produces one complete file.
- */
+/** Resolve when the process exits; reject on a non-zero exit — build steps fail loudly. */
+function waitExit(spawned: Spawned, what: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    spawned.proc.once("exit", (code, signal) => {
+      if (code === 0) resolve();
+      else reject(new Error(`${what} failed (code ${code ?? signal})`));
+    });
+  });
+}
+
 function copyDbOnline(src: string, dest: string): void {
   if (!existsSync(src)) throw new Error(`store not found: ${src}`);
   mkdirSync(dirname(dest), { recursive: true });
@@ -179,6 +184,8 @@ function copyDbOnline(src: string, dest: string): void {
 }
 
 export async function startEnv(opts?: {
+  /** dev serves Vite's dev server; prod builds it and serves `vite preview`. */
+  build?: "prod" | "dev";
   db?: string; // a real store to benchmark instead of fixtures (e.g. ~/.agent-strata/events.db)
   sessions?: Partial<BenchSessions>; // required with db
   log?: (line: string) => void;
@@ -292,22 +299,51 @@ export async function startEnv(opts?: {
     shimServer = shim;
     log(`[env] origin shim: ${shimUrl} -> ${serviceUrl}`);
 
-    log(`[env] ui: bunx vite --port ${uiPort} --strictPort`);
-    const vite = spawnLogged(
-      [bun, "x", "vite", "--host", "127.0.0.1", "--port", String(uiPort), "--strictPort"],
-      {
-        cwd: UI_DIR,
-        env: {
-          ...process.env,
-          STRATA_SERVICE_URL: shimUrl,
-          STRATA_API_TOKEN: token,
+    const uiEnv: NodeJS.ProcessEnv = {
+      ...process.env,
+      STRATA_SERVICE_URL: shimUrl,
+      STRATA_API_TOKEN: token,
+    };
+    if ((opts?.build ?? "prod") === "prod") {
+      // The dev build wraps every component in HMR and runs Solid's dev
+      // instrumentation, which dominates a CPU profile without shipping.
+      // `preview.proxy` inherits `server.proxy`, so the /api proxy and its
+      // token hook carry over to the served build.
+      const distDir = join(root, "dist");
+      log(`[env] ui: bunx vite build --outDir ${distDir} --emptyOutDir`);
+      const build = spawnLogged(
+        [bun, "x", "vite", "build", "--outDir", distDir, "--emptyOutDir"],
+        { cwd: UI_DIR, env: uiEnv, tag: "ui-build", log },
+      );
+      started.push(build);
+      await waitExit(build, "vite build");
+      log(`[env] ui: bunx vite preview --port ${uiPort} --strictPort`);
+      const vite = spawnLogged(
+        [
+          bun, "x", "vite", "preview",
+          "--outDir", distDir,
+          "--host", "127.0.0.1",
+          "--port", String(uiPort),
+          "--strictPort",
+        ],
+        { cwd: UI_DIR, env: uiEnv, tag: "ui", log },
+      );
+      started.push(vite);
+      await waitUp(uiUrl, vite, "vite preview server");
+    } else {
+      log(`[env] ui: bunx vite --port ${uiPort} --strictPort`);
+      const vite = spawnLogged(
+        [bun, "x", "vite", "--host", "127.0.0.1", "--port", String(uiPort), "--strictPort"],
+        {
+          cwd: UI_DIR,
+          env: uiEnv,
+          tag: "ui",
+          log,
         },
-        tag: "ui",
-        log,
-      },
-    );
-    started.push(vite);
-    await waitUp(uiUrl, vite, "vite dev server");
+      );
+      started.push(vite);
+      await waitUp(uiUrl, vite, "vite dev server");
+    }
 
     return { uiUrl, serviceUrl, token, sessions, stop };
   } catch (e) {

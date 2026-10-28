@@ -5,11 +5,16 @@
  *   bun run bench                         fixtures, webkit + chromium, 3 reps
  *   bun run bench --engines webkit --reps 5
  *   bun run bench --compare bench/results/<file>.json
+ *   bun run bench --dev                   against the Vite dev server instead of a production build
  *   bun run bench --db ~/.agent-strata/events.db --long <id> --heavy <id> --small <id>,<id>,<id>
  *
  * WebKit is the engine the desktop app ships in (Tauri on macOS is WKWebView),
  * so it is the one that decides. Chromium is there because that is where every
  * earlier measurement in this repo was taken.
+ *
+ * The UI under test is a production build by default: the dev server runs
+ * Solid's dev build and an HMR wrapper around every component, which a CPU
+ * profile of an open showed as a large share of the time spent.
  *
  * Exits non-zero when any correctness check failed.
  */
@@ -42,6 +47,7 @@ function args() {
     heavy: get("heavy"),
     small: get("small"),
     verbose: a.includes("--verbose"),
+    build: (a.includes("--dev") ? "dev" : "prod") as "dev" | "prod",
   };
 }
 
@@ -150,6 +156,7 @@ async function main() {
   if (real && (!opt.long || !opt.heavy || !opt.small)) throw new Error("--db needs --long, --heavy and --small");
   const logs: string[] = [];
   const env = await startEnv({
+    build: opt.build,
     db: opt.db,
     sessions: real ? { long: opt.long!, heavy: opt.heavy!, small: opt.small!.split(",") } : undefined,
     log: (l) => (opt.verbose ? console.error(l) : logs.push(l)),
@@ -228,6 +235,7 @@ async function main() {
       dirty: sh(["git", "status", "--porcelain"]).length > 0,
       date,
       mode: real ? "real" : `fixtures-v${FIXTURE_VERSION}`,
+      build: opt.build,
       turns: Object.fromEntries([...orders].map(([id, o]) => [id, o.length])),
       engines: opt.engines,
       reps: opt.reps,
