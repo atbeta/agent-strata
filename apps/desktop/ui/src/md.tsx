@@ -7,6 +7,8 @@ import { stableBoundary } from "./md-stream";
 import { drawDiagram, isDiagramBlock } from "./mermaid";
 import { t } from "./i18n";
 import { MarkdownHtmlCache } from "./md-cache";
+import { enqueuePaint } from "./paint-queue";
+import { useRowPaintMode } from "./paint-mode";
 
 marked.setOptions({ gfm: true, breaks: true });
 
@@ -20,6 +22,8 @@ export function Md(props: { text: string; class?: string; live?: boolean }) {
   let renderedStable = "";
   /** How many of `host`'s child nodes belong to that slice. The rest is the tail. */
   let stableCount = 0;
+  const mode = useRowPaintMode();
+  let cancelIdle: (() => void) | undefined;
 
   const paint = (source: string, live: boolean) => {
     if (!host) return;
@@ -68,19 +72,37 @@ export function Md(props: { text: string; class?: string; live?: boolean }) {
     const live = props.live === true;
     if (!host) return;
     if (!started) {
-      started = true;
-      paint(source, live);
+      // Off-screen rows wait. Parsing every one of them in the scroll turn is
+      // the hitch. A row that scrolls into view flips to `now` and paints on
+      // that frame; a streaming row never waits.
+      const immediate = live || mode() === "now";
+      const go = () => {
+        if (started || !host) return;
+        started = true;
+        paint(props.text, props.live === true);
+      };
+      if (immediate) {
+        cancelIdle?.();
+        cancelIdle = undefined;
+        go();
+      } else if (!cancelIdle) {
+        cancelIdle = enqueuePaint(go);
+      }
+      void source;
       return;
     }
     if (frame) return;
     frame = requestAnimationFrame(() => {
       frame = 0;
+      if (!host) return;
       paint(props.text, props.live === true);
     });
   });
 
   onCleanup(() => {
     if (frame) cancelAnimationFrame(frame);
+    cancelIdle?.();
+    cancelIdle = undefined;
   });
 
   return <div ref={host} class={`md ${props.class ?? ""}`} />;

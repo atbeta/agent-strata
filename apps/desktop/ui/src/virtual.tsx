@@ -1,5 +1,6 @@
-import { createEffect, createMemo, createRenderEffect, createSignal, For, on, onCleanup, onMount, type JSX } from "solid-js";
+import { createEffect, createMemo, createRenderEffect, createSignal, For, on, onCleanup, onMount, untrack, type JSX } from "solid-js";
 import { anchorFromOffsets, pinScroll, type Reading } from "./transcript-layout";
+import { rowPaintMode } from "./paint-mode";
 import { mountedRange } from "./virtual-window";
 import { atTail, scrollTopForRow, scrollTopToCentreRow } from "./virtual-tail";
 
@@ -44,14 +45,6 @@ export interface VirtualProps<T> {
   viewport: number;
   /** Extra pixels kept mounted above and below the viewport. */
   overscan?: number;
-  /**
-   * The most rows to mount at once, overscan included.
-   *
-   * A pixel budget alone cannot bound the work, because the budget is divided
-   * by an estimate that may be far below the real height. See
-   * `MAX_MOUNTED_ROWS`. Omitted means the default.
-   */
-  maxRows?: number;
   /** The scrolling ancestor, for scrollTop correction when measurements land. */
   scroller?: () => HTMLElement | undefined;
   /**
@@ -257,16 +250,14 @@ export function Virtual<T>(props: VirtualProps<T>) {
     // is told about the scroll — which is what leaving this on the parent alone
     // prevented.
     const top = pendingTop() ?? props.scrollTop;
-    // Bounded in rows, not only in pixels: a pixel budget divided by an
-    // estimate that is a third of the real height mounts three times the rows
-    // it meant to, and every one of them parses its markdown on mount. See
-    // `virtual-window.ts`.
+    // Pixel window only. A row cap unmounted rows the reader was about to
+    // reach, and mounting them again parsed markdown on the scroll frame.
+    // The estimate is what keeps this count near the rows actually on screen.
     const { first, last } = mountedRange({
       count: n,
       top,
       viewport: props.viewport,
       overscan: overscan(),
-      maxRows: props.maxRows,
       rowAt: (y) => rowAt(o, y),
     });
     /**
@@ -440,9 +431,8 @@ export function Virtual<T>(props: VirtualProps<T>) {
         entry.key = key;
         // A mounted row that has no measurement is being positioned from
         // `estimate`, and `estimate` is a guess about a row's height, not a
-        // layout: at 100 against a turn that renders at several hundred, an
-        // unmeasured row is not a slightly-short placeholder but one printed
-        // on top of its neighbours. The observer is best-effort — an entry can
+        // layout: a guess well under a turn that renders at several hundred
+        // prints the row on top of its neighbours. The observer is best-effort — an entry can
         // be dropped if the element left `observed` before the callback was
         // delivered, and `unobserve` above can remove a node Solid is still
         // holding — and once that happens there may be no further resize to
@@ -468,27 +458,41 @@ export function Virtual<T>(props: VirtualProps<T>) {
       <For each={rows()}>
         {(i) => {
           const item = () => props.items[i];
-          // Built here, once, rather than inside the markup below. Written as
-          // `{props.children(props.items[i], i)}` it compiles to an insert of a
-          // thunk that reads `items`, so every row was torn down and rebuilt
-          // each time the session's array was replaced — a streaming tick, a
-          // refresh, an edit. Held in a local it is a node, not an expression,
-          // so it is inserted once and then only ever updated from inside.
-          const row = props.children(item, i);
+          // A memo, not the scroll signal itself. Markdown subscribes to this,
+          // and a subscription to `scrollTop` would re-run the paint effect on
+          // every pixel. The boolean flips only when the row crosses the fold.
+          const inView = createMemo(() => {
+            if (props.viewport <= 0) return true;
+            const top = pendingTop() ?? props.scrollTop;
+            const y = offsets()[i] ?? 0;
+            const next = offsets()[i + 1] ?? y + props.estimate;
+            const height = Math.max(0, next - y - props.gap);
+            return y + height > top && y < top + props.viewport;
+          });
+          const mode = () => (inView() ? "now" : "idle");
           return (
-            <div
-              class="absolute left-0 right-0"
-              ref={(el) => {
-                observed.set(el, { key: props.id(item(), i), i });
-                ro.observe(el);
-              }}
-              // `top`, not `transform`: a transformed ancestor becomes a
-              // containing block that `position: sticky` cannot see past,
-              // which would keep an open thought's header from pinning.
-              style={{ top: `${offsets()[i]}px` }}
-            >
-              {row}
-            </div>
+            <rowPaintMode.Provider value={mode}>
+              <div
+                class="absolute left-0 right-0"
+                ref={(el) => {
+                  observed.set(el, { key: props.id(item(), i), i });
+                  ro.observe(el);
+                }}
+                // `top`, not `transform`: a transformed ancestor becomes a
+                // containing block that `position: sticky` cannot see past,
+                // which would keep an open thought's header from pinning.
+                style={{ top: `${offsets()[i]}px` }}
+              >
+                {/* Once, outside the insert that tracks `items`. Written in
+                    the markup as `{props.children(props.items[i], i)}` it
+                    became a thunk that reads `items`, and every streaming
+                    tick tore the row down and parsed its markdown again.
+                    `untrack` keeps that call from joining the style update,
+                    and it still runs under the provider so the row can see
+                    whether it is on screen. */}
+                {untrack(() => props.children(item, i))}
+              </div>
+            </rowPaintMode.Provider>
           );
         }}
       </For>

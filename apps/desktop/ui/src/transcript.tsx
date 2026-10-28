@@ -13,6 +13,8 @@ import {
 import { copyText } from "./clipboard";
 import { Icon, type Name } from "./icons";
 import { Md } from "./md";
+import { enqueuePaint } from "./paint-queue";
+import { useRowPaintMode } from "./paint-mode";
 import { Tip } from "./tip";
 import { stripAnsi } from "./ansi";
 import { Code, CopyButton } from "./payload";
@@ -727,6 +729,25 @@ function ToolCallCard(props: {
 type AssistantMessageData = Turn["assistant"][number];
 type FlowRow = { kind: "message"; message: AssistantMessageData } | { kind: "tools"; calls: ToolCallView[] };
 
+/** Structured output is the answer, and stringifying it is not scroll work. */
+function StructuredAnswer(props: { value: unknown }) {
+  const mode = useRowPaintMode();
+  const [shown, setShown] = createSignal(mode() === "now");
+  createEffect(() => {
+    if (shown()) return;
+    if (mode() === "now") {
+      setShown(true);
+      return;
+    }
+    onCleanup(enqueuePaint(() => setShown(true)));
+  });
+  return (
+    <Show when={shown()}>
+      <Code source={JSON.stringify(props.value, null, 2)} class="my-2" />
+    </Show>
+  );
+}
+
 /**
  * One assistant message and its action footer. Props stay reactive — the row's
  * partial flag and error arrive later than first render, so everything reads
@@ -791,10 +812,7 @@ function AssistantMessage(props: {
           {/* The caller asked for json_schema — this object IS the answer, and
               the text beside it is usually preamble. */}
           <Show when={props.message.structured !== undefined}>
-            <Code
-              source={JSON.stringify(props.message.structured, null, 2)}
-              class="my-2"
-            />
+            <StructuredAnswer value={props.message.structured} />
           </Show>
           <Show when={truncated()}>
             <p role="status" class="mt-2 flex items-start gap-1.5 text-xs text-event-permission">

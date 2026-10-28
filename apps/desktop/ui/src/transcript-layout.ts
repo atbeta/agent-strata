@@ -15,8 +15,16 @@
  * height.
  */
 
-/** Height of a row nobody has measured. Shared with every transcript list. */
-export const ROW_ESTIMATE = 100;
+/**
+ * Height of a row nobody has measured. Shared with every transcript list.
+ *
+ * 100px was about a third of a real turn, so the same pixel window mounted
+ * roughly three times the rows on screen and each one parsed markdown in that
+ * frame. A guess near the real height mounts a handful. A short row leaves a
+ * gap until it is measured, and the list already corrects for that. A low
+ * guess stacked the rows and parsed the extras.
+ */
+export const ROW_ESTIMATE = 320;
 
 /** Space between rows, included after every row the way the list's prefix sum does. */
 export const ROW_GAP = 32;

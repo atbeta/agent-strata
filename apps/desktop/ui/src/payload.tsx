@@ -1,4 +1,4 @@
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { copyText } from "./clipboard";
 import { stripAnsi } from "./ansi";
 import { grammarFor, guessGrammar, tokenize, tokenizeDiff } from "./highlight";
@@ -7,6 +7,8 @@ import { JsonView } from "./json-view";
 import { t } from "./i18n";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { enqueuePaint } from "./paint-queue";
+import { useRowPaintMode } from "./paint-mode";
 
 /**
  * A framed block for a tool payload. Structure renders as a tree, text renders
@@ -36,9 +38,22 @@ function CopyButton(props: { text: string }) {
 }
 
 function Code(props: { source: string; label?: string; maxHeight?: string; class?: string }) {
-  const text = createMemo(() => stripAnsi(props.source));
+  // Highlighting runs when the row is on screen. An off-screen code block
+  // tokenizes on a later frame, same as markdown, so a scroll that mounts a
+  // window of tool output does not colour all of it before the next paint.
+  const mode = useRowPaintMode();
+  const [shown, setShown] = createSignal(mode() === "now");
+  createEffect(() => {
+    if (shown()) return;
+    if (mode() === "now") {
+      setShown(true);
+      return;
+    }
+    onCleanup(enqueuePaint(() => setShown(true)));
+  });
   const tokens = createMemo(() => {
-    const src = text();
+    if (!shown()) return [];
+    const src = stripAnsi(props.source);
     const diff = tokenizeDiff(src);
     if (diff) return diff;
     const grammar = grammarFor(props.label) ?? guessGrammar(src);

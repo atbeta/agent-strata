@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { MAX_MOUNTED_ROWS, mountedRange } from "./virtual-window";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { ROW_ESTIMATE, ROW_GAP } from "./transcript-layout";
+import { mountedRange } from "./virtual-window";
 
 /**
  * A prefix-sum stand-in: rows of a fixed height, so `rowAt` is arithmetic.
@@ -10,36 +13,44 @@ const uniform = (rowHeight: number, count: number) => (y: number) =>
   Math.min(count, Math.max(0, Math.floor(y / rowHeight)));
 
 describe("the rows a transcript mounts", () => {
-  test("a pixel budget with a small estimate mounts too many", () => {
-    // The bug: 100px estimate against 352px rows, 800 overscan either side and
-    // an 800px viewport. The pixel budget buys 18 rows for a viewport that
-    // shows 2. Every one of them parses markdown on mount.
-    const rowAt = uniform(132, 200);
+  test("the estimate is near a real turn, so one screen mounts a handful", () => {
+    // 100px against ~350px turns made the pixel budget mount about three
+    // times the rows on screen, and every one of them parsed markdown in
+    // that frame. A row cap then threw the extras away, so the next scroll
+    // mounted and parsed them again. The estimate is what keeps the count
+    // down; the window itself stays the pixels the reader can reach.
+    const stride = ROW_ESTIMATE + ROW_GAP;
+    const rowAt = uniform(stride, 400);
     const { first, last } = mountedRange({
-      count: 200,
-      top: 5000,
+      count: 400,
+      top: 50_000,
       viewport: 800,
       overscan: 800,
       rowAt,
     });
-    expect(last - first + 1).toBeLessThanOrEqual(MAX_MOUNTED_ROWS);
+    expect(last - first + 1).toBeLessThanOrEqual(10);
+    expect(last - first + 1).toBeGreaterThan(0);
   });
 
-  test("the viewport is always covered, whatever the cap says", () => {
-    // A cap that cut into the viewport would leave the pane blank below the
-    // fold. Rows here are small, so the viewport alone is more rows than the
-    // cap allows — the viewport still wins.
+  test("overscan stays mounted instead of being trimmed to a row cap", () => {
+    // Capping the count unmounted rows the reader was about to scroll into,
+    // and mounting them again was the hitch. The pixel budget is the window.
     const rowAt = uniform(40, 500);
-    const { first, last } = mountedRange({
-      count: 500,
-      top: 2000,
-      viewport: 1200,
-      overscan: 100,
-      maxRows: 4,
-      rowAt,
-    });
-    // 1200 / 40 = 30 rows visible; the window must contain all of them.
-    expect(last - first + 1).toBeGreaterThanOrEqual(30);
+    const top = 2000;
+    const viewport = 200;
+    const overscan = 400;
+    const { first, last } = mountedRange({ count: 500, top, viewport, overscan, rowAt });
+    expect(first).toBeLessThanOrEqual(Math.floor((top - overscan) / 40));
+    expect(last).toBeGreaterThanOrEqual(Math.min(499, Math.floor((top + viewport + overscan) / 40)));
+  });
+
+  test("the viewport is inside the window", () => {
+    const rowAt = uniform(40, 500);
+    const top = 2000;
+    const viewport = 1200;
+    const { first, last } = mountedRange({ count: 500, top, viewport, overscan: 100, rowAt });
+    expect(first).toBeLessThanOrEqual(Math.floor(top / 40));
+    expect(last).toBeGreaterThanOrEqual(Math.floor((top + viewport) / 40));
   });
 
   test("a short list mounts in full", () => {
@@ -82,32 +93,20 @@ describe("the rows a transcript mounts", () => {
       expect(last).toBeLessThan(100);
     }
   });
+});
 
-  test("a cap of one still mounts something", () => {
-    const rowAt = uniform(50, 50);
-    const { first, last } = mountedRange({
-      count: 50,
-      top: 0,
-      viewport: 0,
-      overscan: 0,
-      maxRows: 1,
-      rowAt,
-    });
-    expect(last).toBeGreaterThanOrEqual(first);
-  });
-
-  test("the default cap is what an unconfigured list gets", () => {
-    expect(MAX_MOUNTED_ROWS).toBeGreaterThan(0);
-    const rowAt = uniform(100, 400);
-    const withDefault = mountedRange({ count: 400, top: 10_000, viewport: 800, overscan: 1200, rowAt });
-    const withExplicit = mountedRange({
-      count: 400,
-      top: 10_000,
-      viewport: 800,
-      overscan: 1200,
-      maxRows: MAX_MOUNTED_ROWS,
-      rowAt,
-    });
-    expect(withDefault).toEqual(withExplicit);
+describe("off-screen transcript rows wait for a later frame", () => {
+  test("the list tells each row whether it is on screen, and markdown obeys", () => {
+    const virtual = readFileSync(join(import.meta.dir, "virtual.tsx"), "utf8");
+    const md = readFileSync(join(import.meta.dir, "md.tsx"), "utf8");
+    const payload = readFileSync(join(import.meta.dir, "payload.tsx"), "utf8");
+    const transcript = readFileSync(join(import.meta.dir, "transcript.tsx"), "utf8");
+    expect(virtual).toContain("rowPaintMode.Provider");
+    expect(md).toContain("useRowPaintMode");
+    expect(md).toContain("enqueuePaint");
+    expect(payload).toContain("useRowPaintMode");
+    expect(payload).toContain("enqueuePaint");
+    expect(transcript).toContain("function StructuredAnswer");
+    expect(transcript).toContain("enqueuePaint");
   });
 });
