@@ -1,5 +1,6 @@
 import { createEffect, createMemo, createRenderEffect, createSignal, For, on, onCleanup, onMount, type JSX } from "solid-js";
 import { anchorFromOffsets, pinScroll, type Reading } from "./transcript-layout";
+import { mountedRange } from "./virtual-window";
 import { atTail, scrollTopForRow, scrollTopToCentreRow } from "./virtual-tail";
 
 /**
@@ -43,6 +44,14 @@ export interface VirtualProps<T> {
   viewport: number;
   /** Extra pixels kept mounted above and below the viewport. */
   overscan?: number;
+  /**
+   * The most rows to mount at once, overscan included.
+   *
+   * A pixel budget alone cannot bound the work, because the budget is divided
+   * by an estimate that may be far below the real height. See
+   * `MAX_MOUNTED_ROWS`. Omitted means the default.
+   */
+  maxRows?: number;
   /** The scrolling ancestor, for scrollTop correction when measurements land. */
   scroller?: () => HTMLElement | undefined;
   /**
@@ -248,8 +257,18 @@ export function Virtual<T>(props: VirtualProps<T>) {
     // is told about the scroll — which is what leaving this on the parent alone
     // prevented.
     const top = pendingTop() ?? props.scrollTop;
-    const first = rowAt(o, Math.max(0, top - overscan()));
-    const last = Math.min(n - 1, rowAt(o, top + props.viewport + overscan()));
+    // Bounded in rows, not only in pixels: a pixel budget divided by an
+    // estimate that is a third of the real height mounts three times the rows
+    // it meant to, and every one of them parses its markdown on mount. See
+    // `virtual-window.ts`.
+    const { first, last } = mountedRange({
+      count: n,
+      top,
+      viewport: props.viewport,
+      overscan: overscan(),
+      maxRows: props.maxRows,
+      rowAt: (y) => rowAt(o, y),
+    });
     /**
      * A window that starts past the last row renders nothing at all.
      *
@@ -266,7 +285,6 @@ export function Virtual<T>(props: VirtualProps<T>) {
      * reader who was anywhere near the bottom of the last conversation expects
      * to land anyway.
      */
-    if (first > last) return last >= 0 ? [last] : [];
     const out: number[] = [];
     for (let i = first; i <= last; i++) out.push(i);
     return out;

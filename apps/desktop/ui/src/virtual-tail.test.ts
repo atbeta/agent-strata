@@ -122,24 +122,29 @@ describe("a window that cannot be placed still draws something", () => {
    * `rowAt` answered `n`, `last` answered `n - 1`, and the loop ran zero times —
    * so the list rendered nothing and nothing on screen said it had lost its
    * place. The reader saw a blank pane, not a scrolled one.
+   *
+   * The guarantee used to be an `if (first > last)` guard in the memo. It now
+   * lives in `mountedRange`, which clamps the start to the last row, so an
+   * inverted window cannot be produced in the first place. These assertions
+   * follow it there: the behaviour is checked for real in
+   * `virtual-window.test.ts`, and this checks that the list still goes through
+   * that function rather than computing a window by hand again.
    */
   const rows = read("virtual.tsx").slice(
     read("virtual.tsx").indexOf("const rows = createMemo"),
   );
 
-  test("an inverted window falls back to the end of the list", () => {
-    expect(rows).toContain("if (first > last) return last >= 0 ? [last] : [];");
-    // After the guard, not instead of it: the loop still has to run.
-    expect(rows.indexOf("if (first > last)")).toBeLessThan(rows.indexOf("for (let i = first; i <= last; i++)"));
+  test("the window is computed by the range helper, not by hand", () => {
+    expect(rows).toContain("mountedRange({");
+    // A second, hand-rolled window would be a second place to get this wrong.
+    expect(rows).not.toContain("const last = Math.min(n - 1, rowAt(");
   });
 
-  test("the guard is inside the window memo, where the rows are decided", () => {
-    // Pinned above the memo it would not see `first`/`last`; left in a caller
-    // it would have to be written again for every list.
+  test("the range is taken inside the window memo, where the rows are decided", () => {
     const memoStart = rows.indexOf("const rows = createMemo");
-    const guard = rows.indexOf("if (first > last)");
-    expect(guard).toBeGreaterThan(memoStart);
-    expect(guard).toBeLessThan(rows.indexOf("const end = () =>"));
+    const call = rows.indexOf("mountedRange({");
+    expect(call).toBeGreaterThan(memoStart);
+    expect(call).toBeLessThan(rows.indexOf("const end = () =>"));
   });
 });
 
