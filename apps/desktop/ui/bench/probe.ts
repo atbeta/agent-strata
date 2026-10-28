@@ -22,6 +22,7 @@
 export function installProbe(): void {
   type Sample = {
     t: number;
+    ft: number;
     st: number;
     sh: number;
     ch: number;
@@ -69,6 +70,9 @@ export function installProbe(): void {
   const proto = Element.prototype;
   const top = Object.getOwnPropertyDescriptor(proto, "scrollTop")!;
   const record = (el: Element, kind: string, apply: () => void) => {
+    // The driver's own steps are not recorded: reading the position around
+    // them would force the layout the driver is careful not to force.
+    if (driving) return apply();
     const from = top.get!.call(el) as number;
     apply();
     writes.push({ t: performance.now(), kind, from, to: top.get!.call(el) as number, driver: driving });
@@ -116,10 +120,55 @@ export function installProbe(): void {
     return true;
   };
 
+  /**
+   * Sampling reads layout, so it runs after the frame has painted, in a task
+   * posted from the frame callback. Read at the start of the frame, it forced
+   * a layout that the app's own frame callbacks then invalidated again: a CPU
+   * profile of wheel scrolling put 80ms of the gesture's 128ms of JS in this
+   * probe. After paint, layout is clean and the reads cost nearly nothing.
+   * The sample keeps the frame's rAF timestamp, so frame gaps are unchanged.
+   */
+  const post = new MessageChannel();
+  let pendingTs: number[] = [];
+  post.port1.onmessage = () => {
+    const due = pendingTs;
+    pendingTs = [];
+    for (const ts of due) sample(ts);
+  };
+  /** scrollTop as of the last sample: the driver steps from it without reading layout. */
+  let lastSt: number | undefined;
+
   const frame = (ts: number) => {
     requestAnimationFrame(frame);
+    // The driver acts like input: it moves the scroller at the start of the
+    // frame and never reads layout to do it. It stops a step short of the top,
+    // so every step it takes is applied in full and `drive` is exact.
     const sc = scroller();
-    const s: Sample = { t: ts, st: 0, sh: 0, ch: 0, ids: [], tops: [], rows: 0, drive };
+    if (sc && stepLeft > 0 && lastSt !== undefined) {
+      const step = Math.min(stepPx, stepLeft);
+      if (lastSt - drive - step < 0) {
+        stepLeft = 0;
+        stepDone?.();
+      } else {
+        driving = true;
+        sc.scrollBy(0, -step);
+        driving = false;
+        drive += step;
+        stepLeft -= step;
+        if (stepLeft <= 0) stepDone?.();
+      }
+    }
+    pendingTs.push(ts);
+    post.port2.postMessage(0);
+  };
+
+  const sample = (ft: number) => {
+    // `t` is when the sample was taken, on the same clock as clicks, writes and
+    // route changes, so "after the click" means after it. `ft` is the frame it
+    // belongs to, which is what frame gaps are measured on.
+    const ts = performance.now();
+    const sc = scroller();
+    const s: Sample = { t: ts, ft, st: 0, sh: 0, ch: 0, ids: [], tops: [], rows: 0, drive };
     drive = 0;
     if (sc) {
       s.st = top.get!.call(sc) as number;
@@ -136,6 +185,7 @@ export function installProbe(): void {
       }
     }
     samples.push(s);
+    lastSt = sc ? s.st : undefined;
 
     const key = `${s.st}|${s.sh}|${s.ch}|${s.rows}|${s.ids.join(",")}|${Math.round(s.tops[0] ?? 0)}`;
     const lastWrite = writes.length ? writes[writes.length - 1]!.t : 0;
@@ -155,20 +205,6 @@ export function installProbe(): void {
         waiters.splice(i, 1);
         wt.done({ settled: false, at: ts });
       }
-    }
-
-    // The driver steps after sampling, so the next sample's `drive` is exactly
-    // what was applied between the two samples.
-    if (sc && stepLeft > 0) {
-      const step = Math.min(stepPx, stepLeft);
-      const before = top.get!.call(sc) as number;
-      driving = true;
-      sc.scrollTop = before - step;
-      driving = false;
-      const applied = before - (top.get!.call(sc) as number);
-      drive += applied;
-      stepLeft = applied > 0 ? stepLeft - step : 0;
-      if (stepLeft <= 0) stepDone?.();
     }
   };
   requestAnimationFrame(frame);

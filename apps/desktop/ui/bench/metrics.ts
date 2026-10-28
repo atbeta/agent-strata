@@ -8,8 +8,10 @@
  */
 
 export interface Sample {
-  /** rAF timestamp of the frame this sample was taken in. */
+  /** When the sample was taken (after the frame painted), on the page's performance.now() clock. */
   t: number;
+  /** rAF timestamp of the frame the sample belongs to; frame gaps are measured on it. Falls back to `t`. */
+  ft?: number;
   st: number;
   sh: number;
   ch: number;
@@ -61,7 +63,8 @@ export interface FrameStats {
 export function frameStats(samples: readonly Sample[], from: number, to: number): FrameStats {
   const s = within(samples, from, to);
   const gaps: number[] = [];
-  for (let i = 1; i < s.length; i++) gaps.push(s[i]!.t - s[i - 1]!.t);
+  const at = (x: Sample) => x.ft ?? x.t;
+  for (let i = 1; i < s.length; i++) gaps.push(at(s[i]!) - at(s[i - 1]!));
   const sorted = [...gaps].sort((a, b) => a - b);
   return {
     frames: s.length,

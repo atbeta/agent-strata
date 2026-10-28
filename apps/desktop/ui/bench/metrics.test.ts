@@ -37,6 +37,12 @@ describe("frameStats", () => {
     expect(f.blockedMs).toBe(50 + 20);
   });
 
+  test("gaps are measured on frame timestamps when samples carry them", () => {
+    // Samples taken after paint lag their frames by varying amounts; the gap is the frames'.
+    const s = [sample(5, { ft: 0 }), sample(30, { ft: 16 }), sample(40, { ft: 33 })];
+    expect(frameStats(s, 0, 100).maxGap).toBe(17);
+  });
+
   test("only frames inside the window count", () => {
     const s = [0, 300, 316, 332].map((t) => sample(t));
     expect(frameStats(s, 300, 400).maxGap).toBe(16);
