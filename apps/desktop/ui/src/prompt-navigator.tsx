@@ -82,16 +82,22 @@ export function PromptNavigator(props: {
 
   // Keep the active line inside the rail's own scrollbox — rail.scrollTop only,
   // never scrollIntoView, so the transcript/page never gets dragged along.
+  // Scheduled after paint: reading the geometry inside the commit forces a
+  // layout, and activeId moves once per measurement while a session opens —
+  // the frame cadence also coalesces a run of moves into one measure.
   createEffect(() => {
     const id = props.activeId;
     if (!id || !rail) return;
-    const el = refs.get(id);
-    if (!el) return;
-    const top = el.offsetTop;
-    const bottom = top + el.offsetHeight;
-    if (top < rail.scrollTop) rail.scrollTop = top;
-    else if (bottom > rail.scrollTop + rail.clientHeight)
-      rail.scrollTop = bottom - rail.clientHeight;
+    const raf = requestAnimationFrame(() => {
+      const el = refs.get(id);
+      if (!el || !rail) return;
+      const top = el.offsetTop;
+      const bottom = top + el.offsetHeight;
+      if (top < rail.scrollTop) rail.scrollTop = top;
+      else if (bottom > rail.scrollTop + rail.clientHeight)
+        rail.scrollTop = bottom - rail.clientHeight;
+    });
+    onCleanup(() => cancelAnimationFrame(raf));
   });
 
   // The cap is the rail's own max, or whatever of the transcript is left after
@@ -101,17 +107,21 @@ export function PromptNavigator(props: {
     props.entries.length;
     const el = nav;
     if (!el) return;
+    // No synchronous read: clientHeight here would force a full layout
+    // inside the commit, and observe() delivers the initial size anyway.
+    // Until the first callback navRoom stays 0, which only defers chrome —
+    // the rail's height is already the same value in CSS.
+    const host = el.parentElement;
+    if (!host) {
+      setNavRoom(360);
+      return;
+    }
     const measure = () => {
-      const host = el.parentElement;
-      const room = host ? host.clientHeight - 24 : 360;
       // Only the room. Whether that room needs chrome is derived from the
       // entry count, so a switch to another session cannot inherit the last
       // one's answer.
-      setNavRoom(room);
+      setNavRoom(host.clientHeight - 24);
     };
-    measure();
-    const host = el.parentElement;
-    if (!host) return;
     const ro = new ResizeObserver(measure);
     ro.observe(host);
     onCleanup(() => ro.disconnect());

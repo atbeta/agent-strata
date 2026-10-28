@@ -16,10 +16,30 @@ export interface PromptEntry {
 const PROMPT_MAX = 160;
 const REPLY_MAX = 240;
 
-/** One line, capped; the suffix keeps the truncation honest at a glance. */
+const WS = /\s/;
+
+/**
+ * One line, capped; the suffix keeps the truncation honest at a glance.
+ * The collapse runs token by token and stops once max+1 characters are
+ * emitted — past that the answer cannot change, so a pasted megabyte costs
+ * ~max rather than ~n. `out` is always the trimmed collapsed prefix:
+ * separators are emitted lazily so it never begins or ends with a space.
+ */
 const compact = (text: string, max: number): string => {
-  const flat = text.replace(/\s+/g, " ").trim();
-  return flat.length > max ? `${flat.slice(0, max - 3)}...` : flat;
+  const run = /\s+|[^\s]+/g;
+  let out = "";
+  let gap = false;
+  for (let m = run.exec(text); m && out.length <= max; m = run.exec(text)) {
+    const tok = m[0];
+    if (WS.test(tok[0]!)) {
+      if (out) gap = true;
+      continue;
+    }
+    if (gap) out += " ";
+    gap = false;
+    out += out.length + tok.length > max + 1 ? tok.slice(0, max + 1 - out.length) : tok;
+  }
+  return out.length > max ? `${out.slice(0, max - 3)}...` : out;
 };
 
 const fileBase = (path: string): string => {
@@ -71,12 +91,18 @@ export function promptEntries(turns: readonly Turn[]): PromptEntry[] {
     }
     const text = compact(messageText(turn.user ?? []), PROMPT_MAX);
     const file = (turn.user ?? []).find((b) => b.type === "file_ref");
+    // The reply only shows in the hover card, so it is computed on first
+    // read: building it for every row made opening a long session pay for
+    // a thousand cards nobody hovers.
+    let reply: string | undefined;
     const entry: PromptEntry = {
       turnId: turn.turn_id,
       turnIndex,
       number: turnIndex + 1,
       prompt: text || (file && file.type === "file_ref" ? fileBase(file.path) : ""),
-      reply: replyOf(turn),
+      get reply() {
+        return (reply ??= replyOf(turn));
+      },
       reverted: Boolean(turn.reverted),
     };
     entryCache.set(turn, entry);

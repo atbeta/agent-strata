@@ -144,21 +144,25 @@ export function createScrollOwner(opts: {
    * reading was already taken against the layout that just changed. */
   let fresh = false;
 
-  const origin = (): number => {
+  const origin = (st?: number): number => {
     const el = opts.scroller();
     const host = opts.host();
     if (!el || !host) return lastOrigin;
     lastOrigin =
-      host.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop;
+      host.getBoundingClientRect().top - el.getBoundingClientRect().top +
+      (st ?? el.scrollTop);
     return lastOrigin;
   };
 
-  const readPosition = (el: HTMLElement, s: { offsets: Float64Array; ids: readonly string[] }) => {
+  const readPosition = (
+    p: { st: number; sh: number; ch: number; orig: number },
+    s: { offsets: Float64Array; ids: readonly string[] },
+  ) => {
     return readingAt({
-      scrollTop: el.scrollTop,
-      clientHeight: el.clientHeight,
-      scrollHeight: el.scrollHeight,
-      origin: origin(),
+      scrollTop: p.st,
+      clientHeight: p.ch,
+      scrollHeight: p.sh,
+      origin: p.orig,
       offsets: s.offsets,
       ids: s.ids,
     });
@@ -198,6 +202,17 @@ export function createScrollOwner(opts: {
     const el = opts.scroller();
     if (!el || !el.isConnected) return;
 
+    // One read set per commit. Every layout read after the first hits a
+    // clean layout; read them piecemeal and each one forces a layout of
+    // its own while the DOM is still dirty.
+    const p = {
+      st: el.scrollTop,
+      sh: el.scrollHeight,
+      ch: el.clientHeight,
+      orig: 0,
+    };
+    p.orig = origin(p.st);
+
     // Absorb a user scroll that landed since the last write and has not yet
     // been coalesced through onScroll — judged against `seen`, the layout the
     // reader was actually looking at, not the new offsets. First pass aside
@@ -207,33 +222,34 @@ export function createScrollOwner(opts: {
     // under it, which is not input either.
     if (fresh) {
       fresh = false;
-    } else if (lastWritten !== undefined && Math.abs(el.scrollTop - lastWritten) >= 1) {
+    } else if (lastWritten !== undefined && Math.abs(p.st - lastWritten) >= 1) {
       if (!isClamp({
-        scrollTop: el.scrollTop,
-        scrollHeight: el.scrollHeight,
-        clientHeight: el.clientHeight,
+        scrollTop: p.st,
+        scrollHeight: p.sh,
+        clientHeight: p.ch,
         lastWritten,
       })) {
         const s = seen ?? { offsets, ids };
-        place(readPosition(el, s));
+        place(readPosition(p, s));
       }
     }
 
     const target = targetScrollTop({
       reading: reading(),
-      origin: origin(),
+      origin: p.orig,
       offsets,
       indexOf: (id) => opts.layout.indexOf(id),
-      scrollHeight: el.scrollHeight,
-      clientHeight: el.clientHeight,
+      scrollHeight: p.sh,
+      clientHeight: p.ch,
     });
-    if (target !== undefined && Math.abs(target - el.scrollTop) >= 1) {
+    if (target !== undefined && Math.abs(target - p.st) >= 1) {
       el.scrollTop = target;
+      // Read back post-clamp: the browser may not have the extent the layout
+      // claims yet, and lastWritten tracks what is actually on screen.
+      p.st = el.scrollTop;
     }
-    // Read back post-clamp: the browser may not have the extent the layout
-    // claims yet, and lastWritten tracks what is actually on screen.
-    lastWritten = el.scrollTop;
-    setTop(el.scrollTop);
+    lastWritten = p.st;
+    setTop(p.st);
     seen = { offsets, ids };
   });
 
@@ -244,7 +260,9 @@ export function createScrollOwner(opts: {
     // the layout the reader last saw, and remember what they were on.
     if (lastWritten !== undefined && Math.abs(el.scrollTop - lastWritten) >= 1) {
       const s = seen ?? { offsets: opts.layout.offsets(), ids: opts.layout.ids() };
-      opts.remember(readPosition(el, s));
+      const p = { st: el.scrollTop, sh: el.scrollHeight, ch: el.clientHeight, orig: 0 };
+      p.orig = origin(p.st);
+      opts.remember(readPosition(p, s));
     }
   });
 
@@ -282,33 +300,43 @@ export function createScrollOwner(opts: {
       // so a position read now is the true, unclamped one. With nothing
       // written yet, only an anchored reading is worth refreshing; a pinned
       // one is the tail wherever the DOM sits.
+      const p = {
+        st: el.scrollTop,
+        sh: el.scrollHeight,
+        ch: el.clientHeight,
+        orig: 0,
+      };
+      p.orig = origin(p.st);
       const moved =
         lastWritten !== undefined
-          ? Math.abs(el.scrollTop - lastWritten) >= 1
-          : !r.pinned && el.clientHeight > 0;
+          ? Math.abs(p.st - lastWritten) >= 1
+          : !r.pinned && p.ch > 0;
       if (moved) {
         const s = seen ?? { offsets: opts.layout.offsets(), ids: opts.layout.ids() };
-        place(readPosition(el, s));
+        place(readPosition(p, s));
       }
-      lastWritten = el.scrollTop;
+      lastWritten = p.st;
       fresh = true;
     },
     onScroll: (el) => {
       // The owner's own write echoes back as a scroll event; it is not input.
-      if (lastWritten !== undefined && Math.abs(el.scrollTop - lastWritten) < 1) return;
+      const st = el.scrollTop;
+      if (lastWritten !== undefined && Math.abs(st - lastWritten) < 1) return;
       // Nor is the clamp's event, which arrives a frame after the write it
       // undid.
+      const p = { st, sh: el.scrollHeight, ch: el.clientHeight, orig: 0 };
       if (isClamp({
-        scrollTop: el.scrollTop,
-        scrollHeight: el.scrollHeight,
-        clientHeight: el.clientHeight,
+        scrollTop: p.st,
+        scrollHeight: p.sh,
+        clientHeight: p.ch,
         lastWritten,
       })) return;
+      p.orig = origin(p.st);
       const offsets = opts.layout.offsets();
       const ids = opts.layout.ids();
-      place(readPosition(el, { offsets, ids }));
-      lastWritten = el.scrollTop;
-      setTop(el.scrollTop);
+      place(readPosition(p, { offsets, ids }));
+      lastWritten = p.st;
+      setTop(p.st);
       seen = { offsets, ids };
     },
   };

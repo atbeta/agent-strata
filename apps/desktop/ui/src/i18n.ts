@@ -41,8 +41,25 @@ export const LOCALE_TAG: Record<Locale, string> = {
  * meant a Chinese reader got an American `1,234` grouping and a `10/6` date
  * regardless of what the window was set to.
  */
+/**
+ * `toLocale*` builds an Intl formatter on every call — a few tenths of a
+ * millisecond each, multiplied by every row that shows a time or a number.
+ * One formatter per locale per shape; `current()` is the map key.
+ */
+const numFormats = new Map<Locale, Intl.NumberFormat>();
+const compactFormats = new Map<Locale, Intl.NumberFormat>();
+const dateFormats = new Map<Locale, Intl.DateTimeFormat>();
+const stampFormats = new Map<Locale, Intl.DateTimeFormat>();
+
+const cached = <F>(map: Map<Locale, F>, make: (tag: string) => F): F => {
+  const loc = current();
+  let f = map.get(loc);
+  if (!f) map.set(loc, (f = make(LOCALE_TAG[loc])));
+  return f;
+};
+
 export function num(n: number): string {
-  return n.toLocaleString(current());
+  return cached(numFormats, (tag) => new Intl.NumberFormat(tag)).format(n);
 }
 
 /**
@@ -57,14 +74,15 @@ export function num(n: number): string {
 export function compactNum(n: number): string {
   if (!Number.isFinite(n)) return num(0);
   if (Math.abs(n) < 100_000) return num(n);
-  return n.toLocaleString(current(), { notation: "compact", maximumFractionDigits: 1 });
+  return cached(compactFormats, (tag) =>
+    new Intl.NumberFormat(tag, { notation: "compact", maximumFractionDigits: 1 }),
+  ).format(n);
 }
 
 export function date(n: number | Date): string {
-  return new Date(n).toLocaleDateString(LOCALE_TAG[current()], {
-    month: "numeric",
-    day: "numeric",
-  });
+  return cached(dateFormats, (tag) =>
+    new Intl.DateTimeFormat(tag, { month: "numeric", day: "numeric" }),
+  ).format(new Date(n));
 }
 
 /**
@@ -74,13 +92,15 @@ export function date(n: number | Date): string {
  * showed them and dropping them would be a silent behaviour change.
  */
 export function stamp(d: number | Date | string): string {
-  return new Date(d).toLocaleString(LOCALE_TAG[current()], {
-    month: "numeric",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
+  return cached(stampFormats, (tag) =>
+    new Intl.DateTimeFormat(tag, {
+      month: "numeric",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    }),
+  ).format(new Date(d));
 }
 
 function readStored(): Locale {
