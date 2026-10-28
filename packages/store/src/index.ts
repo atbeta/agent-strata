@@ -101,6 +101,8 @@ export interface Store {
   stats(): StoreStats;
   /** Per-session split, for a purge preview. Omit ids to count every session. */
   classCounts(session_ids?: string[]): SessionClassStats[];
+  /** Sessions that carry a session.deleted event, however old. */
+  deletedSessions(): string[];
   /** Remove every event, the session row and its revision marker. */
   deleteSessions(session_ids: string[]): number;
   /**
@@ -528,6 +530,13 @@ export function openStore(path: string | ":memory:"): Store {
         out.set(row.session_id, entry);
       }
       return [...out.values()].sort((a, b) => a.session_id.localeCompare(b.session_id));
+    },
+
+    deletedSessions() {
+      const rows = db
+        .query("SELECT DISTINCT session_id FROM events WHERE type='session.deleted'")
+        .all() as { session_id: string }[];
+      return rows.map((r) => r.session_id);
     },
 
     deleteSessions(session_ids) {

@@ -111,6 +111,15 @@ export interface SyncGuard {
    * unroutable, along with everything the user could do to it.
    */
   claimed?: (casfId: string) => void;
+  /**
+   * The live local sessions this driver owns (native id + the workspace they
+   * were stored under). A driver that reconciles diffs it against what it
+   * found upstream: a session deleted while nobody was listening arrives as
+   * silence, so each miss gets one direct lookup before it is believed gone.
+   */
+  local?: () => { id: string; directory?: string }[];
+  /** a local session the reconcile pass confirmed the backend deleted */
+  reconciled?: (casfId: string) => void;
   /** sessions read so far / sessions found; fires once discovery knows the total */
   progress?(done: number, total: number): void;
 }

@@ -255,6 +255,41 @@ export function createSessionImport(args: {
         (info, directory) => collect(info, directory),
       );
     });
+    // Local sessions the crawl never saw were deleted while nobody was
+    // listening — a delete in the TUI only reaches clients connected at the
+    // time — or were missed by the listing. One direct lookup settles which:
+    // a session that still answers joins the found set and is imported below;
+    // a 404 goes down the same session.deleted road a live delete would have.
+    const ghosts = (guard?.local?.() ?? []).filter((g) => g.id && !seen.has(g.id));
+    await mapLimit(ghosts, SYNC_CONCURRENCY, async ({ id, directory }) => {
+      let res;
+      try {
+        res = await client.session.get({ sessionID: id, directory });
+        // The stored workspace may have drifted since the session was read;
+        // a miss there is not proof either, so ask once more unscoped.
+        if (!res.data && directory !== undefined) {
+          res = await client.session.get({ sessionID: id });
+        }
+      } catch {
+        // An unreachable server is not proof of a delete.
+        return;
+      }
+      if (res.data) {
+        collect(res.data, res.data.directory ?? directory);
+        return;
+      }
+      if (res.response?.status !== 404) return;
+      try {
+        ingestor.handle({
+          id: `reconcile:${id}`,
+          type: "session.deleted",
+          properties: { sessionID: id },
+        } as Event);
+        guard?.reconciled?.(`opencode:${id}`);
+      } catch (err) {
+        console.error(`reconcile session ${id} failed:`, err);
+      }
+    });
     let imported = 0;
     let done = 0;
     guard?.progress?.(0, found.length);

@@ -238,6 +238,10 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   const syncDriver = (driver: BackendDriver) => {
     activeSyncs.set(driver.id, { done: 0, total: 0 });
     broadcast({ type: "sync.started", connection_id: driver.id });
+    // Filled by the reconcile pass: local sessions the backend confirmed it
+    // no longer has, so they are marked deleted the same way a live delete
+    // event would have marked them.
+    const reconciled = new Set<string>();
     return driver
       .sync({
         stale: (casfId) =>
@@ -250,11 +254,24 @@ export function startService(opts: ServiceOpts = {}): RunningService {
           );
         },
         claimed: (casfId) => owners.set(casfId, driver.id),
+        local: () => {
+          const gone = new Set(store.deletedSessions());
+          const rows: { id: string; directory?: string }[] = [];
+          for (const s of store.listSessions({ backend: driver.agent })) {
+            const id = driver.nativeId(s.session_id);
+            if (!id || gone.has(s.session_id)) continue;
+            if (claims.shadowed({ backend: driver.agent, native_id: id }, s.session_id)) continue;
+            rows.push({ id, directory: s.workspace ?? undefined });
+          }
+          return rows;
+        },
+        reconciled: (casfId) => reconciled.add(casfId),
         progress: (done, total) => {
           activeSyncs.set(driver.id, { done, total });
           broadcast({ type: "sync.progress", connection_id: driver.id, done, total });
         },
       })
+      .then((imported) => ({ imported, reconciled: reconciled.size }))
       .finally(() => {
         activeSyncs.delete(driver.id);
         broadcast({ type: "sync.finished", connection_id: driver.id });
@@ -1704,16 +1721,19 @@ export function startService(opts: ServiceOpts = {}): RunningService {
           }),
         );
       }
-      if (conns.size === 0) return json({ connected: false, imported: 0 });
+      if (conns.size === 0) return json({ connected: false, imported: 0, reconciled: 0 });
       let imported = 0;
+      let reconciled = 0;
       for (const conn of conns.values()) {
         try {
-          imported += await syncDriver(conn);
+          const r = await syncDriver(conn);
+          imported += r.imported;
+          reconciled += r.reconciled;
         } catch (e) {
           console.error(`sync ${conn.id} failed: ${e}`);
         }
       }
-      return json({ connected: true, imported });
+      return json({ connected: true, imported, reconciled });
     }
 
     if (path === "/connections" && req.method === "GET") {

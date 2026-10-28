@@ -307,7 +307,7 @@ describe("agent-strata service", () => {
     expect(preflight.status).toBe(204);
 
     const sync = await fetch(`${base}/sync`, { method: "POST" }).then((r) => r.json());
-    expect(sync).toEqual({ connected: false, imported: 0 });
+    expect(sync).toEqual({ connected: false, imported: 0, reconciled: 0 });
 
     seed(svc);
     seed(svc, "opencode:s2");

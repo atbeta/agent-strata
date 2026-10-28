@@ -81,6 +81,14 @@ export function checkMaintenance(): Promise<{ results: string[] }> {
   return request<{ results: string[] }>("/maintenance/check", { method: "POST" });
 }
 
+export function syncBackends(): Promise<{
+  connected: boolean;
+  imported: number;
+  reconciled: number;
+}> {
+  return request("/sync", { method: "POST" });
+}
+
 export function optimizeMaintenance(vacuum: boolean): Promise<MaintenanceSnapshot> {
   return request<MaintenanceSnapshot>("/maintenance/optimize", {
     method: "POST",

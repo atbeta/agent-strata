@@ -3469,6 +3469,126 @@ describe("sync stays off the live path", () => {
   });
 });
 
+describe("sync reconciles local sessions", () => {
+  const enc = new TextEncoder();
+  const sse = () =>
+    new Response(
+      new ReadableStream<Uint8Array>({
+        start(ctrl) {
+          ctrl.enqueue(enc.encode('data: {"type":"server.connected","properties":{}}\n\n'));
+        },
+      }),
+      { status: 200, headers: { "content-type": "text/event-stream" } },
+    );
+  const info = (id: string, updated = 10) => ({
+    id,
+    title: id,
+    directory: "/repo",
+    time: { created: 1, updated },
+  });
+  /** ses_a is listed; every other session id answers however `gets` says. */
+  const fakeFetch =
+    (gets: Record<string, "data" | "404" | "throw">) =>
+    async (input: Request | URL | string) => {
+      const url = input instanceof Request ? input.url : String(input);
+      const path = new URL(url).pathname;
+      if (url.includes("/event")) return sse();
+      if (path === "/session") return Response.json([info("ses_a")]);
+      const m = path.match(/^\/session\/([^/]+)/);
+      if (m) {
+        const id = decodeURIComponent(m[1]!);
+        if (path.endsWith("/children") || path.endsWith("/message")) return Response.json([]);
+        const mode = gets[id] ?? "data";
+        if (mode === "throw") throw new Error("connection refused");
+        if (mode === "404") return new Response("{}", { status: 404 });
+        return Response.json(info(id, 20));
+      }
+      return Response.json([]);
+    };
+  const syncWith = async (
+    local: { id: string; directory?: string }[],
+    gets: Record<string, "data" | "404" | "throw">,
+  ) => {
+    const { connectOpencode } = await import("../src/index");
+    const store = openStore(":memory:");
+    const appended: EventInput[] = [];
+    const reconciled: string[] = [];
+    const conn = await connectOpencode({
+      baseUrl: "http://fake",
+      sink: {
+        append(events) {
+          appended.push(...events);
+          return store.append(events);
+        },
+        sessionRevision: (id) => store.sessionRevision(id),
+        markRevision: (id, rev) => store.markRevision(id, rev),
+      },
+      fetch: fakeFetch(gets) as typeof fetch,
+      connectTimeoutMs: 5_000,
+    });
+    try {
+      await conn.refreshSessions({
+        local: () => local,
+        reconciled: (id) => reconciled.push(id),
+      });
+      return {
+        deleted: appended.filter((e) => e.type === "session.deleted").map((e) => e.session_id),
+        updated: appended.filter((e) => e.type === "session.updated").map((e) => e.session_id),
+        reconciled,
+      };
+    } finally {
+      conn.stop();
+      store.close();
+    }
+  };
+
+  test("a local session the upstream 404s is marked deleted", async () => {
+    const r = await syncWith([{ id: "ses_gone", directory: "/repo" }], { ses_gone: "404" });
+    expect(r.reconciled).toEqual(["opencode:ses_gone"]);
+    expect(r.deleted).toContain("opencode:ses_gone");
+    expect(r.deleted).not.toContain("opencode:ses_a");
+  });
+
+  test("a missed session the upstream still answers for is collected, not deleted", async () => {
+    const r = await syncWith([{ id: "ses_b", directory: "/repo" }], { ses_b: "data" });
+    expect(r.reconciled).toEqual([]);
+    expect(r.deleted).toEqual([]);
+    expect(r.updated).toContain("opencode:ses_b");
+  });
+
+  test("a lookup that never reached the server deletes nothing", async () => {
+    const r = await syncWith([{ id: "ses_c", directory: "/repo" }], { ses_c: "throw" });
+    expect(r.reconciled).toEqual([]);
+    expect(r.deleted).toEqual([]);
+  });
+
+  test("no local guard means no reconciliation", async () => {
+    const { connectOpencode } = await import("../src/index");
+    const store = openStore(":memory:");
+    const appended: EventInput[] = [];
+    const conn = await connectOpencode({
+      baseUrl: "http://fake",
+      sink: {
+        append(events) {
+          appended.push(...events);
+          return store.append(events);
+        },
+        sessionRevision: (id) => store.sessionRevision(id),
+        markRevision: (id, rev) => store.markRevision(id, rev),
+      },
+      fetch: fakeFetch({ ses_z: "404" }) as typeof fetch,
+      connectTimeoutMs: 5_000,
+    });
+    try {
+      await conn.refreshSessions();
+      expect(appended.filter((e) => e.type === "session.deleted")).toEqual([]);
+    } finally {
+      conn.stop();
+      store.close();
+    }
+  });
+});
+
 describe("pickable providers", () => {
   const catalog = [
     { id: "deepseek", source: "api", env: ["DEEPSEEK_API_KEY"] },

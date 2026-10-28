@@ -306,6 +306,9 @@ export function projectSession(events: Event[]): SessionView {
       case "session.updated":
         if (e.data.title !== undefined) view.title = e.data.title;
         if (e.data.workspace !== undefined) view.workspace = e.data.workspace;
+        // A backend that answers for the session again — a sync collected it —
+        // undoes a deletion the store only heard about second-hand.
+        delete view.deleted;
         if (e.data.archived !== undefined) view.archived = e.data.archived;
         if (e.data.parent_session_id) view.parent_session_id = e.data.parent_session_id;
         // Absent revert leaves the boundary; null clears it.

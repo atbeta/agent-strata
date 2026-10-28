@@ -7,6 +7,7 @@ import {
   deleteLegacy,
   optimizeMaintenance,
   readMaintenance,
+  syncBackends,
   type CleanResult,
   type MaintenanceSnapshot,
 } from "./maintenance-api";
@@ -81,6 +82,19 @@ export function MaintenanceSettings() {
   const runCheck = () =>
     void run("check", checkMaintenance, (result) => {
       setCheck(result.results);
+    });
+  const runReconcile = () =>
+    void run("reconcile", syncBackends, (result) => {
+      setFeedback({
+        key: "reconcile",
+        ok: true,
+        text: result.connected
+          ? t("maintenance.reconcile.done", {
+              imported: num(result.imported),
+              reconciled: num(result.reconciled),
+            })
+          : t("maintenance.reconcile.offline"),
+      });
     });
   const runOptimize = () =>
     void run("optimize", () => optimizeMaintenance(false), (next) => {
@@ -289,6 +303,24 @@ export function MaintenanceSettings() {
                   >
                     <span class={busy() === "check" ? "opacity-50" : undefined}>
                       {t("maintenance.check.run")}
+                    </span>
+                  </Button>
+                </Row>
+                <Row
+                  label={t("maintenance.reconcile")}
+                  hint={t("maintenance.reconcile.hint")}
+                  controlClass="w-auto"
+                  note={note("reconcile")}
+                >
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={Boolean(busy())}
+                    aria-busy={busy() === "reconcile"}
+                    onClick={() => void runReconcile()}
+                  >
+                    <span class={busy() === "reconcile" ? "opacity-50" : undefined}>
+                      {t("maintenance.reconcile.run")}
                     </span>
                   </Button>
                 </Row>

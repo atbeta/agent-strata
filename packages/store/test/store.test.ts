@@ -15,6 +15,17 @@ const mk = (session_id: string, type: string, data: object, ts?: string): EventI
   } as EventInput);
 
 describe("store", () => {
+  test("deletedSessions lists only sessions carrying the marker", () => {
+    const s = openStore(":memory:");
+    s.append([
+      mk("a", "session.started", { workspace: "/a" }),
+      mk("b", "session.started", { workspace: "/b" }),
+      mk("a", "session.deleted", {}),
+    ]);
+    expect(s.deletedSessions()).toEqual(["a"]);
+    s.close();
+  });
+
   test("seq assignment across interleaved sessions", () => {
     const s = openStore(":memory:");
     const out = s.append([
