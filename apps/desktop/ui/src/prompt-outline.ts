@@ -95,10 +95,15 @@ export function promptAt(
   turnIndex: number,
 ): PromptEntry | undefined {
   if (!entries.length) return undefined;
-  let out = entries[0]!;
-  for (const entry of entries) {
-    if (entry.turnIndex > turnIndex) break;
-    out = entry;
+  // Binary search for the last entry at or before the row: the outline rail
+  // asks on every scroll frame, and a linear scan over a long session was the
+  // frame itself. Entries arrive ascending by turnIndex by construction.
+  let lo = 0;
+  let hi = entries.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (entries[mid]!.turnIndex <= turnIndex) lo = mid + 1;
+    else hi = mid;
   }
-  return out;
+  return entries[Math.max(0, lo - 1)];
 }

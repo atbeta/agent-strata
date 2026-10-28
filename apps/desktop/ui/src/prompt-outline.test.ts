@@ -148,4 +148,23 @@ describe("promptAt", () => {
   test("past the end anchors to the last", () => {
     expect(promptAt(entries, 99)?.turnId).toBe("d");
   });
+
+  test("an exact hit returns the entry at that row", () => {
+    // entries: a@0, c@2, d@3
+    expect(promptAt(entries, 0)?.turnId).toBe("a");
+    expect(promptAt(entries, 2)?.turnId).toBe("c");
+    expect(promptAt(entries, 3)?.turnId).toBe("d");
+  });
+
+  test("a gap between prompts anchors to the one above", () => {
+    // No prompt at rows 1 and 4..8 — the row belongs to the last prompt seen.
+    expect(promptAt(entries, 1)?.turnId).toBe("a");
+    expect(promptAt(entries, 7)?.turnId).toBe("d");
+  });
+
+  test("a session whose first prompt is not row 0 still anchors to it", () => {
+    const late = promptEntries([turn("x", undefined), turn("y", text("q"))]);
+    expect(late[0]!.turnIndex).toBe(1);
+    expect(promptAt(late, 0)?.turnId).toBe("y");
+  });
 });

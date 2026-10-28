@@ -88,8 +88,15 @@ export function TranscriptView(props: {
             remember: (reading) => rememberReading(key, reading),
           });
           const onScroll = scrollCoalescer(owner.onScroll);
-          const activeEntry = () =>
-            owner.following() ? entries().at(-1) : promptAt(entries(), owner.activeIndex());
+          // Memoized so the rail's ticks compare a stable id: computing it
+          // per read ran the outline lookup once per tick per frame. With the
+          // memo, a scroll that never crosses a prompt boundary changes
+          // nothing.
+          const activeId = createMemo(
+            () =>
+              (owner.following() ? entries().at(-1) : promptAt(entries(), owner.activeIndex()))
+                ?.turnId,
+          );
 
           props.api?.({
             jumpTo: owner.jumpTo,
@@ -164,7 +171,7 @@ export function TranscriptView(props: {
               <Show when={showNav()}>
                 <PromptNavigator
                   entries={entries()}
-                  activeId={activeEntry()?.turnId}
+                  activeId={activeId()}
                   onSelect={(turnId) => owner.jumpTo(turnId, "start")}
                 />
               </Show>

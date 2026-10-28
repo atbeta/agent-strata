@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createRenderEffect, createSignal, For, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createRenderEffect, createSelector, createSignal, For, onCleanup, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { Button } from "./components/ui/button";
 import { Icon } from "./icons";
@@ -267,8 +267,12 @@ export function PromptNavigator(props: {
     refs.clear();
   });
 
-  const tabFor = (id: string) =>
-    (tabId() ?? props.activeId ?? props.entries[0]?.turnId) === id ? 0 : -1;
+  // Selectors, not per-tick comparisons: reading `props.activeId` inside every
+  // button's attributes re-evaluated the lookup once per tick per change —
+  // O(entries) reads a frame. A selector resolves it once and only re-renders
+  // the tick the answer moved from and the one it moved to.
+  const isActive = createSelector(() => props.activeId);
+  const isTab = createSelector(() => tabId() ?? props.activeId ?? props.entries[0]?.turnId);
 
   const stepClass =
     "nav-step h-4 w-7 opacity-55 group-hover:opacity-100 group-focus-within:opacity-100 disabled:opacity-30 group-hover:disabled:opacity-30";
@@ -339,8 +343,8 @@ export function PromptNavigator(props: {
               type="button"
               data-turn-id={e.turnId}
               class="nav-tick"
-              tabIndex={tabFor(e.turnId)}
-              aria-current={props.activeId === e.turnId || undefined}
+              tabIndex={isTab(e.turnId) ? 0 : -1}
+              aria-current={isActive(e.turnId) || undefined}
               aria-label={`${e.number}. ${text(e)}`}
               aria-describedby={previewId() === e.turnId ? "prompt-nav-tip" : undefined}
               onMouseEnter={() => showFor(e.turnId)}
