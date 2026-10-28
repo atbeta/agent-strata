@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createRenderEffect, createSignal, For, on, onCleanup, onMount, untrack, type JSX } from "solid-js";
 import { anchorFromOffsets, pinScroll, type Reading } from "./transcript-layout";
 import { rowPaintMode } from "./paint-mode";
-import { mountedRange } from "./virtual-window";
+import { mountedRange, windowScrollTop } from "./virtual-window";
 import { atTail, scrollTopForRow, scrollTopToCentreRow } from "./virtual-tail";
 
 /**
@@ -248,8 +248,16 @@ export function Virtual<T>(props: VirtualProps<T>) {
     // mirror of it. The mirror arrives through `onScroll`, which is a frame
     // behind, and the row a jump went to is not in the window until the window
     // is told about the scroll — which is what leaving this on the parent alone
-    // prevented.
-    const top = pendingTop() ?? props.scrollTop;
+    // prevented. Following ignores that mirror: a pinned open scrolls to the
+    // tail before the signal hears about it, and windowing on 0 paints the
+    // first turns into a viewport that is already at the end.
+    const top = windowScrollTop({
+      pending: pendingTop(),
+      following: following(),
+      scrollTop: props.scrollTop,
+      end: o[n] ?? 0,
+      viewport: props.viewport,
+    });
     // Pixel window only. A row cap unmounted rows the reader was about to
     // reach, and mounting them again parsed markdown on the scroll frame.
     // The estimate is what keeps this count near the rows actually on screen.
@@ -463,7 +471,13 @@ export function Virtual<T>(props: VirtualProps<T>) {
           // every pixel. The boolean flips only when the row crosses the fold.
           const inView = createMemo(() => {
             if (props.viewport <= 0) return true;
-            const top = pendingTop() ?? props.scrollTop;
+            const top = windowScrollTop({
+              pending: pendingTop(),
+              following: following(),
+              scrollTop: props.scrollTop,
+              end: offsets()[props.items.length] ?? 0,
+              viewport: props.viewport,
+            });
             const y = offsets()[i] ?? 0;
             const next = offsets()[i + 1] ?? y + props.estimate;
             const height = Math.max(0, next - y - props.gap);

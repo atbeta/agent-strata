@@ -799,8 +799,8 @@ export function SessionDetail(props: {
   useDismiss(search.searchOpen, search.closeSearch, () => searchPanelEl, () => searchTriggerEl);
   useDismiss(tools.toolsOpen, tools.closeTools, () => toolsPanelEl, () => toolsTriggerEl);
 
-  /** One outline row per real prompt, rebuilt from the view already in hand. */
-  const entries = createMemo(() => promptEntries(settled(view)?.turns ?? []));
+  /** One outline row per real prompt, from the session on screen, not the one the resource has not dropped yet. */
+  const entries = createMemo(() => promptEntries(turns()));
   const showNav = () => !booting() && replayPos() === null && entries().length >= 2;
   /** Following the tail means the active prompt is the last one, whatever row is on top. */
   const activeEntry = () => (pinned() ? entries().at(-1) : promptAt(entries(), activeTurn()));
@@ -940,11 +940,15 @@ const turns = () => shown().turns;
     })();
   });
 
-  // The stored view is already loading — the transcript paints as soon as it
-  // lands instead of waiting on a full re-import first. A cached view or a
-  // tail preview is enough to leave the boot state; the settled view follows.
-  createEffect(() => {
-    if (booting() && (view.state === "ready" || view.state === "errored" || settled(view))) setBooting(false);
+  // Before paint, not after. The resource still holds the previous session
+  // while the next one loads, and an effect that treated that as "ready"
+  // dropped the skeleton and left the old rail and the old transcript up
+  // until the fetch landed.
+  createRenderEffect(() => {
+    const id = props.id;
+    const ready = displayed()?.session_id === id;
+    if (ready || view.error) setBooting(false);
+    else setBooting(true);
   });
 
   /**
@@ -1381,17 +1385,29 @@ const turns = () => shown().turns;
     </Tip>
   );
 
+  const listedTitle = () => {
+    const row = props.sessions.find((s) => s.summary.session_id === props.id);
+    return displayTitle(row?.title ?? row?.summary.title) ?? t("session.untitled");
+  };
+
   return (
     <div class="flex h-full min-h-0">
       <div class="@container/session relative flex min-w-0 flex-1 flex-col">
         <Show
-          when={settled(view)}
+          when={displayed()}
           fallback={
             <div class="flex h-full min-h-0 flex-col">
               <DragBar />
               <Show
                 when={view.error}
-                fallback={<LoadingTranscript />}
+                fallback={
+                  <>
+                    <div class="flex h-9 shrink-0 items-center border-b border-border px-4">
+                      <h1 class="min-w-0 flex-1 truncate text-sm font-medium">{listedTitle()}</h1>
+                    </div>
+                    <LoadingTranscript />
+                  </>
+                }
               >
                 <div class="flex flex-1 items-center justify-center">
                   <EmptyState
@@ -2045,7 +2061,7 @@ const turns = () => shown().turns;
           />
         )}
       </Show>
-      <Show when={!traceBlock() && settled(view)}>
+      <Show when={!traceBlock() && displayed()}>
         {(v) => (
           <SessionRail
             sessionId={() => props.id}

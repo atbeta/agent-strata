@@ -116,18 +116,13 @@ export function PeerSessionTranscript(props: {
     opening ? { initialValue: opening.view } : undefined,
   );
 
-  createEffect(() => {
-    if (booting() && (view.state === "ready" || view.state === "errored" || settled(view))) {
-      setBooting(false);
-    }
-  });
-
   // The header's dot is 28px tall and is where you look to decide whether to
   // switch to this pane, so it has to be right while the pane is not the one
   // being looked at. This view already carries the answer; publish it rather
   // than waiting for the session list to be refetched from behind.
   createEffect(() => {
-    publishPaneBusy(props.sessionId, settled(view)?.busy === true);
+    const v = settled(view);
+    publishPaneBusy(props.sessionId, v?.session_id === props.sessionId && v.busy === true);
   });
 
   let running: Promise<void> | undefined;
@@ -290,6 +285,10 @@ const displayed = createMemo(() => {
   const v = settled(view);
   if (v?.session_id === props.sessionId) return v;
   return peekView(props.sessionId)?.view;
+});
+createEffect(() => {
+  const ready = displayed()?.session_id === props.sessionId;
+  if (booting() && (ready || view.state === "errored" || view.error)) setBooting(false);
 });
 const shown = createMemo(() => {
   const v = displayed();
