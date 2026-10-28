@@ -18,3 +18,7 @@ apps/desktop/src-tauri/brand.overlay.json
 scripts/brand.local.ts
 
 .tmp-*
+
+# Transcript benchmark artifacts
+apps/desktop/ui/bench/.cache/
+apps/desktop/ui/bench/results/

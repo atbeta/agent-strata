@@ -1759,6 +1759,7 @@ const turns = () => shown().turns;
                  * transcript still streaming gives up before it is tall enough.
                  */
                 class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
+                data-transcript-scroller=""
                 onScroll={onScrolled}
               >
                 <div

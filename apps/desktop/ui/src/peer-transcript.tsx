@@ -443,6 +443,7 @@ const turns = () => shown().turns;
           // after having left it.
         }}
         class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
+        data-transcript-scroller=""
         onScroll={onScrolled}
       >
         <div
