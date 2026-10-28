@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ROW_ESTIMATE, ROW_GAP } from "./transcript-layout";
-import { mountedRange, windowScrollTop } from "./virtual-window";
+import { mountedRange } from "./virtual-window";
 
 /**
  * A prefix-sum stand-in: rows of a fixed height, so `rowAt` is arithmetic.
@@ -92,32 +92,6 @@ describe("the rows a transcript mounts", () => {
       expect(last).toBeGreaterThanOrEqual(first);
       expect(last).toBeLessThan(100);
     }
-  });
-});
-
-describe("where a pinned transcript looks before it has been measured", () => {
-  test("the window sits on the tail, not on the previous session's scroll offset", () => {
-    // Opening used to window on scrollTop 0 while the scroller was already
-    // pinned to the end. The rows on screen were the first turns, the viewport
-    // was the last ones, and the pane was blank until a scroll event caught up.
-    expect(
-      windowScrollTop({ pending: undefined, following: true, scrollTop: 12_000, end: 200_000, viewport: 0 }),
-    ).toBe(200_000);
-    expect(
-      windowScrollTop({ pending: undefined, following: true, scrollTop: 12_000, end: 200_000, viewport: 800 }),
-    ).toBe(199_200);
-  });
-
-  test("a reader who left the tail keeps that offset", () => {
-    expect(
-      windowScrollTop({ pending: undefined, following: false, scrollTop: 400, end: 200_000, viewport: 800 }),
-    ).toBe(400);
-  });
-
-  test("a jump is the offset, even while the list was following", () => {
-    expect(
-      windowScrollTop({ pending: 1200, following: true, scrollTop: 0, end: 200_000, viewport: 800 }),
-    ).toBe(1200);
   });
 });
 

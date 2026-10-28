@@ -30,11 +30,11 @@ describe("the transcript's flow is positioned so motion is possible", () => {
   test("a turn block is keyed by turn id where it is mounted", () => {
     // The window mounts rows by turn id, so a turn that is already on screen is
     // updated in place and a turn that is new gets one entrance.
-    const detail = require("node:fs").readFileSync(
-      require("node:path").join(import.meta.dir, "session-detail.tsx"),
+    const view = require("node:fs").readFileSync(
+      require("node:path").join(import.meta.dir, "transcript-view.tsx"),
       "utf8",
     ) as string;
-    expect(detail).toContain("data-turn-id={turn().turn_id}");
+    expect(view).toContain("data-turn-id={turn().turn_id}");
   });
 
   test("a tool run is positioned too, so its cards are not rebuilt mid-run", () => {

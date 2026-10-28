@@ -8,7 +8,7 @@ import { t } from "./i18n";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { enqueuePaint } from "./paint-queue";
-import { useRowPaintMode } from "./paint-mode";
+import { useRowPaintHold, useRowPaintMode } from "./paint-mode";
 
 /**
  * A framed block for a tool payload. Structure renders as a tree, text renders
@@ -42,6 +42,7 @@ function Code(props: { source: string; label?: string; maxHeight?: string; class
   // tokenizes on a later frame, same as markdown, so a scroll that mounts a
   // window of tool output does not colour all of it before the next paint.
   const mode = useRowPaintMode();
+  const paintHold = useRowPaintHold();
   const [shown, setShown] = createSignal(mode() === "now");
   createEffect(() => {
     if (shown()) return;
@@ -49,7 +50,12 @@ function Code(props: { source: string; label?: string; maxHeight?: string; class
       setShown(true);
       return;
     }
-    onCleanup(enqueuePaint(() => setShown(true)));
+    const release = paintHold.hold();
+    onCleanup(release);
+    onCleanup(enqueuePaint(() => {
+      release();
+      setShown(true);
+    }));
   });
   const tokens = createMemo(() => {
     if (!shown()) return [];

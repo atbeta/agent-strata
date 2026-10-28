@@ -17,9 +17,14 @@ describe("opening a session does not keep the previous one on screen", () => {
     expect(src).toContain("when={displayed()}");
     expect(src).not.toContain("when={settled(view)}");
     expect(src).not.toContain("when={!traceBlock() && settled(view)}");
-    expect(src).toContain("promptEntries(displayed()?.turns ?? [])");
-    expect(src).not.toContain("promptEntries(turns())");
-    expect(src).not.toContain("promptEntries(settled(view)");
+    // The transcript is keyed on the view on screen, not on the route — a
+    // session id that ran ahead of its data would remount the list on stale
+    // rows.
+    expect(src).toContain("sessionId={displayed()?.session_id ?? props.id}");
+    expect(src).toContain("turns={turns()}");
+    const view = code("transcript-view.tsx");
+    expect(view).toContain("promptEntries(props.turns)");
+    expect(view).not.toContain("promptEntries(settled(view)");
   });
 
   test("a stale view does not end the skeleton", () => {

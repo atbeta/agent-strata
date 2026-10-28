@@ -17,27 +17,6 @@
  * the last row.
  */
 
-/**
- * Scroll offset the window is built from.
- *
- * A pinned open used to build the window from `scrollTop` 0 while the scroller
- * itself was already at the end: the mounted rows were the first turns, the
- * viewport was the last ones, and the pane stayed blank until a scroll event
- * caught up. Following means the tail, including the frame where the viewport
- * height is still 0 and a pixel for "the end" cannot be computed yet.
- */
-export function windowScrollTop(input: {
-  pending: number | undefined;
-  following: boolean;
-  scrollTop: number;
-  end: number;
-  viewport: number;
-}): number {
-  if (input.pending !== undefined) return input.pending;
-  if (input.following) return Math.max(0, input.end - Math.max(0, input.viewport));
-  return input.scrollTop;
-}
-
 export function mountedRange(input: {
   count: number;
   top: number;

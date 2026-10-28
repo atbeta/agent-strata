@@ -1,7 +1,6 @@
 import {
   createEffect,
   createMemo,
-  createRenderEffect,
   createResource,
   createSignal,
   onCleanup,
@@ -14,9 +13,7 @@ import { createEntranceLedger } from "./entrance";
 import { planVisible } from "./plan-progress";
 import { PlanStrip } from "./plan-strip";
 import { TurnBlock } from "./transcript";
-import { Virtual, type VirtualApi } from "./virtual";
-import { PromptNavigator } from "./prompt-navigator";
-import { promptAt, promptEntries } from "./prompt-outline";
+import { TranscriptView } from "./transcript-view";
 import { applyStreamingSnapshot, mergeViewTail, runInProgress, type StreamingSnapshot } from "./live";
 import { isDevEvent } from "./sync-events";
 import {
@@ -29,18 +26,6 @@ import {
 } from "./view-cache";
 import { t } from "./i18n";
 import { clearPaneBusy, publishPaneBusy } from "./pane-activity";
-import { contentW, recallPaneScroll, rememberPaneScroll } from "./session-chrome";
-import {
-  ROW_ESTIMATE,
-  ROW_GAP,
-  layoutKey,
-  placeReading,
-  readRowHeights,
-  rememberReading,
-  writeRowHeight,
-} from "./transcript-layout";
-import { ContentSashes, LoadingTranscript } from "./content-sashes";
-import { scrollCoalescer } from "./scroll-frame";
 import type { SessionRowSummary } from "./pane-stage";
 import { Button } from "@/components/ui/button";
 import { SessionEmpty } from "./session-empty";
@@ -64,7 +49,6 @@ export function PeerSessionTranscript(props: {
   onFocus: () => void;
   onOpenChild: (id: string) => void;
 }) {
-  const savedScroll = recallPaneScroll(props.paneId, props.sessionId);
   const opening = peekView(props.sessionId);
   const [booting, setBooting] = createSignal(!opening);
   let filesKey: string | undefined = opening?.filesKey;
@@ -181,12 +165,6 @@ export function PeerSessionTranscript(props: {
     return running;
   };
 
-  let scroller: HTMLDivElement | undefined;
-  let list: VirtualApi | undefined;
-  const [scrollTop, setScrollTop] = createSignal(savedScroll?.scrollTop ?? 0);
-  const [viewport, setViewport] = createSignal(0);
-  const [pinned, setPinned] = createSignal(savedScroll?.pinned ?? true);
-  const [activeTurn, setActiveTurn] = createSignal(0);
 
   onMount(() => {
     if (peekView(props.sessionId)) {
@@ -297,9 +275,6 @@ const shown = createMemo(() => {
   return { turns: t, arriving: entrance.arriving(v?.session_id ?? "", t.map((x) => x.turn_id)) };
 });
 const turns = () => shown().turns;
-  const entries = createMemo(() => promptEntries(turns()));
-  const showNav = () => !booting() && entries().length >= 2;
-  const activeEntry = () => (pinned() ? entries().at(-1) : promptAt(entries(), activeTurn()));
   const row = () => props.sessions.find((s) => s.summary.session_id === props.sessionId);
   const peerGenerating = () => runInProgress({ busy: row()?.busy || settled(view)?.busy });
   const needsInput = () => Boolean(row()?.needs_input);
@@ -310,224 +285,33 @@ const turns = () => shown().turns;
     return { title: r.title ?? "", status: r.status, busy: r.busy };
   };
 
-  const jumpToLatest = () => {
-    if (scroller) scroller.scrollTop = scroller.scrollHeight;
-    setPinned(true);
-    setActiveTurn(Math.max(0, turns().length - 1));
-    const key = layoutKey(props.paneId, props.sessionId);
-    rememberReading(key, { pinned: true });
-    rememberPaneScroll(props.paneId, props.sessionId, {
-      scrollTop: scroller?.scrollTop ?? 0,
-      pinned: true,
-    });
-  };
-
-  /**
-   * Open on the layout this pane already measured. See the focused transcript:
-   * the row and the heights have to be in place before the first paint, or the
-   * column stacks on the 100px guess and then jumps.
-   */
-  let adoptedLayout = "";
-  let heldTop = 0;
-  let placing = false;
-  const [placedTick, setPlacedTick] = createSignal(0);
-  const placeScroller = (el: HTMLElement, top: number) => {
-    if (el.scrollHeight < top) return false;
-    if (el.scrollTop === top) return true;
-    placing = true;
-    el.scrollTop = top;
-    placing = false;
-    return true;
-  };
-  /**
-   * One pass per frame, not one per scroll event. See `scroll-frame.ts`; the
-   * transcript's handler writes four signals and reads layout on every call.
-   */
-  const onScrolled = scrollCoalescer((el) => {
-    if (placing) return;
-    const isPinned = el.scrollHeight - el.scrollTop - el.clientHeight < 96;
-    setScrollTop(el.scrollTop);
-    setViewport(el.clientHeight);
-    setPinned(isPinned);
-    setActiveTurn(list?.indexAtTop() ?? 0);
-    const key = layoutKey(props.paneId, props.sessionId);
-    rememberReading(key, list?.readingAtTop(isPinned) ?? { pinned: true });
-    rememberPaneScroll(props.paneId, props.sessionId, {
-      scrollTop: el.scrollTop,
-      pinned: isPinned,
-    });
-  });
-  createRenderEffect(() => {
-    const paneId = props.paneId;
-    const id = props.sessionId;
-    const viewNow = displayed();
-    if (viewNow?.session_id !== id) return;
-    const key = layoutKey(paneId, id);
-    if (key === adoptedLayout) return;
-    adoptedLayout = key;
-    const placed = placeReading({
-      key,
-      ids: turns().map((turn) => turn.turn_id),
-      viewport: viewport(),
-      fallback: recallPaneScroll(paneId, id),
-    });
-    heldTop = placed.scrollTop;
-    setPinned(placed.pinned);
-    setScrollTop(placed.scrollTop);
-    setPlacedTick((n) => n + 1);
-  });
-  createEffect(() => {
-    placedTick();
-    const id = props.sessionId;
-    const paneId = props.paneId;
-    if (adoptedLayout !== layoutKey(paneId, id)) return;
-    if (heldTop <= 0) return;
-    let tries = 0;
-    let frame = 0;
-    const restore = () => {
-      const el = scroller;
-      if (!el || frame === 0 || ++tries > 120 || props.sessionId !== id || props.paneId !== paneId) {
-        frame = 0;
-        return;
-      }
-      if (!placeScroller(el, heldTop)) {
-        frame = requestAnimationFrame(restore);
-        return;
-      }
-      frame = 0;
-      setScrollTop(heldTop);
-    };
-    frame = requestAnimationFrame(restore);
-    onCleanup(() => {
-      if (frame) cancelAnimationFrame(frame);
-    });
-  });
-
   return (
-    <div class="relative flex min-h-0 flex-1 flex-col">
-      <ContentSashes />
-      <div
-        ref={(el) => {
-          scroller = el;
-          if (!el) return;
-          if (heldTop > 0) placeScroller(el, heldTop);
-          /**
-           * Measured, not guessed.
-           *
-           * `viewport` decides which rows are mounted: `Virtual` computes its
-           * window from `props.viewport`, and its own `scrollerHeight` — which
-           * it does observe — is only used to decide whether to re-pin to the
-           * bottom. So this number is the whole of what a peer pane draws, and
-           * it used to be read exactly once, in a microtask, on the assumption
-           * that layout would be finished by then.
-           *
-           * It is not, for a pane that mounts while it is not the focused one.
-           * A pane that takes focus gets measured a moment later by whatever
-           * scrolls it, so it recovers and looks fine. A peer pane is mounted
-           * precisely when nothing is going to scroll it, so the reading stands
-           * at zero, `viewport` stays zero, and the window collapses to the
-           * overscan rows — a conversation with tools and text in it, showing
-           * blank. Waiting a frame longer would only move the race.
-           *
-           * Observed instead: every layout that changes this box updates it, and
-           * the first callback lands when the browser has actually sized it.
-           */
-          const measure = () => setViewport(el.clientHeight);
-          const ro = new ResizeObserver(measure);
-          ro.observe(el);
-          measure();
-          onCleanup(() => ro.disconnect());
-          // The restore itself is an effect below rather than part of this
-          // callback: a peer pane is re-created per session, but a ref still
-          // only runs on mount, and the point is to come back to a session
-          // after having left it.
-        }}
-        class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
-        data-transcript-scroller=""
-        onScroll={onScrolled}
-      >
-        <div
-          class={`${showNav() ? "mx-auto w-full px-11 py-4" : "mx-auto w-full px-5 py-4"}${
-            turns().length === 0 ? " flex min-h-full flex-col" : ""
-          }`}
-          style={{
-            "max-width": `calc(${contentW()}px + ${showNav() ? "5.5rem" : "2.5rem"})`,
-          }}
-        >
-          <Show when={!booting()} fallback={<LoadingTranscript />}>
-            <Show
-              when={turns().length > 0}
-              fallback={
-                // Peer panes have no composer, so no key hints — just where
-                // the session lives and that nobody has said anything yet.
-                <div class="flex flex-1 items-center justify-center pb-[10vh]">
-                  <SessionEmpty workspace={displayed()?.workspace} />
-                </div>
-              }
-            >
-              <Virtual
-                items={turns()}
-                id={(turn) => turn.turn_id}
-                estimate={ROW_ESTIMATE}
-                gap={ROW_GAP}
-                layoutKey={layoutKey(props.paneId, props.sessionId)}
-                seed={readRowHeights(layoutKey(props.paneId, props.sessionId))}
-                follow={pinned()}
-                onHeight={(key, turnId, height) => writeRowHeight(key, turnId, height)}
-                scrollTop={scrollTop()}
-                viewport={viewport()}
-                scroller={() => scroller}
-                api={(a) => {
-                  list = a;
-                  setActiveTurn(a.indexAtTop());
-                }}
-              >
-                {(turn) => (
-                  <div data-turn-id={turn().turn_id}>
-                    <TurnBlock
-                      turn={turn()}
-                      entering={() => shown().arriving.has(turn().turn_id)}
-                      live={() =>
-                        peerGenerating() && turns().at(-1)?.turn_id === turn().turn_id
-                      }
-                      awaiting={() => false}
-                      childOf={childOf}
-                      onOpenChild={props.onOpenChild}
-                    />
-                  </div>
-                )}
-              </Virtual>
-            </Show>
-          </Show>
+    <>
+    <TranscriptView
+      paneId={props.paneId}
+      sessionId={displayed()?.session_id ?? props.sessionId}
+      turns={turns()}
+      ready={!booting()}
+      nav={!booting()}
+      class="min-h-0"
+      empty={
+        // Peer panes have no composer, so no key hints — just where
+        // the session lives and that nobody has said anything yet.
+        <div class="flex flex-1 items-center justify-center pb-[10vh]">
+          <SessionEmpty workspace={displayed()?.workspace} />
         </div>
-      </div>
-
-      <Show when={showNav()}>
-        <PromptNavigator
-          entries={entries()}
-          activeId={activeEntry()?.turnId}
-          onSelect={(turnId) => {
-            const idx = turns().findIndex((x) => x.turn_id === turnId);
-            if (idx >= 0) {
-              setPinned(false);
-              list?.scrollToIndex(idx, "start");
-              setActiveTurn(idx);
-            }
-          }}
+      }
+      renderTurn={(turn) => (
+        <TurnBlock
+          turn={turn()}
+          entering={() => shown().arriving.has(turn().turn_id)}
+          live={() => peerGenerating() && turns().at(-1)?.turn_id === turn().turn_id}
+          awaiting={() => false}
+          childOf={childOf}
+          onOpenChild={props.onOpenChild}
         />
-      </Show>
-
-      <Show when={!booting() && !pinned() && turns().length > 0}>
-        <Button
-          type="button"
-          variant="quiet"
-          size="xs"
-          class="surface-popover absolute bottom-10 left-1/2 z-20 h-auto -translate-x-1/2 rounded-full border border-border bg-popover px-3 py-1 shadow-md"
-          onClick={jumpToLatest}
-        >
-          {t("nav.latest")}
-        </Button>
-      </Show>
+      )}
+    />
 
       <Show when={settled(view)?.plan && planVisible(settled(view)!.plan, peerGenerating())}>
         <div class="shrink-0 border-t border-border px-3 py-1.5">
@@ -556,6 +340,6 @@ const turns = () => shown().turns;
           </Button>
         </div>
       </Show>
-    </div>
+    </>
   );
 }

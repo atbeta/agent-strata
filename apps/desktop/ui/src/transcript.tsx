@@ -14,7 +14,7 @@ import { copyText } from "./clipboard";
 import { Icon, type Name } from "./icons";
 import { Md } from "./md";
 import { enqueuePaint } from "./paint-queue";
-import { useRowPaintMode } from "./paint-mode";
+import { useRowPaintHold, useRowPaintMode } from "./paint-mode";
 import { Tip } from "./tip";
 import { stripAnsi } from "./ansi";
 import { Code, CopyButton } from "./payload";
@@ -732,6 +732,7 @@ type FlowRow = { kind: "message"; message: AssistantMessageData } | { kind: "too
 /** Structured output is the answer, and stringifying it is not scroll work. */
 function StructuredAnswer(props: { value: unknown }) {
   const mode = useRowPaintMode();
+  const paintHold = useRowPaintHold();
   const [shown, setShown] = createSignal(mode() === "now");
   createEffect(() => {
     if (shown()) return;
@@ -739,7 +740,12 @@ function StructuredAnswer(props: { value: unknown }) {
       setShown(true);
       return;
     }
-    onCleanup(enqueuePaint(() => setShown(true)));
+    const release = paintHold.hold();
+    onCleanup(release);
+    onCleanup(enqueuePaint(() => {
+      release();
+      setShown(true);
+    }));
   });
   return (
     <Show when={shown()}>

@@ -8,7 +8,7 @@ import { drawDiagram, isDiagramBlock } from "./mermaid";
 import { t } from "./i18n";
 import { MarkdownHtmlCache } from "./md-cache";
 import { enqueuePaint } from "./paint-queue";
-import { useRowPaintMode } from "./paint-mode";
+import { useRowPaintHold, useRowPaintMode } from "./paint-mode";
 
 marked.setOptions({ gfm: true, breaks: true });
 
@@ -23,7 +23,13 @@ export function Md(props: { text: string; class?: string; live?: boolean }) {
   /** How many of `host`'s child nodes belong to that slice. The rest is the tail. */
   let stableCount = 0;
   const mode = useRowPaintMode();
+  const paintHold = useRowPaintHold();
   let cancelIdle: (() => void) | undefined;
+  let releaseHold: (() => void) | undefined;
+  const release = () => {
+    releaseHold?.();
+    releaseHold = undefined;
+  };
 
   const paint = (source: string, live: boolean) => {
     if (!host) return;
@@ -84,9 +90,14 @@ export function Md(props: { text: string; class?: string; live?: boolean }) {
       if (immediate) {
         cancelIdle?.();
         cancelIdle = undefined;
+        release();
         go();
       } else if (!cancelIdle) {
-        cancelIdle = enqueuePaint(go);
+        releaseHold ??= paintHold.hold();
+        cancelIdle = enqueuePaint(() => {
+          release();
+          go();
+        });
       }
       void source;
       return;
@@ -103,6 +114,7 @@ export function Md(props: { text: string; class?: string; live?: boolean }) {
     if (frame) cancelAnimationFrame(frame);
     cancelIdle?.();
     cancelIdle = undefined;
+    release();
   });
 
   return <div ref={host} class={`md ${props.class ?? ""}`} />;

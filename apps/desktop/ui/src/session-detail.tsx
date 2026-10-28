@@ -64,20 +64,7 @@ import { toggleClasses } from "./toggle-state";
 import { TraceDrawer, TraceStrip, type TraceBlock } from "./trace";
 import { TerminalPane } from "./terminal";
 import { TurnBlock } from "./transcript";
-import { Virtual, type VirtualApi } from "./virtual";
-import { JUMP_GAP } from "./virtual-tail";
-import {
-  ROW_ESTIMATE,
-  ROW_GAP,
-  layoutKey,
-  placeReading,
-  readRowHeights,
-  rememberReading,
-  writeRowHeight,
-} from "./transcript-layout";
-import { PromptNavigator } from "./prompt-navigator";
-import { scrollCoalescer } from "./scroll-frame";
-import { promptAt, promptEntries } from "./prompt-outline";
+import { TranscriptView, type TranscriptApi } from "./transcript-view";
 import { applyStreamingSnapshot, mergeViewTail, type StreamingSnapshot } from "./live";
 import { ECHO_TURN_ID } from "./prompt-echo";
 import { descendantSessions } from "./session-tree";
@@ -109,8 +96,6 @@ import {
 import {
   contentW,
   paneWorkspace,
-  recallPaneScroll,
-  rememberPaneScroll,
   panelOpen,
   panelTab,
   setPanelOpen,
@@ -459,19 +444,7 @@ export function SessionDetail(props: {
     }
   };
 
-  let scroller: HTMLDivElement | undefined;
-  // Virtual needs these every frame it decides what to keep mounted. The
-  // scroller owns the scroll, so the offset is read back out of it rather than
-  // re-derived here.
-  const [scrollTop, setScrollTop] = createSignal(0);
-  const [viewport, setViewport] = createSignal(0);
-  // Whether the reader is following the tail. It is a signal rather than a
-  // plain flag because the virtual list has to consult it while applying
-  // measurements, which happens outside any render pass here.
-  const [pinned, setPinned] = createSignal(true);
-  /** The turn at the top of the viewport — which prompt the outline lights up. */
-  const [activeTurn, setActiveTurn] = createSignal(0);
-  let list: VirtualApi | undefined;
+  let list: TranscriptApi | undefined;
 
   /**
    * One panel on the right, opened only by the reader. Trace and replay step
@@ -768,7 +741,7 @@ export function SessionDetail(props: {
   const search = useSessionSearch({
     sessionId: () => props.id,
     view: () => settled(view),
-    scrollToIndex: (i) => list?.scrollToIndex(i),
+    scrollToIndex: (i) => list?.jumpToIndex(i),
     onOpen: () => tools.setToolsOpen(false),
   });
   tools = useMcpTools({
@@ -812,64 +785,6 @@ export function SessionDetail(props: {
   // `displayed` is already created. `turns` is not: this memo runs at once,
   // and calling `turns()` here threw before the binding existed, which aborted
   // the render and left every later click, including settings, with nowhere to go.
-  const entries = createMemo(() => promptEntries(displayed()?.turns ?? []));
-  const showNav = () => viewReady() && replayPos() === null && entries().length >= 2;
-  /** Following the tail means the active prompt is the last one, whatever row is on top. */
-  const activeEntry = () => (pinned() ? entries().at(-1) : promptAt(entries(), activeTurn()));
-
-  let jumpSettleGen = 0;
-  const jumpToTurn = (turnId: string) => {
-    const i = settled(view)?.turns.findIndex((t) => t.turn_id === turnId) ?? -1;
-    if (i < 0) return;
-    // A jump is the reader leaving the tail — same bargain scrollToIndex makes.
-    setPinned(false);
-    list?.scrollToIndex(i, "start");
-    setActiveTurn(i);
-    // Rows land on estimated heights; once neighbours mount and measure, the
-    // target drifts. Re-anchor to the row's real box for a few frames, holding
-    // the same gap a fresh jump gets rather than the top edge itself.
-    //
-    // Two failures live here, and they need different answers. The row can be
-    // mounted and sitting in the wrong place, which is drift and one subtraction
-    // fixes. Or it can be not mounted at all, which is what actually happens on
-    // a real jump: `scrollToIndex` writes `scrollTop`, the window is recomputed
-    // from the parent's mirrored signal, and until that round trip lands the row
-    // is not in the document. Giving up on that — the old code returned on the
-    // first missing row, having spent none of its eight tries — left the reader
-    // somewhere else entirely, with a nav tick showing the jump they asked for
-    // and no evidence of it on screen.
-    const gen = ++jumpSettleGen;
-    let tries = 0;
-    let waiting = 0;
-    const settle = () => {
-      if (gen !== jumpSettleGen) return;
-      const el = scroller;
-      if (!el) return;
-      const row = el.querySelector(`[data-turn-id="${CSS.escape(turnId)}"]`);
-      if (!(row instanceof HTMLElement)) {
-        // Not in the document yet. Keep looking: this is the window catching up
-        // with the scroll we just asked for, and it is measured in frames.
-        if (++waiting > 60) return;
-        requestAnimationFrame(settle);
-        return;
-      }
-      const drift = row.getBoundingClientRect().top - el.getBoundingClientRect().top - JUMP_GAP;
-      if (Math.abs(drift) <= 4) return;
-      if (tries >= 8) return;
-      tries += 1;
-      el.scrollTop += drift;
-      requestAnimationFrame(settle);
-    };
-    requestAnimationFrame(settle);
-  };
-
-  const jumpToLatest = () => {
-    jumpSettleGen++;
-    if (scroller) scroller.scrollTop = scroller.scrollHeight;
-    setPinned(true);
-    setActiveTurn(Math.max(0, (settled(view)?.turns.length ?? 1) - 1));
-  };
-
   /**
    * The prompt has been handed over but the agent has not produced a thing
    * yet. That gap is a round trip through the backend, and until it closes the
@@ -948,116 +863,6 @@ const turns = () => shown().turns;
   });
 
   /**
-   * Open this pane on the layout it already had.
-   *
-   * Focusing a pane mounts a new list. The list has to be told, before it
-   * paints, which row the reader was on and how tall the rows already measured
-   * are. A pixel remembered from the previous list points somewhere else once
-   * the heights change, and a list that starts at scroll 0 paints the top and
-   * then jumps.
-   *
-   * A render effect so the signal the list reads is already the right number
-   * on the render that mounts it. The frame loop below only retries the DOM
-   * write: until the rows exist the browser clamps the assignment away, and
-   * the signal would be the only copy of the position left.
-   *
-   * Being pinned is not a pixel to restore. The list follows the tail itself,
-   * and a pixel from a shorter transcript would drop the reader in the middle.
-   */
-  let adoptedLayout = "";
-  let heldTop = 0;
-  let heldPinned = true;
-  let placing = false;
-  const [placedTick, setPlacedTick] = createSignal(0);
-  const placeScroller = (el: HTMLElement, top: number) => {
-    if (el.scrollHeight < top) return false;
-    if (el.scrollTop === top) return true;
-    placing = true;
-    el.scrollTop = top;
-    placing = false;
-    return true;
-  };
-  /**
-   * One pass per frame, not one per scroll event.
-   *
-   * Built here rather than inline in the JSX: it registers a cleanup, and a
-   * handler written in the markup would register it against whatever owner
-   * happens to be current when that attribute is first created.
-   */
-  const onScrolled = scrollCoalescer((el) => {
-    if (placing) return;
-    const isPinned = el.scrollHeight - el.scrollTop - el.clientHeight < 96;
-    setScrollTop(el.scrollTop);
-    setViewport(el.clientHeight);
-    setPinned(isPinned);
-    setActiveTurn(list?.indexAtTop() ?? 0);
-    const paneId = paneWorkspace().focusedPaneId;
-    const key = layoutKey(paneId, props.id);
-    rememberReading(key, list?.readingAtTop(isPinned) ?? { pinned: true });
-    rememberPaneScroll(paneId, props.id, {
-      scrollTop: el.scrollTop,
-      pinned: isPinned,
-    });
-  });
-  createRenderEffect(() => {
-    const paneId = paneWorkspace().focusedPaneId;
-    const id = props.id;
-    const viewNow = displayed();
-    if (viewNow?.session_id !== id) return;
-    const key = layoutKey(paneId, id);
-    if (key === adoptedLayout) return;
-    adoptedLayout = key;
-    const placed = placeReading({
-      key,
-      ids: turns().map((turn) => turn.turn_id),
-      viewport: viewport(),
-      fallback: recallPaneScroll(paneId, id),
-    });
-    heldTop = placed.scrollTop;
-    heldPinned = placed.pinned;
-    setPinned(placed.pinned);
-    setScrollTop(placed.scrollTop);
-    setPlacedTick((n) => n + 1);
-  });
-  createEffect(() => {
-    placedTick();
-    const id = props.id;
-    const paneId = paneWorkspace().focusedPaneId;
-    // Re-arm when the pane or the session changes. The position itself lives
-    // in `heldTop`, set above, so a reader scrolling does not re-trigger this.
-    if (adoptedLayout !== layoutKey(paneId, id)) return;
-    if (heldTop <= 0) return;
-    let tries = 0;
-    let frame = 0;
-    const restore = () => {
-      const el = scroller;
-      if (
-        !el ||
-        frame === 0 ||
-        ++tries > 120 ||
-        paneWorkspace().focusedPaneId !== paneId ||
-        props.id !== id
-      ) {
-        frame = 0;
-        return;
-      }
-      if (!placeScroller(el, heldTop)) {
-        frame = requestAnimationFrame(restore);
-        return;
-      }
-      frame = 0;
-      setScrollTop(heldTop);
-      // A pinned reader stays with the tail. Clearing the flag here is what
-      // made the next measurement leave them in the middle of the transcript.
-      if (!heldPinned) setPinned(false);
-    };
-    frame = requestAnimationFrame(restore);
-    onCleanup(() => {
-      if (frame) cancelAnimationFrame(frame);
-    });
-  });
-
-  /**
    * A failed load used to be permanent.
    *
    * The view resource only refetches when its source changes, so one request
@@ -1112,13 +917,6 @@ const turns = () => shown().turns;
     window.addEventListener("strata-connections", onConns);
     const onFocus = () => refetchVcs();
     window.addEventListener("focus", onFocus);
-    // Seed the virtual window's inputs. Without this the list would start with a
-    // zero-height viewport and only learn its size on the first scroll, which
-    // for a session that opens pinned to the bottom means one wasted pass.
-    if (scroller) {
-      setScrollTop(scroller.scrollTop);
-      setViewport(scroller.clientHeight);
-    }
     const poll = setInterval(() => {
       if (replayPos() !== null) return;
       // This is the fallback for a dropped stream message, not the main path —
@@ -1705,175 +1503,64 @@ const turns = () => shown().turns;
                   />
                 )}
                 renderFocusedTranscript={() => (
-              <div class={`relative flex flex-1 flex-col ${paneWorkspace().mode === "multiplex" ? "min-h-0" : "min-h-[30vh]"}`}>
-              <ContentSashes />
-              <div
-                ref={(el) => {
-                  scroller = el;
-                  if (!el) return;
-                  // The signal is already the remembered position. Write it
-                  // before paint when the rows are tall enough to hold it;
-                  // otherwise the frame loop below keeps trying.
-                  if (heldTop > 0) placeScroller(el, heldTop);
-                  /**
-                   * The height is measured, not guessed.
-                   *
-                   * `viewport` is what `Virtual` windows its rows by, and it used
-                   * to be read once in a microtask on the assumption that layout
-                   * would be finished by then. On a pane that has just been
-                   * clicked it has not: the split re-rendered, this box was not
-                   * sized, `clientHeight` came back zero, and the window
-                   * collapsed to the overscan rows.
-                   */
-                  const measure = () => setViewport(el.clientHeight);
-                  const ro = new ResizeObserver(measure);
-                  ro.observe(el);
-                  measure();
-                  onCleanup(() => ro.disconnect());
-                }}
-                /**
-                 * Putting a reader back where they were.
-                 *
-                 * This is an effect rather than part of the ref callback because
-                 * a ref runs once, and switching the session in a pane does not
-                 * remount this element — the div stays, its contents change. A
-                 * reader who scrolls up in one conversation, switches to another
-                 * and switches back was therefore landing at the bottom of the
-                 * first every time, because the place they left was only ever
-                 * looked up on mount.
-                 *
-                 * Two things it must not do:
-                 *
-                 * Restore synchronously. `scrollTop` is a position in content
-                 * that does not exist yet — at this point `scrollHeight` is
-                 * zero, the browser clamps the assignment away, and only the
-                 * signal is left holding the number. `Virtual` windows on that
-                 * signal, `rowAt` walks off the end of a session that is not
-                 * that long, and the pane draws no rows at all: a conversation
-                 * with turns in it, showing blank. So it waits for rows, and
-                 * gives up rather than spin.
-                 *
-                 * Restore on every effect run. The rows arriving under it are
-                 * what make the position reachable, so the wait has to be
-                 * re-armed when the content changes height — otherwise a
-                 * transcript still streaming gives up before it is tall enough.
-                 */
-                class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
-                data-transcript-scroller=""
-                onScroll={onScrolled}
-              >
-                <div
-                  class={`${showNav() ? "mx-auto w-full px-11 py-4" : "mx-auto w-full px-5 py-4"}${
-                    turns().length === 0 ? " flex min-h-full flex-col" : ""
-                  }`}
-                  style={{
-                    "max-width": `calc(${contentW()}px + ${showNav() ? "5.5rem" : "2.5rem"})`,
-                  }}
-                >
+              <TranscriptView
+                paneId={paneWorkspace().focusedPaneId}
+                sessionId={displayed()?.session_id ?? props.id}
+                turns={turns()}
+                ready={viewReady() && !(importing() && turns().length === 0)}
+                nav={viewReady() && replayPos() === null}
+                latest={replayPos() === null}
+                class={paneWorkspace().mode === "multiplex" ? "min-h-0" : "min-h-[30vh]"}
+                empty={
                   <Show
-                    when={viewReady() && !(importing() && turns().length === 0)}
-                    fallback={<LoadingTranscript />}
+                    when={!lastSilentTurn()}
+                    fallback={
+                      <div class="flex justify-center">
+                        <EmptyState
+                          icon="brain"
+                          title={t("transcript.thinking")}
+                          class="py-10"
+                        />
+                      </div>
+                    }
                   >
-                    <Show
-                      when={turns().length > 0}
-                      fallback={
-                        <Show
-                          when={!lastSilentTurn()}
-                          fallback={
-                            <div class="flex justify-center">
-                              <EmptyState
-                                icon="brain"
-                                title={t("transcript.thinking")}
-                                class="py-10"
-                              />
-                            </div>
-                          }
-                        >
-                          {/* Centres optically rather than dead-centre: the
-                              composer sits at the bottom, so the middle of
-                              what is left reads higher than the middle of
-                              the column. */}
-                          <div class="flex flex-1 items-center justify-center pb-[10vh]">
-                            <SessionEmpty
-                              workspace={v().workspace}
-                              branch={settled(vcs)?.branch}
-                              hints={{
-                                mention: opencode(),
-                                command: Array.isArray(slashCommands()),
-                              }}
-                              onPick={(text) => {
-                                composer.setDraft(text);
-                                composer.focusDraft();
-                              }}
-                            />
-                          </div>
-                        </Show>
-                      }
-                    >
-                    <Virtual
-                      items={turns()}
-                      id={(t) => t.turn_id}
-                      estimate={ROW_ESTIMATE}
-                      gap={ROW_GAP}
-                      layoutKey={layoutKey(paneWorkspace().focusedPaneId, props.id)}
-                      seed={readRowHeights(layoutKey(paneWorkspace().focusedPaneId, props.id))}
-                      follow={pinned()}
-                      onHeight={(key, turnId, height) => writeRowHeight(key, turnId, height)}
-                      scrollTop={scrollTop()}
-                      viewport={viewport()}
-                      scroller={() => scroller}
-                      api={(a) => {
-                        list = a;
-                        setActiveTurn(a.indexAtTop());
-                      }}
-                    >
-                      {(turn) => (
-                        <div data-turn-id={turn().turn_id}>
-                          <TurnBlock
-                            turn={turn()}
-                            entering={() => shown().arriving.has(turn().turn_id)}
-                            live={() =>
-                              composer.generating() && turns().at(-1)?.turn_id === turn().turn_id
-                            }
-                            awaiting={() =>
-                              turn().turn_id === ECHO_TURN_ID || lastSilentTurn() === turn()
-                            }
-                            childOf={childOf}
-                            onOpenChild={openChild}
-                            onEdit={composer.editTurn}
-                            onRevert={caps()?.revert ? revertTurn : undefined}
-                            onFork={caps()?.fork ? forkAt : undefined}
-                          />
-                        </div>
-                      )}
-                    </Virtual>
-                    </Show>
+                    {/* Centres optically rather than dead-centre: the
+                        composer sits at the bottom, so the middle of what is
+                        left reads higher than the middle of the column. */}
+                    <div class="flex flex-1 items-center justify-center pb-[10vh]">
+                      <SessionEmpty
+                        workspace={v().workspace}
+                        branch={settled(vcs)?.branch}
+                        hints={{
+                          mention: opencode(),
+                          command: Array.isArray(slashCommands()),
+                        }}
+                        onPick={(text) => {
+                          composer.setDraft(text);
+                          composer.focusDraft();
+                        }}
+                      />
+                    </div>
                   </Show>
-                </div>
-              </div>
-              <Show when={showNav()}>
-                <PromptNavigator
-                  entries={entries()}
-                  activeId={activeEntry()?.turnId}
-                  onSelect={jumpToTurn}
-                />
-              </Show>
-              <Show when={viewReady() && replayPos() === null && !pinned() && v().turns.length > 0}>
-                <Tip label={t("nav.latest")}>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="icon"
-                    aria-label={t("nav.latest")}
-                    class="surface-popover absolute bottom-4 left-1/2 z-20 -translate-x-1/2"
-                    onClick={jumpToLatest}
-                  >
-                    <Icon name="arrow-down" class="size-4" />
-                  </Button>
-                </Tip>
-              </Show>
-              </div>
+                }
+                renderTurn={(turn) => (
+                  <TurnBlock
+                    turn={turn()}
+                    entering={() => shown().arriving.has(turn().turn_id)}
+                    live={() => composer.generating() && turns().at(-1)?.turn_id === turn().turn_id}
+                    awaiting={() => turn().turn_id === ECHO_TURN_ID || lastSilentTurn() === turn()}
+                    childOf={childOf}
+                    onOpenChild={openChild}
+                    onEdit={composer.editTurn}
+                    onRevert={caps()?.revert ? revertTurn : undefined}
+                    onFork={caps()?.fork ? forkAt : undefined}
+                  />
                 )}
+                api={(a) => {
+                  list = a;
+                }}
+              />
+            )}
               />
 
               <Show when={replayPos() === null}>
@@ -2076,7 +1763,7 @@ const turns = () => shown().turns;
             onSelectTab={selectTab}
             onClose={closePanel}
             onJumpToTurn={(i) => {
-              if (i >= 0) list?.scrollToIndex(i);
+              if (i >= 0) list?.jumpToIndex(i);
             }}
             onCite={composer.citeLine}
           />
