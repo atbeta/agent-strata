@@ -535,6 +535,7 @@ textarea {
    touch pointers get taller hit rows instead of a different control. */
 .prompt-nav {
   --nav-row-size: 8px;
+  --nav-tick-w: 28px;
 }
 .prompt-nav .rail {
   scrollbar-width: none;
@@ -545,7 +546,7 @@ textarea {
 .prompt-nav .nav-tick {
   display: grid;
   place-items: center;
-  width: 28px;
+  width: var(--nav-tick-w);
   height: var(--nav-row-size);
   border-radius: 4px;
 }

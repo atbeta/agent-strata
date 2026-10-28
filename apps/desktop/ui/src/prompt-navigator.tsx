@@ -49,15 +49,15 @@ export function PromptNavigator(props: {
    * stale answer, because the answer is recomputed from the count in hand.
    */
   const [navRoom, setNavRoom] = createSignal(0);
+  /** Resolved --nav-row-size in px; 8 is the stylesheet's default until measured. */
+  const [rowPx, setRowPx] = createSignal(8);
   const chrome = createMemo(() => {
     const room = navRoom();
     // 0 is "not measured yet". Claiming chrome before there is a height to
     // compare against would put arrows on a rail that may not need them.
     if (room <= 0) return false;
     const cap = Math.max(0, Math.min(360, room - 24));
-    const raw = nav ? getComputedStyle(nav).getPropertyValue("--nav-row-size").trim() : "";
-    const row = parseFloat(raw);
-    return railOverflows(props.entries.length, Number.isFinite(row) ? row : 8, cap);
+    return railOverflows(props.entries.length, rowPx(), cap);
   });
   const steps = createMemo(() => navSteps(
     props.entries.map((e) => e.turnId),
@@ -66,6 +66,49 @@ export function PromptNavigator(props: {
 
   const text = (e: PromptEntry) => e.prompt || t("nav.attach");
   const current = () => props.entries.find((e) => e.turnId === previewId());
+
+  /**
+   * The rail windows its ticks the way the transcript windows its rows: a
+   * long session has ~1600 of them, and every forced layout in the pane
+   * paid their box tree whether they were on screen or not. Rows are a
+   * fixed size (--nav-row-size), so positions are arithmetic, not
+   * measurements — tick i sits at i*row inside a spacer of n*row. When the
+   * rail does not overflow, the window covers every entry and the DOM is
+   * the same as an unwindowed list.
+   */
+  const [railTop, setRailTop] = createSignal(0);
+  const [railHeight, setRailHeight] = createSignal(0);
+  /** How far past the viewport ticks stay mounted, in rows. */
+  const TICK_OVERSCAN = 20;
+  const byId = createMemo(() => {
+    const m = new Map<string, number>();
+    props.entries.forEach((e, i) => m.set(e.turnId, i));
+    return m;
+  });
+  const railRange = createMemo(() => {
+    const r = rowPx();
+    const lo = Math.max(0, Math.floor(railTop() / r) - TICK_OVERSCAN);
+    const hi = Math.min(
+      props.entries.length,
+      Math.ceil((railTop() + railHeight()) / r) + TICK_OVERSCAN,
+    );
+    return { lo, hi };
+  });
+  const railWindow = createMemo(() => {
+    const { lo, hi } = railRange();
+    return props.entries.slice(lo, hi);
+  });
+  /** A focus request waiting on the window: Home/End scroll first, focus once mounted. */
+  const [focusId, setFocusId] = createSignal<string | null>(null);
+  createEffect(() => {
+    const id = focusId();
+    if (!id) return;
+    railWindow();
+    const el = refs.get(id);
+    if (!el) return;
+    el.focus();
+    setFocusId(null);
+  });
 
   const showFor = (id: string, anchorEl?: HTMLElement) => {
     const el = anchorEl ?? refs.get(id);
@@ -82,17 +125,17 @@ export function PromptNavigator(props: {
 
   // Keep the active line inside the rail's own scrollbox — rail.scrollTop only,
   // never scrollIntoView, so the transcript/page never gets dragged along.
-  // Scheduled after paint: reading the geometry inside the commit forces a
-  // layout, and activeId moves once per measurement while a session opens —
-  // the frame cadence also coalesces a run of moves into one measure.
+  // Positions are arithmetic (fixed row size), so the check needs no layout
+  // read; the frame delay just coalesces a run of activeId moves into one
+  // scroll decision against the layout the reader sees.
   createEffect(() => {
     const id = props.activeId;
-    if (!id || !rail) return;
+    if (!id) return;
     const raf = requestAnimationFrame(() => {
-      const el = refs.get(id);
-      if (!el || !rail) return;
-      const top = el.offsetTop;
-      const bottom = top + el.offsetHeight;
+      const i = byId().get(id);
+      if (i === undefined || !rail) return;
+      const top = i * rowPx();
+      const bottom = top + rowPx();
       if (top < rail.scrollTop) rail.scrollTop = top;
       else if (bottom > rail.scrollTop + rail.clientHeight)
         rail.scrollTop = bottom - rail.clientHeight;
@@ -121,9 +164,21 @@ export function PromptNavigator(props: {
       // entry count, so a switch to another session cannot inherit the last
       // one's answer.
       setNavRoom(host.clientHeight - 24);
+      const px = parseFloat(getComputedStyle(el).getPropertyValue("--nav-row-size"));
+      if (Number.isFinite(px) && px > 0) setRowPx(px);
     };
     const ro = new ResizeObserver(measure);
     ro.observe(host);
+    onCleanup(() => ro.disconnect());
+  });
+
+  // The rail's own height drives the window; it changes when chrome toggles,
+  // not only when the host does, so it gets its own observer.
+  createEffect(() => {
+    const el = rail;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setRailHeight(el.clientHeight));
+    ro.observe(el);
     onCleanup(() => ro.disconnect());
   });
 
@@ -244,6 +299,19 @@ export function PromptNavigator(props: {
     requestAnimationFrame(measure);
   });
 
+  // Focus a rail index that may not be mounted yet: scroll it into the
+  // window first, then let the focus effect pick it up once it exists.
+  const railTo = (j: number) => {
+    const id = props.entries[j]?.turnId;
+    if (!id || !rail) return;
+    if (refs.get(id)) {
+      refs.get(id)!.focus();
+      return;
+    }
+    rail.scrollTop = Math.max(0, j * rowPx() - rail.clientHeight / 2);
+    setFocusId(id);
+  };
+
   const onKey = (e: KeyboardEvent) => {
     const el = document.activeElement as HTMLElement | null;
     const i = el ? props.entries.findIndex((x) => x.turnId === el.dataset.turnId) : -1;
@@ -251,7 +319,7 @@ export function PromptNavigator(props: {
     const last = props.entries.length - 1;
     const go = (j: number) => {
       const id = props.entries[j]?.turnId;
-      if (id) refs.get(id)?.focus();
+      if (id) railTo(j);
     };
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -261,10 +329,10 @@ export function PromptNavigator(props: {
       go(Math.max(i - 1, 0));
     } else if (e.key === "Home") {
       e.preventDefault();
-      go(0);
+      railTo(0);
     } else if (e.key === "End") {
       e.preventDefault();
-      go(last);
+      railTo(last);
     } else if (e.key === "Escape" && previewId()) {
       e.preventDefault();
       e.stopPropagation();
@@ -282,7 +350,15 @@ export function PromptNavigator(props: {
   // O(entries) reads a frame. A selector resolves it once and only re-renders
   // the tick the answer moved from and the one it moved to.
   const isActive = createSelector(() => props.activeId);
-  const isTab = createSelector(() => tabId() ?? props.activeId ?? props.entries[0]?.turnId);
+  // The windowed rail must always keep one mounted tick in the tab order:
+  // if the designated one scrolled out of the window, the first mounted
+  // tick takes the stop rather than leaving the rail unreachable.
+  const isTab = createSelector(() => {
+    const { lo, hi } = railRange();
+    const id = tabId() ?? props.activeId ?? props.entries[0]?.turnId;
+    const i = id ? byId().get(id) : undefined;
+    return i !== undefined && i >= lo && i < hi ? id : props.entries[lo]?.turnId;
+  });
 
   const stepClass =
     "nav-step h-4 w-7 opacity-55 group-hover:opacity-100 group-focus-within:opacity-100 disabled:opacity-30 group-hover:disabled:opacity-30";
@@ -342,35 +418,51 @@ export function PromptNavigator(props: {
         class={`rail overflow-y-auto overscroll-contain ${chrome() ? "min-h-0 w-full flex-1" : "h-full"}`}
         role="group"
         aria-label={t("nav.outline", { n: props.entries.length })}
+        onScroll={(e) => setRailTop(e.currentTarget.scrollTop)}
         onPointerMove={onRailMove}
         onPointerLeave={onRailLeave}
         onKeyDown={onKey}
       >
-        <For each={props.entries}>
-          {(e) => (
-            <button
-              ref={(el) => refs.set(e.turnId, el)}
-              type="button"
-              data-turn-id={e.turnId}
-              class="nav-tick"
-              tabIndex={isTab(e.turnId) ? 0 : -1}
-              aria-current={isActive(e.turnId) || undefined}
-              aria-label={`${e.number}. ${text(e)}`}
-              aria-describedby={previewId() === e.turnId ? "prompt-nav-tip" : undefined}
-              onMouseEnter={() => showFor(e.turnId)}
-              onFocus={() => {
-                setTabId(e.turnId);
-                showFor(e.turnId);
-              }}
-              onClick={() => {
-                hide();
-                props.onSelect(e.turnId);
-              }}
-            >
-              <span class="nav-line" />
-            </button>
-          )}
-        </For>
+        {/* The spacer is the rail's only in-flow child; the absolute ticks
+            contribute nothing to its size, so it carries the rail's width
+            itself — without it the whole nav collapses to zero. */}
+        <div
+          style={{
+            position: "relative",
+            width: "var(--nav-tick-w)",
+            height: `${props.entries.length * rowPx()}px`,
+          }}
+        >
+          <For each={railWindow()}>
+            {(e) => {
+              onCleanup(() => refs.delete(e.turnId));
+              return (
+                <button
+                  ref={(el) => refs.set(e.turnId, el)}
+                  type="button"
+                  data-turn-id={e.turnId}
+                  class="nav-tick"
+                  style={{ position: "absolute", top: `${(byId().get(e.turnId) ?? 0) * rowPx()}px` }}
+                  tabIndex={isTab(e.turnId) ? 0 : -1}
+                  aria-current={isActive(e.turnId) || undefined}
+                  aria-label={`${e.number}. ${text(e)}`}
+                  aria-describedby={previewId() === e.turnId ? "prompt-nav-tip" : undefined}
+                  onMouseEnter={() => showFor(e.turnId)}
+                  onFocus={() => {
+                    setTabId(e.turnId);
+                    showFor(e.turnId);
+                  }}
+                  onClick={() => {
+                    hide();
+                    props.onSelect(e.turnId);
+                  }}
+                >
+                  <span class="nav-line" />
+                </button>
+              );
+            }}
+          </For>
+        </div>
       </div>
       <Show when={chrome() && steps()}>
         {(s) => (
