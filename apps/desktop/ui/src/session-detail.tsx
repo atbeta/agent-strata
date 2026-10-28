@@ -1552,12 +1552,15 @@ const turns = () => shown().turns;
                             type="button"
                             variant="quiet"
                             size="sm"
-                            class="h-auto max-w-48 shrink-0 truncate px-0 py-0 text-sm"
+                            class="h-auto max-w-48 shrink-0 px-0 py-0 text-sm"
                             onClick={() => {
                               location.hash = `/session/${encodeURIComponent(parentId())}`;
                             }}
                           >
-                            {parent()?.title || t("session.child.back")}
+                            {/* The ellipsis belongs on the label: the button
+                                centres what it holds, so a long parent name
+                                was cut at both ends rather than at the end. */}
+                            <span class="min-w-0 truncate">{parent()?.title || t("session.child.back")}</span>
                           </Button>
                           {/* The parent is a link back and the h1 is where we
                               are — without a mark between them the two titles

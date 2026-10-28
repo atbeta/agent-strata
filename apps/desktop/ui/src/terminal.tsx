@@ -202,10 +202,10 @@ export function TerminalPane(props: { sessionId: string; onEmpty?: () => void })
                 type="button"
                 variant="quiet"
                 size="xs"
-                class="truncate text-xs"
+                class="min-w-0 text-xs"
                 onClick={() => setActive(tab.id)}
               >
-                {tab.title}
+                <span class="min-w-0 truncate">{tab.title}</span>
               </Button>
               {/* Same bar, same 24px box, same hover — the close and the new-tab
                   button used to disagree on whether hovering drew a fill. */}

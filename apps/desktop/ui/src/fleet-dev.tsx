@@ -106,11 +106,16 @@ export function FleetDevSection(props: {
                       type="button"
                       variant="quiet"
                       size="xs"
-                      class="max-w-[9rem] shrink-0 truncate px-1.5 text-2xs underline decoration-dotted underline-offset-2"
+                      class="max-w-[9rem] shrink-0 px-1.5 text-2xs underline decoration-dotted underline-offset-2"
                       title={titleOf(process.session_id)}
                       onClick={() => props.onOpenSession(process.session_id)}
                     >
-                      {titleOf(process.session_id)}
+                      {/* The name ends in an ellipsis, it does not lose both of
+                          its ends. A button is an inline-flex box with its
+                          label centred in it, so a name too long for the box
+                          was cut on the left as well as the right; the ellipsis
+                          belongs on the label, not on the button. */}
+                      <span class="min-w-0 truncate">{titleOf(process.session_id)}</span>
                     </Button>
                   }
                 />
