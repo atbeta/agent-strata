@@ -10,6 +10,7 @@ import { Icon } from "./icons";
 import { Button } from "@/components/ui/button";
 import { RowButton } from "@/components/ui/row-button";
 import { visibleArchiveNote } from "./archived-note";
+import { archivedDeleteWarning } from "./archived-warning";
 
 /**
  * Archived sessions, in a fixed band at the foot of the rail.
@@ -161,9 +162,7 @@ export function ArchivedSection(props: {
                     {(target) => (
                       <div class="mx-1 mt-1 rounded-md border border-border bg-secondary/40 px-2 py-1.5">
                         <p class="text-2xs leading-4 text-muted-foreground">
-                          {target().data.can_delete
-                            ? t("sidebar.archived.warning", { local: target().data.local })
-                            : t("sidebar.archived.localOnly")}
+                          {archivedDeleteWarning(target().data)}
                         </p>
                         <div class="mt-1 flex justify-end gap-1">
                           <Button
