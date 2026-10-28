@@ -274,7 +274,6 @@ export function SessionDetail(props: {
   const [traceBlock, setTraceBlock] = createSignal<TraceBlock | null>(null);
   const [terminalOn, setTerminalOn] = createSignal(false);
   const opening = peekView(props.id);
-  const [booting, setBooting] = createSignal(!opening);
   /** the background re-import that lands after the stored view is already up */
   const [importing, setImporting] = createSignal(true);
   // The files list key travels with the cached view so a warm open can leave
@@ -741,10 +740,20 @@ export function SessionDetail(props: {
     }
   };
 
+  const displayed = createMemo(() => {
+    const v = settled(view);
+    if (v?.session_id === props.id) return v;
+    return peekView(props.id)?.view;
+  });
+  const viewReady = createMemo(() => {
+    const id = props.id;
+    return displayed()?.session_id === id;
+  });
+
   const composer = useSessionComposer({
     sessionId: () => props.id,
-    view: () => settled(view),
-    booting,
+    view: () => displayed(),
+    booting: () => !viewReady(),
     caps,
     commands: slashCommands,
     onBuiltin: runBuiltin,
@@ -801,7 +810,7 @@ export function SessionDetail(props: {
 
   /** One outline row per real prompt, from the session on screen, not the one the resource has not dropped yet. */
   const entries = createMemo(() => promptEntries(turns()));
-  const showNav = () => !booting() && replayPos() === null && entries().length >= 2;
+  const showNav = () => viewReady() && replayPos() === null && entries().length >= 2;
   /** Following the tail means the active prompt is the last one, whatever row is on top. */
   const activeEntry = () => (pinned() ? entries().at(-1) : promptAt(entries(), activeTurn()));
 
@@ -893,13 +902,9 @@ const entrance = createEntranceLedger();
  * fetch resolves, and the route changes before that fetch does. A list painted
  * from the stale view is the wrong conversation at the wrong heights. The
  * cache already has the session the pane was showing, so use that until the
- * resource catches up.
+ * resource catches up. `displayed` itself is created above, before the
+ * composer, so the composer can read it while it is setting up.
  */
-const displayed = createMemo(() => {
-  const v = settled(view);
-  if (v?.session_id === props.id) return v;
-  return peekView(props.id)?.view;
-});
 const shown = createMemo(() => {
   const v = displayed();
   const t = composer.decorateTurns(v?.turns ?? []);
@@ -919,7 +924,6 @@ const turns = () => shown().turns;
     filesKey = hit?.filesKey;
     forceFull = false;
     retries = 0;
-    setBooting(!hit);
     setImporting(!hit);
     if (hit) mutate(hit.view);
     setReplayPos(null);
@@ -938,17 +942,6 @@ const turns = () => shown().turns;
       if (after !== before) void refreshView(true);
       void refetchSeq();
     })();
-  });
-
-  // Before paint, not after. The resource still holds the previous session
-  // while the next one loads, and an effect that treated that as "ready"
-  // dropped the skeleton and left the old rail and the old transcript up
-  // until the fetch landed.
-  createRenderEffect(() => {
-    const id = props.id;
-    const ready = displayed()?.session_id === id;
-    if (ready || view.error) setBooting(false);
-    else setBooting(true);
   });
 
   /**
@@ -1767,7 +1760,7 @@ const turns = () => shown().turns;
                   }}
                 >
                   <Show
-                    when={!booting() && !(importing() && turns().length === 0)}
+                    when={viewReady() && !(importing() && turns().length === 0)}
                     fallback={<LoadingTranscript />}
                   >
                     <Show
@@ -1854,7 +1847,7 @@ const turns = () => shown().turns;
                   onSelect={jumpToTurn}
                 />
               </Show>
-              <Show when={!booting() && replayPos() === null && !pinned() && v().turns.length > 0}>
+              <Show when={viewReady() && replayPos() === null && !pinned() && v().turns.length > 0}>
                 <Tip label={t("nav.latest")}>
                   <Button
                     type="button"

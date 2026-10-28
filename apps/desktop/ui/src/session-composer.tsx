@@ -78,7 +78,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 function sessionModel(v: SessionView | undefined): string | undefined {
   const turns = v?.turns ?? [];
   for (let i = turns.length - 1; i >= 0; i--) {
-    const assistant = turns[i]!.assistant;
+    const assistant = turns[i]?.assistant;
+    if (!assistant) continue;
     for (let j = assistant.length - 1; j >= 0; j--) {
       if (assistant[j]?.model) return assistant[j]!.model;
     }

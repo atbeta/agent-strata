@@ -251,10 +251,14 @@ export function Virtual<T>(props: VirtualProps<T>) {
     // prevented. Following ignores that mirror: a pinned open scrolls to the
     // tail before the signal hears about it, and windowing on 0 paints the
     // first turns into a viewport that is already at the end.
+    // Read `scrollTop` only when it decides the window. While following, the
+    // tail is the window, and subscribing to the scroll signal here made every
+    // programmatic pin rebuild the rows, which pinned again.
+    const follow = following();
     const top = windowScrollTop({
       pending: pendingTop(),
-      following: following(),
-      scrollTop: props.scrollTop,
+      following: follow,
+      scrollTop: follow ? 0 : props.scrollTop,
       end: o[n] ?? 0,
       viewport: props.viewport,
     });
@@ -356,7 +360,7 @@ export function Virtual<T>(props: VirtualProps<T>) {
     // reader at the extent, and the frame that grows the box pulls them back
     // by the whole viewport.
     const top = pinScroll(total, el.clientHeight);
-    if (top !== undefined) el.scrollTop = top;
+    if (top !== undefined && el.scrollTop !== top) el.scrollTop = top;
   });
 
   const onScroll = () => {
