@@ -808,8 +808,10 @@ export function SessionDetail(props: {
   useDismiss(search.searchOpen, search.closeSearch, () => searchPanelEl, () => searchTriggerEl);
   useDismiss(tools.toolsOpen, tools.closeTools, () => toolsPanelEl, () => toolsTriggerEl);
 
-  /** One outline row per real prompt, from the session on screen, not the one the resource has not dropped yet. */
-  const entries = createMemo(() => promptEntries(turns()));
+  // `displayed` is already created. `turns` is not: this memo runs at once,
+  // and calling `turns()` here threw before the binding existed, which aborted
+  // the render and left every later click, including settings, with nowhere to go.
+  const entries = createMemo(() => promptEntries(displayed()?.turns ?? []));
   const showNav = () => viewReady() && replayPos() === null && entries().length >= 2;
   /** Following the tail means the active prompt is the last one, whatever row is on top. */
   const activeEntry = () => (pinned() ? entries().at(-1) : promptAt(entries(), activeTurn()));

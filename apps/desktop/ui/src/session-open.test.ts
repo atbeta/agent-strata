@@ -17,7 +17,8 @@ describe("opening a session does not keep the previous one on screen", () => {
     expect(src).toContain("when={displayed()}");
     expect(src).not.toContain("when={settled(view)}");
     expect(src).not.toContain("when={!traceBlock() && settled(view)}");
-    expect(src).toContain("promptEntries(turns())");
+    expect(src).toContain("promptEntries(displayed()?.turns ?? [])");
+    expect(src).not.toContain("promptEntries(turns())");
     expect(src).not.toContain("promptEntries(settled(view)");
   });
 
