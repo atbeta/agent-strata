@@ -85,6 +85,19 @@ export interface Outgoing {
   attachments: Attachment[];
   /** user turn to revert before this send; set by edit-and-resend */
   revertTurnId?: string;
+  /**
+   * The session this was typed into.
+   *
+   * A queued message waits for the current run to finish, and the reader can
+   * switch sessions while it waits. Without this the queue drained into
+   * whatever session happened to be open when the run ended, so a follow-up
+   * written in one conversation was delivered to another.
+   *
+   * Optional because a message being sent right now does not need it — the
+   * caller's own session is the one on screen. It is set where a message is
+   * put into the queue, which is the only place that can be wrong later.
+   */
+  sessionId?: string;
 }
 
 /** The service says this when a prompt was refused or never accepted. */
@@ -110,6 +123,44 @@ export function restoreFailed(failed: Outgoing, current: Outgoing): { draft: Out
     },
     dropped: Math.max(0, attachments.length - MAX_ATTACHMENTS),
   };
+}
+
+/**
+ * What the queue should do next, given the session on screen.
+ *
+ * Three answers, and the middle one is the bug this exists to prevent:
+ *
+ * - `send` — the head belongs to this session, or to none, and goes out now.
+ * - `drop` — the head was written in a session the reader has left. `resetFor`
+ *   clears the queue on a switch, but it runs from an effect created *after*
+ *   the one that drains, so there is a frame where the old queue is still here
+ *   and the drain fires first. Without this the follow-up typed in one
+ *   conversation was delivered to whichever one happened to be open when the
+ *   run ended.
+ * - `wait` — nothing queued, or a run is in progress.
+ *
+ * Dropped rather than held: dropping is what `resetFor` was about to do, and
+ * holding a foreign message would block this session's own queue behind it.
+ */
+export type QueueStep<T> =
+  | { action: "send"; item: T }
+  | { action: "drop"; keep: T[] }
+  | { action: "wait" };
+
+export function nextQueued<T extends { sessionId?: string }>(
+  queue: readonly T[],
+  sessionId: string,
+  busy: boolean,
+): QueueStep<T> {
+  if (busy) return { action: "wait" };
+  const head = queue[0];
+  if (!head) return { action: "wait" };
+  // An entry with no session predates this field, or was built by a caller that
+  // did not know one; the session on screen is the only sensible answer.
+  if (head.sessionId !== undefined && head.sessionId !== sessionId) {
+    return { action: "drop", keep: queue.filter((m) => m.sessionId === undefined || m.sessionId === sessionId) };
+  }
+  return { action: "send", item: head };
 }
 
 /** A command takes its words as arguments, so there is no text part for a mention to point into. */

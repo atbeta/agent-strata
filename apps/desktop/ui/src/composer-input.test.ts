@@ -18,6 +18,7 @@ import {
   stepAgent,
   promptParts,
   explainSend,
+  nextQueued,
   restoreFailed,
   toAttachment,
   triggerAt,
@@ -370,6 +371,54 @@ describe("attachments", () => {
     expect(a.mime).toBe("application/octet-stream");
     expect(a.url).toBe("data:application/octet-stream;base64,AQID");
     expect(a.size).toBe(3);
+  });
+});
+
+describe("what the queue does next", () => {
+  const msg = (text: string, sessionId?: string) => ({ text, picked: [], attachments: [], sessionId });
+
+  test("a message typed in this session goes out", () => {
+    const step = nextQueued([msg("a", "s1")], "s1", false);
+    expect(step).toEqual({ action: "send", item: msg("a", "s1") });
+  });
+
+  test("a run in progress holds the queue", () => {
+    expect(nextQueued([msg("a", "s1")], "s1", true)).toEqual({ action: "wait" });
+  });
+
+  test("nothing queued is nothing to do", () => {
+    expect(nextQueued([], "s1", false)).toEqual({ action: "wait" });
+  });
+
+  test("a message from another session is dropped, not sent here", () => {
+    // The bug: `resetFor` clears the queue on a switch, but it runs from an
+    // effect created after the one that drains, so the drain can fire first
+    // with the previous session's message at the head.
+    const step = nextQueued([msg("from s2", "s2")], "s1", false);
+    expect(step.action).toBe("drop");
+    if (step.action !== "drop") throw new Error("expected drop");
+    expect(step.keep).toEqual([]);
+  });
+
+  test("dropping takes only the foreign entries, keeping this session's", () => {
+    const step = nextQueued([msg("from s2", "s2"), msg("mine", "s1")], "s1", false);
+    expect(step.action).toBe("drop");
+    if (step.action !== "drop") throw new Error("expected drop");
+    expect(step.keep).toEqual([msg("mine", "s1")]);
+  });
+
+  test("an entry with no session is this session's", () => {
+    // Built by a caller that did not know one — the session on screen is the
+    // only sensible answer, and refusing it would strand the message.
+    const step = nextQueued([msg("bare")], "s1", false);
+    expect(step.action).toBe("send");
+  });
+
+  test("a busy session drops nothing", () => {
+    // The check happens when the queue drains. A switch while a run is in
+    // progress must not silently delete what the reader typed elsewhere — that
+    // is `resetFor`'s job, and it owns the whole queue.
+    expect(nextQueued([msg("from s2", "s2")], "s1", true)).toEqual({ action: "wait" });
   });
 });
 

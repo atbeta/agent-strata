@@ -58,6 +58,7 @@ import {
   stepAgent,
   promptParts,
   explainSend,
+  nextQueued,
   restoreFailed,
   toAttachment,
   triggerAt,
@@ -420,6 +421,9 @@ export function useSessionComposer(args: {
   const [echo, setEcho] = createSignal<PendingEcho>();
 
   const deliver = async (out: Outgoing) => {
+    // The session this message was written for. A queued message carries its
+    // own; a direct send has none and means the one on screen.
+    const target = out.sessionId ?? args.sessionId();
     setSendErr("");
     // A confirmation about the run that just ended says nothing about the one
     // starting, and two of them stacked read as a session stopped twice.
@@ -451,7 +455,7 @@ export function useSessionComposer(args: {
     try {
       if (out.revertTurnId) {
         try {
-          await revertSession(args.sessionId(), out.revertTurnId);
+          await revertSession(target, out.revertTurnId);
         } catch (err) {
           // A later edit owns the signal now; don't overwrite it with this failure.
           if (editTurnId() === undefined) setEditTurnId(out.revertTurnId);
@@ -462,11 +466,11 @@ export function useSessionComposer(args: {
         // Deliberately no attachments: the shell endpoint takes a command
         // string, and a file the reader attached would be dropped in silence if
         // this path were chosen with one in hand.
-        await runShell(args.sessionId(), shell, choice);
+        await runShell(target, shell, choice);
       } else if (command) {
-        await runCommand(args.sessionId(), { ...command, parts: commandParts(out.text, out.picked, out.attachments) }, choice);
+        await runCommand(target, { ...command, parts: commandParts(out.text, out.picked, out.attachments) }, choice);
       } else {
-        await sendPrompt(args.sessionId(), promptParts(out.text, out.picked, out.attachments), choice);
+        await sendPrompt(target, promptParts(out.text, out.picked, out.attachments), choice);
       }
       // The backend has it now. The handover that mattered — "the reader gave
       // this over and nothing has come back" — is over; what is left is the
@@ -498,6 +502,10 @@ export function useSessionComposer(args: {
       text: draft().trim(),
       picked: picked(),
       attachments: attachments(),
+      // Stamped at the moment of typing, not at the moment of sending. A queued
+      // message can outlive the session it was written in, and the queue drains
+      // on whatever is open when the run ends.
+      sessionId: args.sessionId(),
       ...(revertTurnId ? { revertTurnId } : {}),
     };
     if (!out.text && out.attachments.length === 0) return;
@@ -577,17 +585,27 @@ export function useSessionComposer(args: {
   // on the next idle. deliver() opens the handover in the same turn, so this
   // does not drain the rest of the queue until that turn finishes.
   createEffect(() => {
-    if (generating() || args.replayPos() !== null || queuePaused()) return;
-    const next = queued()[0];
-    if (!next) return;
+    if (args.replayPos() !== null || queuePaused()) return;
+    const step = nextQueued(queued(), args.sessionId(), generating());
+    if (step.action === "wait") return;
+    if (step.action === "drop") {
+      // Written in a session the reader has left. See `nextQueued`.
+      setQueued(step.keep);
+      return;
+    }
     setQueued((q) => q.slice(1));
-    void deliver(next);
+    void deliver(step.item);
   });
 
   const editQueued = (index: number) => {
     const item = queued()[index];
     if (!item) return;
-    const current: Outgoing = { text: draft().trim(), picked: picked(), attachments: attachments() };
+    const current: Outgoing = {
+      text: draft().trim(),
+      picked: picked(),
+      attachments: attachments(),
+      sessionId: args.sessionId(),
+    };
     setQueued((q) => {
       const rest = q.filter((_, i) => i !== index);
       return current.text || current.attachments.length ? [...rest, current] : rest;
