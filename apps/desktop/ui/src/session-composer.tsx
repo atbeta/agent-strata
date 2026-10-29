@@ -34,13 +34,16 @@ import { stopConfirmed } from "./stop-verdict";
 import { ComposerToolbar } from "./composer-toolbar";
 import { withEcho, type PendingEcho } from "./prompt-echo";
 import {
+  joinQueued,
   navigateHistory,
   readDraft,
   readHistory,
   rememberPrompt,
   sessionContext,
+  takeQueuedText,
   writeDraft,
   writeHistory,
+  writeQueuedText,
 } from "./prompt-memory";
 import {
   attachmentProblem,
@@ -857,9 +860,35 @@ export function useSessionComposer(args: {
     if (draft()) queueMicrotask(autogrow);
   });
 
+  /**
+   * Keep the queue's words on disk, grouped by the session each was typed in.
+   *
+   * The queue itself is not restored — a promise to send must not survive the
+   * app being closed, or reopening hours later would fire off what the reader
+   * wrote before lunch. The text is kept so `resetFor` can hand it back in the
+   * draft, where the reader decides.
+   *
+   * Grouped by the entry's own `sessionId` rather than the composer's current
+   * one: a switch happens while old entries are still queued, and the composer
+   * has already moved on by the time this runs.
+   */
+  createEffect(() => {
+    const bySession = new Map<string, string[]>();
+    for (const item of queued()) {
+      const id = item.sessionId ?? args.sessionId();
+      const texts = bySession.get(id) ?? [];
+      if (item.text.trim()) texts.push(item.text);
+      bySession.set(id, texts);
+    }
+    for (const [id, texts] of bySession) writeQueuedText(id, texts);
+  });
+
   /** the session behind the composer changed — drop everything that belonged to the old one */
   const resetFor = (id: string) => {
-    setDraft(readDraft(id));
+    // Messages that were waiting for this session come back as draft text.
+    // Read-and-clear, so they are folded in once rather than piling up on
+    // every open. Attachments cannot make this trip — see `queuedKey`.
+    setDraft(joinQueued(readDraft(id), takeQueuedText(id)));
     setQueued([]);
     setHistIndex(-1);
     setHistSaved("");

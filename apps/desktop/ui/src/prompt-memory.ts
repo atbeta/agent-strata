@@ -167,3 +167,85 @@ export function writeHistory(entries: string[]): void {
     // private mode
   }
 }
+
+/**
+ * Messages waiting in a session's queue, as text.
+ *
+ * A queue entry is a promise to send, so it must not survive a restart as one:
+ * reopening the app hours later and having it fire off what the reader typed
+ * before lunch is worse than losing it. What is kept here is only the words, and
+ * they are read back into the draft — where the reader decides — rather than
+ * into the queue.
+ *
+ * Text only, and that is not an oversight: an attachment travels as a data URL
+ * of up to 5MB each, ten of them per message, against a localStorage quota of
+ * about 5MB in total. There is no version of this that stores them. A restored
+ * queue therefore says what it can and the reader re-attaches what it cannot.
+ */
+export function queuedKey(sessionId: string): string {
+  return `strata.queued.${sessionId}`;
+}
+
+type ReadStorage = Pick<Storage, "getItem"> | undefined;
+type WriteStorage = Pick<Storage, "setItem" | "removeItem"> | undefined;
+
+function browserStorage(): Storage | undefined {
+  try {
+    return typeof localStorage === "undefined" ? undefined : localStorage;
+  } catch {
+    return undefined;
+  }
+}
+
+export function readQueuedText(sessionId: string, storage: ReadStorage = browserStorage()): string[] {
+  try {
+    const raw = storage?.getItem(queuedKey(sessionId));
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((x): x is string => typeof x === "string" && x.trim() !== "");
+  } catch {
+    return [];
+  }
+}
+
+export function writeQueuedText(
+  sessionId: string,
+  texts: readonly string[],
+  storage: WriteStorage = browserStorage(),
+): void {
+  try {
+    const key = queuedKey(sessionId);
+    const kept = texts.filter((t) => t.trim() !== "");
+    if (kept.length) storage?.setItem(key, JSON.stringify(kept));
+    else storage?.removeItem(key);
+  } catch {
+    // Private mode, or a quota that will not take it: the queue still works
+    // for this run, it just will not come back after a restart.
+  }
+}
+
+/**
+ * Messages waiting for a session, taken out of storage.
+ *
+ * Read-and-clear in one step: what comes back is about to be shown in the
+ * draft, and leaving it in storage would fold it in again on the next open.
+ */
+export function takeQueuedText(sessionId: string, storage?: Storage): string[] {
+  const texts = readQueuedText(sessionId, storage);
+  if (texts.length) writeQueuedText(sessionId, [], storage);
+  return texts;
+}
+
+/**
+ * A draft with the messages that were waiting put back in front of it.
+ *
+ * One message per line, in the order they were queued, above whatever was
+ * typed. They arrive as text because that is all that can survive a restart —
+ * see `queuedKey`.
+ */
+export function joinQueued(typed: string, waiting: readonly string[]): string {
+  const rest = waiting.filter((t) => t.trim() !== "");
+  if (!rest.length) return typed;
+  return typed.trim() ? `${typed}\n${rest.join("\n")}` : rest.join("\n");
+}
