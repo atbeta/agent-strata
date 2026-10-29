@@ -281,6 +281,8 @@ export default {
   "composer.type": "输入消息",
   "composer.queue": "加入队列",
   "composer.queue.tip": "本轮结束后发送",
+  "composer.queue.paused": "已停止，排队消息暂停发送",
+  "composer.queue.resume": "继续发送",
   "composer.more": "更多选项",
   "composer.details": "会话详情",
   "composer.menu.files": "文件",

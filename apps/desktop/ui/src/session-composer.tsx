@@ -1097,6 +1097,17 @@ export function useSessionComposer(args: {
     optionsAgents: () => args.options()?.agents.length ?? 0,
     effortVariants: () => effortModel()?.variants?.length ?? 0,
     decorateTurns: (turns: SessionView["turns"]) => withEcho(turns, echo()),
+    /**
+     * Whether the queue is holding itself.
+     *
+     * A stop pauses the queue so the idle it brings does not fire the next
+     * follow-up the instant the reader asked it to stop. The pause had no way
+     * out that the reader could see or reach: it cleared on the next send, on
+     * a failed abort, or on a session switch — none of which is "I stopped, and
+     * now I want the rest to go". The items sat there looking queued forever.
+     */
+    queuePaused,
+    resumeQueue: () => setQueuePaused(false),
   };
 }
 
@@ -1164,9 +1175,28 @@ export function SessionComposer(props: {
                 : "rounded-t-2xl border-input"
             }`}
           >
-            <p class="text-2xs font-medium text-muted-foreground">
-              {tn("composer.queued", c().queued().length)}
-            </p>
+            <div class="flex items-center gap-2">
+              <p class="min-w-0 flex-1 text-2xs font-medium text-muted-foreground">
+                {tn("composer.queued", c().queued().length)}
+              </p>
+              {/* A stop holds the queue so the idle it brings does not fire the
+                  next follow-up immediately. Without saying so, and without a
+                  way back, the items sit there looking queued forever. */}
+              <Show when={c().queuePaused()}>
+                <span class="shrink-0 text-2xs text-muted-foreground">
+                  {t("composer.queue.paused")}
+                </span>
+                <Button
+                  type="button"
+                  variant="quiet"
+                  size="xs"
+                  class="h-auto shrink-0 px-0 py-0 text-xs"
+                  onClick={() => c().resumeQueue()}
+                >
+                  {t("composer.queue.resume")}
+                </Button>
+              </Show>
+            </div>
             <ul class="mt-1 space-y-1">
               <For each={c().queued()}>
                 {(item, i) => (

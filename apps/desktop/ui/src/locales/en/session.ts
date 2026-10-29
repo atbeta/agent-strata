@@ -280,6 +280,8 @@ export default {
   "composer.type": "Type a message",
   "composer.queue": "Queue",
   "composer.queue.tip": "Sends when this run finishes",
+  "composer.queue.paused": "Stopped — queued messages are on hold",
+  "composer.queue.resume": "Send them",
   "composer.more": "More options",
   "composer.details": "Session details",
   "composer.menu.files": "Files",
