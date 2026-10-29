@@ -4,16 +4,17 @@ import { join } from "node:path";
 
 describe("assistant trace facts", () => {
   test("keeps the actual agent, reasoning variant, and finish reason", () => {
-    const src = readFileSync(join(import.meta.dir, "trace.tsx"), "utf8");
+    const model = readFileSync(join(import.meta.dir, "trace-model.ts"), "utf8");
     for (const field of ["agent", "variant", "stopReason"]) {
-      expect(src).toContain(`${field}?: string`);
+      expect(model).toContain(`${field}?: string`);
     }
-    expect(src).toContain("prev.agent = agent ?? prev.agent");
-    expect(src).toContain("prev.variant = variant ?? prev.variant");
-    expect(src).toContain("prev.stopReason = stopReason ?? prev.stopReason");
-    expect(src).toContain('t("trace.field.agent")');
-    expect(src).toContain('t("trace.field.variant")');
-    expect(src).toContain('t("trace.field.finish")');
+    expect(model).toContain("prev.agent = agent ?? prev.agent");
+    expect(model).toContain("prev.variant = variant ?? prev.variant");
+    expect(model).toContain("prev.stopReason = stopReason ?? prev.stopReason");
+    const drawer = readFileSync(join(import.meta.dir, "trace.tsx"), "utf8");
+    expect(drawer).toContain('t("trace.field.agent")');
+    expect(drawer).toContain('t("trace.field.variant")');
+    expect(drawer).toContain('t("trace.field.finish")');
   });
 
   test("a length finish has a visible transcript warning in both languages", () => {

@@ -972,6 +972,9 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         since: url.searchParams.get("since") ?? undefined,
         until: url.searchParams.get("until") ?? undefined,
         text: url.searchParams.get("text") ?? undefined,
+        after_seq: url.searchParams.get("after_seq")
+          ? Number(url.searchParams.get("after_seq"))
+          : undefined,
         order: (url.searchParams.get("order") as "asc" | "desc") ?? "asc",
         offset: url.searchParams.get("offset") ? Number(url.searchParams.get("offset")) : undefined,
         limit: url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : undefined,

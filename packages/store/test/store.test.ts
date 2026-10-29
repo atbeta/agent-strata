@@ -267,6 +267,20 @@ describe("store.query", () => {
     s.close();
   });
 
+  test("after_seq pages a session's events from a cursor", () => {
+    const s = openStore(":memory:");
+    seed(s);
+    const page1 = s.query({ session_id: "a", order: "asc", after_seq: 0, limit: 2 });
+    expect(page1.map((e) => e.seq)).toEqual([1, 2]);
+    const page2 = s.query({ session_id: "a", order: "asc", after_seq: 2, limit: 2 });
+    expect(page2.map((e) => e.seq)).toEqual([3, 4]);
+    expect(s.query({ session_id: "a", after_seq: 4 })).toEqual([]);
+    // The cursor is a sequence number, not a row count: session b's events
+    // share the seq space of their own session, never session a's.
+    expect(s.query({ session_id: "b", after_seq: 1 }).map((e) => e.seq)).toEqual([2]);
+    s.close();
+  });
+
   test("empty result, no filters returns everything", () => {
     const s = openStore(":memory:");
     seed(s);

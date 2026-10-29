@@ -27,8 +27,10 @@ import { join } from "node:path";
  *                           screens are being converted onto.
  *   chrome.tsx              `CaptionButton` — has to fill a 44px title bar and
  *                           sit square against the window edge.
- *   trace.tsx x3            a timeline mark (absolute, opacity-driven) and two
- *                           20x16 scroll arrows pinned to the scroll container.
+ *   trace.tsx x4            a timeline mark (absolute, opacity-driven), two
+ *                           20x16 scroll arrows pinned to the scroll container,
+ *                           and the list row — a 28px single-line grid cell
+ *                           laid out by arithmetic, not a bordered control.
  *   review.tsx              a diff cell whose own background carries the
  *                           add/del colour; the button is only the click target.
  *   json-view.tsx           a 14px tree caret, below the smallest size the
@@ -39,7 +41,7 @@ import { join } from "node:path";
  * Adding an eleventh means adding a reason, not a conversion.
  */
 const BUDGET = {
-  button: 10,
+  button: 11,
   /**
    * Two, both for the same reason: neither one draws anything.
    *

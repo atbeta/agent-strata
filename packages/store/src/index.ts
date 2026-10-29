@@ -19,6 +19,8 @@ export interface EventQuery {
   types?: string[];
   since?: string;
   until?: string;
+  /** cursor over (session_id, seq): only events past this stored sequence */
+  after_seq?: number;
   text?: string;
   order?: "asc" | "desc";
   offset?: number;
@@ -375,6 +377,10 @@ export function openStore(path: string | ":memory:"): Store {
       if (q.until !== undefined) {
         where.push("e.ts <= ?");
         params.push(q.until);
+      }
+      if (q.after_seq !== undefined) {
+        where.push("e.seq > ?");
+        params.push(q.after_seq);
       }
       if (where.length > 0) sql += ` WHERE ${where.join(" AND ")}`;
       if (useFts && q.order === undefined) {

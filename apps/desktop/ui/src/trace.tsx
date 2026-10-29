@@ -1,283 +1,94 @@
-import { createEffect, createMemo, createResource, createSignal, For, onCleanup, Show, type JSX } from "solid-js";
-import { fmtDuration, fmtUsd, getJson, type AssistantStep, type StrataEvent } from "./api";
+import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack, type JSX } from "solid-js";
+import { fmtDuration, fmtUsd } from "./api";
 import { inDesktopShell } from "./shell";
 import { Md } from "./md";
 import { Tip } from "./tip";
 import { CopyButton, Payload } from "./payload";
 import { num, stamp, t } from "./i18n";
 import { Icon } from "./icons";
-import { mergeUserBar, traceMaxOffset, tracePage, traceWindow } from "./trace-window";
+import { traceMaxOffset, tracePage, traceWindow } from "./trace-window";
+import {
+  filterTrace,
+  layoutTrace,
+  traceSummary,
+  type TraceBlock,
+  type TraceFile,
+  type TraceFilter,
+  type TraceLayoutMode,
+  type TracePermission,
+  type TraceUsage,
+} from "./trace-model";
 import { Button } from "@/components/ui/button";
 import { MiniTabs } from "@/components/ui/mini-tabs";
+import { TextFieldInput } from "@/components/ui/text-field";
 
-export interface TraceUsage {
-  input: number;
-  output: number;
-  reasoning?: number;
-  cache_read?: number;
-  cache_write?: number;
-}
-
-export interface TraceBlock {
-  key: string;
-  seq: number;
-  ts: string;
-  lane: "user" | "assistant" | "tool";
-  title: string;
-  preview: string;
-  /** Raw event payloads, not serialised. The drawer decides how to render them:
-   *  a JSON value becomes a tree, a string becomes highlighted text. */
-  input?: unknown;
-  result?: unknown;
-  /** Measured duration, when the backend reported one. Kept as a number so the
-   *  strip can size a lane by it — this used to be scraped back out of a joined
-   *  display string with a regex. */
-  latencyMs?: number;
-  /** Token counts, kept split rather than summed: the cache columns are the
-   *  interesting ones and a total hides them. */
-  usage?: TraceUsage;
-  costUsd?: number;
-  /** Each model call the message ran — which step cost, which step stopped. */
-  steps?: AssistantStep[];
-  model?: string;
-  agent?: string;
-  variant?: string;
-  stopReason?: string;
-  tone: string;
-  error?: boolean;
-  /** thinking only, no user-visible text */
-  quiet?: boolean;
-}
+export type { TraceBlock } from "./trace-model";
 
 /** `label` holds the dictionary key; the row renders `t()` over it. */
 const LANES = [
-  { id: "user", label: "trace.lane.input", dot: "bg-event-user" },
-  { id: "assistant", label: "trace.lane.reply", dot: "bg-event-assistant" },
-  { id: "tool", label: "trace.lane.tool", dot: "bg-event-tool" },
+  { id: "user", label: "trace.lane.input" },
+  { id: "assistant", label: "trace.lane.reply" },
+  { id: "tool", label: "trace.lane.tool" },
+  { id: "event", label: "trace.lane.event" },
 ] as const;
 
-function parts(content: unknown): { type?: string; text?: string }[] {
-  if (!Array.isArray(content)) return [];
-  return content.filter((b) => b && typeof b === "object") as { type?: string; text?: string }[];
-}
+type LaneId = (typeof LANES)[number]["id"];
 
-function textOf(content: unknown, kind: "spoken" | "thinking"): string {
-  return parts(content)
-    .filter((b) => (kind === "thinking" ? b.type === "thinking" : b.type !== "thinking"))
-    .map((b) => b.text ?? "")
-    .filter(Boolean)
-    .join("\n")
-    .trim();
-}
+const LANE_BADGE: Record<LaneId, { label: string; cls: string }> = {
+  user: { label: "trace.lane.input", cls: "bg-event-user/15 text-event-user" },
+  assistant: { label: "trace.lane.reply", cls: "bg-event-assistant/15 text-event-assistant" },
+  tool: { label: "trace.lane.tool", cls: "bg-event-tool/15 text-event-tool" },
+  event: { label: "trace.lane.event", cls: "bg-muted-foreground/15 text-muted-foreground" },
+};
 
-function toolTone(name: string): string {
-  const n = name.toLowerCase();
-  if (n === "bash" || n.includes("shell") || n === "powershell" || n === "cmd") return "bg-status-cancelled";
-  if (n.includes("search") || n.includes("fetch") || n.includes("web")) return "bg-event-tool";
-  if (/(^|_)(read|glob|grep|list)($|_)/.test(n) || n === "read") return "bg-event-file";
-  if (n.includes("edit") || n.includes("write") || n.includes("patch")) return "bg-event-user";
-  if (n === "question" || n.includes("ask")) return "bg-event-permission";
-  if (n === "skill") return "bg-status-completed";
-  return "bg-primary";
-}
-
-function inputPreview(input: unknown): string | undefined {
-  if (!input || typeof input !== "object") return pretty(input);
-  const o = input as Record<string, unknown>;
-  for (const key of ["query", "command", "url", "path", "file_path", "pattern", "name", "prompt"]) {
-    if (typeof o[key] === "string" && o[key]) return o[key] as string;
-  }
-  if (Array.isArray(o.questions) && o.questions[0] && typeof o.questions[0] === "object") {
-    const q = (o.questions[0] as { question?: string }).question;
-    if (q) return q;
-  }
-  return pretty(input);
-}
-
-function pretty(value: unknown): string | undefined {
-  if (value == null || value === "") return undefined;
-  if (typeof value === "string") return value;
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
-}
-
-/** A finite number, or nothing. A backend that sent null or a string gets dropped
- *  rather than rendered as `NaN`. */
-function numOf(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function usageOf(value: unknown): TraceUsage | undefined {
-  if (!value || typeof value !== "object") return undefined;
-  const u = value as Record<string, unknown>;
-  const input = numOf(u.input);
-  const output = numOf(u.output);
-  if (input === undefined && output === undefined) return undefined;
-  return {
-    input: input ?? 0,
-    output: output ?? 0,
-    reasoning: numOf(u.reasoning),
-    cache_read: numOf(u.cache_read),
-    cache_write: numOf(u.cache_write),
-  };
-}
-
-export function traceBlocks(events: StrataEvent[]): TraceBlock[] {
-  const blocks: TraceBlock[] = [];
-  const tools = new Map<string, TraceBlock>();
-  const assistants = new Map<string, TraceBlock>();
-  const users = new Map<string, TraceBlock>();
-  for (const e of events) {
-    const d = e.data;
-    if (e.type === "turn.user") {
-      const turnId = String(d.turn_id ?? e.id);
-      const preview = textOf(d.content, "spoken") || "message";
-      const prev = users.get(turnId);
-      const merged = mergeUserBar(prev, { seq: e.seq, ts: e.ts, preview });
-      if (prev) {
-        prev.seq = merged.seq;
-        prev.ts = merged.ts;
-        prev.preview = merged.preview;
-      } else {
-        const block: TraceBlock = {
-          key: turnId,
-          seq: merged.seq,
-          ts: merged.ts,
-          lane: "user",
-          title: "输入",
-          preview: merged.preview,
-          tone: "bg-event-user",
-        };
-        users.set(turnId, block);
-        blocks.push(block);
-      }
-    } else if (e.type === "turn.assistant") {
-      const id = String(d.msg_id ?? e.id);
-      const spoken = textOf(d.content, "spoken");
-      const thought = textOf(d.content, "thinking");
-      const model = d.model ? String(d.model) : undefined;
-      const agent = d.agent ? String(d.agent) : undefined;
-      const variant = d.variant ? String(d.variant) : undefined;
-      const stopReason = d.stop_reason ? String(d.stop_reason) : undefined;
-      // Each of these is its own field. They used to be joined into one "detail"
-      // string, which put the model id and the price under a label reading
-      // "Elapsed" and forced the strip to regex the milliseconds back out.
-      const latencyMs = numOf(d.latency_ms);
-      const usage = usageOf(d.usage);
-      const costUsd = numOf(d.cost_usd);
-      const steps = Array.isArray(d.steps) ? (d.steps as AssistantStep[]) : undefined;
-      const prev = assistants.get(id);
-      if (prev) {
-        prev.seq = e.seq;
-        prev.ts = e.ts;
-        prev.preview = spoken || thought.slice(0, 280) || prev.preview;
-        prev.quiet = !spoken;
-        prev.model = model ?? prev.model;
-        prev.agent = agent ?? prev.agent;
-        prev.variant = variant ?? prev.variant;
-        prev.stopReason = stopReason ?? prev.stopReason;
-        prev.steps = steps ?? prev.steps;
-        if (latencyMs !== undefined) prev.latencyMs = latencyMs;
-        if (usage) prev.usage = usage;
-        if (costUsd !== undefined) prev.costUsd = costUsd;
-        prev.tone = "bg-event-assistant";
-        prev.title = model ? model.slice(model.indexOf("/") + 1) : prev.title;
-      } else {
-        const block: TraceBlock = {
-          key: id,
-          seq: e.seq,
-          ts: e.ts,
-          lane: "assistant",
-          title: model ? model.slice(model.indexOf("/") + 1) : "回复",
-          preview: spoken || thought.slice(0, 280) || "reply",
-          latencyMs,
-          usage,
-          costUsd,
-          steps,
-          model,
-          agent,
-          variant,
-          stopReason,
-          tone: "bg-event-assistant",
-          quiet: !spoken,
-        };
-        assistants.set(id, block);
-        blocks.push(block);
-      }
-    } else if (e.type === "tool.call") {
-      const callId = String(d.call_id ?? e.id);
-      const title = String(d.tool ?? "tool");
-      const block: TraceBlock = {
-        key: callId,
-        seq: e.seq,
-        ts: e.ts,
-        lane: "tool",
-        title,
-        preview: inputPreview(d.input) || title,
-        input: d.input,
-        tone: toolTone(title),
-      };
-      tools.set(callId, block);
-      blocks.push(block);
-    } else if (e.type === "tool.result") {
-      const callId = String(d.call_id ?? "");
-      const block = tools.get(callId);
-      const output = d.output;
-      const failed = d.status === "error";
-      if (block) {
-        block.seq = e.seq;
-        block.ts = e.ts;
-        block.result = output;
-        block.error = failed;
-        if (failed) block.tone = "bg-status-error";
-        if (typeof d.latency_ms === "number") block.latencyMs = d.latency_ms;
-      }
-    }
-  }
-  return blocks;
+/** A row/badges tinted by the block's own tone — the tones are the css
+ *  variables the theme already defines, so this works in both themes. */
+function toneVar(b: TraceBlock): string {
+  return `var(--${b.tone.slice(3)})`;
 }
 
 /**
  * `traceBlocks` runs inside a fetch, not a render pass, so calling `t()` there
  * would freeze a word in whatever language was active when the events loaded.
- * The stand-in words travel through the data as markers and are translated at
- * the two places a title or preview is actually shown. A title that carries a
- * model id or a tool name is passed through untouched, like every other piece of
- * text the backend sends.
+ * Stand-in titles carry `titleKey` and are translated where they are shown;
+ * the legacy marker words the model emits for the three turn lanes are mapped
+ * here too. A title carrying a model id or tool name passes through verbatim.
  */
-function displayTitle(b: TraceBlock): string {
+export function displayTitle(b: TraceBlock): string {
+  if (b.titleKey) return t(b.titleKey);
   if (b.lane === "user" && b.title === "输入") return t("trace.lane.input");
   if (b.lane === "assistant" && b.title === "回复") return t("trace.lane.reply");
   if (b.lane === "tool" && b.title === "tool") return t("trace.title.tool");
   return b.title;
 }
 
-function displayPreview(b: TraceBlock): string {
+export function displayPreview(b: TraceBlock): string {
   if (b.lane === "user" && b.preview === "message") return t("trace.preview.message");
   if (b.lane === "assistant" && b.preview === "reply") return t("trace.preview.reply");
   return b.preview;
 }
 
-function layout(blocks: TraceBlock[]) {
-  const sorted = [...blocks].sort((a, b) => a.seq - b.seq);
-  const pos = new Map<string, { left: number; width: number }>();
-  let x = 0;
-  let prev = 0;
-  for (const b of sorted) {
-    const t = Date.parse(b.ts);
-    const gap = prev && Number.isFinite(t) ? t - prev : 0;
-    const space = gap > 2_000 ? Math.min(18, Math.round(gap / 12_000)) : 0;
-    const ms = b.latencyMs ?? 0;
-    const width = b.lane === "user" ? 7 : Math.min(28, 9 + (ms > 4_000 ? 8 : ms > 800 ? 4 : 0));
-    x += space;
-    pos.set(b.key, { left: x, width });
-    x += width + 4;
-    if (Number.isFinite(t)) prev = t;
-  }
-  return { pos, width: x };
+/** Active time at human scale: fmtDuration under an hour, then compact.
+ *  Local to the trace — the global fmtDuration stays untouched. */
+export function fmtActive(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "—";
+  if (ms < 3_600_000) return fmtDuration(ms);
+  const h = Math.floor(ms / 3_600_000);
+  const m = Math.round((ms % 3_600_000) / 60_000);
+  if (h < 24) return `${h}h ${String(m).padStart(2, "0")}m`;
+  const d = Math.floor(h / 24);
+  return `${d}d ${h % 24}h`;
+}
+
+/** Ruler ticks, tighter than fmtActive: `45s`, `63m`, `1h03m`, `3d4h`. */
+export function fmtRuler(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "—";
+  if (ms < 60_000) return `${Math.max(1, Math.round(ms / 1_000))}s`;
+  if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`;
+  const h = Math.floor(ms / 3_600_000);
+  const m = Math.round((ms % 3_600_000) / 60_000);
+  if (h < 24) return `${h}h${String(m).padStart(2, "0")}m`;
+  return `${Math.floor(h / 24)}d${h % 24}h`;
 }
 
 function blockLabel(block: TraceBlock): string {
@@ -286,23 +97,262 @@ function blockLabel(block: TraceBlock): string {
   return `${title}${preview && preview !== title ? ` — ${preview.slice(0, 80)}` : ""}`;
 }
 
-export function TraceStrip(props: {
-  sessionId: string;
+const STATUS_LABEL: Record<TraceBlock["status"], string> = {
+  ok: "trace.status.ok",
+  error: "trace.status.error",
+  interrupted: "trace.status.interrupted",
+  pending: "trace.status.pending",
+};
+
+const STATUS_PILL: Record<TraceBlock["status"], string> = {
+  ok: "bg-status-completed/15 text-status-completed",
+  error: "bg-status-error/15 text-status-error",
+  interrupted: "bg-status-cancelled/15 text-status-cancelled",
+  pending: "bg-status-active/15 text-status-active",
+};
+
+/* ------------------------------------------------------------------ */
+/* persisted prefs                                                     */
+/* ------------------------------------------------------------------ */
+
+const MODE_KEY = "strata.trace.mode";
+const LIST_KEY = "strata.trace.list";
+
+function readMode(): TraceLayoutMode {
+  try {
+    const v = localStorage.getItem(MODE_KEY);
+    if (v === "duration" || v === "sequence") return v;
+  } catch {
+    // storage can be refused — the default still works
+  }
+  return "duration";
+}
+
+function writeMode(mode: TraceLayoutMode): void {
+  try {
+    localStorage.setItem(MODE_KEY, mode);
+  } catch {
+    // best effort
+  }
+}
+
+function readListOpen(): boolean {
+  try {
+    return localStorage.getItem(LIST_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+function writeListOpen(open: boolean): void {
+  try {
+    localStorage.setItem(LIST_KEY, open ? "1" : "0");
+  } catch {
+    // best effort
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* panel: toolbar + strip + list                                       */
+/* ------------------------------------------------------------------ */
+
+export function TracePanel(props: {
+  blocks: TraceBlock[];
+  loading: boolean;
+  /** the selected block's key — looked up against fresh data by the owner */
   selected: string | null;
+  /** `debounce` is set when selection came from the keyboard, so rapid
+   *  movement does not fire a replay fetch per keypress */
+  onSelect: (block: TraceBlock, opts?: { debounce?: boolean }) => void;
+  onClearSelection: () => void;
+}) {
+  const [mode, setMode] = createSignal<TraceLayoutMode>(readMode());
+  const [kind, setKind] = createSignal<TraceFilter["kind"]>("all");
+  const [query, setQuery] = createSignal("");
+  const [listOpen, setListOpen] = createSignal(readListOpen());
+
+  const filtered = createMemo(() =>
+    filterTrace(props.blocks, { query: query(), kind: kind() }, {
+      title: displayTitle,
+      preview: displayPreview,
+    }),
+  );
+  const matchKeys = createMemo(() => new Set(filtered().map((b) => b.key)));
+  const filtering = () => kind() !== "all" || query().trim() !== "";
+  const summary = createMemo(() => traceSummary(props.blocks));
+  const placed = createMemo(() => layoutTrace(props.blocks, mode()));
+
+  const changeMode = (id: string) => {
+    const next = id as TraceLayoutMode;
+    setMode(next);
+    writeMode(next);
+  };
+  const toggleList = () => {
+    const next = !listOpen();
+    setListOpen(next);
+    writeListOpen(next);
+  };
+
+  /** keyboard navigation — the row the keys move through is the filtered list */
+  const moveSelection = (dir: -1 | 1 | "first" | "last") => {
+    const rows = filtered();
+    if (!rows.length) return;
+    const i = rows.findIndex((b) => b.key === props.selected);
+    let next: TraceBlock | undefined;
+    if (dir === "first") next = rows[0];
+    else if (dir === "last") next = rows[rows.length - 1];
+    else if (i < 0) next = dir === 1 ? rows[0] : rows[rows.length - 1];
+    else next = rows[Math.min(rows.length - 1, Math.max(0, i + dir))];
+    if (next && next.key !== props.selected) props.onSelect(next, { debounce: true });
+  };
+
+  const onKeyDown = (e: KeyboardEvent) => {
+    const el = e.target as HTMLElement;
+    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+      // The search field keeps its keys: only Esc and the arrows mean us.
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        if (query()) setQuery("");
+        el.blur();
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        moveSelection(1);
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        moveSelection(-1);
+      }
+      return;
+    }
+    // Tab strips move with their own arrows — leave those keys to them.
+    if (el.closest('[role="radiogroup"],[role="tablist"]')) return;
+    switch (e.key) {
+      case "ArrowDown":
+      case "j":
+        e.preventDefault();
+        e.stopPropagation();
+        moveSelection(1);
+        break;
+      case "ArrowUp":
+      case "k":
+        e.preventDefault();
+        e.stopPropagation();
+        moveSelection(-1);
+        break;
+      case "Home":
+        e.preventDefault();
+        e.stopPropagation();
+        moveSelection("first");
+        break;
+      case "End":
+        e.preventDefault();
+        e.stopPropagation();
+        moveSelection("last");
+        break;
+      case "Escape":
+        e.stopPropagation();
+        props.onClearSelection();
+        break;
+    }
+  };
+
+  return (
+    <div class="shrink-0 border-b border-border" onKeyDown={onKeyDown}>
+      {/* one slim toolbar: the numbers on the left, the controls on the right */}
+      <div class="flex h-9 items-center gap-2 border-b border-border px-4 select-none">
+        <span class="min-w-0 flex-1 truncate font-mono text-2xs tabular-nums text-muted-foreground">
+          {t("trace.summary", {
+            turns: num(summary().turns),
+            calls: num(summary().calls),
+            duration: fmtActive(summary().durationMs),
+            errors: num(summary().errors),
+          })}
+        </span>
+        <MiniTabs
+          value={mode()}
+          onChange={changeMode}
+          options={[
+            { id: "duration", label: t("trace.mode.duration") },
+            { id: "sequence", label: t("trace.mode.sequence") },
+          ]}
+          label={t("trace.mode")}
+        />
+        <MiniTabs
+          value={kind()}
+          onChange={(id) => setKind(id as TraceFilter["kind"])}
+          options={[
+            { id: "all", label: t("trace.filter.all") },
+            { id: "tool", label: t("trace.filter.tool") },
+            { id: "error", label: t("trace.filter.error") },
+          ]}
+          label={t("trace.filter")}
+        />
+        <span class="relative">
+          <Icon
+            name="search"
+            class="pointer-events-none absolute top-1/2 left-1.5 h-3 w-3 -translate-y-1/2 text-muted-foreground"
+          />
+          <TextFieldInput
+            type="search"
+            size="xs"
+            value={query()}
+            placeholder={t("trace.search.placeholder")}
+            aria-label={t("trace.search.placeholder")}
+            class="h-6 w-32 pr-2 pl-6 text-2xs"
+            onInput={(e) => setQuery(e.currentTarget.value)}
+          />
+        </span>
+        <Tip label={t("trace.list.toggle")}>
+          <Button
+            type="button"
+            size="icon-xs"
+            variant="icon"
+            aria-pressed={listOpen()}
+            aria-label={t("trace.list.toggle")}
+            class={listOpen() ? "bg-secondary text-foreground" : undefined}
+            onClick={toggleList}
+          >
+            <Icon name="list" class="size-3.5" />
+          </Button>
+        </Tip>
+      </div>
+      <Show
+        when={!props.loading}
+        fallback={<div class="m-3 h-12 rounded-md bg-secondary/50 motion-safe:animate-pulse" />}
+      >
+        <Show when={props.blocks.length > 0}>
+          <TraceStrip
+            blocks={props.blocks}
+            placed={placed()}
+            selected={props.selected}
+            dim={(key) => filtering() && !matchKeys().has(key)}
+            onSelect={(block) => props.onSelect(block)}
+          />
+          <Show when={listOpen()}>
+            <TraceList
+              rows={filtered()}
+              selected={props.selected}
+              onSelect={(block) => props.onSelect(block)}
+            />
+          </Show>
+        </Show>
+      </Show>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* strip                                                               */
+/* ------------------------------------------------------------------ */
+
+function TraceStrip(props: {
+  blocks: TraceBlock[];
+  placed: ReturnType<typeof layoutTrace>;
+  selected: string | null;
+  dim: (key: string) => boolean;
   onSelect: (block: TraceBlock) => void;
 }) {
-  const [events] = createResource(
-    () => props.sessionId,
-    async (id) => {
-      const r = await getJson<{ events: StrataEvent[] }>(
-        `/events?session_id=${encodeURIComponent(id)}&order=asc&limit=2000`,
-      );
-      return traceBlocks(r.events);
-    },
-  );
-
-  const placed = createMemo(() => layout(events() ?? []));
-  const contentWidth = () => placed().width;
+  const contentWidth = () => props.placed.width;
   const [viewEl, setViewEl] = createSignal<HTMLDivElement>();
   const [viewWidth, setViewWidth] = createSignal(0);
   const [offset, setOffset] = createSignal(0);
@@ -312,12 +362,6 @@ export function TraceStrip(props: {
   let drag: { x: number; off: number; moved: boolean } | null = null;
   let swallowClick = false;
   onCleanup(() => cancelAnimationFrame(glide));
-
-  createEffect(() => {
-    props.sessionId;
-    cancelAnimationFrame(glide);
-    setPinned(true);
-  });
 
   const maxOffset = () => traceMaxOffset(contentWidth(), viewWidth());
   const overflows = () => viewWidth() > 0 && contentWidth() > viewWidth() + 1;
@@ -385,6 +429,25 @@ export function TraceStrip(props: {
     else setOffset((current) => (current > max ? max : current));
   });
 
+  // Selection changed from the keyboard or the list: glide the strip so the
+  // bar it landed on is on screen. Only the selection and the layout trigger
+  // this — reading the offset reactively made a manual drag snap straight
+  // back to the selected bar.
+  createEffect(() => {
+    const key = props.selected;
+    const placed = props.placed;
+    if (!key) return;
+    untrack(() => {
+      const box = placed.pos.get(key);
+      const view = viewWidth();
+      if (!box || view <= 0) return;
+      const start = shownOffset();
+      if (box.left < start || box.left + box.width > start + view) {
+        glideTo(box.left + box.width / 2 - view / 2);
+      }
+    });
+  });
+
   const nudge = (dir: -1 | 1) => glideTo(tracePage(contentWidth(), viewWidth(), shownOffset(), dir));
 
   // Before the viewport is measured the tail is shown with a container-query
@@ -402,13 +465,14 @@ export function TraceStrip(props: {
 
   const visible = createMemo(() => {
     const { start, end } = range();
-    const pos = placed().pos;
-    const out: Record<(typeof LANES)[number]["id"], TraceBlock[]> = {
+    const pos = props.placed.pos;
+    const out: Record<LaneId, TraceBlock[]> = {
       user: [],
       assistant: [],
       tool: [],
+      event: [],
     };
-    for (const block of events() ?? []) {
+    for (const block of props.blocks) {
       const box = pos.get(block.key);
       if (!box || box.left + box.width < start || box.left > end) continue;
       out[block.lane].push(block);
@@ -424,140 +488,367 @@ export function TraceStrip(props: {
     return { width, transform: `translate3d(${-shownOffset()}px, 0, 0)` };
   };
 
+  /** Bar slot inside the lane: whole height for one track, split for stacked
+   *  concurrent calls — the lane itself never grows. */
+  const slotFor = (lane: LaneId, track: number) => {
+    const n = Math.max(1, props.placed.tracks[lane] ?? 1);
+    if (n <= 1) return { top: 2, height: 8 };
+    const sub = Math.floor(12 / n);
+    const h = Math.max(3, sub - 1);
+    return { top: Math.min(12 - h, track * sub), height: h };
+  };
+
   return (
-    <div class="shrink-0 border-b border-border px-4 py-2.5">
-      <Show
-        when={!events.loading}
-        fallback={<div class="h-8 motion-safe:animate-pulse rounded-md bg-secondary/50" />}
-      >
-        <Show when={(events()?.length ?? 0) > 0} fallback={null}>
-          <div class="flex gap-2">
-            <div class="w-8 shrink-0 space-y-1">
+    <div class="px-4 pt-2.5 pb-1.5">
+      <div class="flex gap-2">
+        <div class="w-8 shrink-0 space-y-1">
+          <For each={LANES}>
+            {(lane) => (
+              <div class="flex h-3 items-center text-2xs leading-none text-muted-foreground">
+                {t(lane.label as Parameters<typeof t>[0])}
+              </div>
+            )}
+          </For>
+          <div class="h-3.5" />
+        </div>
+        <div class="min-w-0 flex-1">
+          <div class="relative">
+            <div
+              ref={setViewEl}
+              class="space-y-1 overflow-hidden"
+              style={{ "container-type": "inline-size", "touch-action": "pan-y" }}
+              onPointerDown={(e) => {
+                if (e.button !== 0 || !overflows()) return;
+                if ((e.target as HTMLElement).closest("[data-trace-nav]")) return;
+                swallowClick = false;
+                cancelAnimationFrame(glide);
+                drag = { x: e.clientX, off: shownOffset(), moved: false };
+              }}
+              onPointerMove={(e) => {
+                if (!drag) return;
+                const dx = e.clientX - drag.x;
+                if (!drag.moved && Math.abs(dx) < 4) return;
+                drag.moved = true;
+                if (!e.currentTarget.hasPointerCapture(e.pointerId)) {
+                  e.currentTarget.setPointerCapture(e.pointerId);
+                }
+                placeAt(drag.off - dx);
+              }}
+              onPointerUp={() => {
+                const moved = !!drag?.moved;
+                drag = null;
+                if (!moved) return;
+                // The click that follows a drag must not open a bar. Clear
+                // after that click, which is dispatched in this same turn.
+                swallowClick = true;
+                setTimeout(() => {
+                  swallowClick = false;
+                });
+              }}
+              onPointerCancel={() => {
+                drag = null;
+              }}
+            >
               <For each={LANES}>
                 {(lane) => (
-                  <div class="flex h-3 items-center text-2xs leading-none text-muted-foreground">
-                    {t(lane.label)}
+                  <div class="relative h-3 overflow-hidden rounded-sm bg-secondary/40">
+                    <div class="absolute top-0 h-full will-change-transform" style={shift()}>
+                      <For each={visible()[lane.id]}>
+                        {(block) => {
+                          const box = () => props.placed.pos.get(block.key);
+                          const label = () => blockLabel(block);
+                          const on = () => props.selected === block.key;
+                          const dim = () => props.dim(block.key);
+                          const slot = () => slotFor(lane.id, box()?.track ?? 0);
+                          return (
+                            <Tip label={label()}>
+                              <button
+                                class={`absolute rounded-[2px] ${block.tone} ${
+                                  on()
+                                    ? "z-10 opacity-100 ring-1 ring-foreground/70"
+                                    : dim()
+                                      ? "opacity-15 hover:opacity-60"
+                                      : block.quiet
+                                        ? "opacity-40 hover:opacity-100"
+                                        : "opacity-90 hover:opacity-100"
+                                }`}
+                                style={
+                                  block.lane === "event"
+                                    ? {
+                                        left: `${
+                                          (box()?.left ?? 0) + (box()?.width ?? 8) / 2 - 4
+                                        }px`,
+                                        width: "8px",
+                                        height: "8px",
+                                        top: `${slot().top + Math.max(0, (slot().height - 8) / 2)}px`,
+                                        transform: "rotate(45deg)",
+                                      }
+                                    : {
+                                        left: `${box()?.left ?? 0}px`,
+                                        width: `${box()?.width ?? 8}px`,
+                                        top: `${slot().top}px`,
+                                        height: `${slot().height}px`,
+                                      }
+                                }
+                                aria-label={label()}
+                                onClick={() => {
+                                  if (swallowClick) {
+                                    swallowClick = false;
+                                    return;
+                                  }
+                                  props.onSelect(block);
+                                }}
+                              />
+                            </Tip>
+                          );
+                        }}
+                      </For>
+                    </div>
                   </div>
                 )}
               </For>
+              {/* turn boundaries: a hairline across all lanes at each turn's
+                  first block — clipped here, the view is static-positioned so
+                  the shifted child would otherwise paint past the lanes */}
+              <div
+                class="pointer-events-none absolute inset-0 overflow-hidden"
+                aria-hidden="true"
+              >
+                <div class="absolute top-0 h-full will-change-transform" style={shift()}>
+                  <For each={props.placed.turns}>
+                    {(x) => (
+                      <div
+                        class="absolute top-0 h-full w-px bg-foreground/8"
+                        style={{ left: `${x}px` }}
+                      />
+                    )}
+                  </For>
+                  <For each={props.placed.breaks}>
+                    {(x) => (
+                      <div
+                        class="absolute top-0 h-full border-x border-dashed border-muted-foreground/40"
+                        style={{ left: `${x}px`, width: "14px" }}
+                      />
+                    )}
+                  </For>
+                </div>
+              </div>
             </div>
-            <div class="min-w-0 flex-1">
-              <div class="relative">
-                <div
-                  ref={setViewEl}
-                  class="space-y-1 overflow-hidden"
-                  style={{ "container-type": "inline-size", "touch-action": "pan-y" }}
-                  onPointerDown={(e) => {
-                    if (e.button !== 0 || !overflows()) return;
-                    if ((e.target as HTMLElement).closest("[data-trace-nav]")) return;
-                    swallowClick = false;
-                    cancelAnimationFrame(glide);
-                    drag = { x: e.clientX, off: shownOffset(), moved: false };
-                  }}
-                  onPointerMove={(e) => {
-                    if (!drag) return;
-                    const dx = e.clientX - drag.x;
-                    if (!drag.moved && Math.abs(dx) < 4) return;
-                    drag.moved = true;
-                    if (!e.currentTarget.hasPointerCapture(e.pointerId)) {
-                      e.currentTarget.setPointerCapture(e.pointerId);
-                    }
-                    placeAt(drag.off - dx);
-                  }}
-                  onPointerUp={() => {
-                    const moved = !!drag?.moved;
-                    drag = null;
-                    if (!moved) return;
-                    // The click that follows a drag must not open a bar. Clear
-                    // after that click, which is dispatched in this same turn.
-                    swallowClick = true;
-                    setTimeout(() => {
-                      swallowClick = false;
-                    });
-                  }}
-                  onPointerCancel={() => {
-                    drag = null;
-                  }}
-                >
-                  <For each={LANES}>
-                    {(lane) => (
-                      <div class="relative h-3 overflow-hidden rounded-sm bg-secondary/40">
-                        <div class="absolute top-0 h-full will-change-transform" style={shift()}>
-                          <For each={visible()[lane.id]}>
-                            {(block) => {
-                              const box = () => placed().pos.get(block.key);
-                              const label = () => blockLabel(block);
-                              const on = () => props.selected === block.key;
-                              return (
-                                <Tip label={label()}>
-                                  <button
-                                    class={`absolute rounded-[2px] ${block.tone} ${
-                                      on()
-                                        ? "z-10 opacity-100"
-                                        : block.quiet
-                                          ? "opacity-40 hover:opacity-100"
-                                          : "opacity-90 hover:opacity-100"
-                                    }`}
-                                    style={{
-                                      left: `${box()?.left ?? 0}px`,
-                                      width: `${box()?.width ?? 8}px`,
-                                      top: on() ? "0px" : "2px",
-                                      height: on() ? "12px" : "8px",
-                                    }}
-                                    aria-label={label()}
-                                    onClick={() => {
-                                      if (swallowClick) {
-                                        swallowClick = false;
-                                        return;
-                                      }
-                                      props.onSelect(block);
-                                    }}
-                                  />
-                                </Tip>
-                              );
-                            }}
-                          </For>
-                        </div>
+            {/* the ruler runs under the lanes in duration mode */}
+            <Show when={props.placed.ruler.length > 0}>
+              <div class="relative h-3.5 overflow-hidden">
+                <div class="absolute top-0 h-full will-change-transform" style={shift()}>
+                  <For each={props.placed.ruler}>
+                    {(r) => (
+                      <div
+                        class="absolute top-0 flex items-center gap-1"
+                        style={{ left: `${r.x}px` }}
+                      >
+                        <span class="h-1.5 w-px bg-border" />
+                        <span class="font-mono text-2xs whitespace-nowrap text-muted-foreground/60 tabular-nums">
+                          {fmtRuler(r.ms)}
+                        </span>
                       </div>
                     )}
                   </For>
                 </div>
-                <Show when={overflows() && shownOffset() > 1}>
-                  <button
-                    type="button"
-                    data-trace-nav
-                    class="absolute top-1/2 left-0 z-10 grid h-5 w-4 -translate-y-1/2 place-items-center rounded text-muted-foreground/50 hover:bg-secondary hover:text-foreground"
-                    aria-label={t("trace.earlier")}
-                    onClick={() => nudge(-1)}
-                  >
-                    <Icon name="chevron" class="h-3 w-3 rotate-90" />
-                  </button>
-                </Show>
-                <Show when={overflows() && shownOffset() < maxOffset() - 1}>
-                  <button
-                    type="button"
-                    data-trace-nav
-                    class="absolute top-1/2 right-0 z-10 grid h-5 w-4 -translate-y-1/2 place-items-center rounded text-muted-foreground/50 hover:bg-secondary hover:text-foreground"
-                    aria-label={t("trace.later")}
-                    onClick={() => nudge(1)}
-                  >
-                    <Icon name="chevron" class="h-3 w-3 -rotate-90" />
-                  </button>
-                </Show>
               </div>
-            </div>
+            </Show>
+            <Show when={overflows() && shownOffset() > 1}>
+              <button
+                type="button"
+                data-trace-nav
+                class="absolute top-1/2 left-0 z-10 grid h-5 w-4 -translate-y-1/2 place-items-center rounded text-muted-foreground/50 hover:bg-secondary hover:text-foreground"
+                aria-label={t("trace.earlier")}
+                onClick={() => nudge(-1)}
+              >
+                <Icon name="chevron" class="h-3 w-3 rotate-90" />
+              </button>
+            </Show>
+            <Show when={overflows() && shownOffset() < maxOffset() - 1}>
+              <button
+                type="button"
+                data-trace-nav
+                class="absolute top-1/2 right-0 z-10 grid h-5 w-4 -translate-y-1/2 place-items-center rounded text-muted-foreground/50 hover:bg-secondary hover:text-foreground"
+                aria-label={t("trace.later")}
+                onClick={() => nudge(1)}
+              >
+                <Icon name="chevron" class="h-3 w-3 -rotate-90" />
+              </button>
+            </Show>
           </div>
-        </Show>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* list                                                                */
+/* ------------------------------------------------------------------ */
+
+/** Fixed row height — positions are arithmetic, never measured. */
+const ROW_PX = 28;
+const ROW_OVERSCAN = 8;
+
+function TraceList(props: {
+  rows: TraceBlock[];
+  selected: string | null;
+  onSelect: (block: TraceBlock) => void;
+}) {
+  let scrollEl: HTMLDivElement | undefined;
+  const [top, setTop] = createSignal(0);
+  const [height, setHeight] = createSignal(0);
+
+  const range = createMemo(() => {
+    const lo = Math.max(0, Math.floor(top() / ROW_PX) - ROW_OVERSCAN);
+    const hi = Math.min(
+      props.rows.length,
+      Math.ceil((top() + height()) / ROW_PX) + ROW_OVERSCAN,
+    );
+    return { lo, hi };
+  });
+  const mounted = createMemo(() => props.rows.slice(range().lo, range().hi));
+  const indexOf = createMemo(() => {
+    const m = new Map<string, number>();
+    props.rows.forEach((b, i) => m.set(b.key, i));
+    return m;
+  });
+
+  createEffect(() => {
+    const el = scrollEl;
+    if (!el) return;
+    const measure = () => setHeight(el.clientHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    onCleanup(() => ro.disconnect());
+  });
+
+  // Keep the selected row inside the list's own scrollbox — arithmetic on
+  // scrollTop only, never scrollIntoView, so the transcript stays put.
+  createEffect(() => {
+    const key = props.selected;
+    if (!key || !scrollEl) return;
+    const i = indexOf().get(key);
+    if (i === undefined) return;
+    const raf = requestAnimationFrame(() => {
+      if (!scrollEl) return;
+      const y = i * ROW_PX;
+      if (y < scrollEl.scrollTop) scrollEl.scrollTop = y;
+      else if (y + ROW_PX > scrollEl.scrollTop + scrollEl.clientHeight) {
+        scrollEl.scrollTop = y + ROW_PX - scrollEl.clientHeight;
+      }
+    });
+    onCleanup(() => cancelAnimationFrame(raf));
+  });
+
+  const resultPreview = (b: TraceBlock): string =>
+    typeof b.result === "string" ? (b.result.split("\n")[0] ?? "").slice(0, 80) : "";
+
+  const turnStep = (b: TraceBlock): string => {
+    if (b.turn === undefined) return "";
+    return b.step !== undefined ? `${b.turn}·${b.step}` : `${b.turn}`;
+  };
+
+  return (
+    <div
+      class="border-t border-border/60"
+      style={{ height: "min(36vh, 320px)" }}
+      role="listbox"
+      aria-label={t("trace.view")}
+    >
+      <Show
+        when={props.rows.length > 0}
+        fallback={
+          <div class="grid h-full place-items-center text-2xs text-muted-foreground">
+            {t("trace.list.empty")}
+          </div>
+        }
+      >
+        <div
+          ref={(el) => (scrollEl = el)}
+          class="h-full overflow-y-auto overscroll-contain"
+          onScroll={(e) => setTop(e.currentTarget.scrollTop)}
+        >
+          <div style={{ position: "relative", height: `${props.rows.length * ROW_PX}px` }}>
+            <For each={mounted()}>
+              {(block) => {
+                const i = () => indexOf().get(block.key) ?? 0;
+                const on = () => props.selected === block.key;
+                const badge = () => LANE_BADGE[block.lane];
+                const preview = () => displayPreview(block);
+                const result = () => resultPreview(block);
+                const dur = () => Math.max(0, block.endTs - block.startTs);
+                return (
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={on()}
+                    class={`absolute left-0 flex w-full items-center gap-2 px-2 text-left text-xs ${
+                      on() ? "bg-secondary" : "hover:bg-secondary/50"
+                    }`}
+                    style={{
+                      top: `${i() * ROW_PX}px`,
+                      height: `${ROW_PX}px`,
+                      ...(on()
+                        ? { "box-shadow": `inset 2px 0 0 ${toneVar(block)}` }
+                        : {}),
+                    }}
+                    onClick={() => props.onSelect(block)}
+                  >
+                    <span class={`h-1.5 w-1.5 shrink-0 rounded-full ${block.tone}`} />
+                    <span
+                      class={`shrink-0 rounded px-1 py-px text-2xs leading-none ${badge().cls}`}
+                    >
+                      {t(badge().label as Parameters<typeof t>[0])}
+                    </span>
+                    <span class="w-15 shrink-0 font-mono text-2xs tabular-nums text-muted-foreground">
+                      {turnStep(block)}
+                    </span>
+                    <span class="min-w-0 flex-1 truncate">
+                      <Show when={block.lane !== "user"}>
+                        <span class="font-medium">{displayTitle(block)}</span>
+                      </Show>
+                      <Show when={preview()}>
+                        <span
+                          class={
+                            block.lane === "tool"
+                              ? "font-mono text-muted-foreground"
+                              : "text-muted-foreground"
+                          }
+                        >
+                          {" "}
+                          {preview()}
+                        </span>
+                      </Show>
+                      <Show when={result()}>
+                        <span class="text-muted-foreground/70"> → {result()}</span>
+                      </Show>
+                    </span>
+                    <span class="shrink-0 font-mono text-2xs tabular-nums text-muted-foreground">
+                      {dur() > 0 ? fmtDuration(dur()) : ""}
+                    </span>
+                  </button>
+                );
+              }}
+            </For>
+          </div>
+        </div>
       </Show>
     </div>
   );
 }
 
+/* ------------------------------------------------------------------ */
+/* drawer                                                              */
+/* ------------------------------------------------------------------ */
+
 type Tab = "overview" | "input" | "result" | "time";
 
 /**
  * One labelled figure. The label must not wrap and the value must be allowed to
- * shrink: a long mono value in a 320px drawer used to push its label onto two
+ * shrink: a long mono value in a narrow drawer pushes its label onto two
  * lines, which reads as a broken layout rather than as a long value.
  */
 function Fact(props: { label: string; value: JSX.Element; class?: string }) {
@@ -591,7 +882,213 @@ function TokenFacts(props: { usage: TraceUsage }) {
   );
 }
 
-export function TraceDrawer(props: { block: TraceBlock; onClose: () => void }) {
+function statusText(b: TraceBlock): string {
+  return t(STATUS_LABEL[b.status] as Parameters<typeof t>[0]);
+}
+
+function decisionText(p: TracePermission): string {
+  if (p.decision === "deny") return t("trace.decision.deny");
+  if (p.decision === "allow") return t("trace.decision.allow");
+  return t("trace.status.pending");
+}
+
+/** The marker's own facts — what the event lane can say beyond title and time. */
+function EventFacts(props: { block: TraceBlock }) {
+  const ev = () => (props.block.event ?? {}) as Record<string, unknown>;
+  const s = (v: unknown) => (typeof v === "string" ? v : undefined);
+  return (
+    <dl class="divide-y divide-border border-t border-border">
+      <Show when={props.block.kind === "compacted" || props.block.kind === "compacting"}>
+        <Fact
+          label={t("trace.field.trigger")}
+          value={t(
+            ev().overflow === true
+              ? "trace.event.overflow"
+              : ev().auto === true
+                ? "trace.event.auto"
+                : "trace.event.manual",
+          )}
+        />
+      </Show>
+      <Show when={props.block.kind === "error"}>
+        <Show when={s(ev().name)}>
+          <Fact label={t("trace.field.name")} value={s(ev().name)!} />
+        </Show>
+        <Show when={s(ev().message)}>
+          <Fact label={t("trace.field.message")} value={s(ev().message)!} />
+        </Show>
+        <Show when={typeof ev().statusCode === "number"}>
+          <Fact label={t("trace.field.code")} value={String(ev().statusCode)} />
+        </Show>
+        <Show when={typeof ev().isRetryable === "boolean"}>
+          <Fact
+            label={t("trace.field.retryable")}
+            value={t(ev().isRetryable === true ? "trace.yes" : "trace.no")}
+          />
+        </Show>
+      </Show>
+      <Show when={props.block.kind === "retry"}>
+        <Fact
+          label={t("trace.field.attempt")}
+          value={t("trace.event.retry.count", { n: num(props.block.count ?? 1) })}
+        />
+        <Show when={s(ev().message)}>
+          <Fact label={t("trace.field.message")} value={s(ev().message)!} />
+        </Show>
+        <Show when={typeof ev().attempt === "number"}>
+          <Fact label={t("trace.field.retry_no")} value={num(ev().attempt as number)} />
+        </Show>
+        <Show when={typeof ev().next === "number"}>
+          <Fact label={t("trace.field.next")} value={stamp(ev().next as number)} />
+        </Show>
+      </Show>
+      <Show when={props.block.kind === "permission" && props.block.permission}>
+        {(p) => (
+          <>
+            <Show when={p().tool}>
+              <Fact label={t("trace.lane.tool")} value={p().tool!} />
+            </Show>
+            <Fact label={t("trace.field.decision")} value={decisionText(p())} />
+            <Show when={p().by}>
+              <Fact label={t("trace.field.by")} value={p().by!} />
+            </Show>
+            <Show when={p().rule_id ?? p().reason}>
+              <Fact label={t("trace.field.rule")} value={(p().rule_id ?? p().reason)!} />
+            </Show>
+          </>
+        )}
+      </Show>
+      <Show when={props.block.kind === "goal"}>
+        <Show when={s(ev().text)}>
+          <Fact label={t("trace.event.goal")} value={s(ev().text)!} />
+        </Show>
+        <Show when={ev().met === true || ev().paused === true}>
+          <Fact
+            label={t("trace.field.status")}
+            value={t(ev().met === true ? "trace.event.goal.met" : "trace.event.goal.paused")}
+          />
+        </Show>
+      </Show>
+    </dl>
+  );
+}
+
+/** The goal marker's text and the plan marker's entries read as prose, not as
+ *  one-line facts — they get their own sections. */
+function EventSections(props: { block: TraceBlock }) {
+  const ev = () => (props.block.event ?? {}) as Record<string, unknown>;
+  const entries = () =>
+    (Array.isArray(ev().entries) ? ev().entries : []) as { content?: string; status?: string }[];
+  const questions = () =>
+    (Array.isArray(ev().questions) ? ev().questions : []) as {
+      question?: string;
+      header?: string;
+    }[];
+  const answers = () => (Array.isArray(ev().answers) ? (ev().answers as string[][]) : []).flat();
+  return (
+    <>
+      <Show when={props.block.kind === "question" && questions().length > 0}>
+        <section class="mt-4">
+          <h3 class="mb-1.5 text-2xs font-medium text-muted-foreground">
+            {t("trace.event.question")}
+          </h3>
+          <ul class="space-y-1.5">
+            <For each={questions()}>
+              {(q) => (
+                <li class="text-xs leading-relaxed">
+                  <Show when={q.header}>
+                    <span class="text-muted-foreground">{q.header} · </span>
+                  </Show>
+                  {q.question}
+                </li>
+              )}
+            </For>
+          </ul>
+          <Show when={answers().length > 0}>
+            <h3 class="mt-3 mb-1.5 text-2xs font-medium text-muted-foreground">
+              {t("trace.field.answers")}
+            </h3>
+            <ul class="space-y-1">
+              <For each={answers()}>{(a) => <li class="text-xs">{a}</li>}</For>
+            </ul>
+          </Show>
+        </section>
+      </Show>
+      <Show when={props.block.kind === "plan" && entries().length > 0}>
+        <section class="mt-4">
+          <h3 class="mb-1.5 text-2xs font-medium text-muted-foreground">
+            {t("trace.event.plan")}
+          </h3>
+          <ul class="space-y-1">
+            <For each={entries()}>
+              {(entry) => (
+                <li class="flex items-baseline gap-2 text-xs">
+                  <span
+                    class={`h-1.5 w-1.5 shrink-0 self-center rounded-full ${
+                      entry.status === "completed"
+                        ? "bg-status-completed"
+                        : entry.status === "in_progress"
+                          ? "bg-status-active"
+                          : "bg-muted-foreground/50"
+                    }`}
+                  />
+                  <span
+                    class={
+                      entry.status === "completed" ? "text-muted-foreground line-through" : ""
+                    }
+                  >
+                    {entry.content}
+                  </span>
+                </li>
+              )}
+            </For>
+          </ul>
+        </section>
+      </Show>
+      <Show when={props.block.kind === "goal" && typeof ev().text === "string"}>
+        <section class="mt-4">
+          <Md text={String(ev().text)} class="text-xs leading-[1.65]" />
+        </section>
+      </Show>
+      <Show when={props.block.kind === "file" && (props.block.files?.length ?? 0) > 0}>
+        <section class="mt-4">
+          <h3 class="mb-1.5 text-2xs font-medium text-muted-foreground">
+            {t("trace.field.files")}
+          </h3>
+          <ul class="divide-y divide-border border-t border-border">
+            <For each={props.block.files}>
+              {(f: TraceFile) => (
+                <li class="py-1.5">
+                  <div class="flex items-baseline justify-between gap-3">
+                    <span class="min-w-0 truncate font-mono text-xs">{f.path}</span>
+                    <span class="shrink-0 font-mono text-2xs text-muted-foreground">
+                      {f.change}
+                    </span>
+                  </div>
+                  <Show when={f.diff}>
+                    <div class="mt-1.5">
+                      <Payload value={f.diff} maxHeight="max-h-40" />
+                    </div>
+                  </Show>
+                </li>
+              )}
+            </For>
+          </ul>
+        </section>
+      </Show>
+    </>
+  );
+}
+
+export function TraceDrawer(props: {
+  block: TraceBlock;
+  /** the assistant message a tool call was declared by */
+  parent?: TraceBlock;
+  /** idle time between the previous block's end and this one's start */
+  gapMs?: number;
+  onOpenChild?: (id: string) => void;
+  onClose: () => void;
+}) {
   const [tab, setTab] = createSignal<Tab>("overview");
   createEffect(() => {
     props.block.key;
@@ -608,11 +1105,30 @@ export function TraceDrawer(props: { block: TraceBlock; onClose: () => void }) {
     return out;
   };
 
-  const when = () => {
-    const at = new Date(props.block.ts);
-    // Falls back to the raw string when the backend sent something unparseable,
-    // which is a better answer than "Invalid Date".
-    return Number.isNaN(at.getTime()) ? props.block.ts : stamp(at);
+  const clock = (ms: number) => (ms > 0 ? stamp(new Date(ms)) : "—");
+
+  const elapsed = () => {
+    const d = Math.max(0, props.block.endTs - props.block.startTs);
+    return d > 0 ? d : props.block.latencyMs;
+  };
+
+  const subtitle = () => {
+    const b = props.block;
+    if (b.turn === undefined) return "";
+    if (b.step !== undefined) return t("trace.step", { turn: b.turn, step: b.step });
+    return t("trace.turn", { turn: b.turn });
+  };
+
+  const levelText = () => {
+    const b = props.block;
+    if (b.lane === "user") return t("trace.level.input");
+    if (b.lane === "assistant") return t("trace.level.assistant");
+    if (b.lane === "event") return t("trace.level.event");
+    const base = t("trace.level.tool");
+    const parent = props.parent;
+    return parent
+      ? `${base} ← ${t("trace.level.assistant")} ${displayTitle(parent)}`
+      : base;
   };
 
   const hasFacts = () =>
@@ -623,16 +1139,32 @@ export function TraceDrawer(props: { block: TraceBlock; onClose: () => void }) {
     !!props.block.usage ||
     props.block.costUsd !== undefined;
 
+  const permText = () => {
+    const p = props.block.permission;
+    if (!p) return "";
+    return [decisionText(p), p.by, p.rule_id ?? p.reason].filter(Boolean).join(" · ");
+  };
+
   return (
-    <aside class="flex w-80 shrink-0 flex-col border-l border-border bg-card/30">
+    <aside class="flex w-[22rem] shrink-0 flex-col border-l border-border bg-card/30">
       <div
         class="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3 select-none"
         data-tauri-drag-region={inDesktopShell() ? "" : undefined}
       >
+        <span class={`h-1.5 w-1.5 shrink-0 rounded-full ${props.block.tone}`} />
+        <div class="flex min-w-0 flex-1 items-baseline gap-2">
+          <h2 class="min-w-0 truncate text-sm font-medium">{displayTitle(props.block)}</h2>
+          <Show when={subtitle()}>
+            <p class="shrink-0 truncate font-mono text-2xs text-muted-foreground tabular-nums">
+              {subtitle()}
+            </p>
+          </Show>
+        </div>
         <span
-          class={`h-1.5 w-1.5 shrink-0 rounded-full ${props.block.tone}`}
-        />
-        <h2 class="min-w-0 flex-1 truncate text-sm font-medium">{displayTitle(props.block)}</h2>
+          class={`shrink-0 rounded px-1.5 py-px text-2xs ${STATUS_PILL[props.block.status]}`}
+        >
+          {statusText(props.block)}
+        </span>
         <Tip label={t("trace.action.close")}>
           <Button
             type="button"
@@ -647,39 +1179,118 @@ export function TraceDrawer(props: { block: TraceBlock; onClose: () => void }) {
       </div>
       <MiniTabs
         value={tab()}
-        onChange={setTab}
+        onChange={(id) => setTab(id as Tab)}
         options={tabs().map((item) => ({ id: item.id, label: item.label }))}
         label={t("trace.view")}
         class="gap-1 px-3 pt-3"
       />
       <div class="min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-4">
         <Show when={tab() === "overview"}>
-          <Md text={props.block.preview} class="text-xs leading-[1.65]" />
+          {/* What kind of thing this is and where it sits, before any
+              backend-reported facts. */}
+          <dl class="divide-y divide-border border-t border-border">
+            <Fact
+              label={t("trace.field.status")}
+              value={
+                <span class={STATUS_PILL[props.block.status].split(" ")[1]}>
+                  {statusText(props.block)}
+                </span>
+              }
+            />
+            <Fact label={t("trace.field.level")} value={levelText()} />
+            <Show when={props.block.model}>
+              <Fact label={t("info.model")} value={props.block.model!} />
+            </Show>
+            <Show when={props.block.agent}>
+              <Fact label={t("trace.field.agent")} value={props.block.agent!} />
+            </Show>
+            <Show when={props.block.variant}>
+              <Fact label={t("trace.field.variant")} value={props.block.variant!} />
+            </Show>
+            <Show when={props.block.stopReason}>
+              <Fact label={t("trace.field.finish")} value={props.block.stopReason!} />
+            </Show>
+            <Show when={props.block.errorText}>
+              <Fact label={t("trace.field.error")} value={props.block.errorText!} />
+            </Show>
+            <Show when={props.block.permission && props.block.lane !== "event"}>
+              <Fact label={t("trace.field.permission")} value={permText()} />
+            </Show>
+            <Show when={props.block.usage}>
+              <TokenFacts usage={props.block.usage!} />
+            </Show>
+            <Show when={props.block.costUsd !== undefined}>
+              <Fact label={t("info.cost")} value={fmtUsd(props.block.costUsd!)} />
+            </Show>
+          </dl>
+          <Show when={props.block.kind}>
+            <EventFacts block={props.block} />
+          </Show>
 
-          {/* What the backend measured about this message, as its own fields.
-              It used to be one "detail" string glued together with · and printed
-              under 概述 as a footnote. */}
-          <Show when={hasFacts()}>
-            <dl class="mt-3 divide-y divide-border border-t border-border">
-              <Show when={props.block.model}>
-                <Fact label={t("info.model")} value={props.block.model!} />
-              </Show>
-              <Show when={props.block.agent}>
-                <Fact label={t("trace.field.agent")} value={props.block.agent!} />
-              </Show>
-              <Show when={props.block.variant}>
-                <Fact label={t("trace.field.variant")} value={props.block.variant!} />
-              </Show>
-              <Show when={props.block.stopReason}>
-                <Fact label={t("trace.field.finish")} value={props.block.stopReason!} />
-              </Show>
-              <Show when={props.block.usage}>
-                <TokenFacts usage={props.block.usage!} />
-              </Show>
-              <Show when={props.block.costUsd !== undefined}>
-                <Fact label={t("info.cost")} value={fmtUsd(props.block.costUsd!)} />
-              </Show>
-            </dl>
+          <Show when={props.block.preview}>
+            <div class="mt-3">
+              <Md text={displayPreview(props.block)} class="text-xs leading-[1.65]" />
+            </div>
+          </Show>
+
+          {/* Thinking is collapsed behind the reply: it exists for the reader
+              who asks "what was it doing", not for the one reading the answer. */}
+          <Show when={props.block.thinking}>
+            <details class="group mt-4">
+              <summary class="flex cursor-pointer items-center gap-1.5 text-2xs font-medium text-muted-foreground select-none">
+                <Icon
+                  name="chevron-right"
+                  class="h-3 w-3 transition-transform group-open:rotate-90"
+                />
+                {t("trace.field.thinking")}
+                <Show when={props.block.thinkingMs !== undefined}>
+                  <span class="font-mono tabular-nums">
+                    {" "}
+                    · {fmtDuration(props.block.thinkingMs!)}
+                  </span>
+                </Show>
+              </summary>
+              <div class="mt-1.5">
+                <Md
+                  text={props.block.thinking!}
+                  class="text-xs leading-[1.65] text-muted-foreground"
+                />
+              </div>
+            </details>
+          </Show>
+
+          <Show when={(props.block.files?.length ?? 0) > 0 && props.block.lane !== "event"}>
+            <section class="mt-4">
+              <h3 class="mb-1.5 text-2xs font-medium text-muted-foreground">
+                {t("trace.field.files")}
+              </h3>
+              <ul class="divide-y divide-border border-t border-border">
+                <For each={props.block.files}>
+                  {(f) => (
+                    <li class="flex items-baseline justify-between gap-3 py-1.5">
+                      <span class="min-w-0 truncate font-mono text-xs">{f.path}</span>
+                      <span class="shrink-0 font-mono text-2xs text-muted-foreground">
+                        {f.change}
+                      </span>
+                    </li>
+                  )}
+                </For>
+              </ul>
+            </section>
+          </Show>
+
+          <EventSections block={props.block} />
+
+          <Show when={props.block.childSessionId && props.onOpenChild}>
+            <Button
+              type="button"
+              size="xs"
+              variant="outline"
+              class="mt-4"
+              onClick={() => props.onOpenChild!(props.block.childSessionId!)}
+            >
+              {t("trace.open.child")}
+            </Button>
           </Show>
 
           <Show when={props.block.result !== undefined}>
@@ -730,9 +1341,19 @@ export function TraceDrawer(props: { block: TraceBlock; onClose: () => void }) {
           {/* Only the clock here. The model, the tokens and the price are facts
               about the message, not about when it ran, and they live in 概述. */}
           <dl class="divide-y divide-border border-t border-border">
-            <Fact label={t("trace.field.started")} value={when()} />
-            <Show when={props.block.latencyMs !== undefined}>
-              <Fact label={t("trace.field.elapsed")} value={fmtDuration(props.block.latencyMs!)} />
+            <Fact label={t("trace.field.started")} value={clock(props.block.startTs)} />
+            <Fact label={t("trace.field.ended")} value={clock(props.block.endTs)} />
+            <Show when={elapsed() !== undefined}>
+              <Fact label={t("trace.field.elapsed")} value={fmtDuration(elapsed()!)} />
+            </Show>
+            <Show when={props.block.thinkingMs !== undefined}>
+              <Fact
+                label={t("trace.field.thinkingTime")}
+                value={fmtDuration(props.block.thinkingMs!)}
+              />
+            </Show>
+            <Show when={props.gapMs !== undefined}>
+              <Fact label={t("trace.field.gap")} value={fmtDuration(props.gapMs!)} />
             </Show>
           </dl>
         </Show>
