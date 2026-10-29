@@ -260,7 +260,19 @@ export function createSessionImport(args: {
     // time — or were missed by the listing. One direct lookup settles which:
     // a session that still answers joins the found set and is imported below;
     // a 404 goes down the same session.deleted road a live delete would have.
-    const ghosts = (guard?.local?.() ?? []).filter((g) => g.id && !seen.has(g.id));
+    //
+    // A crawl that found nothing is not evidence of anything. An empty listing
+    // is what a wrong port, a changed data directory, or a reinstall looks
+    // like, and the per-session lookup below cannot tell those apart from a
+    // genuine wipe — it answers 404 either way, because it is asking the same
+    // server that just said it has nothing. Believing it would mark every
+    // session the reader ever had as deleted and empty the sidebar. Losing a
+    // real deletion until the next sync costs one stale row; the other way
+    // round costs the entire history.
+    const crawled = seen.size > 0;
+    const ghosts = crawled
+      ? (guard?.local?.() ?? []).filter((g) => g.id && !seen.has(g.id))
+      : [];
     await mapLimit(ghosts, SYNC_CONCURRENCY, async ({ id, directory }) => {
       let res;
       try {
