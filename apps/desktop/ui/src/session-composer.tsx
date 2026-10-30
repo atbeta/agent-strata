@@ -33,18 +33,16 @@ import { runInProgress, SEND_GRACE_MS } from "./live";
 import { stopConfirmed } from "./stop-verdict";
 import { ComposerToolbar } from "./composer-toolbar";
 import { createComposerDelivery } from "./composer-delivery";
+import { createSessionQueues, persistSessionQueues, restoreColdDraft } from "./composer-queue";
 import { withEcho, type PendingEcho } from "./prompt-echo";
 import {
-  joinQueued,
   navigateHistory,
   readDraft,
   readHistory,
   rememberPrompt,
   sessionContext,
-  takeQueuedText,
   writeDraft,
   writeHistory,
-  writeQueuedText,
 } from "./prompt-memory";
 import {
   attachmentProblem,
@@ -118,8 +116,16 @@ export function useSessionComposer(args: {
   const deliveries = createComposerDelivery();
   onCleanup(deliveries.invalidate);
 
-  const [draft, setDraft] = createSignal(readDraft(args.sessionId()));
-  const [queued, setQueued] = createSignal<Outgoing[]>([]);
+  const initialSessionId = args.sessionId();
+  const sessionQueues = createSessionQueues<Outgoing>(initialSessionId);
+  const [draft, setDraft] = createSignal(restoreColdDraft(initialSessionId));
+  const [queued, setQueuedSignal] = createSignal<Outgoing[]>(sessionQueues.current());
+  const setQueued = (next: Outgoing[] | ((current: Outgoing[]) => Outgoing[])) =>
+    setQueuedSignal((current) => {
+      const items = typeof next === "function" ? next(current) : next;
+      sessionQueues.replace(items);
+      return items;
+    });
   const [histIndex, setHistIndex] = createSignal(-1);
   const [histSaved, setHistSaved] = createSignal("");
   const [sendErr, setSendErr] = createSignal("");
@@ -603,8 +609,8 @@ export function useSessionComposer(args: {
     const step = nextQueued(queued(), args.sessionId(), generating());
     if (step.action === "wait") return;
     if (step.action === "drop") {
-      // Written in a session the reader has left. See `nextQueued`.
-      setQueued(step.keep);
+      // The id changes before resetFor swaps in that session's queue. Keep the
+      // foreign entries in their own in-memory queue rather than sending or dropping them.
       return;
     }
     setQueued((q) => q.slice(1));
@@ -872,29 +878,17 @@ export function useSessionComposer(args: {
   });
 
   /**
-   * Keep the queue's words on disk, grouped by the session each was typed in.
-   *
-   * The queue itself is not restored — a promise to send must not survive the
-   * app being closed, or reopening hours later would fire off what the reader
-   * wrote before lunch. The text is kept so `resetFor` can hand it back in the
-   * draft, where the reader decides.
-   *
-   * Grouped by the entry's own `sessionId` rather than the composer's current
-   * one: a switch happens while old entries are still queued, and the composer
-   * has already moved on by the time this runs.
+   * Keep every in-memory queue's words on disk. A queue itself is never restored
+   * after a restart: only cold initialization takes its text into the draft.
+   * Tracking the previous ids also removes storage for queues sent or deleted.
    */
+  let persistedQueueSessions = new Set<string>();
   createEffect(() => {
-    const bySession = new Map<string, string[]>();
-    for (const item of queued()) {
-      const id = item.sessionId ?? args.sessionId();
-      const texts = bySession.get(id) ?? [];
-      if (item.text.trim()) texts.push(item.text);
-      bySession.set(id, texts);
-    }
-    for (const [id, texts] of bySession) writeQueuedText(id, texts);
+    queued();
+    persistedQueueSessions = persistSessionQueues(sessionQueues.snapshot(), persistedQueueSessions);
   });
 
-  /** the session behind the composer changed — drop everything that belonged to the old one */
+  /** the session behind the composer changed — swap in its own transient state */
   const resetFor = (id: string) => {
     deliveries.invalidate();
     const restored = deliveries.restore(id, {
@@ -903,11 +897,8 @@ export function useSessionComposer(args: {
       attachments: [],
       sessionId: id,
     });
-    // Persisted waiting messages come back as draft text, read-and-clear so
-    // they do not pile up on every open. Only the in-memory failures above can
-    // bring their attachments; the persisted queue is text-only — see `queuedKey`.
-    setDraft(joinQueued(restored.draft.text, takeQueuedText(id)));
-    setQueued([]);
+    setDraft(restored.draft.text);
+    setQueuedSignal(sessionQueues.switch(id));
     setHistIndex(-1);
     setHistSaved("");
     setSendErr("");

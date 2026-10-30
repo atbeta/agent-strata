@@ -131,16 +131,13 @@ export function restoreFailed(failed: Outgoing, current: Outgoing): { draft: Out
  * Three answers, and the middle one is the bug this exists to prevent:
  *
  * - `send` — the head belongs to this session, or to none, and goes out now.
- * - `drop` — the head was written in a session the reader has left. `resetFor`
- *   clears the queue on a switch, but it runs from an effect created *after*
- *   the one that drains, so there is a frame where the old queue is still here
- *   and the drain fires first. Without this the follow-up typed in one
- *   conversation was delivered to whichever one happened to be open when the
- *   run ended.
+ * - `drop` — the head was written in a session the reader has left. The id
+ *   changes before `resetFor` swaps queues, so the drain can see the old queue
+ *   first. It must not send that follow-up into the newly opened conversation.
  * - `wait` — nothing queued, or a run is in progress.
  *
- * Dropped rather than held: dropping is what `resetFor` was about to do, and
- * holding a foreign message would block this session's own queue behind it.
+ * A single-queue caller can discard the foreign entries with `keep`; the session
+ * composer instead leaves them in their per-session queue until `resetFor` runs.
  */
 export type QueueStep<T> =
   | { action: "send"; item: T }

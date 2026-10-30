@@ -391,9 +391,8 @@ describe("what the queue does next", () => {
   });
 
   test("a message from another session is dropped, not sent here", () => {
-    // The bug: `resetFor` clears the queue on a switch, but it runs from an
-    // effect created after the one that drains, so the drain can fire first
-    // with the previous session's message at the head.
+    // The id changes before resetFor swaps queues, so the drain can see the
+    // previous session's message at the head first.
     const step = nextQueued([msg("from s2", "s2")], "s1", false);
     expect(step.action).toBe("drop");
     if (step.action !== "drop") throw new Error("expected drop");
@@ -416,8 +415,7 @@ describe("what the queue does next", () => {
 
   test("a busy session drops nothing", () => {
     // The check happens when the queue drains. A switch while a run is in
-    // progress must not silently delete what the reader typed elsewhere — that
-    // is `resetFor`'s job, and it owns the whole queue.
+    // progress must not silently delete what the reader typed elsewhere.
     expect(nextQueued([msg("from s2", "s2")], "s1", true)).toEqual({ action: "wait" });
   });
 });
