@@ -95,7 +95,7 @@ try {
     const cdp = await context.newCDPSession(page);
     await cdp.send("Profiler.enable");
     await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
-    const ctx: FlowContext = { page, uiUrl: env.uiUrl, orders, errors: [] };
+    const ctx: FlowContext = { page, uiUrl: env.uiUrl, orders, errors: [], emit: env.emit };
     const step = async (name: string, run: () => Promise<unknown>) => {
       await cdp.send("Profiler.start");
       await run();

@@ -93,6 +93,7 @@ const SHOWN = [
   "blockedMs",
   "longtaskMs",
   "appWrites",
+  "partials",
   "driftMax",
   "driftOver2",
   "staleMs",
@@ -159,6 +160,7 @@ async function main() {
     build: opt.build,
     db: opt.db,
     sessions: real ? { long: opt.long!, heavy: opt.heavy!, small: opt.small!.split(",") } : undefined,
+    running: opt.flows.includes("D"),
     log: (l) => (opt.verbose ? console.error(l) : logs.push(l)),
   });
   const failures: string[] = [];
@@ -193,7 +195,7 @@ async function main() {
             });
             await context.addInitScript(installProbe);
             const page = await context.newPage();
-            const ctx: FlowContext = { page, uiUrl: env.uiUrl, orders, errors: [] };
+            const ctx: FlowContext = { page, uiUrl: env.uiUrl, orders, errors: [], emit: env.emit };
             // WebKit hands some errors over with an empty name and stack; the message is what is left.
             page.on("pageerror", (e) => ctx.errors.push([e.message, e.stack].filter(Boolean).join("\n") || String(e)));
             const record: RunRecord = { engine, rep, flow, steps: [] };

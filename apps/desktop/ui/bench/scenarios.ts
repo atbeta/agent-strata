@@ -35,6 +35,7 @@ export interface FlowContext {
   orders: ReadonlyMap<string, readonly string[]>;
   /** Page errors raised since the current step began; drained by each step. */
   errors: string[];
+  emit: (event: unknown) => void;
 }
 
 type Settled = { settled: boolean; at: number };
@@ -79,13 +80,11 @@ function orderOf(ctx: FlowContext, id: string): readonly string[] {
   return o;
 }
 
-function common(rec: Recording, from: number, to: number, r: Settled): Record<string, Metric> {
+function activity(rec: Recording, from: number, to: number): Record<string, Metric> {
   const f = frameStats(rec.samples, from, to);
   const w = appWrites(rec.writes, from, to);
   const lt = rec.longtasks.filter((x) => x.t >= from && x.t <= to);
   return {
-    settled: r.settled,
-    settleMs: r.at - from,
     frames: f.frames,
     maxGap: f.maxGap,
     p95Gap: f.p95Gap,
@@ -96,6 +95,10 @@ function common(rec: Recording, from: number, to: number, r: Settled): Record<st
     appWritePx: w.movedPx,
     longtaskMs: lt.length ? lt.reduce((n, x) => n + x.d, 0) : null,
   };
+}
+
+function common(rec: Recording, from: number, to: number, r: Settled): Record<string, Metric> {
+  return { settled: r.settled, settleMs: r.at - from, ...activity(rec, from, to) };
 }
 
 /**
@@ -189,6 +192,117 @@ export async function wheelUp(ctx: FlowContext, name: string, total: number, ste
     { ...common(rec, t0, r.at, r), gestureMs: t1 - t0, scrolledPx: first && last ? first.st - last.st : null },
     [],
   );
+}
+
+function streamLatestTurn(ctx: FlowContext, id: string): () => number {
+  const turnId = orderOf(ctx, id).at(-1)!;
+  let count = 0;
+  const write = () => {
+    count += 1;
+    ctx.emit({
+      session_id: id,
+      type: "turn.assistant",
+      data: {
+        turn_id: turnId,
+        msg_id: "bench-running",
+        partial: true,
+        content: [{ type: "text", text: `Running snapshot ${"delta ".repeat(count)}` }],
+      },
+    });
+  };
+  write();
+  const timer = setInterval(write, 50);
+  return () => {
+    clearInterval(timer);
+    return count;
+  };
+}
+
+function runningResult(
+  ctx: FlowContext,
+  name: string,
+  rec: Recording,
+  from: number,
+  to: number,
+  partials: number,
+  extra: Record<string, Metric> = {},
+): StepResult {
+  const failures = partials < 2 ? [`running step emitted only ${partials} partial snapshots`] : [];
+  return finish(ctx, name, { ...activity(rec, from, to), partials, ...extra }, failures);
+}
+
+export async function runningTail(ctx: FlowContext, name: string, id: string): Promise<StepResult> {
+  const b = bench(ctx.page);
+  const stop = streamLatestTurn(ctx, id);
+  const t0 = await b.now();
+  await ctx.page.waitForTimeout(1_000);
+  const t1 = await b.now();
+  const partials = stop();
+  const rec = await b.take(t0);
+  const atTail = openStats(rec.samples, orderOf(ctx, id), t0, t1).atTail;
+  return runningResult(ctx, name, rec, t0, t1, partials, { atTail });
+}
+
+export async function runningStepUp(
+  ctx: FlowContext,
+  name: string,
+  id: string,
+  total: number,
+  step: number,
+): Promise<StepResult> {
+  const b = bench(ctx.page);
+  const stop = streamLatestTurn(ctx, id);
+  const t0 = await b.now();
+  try {
+    await b.stepUp(total, step);
+  } catch (e) {
+    stop();
+    throw e;
+  }
+  const t1 = await b.now();
+  const partials = stop();
+  const rec = await b.take(t0);
+  const d = drift(rec.samples, t0, t1);
+  return runningResult(ctx, name, rec, t0, t1, partials, {
+    gestureMs: t1 - t0,
+    driftFrames: d.frames,
+    driftMax: d.maxAbs,
+    driftSum: d.sumAbs,
+    driftOver2: d.over2,
+  });
+}
+
+export async function runningWheelUp(
+  ctx: FlowContext,
+  name: string,
+  id: string,
+  total: number,
+  step: number,
+): Promise<StepResult> {
+  const b = bench(ctx.page);
+  const box = await b.box();
+  if (!box) throw new Error("no transcript scroller");
+  await ctx.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  const stop = streamLatestTurn(ctx, id);
+  const t0 = await b.now();
+  try {
+    for (let done = 0; done < total; done += step) {
+      await ctx.page.mouse.wheel(0, -step);
+      await ctx.page.waitForTimeout(16);
+    }
+  } catch (e) {
+    stop();
+    throw e;
+  }
+  const t1 = await b.now();
+  const partials = stop();
+  const rec = await b.take(t0);
+  const first = rec.samples[0];
+  const last = rec.samples.at(-1);
+  return runningResult(ctx, name, rec, t0, t1, partials, {
+    gestureMs: t1 - t0,
+    scrolledPx: first && last ? first.st - last.st : null,
+  });
 }
 
 /** Click a prompt in the outline and land on it. */
@@ -330,4 +444,12 @@ export const flowB: Flow = async (ctx, s, record) => {
   record(await jump(ctx, "jump", s.heavy, 0.5));
 };
 
-export const FLOWS: Record<string, Flow> = { A: flowA, B: flowB, C: flowC };
+export const flowD: Flow = async (ctx, s, record) => {
+  record(await openCold(ctx, "open", s.long));
+  record(await runningTail(ctx, "running-tail", s.long));
+  record(await stepUp(ctx, "position-old", 12_000, 120));
+  record(await runningStepUp(ctx, "running-step-up", s.long, 6_000, 120));
+  record(await runningWheelUp(ctx, "running-wheel-up", s.long, 6_000, 100));
+};
+
+export const FLOWS: Record<string, Flow> = { A: flowA, B: flowB, C: flowC, D: flowD };

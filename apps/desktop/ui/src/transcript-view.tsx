@@ -37,6 +37,7 @@ import { Tip } from "./tip";
 import { Button } from "@/components/ui/button";
 import { Icon } from "./icons";
 import { t } from "./i18n";
+import { createTurnIds } from "./turn-ids";
 
 export interface TranscriptApi {
   jumpTo: (turnId: string, align?: "start" | "center") => void;
@@ -70,7 +71,7 @@ export function TranscriptView(props: {
     <div class={`relative flex flex-1 flex-col ${props.class ?? ""}`}>
       <Show when={layoutKey(props.paneId, props.sessionId)} keyed>
         {(key) => {
-          const ids = createMemo(() => props.turns.map((turn) => turn.turn_id));
+          const ids = createTurnIds(() => props.turns);
           const layout = createRowLayout({
             ids,
             estimate: ROW_ESTIMATE,

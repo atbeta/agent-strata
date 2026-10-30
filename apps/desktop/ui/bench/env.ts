@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Database } from "bun:sqlite";
+import { openStore } from "../../../../packages/store/src/index";
 import { buildFixtureDb, FIXTURE_SESSIONS } from "./fixtures";
 
 export interface BenchSessions {
@@ -29,6 +30,7 @@ export interface BenchEnv {
   serviceUrl: string; // direct service URL, for node-side fetches
   token: string; // bearer token the service expects
   sessions: BenchSessions;
+  emit(event: unknown): void;
   stop(): Promise<void>;
 }
 
@@ -188,6 +190,7 @@ export async function startEnv(opts?: {
   build?: "prod" | "dev";
   db?: string; // a real store to benchmark instead of fixtures (e.g. ~/.agent-strata/events.db)
   sessions?: Partial<BenchSessions>; // required with db
+  running?: boolean;
   log?: (line: string) => void;
 }): Promise<BenchEnv> {
   const log = opts?.log ?? log0;
@@ -227,6 +230,23 @@ export async function startEnv(opts?: {
       log(
         `[env] fixture store ${tmpDb}: ${info.sessions.map((s) => `${s.id.split(":").pop()}=${s.turns}t/${s.bytes}B`).join(" ")}`,
       );
+    }
+    if (opts?.running) {
+      const store = openStore(tmpDb);
+      try {
+        store.append([
+          {
+            id: "bench-running-status",
+            session_id: sessions.long,
+            ts: new Date().toISOString(),
+            source: { backend: sessions.long.split(":")[0]!, native_id: "bench-running" },
+            type: "session.status",
+            data: { state: "busy" },
+          },
+        ]);
+      } finally {
+        store.close();
+      }
     }
 
     const token = randomBytes(24).toString("hex");
@@ -268,6 +288,12 @@ export async function startEnv(opts?: {
     // so the vite /api proxy forwards to this shim, which rewrites the
     // Origin to the sanctioned dev origin on the way to the real service.
     // WebSocket upgrades are not forwarded (the bench never opens a terminal).
+    const encoder = new TextEncoder();
+    const streamControllers = new Set<ReadableStreamDefaultController<Uint8Array>>();
+    const emit = (event: unknown): void => {
+      const chunk = encoder.encode(`data: ${JSON.stringify(event)}\n\n`);
+      for (const controller of streamControllers) controller.enqueue(chunk);
+    };
     const shim = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
@@ -287,12 +313,39 @@ export async function startEnv(opts?: {
           headers.delete(hop);
         }
         headers.set("origin", "http://127.0.0.1:5178");
-        return fetch(`${serviceUrl}${url.pathname}${url.search}`, {
+        const upstream = await fetch(`${serviceUrl}${url.pathname}${url.search}`, {
           method: req.method,
           headers,
           body: req.body,
           redirect: "manual",
         } as RequestInit);
+        if (url.pathname !== "/stream" || !upstream.body) return upstream;
+        let active: ReadableStreamDefaultController<Uint8Array> | undefined;
+        const body = new ReadableStream<Uint8Array>({
+          start(controller) {
+            active = controller;
+            streamControllers.add(controller);
+            void upstream.body!.pipeTo(
+              new WritableStream<Uint8Array>({
+                write(chunk) {
+                  controller.enqueue(chunk);
+                },
+                close() {
+                  streamControllers.delete(controller);
+                  controller.close();
+                },
+                abort(reason) {
+                  streamControllers.delete(controller);
+                  controller.error(reason);
+                },
+              }),
+            ).catch(() => streamControllers.delete(controller));
+          },
+          cancel() {
+            if (active) streamControllers.delete(active);
+          },
+        });
+        return new Response(body, { status: upstream.status, headers: upstream.headers });
       },
     });
     const shimUrl = `http://127.0.0.1:${shim.port}`;
@@ -345,7 +398,7 @@ export async function startEnv(opts?: {
       await waitUp(uiUrl, vite, "vite dev server");
     }
 
-    return { uiUrl, serviceUrl, token, sessions, stop };
+    return { uiUrl, serviceUrl, token, sessions, emit, stop };
   } catch (e) {
     await stop();
     throw e;
