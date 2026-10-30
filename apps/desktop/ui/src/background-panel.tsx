@@ -1,6 +1,6 @@
 import { createEffect, createSignal, For, onCleanup, Show, type JSX } from "solid-js";
 import { readDevLogs, type DevLogLine, type DevProcess } from "./api";
-import { dotClass, devRunning, stateClass, stateLabel } from "./dev-state";
+import { devLogLineClass, dotClass, devRunning, stableDevRows, stateClass, stateLabel } from "./dev-state";
 import { t } from "./i18n";
 import { fmtLatency } from "./transcript-format";
 import { Button } from "@/components/ui/button";
@@ -116,6 +116,7 @@ export function BackgroundPanel(props: {
   const [openId, setOpenId] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal<string | null>(null);
   const [err, setErr] = createSignal("");
+  const rows = stableDevRows(props.processes);
 
   createEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), TICK_MS);
@@ -149,20 +150,20 @@ export function BackgroundPanel(props: {
         }
       >
         <ul class="min-h-0 flex-1 overflow-y-auto py-1">
-          <For each={props.processes()}>
-            {(process) => (
+          <For each={rows()}>
+            {(row) => (
               <li class="border-b border-border/60 last:border-b-0">
                 <DevRow
-                  process={process}
+                  process={row.process()}
                   now={now()}
-                  open={openId() === process.id}
-                  onToggle={() => setOpenId(openId() === process.id ? null : process.id)}
-                  busy={busy() === process.id}
-                  onStop={() => void stop(process.id)}
+                  open={openId() === row.id}
+                  onToggle={() => setOpenId(openId() === row.id ? null : row.id)}
+                  busy={busy() === row.id}
+                  onStop={() => void stop(row.id)}
                 />
-                <Show when={openId() === process.id}>
-                  <DevRowDetail process={process} />
-                  <ProcessLogs processId={process.id} />
+                <Show when={openId() === row.id}>
+                  <DevRowDetail process={row.process()} />
+                  <ProcessLogs processId={row.id} />
                 </Show>
               </li>
             )}
@@ -216,9 +217,7 @@ function ProcessLogs(props: { processId: string }) {
       <For each={lines()}>
         {(line) => (
           <div
-            class={`whitespace-pre-wrap break-all font-mono text-2xs ${
-              line.stream === "err" ? "text-status-error" : "text-foreground/80"
-            }`}
+            class={`whitespace-pre-wrap break-all font-mono text-2xs ${devLogLineClass(line.stream)}`}
           >
             {line.text}
           </div>

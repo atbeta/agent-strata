@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { t } from "./i18n";
 import type { DevProcess } from "./api";
-import { devRunning, stateLabel } from "./dev-state";
+import { createDevRowCache, devLogLineClass, devRunning, stateClass, stateLabel } from "./dev-state";
 
 /**
  * The four states a background command can be in.
@@ -71,5 +71,29 @@ describe("background command states", () => {
   test("a command that never started says why", () => {
     const failed = process({ state: "stopped", exit_code: 1, error: "npm: command not found" });
     expect(stateLabel(failed)).toBe(t("dev.failed"));
+    expect(stateClass(failed)).toBe("text-destructive");
+  });
+});
+
+describe("background command output", () => {
+  test("stderr is ordinary output, not a process error", () => {
+    expect(devLogLineClass("out")).toBe("text-foreground/80");
+    expect(devLogLineClass("err")).toBe(devLogLineClass("out"));
+  });
+});
+
+describe("stable background command rows", () => {
+  test("keeps row identity by id while refreshing its process", () => {
+    const a = process({ id: "dev_a" });
+    const b = process({ id: "dev_b" });
+    const update = createDevRowCache();
+    const initial = update([a, b]);
+
+    const refreshed = update([{ ...b }, { ...a, last_line: "ready" }]);
+    expect(refreshed[0]).toBe(initial[1]);
+    expect(refreshed[1]).toBe(initial[0]);
+    expect(refreshed[1]!.process().last_line).toBe("ready");
+
+    expect(update([{ ...b }])).toEqual([initial[1]]);
   });
 });

@@ -3,7 +3,7 @@ import { listAllDevProcesses, readDevLogs, stopDevProcess, type DevLogLine, type
 import { t } from "./i18n";
 import { displayTitle } from "./session-title";
 import { DevRow, DevRowDetail } from "./background-panel";
-import { devRunning } from "./dev-state";
+import { devLogLineClass, devRunning, stableDevRows } from "./dev-state";
 import { Button } from "@/components/ui/button";
 
 /** How often the running time and an open log refresh. */
@@ -63,6 +63,7 @@ export function FleetDevSection(props: {
   };
 
   const live = () => (processes() ?? []).filter(devRunning);
+  const rows = stableDevRows(live);
 
   const stop = async (id: string) => {
     setErr("");
@@ -88,16 +89,16 @@ export function FleetDevSection(props: {
           <p class="mt-1.5 text-xs text-destructive">{err()}</p>
         </Show>
         <ul class="mt-2.5 divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
-          <For each={live()}>
-            {(process) => (
+          <For each={rows()}>
+            {(row) => (
               <li>
                 <DevRow
-                  process={process}
+                  process={row.process()}
                   now={now()}
-                  open={openId() === process.id}
-                  onToggle={() => setOpenId(openId() === process.id ? null : process.id)}
-                  busy={busy() === process.id}
-                  onStop={() => void stop(process.id)}
+                  open={openId() === row.id}
+                  onToggle={() => setOpenId(openId() === row.id ? null : row.id)}
+                  busy={busy() === row.id}
+                  onStop={() => void stop(row.id)}
                   extra={
                     /* Outside the row, not inside it: a button nested in a
                         button is invalid markup and swallows the outer row's
@@ -107,21 +108,21 @@ export function FleetDevSection(props: {
                       variant="quiet"
                       size="xs"
                       class="max-w-[9rem] shrink-0 px-1.5 text-2xs underline decoration-dotted underline-offset-2"
-                      title={titleOf(process.session_id)}
-                      onClick={() => props.onOpenSession(process.session_id)}
+                      title={titleOf(row.process().session_id)}
+                      onClick={() => props.onOpenSession(row.process().session_id)}
                     >
                       {/* The name ends in an ellipsis, it does not lose both of
                           its ends. A button is an inline-flex box with its
                           label centred in it, so a name too long for the box
                           was cut on the left as well as the right; the ellipsis
                           belongs on the label, not on the button. */}
-                      <span class="min-w-0 truncate">{titleOf(process.session_id)}</span>
+                      <span class="min-w-0 truncate">{titleOf(row.process().session_id)}</span>
                     </Button>
                   }
                 />
-                <Show when={openId() === process.id}>
-                  <DevRowDetail process={process} />
-                  <FleetDevLogs processId={process.id} />
+                <Show when={openId() === row.id}>
+                  <DevRowDetail process={row.process()} />
+                  <FleetDevLogs processId={row.id} />
                 </Show>
               </li>
             )}
@@ -169,9 +170,7 @@ function FleetDevLogs(props: { processId: string }) {
       <For each={lines()}>
         {(line) => (
           <div
-            class={`whitespace-pre-wrap break-all font-mono text-2xs ${
-              line.stream === "err" ? "text-status-error" : "text-foreground/80"
-            }`}
+            class={`whitespace-pre-wrap break-all font-mono text-2xs ${devLogLineClass(line.stream)}`}
           >
             {line.text}
           </div>

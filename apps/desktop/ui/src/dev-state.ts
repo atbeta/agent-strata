@@ -1,5 +1,6 @@
+import { createMemo, createSignal, type Accessor, type Setter } from "solid-js";
 import { t } from "./i18n";
-import type { DevProcess } from "./api";
+import type { DevLogLine, DevProcess } from "./api";
 
 /**
  * Where a background command is in its life.
@@ -53,4 +54,42 @@ export function dotClass(process: DevProcess): string {
   if (devRunning(process)) return "bg-status-active";
   if (process.stopped) return "bg-muted-foreground/50";
   return "bg-status-error";
+}
+
+export interface StableDevRow {
+  id: string;
+  process: Accessor<DevProcess>;
+}
+
+type CachedDevRow = StableDevRow & { update: Setter<DevProcess> };
+
+export function createDevRowCache(): (processes: DevProcess[]) => StableDevRow[] {
+  const cache = new Map<string, CachedDevRow>();
+  return (next) => {
+    const retained = new Set(next.map((process) => process.id));
+    const rows = next.map((process) => {
+      let row = cache.get(process.id);
+      if (!row) {
+        const [current, update] = createSignal(process);
+        row = { id: process.id, process: current, update };
+        cache.set(process.id, row);
+      } else {
+        row.update(process);
+      }
+      return row;
+    });
+    for (const id of cache.keys()) {
+      if (!retained.has(id)) cache.delete(id);
+    }
+    return rows;
+  };
+}
+
+export function stableDevRows(source: Accessor<DevProcess[]>): Accessor<StableDevRow[]> {
+  const update = createDevRowCache();
+  return createMemo(() => update(source()));
+}
+
+export function devLogLineClass(_stream: DevLogLine["stream"]): string {
+  return "text-foreground/80";
 }
