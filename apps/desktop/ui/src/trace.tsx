@@ -21,6 +21,17 @@ import {
 import { Button } from "@/components/ui/button";
 import { MiniTabs } from "@/components/ui/mini-tabs";
 import { TextFieldInput } from "@/components/ui/text-field";
+import {
+  displayPreview,
+  displayTitle,
+  fmtActive,
+  fmtRuler,
+  traceBlockTooltip,
+  traceFoldLabel,
+  traceLaneSlot,
+  traceMarkerShape,
+  traceStatusText,
+} from "./trace-display";
 
 export type { TraceBlock } from "./trace-model";
 
@@ -46,63 +57,6 @@ const LANE_BADGE: Record<LaneId, { label: string; cls: string }> = {
 function toneVar(b: TraceBlock): string {
   return `var(--${b.tone.slice(3)})`;
 }
-
-/**
- * `traceBlocks` runs inside a fetch, not a render pass, so calling `t()` there
- * would freeze a word in whatever language was active when the events loaded.
- * Stand-in titles carry `titleKey` and are translated where they are shown;
- * the legacy marker words the model emits for the three turn lanes are mapped
- * here too. A title carrying a model id or tool name passes through verbatim.
- */
-export function displayTitle(b: TraceBlock): string {
-  if (b.titleKey) return t(b.titleKey);
-  if (b.lane === "user" && b.title === "输入") return t("trace.lane.input");
-  if (b.lane === "assistant" && b.title === "回复") return t("trace.lane.reply");
-  if (b.lane === "tool" && b.title === "tool") return t("trace.title.tool");
-  return b.title;
-}
-
-export function displayPreview(b: TraceBlock): string {
-  if (b.lane === "user" && b.preview === "message") return t("trace.preview.message");
-  if (b.lane === "assistant" && b.preview === "reply") return t("trace.preview.reply");
-  return b.preview;
-}
-
-/** Active time at human scale: fmtDuration under an hour, then compact.
- *  Local to the trace — the global fmtDuration stays untouched. */
-export function fmtActive(ms: number): string {
-  if (!Number.isFinite(ms) || ms < 0) return "—";
-  if (ms < 3_600_000) return fmtDuration(ms);
-  const h = Math.floor(ms / 3_600_000);
-  const m = Math.round((ms % 3_600_000) / 60_000);
-  if (h < 24) return `${h}h ${String(m).padStart(2, "0")}m`;
-  const d = Math.floor(h / 24);
-  return `${d}d ${h % 24}h`;
-}
-
-/** Ruler ticks, tighter than fmtActive: `45s`, `63m`, `1h03m`, `3d4h`. */
-export function fmtRuler(ms: number): string {
-  if (!Number.isFinite(ms) || ms < 0) return "—";
-  if (ms < 60_000) return `${Math.max(1, Math.round(ms / 1_000))}s`;
-  if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`;
-  const h = Math.floor(ms / 3_600_000);
-  const m = Math.round((ms % 3_600_000) / 60_000);
-  if (h < 24) return `${h}h${String(m).padStart(2, "0")}m`;
-  return `${Math.floor(h / 24)}d${h % 24}h`;
-}
-
-function blockLabel(block: TraceBlock): string {
-  const title = displayTitle(block);
-  const preview = displayPreview(block);
-  return `${title}${preview && preview !== title ? ` — ${preview.slice(0, 80)}` : ""}`;
-}
-
-const STATUS_LABEL: Record<TraceBlock["status"], string> = {
-  ok: "trace.status.ok",
-  error: "trace.status.error",
-  interrupted: "trace.status.interrupted",
-  pending: "trace.status.pending",
-};
 
 const STATUS_PILL: Record<TraceBlock["status"], string> = {
   ok: "bg-status-completed/15 text-status-completed",
@@ -488,34 +442,53 @@ function TraceStrip(props: {
     return { width, transform: `translate3d(${-shownOffset()}px, 0, 0)` };
   };
 
-  /** Bar slot inside the lane: whole height for one track, split for stacked
-   *  concurrent calls — the lane itself never grows. */
-  const slotFor = (lane: LaneId, track: number) => {
-    const n = Math.max(1, props.placed.tracks[lane] ?? 1);
-    if (n <= 1) return { top: 2, height: 8 };
-    const sub = Math.floor(12 / n);
-    const h = Math.max(3, sub - 1);
-    return { top: Math.min(12 - h, track * sub), height: h };
-  };
+  const slotFor = (lane: LaneId, track: number) =>
+    traceLaneSlot(track, props.placed.tracks[lane] ?? 1);
+
+  const visibleTurns = createMemo(() => {
+    const { start, end } = range();
+    return props.placed.turnLabels.filter((mark) => mark.x >= start - 64 && mark.x <= end + 64);
+  });
+  const visibleFolds = createMemo(() => {
+    const { start, end } = range();
+    return props.placed.folds.filter((fold) => fold.x >= start - 14 && fold.x <= end + 14);
+  });
 
   return (
     <div class="px-4 pt-2.5 pb-1.5">
       <div class="flex gap-2">
-        <div class="w-8 shrink-0 space-y-1">
+        <div class="w-8 shrink-0 space-y-1.5">
+          <div class="h-4" />
           <For each={LANES}>
             {(lane) => (
-              <div class="flex h-3 items-center text-2xs leading-none text-muted-foreground">
+              <div class="flex h-5 items-center text-2xs leading-none text-muted-foreground">
                 {t(lane.label as Parameters<typeof t>[0])}
               </div>
             )}
           </For>
-          <div class="h-3.5" />
+          <div class="h-4" />
         </div>
         <div class="min-w-0 flex-1">
           <div class="relative">
+            <div class="relative h-4 overflow-hidden">
+              <div class="absolute top-0 h-full will-change-transform" style={shift()}>
+                <For each={visibleTurns()}>
+                  {(mark) => (
+                    <Show when={mark.showLabel}>
+                      <span
+                        class="absolute top-0 font-mono text-2xs whitespace-nowrap text-muted-foreground/70 tabular-nums"
+                        style={{ left: `${mark.x + 4}px` }}
+                      >
+                        {t("trace.turn", { turn: mark.turn })}
+                      </span>
+                    </Show>
+                  )}
+                </For>
+              </div>
+            </div>
             <div
               ref={setViewEl}
-              class="space-y-1 overflow-hidden"
+              class="space-y-1.5 overflow-hidden"
               style={{ "container-type": "inline-size", "touch-action": "pan-y" }}
               onPointerDown={(e) => {
                 if (e.button !== 0 || !overflows()) return;
@@ -551,37 +524,50 @@ function TraceStrip(props: {
             >
               <For each={LANES}>
                 {(lane) => (
-                  <div class="relative h-3 overflow-hidden rounded-sm bg-secondary/40">
+                  <div class="relative h-5 rounded-sm bg-secondary/40">
                     <div class="absolute top-0 h-full will-change-transform" style={shift()}>
                       <For each={visible()[lane.id]}>
                         {(block) => {
                           const box = () => props.placed.pos.get(block.key);
-                          const label = () => blockLabel(block);
+                          const tooltip = () => traceBlockTooltip(block);
                           const on = () => props.selected === block.key;
                           const dim = () => props.dim(block.key);
                           const slot = () => slotFor(lane.id, box()?.track ?? 0);
+                          const shape = () => traceMarkerShape(block);
+                          const eventSize = () => Math.min(10, Math.max(6, slot().height));
                           return (
-                            <Tip label={label()}>
+                            <Tip
+                              label={tooltip().text}
+                              content={() => <TraceBlockTooltip block={block} />}
+                            >
                               <button
-                                class={`absolute rounded-[2px] ${block.tone} ${
+                                class={`absolute ${block.tone} ${
+                                  block.lane === "event"
+                                    ? shape() === "circle"
+                                      ? "rounded-full"
+                                      : shape() === "diamond"
+                                        ? "rounded-[1px]"
+                                        : ""
+                                    : "rounded-[2px]"
+                                } ${
                                   on()
-                                    ? "z-10 opacity-100 ring-1 ring-foreground/70"
-                                    : dim()
-                                      ? "opacity-15 hover:opacity-60"
-                                      : block.quiet
-                                        ? "opacity-40 hover:opacity-100"
-                                        : "opacity-90 hover:opacity-100"
+                                    ? "z-10 opacity-100 ring-2 ring-foreground/75"
+                                    : `${dim() ? "opacity-15" : block.quiet ? "opacity-40" : "opacity-90"} hover:z-10 hover:opacity-100 hover:ring-1 hover:ring-foreground/40`
                                 }`}
                                 style={
                                   block.lane === "event"
                                     ? {
                                         left: `${
-                                          (box()?.left ?? 0) + (box()?.width ?? 8) / 2 - 4
+                                          (box()?.left ?? 0) + (box()?.width ?? 8) / 2 - eventSize() / 2
                                         }px`,
-                                        width: "8px",
-                                        height: "8px",
-                                        top: `${slot().top + Math.max(0, (slot().height - 8) / 2)}px`,
-                                        transform: "rotate(45deg)",
+                                        width: `${eventSize()}px`,
+                                        height: `${eventSize()}px`,
+                                        top: `${slot().top + (slot().height - eventSize()) / 2}px`,
+                                        transform: shape() === "diamond" ? "rotate(45deg)" : undefined,
+                                        "clip-path":
+                                          shape() === "triangle"
+                                            ? "polygon(50% 0, 100% 100%, 0 100%)"
+                                            : undefined,
                                       }
                                     : {
                                         left: `${box()?.left ?? 0}px`,
@@ -590,7 +576,9 @@ function TraceStrip(props: {
                                         height: `${slot().height}px`,
                                       }
                                 }
-                                aria-label={label()}
+                                aria-label={tooltip().text}
+                                data-trace-block={block.key}
+                                data-trace-shape={block.lane === "event" ? shape() : undefined}
                                 onClick={() => {
                                   if (swallowClick) {
                                     swallowClick = false;
@@ -607,36 +595,41 @@ function TraceStrip(props: {
                   </div>
                 )}
               </For>
-              {/* turn boundaries: a hairline across all lanes at each turn's
-                  first block — clipped here, the view is static-positioned so
-                  the shifted child would otherwise paint past the lanes */}
-              <div
-                class="pointer-events-none absolute inset-0 overflow-hidden"
-                aria-hidden="true"
-              >
+              <div class="pointer-events-none absolute inset-0 overflow-hidden">
                 <div class="absolute top-0 h-full will-change-transform" style={shift()}>
-                  <For each={props.placed.turns}>
-                    {(x) => (
+                  <For each={visibleTurns()}>
+                    {(mark) => (
                       <div
-                        class="absolute top-0 h-full w-px bg-foreground/8"
-                        style={{ left: `${x}px` }}
+                        class="absolute top-0 h-full w-px bg-foreground/20"
+                        style={{ left: `${mark.x}px` }}
+                        aria-hidden="true"
                       />
                     )}
                   </For>
-                  <For each={props.placed.breaks}>
-                    {(x) => (
-                      <div
-                        class="absolute top-0 h-full border-x border-dashed border-muted-foreground/40"
-                        style={{ left: `${x}px`, width: "14px" }}
-                      />
-                    )}
+                  <For each={visibleFolds()}>
+                    {(fold) => {
+                      const label = () => traceFoldLabel(fold.durationMs);
+                      return (
+                        <Tip label={label()}>
+                          <span
+                            role="note"
+                            tabIndex={0}
+                            data-trace-nav
+                            data-trace-fold
+                            class="pointer-events-auto absolute top-0 h-full border-x border-dashed border-muted-foreground/60 bg-secondary/20 outline-none focus:bg-secondary/40"
+                            style={{ left: `${fold.x}px`, width: "14px" }}
+                            aria-label={label()}
+                          />
+                        </Tip>
+                      );
+                    }}
                   </For>
                 </div>
               </div>
             </div>
             {/* the ruler runs under the lanes in duration mode */}
             <Show when={props.placed.ruler.length > 0}>
-              <div class="relative h-3.5 overflow-hidden">
+              <div class="relative h-4 overflow-hidden">
                 <div class="absolute top-0 h-full will-change-transform" style={shift()}>
                   <For each={props.placed.ruler}>
                     {(r) => (
@@ -679,6 +672,29 @@ function TraceStrip(props: {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function TraceBlockTooltip(props: { block: TraceBlock }) {
+  const info = () => traceBlockTooltip(props.block);
+  return (
+    <div class="min-w-52 max-w-80 space-y-1.5">
+      <div class="flex items-center justify-between gap-3 text-2xs">
+        <span class="font-mono text-muted-foreground tabular-nums">{info().position}</span>
+        <span class={STATUS_PILL[props.block.status].split(" ")[1]}>{info().status}</span>
+      </div>
+      <div class="font-medium break-words">{info().title}</div>
+      <Show when={info().preview && info().preview !== info().title}>
+        <div class="max-h-24 overflow-hidden text-muted-foreground break-words whitespace-pre-wrap">
+          {info().preview.slice(0, 240)}
+        </div>
+      </Show>
+      <Show when={info().durationMs !== undefined}>
+        <div class="font-mono text-2xs text-muted-foreground tabular-nums">
+          {t("trace.field.elapsed")}: {fmtDuration(info().durationMs!)}
+        </div>
+      </Show>
     </div>
   );
 }
@@ -883,7 +899,7 @@ function TokenFacts(props: { usage: TraceUsage }) {
 }
 
 function statusText(b: TraceBlock): string {
-  return t(STATUS_LABEL[b.status] as Parameters<typeof t>[0]);
+  return traceStatusText(b);
 }
 
 function decisionText(p: TracePermission): string {

@@ -31,6 +31,7 @@ export default {
   "trace.status.pending": "进行中",
   "trace.turn": "第 {turn} 轮",
   "trace.step": "第 {turn} 轮 · 第 {step} 步",
+  "trace.folded": "折叠 {duration}",
 
   // 标题与预览的兜底词（事件本身没带内容时）
   "trace.preview.message": "消息",

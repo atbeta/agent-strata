@@ -84,6 +84,23 @@ describe("traceBlocks", () => {
     expect(at_("pend1")).toBe("pending");
   });
 
+  test("normal shell and dev calls are not warnings; results own error tones", () => {
+    const blocks = traceBlocks([
+      call("t1", "shell", "bash", {}, 1_000),
+      result("shell", "ok", {}, 2_000),
+      call("t1", "dev", "dev-process", {}, 3_000),
+      call("t1", "bad", "zsh", {}, 4_000),
+      result("bad", "error", {}, 5_000),
+      call("t1", "stop", "powershell", {}, 6_000),
+      result("stop", "interrupted", {}, 7_000),
+    ]);
+    const tone = (id: string) => blocks.find((b) => b.key === `t:${id}`)!.tone;
+    expect(tone("shell")).toBe("bg-primary");
+    expect(tone("dev")).toBe("bg-primary");
+    expect(tone("bad")).toBe("bg-status-error");
+    expect(tone("stop")).toBe("bg-status-cancelled");
+  });
+
   test("assistant error, summary flag and thinking clock", () => {
     const blocks = traceBlocks([
       assistant("t1", "m1", {
@@ -251,6 +268,7 @@ describe("layoutTrace", () => {
     const pb = layout.pos.get("t:b")!;
     // 40s of idle folds into a 14px break rather than 80px of nothing.
     expect(layout.breaks.length).toBe(1);
+    expect(layout.folds).toEqual([{ x: layout.breaks[0]!, durationMs: 40_000 }]);
     expect(pb.left - (pa.left + pa.width)).toBe(14);
   });
 
@@ -284,6 +302,39 @@ describe("layoutTrace", () => {
       expect(lefts[i]! - lefts[i - 1]!).toBe(13);
     }
     expect(layout.turns.length).toBe(1);
+  });
+
+  test("instantaneous blocks remain visible with a six-pixel minimum", () => {
+    const layout = layoutTrace(traceBlocks([call("t1", "instant", "bash", {}, 1_000)]), "duration");
+    expect(layout.pos.get("t:instant")!.width).toBe(6);
+  });
+
+  test("turn metadata survives both modes and dense labels yield to their lines", () => {
+    const blocks = traceBlocks(Array.from({ length: 8 }, (_, i) => user(`dense${i}`)));
+    for (const mode of ["duration", "sequence"] as const) {
+      const layout = layoutTrace(blocks, mode);
+      expect(layout.turnLabels.map((mark) => mark.turn)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+      expect(layout.turnLabels.map((mark) => mark.x)).toEqual(layout.turns);
+      expect(layout.turnLabels[0]!.showLabel).toBe(true);
+      expect(layout.turnLabels.some((mark) => !mark.showLabel)).toBe(true);
+      const shown = layout.turnLabels.filter((mark) => mark.showLabel);
+      for (let i = 1; i < shown.length; i++) {
+        expect(shown[i]!.x - shown[i - 1]!.x).toBeGreaterThanOrEqual(56);
+      }
+    }
+  });
+
+  test("folds keep wall time while ruler ticks count active time", () => {
+    const blocks = traceBlocks([
+      call("t1", "before", "bash", {}, 0),
+      result("before", "ok", {}, 80_000),
+      call("t2", "after", "bash", {}, 320_000),
+      result("after", "ok", {}, 400_000),
+    ]);
+    const layout = layoutTrace(blocks, "duration");
+    expect(layout.folds.map((fold) => fold.durationMs)).toEqual([240_000]);
+    expect(layout.ruler.map((tick) => tick.ms)).toEqual([60_000, 120_000]);
+    expect(layout.turnLabels.map((mark) => mark.turn)).toEqual([1, 2]);
   });
 });
 

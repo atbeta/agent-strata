@@ -32,6 +32,7 @@ export default {
   "trace.status.pending": "Running",
   "trace.turn": "Turn {turn}",
   "trace.step": "Turn {turn} · step {step}",
+  "trace.folded": "Folded {duration}",
 
   // Fallback words for a title or preview the event did not carry
   "trace.preview.message": "Message",

@@ -5,7 +5,7 @@
  * interface must translate travels as stand-in markers — `titleKey` names a
  * dictionary key, and the few legacy stand-in words ("输入", "回复", "tool",
  * "message", "reply") are translated at display time by `displayTitle` /
- * `displayPreview` in trace.tsx. Backend words (tool names, model ids, file
+ * `displayPreview` in trace-display.ts. Backend words (tool names, model ids, file
  * paths, the session's own text) pass through verbatim.
  */
 import type { MessageKey } from "./locales/zh";
@@ -184,7 +184,6 @@ function thinkingMsOf(content: unknown): number | undefined {
 
 function toolTone(name: string): string {
   const n = name.toLowerCase();
-  if (n === "bash" || n.includes("shell") || n === "powershell" || n === "cmd") return "bg-status-cancelled";
   if (n.includes("search") || n.includes("fetch") || n.includes("web")) return "bg-event-tool";
   if (/(^|_)(read|glob|grep|list)($|_)/.test(n) || n === "read") return "bg-event-file";
   if (n.includes("edit") || n.includes("write") || n.includes("patch")) return "bg-event-user";
@@ -786,13 +785,28 @@ export interface TracePos {
   track: number;
 }
 
+export interface TraceTurnLabel {
+  x: number;
+  turn: number;
+  /** Dense boundaries keep their line but omit labels that would collide. */
+  showLabel: boolean;
+}
+
+export interface TraceFold {
+  x: number;
+  /** Wall-clock silence removed from the duration display. */
+  durationMs: number;
+}
+
 export interface TraceLayout {
   pos: Map<string, TracePos>;
   width: number;
   /** x of each collapsed-time break (duration mode) */
   breaks: number[];
+  folds: TraceFold[];
   /** x of each turn boundary, across all lanes */
   turns: number[];
+  turnLabels: TraceTurnLabel[];
   /** ruler ticks: position + elapsed ms at that point (duration mode) */
   ruler: { x: number; ms: number }[];
   /** sub-tracks each lane needs */
@@ -802,7 +816,8 @@ export interface TraceLayout {
 /** Gaps past this are folded into a fixed-width break. */
 const GAP_MS = 30_000;
 const BREAK_PX = 14;
-const MIN_BAR = 3;
+const MIN_BAR = 6;
+const TURN_LABEL_GAP = 56;
 /** One displayed minute of activity ≈ 120px. */
 const PX_PER_MS = 120 / 60_000;
 /** The content cap — past it, bars stop paying for real span. */
@@ -819,18 +834,29 @@ const RULER_STEPS = [
 
 const bySeq = (a: TraceBlock, b: TraceBlock) => a.firstSeq - b.firstSeq || a.seq - b.seq;
 
+function labelTurns(marks: { x: number; turn: number }[]): TraceTurnLabel[] {
+  let lastLabel = -Infinity;
+  return marks
+    .sort((a, b) => a.x - b.x || a.turn - b.turn)
+    .map((mark) => {
+      const showLabel = mark.x - lastLabel >= TURN_LABEL_GAP;
+      if (showLabel) lastLabel = mark.x;
+      return { ...mark, showLabel };
+    });
+}
+
 export function layoutTrace(blocks: TraceBlock[], mode: TraceLayoutMode): TraceLayout {
   const sorted = [...blocks].sort(bySeq);
   const pos = new Map<string, TracePos>();
   const tracks: Partial<Record<TraceLane, number>> = {};
 
   if (mode === "sequence") {
-    const turns: number[] = [];
+    const turnMarks: { x: number; turn: number }[] = [];
     let prevTurn: number | undefined;
     sorted.forEach((b, i) => {
       pos.set(b.key, { left: i * (SLOT_W + SLOT_GAP), width: SLOT_W, track: 0 });
       if (b.turn !== undefined && b.turn !== prevTurn) {
-        turns.push(i * (SLOT_W + SLOT_GAP) - SLOT_GAP / 2);
+        turnMarks.push({ x: i * (SLOT_W + SLOT_GAP) - SLOT_GAP / 2, turn: b.turn });
       }
       prevTurn = b.turn;
     });
@@ -838,7 +864,9 @@ export function layoutTrace(blocks: TraceBlock[], mode: TraceLayoutMode): TraceL
       pos,
       width: Math.max(0, sorted.length * (SLOT_W + SLOT_GAP) - SLOT_GAP),
       breaks: [],
-      turns,
+      folds: [],
+      turns: turnMarks.map((mark) => mark.x),
+      turnLabels: labelTurns(turnMarks),
       ruler: [],
       tracks,
     };
@@ -931,22 +959,28 @@ export function layoutTrace(blocks: TraceBlock[], mode: TraceLayoutMode): TraceL
   // gaps are skipped wholesale, so a session spanning days costs its segments,
   // not its span.
   const ruler: { x: number; ms: number }[] = [];
-  const span = cursor - t0;
   const step = RULER_STEPS.find((s) => s * scale >= 110) ?? RULER_STEPS[RULER_STEPS.length - 1]!;
   let segStart = t0;
+  let cutMs = 0;
   for (const g of [...gaps, { start: cursor, end: cursor }]) {
-    const first = Math.ceil((segStart - t0 + Number.EPSILON) / step) * step;
-    for (let ms = Math.max(step, first); t0 + ms < g.start; ms += step) {
-      ruler.push({ x: xOf(t0 + ms), ms });
+    const activeStart = segStart - t0 - cutMs;
+    const activeEnd = g.start - t0 - cutMs;
+    const first = Math.ceil((activeStart + Number.EPSILON) / step) * step;
+    for (let ms = Math.max(step, first); ms < activeEnd; ms += step) {
+      ruler.push({ x: xOf(t0 + cutMs + ms), ms });
     }
+    cutMs += g.end - g.start;
     segStart = g.end;
   }
 
+  const turnMarks = [...turnMin].map(([turn, x]) => ({ turn, x: Math.max(0, x - 2) }));
   return {
     pos,
     width,
     breaks: gaps.map((g) => xOf(g.start)),
-    turns: [...turnMin.values()].sort((a, b) => a - b).map((x) => Math.max(0, x - 2)),
+    folds: gaps.map((g) => ({ x: xOf(g.start), durationMs: g.end - g.start })),
+    turns: turnMarks.map((mark) => mark.x).sort((a, b) => a - b),
+    turnLabels: labelTurns(turnMarks),
     ruler,
     tracks,
   };
