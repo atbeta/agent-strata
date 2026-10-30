@@ -955,6 +955,20 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     }
 
     if (path === "/events" && req.method === "GET") {
+      const count = (raw: string | null): number | undefined | null => {
+        if (raw === null || raw === "") return undefined;
+        // Number("abc") is NaN, and SQLite treats the comparison as unknown,
+        // so a bad cursor used to come back as an empty log.
+        if (!/^\d+$/.test(raw)) return null;
+        const n = Number(raw);
+        return Number.isFinite(n) ? n : null;
+      };
+      const afterSeq = count(url.searchParams.get("after_seq"));
+      const offset = count(url.searchParams.get("offset"));
+      const limit = count(url.searchParams.get("limit"));
+      if (afterSeq === null || offset === null || limit === null) {
+        return json({ error: "invalid query" }, 400);
+      }
       const q: EventQuery = {
         session_id: url.searchParams.get("session_id") ?? undefined,
         backend: url.searchParams.get("backend") ?? undefined,
@@ -962,12 +976,10 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         since: url.searchParams.get("since") ?? undefined,
         until: url.searchParams.get("until") ?? undefined,
         text: url.searchParams.get("text") ?? undefined,
-        after_seq: url.searchParams.get("after_seq")
-          ? Number(url.searchParams.get("after_seq"))
-          : undefined,
+        after_seq: afterSeq,
         order: (url.searchParams.get("order") as "asc" | "desc") ?? "asc",
-        offset: url.searchParams.get("offset") ? Number(url.searchParams.get("offset")) : undefined,
-        limit: url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : undefined,
+        offset,
+        limit,
       };
       return json({ events: store.query(q) });
     }

@@ -33,7 +33,7 @@ import { runInProgress, SEND_GRACE_MS } from "./live";
 import { createSessionStop } from "./session-stop";
 import { ComposerToolbar } from "./composer-toolbar";
 import { createComposerDelivery } from "./composer-delivery";
-import { createSessionQueues, persistSessionQueues, restoreColdDraft } from "./composer-queue";
+import { createSessionQueues, persistSessionQueues, restoreColdDraft, restoreSessionDraft } from "./composer-queue";
 import { withEcho, type PendingEcho } from "./prompt-echo";
 import {
   navigateHistory,
@@ -158,8 +158,24 @@ export function useSessionComposer(args: {
   });
   const [menuActive, setMenuActive] = createSignal(0);
   const [attachErr, setAttachErr] = createSignal("");
-  /** set when a send fails, so queued follow-ups wait for the reader instead of going out without it */
-  const [queuePaused, setQueuePaused] = createSignal(false);
+  /**
+   * Why the queue is holding, per session.
+   *
+   * A stop and a failed send both hold the queue, and they are not the same
+   * sentence. The hold belongs to the session: leaving and coming back used
+   * to clear it, because the flag was one boolean for the whole composer.
+   */
+  const queueHolds = new Map<string, "stopped" | "send">();
+  const [queueHold, setQueueHold] = createSignal<"stopped" | "send" | null>(null);
+  const applyHold = (id: string, hold: "stopped" | "send" | null) => {
+    if (hold) queueHolds.set(id, hold);
+    else queueHolds.delete(id);
+    if (id === untrack(args.sessionId)) setQueueHold(hold);
+  };
+  const setQueuePaused = (paused: boolean) => {
+    applyHold(untrack(args.sessionId), paused ? "stopped" : null);
+  };
+  const queuePaused = () => queueHold() !== null;
   /** turn the next send should revert first, set when the reader edits a message */
   const [editTurnId, setEditTurnId] = createSignal<string>();
   const menuId = createUniqueId();
@@ -503,7 +519,7 @@ export function useSessionComposer(args: {
         setPicked(back.draft.picked);
         setAttachments(back.draft.attachments);
         if (back.dropped) setAttachErr(t("composer.attach.too_many", { n: MAX_ATTACHMENTS }));
-        setQueuePaused(true);
+        applyHold(untrack(args.sessionId), "send");
         closeHandover();
         setEcho(undefined);
         queueMicrotask(autogrow);
@@ -809,20 +825,31 @@ export function useSessionComposer(args: {
   /** the session behind the composer changed — swap in its own transient state */
   const resetFor = (id: string) => {
     deliveries.invalidate();
+    const queuedNow = sessionQueues.switch(id);
+    setQueuedSignal(queuedNow);
     const restored = deliveries.restore(id, {
       text: readDraft(id),
       picked: [],
       attachments: [],
       sessionId: id,
     });
-    setDraft(restored.draft.text);
-    setQueuedSignal(sessionQueues.switch(id));
+    // A queue still in memory is the queue. Storage is only the restart
+    // copy, and taking it now would put the same words in the draft as well.
+    // After a restart the memory queue is empty, so the words come back here.
+    setDraft(
+      queuedNow.length > 0 ? restored.draft.text : restoreSessionDraft(id, restored.draft.text),
+    );
     setHistIndex(-1);
     setHistSaved("");
     setNotice("");
     closeHandover();
     setEcho(undefined);
+    // reset() clears the hold of whichever session is current, and by now
+    // that is the one being opened. Put its own hold back.
+    const kept = queueHolds.get(id) ?? null;
     sessionStop.reset();
+    if (kept) queueHolds.set(id, kept);
+    setQueueHold(kept);
     setModelTouched(false);
     setModelSel("");
     setPicked(restored.draft.picked);
@@ -1030,6 +1057,7 @@ export function useSessionComposer(args: {
      * now I want the rest to go". The items sat there looking queued forever.
      */
     queuePaused,
+    queueHold,
     resumeQueue: () => setQueuePaused(false),
   };
 }
@@ -1105,19 +1133,23 @@ export function SessionComposer(props: {
               {/* A stop holds the queue so the idle it brings does not fire the
                   next follow-up immediately. Without saying so, and without a
                   way back, the items sit there looking queued forever. */}
-              <Show when={c().queuePaused()}>
-                <span class="shrink-0 text-2xs text-muted-foreground">
-                  {t("composer.queue.paused")}
-                </span>
-                <Button
-                  type="button"
-                  variant="quiet"
-                  size="xs"
-                  class="h-auto shrink-0 px-0 py-0 text-xs"
-                  onClick={() => c().resumeQueue()}
-                >
-                  {t("composer.queue.resume")}
-                </Button>
+              <Show when={c().queueHold()}>
+                {(hold) => (
+                  <>
+                    <span class="shrink-0 text-2xs text-muted-foreground">
+                      {t(hold() === "send" ? "composer.queue.send_failed" : "composer.queue.paused")}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="quiet"
+                      size="xs"
+                      class="h-auto shrink-0 px-0 py-0 text-xs"
+                      onClick={() => c().resumeQueue()}
+                    >
+                      {t("composer.queue.resume")}
+                    </Button>
+                  </>
+                )}
               </Show>
             </div>
             <ul class="mt-1 space-y-1">

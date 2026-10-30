@@ -615,6 +615,9 @@ describe("assistantMetrics", () => {
 
   test("hides partial messages and missing or invalid inputs", () => {
     const content = [{ type: "text" as const, text: "answer", started_ms: start + 1000 }];
+    expect(assistantMetrics({ ...base, content, usage: { input: 10, output: 0 }, partial: undefined })).toEqual({
+      ttft_ms: 1000,
+    });
     expect(assistantMetrics({ ...base, content, partial: true })).toEqual({});
     expect(assistantMetrics({ ...base, content, latency_ms: undefined })).toEqual({});
     expect(assistantMetrics({ ...base, content, latency_ms: -1 })).toEqual({});

@@ -91,8 +91,11 @@ export function createTraceData(opts: {
       if (g === gen) setError(e);
     } finally {
       if (g === gen) {
-        setLoading(false);
+        // `loaded` is a plain variable. Setting it after the signal lets the
+        // tail effect run while it is still false, and a head that arrived
+        // during the first page is then skipped until something else bumps it.
         loaded = true;
+        setLoading(false);
       }
     }
   };

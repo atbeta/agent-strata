@@ -557,9 +557,9 @@ function UsageCard(props: {
             </Show>
           </>
         ))}
-        <Show when={!props.totals || props.totals.sessions > 0}>
+        <Show when={!props.totals || props.totals.usageSessions > 0}>
           {row(t("fleet.overview.toolsPerSession"), () =>
-            (props.totals!.tools / props.totals!.sessions).toFixed(1),
+            (props.totals!.tools / props.totals!.usageSessions).toFixed(1),
           )}
         </Show>
         <div class="mt-1 flex items-center justify-between gap-4 border-t border-border py-1.5">

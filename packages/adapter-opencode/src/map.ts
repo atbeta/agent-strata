@@ -108,11 +108,22 @@ function textField(value: unknown): string | undefined {
  * reader's word must not paint the session as crashed, so the diagnostic is
  * dropped while the session stills the same way a real error would.
  */
-const ABORT_ERROR_NAMES = new Set(["MessageAbortedError", "AbortError"]);
+function abortMessage(message: string): boolean {
+  const text = message.trim().toLowerCase();
+  return text === "aborted" || text === "the operation was aborted" || text === "the operation was aborted.";
+}
 
+/**
+ * A stop the reader asked for, as opposed to a provider failure that happens
+ * to be named `AbortError`. OpenCode's own abort is `MessageAbortedError`.
+ * A bare `AbortError` only counts when the message is the abort wording —
+ * matching the name alone swallowed unrelated provider failures.
+ */
 function abortedDiagnostic(d: SessionDiagnostic): boolean {
-  if (d.name !== undefined) return ABORT_ERROR_NAMES.has(d.name);
-  return d.message === "Aborted" || d.message === "The operation was aborted";
+  if (d.name === "MessageAbortedError") return true;
+  if (d.name === "AbortError") return abortMessage(d.message);
+  if (d.name !== undefined) return false;
+  return abortMessage(d.message);
 }
 
 /** Only diagnostics that are safe to persist and show. Provider payloads and metadata stay behind. */
@@ -302,6 +313,12 @@ interface MsgState {
   toolParts: Map<string, ToolTrack>;
   emittedAssistant: boolean;
   streamRetired?: boolean;
+  /**
+   * Parts first stored after streaming was retired. Later updates of those
+   * parts are the reply arriving late, and they stay. A part that was already
+   * stored is left alone — a replay after idle must not rewrite it.
+   */
+  lateParts?: Set<string>;
   /** message.updated declared this a compaction summary while parts still stream */
   summary?: boolean;
   lastStreamAt?: number;
@@ -1420,7 +1437,13 @@ export class OpencodeMapper {
         const part: Part = evt.properties.part;
         const m = this.ensureMsg(s, part.messageID);
         const streamContent = part.type === "text" || part.type === "reasoning" || part.type === "file" || part.type === "subtask";
-        if (m.role === "assistant" && m.streamRetired && streamContent) return out;
+        // Idle stops publishing partials. A part already on the message stays
+        // as it was. A part that has not arrived yet is the reply itself:
+        // dropping it leaves the durable final — built from these parts —
+        // empty when idle wins the race against the first content.
+        const retiredContent = m.role === "assistant" && m.streamRetired === true && streamContent;
+        if (retiredContent && m.parts.has(part.id) && !m.lateParts?.has(part.id)) return out;
+        if (retiredContent) (m.lateParts ??= new Set()).add(part.id);
         // An import read mid-reply carries an open part as OpenCode last stored
         // it, which can be older than the deltas already applied; and deltas
         // still in flight would land on top of anything newer. A closed part
@@ -1587,7 +1610,7 @@ export class OpencodeMapper {
               ),
             );
           }
-        } else if (m.role === "assistant" && m.parentID && !m.emittedAssistant) {
+        } else if (m.role === "assistant" && m.parentID && !m.emittedAssistant && !m.streamRetired) {
           this.held.set(part.messageID, { s, m });
           const snap = this.streamSnapshot(part.messageID);
           if (snap) out.push(snap);
@@ -1602,9 +1625,15 @@ export class OpencodeMapper {
         const block = m?.parts.get(p.partID);
         // A delta extends a part already held. One for a part never seen (the
         // stream joined mid-message) waits for that part's next full update.
-        if (!s || !m || m.streamRetired || !block || (block.type !== "text" && block.type !== "thinking")) return out;
+        if (!s || !m || !block || (block.type !== "text" && block.type !== "thinking")) return out;
+        // A delta after retirement only extends a part that itself arrived
+        // late. One that was already stored is the reply we kept; extending
+        // it would rewrite that reply without a partial to show for it.
+        const extendRetired = m.role === "assistant" && m.streamRetired === true;
+        if (extendRetired && !m.lateParts?.has(p.partID)) return out;
         m.parts.set(p.partID, { ...block, text: block.text + p.delta });
         (m.streamed ??= new Set()).add(p.partID);
+        if (extendRetired) return out;
         if (m.role === "assistant" && m.parentID && !m.emittedAssistant) {
           this.held.set(p.messageID, { s, m });
           const snap = this.streamSnapshot(p.messageID);
@@ -1671,7 +1700,8 @@ export class OpencodeMapper {
           if (m2.role === "user") (s.resolvedUsers ??= new Set()).add(msgID);
         }
         for (const msgID of [...s.pendingUserMsgs]) this.flushUser(s, out, msgID);
-        // Late parts cannot revive a partial; a completed update still emits its durable final.
+        // Stop publishing partials. Parts that have not arrived yet are still
+        // stored, so the completion that follows can carry them.
         this.retireStreaming(s);
         s.sawBusy = false;
         s.retryKey = undefined;

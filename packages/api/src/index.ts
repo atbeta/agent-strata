@@ -18,6 +18,12 @@ export const DevStopResult = z.object({
   residual: z.array(z.number()),
   port: z.number().optional(),
   port_free: z.boolean().optional(),
+  /**
+   * The HTTP stop route adds this. The process table's own answer does not.
+   * Optional so that answer still types as this schema; present whenever the
+   * body came off the wire.
+   */
+  ok: z.boolean().optional(),
 }).strict();
 export type DevStopResult = z.infer<typeof DevStopResult>;
 

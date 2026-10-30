@@ -14,9 +14,13 @@ export function createSessionQueues<T>(initialSessionId: string) {
       return bySession.get(activeSessionId) ?? [];
     },
     replace(items: T[]): void {
-      bySession.set(activeSessionId, items);
+      if (items.length === 0) bySession.delete(activeSessionId);
+      else bySession.set(activeSessionId, items);
     },
     switch(sessionId: string): T[] {
+      if (activeSessionId !== sessionId && !bySession.get(activeSessionId)?.length) {
+        bySession.delete(activeSessionId);
+      }
       activeSessionId = sessionId;
       return bySession.get(sessionId) ?? [];
     },
@@ -24,6 +28,15 @@ export function createSessionQueues<T>(initialSessionId: string) {
       return new Map(bySession);
     },
   };
+}
+
+/** Queued words for a session the composer is opening, folded into its draft once. */
+export function restoreSessionDraft(
+  sessionId: string,
+  draft: string,
+  deps: { take?: typeof takeQueuedText } = {},
+): string {
+  return joinQueued(draft, (deps.take ?? takeQueuedText)(sessionId));
 }
 
 export function restoreColdDraft(

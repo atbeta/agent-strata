@@ -680,6 +680,22 @@ describe("OpencodeMapper", () => {
     expect(out.find((e) => e.type === "session.error")?.data).toEqual({ error: null });
   });
 
+  test("an AbortError whose message is not an abort stays a failure", () => {
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    const out = m.handle({
+      id: freshId("s"),
+      type: "session.error",
+      properties: {
+        sessionID: sid,
+        error: { name: "AbortError", data: { message: "provider closed the stream" } },
+      },
+    } as unknown as Event);
+    expect(out.find((e) => e.type === "session.error")?.data).toMatchObject({
+      error: { name: "AbortError", message: "provider closed the stream" },
+    });
+  });
+
   test("a real failure still stores its diagnostic", () => {
     const m = new OpencodeMapper();
     m.handle(sessionCreated());
@@ -3060,6 +3076,34 @@ describe("text that arrives as deltas", () => {
     expect(done).toHaveLength(1);
     expect(done[0]!.partial).toBeUndefined();
     expect(done[0]!.content).toEqual([{ type: "text", text: "old" }, { type: "thinking", text: "think" }]);
+  });
+
+  test("a text part that arrives after idle still fills the durable final", () => {
+    // Idle and the first content part race. Retiring the message used to drop
+    // the part, and the completion — built from the parts held here — stored
+    // an empty reply.
+    let t = 0;
+    const m = streaming(() => t);
+    t = 1000;
+    m.handle({ id: "idle-late", type: "session.idle", properties: { sessionID: sid } } as unknown as Event);
+    t = 1100;
+    const late = m.handle(partUpdated({
+      id: "pa", sessionID: sid, messageID: "a1", type: "text", text: "the",
+    }));
+    expect(snaps(late).some((s) => s.partial)).toBe(false);
+    t = 1200;
+    m.handle(partUpdated({
+      id: "pa", sessionID: sid, messageID: "a1", type: "text", text: "the whole answer",
+    }));
+    const final = m.handle(msgUpdated({
+      id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
+      time: { created: 2, completed: 5 }, providerID: "p", modelID: "m", cost: 0,
+      tokens: { input: 1, output: 4, reasoning: 0, cache: { read: 0, write: 0 } },
+    }));
+    const done = snaps(final);
+    expect(done.at(-1)?.partial).toBeUndefined();
+    expect(done.at(-1)?.content).toEqual([{ type: "text", text: "the whole answer" }]);
+    expect(m.flushStreaming()).toEqual([]);
   });
 
   test("a finished message holds nothing and ignores late deltas", () => {

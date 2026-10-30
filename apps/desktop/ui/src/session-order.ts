@@ -10,13 +10,18 @@ export function rememberBusySince(
   busySince: Map<string, string>,
   rows: readonly SessionOrderRow[],
 ): void {
+  const seen = new Set<string>();
   for (const row of rows) {
     const id = row.summary.session_id;
+    seen.add(id);
     if (row.busy !== true) {
       busySince.delete(id);
       continue;
     }
     if (!busySince.has(id)) busySince.set(id, row.summary.last_ts);
+  }
+  for (const id of busySince.keys()) {
+    if (!seen.has(id)) busySince.delete(id);
   }
 }
 

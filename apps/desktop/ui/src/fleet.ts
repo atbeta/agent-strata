@@ -134,6 +134,14 @@ export type FleetTotals = {
   tools: number;
   toolErrors: number;
   projects: number;
+  /**
+   * Sessions the per-session tool figure divides by: every session that
+   * contributed a bucket in the window, and every listed session in the
+   * window. The tool total counts buckets the list does not show (children,
+   * archived, not loaded). Dividing that by the list length alone reports
+   * those calls as if the visible sessions made them.
+   */
+  usageSessions: number;
 };
 
 export function fleetTotals(
@@ -164,8 +172,11 @@ export function fleetTotals(
   }
   const active = inPeriod(rows, buckets, period, now);
   const projects = new Set<string>();
+  const usageSessions = new Set<string>();
+  for (const b of scoped) usageSessions.add(b.session_id);
   for (const s of active) {
     projects.add(realWorkspace(s.workspace ?? s.summary.workspace) ?? "");
+    usageSessions.add(s.summary.session_id);
   }
   return {
     sessions: active.length,
@@ -178,6 +189,7 @@ export function fleetTotals(
     tools,
     toolErrors,
     projects: projects.size,
+    usageSessions: usageSessions.size,
   };
 }
 

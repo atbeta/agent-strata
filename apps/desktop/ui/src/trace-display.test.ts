@@ -2,6 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { setLocale } from "./i18n";
 import {
   TRACE_LANE_PX,
+  fmtActive,
+  fmtRuler,
   traceBlockTooltip,
   traceFoldLabel,
   traceLaneSlot,
@@ -90,6 +92,13 @@ describe("trace lane slots", () => {
       }
       expect(slots[1]!.top).toBeGreaterThanOrEqual(slots[0]!.top + slots[0]!.height);
     }
+  });
+});
+
+describe("active duration", () => {
+  test("a rounded 60 minutes carries into the next hour", () => {
+    expect(fmtActive(60 * 60_000 + 59.6 * 60_000)).toBe("2h 00m");
+    expect(fmtRuler(60 * 60_000 + 59.6 * 60_000)).toBe("2h00m");
   });
 });
 

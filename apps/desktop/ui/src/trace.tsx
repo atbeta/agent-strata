@@ -28,6 +28,7 @@ import {
   fmtRuler,
   traceBlockTooltip,
   traceFoldLabel,
+  TRACE_LANE_PX,
   traceLaneSlot,
   traceMarkerShape,
   traceStatusText,
@@ -457,15 +458,17 @@ function TraceStrip(props: {
   return (
     <div class="px-4 pt-2.5 pb-1.5">
       <div class="flex gap-2">
-        <div class="w-8 shrink-0 space-y-1.5">
+        <div class="w-8 shrink-0">
           <div class="h-4" />
-          <For each={LANES}>
-            {(lane) => (
-              <div class="flex h-5 items-center text-2xs leading-none text-muted-foreground">
-                {t(lane.label as Parameters<typeof t>[0])}
-              </div>
-            )}
-          </For>
+          <div class="space-y-1.5">
+            <For each={LANES}>
+              {(lane) => (
+                <div class="flex h-5 items-center text-2xs leading-none text-muted-foreground">
+                  {t(lane.label as Parameters<typeof t>[0])}
+                </div>
+              )}
+            </For>
+          </div>
           <div class="h-4" />
         </div>
         <div class="min-w-0 flex-1">
@@ -534,14 +537,24 @@ function TraceStrip(props: {
                           const dim = () => props.dim(block.key);
                           const slot = () => slotFor(lane.id, box()?.track ?? 0);
                           const shape = () => traceMarkerShape(block);
-                          const eventSize = () => Math.min(10, Math.max(6, slot().height));
+                          // A ring around a bar that runs the whole session is a
+                          // white stripe. Selection lightens and thickens the
+                          // bar instead. Event marks stay small, so they keep a
+                          // short ring.
+                          const bar = () => {
+                            const base = slot();
+                            if (!on() || base.height < 10) return base;
+                            const height = Math.min(TRACE_LANE_PX - 2, base.height + 6);
+                            return { top: Math.max(0, base.top - (height - base.height) / 2), height };
+                          };
+                          const eventSize = () => Math.min(12, Math.max(6, slot().height) + (on() ? 2 : 0));
                           return (
                             <Tip
                               label={tooltip().text}
                               content={() => <TraceBlockTooltip block={block} />}
                             >
                               <button
-                                class={`absolute ${block.tone} ${
+                                class={`absolute outline-none ${block.tone} ${
                                   block.lane === "event"
                                     ? shape() === "circle"
                                       ? "rounded-full"
@@ -551,8 +564,8 @@ function TraceStrip(props: {
                                     : "rounded-[2px]"
                                 } ${
                                   on()
-                                    ? "z-10 opacity-100 ring-2 ring-foreground/75"
-                                    : `${dim() ? "opacity-15" : block.quiet ? "opacity-40" : "opacity-90"} hover:z-10 hover:opacity-100 hover:ring-1 hover:ring-foreground/40`
+                                    ? "z-10 opacity-100"
+                                    : `${dim() ? "opacity-15" : block.quiet ? "opacity-40" : "opacity-90"} hover:z-10 hover:opacity-100 hover:shadow-[inset_0_0_0_999px_hsl(0_0%_100%/0.14)]`
                                 }`}
                                 style={
                                   block.lane === "event"
@@ -568,12 +581,16 @@ function TraceStrip(props: {
                                           shape() === "triangle"
                                             ? "polygon(50% 0, 100% 100%, 0 100%)"
                                             : undefined,
+                                        "box-shadow": on() ? "0 0 0 1.5px var(--foreground)" : undefined,
                                       }
                                     : {
                                         left: `${box()?.left ?? 0}px`,
                                         width: `${box()?.width ?? 8}px`,
-                                        top: `${slot().top}px`,
-                                        height: `${slot().height}px`,
+                                        top: `${bar().top}px`,
+                                        height: `${bar().height}px`,
+                                        "box-shadow": on()
+                                          ? "inset 0 0 0 999px hsl(0 0% 100% / 0.42)"
+                                          : undefined,
                                       }
                                 }
                                 aria-label={tooltip().text}
@@ -614,7 +631,6 @@ function TraceStrip(props: {
                           <span
                             role="note"
                             tabIndex={0}
-                            data-trace-nav
                             data-trace-fold
                             class="pointer-events-auto absolute top-0 h-full border-x border-dashed border-muted-foreground/60 bg-secondary/20 outline-none focus:bg-secondary/40"
                             style={{ left: `${fold.x}px`, width: "14px" }}

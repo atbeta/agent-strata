@@ -309,22 +309,20 @@ export async function runningWheelUp(
 export async function jump(ctx: FlowContext, name: string, id: string, fraction: number): Promise<StepResult> {
   const b = bench(ctx.page);
   const order = orderOf(ctx, id);
-  // The rail is windowed like the transcript: only the ticks near its own
-  // scroll position exist. Move it to the fraction's position the way a
-  // reader would — scroll the rail, then click a mounted tick.
+  // The rail windows its ticks, so "whichever tick is mounted in the middle"
+  // is a different turn on every run — a tail tick when the scroll has not
+  // landed yet, a near one when it has. The turn is fixed from the session;
+  // the rail is scrolled until that tick exists, then that tick is clicked.
+  const index = Math.min(order.length - 1, Math.max(0, Math.floor(order.length * fraction)));
+  const target = order[index]!;
   const rail = ctx.page.locator(".prompt-nav .rail");
-  await rail.evaluate((el, f) => {
-    el.scrollTop = Math.max(0, el.scrollHeight * f - el.clientHeight / 2);
-  }, fraction);
-  await ctx.page.waitForFunction(
-    () => document.querySelectorAll(".prompt-nav .nav-tick[data-turn-id]").length > 0,
-  );
-  const ticks = ctx.page.locator(".prompt-nav .nav-tick[data-turn-id]");
-  const count = await ticks.count();
-  if (count < 2) throw new Error(`outline has ${count} prompts`);
-  const tick = ticks.nth(Math.floor(count / 2));
-  const target = (await tick.getAttribute("data-turn-id"))!;
-  if (!order.includes(target)) throw new Error(`outline prompt ${target} is not a turn of ${id}`);
+  await rail.evaluate((el, i) => {
+    const row = parseFloat(getComputedStyle(el).getPropertyValue("--nav-row-size"));
+    const rowPx = Number.isFinite(row) && row > 0 ? row : 8;
+    el.scrollTop = Math.max(0, i * rowPx + rowPx / 2 - el.clientHeight / 2);
+  }, index);
+  const tick = rail.locator(`.nav-tick[data-turn-id="${target}"]`);
+  await tick.waitFor({ state: "attached", timeout: 5_000 });
   const t0 = await b.now();
   await tick.click();
   const clicked = (await b.take(t0)).clicks[0] ?? t0;

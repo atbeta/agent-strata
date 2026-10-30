@@ -24,11 +24,21 @@ export function displayPreview(b: TraceBlock): string {
 
 /** Active time at human scale: fmtDuration under an hour, then compact.
  *  Local to the trace — the global fmtDuration stays untouched. */
+function hourMinute(ms: number): { h: number; m: number } {
+  let h = Math.floor(ms / 3_600_000);
+  let m = Math.round((ms % 3_600_000) / 60_000);
+  // 59.5 minutes rounds to 60, which is the next hour.
+  if (m === 60) {
+    h += 1;
+    m = 0;
+  }
+  return { h, m };
+}
+
 export function fmtActive(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "—";
   if (ms < 3_600_000) return fmtDuration(ms);
-  const h = Math.floor(ms / 3_600_000);
-  const m = Math.round((ms % 3_600_000) / 60_000);
+  const { h, m } = hourMinute(ms);
   if (h < 24) return `${h}h ${String(m).padStart(2, "0")}m`;
   const d = Math.floor(h / 24);
   return `${d}d ${h % 24}h`;
@@ -39,8 +49,7 @@ export function fmtRuler(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "—";
   if (ms < 60_000) return `${Math.max(1, Math.round(ms / 1_000))}s`;
   if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`;
-  const h = Math.floor(ms / 3_600_000);
-  const m = Math.round((ms % 3_600_000) / 60_000);
+  const { h, m } = hourMinute(ms);
   if (h < 24) return `${h}h${String(m).padStart(2, "0")}m`;
   return `${Math.floor(h / 24)}d${h % 24}h`;
 }

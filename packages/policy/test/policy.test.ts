@@ -315,6 +315,15 @@ describe("one session asking not to be interrupted", () => {
     expect(evaluate(auto, bash("ls | tee out.txt")).decision).toBe("allow");
     expect(evaluate(auto, bash("cat > /tmp/x <<'EOF'")).decision).toBe("allow");
 
+    // A document that already allows does not lift the floor. The session
+    // switch does, and it has to copy the document to do it — marking the
+    // document itself would lift the floor for every session that shares it.
+    const autoAllow = autoAccept(doc);
+    expect(autoAllow).not.toBe(doc);
+    expect(evaluate(autoAllow, bash("echo $(whoami)")).decision).toBe("allow");
+    expect(evaluate(autoAllow, bash("ls > /etc/passwd")).decision).toBe("allow");
+    expect(evaluate(doc, bash("ls > /etc/passwd")).decision).toBe("ask");
+
     // And the floor still holds where the stance was never taken — even an
     // explicit allow rule cannot waive it inside a gate posture.
     expect(evaluate(P([]), bash("echo $(whoami)")).decision).toBe("ask");

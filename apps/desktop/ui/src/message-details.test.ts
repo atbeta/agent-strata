@@ -73,7 +73,7 @@ describe("assistant message details", () => {
     withLocale("en", () => {
       expect(assistantMessageDetails(value)).toEqual([
         { key: "latency_ms", label: "Backend latency", value: "5.0s" },
-        { key: "ttft_ms", label: "TTFT", value: "1.5s" },
+        { key: "ttft_ms", label: "First output", value: "1.5s" },
         { key: "input", label: "Input", value: "10" },
         { key: "output", label: "Output", value: "30" },
         { key: "reasoning", label: "Reasoning", value: "100" },
@@ -83,7 +83,7 @@ describe("assistant message details", () => {
     });
     withLocale("zh", () => {
       expect(assistantMessageDetails(value).map((row) => row.label)).toEqual([
-        "后端耗时", "TTFT", "输入", "输出", "推理", "平均输出速度", "完成时间",
+        "后端耗时", "首段输出", "输入", "输出", "推理", "平均输出速度", "完成时间",
       ]);
     });
   });

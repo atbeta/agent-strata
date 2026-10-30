@@ -17,12 +17,17 @@ describe("HTTP prompt contracts", () => {
     expect(QuestionResponse.safeParse({ decision: "reply", answers: [[1]] }).success).toBe(false);
   });
 
-  test("dev stop responses use the service's stopped field", () => {
-    expect(DevStopResult.parse({ stopped: true, clean: true, residual: [] })).toEqual({
+  test("dev stop responses match the service body, including ok", () => {
+    // The route returns the process answer plus ok. A schema that rejects ok
+    // parses in tests that mock the answer without it, and throws in the UI
+    // after a stop that actually worked.
+    expect(DevStopResult.parse({ stopped: true, clean: true, residual: [], ok: true })).toEqual({
       stopped: true,
       clean: true,
       residual: [],
+      ok: true,
     });
     expect(DevStopResult.safeParse({ ok: true, clean: true, residual: [] }).success).toBe(false);
+    expect(DevStopResult.safeParse({ stopped: true, clean: true, residual: [], extra: true }).success).toBe(false);
   });
 });

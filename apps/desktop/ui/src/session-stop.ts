@@ -2,7 +2,13 @@ import { createSignal } from "solid-js";
 import { createRequestOwner, type RequestToken } from "./request-owner";
 import { stopConfirmed } from "./stop-verdict";
 
-export const STOP_TIMEOUT_MS = 8_000;
+/**
+ * Longer than the adapter's worst stop. The abort request is capped at 5s and
+ * the status re-read after it at another 5s, and they run one after the other.
+ * A shorter watchdog reports that stop as a failure and then drops the success,
+ * because the attempt token is already dead when the request returns.
+ */
+export const STOP_TIMEOUT_MS = 15_000;
 
 type StopTimer = ReturnType<typeof setTimeout> | number;
 

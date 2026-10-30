@@ -382,7 +382,7 @@ export function assistantMetrics(
   const outputTps = output === undefined ? undefined : (output * 1000) / outputWindow;
   return {
     ...(ttft >= 0 ? { ttft_ms: ttft } : {}),
-    ...(output !== undefined && Number.isFinite(output) && output >= 0 && outputWindow > 0 && Number.isFinite(outputTps)
+    ...(output !== undefined && Number.isFinite(output) && output > 0 && outputWindow > 0 && Number.isFinite(outputTps)
       ? { output_tps: outputTps }
       : {}),
   };

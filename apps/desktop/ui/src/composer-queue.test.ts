@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Outgoing } from "./composer-input";
-import { createSessionQueues, persistSessionQueues, restoreColdDraft } from "./composer-queue";
+import { createSessionQueues, persistSessionQueues, restoreColdDraft, restoreSessionDraft } from "./composer-queue";
 import { readQueuedText, takeQueuedText, writeQueuedText } from "./prompt-memory";
 
 function store() {
@@ -33,6 +33,25 @@ describe("session queue lifetime", () => {
     expect(queues.current()[0]?.picked).toEqual(["a.ts"]);
     expect(queues.current()[0]?.attachments.map((item) => item.id)).toEqual(["a-image"]);
     expect(queues.switch("b")).toEqual([b]);
+  });
+
+  test("an empty queue is dropped when the session is left", () => {
+    const queues = createSessionQueues<Outgoing>("a");
+    queues.replace([]);
+    queues.switch("b");
+    expect([...queues.snapshot().keys()]).toEqual([]);
+    queues.replace([message("from B", "b")]);
+    queues.replace([]);
+    expect([...queues.snapshot().keys()]).toEqual([]);
+  });
+
+  test("a session opened after restart gets its queued text back into the draft", () => {
+    const storage = store();
+    writeQueuedText("b", ["held for B"], storage);
+    expect(restoreSessionDraft("b", "typed", {
+      take: (id) => takeQueuedText(id, storage as never),
+    })).toBe("typed\nheld for B");
+    expect(readQueuedText("b", storage)).toEqual([]);
   });
 
   test("only cold initialization takes persisted text into the draft", () => {

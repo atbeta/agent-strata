@@ -424,25 +424,40 @@ export function traceBlocks(events: TraceSourceEvent[]): TraceBlock[] {
     } else if (e.type === "tool.call") {
       const callId = String(d.call_id ?? e.id);
       const title = String(d.tool ?? "tool");
-      const block: TraceBlock = {
-        key: `t:${callId}`,
-        seq: e.seq,
-        firstSeq: e.seq,
-        ts: e.ts,
-        startTs: t,
-        endTs: t,
-        lane: "tool",
-        turn: turnFor(String(d.turn_id ?? callId)),
-        parentKey: strOf(d.msg_id) ? `a:${strOf(d.msg_id)}` : undefined,
-        status: "pending",
-        title,
-        preview: inputPreview(d.input) || title,
-        input: d.input,
-        childSessionId: strOf(d.child_session_id),
-        tone: toolTone(title),
-      };
-      tools.set(callId, block);
-      blocks.push(block);
+      const prev = tools.get(callId);
+      if (prev) {
+        // A second call for one id carries a child session or a later input.
+        // Pushing another block reuses the key: the list draws two rows on
+        // top of each other and the call count doubles.
+        const child = strOf(d.child_session_id);
+        if (child) prev.childSessionId = child;
+        if (d.input !== undefined) {
+          prev.input = d.input;
+          const preview = inputPreview(d.input);
+          if (preview) prev.preview = preview;
+        }
+        if (title !== "tool") prev.title = title;
+      } else {
+        const block: TraceBlock = {
+          key: `t:${callId}`,
+          seq: e.seq,
+          firstSeq: e.seq,
+          ts: e.ts,
+          startTs: t,
+          endTs: t,
+          lane: "tool",
+          turn: turnFor(String(d.turn_id ?? callId)),
+          parentKey: strOf(d.msg_id) ? `a:${strOf(d.msg_id)}` : undefined,
+          status: "pending",
+          title,
+          preview: inputPreview(d.input) || title,
+          input: d.input,
+          childSessionId: strOf(d.child_session_id),
+          tone: toolTone(title),
+        };
+        tools.set(callId, block);
+        blocks.push(block);
+      }
     } else if (e.type === "tool.result") {
       const callId = String(d.call_id ?? "");
       const block = tools.get(callId);
@@ -578,7 +593,8 @@ export function traceBlocks(events: TraceSourceEvent[]): TraceBlock[] {
       const tool = callId ? tools.get(callId) : undefined;
       if (tool) {
         tool.permission = perm;
-        tool.seq = e.seq;
+        // Replay seeks by seq. Moving the tool to the permission's seq lands
+        // the reader on the ask instead of the call.
         permTargets.set(perm.request_id, tool);
       } else {
         const block = marker({
@@ -607,7 +623,7 @@ export function traceBlocks(events: TraceSourceEvent[]): TraceBlock[] {
       perms.set(requestId, perm);
       const target = permTargets.get(requestId);
       if (target) {
-        target.seq = e.seq;
+        if (target.lane !== "tool") target.seq = e.seq;
         target.permission = perm;
         if (perm.decision === "deny") {
           target.denied = true;
@@ -748,16 +764,22 @@ export function traceSummary(blocks: TraceBlock[]): {
   errors: number;
   durationMs: number;
 } {
-  let turns = 0;
   let calls = 0;
   let errors = 0;
+  const userTurns = new Set<number>();
+  let maxTurn = 0;
   const chronological = [...blocks].sort((a, b) => a.startTs - b.startTs || a.firstSeq - b.firstSeq);
   let t0 = -1;
   let cursor = 0;
   let collapsed = 0;
   for (const b of chronological) {
     if (isErrorBlock(b)) errors++;
-    if (b.turn !== undefined && b.turn > turns) turns = b.turn;
+    if (b.turn !== undefined) {
+      if (b.turn > maxTurn) maxTurn = b.turn;
+      // A tool's turn id is not a conversation round. Counting every id a
+      // call minted turned one prompt, its reply, and its call into three.
+      if (b.lane === "user") userTurns.add(b.turn);
+    }
     if (b.lane === "tool") calls++;
     if (b.startTs <= 0) continue;
     if (t0 < 0) {
@@ -769,6 +791,9 @@ export function traceSummary(blocks: TraceBlock[]): {
     if (b.endTs > cursor) cursor = b.endTs;
   }
   const span = t0 < 0 ? 0 : Math.max(0, cursor - t0);
+  // User prompts are the rounds. A trace with no prompt (tools only) still
+  // reports the turn numbers those calls were given.
+  const turns = userTurns.size > 0 ? userTurns.size : maxTurn;
   return { turns, calls, errors, durationMs: Math.max(0, span - collapsed) };
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { filterTrace, layoutTrace, traceBlocks, type TraceSourceEvent } from "./trace-model";
+import { filterTrace, layoutTrace, traceBlocks, traceSummary, type TraceSourceEvent } from "./trace-model";
 import { mergeTraceEvents } from "./trace-data";
 
 let seq = 0;
@@ -38,6 +38,33 @@ const result = (id: string, status = "ok", extra: Record<string, unknown> = {}, 
   ev("tool.result", { call_id: id, status, output: `out ${id}`, ...extra }, ts);
 
 describe("traceBlocks", () => {
+  test("a repeated tool.call updates the block instead of stacking another", () => {
+    const blocks = traceBlocks([
+      user("t1"),
+      call("t1", "c1", "bash", {}, 1_000),
+      call("t1", "c1", "task", { child_session_id: "child", input: { command: "go" } }, 1_500),
+    ]);
+    expect(blocks.filter((b) => b.key === "t:c1")).toHaveLength(1);
+    expect(blocks.find((b) => b.key === "t:c1")).toMatchObject({
+      childSessionId: "child",
+      title: "task",
+      preview: "go",
+    });
+    expect(traceSummary(blocks).calls).toBe(1);
+    expect(traceSummary(blocks).turns).toBe(1);
+  });
+
+  test("a tool turn id does not count as another conversation round", () => {
+    const blocks = traceBlocks([
+      user("t1"),
+      assistant("t1", "m1"),
+      call("step-a", "c1"),
+      call("step-b", "c2"),
+    ]);
+    expect(traceSummary(blocks).turns).toBe(1);
+    expect(traceSummary(blocks).calls).toBe(2);
+  });
+
   test("numbers turns by first appearance and steps within them", () => {
     const blocks = traceBlocks([
       user("t1"),
@@ -149,6 +176,7 @@ describe("traceBlocks", () => {
     const tool = blocks.find((b) => b.key === "t:c1")!;
     expect(tool.permission).toMatchObject({ decision: "allow", by: "user" });
     expect(tool.denied).toBeUndefined();
+    expect(tool.seq).toBe(tool.firstSeq);
     const marker = blocks.find((b) => b.kind === "permission")!;
     expect(marker.status).toBe("error");
     expect(marker.denied).toBe(true);

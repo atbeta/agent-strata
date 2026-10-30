@@ -478,10 +478,12 @@ export function SessionDetail(props: {
     try {
       await setSessionPolicy(props.id, next);
       for (const request_id of held) {
-        await respondPermission(request_id, "allow", "once").catch(() => {
-          // Gone, or answered elsewhere. Either way it is not this reader's
-          // to hold up the switch over.
-          unhideAsk(request_id);
+        await respondPermission(request_id, "allow", "once").catch((err) => {
+          // 404 is already gone. 409 is already being submitted — a second
+          // click, or this switch racing the card. Neither is a failure to
+          // put back on screen. Anything else is, and the card comes back.
+          const settled = err instanceof Error && /\b(404|409)\b/.test(err.message);
+          if (!settled) unhideAsk(request_id);
         });
       }
       refetchAutoAccept();
@@ -1073,7 +1075,7 @@ const turns = () => shown().turns;
     try {
       await respondPermission(requestId, decision, scope);
     } catch (err) {
-      const missing = err instanceof Error && /\b404\b/.test(err.message);
+      const missing = err instanceof Error && /\b(404|409)\b/.test(err.message);
       if (!missing) {
         setHiddenAsks((cur) => {
           const next = new Set(cur);

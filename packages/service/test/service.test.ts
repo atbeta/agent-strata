@@ -325,6 +325,9 @@ describe("agent-strata service", () => {
     const text = await fetch(`${base}/events?text=hello`).then((r) => r.json());
     expect(text.events.length).toBe(2);
 
+    const badCursor = await fetch(`${base}/events?after_seq=abc`);
+    expect(badCursor.status).toBe(400);
+
     const view = await fetch(`${base}/sessions/opencode:s1/view`).then((r) => r.json());
     expect(view.totals.input).toBe(10);
     expect(view.status).toBe("active");

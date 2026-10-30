@@ -181,6 +181,21 @@ describe("fleet totals", () => {
     expect(totals.tools).toBe(4);
     expect(totals.toolErrors).toBe(1);
     expect(totals.projects).toBe(2); // lector + unknown
+    // a, b, and the fresh row. c's bucket is outside the window.
+    expect(totals.usageSessions).toBe(3);
+  });
+
+  test("tool calls per session count the sessions the calls came from", () => {
+    const rows = [row({ id: "parent", last: iso(14) })];
+    const buckets = [
+      bucket({ session_id: "parent", day: key(14), tool_calls: 0 }),
+      bucket({ session_id: "child", day: key(14), tool_calls: 100 }),
+    ];
+    const totals = fleetTotals(rows, buckets, "today", NOW);
+    expect(totals.sessions).toBe(1);
+    expect(totals.tools).toBe(100);
+    expect(totals.usageSessions).toBe(2);
+    expect(totals.tools / totals.usageSessions).toBe(50);
   });
 
   test("includes unloaded, archived, and child-session buckets", () => {

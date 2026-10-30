@@ -61,7 +61,7 @@ What it changes is the **fallback only**. `autoAccept` derives from the live pol
 - a rule you wrote saying `deny` still denies, and one saying `ask` still asks — softening the default is declining to be a gate, not overriding your own rules;
 - a `default` of `deny` is left alone; inverting a deny-by-default posture is a decision you did not make;
 - edits to the shared policy keep reaching a session that is already on auto;
-- the engine's floor is untouched, and no policy document can turn it off: a shell construct the engine cannot analyse, or one that writes through a redirect, is still asked about.
+- no policy document can turn the engine's floor off. A shell construct the engine cannot analyse, or one that writes through a redirect, is still asked about — including when the document says `default: "allow"`. The live auto stance is the exception: while this session is on auto, those checks are not asked either, because the switch exists to stop interrupting. That includes a document that already allows by default. A `default` of `deny` is left alone, floor included.
 
 Answering a permission card with **always** is a different thing and stays what it was: OpenCode's own memory of one `permission + pattern` for that session. It is narrower than the switch and survives a restart.
 

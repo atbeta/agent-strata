@@ -70,10 +70,13 @@ const autoDerived = new WeakSet<Policy>();
  * a write through a redirect no longer asks — because interrupting the reader
  * is exactly what the switch declines to do. The floor survives everywhere
  * else, including a document that simply writes `default: "allow"`: nothing in
- * the policy document can turn it off.
+ * the policy document can turn it off. The switch still has to, so an
+ * allow-by-default document is copied and marked rather than returned as
+ * itself — returning it would leave the floor armed on the session the reader
+ * just set to auto.
  */
 export function autoAccept(policy: Policy): Policy {
-  if (policy.default !== "ask") return policy;
+  if (policy.default === "deny") return policy;
   const derived: Policy = { ...policy, default: "allow" };
   autoDerived.add(derived);
   return derived;

@@ -93,7 +93,7 @@ function setup() {
 const flush = () => Bun.sleep(0);
 
 describe("session stop attempts", () => {
-  test("eight seconds without confirmation enables a second click and request", async () => {
+  test("a stop that has not confirmed within the watchdog can be tried again", async () => {
     const h = setup();
     const first = h.controller.stop();
     expect(h.requests.map((row) => row.sessionId)).toEqual(["a"]);

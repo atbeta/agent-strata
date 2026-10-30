@@ -87,6 +87,13 @@ describe("project session order", () => {
     expect(busySince.get("a")).toBe("2026-10-30T10:00:00.000Z");
   });
 
+  test("drops a session that left the list", () => {
+    const busySince = new Map<string, string>();
+    rememberBusySince(busySince, [row("a", "2026-10-30T12:00:00.000Z", true), row("b", "2026-10-30T11:00:00.000Z", true)]);
+    rememberBusySince(busySince, [row("b", "2026-10-30T11:00:00.000Z", true)]);
+    expect([...busySince.keys()]).toEqual(["b"]);
+  });
+
   test("uses session id as the deterministic tie-breaker", () => {
     const busySince = new Map<string, string>();
     const running = [
