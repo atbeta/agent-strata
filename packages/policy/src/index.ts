@@ -48,6 +48,14 @@ export function loadPolicy(json: unknown): Policy {
 }
 
 /**
+ * Policies minted by {@link autoAccept}: the live "do not ask me" stance.
+ * Membership is what lets the stance past the engine floor in `evaluate` —
+ * a document can soften its own fallback, but only a stance the reader is
+ * holding right now waives the checks no document may touch.
+ */
+const autoDerived = new WeakSet<Policy>();
+
+/**
  * The same policy with the fallback allowed instead of asked — one session
  * stopping to ask about every call.
  *
@@ -58,12 +66,17 @@ export function loadPolicy(json: unknown): Policy {
  * likewise left alone: softening `ask` to `allow` is declining to be a gate,
  * whereas inverting a deny posture would be a decision the reader never made.
  *
- * The engine's own floor is untouched by this and by `default` — a shell
- * construct it cannot analyse, or one that writes through a redirect, is still
- * asked about. Nothing in the policy document can turn that off.
+ * The stance also lifts the engine's own floor — an unanalysable construct or
+ * a write through a redirect no longer asks — because interrupting the reader
+ * is exactly what the switch declines to do. The floor survives everywhere
+ * else, including a document that simply writes `default: "allow"`: nothing in
+ * the policy document can turn it off.
  */
 export function autoAccept(policy: Policy): Policy {
-  return policy.default === "ask" ? { ...policy, default: "allow" } : policy;
+  if (policy.default !== "ask") return policy;
+  const derived: Policy = { ...policy, default: "allow" };
+  autoDerived.add(derived);
+  return derived;
 }
 
 /**
@@ -332,11 +345,16 @@ export function evaluate(
     if (d.decision === "ask") askDecision ??= d;
   }
   if (askDecision) return askDecision;
-  if (unanalyzable) {
-    return { decision: "ask", reason: "unanalyzable shell construct" };
-  }
-  if (segments.some(hasOutputRedirection)) {
-    return { decision: "ask", reason: "output redirection" };
+  // The engine floor — constructs it cannot analyse and writes through a
+  // redirect — cannot be switched off by any document, only by the live
+  // auto stance the reader is holding for this session.
+  if (!autoDerived.has(policy)) {
+    if (unanalyzable) {
+      return { decision: "ask", reason: "unanalyzable shell construct" };
+    }
+    if (segments.some(hasOutputRedirection)) {
+      return { decision: "ask", reason: "output redirection" };
+    }
   }
   return firstDecision ?? { decision: "allow", reason: "default" };
 }

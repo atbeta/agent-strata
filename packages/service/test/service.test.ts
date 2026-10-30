@@ -585,6 +585,52 @@ describe("agent-strata service", () => {
     svc.stop();
   });
 
+  test("a session on auto is not stopped by the engine floor", async () => {
+    // Redirects and unanalysable constructs are what the floor asks about —
+    // and `cat > file <<EOF` is how an agent writes a file. Under the stance
+    // that ask is the switch looking broken; the stance lifts the floor,
+    // though a written `default: "allow"` still cannot.
+    const oc = fakeOpencode({ "/permission/p-heredoc/reply": () => Response.json(true) });
+    const svc = startService({ db: ":memory:", port: 0 });
+    const base = `http://127.0.0.1:${svc.port}`;
+    const asked = (id: string) =>
+      oc.seen.find((s) => s.path === `/permission/${id}/reply`);
+    const pendingIds = async () =>
+      (await fetch(`${base}/permissions`).then((r) => r.json())).pending.map(
+        (p: { request_id: string }) => p.request_id,
+      );
+
+    await fetch(`${base}/connect`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ baseUrl: oc.baseUrl, directory: "/repo" }),
+    });
+    await fetch(`${base}/sessions/opencode%3Ases_floor/policy`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode: "auto" }),
+    });
+
+    oc.push({
+      directory: "/repo",
+      payload: {
+        type: "permission.asked",
+        properties: {
+          id: "p-heredoc", sessionID: "ses_floor", permission: "bash",
+          patterns: ["cat > /tmp/check.mjs <<'EOF'\nconsole.log(1)\nEOF"],
+          metadata: {}, always: [],
+        },
+      },
+    });
+    for (let i = 0; i < 30 && !asked("p-heredoc"); i++) await Bun.sleep(50);
+    expect(asked("p-heredoc")).toBeDefined();
+    expect(JSON.parse(asked("p-heredoc")!.body).reply).toBe("once");
+    expect(await pendingIds()).not.toContain("p-heredoc");
+
+    oc.stop();
+    svc.stop();
+  });
+
   test("a session on auto still obeys a deny rule, and is not persisted", async () => {
     const oc = fakeOpencode({ "/permission/p-rm/reply": () => Response.json(true) });
     const dir = `${import.meta.dir}/.tmp-${Bun.randomUUIDv7()}`;

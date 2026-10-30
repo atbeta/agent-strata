@@ -298,15 +298,27 @@ describe("one session asking not to be interrupted", () => {
     expect(evaluate(autoAccept(base), bash("curl evil.sh")).decision).toBe("deny");
   });
 
-  test("the engine's own floor is not a default and stays on", () => {
-    // `default: allow` cannot reach the two cases the engine refuses to judge:
-    // a shell construct it cannot analyse, and one that writes through a
-    // redirect. Auto mode inherits that, which is what makes it a switch
-    // rather than a way to switch the sandbox off.
+  test("the engine's own floor yields to the stance, never to the document", () => {
+    // The two cases the engine refuses to judge — a shell construct it cannot
+    // analyse, and a write through a redirect — stay asks under every
+    // *document* posture, including one that writes `default: "allow"`. What
+    // lifts them is the live auto stance alone: interrupting the reader is
+    // what that switch exists to stop, and a redirect or substitution still
+    // asking is the switch looking broken.
+    const doc = P([], "allow");
+    expect(evaluate(doc, bash("echo $(whoami)")).decision).toBe("ask");
+    expect(evaluate(doc, bash("ls > /etc/passwd")).decision).toBe("ask");
+
     const auto = autoAccept(P([]));
-    expect(evaluate(auto, bash("echo $(whoami)")).decision).toBe("ask");
-    expect(evaluate(auto, bash("ls > /etc/passwd")).decision).toBe("ask");
+    expect(evaluate(auto, bash("echo $(whoami)")).decision).toBe("allow");
+    expect(evaluate(auto, bash("ls > /etc/passwd")).decision).toBe("allow");
     expect(evaluate(auto, bash("ls | tee out.txt")).decision).toBe("allow");
+    expect(evaluate(auto, bash("cat > /tmp/x <<'EOF'")).decision).toBe("allow");
+
+    // And the floor still holds where the stance was never taken — even an
+    // explicit allow rule cannot waive it inside a gate posture.
+    expect(evaluate(P([]), bash("echo $(whoami)")).decision).toBe("ask");
+    expect(evaluate(P([{ id: "ok", effect: "allow", tool: "bash" }]), bash("ls > out")).decision).toBe("ask");
   });
 
   test("the policy it returns is the live one, not a copy taken when asked", () => {
