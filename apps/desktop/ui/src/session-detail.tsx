@@ -105,7 +105,6 @@ import { useSessionSearch, SearchPanel } from "./session-search";
 import { clearSearchTarget, searchTarget } from "./search-target";
 import { useMcpTools, McpAttentionMark, McpToolsPanel } from "./session-tools";
 import { useSessionComposer, SessionComposer } from "./session-composer";
-import { writeDraft } from "./prompt-memory";
 import { SessionRail } from "./session-rail";
 import { createEntranceLedger } from "./entrance";
 import { Button } from "@/components/ui/button";
@@ -1130,21 +1129,6 @@ const turns = () => shown().turns;
     })().catch((err) => composer.setSendErr(err instanceof Error ? err.message : t("err.network")));
   };
 
-  /**
-   * Forking at a reply keeps it. Forking at a prompt leaves the prompt out and
-   * puts it in the new session's composer, to send again or rewrite.
-   */
-  const forkAt = (messageId: string) => {
-    const prompt = (settled(view)?.turns ?? []).find((item) => item.turn_id === messageId);
-    void forkSession(props.id, prompt ? { before: messageId } : { through: messageId })
-      .then((id) => {
-        const text = prompt?.user ? messageText(prompt.user) : "";
-        if (text.trim()) writeDraft(id, text);
-        location.hash = `/session/${encodeURIComponent(id)}`;
-      })
-      .catch((err) => composer.setSendErr(err instanceof Error ? err.message : t("err.network")));
-  };
-
   // Ctrl+F stays "find in what I am reading". Windowing the transcript took the
   // browser's own find away, so the shortcut goes to the session index.
   onCleanup(
@@ -1604,7 +1588,6 @@ const turns = () => shown().turns;
                     onOpenChild={openChild}
                     onEdit={composer.editTurn}
                     onRevert={caps()?.revert ? revertTurn : undefined}
-                    onFork={caps()?.fork ? forkAt : undefined}
                   />
                 )}
                 api={(a) => {
