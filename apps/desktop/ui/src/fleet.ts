@@ -143,7 +143,7 @@ export function fleetTotals(
   now: number,
 ): FleetTotals {
   const inWindow = periodKeys(period, now);
-  const scoped = scopedBuckets(rows, buckets, inWindow);
+  const scoped = buckets.filter((b) => inWindow(b.day));
   let cost = 0;
   let input = 0;
   let output = 0;
@@ -357,13 +357,15 @@ export type ModelRollup = {
 /** One row per model that did work in the window, heaviest first. A model
  *  whose only buckets carried no tokens is not a ranking. */
 export function fleetModels(
-  rows: SessionRow[],
+  _rows: SessionRow[],
   buckets: DailyUsageRow[],
   period: Period,
   now: number,
 ): ModelRollup[] {
   const map = new Map<string | null, { tokens: number; cost: number; sessions: Set<string> }>();
-  for (const b of scopedBuckets(rows, buckets, periodKeys(period, now))) {
+  const inWindow = periodKeys(period, now);
+  for (const b of buckets) {
+    if (!inWindow(b.day)) continue;
     const tokens = b.input + b.output + b.reasoning + b.cache_read + b.cache_write;
     if (!(tokens > 0)) continue;
     const cur = map.get(b.model) ?? { tokens: 0, cost: 0, sessions: new Set<string>() };
@@ -397,7 +399,7 @@ export type TrendPoint = {
  * so a quiet stretch reads as quiet rather than as absence.
  */
 export function fleetTrend(
-  rows: SessionRow[],
+  _rows: SessionRow[],
   buckets: DailyUsageRow[],
   now: number,
   days = 14,
@@ -420,9 +422,7 @@ export function fleetTrend(
     out.push(point);
     byDay.set(dayKey(point.day), point);
   }
-  const ids = new Set(rows.map((s) => s.summary.session_id));
   for (const b of buckets) {
-    if (!ids.has(b.session_id)) continue;
     const target = byDay.get(b.day);
     if (!target) continue;
     target.tokens += b.input + b.output + b.reasoning + b.cache_read + b.cache_write;

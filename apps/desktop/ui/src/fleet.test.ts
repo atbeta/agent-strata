@@ -146,15 +146,15 @@ describe("period scope", () => {
     ).toEqual(["fresh"]);
   });
 
-  test("buckets of sessions outside the list do not count", () => {
+  test("global totals count buckets outside the navigation list", () => {
     const totals = fleetTotals(
       rows,
       [...buckets, bucket({ session_id: "not-listed", day: key(14), input: 999, cost_usd: 9 })],
       "today",
       NOW,
     );
-    expect(totals.input).toBe(10);
-    expect(totals.cost).toBe(0);
+    expect(totals.input).toBe(1009);
+    expect(totals.cost).toBe(9);
   });
 });
 
@@ -181,6 +181,66 @@ describe("fleet totals", () => {
     expect(totals.tools).toBe(4);
     expect(totals.toolErrors).toBe(1);
     expect(totals.projects).toBe(2); // lector + unknown
+  });
+
+  test("includes unloaded, archived, and child-session buckets", () => {
+    const buckets = ["unloaded", "archived", "child"].map((session_id, index) =>
+      bucket({
+        session_id,
+        day: key(14),
+        input: (index + 1) * 100,
+        output: 10,
+        reasoning: 1,
+        cache_read: 20,
+        cache_write: 2,
+        cost_usd: index + 1,
+        tool_calls: 1,
+        tool_errors: 1,
+      }),
+    );
+    const totals = fleetTotals([], buckets, "today", NOW);
+    expect(totals).toMatchObject({
+      sessions: 0,
+      cost: 6,
+      input: 600,
+      output: 30,
+      reasoning: 3,
+      cacheRead: 60,
+      cacheWrite: 6,
+      tools: 3,
+      toolErrors: 3,
+      projects: 0,
+    });
+    expect(tokenTotal(totals)).toBe(699);
+  });
+
+  test("keeps global usage when an old heavy session leaves the navigation rows", () => {
+    const current = row({ id: "current", last: iso(14) });
+    const heavy = row({ id: "heavy", last: iso(1) });
+    const buckets = [
+      bucket({ session_id: "current", day: key(14), input: 10, output: 5 }),
+      bucket({ session_id: "heavy", day: key(1), input: 2_000_000_000, output: 50, cost_usd: 200 }),
+    ];
+    const before = fleetTotals([current, heavy], buckets, "total", NOW);
+    const after = fleetTotals([current], buckets, "total", NOW);
+    const { sessions: _beforeSessions, projects: _beforeProjects, ...beforeUsage } = before;
+    const { sessions: _afterSessions, projects: _afterProjects, ...afterUsage } = after;
+    expect(afterUsage).toEqual(beforeUsage);
+    expect(after.sessions).toBe(1);
+    expect(before.sessions).toBe(2);
+  });
+
+  test("applies each date window to the full bucket set", () => {
+    const buckets = [
+      bucket({ session_id: "unloaded", day: key(14), input: 1 }),
+      bucket({ session_id: "unloaded", day: key(8), input: 10 }),
+      bucket({ session_id: "unloaded", day: key(7), input: 100 }),
+      bucket({ session_id: "unloaded", day: key(1), input: 1000 }),
+      bucket({ session_id: "unloaded", day: "2026-09-30", input: 10_000 }),
+    ];
+    for (const [period, expected] of [["today", 1], ["week", 11], ["month", 1111], ["total", 11_111]] as const) {
+      expect(tokenTotal(fleetTotals([], buckets, period, NOW))).toBe(expected);
+    }
   });
 });
 
@@ -353,9 +413,10 @@ describe("fleet models", () => {
       "week",
       NOW,
     );
-    expect(models.map((m) => m.model)).toEqual(["p/big", "p/small"]);
-    expect(models[0]).toMatchObject({ tokens: 400, cost: 2, sessions: 1 });
-    expect(models[1]).toMatchObject({ tokens: 200, sessions: 2 });
+    expect(models.map((m) => m.model)).toEqual(["p/other", "p/big", "p/small"]);
+    expect(models[0]).toMatchObject({ tokens: 999, sessions: 1 });
+    expect(models[1]).toMatchObject({ tokens: 400, cost: 2, sessions: 1 });
+    expect(models[2]).toMatchObject({ tokens: 200, sessions: 2 });
   });
 
   test("a model with no in-window tokens is not a row", () => {
@@ -393,7 +454,6 @@ describe("fleet trend", () => {
         bucket({ session_id: "a", day: key(14), input: 10, cache_read: 90, cost_usd: 1.5 }),
         bucket({ session_id: "a", day: key(1), input: 5 }),
         bucket({ session_id: "b", day: key(14), input: 10, cost_usd: 0.5 }),
-        // A session outside the page's list is not this chart's business.
         bucket({ session_id: "not-listed", day: key(14), input: 7 }),
         bucket({ session_id: "a", day: "2026-09-20", input: 9 }),
       ],
@@ -401,7 +461,7 @@ describe("fleet trend", () => {
       14,
     );
     expect(points).toHaveLength(14);
-    expect(points[13]).toMatchObject({ sessions: 2, cost: 2, tokens: 110 });
+    expect(points[13]).toMatchObject({ sessions: 3, cost: 2, tokens: 117 });
     expect(points[0]).toMatchObject({ sessions: 1, tokens: 5 });
     expect(points[1]).toMatchObject({ sessions: 0, tokens: 0 });
   });
