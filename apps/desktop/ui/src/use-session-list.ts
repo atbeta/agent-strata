@@ -28,6 +28,7 @@ import {
 } from "./project-view";
 import { t } from "./i18n";
 import { displayTitle } from "./session-title";
+import { compareProjectRows, rememberBusySince } from "./session-order";
 import { windowTitle } from "./permission-card";
 import { inDesktopShell } from "./shell";
 import {
@@ -123,6 +124,7 @@ export function useSessionList(opts: {
   );
 
   const sessions = () => library();
+  const busySince = new Map<string, string>();
 
   /** Archived roots, held the same way: the sidebar shows them in their own fold. */
   const archived = createMemo((prev: SessionRow[] | undefined) =>
@@ -227,6 +229,7 @@ export function useSessionList(opts: {
    */
   const buildGroups = (): SidebarGroup[] => {
     const rows = sessions();
+    rememberBusySince(busySince, rows);
     if (rows.length === 0 && opts.extraDirs().length === 0) return [];
 
     // Three lanes, each row in exactly one: pinned first, then what is waiting
@@ -282,10 +285,13 @@ export function useSessionList(opts: {
       list.push(s);
       byWs.set(ws, list);
     }
+    for (const list of byWs.values()) {
+      list.sort((a, b) => compareProjectRows(a, b, busySince));
+    }
     const sorted = [...byWs.entries()].sort((a, b) => {
-      const ta = new Date(a[1][0]?.summary.last_ts ?? 0).getTime();
-      const tb = new Date(b[1][0]?.summary.last_ts ?? 0).getTime();
-      return tb - ta;
+      const firstA = a[1][0];
+      const firstB = b[1][0];
+      return firstA && firstB ? compareProjectRows(firstA, firstB, busySince) : 0;
     });
     // A project with no sessions still gets a group — the service's workspace
     // list and the reader's own additions are places work can start, and a
