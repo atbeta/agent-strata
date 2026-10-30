@@ -288,6 +288,7 @@ interface MsgState {
   parts: Map<string, ContentBlock>;
   toolParts: Map<string, ToolTrack>;
   emittedAssistant: boolean;
+  streamRetired?: boolean;
   /** message.updated declared this a compaction summary while parts still stream */
   summary?: boolean;
   lastStreamAt?: number;
@@ -448,6 +449,11 @@ export class OpencodeMapper {
     return out;
   }
 
+  private retireStreaming(s: SessionState): void {
+    for (const [msgID, held] of this.held) if (held.s === s) this.held.delete(msgID);
+    for (const m of s.messages.values()) if (m.role === "assistant") m.streamRetired = true;
+  }
+
   ev(
     s: SessionState,
     kind: EventInput["type"],
@@ -533,12 +539,8 @@ export class OpencodeMapper {
       s.compacting = undefined;
       s.summaryMsg = undefined;
       s.liveMsgs?.clear();
-      // The same retirement a real idle does. Leaving the open message held
-      // meant the stream flush published one more partial after this idle, and
-      // the composer treats a partial as a run — the stop button came back on
-      // a session that had just been declared finished, and abort had nothing
-      // left to stop.
-      for (const [msgID, held] of this.held) if (held.s === s) this.held.delete(msgID);
+      // The same streaming retirement a real idle does; durable finals still land.
+      this.retireStreaming(s);
       out.push(
         this.ev(
           s,
@@ -688,6 +690,7 @@ export class OpencodeMapper {
       s.compacting = undefined;
       s.summaryMsg = undefined;
       s.liveMsgs?.clear();
+      this.retireStreaming(s);
       out.push(
         this.ev(
           s,
@@ -1291,6 +1294,7 @@ export class OpencodeMapper {
             t.deferred = undefined;
             out.push(...this.toolEvents(s, m, part, t));
           }
+          if (info.time.completed !== undefined) m.streamRetired = true;
           if (info.time.completed !== undefined && !m.emittedAssistant) {
             m.emittedAssistant = true;
             if (info.parentID) (s.resolvedUsers ??= new Set()).add(info.parentID);
@@ -1349,6 +1353,8 @@ export class OpencodeMapper {
         out.push(...pre);
         const part: Part = evt.properties.part;
         const m = this.ensureMsg(s, part.messageID);
+        const streamContent = part.type === "text" || part.type === "reasoning" || part.type === "file" || part.type === "subtask";
+        if (m.role === "assistant" && m.streamRetired && streamContent) return out;
         // An import read mid-reply carries an open part as OpenCode last stored
         // it, which can be older than the deltas already applied; and deltas
         // still in flight would land on top of anything newer. A closed part
@@ -1530,7 +1536,7 @@ export class OpencodeMapper {
         const block = m?.parts.get(p.partID);
         // A delta extends a part already held. One for a part never seen (the
         // stream joined mid-message) waits for that part's next full update.
-        if (!s || !m || !block || (block.type !== "text" && block.type !== "thinking")) return out;
+        if (!s || !m || m.streamRetired || !block || (block.type !== "text" && block.type !== "thinking")) return out;
         m.parts.set(p.partID, { ...block, text: block.text + p.delta });
         (m.streamed ??= new Set()).add(p.partID);
         if (m.role === "assistant" && m.parentID && !m.emittedAssistant) {
@@ -1599,9 +1605,8 @@ export class OpencodeMapper {
           if (m2.role === "user") (s.resolvedUsers ??= new Set()).add(msgID);
         }
         for (const msgID of [...s.pendingUserMsgs]) this.flushUser(s, out, msgID);
-        // a message that never finished is retired by the overlay at idle; a
-        // late frame for it would bring it back
-        for (const [msgID, held] of this.held) if (held.s === s) this.held.delete(msgID);
+        // Late parts cannot revive a partial; a completed update still emits its durable final.
+        this.retireStreaming(s);
         s.sawBusy = false;
         s.retryKey = undefined;
         s.retryAttempt = undefined;

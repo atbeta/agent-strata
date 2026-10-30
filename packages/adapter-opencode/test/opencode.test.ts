@@ -2824,6 +2824,37 @@ describe("text that arrives as deltas", () => {
     expect(m.hasHeldStreams()).toBe(false);
   });
 
+  test("an idle message cannot stream into the next run, but its durable final still lands", () => {
+    let t = 0;
+    const m = streaming(() => t);
+    t = 1000;
+    m.handle(partUpdated({ id: "pa", sessionID: sid, messageID: "a1", type: "text", text: "old" }));
+    m.handle(partUpdated({ id: "pr", sessionID: sid, messageID: "a1", type: "reasoning", text: "think" }));
+    m.handle({ id: "idle-old", type: "session.idle", properties: { sessionID: sid } } as unknown as Event);
+
+    const busy = m.handle(msgUpdated({ id: "u2", sessionID: sid, role: "user", time: { created: 4 } }));
+    expect(busy.find((e) => e.type === "session.status")?.data).toEqual({ state: "busy" });
+
+    t = 2000;
+    const late = [
+      m.handle(partUpdated({ id: "pa", sessionID: sid, messageID: "a1", type: "text", text: "old again" })),
+      m.handle(partUpdated({ id: "pr", sessionID: sid, messageID: "a1", type: "reasoning", text: "think again" })),
+      m.handle(delta("pa", " late")),
+    ].flat();
+    expect(snaps(late)).toEqual([]);
+    expect(m.hasHeldStreams()).toBe(false);
+
+    const final = m.handle(msgUpdated({
+      id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
+      time: { created: 2, completed: 5 }, providerID: "p", modelID: "m", cost: 0,
+      tokens: { input: 1, output: 1, reasoning: 0, cache: { read: 0, write: 0 } },
+    }));
+    const done = snaps(final);
+    expect(done).toHaveLength(1);
+    expect(done[0]!.partial).toBeUndefined();
+    expect(done[0]!.content).toEqual([{ type: "text", text: "old" }, { type: "thinking", text: "think" }]);
+  });
+
   test("a finished message holds nothing and ignores late deltas", () => {
     let t = 0;
     const m = streaming(() => t);

@@ -39,14 +39,12 @@ export function runInProgress(input: { handover?: number; busy?: boolean; now?: 
   return (input.now ?? Date.now()) - input.handover < SEND_GRACE_MS;
 }
 
-/** Lay a message still being written over the view the reader holds; a finished one is left alone. */
+/** Lay a message still being written over the latest known turn; finished and older turns are left alone. */
 export function applyStreamingSnapshot(view: SessionView, snap: StreamingSnapshot): SessionView {
   if (!snap.msg_id) return view;
-  const entry = { content: snap.content, msg_id: snap.msg_id, partial: true };
   const ti = view.turns.findIndex((t) => t.turn_id === snap.turn_id);
-  if (ti < 0) {
-    return { ...view, turns: [...view.turns, { turn_id: snap.turn_id, assistant: [entry], tool_calls: [] }] };
-  }
+  if (ti < 0 || ti !== view.turns.length - 1) return view;
+  const entry = { content: snap.content, msg_id: snap.msg_id, partial: true };
   const turn = view.turns[ti]!;
   const ai = turn.assistant.findIndex((a) => a.msg_id === snap.msg_id);
   if (ai >= 0 && turn.assistant[ai]!.partial !== true) return view;

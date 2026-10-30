@@ -73,9 +73,23 @@ describe("streaming snapshots in the reader's view", () => {
     expect(applyStreamingSnapshot(v, { turn_id: "u1", msg_id: "a1", content: [] })).toBe(v);
   });
 
-  test("an unseen turn is added", () => {
-    const v = applyStreamingSnapshot(base(), { turn_id: "u2", msg_id: "b1", content: [{ type: "text", text: "x" }] });
-    expect(v.turns.map((t) => t.turn_id)).toEqual(["u1", "u2"]);
+  test("an unseen turn is not created from a partial", () => {
+    const v = base();
+    expect(applyStreamingSnapshot(v, { turn_id: "u2", msg_id: "b1", content: [{ type: "text", text: "x" }] })).toBe(v);
+    expect(v.turns.map((t) => t.turn_id)).toEqual(["u1"]);
+  });
+
+  test("an old turn cannot stream back in after a new turn starts", () => {
+    const v = base();
+    v.turns.push({ turn_id: "u2", user: [{ type: "text", text: "next" }], assistant: [], tool_calls: [] });
+    const late = applyStreamingSnapshot(v, {
+      turn_id: "u1",
+      msg_id: "a2",
+      content: [{ type: "text", text: "old again" }, { type: "thinking", text: "old thought" }],
+    });
+    expect(late).toBe(v);
+    expect(v.turns[0]!.assistant).toHaveLength(1);
+    expect(v.turns[1]!.assistant).toEqual([]);
   });
 
   /**
