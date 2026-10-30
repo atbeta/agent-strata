@@ -2536,6 +2536,88 @@ describe("connectOpencode lifecycle", () => {
     conn.stop();
     store.close();
   });
+
+  test("an accepted abort resolves and checks status", async () => {
+    const { connectOpencode } = await import("../src/index");
+    const enc = new TextEncoder();
+    let aborts = 0;
+    let statuses = 0;
+    const fakeFetch = async (input: Request | URL | string) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.includes("/global/event") || url.endsWith("/event")) {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(ctrl) {
+              ctrl.enqueue(enc.encode('data: {"type":"server.connected","properties":{}}\n\n'));
+            },
+          }),
+          { status: 200, headers: { "content-type": "text/event-stream" } },
+        );
+      }
+      if (url.endsWith("/abort")) {
+        aborts++;
+        return Response.json(true);
+      }
+      if (url.includes("/session/status")) {
+        statuses++;
+        return Response.json({});
+      }
+      return Response.json([]);
+    };
+    const store = openStore(":memory:");
+    const conn = await connectOpencode({
+      baseUrl: "http://fake",
+      sink: store,
+      fetch: fakeFetch as typeof fetch,
+      connectTimeoutMs: 5_000,
+    });
+
+    await conn.abort("ses");
+
+    expect(aborts).toBe(1);
+    expect(statuses).toBeGreaterThan(0);
+    conn.stop();
+    store.close();
+  });
+
+  test("an abort request that hangs reaches its deadline", async () => {
+    const { connectOpencode } = await import("../src/index");
+    const enc = new TextEncoder();
+    const fakeFetch = async (input: Request | URL | string) => {
+      const url = input instanceof Request ? input.url : String(input);
+      const signal = input instanceof Request ? input.signal : undefined;
+      if (url.includes("/global/event") || url.endsWith("/event")) {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(ctrl) {
+              ctrl.enqueue(enc.encode('data: {"type":"server.connected","properties":{}}\n\n'));
+            },
+          }),
+          { status: 200, headers: { "content-type": "text/event-stream" } },
+        );
+      }
+      if (url.endsWith("/abort")) {
+        return new Promise<Response>((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(new DOMException("timed out", "TimeoutError")));
+        });
+      }
+      return Response.json([]);
+    };
+    const store = openStore(":memory:");
+    const conn = await connectOpencode({
+      baseUrl: "http://fake",
+      sink: store,
+      fetch: fakeFetch as typeof fetch,
+      connectTimeoutMs: 5_000,
+      abortTimeoutMs: 60,
+    });
+
+    const started = Date.now();
+    await expect(conn.abort("ses")).rejects.toThrow("timed out");
+    expect(Date.now() - started).toBeLessThan(1_000);
+    conn.stop();
+    store.close();
+  });
 });
 
 describe("rebuild from OpenCode's own record", () => {

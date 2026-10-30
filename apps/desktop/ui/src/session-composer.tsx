@@ -30,7 +30,7 @@ import { planVisible } from "./plan-progress";
 import { PlanStrip } from "./plan-strip";
 import { GoalButton, GoalStrip, useGoal } from "./goal-bar";
 import { runInProgress, SEND_GRACE_MS } from "./live";
-import { stopConfirmed } from "./stop-verdict";
+import { createSessionStop } from "./session-stop";
 import { ComposerToolbar } from "./composer-toolbar";
 import { createComposerDelivery } from "./composer-delivery";
 import { createSessionQueues, persistSessionQueues, restoreColdDraft } from "./composer-queue";
@@ -439,7 +439,7 @@ export function useSessionComposer(args: {
     setSendErr("");
     // A confirmation about the run that just ended says nothing about the one
     // starting, and two of them stacked read as a session stopped twice.
-    setStopped(false);
+    sessionStop.clearStopped();
     openHandover();
     setHistIndex(-1);
     // The reader's own sentence goes on screen now. Until the store's turn
@@ -744,102 +744,20 @@ export function useSessionComposer(args: {
     />
   );
 
-  /**
-   * A stop the reader asked for and the backend has not confirmed yet.
-   *
-   * The abort POST returning is not evidence that anything stopped: it returns
-   * when the request is accepted, and the agent is still generating. Measured on
-   * a live session, the old code held "停止中" for about 200ms — shorter than
-   * the blink it takes to notice — and then flipped the button back with the
-   * transcript showing nothing at all, so a stop that worked, a stop that
-   * missed, and a stop aimed at the wrong session were the same picture.
-   *
-   * The event log has no `session.ended` for an abort either — a stopped
-   * session holds `session.status busy` then `idle` and nothing else — so the
-   * session being idle is the whole of the confirmation. This watches that
-   * condition rather than the transition into it: the session can go idle
-   * between the reader deciding to stop and the request landing, and a listener
-   * on the event would then wait for an event that has already been and gone,
-   * and report a stop that worked as one that failed.
-   */
-  const [stopping, setStopping] = createSignal(false);
-  const [stopped, setStopped] = createSignal(false);
-  /**
-   * Whether the backend has taken the abort.
-   *
-   * The view behind this is not a witness. It is a re-fetch, and on a long
-   * session that is the slowest thing on screen: `busy` stays whatever it last
-   * was until the fetch lands, so waiting for it to say idle means waiting on
-   * the slowest part of a system that has already answered. Measured on a
-   * 2,272-event session, the abort itself came back in 420ms — and the watchdog
-   * would have gone on asking for eight.
-   *
-   * The abort POST returning 200 is the answer: the service returns it only
-   * after the backend has taken the request, and a 502 that says otherwise
-   * arrives here as a thrown error instead.
-   */
-  const [abortAccepted, setAbortAccepted] = createSignal(false);
-
-  createEffect(() => {
-    if (!stopping()) return;
-    if (stopConfirmed(abortAccepted(), generating())) {
-      setStopping(false);
-      setStopped(true);
-    }
+  const sessionStop = createSessionStop({
+    sessionId: args.sessionId,
+    generating,
+    request: abortSession,
+    refresh: () => void args.refreshView(false),
+    beforeRequest: closeHandover,
+    setQueuePaused,
+    setError: setSendErr,
+    unconfirmedError: () => t("stop.unconfirmed"),
+    requestError: (err) => explainSend(err instanceof Error ? err.message : "", t("err.abort")),
   });
-
-  const STOP_TIMEOUT = 8_000;
-  createEffect(() => {
-    if (!stopping()) return;
-    const id = setTimeout(() => {
-      // Still running after all that. Say which of the two it is, rather than
-      // leaving a button that looks exactly like the one that was never pressed.
-      if (!stopping()) return;
-      setStopping(false);
-      setStopped(false);
-      setSendErr(t("stop.unconfirmed"));
-    }, STOP_TIMEOUT);
-    onCleanup(() => clearTimeout(id));
-  });
-
-  const stop = async () => {
-    if (stopping()) return;
-    setSendErr("");
-    setStopped(false);
-    setStopping(true);
-    setAbortAccepted(false);
-    // Before the request, not after it. The handover says "the reader handed a
-    // prompt over and nothing has come back yet", and pressing stop makes that
-    // untrue the moment the reader presses it — the prompt is no longer waiting
-    // on anything. It used to be cleared after `await abortSession`, which put a
-    // network round trip between pressing the button and the session reading as
-    // not generating; on a long session, where the view behind it is a full
-    // re-fetch, that round trip is long enough for the watchdog to fire first and
-    // report a stop that worked as one that did not.
-    closeHandover();
-    // Queued follow-ups drain automatically once the session idles, and a stop
-    // brings that idle: without the pause the first queued message would fire
-    // the moment the abort lands — the same drop the official client makes on
-    // its unsent submission. The items stay listed and removable, and any new
-    // send clears the pause like the send-failure path already does.
-    setQueuePaused(true);
-    try {
-      await abortSession(args.sessionId());
-      // The backend returns once it has taken the abort, which is the strongest
-      // confirmation available: a 502 means it did not, and says so. Re-reading
-      // the view is the cross-check, not the primary evidence.
-      setAbortAccepted(true);
-      void args.refreshView(false);
-    } catch (err) {
-      setStopping(false);
-      // The pause exists to stop the queue draining on the idle a stop brings.
-      // A stop that did not land brings no idle, so keeping the pause would
-      // leave the queue parked with nothing coming to release it — the items
-      // would sit there looking queued and never send.
-      setQueuePaused(false);
-      setSendErr(explainSend(err instanceof Error ? err.message : "", t("err.abort")));
-    }
-  };
+  createEffect(sessionStop.checkConfirmation);
+  const { stop, stopping, stopped } = sessionStop;
+  onCleanup(sessionStop.dispose);
 
   const editTurn = (turnId: string, text: string) => {
     setDraft(text);
@@ -901,19 +819,15 @@ export function useSessionComposer(args: {
     setQueuedSignal(sessionQueues.switch(id));
     setHistIndex(-1);
     setHistSaved("");
-    setSendErr("");
     setNotice("");
     closeHandover();
     setEcho(undefined);
-    setStopping(false);
-    setStopped(false);
-    setAbortAccepted(false);
+    sessionStop.reset();
     setModelTouched(false);
     setModelSel("");
     setPicked(restored.draft.picked);
     setAttachments(restored.draft.attachments);
     setAttachErr(restored.dropped ? t("composer.attach.too_many", { n: MAX_ATTACHMENTS }) : "");
-    setQueuePaused(false);
     setEditTurnId(undefined);
     setTrigger(undefined);
     queueMicrotask(autogrow);

@@ -94,6 +94,8 @@ function errorMessage(e: unknown): string {
 /** Shown when a prompt was refused or never accepted. Callers must not repeat the text. */
 export const PROMPT_NOT_ACCEPTED = "prompt was not accepted";
 
+const ABORT_REQUEST_MS = 5_000;
+
 /**
  * How long a stop's status re-read may take before it stops mattering.
  *
@@ -130,6 +132,7 @@ export async function connectOpencode(opts: {
   connectTimeoutMs?: number;
   /** How long prompt_async may take to accept. It returns once the run has started. */
   promptAcceptMs?: number;
+  abortTimeoutMs?: number;
   fetch?: typeof fetch;
 }): Promise<{
   stop: () => void;
@@ -593,7 +596,11 @@ export async function connectOpencode(opts: {
     },
     async abort(sessionID: string, directory?: string) {
       const dir = directory ?? opts.directory;
-      await client.session.abort({ sessionID, directory: dir });
+      const res = await client.session.abort(
+        { sessionID, directory: dir },
+        { signal: AbortSignal.timeout(opts.abortTimeoutMs ?? ABORT_REQUEST_MS) },
+      );
+      if (res.error) throw new Error(errorMessage(res.error));
       // The official client clears its synced todo store on stop: the queued
       // next steps belong to the run that just ended. Same move here — the
       // projector folds it into an empty plan and the strip goes away until
