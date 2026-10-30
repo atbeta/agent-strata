@@ -21,6 +21,7 @@ export default {
   "sidebar.recent.empty": "No session matches.",
   "sidebar.project.none": "No project",
   "sidebar.project.openDirectory": "Open directory",
+  "sidebar.project.collapseAll": "Collapse all folders",
   "sidebar.project.filter": "Filter projects",
   "sidebar.project.filter.on": "Filters on",
   "sidebar.project.filter.label": "Search",

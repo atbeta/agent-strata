@@ -28,7 +28,6 @@ import {
   fmtRuler,
   traceBlockTooltip,
   traceFoldLabel,
-  TRACE_LANE_PX,
   traceLaneSlot,
   traceMarkerShape,
   traceStatusText,
@@ -538,16 +537,15 @@ function TraceStrip(props: {
                           const slot = () => slotFor(lane.id, box()?.track ?? 0);
                           const shape = () => traceMarkerShape(block);
                           // A ring around a bar that runs the whole session is a
-                          // white stripe. Selection lightens and thickens the
-                          // bar instead. Event marks stay small, so they keep a
-                          // short ring.
-                          const bar = () => {
-                            const base = slot();
-                            if (!on() || base.height < 10) return base;
-                            const height = Math.min(TRACE_LANE_PX - 2, base.height + 6);
-                            return { top: Math.max(0, base.top - (height - base.height) / 2), height };
+                          // white stripe, and growing it makes the lane look
+                          // uneven. Selection is a soft halo in the bar's own
+                          // colour, the same height as the others.
+                          const glow = () => {
+                            if (!on()) return undefined;
+                            const color = toneVar(block);
+                            return `0 0 3px color-mix(in srgb, ${color} 80%, white), 0 0 8px 1px color-mix(in srgb, ${color} 55%, transparent)`;
                           };
-                          const eventSize = () => Math.min(12, Math.max(6, slot().height) + (on() ? 2 : 0));
+                          const eventSize = () => Math.min(10, Math.max(6, slot().height));
                           return (
                             <Tip
                               label={tooltip().text}
@@ -565,7 +563,7 @@ function TraceStrip(props: {
                                 } ${
                                   on()
                                     ? "z-10 opacity-100"
-                                    : `${dim() ? "opacity-15" : block.quiet ? "opacity-40" : "opacity-90"} hover:z-10 hover:opacity-100 hover:shadow-[inset_0_0_0_999px_hsl(0_0%_100%/0.14)]`
+                                    : `${dim() ? "opacity-15" : block.quiet ? "opacity-40" : "opacity-90"} hover:z-10 hover:opacity-100`
                                 }`}
                                 style={
                                   block.lane === "event"
@@ -581,16 +579,14 @@ function TraceStrip(props: {
                                           shape() === "triangle"
                                             ? "polygon(50% 0, 100% 100%, 0 100%)"
                                             : undefined,
-                                        "box-shadow": on() ? "0 0 0 1.5px var(--foreground)" : undefined,
+                                        "box-shadow": glow(),
                                       }
                                     : {
                                         left: `${box()?.left ?? 0}px`,
                                         width: `${box()?.width ?? 8}px`,
-                                        top: `${bar().top}px`,
-                                        height: `${bar().height}px`,
-                                        "box-shadow": on()
-                                          ? "inset 0 0 0 999px hsl(0 0% 100% / 0.42)"
-                                          : undefined,
+                                        top: `${slot().top}px`,
+                                        height: `${slot().height}px`,
+                                        "box-shadow": glow(),
                                       }
                                 }
                                 aria-label={tooltip().text}

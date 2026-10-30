@@ -267,19 +267,25 @@ export function Sidebar(props: {
       (expanded().has(key) ? group().rows : group().rows.slice(0, PAGE)).map(
         (s) => s.summary.session_id,
       );
+    const open = () => !collapsed().has(key);
+    // An expanded header keeps air above it so the section separates from the
+    // sessions of the one before. An empty folder has nothing underneath, so
+    // that air is just a gap between two labels.
+    const tight = () => open() && group().rows.length === 0;
     return (
       <section
         data-group={key}
-        class={cn("group/section", collapsed().has(key) ? "mb-0" : "mb-2")}
+        class={cn("group/section", open() && !tight() ? "mb-2" : "mb-0")}
       >
         <SectionHeader
           label={group().label}
           count={group().rows.length > 0 || group().dir === undefined ? group().rows.length : undefined}
           hint={group().hint}
           title={group().title}
-          icon={group().dir !== undefined ? (collapsed().has(key) ? "folder" : "folder-open") : undefined}
+          icon={group().dir !== undefined ? (open() ? "folder-open" : "folder") : undefined}
           chevron={group().dir === undefined}
-          open={!collapsed().has(key)}
+          open={open()}
+          tight={tight()}
           onToggle={() => setCollapsed((s) => flip(s, key))}
           action={
             group().dir !== undefined ? (
@@ -449,15 +455,36 @@ export function Sidebar(props: {
           </div>
         </Show>
         <For each={metaKeys()}>{renderGroup}</For>
-        {/* The label of the list below, and the two tools that decide what the
+        {/* The label of the list below, and the tools that decide what the
             list shows. They stay in sight: a control that hides until it is
             hunted for is a control the reader has to find, and a filter that
             is already on has nothing to announce. They are quiet instead —
             muted icons beside a muted label read as a caption, where a filled
-            pair of buttons would read as a toolbar. */}
+            row of buttons would read as a toolbar. */}
         <div class="mb-0.5 flex items-center justify-between px-2 pb-0.5 pt-2.5">
           <span class="text-xs font-medium text-muted-foreground">{sectionLabel()}</span>
           <div class="flex items-center gap-0.5">
+            {/* Fold every project. A run of open folders, most of them empty,
+                is the list the reader cannot scan; one control puts them all
+                back to rows. Days are not folders, so the control stays off
+                that cut of the list. */}
+            <Show when={sectionGroups().some((g) => g.dir !== undefined)}>
+              <Tip label={t("sidebar.project.collapseAll")}>
+                <Button
+                  variant="icon"
+                  size="icon-2xs"
+                  class="text-muted-foreground/60"
+                  aria-label={t("sidebar.project.collapseAll")}
+                  onClick={() =>
+                    setCollapsed(
+                      new Set(sectionGroups().filter((g) => g.dir !== undefined).map((g) => g.key)),
+                    )
+                  }
+                >
+                  <Icon name="collapse-all" class="size-3.5" />
+                </Button>
+              </Tip>
+            </Show>
             {/* The lens on this section, and the directory that adds to it.
                 Both are about which projects are here, so they sit together. */}
             <ProjectLensMenu list={props.list} />

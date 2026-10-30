@@ -31,6 +31,10 @@ export function SectionHeader(props: {
   /** An inline control at the row's right edge — a group-level action that is
       not part of the fold toggle (a "+" to start a session in this project). */
   action?: JSX.Element;
+  /** Open, but with nothing under the label. The air above an expanded
+      section exists to separate it from the sessions of the group before
+      it; an empty folder has no sessions to separate, so it stays a row. */
+  tight?: boolean;
   class?: string;
 }) {
   const inner = () => (
@@ -57,7 +61,7 @@ export function SectionHeader(props: {
     <h2
       class={cn(
         "flex items-baseline gap-1.5 px-2",
-        props.onToggle && props.open === false ? "py-0.5" : "pt-2.5 pb-1",
+        props.onToggle && (props.open === false || props.tight) ? "py-0.5" : "pt-2.5 pb-1",
         props.class,
       )}
       title={props.title ?? props.hint}

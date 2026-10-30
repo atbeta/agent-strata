@@ -16,6 +16,7 @@ export type Name =
   | "folder-plus"
   | "filter"
   | "sliders"
+  | "collapse-all"
   | "chevron"
   | "chevron-right"
   | "arrow-down"
@@ -257,18 +258,26 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
   if (name === "sliders")
     return (
       <Glyph class={cls}>
-        {/* Three rails, a knob on each — the mixer a reader already calls a
-            filter. Two rails read as a broken equals sign, and a line drawn
-            through the knob turns the pair into one blob. The rail stops at
-            the disc: at the size this mark is drawn, a ring's hole fills in
-            and the stroke goes soft, which is the whole of why the old one
-            disappeared on a dark ground. */}
-        <path d="M2.5 4H7.2M12.8 4H13.5" />
-        <circle cx="10" cy="4" r="1.4" fill="currentColor" stroke="none" />
-        <path d="M2.5 8H3.2M8.8 8H13.5" />
-        <circle cx="6" cy="8" r="1.4" fill="currentColor" stroke="none" />
-        <path d="M2.5 12H6.2M11.8 12H13.5" />
-        <circle cx="9" cy="12" r="1.4" fill="currentColor" stroke="none" />
+        {/* The two-rail mark, with a third rail in the same hand: the same
+            open ring, the same gap where the line stops. Not the filled knobs. */}
+        <path d="M2.2 3.2h3.2" />
+        <circle cx="7.4" cy="3.2" r="1.15" />
+        <path d="M8.7 3.2H13.8" />
+        <path d="M2.2 8h6.2" />
+        <circle cx="10.5" cy="8" r="1.15" />
+        <path d="M11.8 8h2" />
+        <path d="M2.2 12.8h3.2" />
+        <circle cx="7.4" cy="12.8" r="1.15" />
+        <path d="M8.7 12.8H13.8" />
+      </Glyph>
+    );
+  if (name === "collapse-all")
+    return (
+      <Glyph class={cls}>
+        {/* The project-tree collapse: a bar, and two marks folding into it. */}
+        <path d="M4.6 2.6 8 5.4l3.4-2.8" />
+        <path d="M2.4 8h11.2" />
+        <path d="M4.6 13.4 8 10.6l3.4 2.8" />
       </Glyph>
     );
   if (name === "arrow-down")
