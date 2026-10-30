@@ -1,9 +1,9 @@
 import { createSignal, For, Show, type JSX } from "solid-js";
 import { backendLabel, fmtUsd, type SessionView } from "./api";
 import { Icon } from "./icons";
-import { compactNum, num, stamp, t } from "./i18n";
+import { compactNum, num, t } from "./i18n";
 import { copyText } from "./clipboard";
-import { sessionNotice, sessionStatus, showsMark, type SessionStatus } from "./session-status";
+import { sessionStatus, showsMark, type SessionStatus } from "./session-status";
 import { pieSectorPath } from "./context-pie";
 import type { SessionContext } from "./prompt-memory";
 import { requestParts, type RequestPart, type RequestPartKey } from "./request-usage";
@@ -263,8 +263,6 @@ export function SessionInfo(props: {
       compacting: props.compacting,
       session_error: props.sessionError,
     });
-  const notice = () =>
-    sessionNotice({ retry: props.retry, session_error: props.sessionError });
   const parts = () => (props.context ? requestParts(props.context.usage, props.context.total) : []);
   const contextTip = () => requestTip(parts(), props.context?.total ?? 0);
   const [idCopied, setIdCopied] = createSignal(false);
@@ -347,32 +345,6 @@ export function SessionInfo(props: {
           <div class="mt-1 text-2xs text-muted-foreground">{t("info.context.none")}</div>
         </Show>
       </div>
-
-      {/* The status word above names the state; this says why — the failure a
-          retry is waiting out, or the error that ended the session. */}
-      <Show when={notice()}>
-        {(n) => (
-          <div
-            class={`mt-2.5 rounded-md border px-2.5 py-2 ${
-              n().kind === "error"
-                ? "border-destructive/40 bg-destructive/10"
-                : "border-status-active/40 bg-status-active/10"
-            }`}
-          >
-            <p class={`text-xs ${n().kind === "error" ? "text-destructive" : "text-foreground"}`}>
-              {t(n().title.key, n().title.vars)}
-            </p>
-            <Show when={n().detail}>
-              <p class="mt-0.5 break-words text-2xs leading-4 text-muted-foreground">{n().detail}</p>
-            </Show>
-            <Show when={n().kind === "retry" && n().next !== undefined}>
-              <p class="mt-0.5 text-2xs text-muted-foreground">
-                {t("session.notice.retry_at", { when: stamp(n().next!) })}
-              </p>
-            </Show>
-          </div>
-        )}
-      </Show>
 
       <InfoGroup divided={false}>
         <InfoRow label={t("info.model")} value={props.model || "—"} mono title={props.model} />

@@ -32,9 +32,6 @@ export default {
   "session.status.stopped": "已停止",
   "session.status.done": "已完成",
   "session.status.idle": "空闲",
-  "session.notice.retrying": "上一次请求失败 · 接下来重试第 {n} 次",
-  "session.notice.retry_at": "下次尝试 {when}",
-  "session.notice.error": "会话报错了",
   "session.shell.running": "这个会话的终端还停在这条命令上：{command}",
 
   // A permission request sitting above the composer.
@@ -395,6 +392,8 @@ export default {
   "message.subtask": "子代理任务",
   "message.subtask.named": "子代理 · {agent}",
   "message.truncated": "这条回复因达到长度上限而结束，内容可能不完整。",
+  "message.interrupted": "这条回复没有写完，会话就结束了。",
+  "message.empty": "模型这次没有返回任何内容。",
 
   // The prompt outline on the transcript's left edge.
   "nav.outline": "提问导航，共 {n} 条",

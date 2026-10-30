@@ -51,8 +51,7 @@ import { copyText } from "./clipboard";
 import { messageText } from "./transcript-format";
 import { isDevEvent } from "./sync-events";
 import { Icon } from "./icons";
-import { stamp, t } from "./i18n";
-import { sessionNotice } from "./session-status";
+import { t } from "./i18n";
 import { SessionEmpty } from "./session-empty";
 import { displayTitle } from "./session-title";
 import { settled } from "./resource";
@@ -1679,57 +1678,6 @@ const turns = () => shown().turns;
                     </For>
                       </div>
                     </div>
-                    {/* What the session cannot say for itself: a retry it is
-                        waiting out, or the error that stopped it. Sits under
-                        the asks — an ask still outranks it, because the ask is
-                        the thing an answer unblocks. */}
-                    <Show when={sessionNotice({ retry: v().retry, session_error: v().session_error })}>
-                      {(n) => (
-                        <div
-                          role={n().kind === "error" ? "alert" : "status"}
-                          class={`flex items-start gap-2 rounded-lg border px-3 py-2.5 ${
-                            n().kind === "error"
-                              ? "border-destructive/40 bg-destructive/10"
-                              : "border-status-active/40 bg-status-active/10"
-                          }`}
-                        >
-                          <Icon
-                            name={n().kind === "error" ? "alert" : "replay"}
-                            class={`mt-0.5 size-3.5 shrink-0 ${
-                              n().kind === "error" ? "text-destructive" : "text-status-active"
-                            }`}
-                          />
-                          <div class="min-w-0 flex-1">
-                            <div class={`text-sm ${n().kind === "error" ? "text-destructive" : "text-foreground"}`}>
-                              {t(n().title.key, n().title.vars)}
-                            </div>
-                            <Show when={n().detail}>
-                              <div class="mt-0.5 break-words text-2xs leading-4 text-muted-foreground">
-                                {n().detail}
-                              </div>
-                            </Show>
-                            <Show when={n().kind === "retry" && n().next !== undefined}>
-                              <div class="mt-0.5 text-2xs text-muted-foreground">
-                                {t("session.notice.retry_at", { when: stamp(n().next!) })}
-                              </div>
-                            </Show>
-                          </div>
-                          {/* A plain anchor: the delegated handler in
-                              external-open.ts hands it to the OS, and the
-                              helper only kept it when the scheme can open. */}
-                          <Show when={n().action}>
-                            {(a) => (
-                              <a
-                                href={a().link}
-                                class="mt-0.5 shrink-0 rounded border border-border px-2 py-0.5 text-xs text-foreground hover:bg-secondary"
-                              >
-                                {a().label}
-                              </a>
-                            )}
-                          </Show>
-                        </div>
-                      )}
-                    </Show>
                     <Show when={v().revert_turn_id}>
                       <div class="flex items-center justify-between gap-2 px-1">
                         <span class="text-2xs text-muted-foreground">{t("message.reverted")}</span>

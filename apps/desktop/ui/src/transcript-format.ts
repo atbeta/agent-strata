@@ -62,6 +62,37 @@ export function isLengthStop(reason: string | undefined): boolean {
   return reason === "length" || reason === "max_tokens";
 }
 
+/**
+ * The adapter's word for a reply the run's close cut off mid-write: the
+ * message never reported `time.completed`, so it gets no real finish reason —
+ * only the mark that it did not get to finish.
+ */
+export const INTERRUPTED_STOP = "interrupted";
+
+export function isInterruptedStop(reason: string | undefined): boolean {
+  return reason === INTERRUPTED_STOP;
+}
+
+/**
+ * A finished reply that came back with nothing to show and nothing to say
+ * why. `tool-calls` is exempt — that message's content is its calls, which
+ * render in their own rows — and an interrupted reply has its own marker.
+ * Without a flag the turn reads as a prompt nobody answered: exactly the
+ * failure this exists to name.
+ */
+export function silentEmptyReply(message: {
+  content: readonly ContentBlock[];
+  partial?: boolean;
+  error?: string;
+  structured?: unknown;
+  stop_reason?: string;
+}): boolean {
+  if (message.partial === true) return false;
+  if (message.error !== undefined || message.structured !== undefined) return false;
+  if (message.stop_reason === "tool-calls" || isInterruptedStop(message.stop_reason)) return false;
+  return !hasMessageContent(message.content);
+}
+
 export function assistantNotice(
   error: string | undefined,
 ): { kind: "stopped" | "error"; text: string } | undefined {

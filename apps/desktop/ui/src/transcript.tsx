@@ -31,8 +31,10 @@ import {
   goalMetReply,
   isDiff,
   isInteractiveTool,
+  isInterruptedStop,
   isLengthStop,
   messageText,
+  silentEmptyReply,
   permissionLabel,
   toolStatusLabel,
   thinkingPreview,
@@ -768,12 +770,23 @@ function AssistantMessage(props: {
    *  called, a reserved-but-hidden action row reads as a hole in the text.
    *  The actions stay reachable through the right-click menu regardless. */
   footer?: boolean;
+  /** The session is running and this is its working turn — a partial under it
+   *  is live; anywhere else it is a message the run left behind mid-write. */
+  live?: () => boolean;
   onFork?: (messageId: string) => void;
 }) {
   const met = () => goalMetReply(props.message.content);
   const text = () => (met() ? t("goal.met_reply") : messageText(props.message.content));
   const notice = () => assistantNotice(props.message.error);
   const truncated = () => isLengthStop(props.message.stop_reason);
+  // A reply the run's close cut off — marked by the adapter, or a partial
+  // still open after the run it streamed under stopped being one — and a
+  // reply the model simply never sent: the ways a turn ends saying nothing,
+  // all silent without a mark.
+  const interrupted = () =>
+    isInterruptedStop(props.message.stop_reason) ||
+    (props.message.partial === true && props.live?.() === false);
+  const empty = () => silentEmptyReply(props.message);
   const forkable = () => Boolean(props.onFork && props.message.msg_id);
   const hasFooter = () => !met() && text().trim() !== "";
   return (
@@ -782,6 +795,8 @@ function AssistantMessage(props: {
         hasMessageContent(props.message.content) ||
         notice() ||
         truncated() ||
+        interrupted() ||
+        empty() ||
         props.message.structured !== undefined
       }
     >
@@ -824,6 +839,18 @@ function AssistantMessage(props: {
             <p role="status" class="mt-2 flex items-start gap-1.5 text-xs text-event-permission">
               <Icon name="alert" class="mt-0.5 size-3 shrink-0" />
               <span>{t("message.truncated")}</span>
+            </p>
+          </Show>
+          <Show when={interrupted()}>
+            <p role="status" class="mt-2 flex items-start gap-1.5 text-xs text-event-permission">
+              <Icon name="alert" class="mt-0.5 size-3 shrink-0" />
+              <span>{t("message.interrupted")}</span>
+            </p>
+          </Show>
+          <Show when={empty()}>
+            <p role="status" class="mt-2 flex items-start gap-1.5 text-xs text-event-permission">
+              <Icon name="alert" class="mt-0.5 size-3 shrink-0" />
+              <span>{t("message.empty")}</span>
             </p>
           </Show>
           <Show when={notice()?.kind === "stopped" ? notice() : undefined}>
@@ -1040,6 +1067,7 @@ export function TurnBlock(props: {
                   index={index}
                   message={r().message}
                   footer={index === flow().length - 1}
+                  live={props.live}
                   onFork={props.onFork}
                 />
               )}

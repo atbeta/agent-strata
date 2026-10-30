@@ -1,6 +1,5 @@
 import type { MessageKey } from "./locales/zh";
-import type { RetryAction, SessionDiagnostic, SessionRetry } from "./api";
-import { isOpenableUrl } from "./external-link";
+import type { SessionDiagnostic, SessionRetry } from "./api";
 
 /**
  * What a session is doing, and how loudly the list should say it.
@@ -68,6 +67,19 @@ const MUTED: StatusTone = {
 };
 
 /**
+ * A deliberate stop is reported by the backend as an error named
+ * `MessageAbortedError` — and older builds stored it as the session's failure.
+ * It never was one: a run that ended on the reader's word must not read as a
+ * crashed session.
+ */
+function isStopDiagnostic(e: SessionDiagnostic): boolean {
+  if (e.name !== undefined) {
+    return e.name === "MessageAbortedError" || e.name === "AbortError";
+  }
+  return e.message === "Aborted" || e.message === "The operation was aborted";
+}
+
+/**
  * The badge costs more than a dot, so only two states pay for one:
  *
  *   - needs input, because the reader is the one holding the turn up;
@@ -102,7 +114,7 @@ export function sessionStatus(row: {
   if (row.busy) {
     return { kind: "running", label: "session.status.running", tone: ACTIVE, badge: false };
   }
-  if (row.session_error) {
+  if (row.session_error && !isStopDiagnostic(row.session_error)) {
     return { kind: "failed", label: "session.status.failed", tone: ERROR, badge: true };
   }
   switch (row.status) {
@@ -120,50 +132,4 @@ export function sessionStatus(row: {
 /** Whether the state draws a visible mark — the two badges, or running's grid. */
 export function showsMark(s: SessionStatus): boolean {
   return s.badge || s.kind === "running";
-}
-
-/**
- * What the dock says while the session cannot move on its own — a retry the
- * backend already scheduled, or the failure that stopped it. The badge names
- * the state; this carries the why. Same precedence as `sessionStatus`: a live
- * retry outranks a stored error, which the projector has already cleared on
- * real work anyway.
- */
-export interface SessionNotice {
-  kind: "retry" | "error";
-  title: { key: MessageKey; vars?: Record<string, string | number> };
-  /** the backend's own words — the failure behind the retry, or the error itself */
-  detail?: string;
-  /** when the backend said the next attempt fires, epoch ms */
-  next?: number;
-  /** the recovery the backend suggested, kept only when its link can open safely */
-  action?: { label: string; link: string };
-}
-
-export function sessionNotice(row: {
-  retry?: SessionRetry;
-  session_error?: SessionDiagnostic;
-}): SessionNotice | undefined {
-  const r = row.retry;
-  if (r) {
-    const link = r.action?.link;
-    return {
-      kind: "retry",
-      title: { key: "session.notice.retrying", vars: { n: r.attempt } },
-      detail: r.message || r.error?.message || r.action?.message,
-      next: r.next,
-      // A suggested action without a link it can use is just words — the
-      // detail line already carries those.
-      ...(r.action?.label && isOpenableUrl(link)
-        ? { action: { label: r.action.label, link: link! } }
-        : {}),
-    };
-  }
-  const e = row.session_error;
-  if (!e) return undefined;
-  return {
-    kind: "error",
-    title: { key: "session.notice.error" },
-    detail: e.name && e.name !== e.message ? `${e.name}: ${e.message}` : e.message,
-  };
 }

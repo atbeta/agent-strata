@@ -102,6 +102,19 @@ function textField(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+/**
+ * What a deliberate stop looks like on the wire: OpenCode reports the abort it
+ * ran as a session error. It is not a failure — a run that ended on the
+ * reader's word must not paint the session as crashed, so the diagnostic is
+ * dropped while the session stills the same way a real error would.
+ */
+const ABORT_ERROR_NAMES = new Set(["MessageAbortedError", "AbortError"]);
+
+function abortedDiagnostic(d: SessionDiagnostic): boolean {
+  if (d.name !== undefined) return ABORT_ERROR_NAMES.has(d.name);
+  return d.message === "Aborted" || d.message === "The operation was aborted";
+}
+
 /** Only diagnostics that are safe to persist and show. Provider payloads and metadata stay behind. */
 function sessionDiagnostic(error: unknown): SessionDiagnostic {
   const outer = error && typeof error === "object" ? (error as Record<string, unknown>) : {};
@@ -301,6 +314,13 @@ interface MsgState {
   compactionSeen?: Set<string>;
   /** one entry per model call this message ran, keyed by the step part's id */
   steps?: Map<string, AssistantStep>;
+  /**
+   * A close path (idle, settle, error) already wrote this message's durable
+   * final with `stop_reason: "interrupted"`. A real completion may still
+   * arrive and replace it — unlike an ordinary final, an interrupted one is
+   * not the last word.
+   */
+  interrupted?: boolean;
 }
 
 interface SessionState {
@@ -454,6 +474,43 @@ export class OpencodeMapper {
     for (const m of s.messages.values()) if (m.role === "assistant") m.streamRetired = true;
   }
 
+  /**
+   * A message still open when the run is declared over was cut off mid-write:
+   * it never produced `time.completed`, so no durable final ever carried it,
+   * and the streamed partial — which is published, not stored — vanishes on
+   * the next fetch. Closing it here keeps the words it managed and marks the
+   * cut (`stop_reason: "interrupted"`) instead of letting the turn end on a
+   * reply that is not there.
+   *
+   * The flag stays soft: a completion that arrives anyway still emits its own
+   * final, which replaces this one by msg_id.
+   */
+  private closeOpenMessages(s: SessionState, out: EventInput[], tag: string): void {
+    if (!s.liveMsgs?.size) return;
+    for (const [msgID, turnID] of s.liveMsgs) {
+      const m = s.messages.get(msgID);
+      if (!m || m.emittedAssistant || turnID === undefined) continue;
+      m.emittedAssistant = true;
+      m.interrupted = true;
+      (s.resolvedUsers ??= new Set()).add(turnID);
+      out.push(
+        this.ev(
+          s,
+          "turn.assistant",
+          {
+            turn_id: turnID,
+            msg_id: msgID,
+            content: [...m.parts.values()].filter((b) => b.type !== "file_ref"),
+            stop_reason: "interrupted",
+            ...(m.summary ? { summary: true } : {}),
+            ...(m.steps?.size ? { steps: [...m.steps.values()] } : {}),
+          },
+          `opencode:${msgID}:turn.assistant:${tag}`,
+        ),
+      );
+    }
+  }
+
   ev(
     s: SessionState,
     kind: EventInput["type"],
@@ -538,6 +595,7 @@ export class OpencodeMapper {
       s.retryError = undefined;
       s.compacting = undefined;
       s.summaryMsg = undefined;
+      this.closeOpenMessages(s, out, "settle");
       s.liveMsgs?.clear();
       // The same streaming retirement a real idle does; durable finals still land.
       this.retireStreaming(s);
@@ -689,6 +747,7 @@ export class OpencodeMapper {
       s.retryError = undefined;
       s.compacting = undefined;
       s.summaryMsg = undefined;
+      this.closeOpenMessages(s, out, "reconcile");
       s.liveMsgs?.clear();
       this.retireStreaming(s);
       out.push(
@@ -970,10 +1029,16 @@ export class OpencodeMapper {
     s.retryError = undefined;
     s.compacting = undefined;
     s.summaryMsg = undefined;
-    s.liveMsgs?.clear();
     this.pendingSettles.delete(s);
     for (const [msgID, held] of this.held) if (held.s === s) this.held.delete(msgID);
-    out.push(this.ev(s, "session.error", { error: sessionDiagnostic(error) }, id));
+    this.closeOpenMessages(s, out, "error");
+    s.liveMsgs?.clear();
+    // A stop the reader asked for arrives as MessageAbortedError; it closes
+    // the session without naming it a failure.
+    const diagnostic = sessionDiagnostic(error);
+    out.push(
+      this.ev(s, "session.error", { error: abortedDiagnostic(diagnostic) ? null : diagnostic }, id),
+    );
   }
 
   private toolEvents(s: SessionState, m: MsgState, part: ToolPart, t: ToolTrack): EventInput[] {
@@ -1295,8 +1360,9 @@ export class OpencodeMapper {
             out.push(...this.toolEvents(s, m, part, t));
           }
           if (info.time.completed !== undefined) m.streamRetired = true;
-          if (info.time.completed !== undefined && !m.emittedAssistant) {
+          if (info.time.completed !== undefined && (!m.emittedAssistant || m.interrupted)) {
             m.emittedAssistant = true;
+            m.interrupted = undefined;
             if (info.parentID) (s.resolvedUsers ??= new Set()).add(info.parentID);
             this.held.delete(info.id);
             const content = [...m.parts.values()].filter((b) => b.type !== "file_ref");
@@ -1613,6 +1679,7 @@ export class OpencodeMapper {
         s.retryError = undefined;
         s.compacting = undefined;
         s.summaryMsg = undefined;
+        this.closeOpenMessages(s, out, "idle");
         s.liveMsgs?.clear();
         // The backend re-issues idle under fresh ids — a status-idle and a
         // session.idle for one transition, again on reconnect. Only the

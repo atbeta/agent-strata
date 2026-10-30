@@ -652,6 +652,95 @@ describe("OpencodeMapper", () => {
     });
   });
 
+  test("a deliberate stop closes the session without a failure", () => {
+    // The backend reports the abort it ran as MessageAbortedError; stored as a
+    // diagnostic it would paint a clean stop as a crashed session.
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    m.handle(msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 10 } }));
+    m.handle(msgUpdated({
+      id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
+      time: { created: 20 }, providerID: "p", modelID: "m", agent: "build", mode: "build",
+      path: { cwd: "/repo", root: "/repo" }, cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    }));
+    const out = m.handle({
+      id: freshId("s"),
+      type: "session.error",
+      properties: {
+        sessionID: sid,
+        error: { name: "MessageAbortedError", data: { message: "Aborted" } },
+      },
+    } as unknown as Event);
+    // The reply still open when the stop landed is closed, not left to vanish.
+    expect(out.find((e) => e.type === "turn.assistant")?.data).toMatchObject({
+      msg_id: "a1",
+      stop_reason: "interrupted",
+    });
+    expect(out.find((e) => e.type === "session.error")?.data).toEqual({ error: null });
+  });
+
+  test("a real failure still stores its diagnostic", () => {
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    m.handle(msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 10 } }));
+    const out = m.handle({
+      id: freshId("s"),
+      type: "session.error",
+      properties: {
+        sessionID: sid,
+        error: { name: "ProviderAuthError", data: { message: "bad key" } },
+      },
+    } as unknown as Event);
+    expect(out.find((e) => e.type === "session.error")?.data).toEqual({
+      error: { name: "ProviderAuthError", message: "bad key" },
+    });
+  });
+
+  test("idle closes an open assistant message as interrupted", () => {
+    // A run that ends with a message still open completed nothing: the
+    // partial stream was never stored, so without a final the reply simply
+    // vanishes. The close keeps what was written and marks the cut.
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    m.handle(msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 10 } }));
+    const open = {
+      id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
+      time: { created: 20 }, providerID: "p", modelID: "m", agent: "build", mode: "build",
+      path: { cwd: "/repo", root: "/repo" }, cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    };
+    m.handle(msgUpdated(open));
+    m.handle(partUpdated({ id: "pt1", sessionID: sid, messageID: "a1", type: "text", text: "half a reply" }));
+    const out = m.handle(
+      { id: freshId("i"), type: "session.idle", properties: { sessionID: sid } } as unknown as Event,
+    );
+    const ta = out.find((e) => e.type === "turn.assistant")!;
+    expect(ta.data).toMatchObject({
+      turn_id: "u1",
+      msg_id: "a1",
+      stop_reason: "interrupted",
+      content: [{ type: "text", text: "half a reply" }],
+    });
+    // A completion that lands anyway still emits its own final — it replaces
+    // the interrupted one by msg_id.
+    const done = m.handle(
+      msgUpdated({ ...open, time: { created: 20, completed: 40 }, finish: "stop", cost: 0.1 }),
+    );
+    const final = done.find((e) => e.type === "turn.assistant")!;
+    expect(final.data).toMatchObject({ msg_id: "a1", stop_reason: "stop" });
+  });
+
+  test("idle with nothing open emits no assistant event", () => {
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    m.handle(msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 10 } }));
+    const out = m.handle(
+      { id: freshId("i"), type: "session.idle", properties: { sessionID: sid } } as unknown as Event,
+    );
+    expect(out.filter((e) => e.type === "turn.assistant")).toEqual([]);
+  });
+
   test("each model call inside a message lands as a step, deduped by part id", () => {
     const m = new OpencodeMapper();
     m.handle(sessionCreated());

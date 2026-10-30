@@ -32,9 +32,6 @@ export default {
   "session.status.stopped": "Stopped",
   "session.status.done": "Done",
   "session.status.idle": "Idle",
-  "session.notice.retrying": "The last request failed · retry {n} next",
-  "session.notice.retry_at": "next try {when}",
-  "session.notice.error": "The session reported an error",
   "session.shell.running": "This session's shell is still on this command: {command}",
 
   // A permission request sitting above the composer.
@@ -394,6 +391,8 @@ export default {
   "message.subtask": "Subagent task",
   "message.subtask.named": "Subagent · {agent}",
   "message.truncated": "This reply reached the model's length limit and may be incomplete.",
+  "message.interrupted": "This reply was cut off when the session ended.",
+  "message.empty": "The model returned nothing this time.",
 
   // The prompt outline on the transcript's left edge.
   "nav.outline": "Prompt outline, {n} prompts",

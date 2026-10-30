@@ -22,9 +22,11 @@ const {
   thinkingDuration,
   hasMessageContent,
   isInteractiveTool,
+  isInterruptedStop,
   isLengthStop,
   messageText,
   permissionLabel,
+  silentEmptyReply,
   statusLabel,
   toolStatusLabel,
   thinkingPreview,
@@ -679,5 +681,38 @@ describe("assistantNotice", () => {
     expect(isLengthStop("stop")).toBe(false);
     expect(isLengthStop("tool-calls")).toBe(false);
     expect(isLengthStop(undefined)).toBe(false);
+  });
+});
+
+describe("silentEmptyReply", () => {
+  const msg = (patch: object) => ({ content: [], ...patch });
+
+  test("a finished reply with nothing and no reason is silent", () => {
+    // The turn reads as a prompt nobody answered; this is the case that needs a mark.
+    expect(silentEmptyReply(msg({}))).toBe(true);
+    expect(silentEmptyReply(msg({ stop_reason: "stop" }))).toBe(true);
+    expect(silentEmptyReply(msg({ content: [{ type: "text", text: "  " }] }))).toBe(true);
+  });
+
+  test("a message still streaming is not empty yet", () => {
+    expect(silentEmptyReply(msg({ partial: true }))).toBe(false);
+  });
+
+  test("a tool-call carrier is content by way of its calls", () => {
+    // Its calls render in their own rows; the message was never meant to hold text.
+    expect(silentEmptyReply(msg({ stop_reason: "tool-calls" }))).toBe(false);
+  });
+
+  test("an interrupted reply and a failed one already carry their why", () => {
+    expect(silentEmptyReply(msg({ stop_reason: "interrupted" }))).toBe(false);
+    expect(isInterruptedStop("interrupted")).toBe(true);
+    expect(silentEmptyReply(msg({ error: "boom" }))).toBe(false);
+    expect(silentEmptyReply(msg({ structured: null }))).toBe(false);
+  });
+
+  test("content is not empty", () => {
+    expect(silentEmptyReply(msg({ content: [{ type: "text", text: "hi" }] }))).toBe(false);
+    expect(silentEmptyReply(msg({ content: [{ type: "thinking", text: "hmm" }] }))).toBe(false);
+    expect(silentEmptyReply(msg({ content: [{ type: "file_ref", path: "a.ts" }] }))).toBe(false);
   });
 });

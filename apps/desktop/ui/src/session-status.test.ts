@@ -45,6 +45,24 @@ describe("session status", () => {
     expect(s.badge).toBe(true);
   });
 
+  test("a stored abort diagnostic does not read as failed", () => {
+    // The backend reports a deliberate stop as an error named
+    // MessageAbortedError, and older builds kept it as the session's failure.
+    // A stop the reader asked for is not a crash, whatever the row carried.
+    const s = sessionStatus(
+      row({ status: "active", session_error: { name: "MessageAbortedError", message: "Aborted" } }),
+    );
+    expect(s.kind).not.toBe("failed");
+    // Diagnostics with no name but an abort's words are stops all the same.
+    expect(
+      sessionStatus(row({ session_error: { message: "Aborted" } })).kind,
+    ).not.toBe("failed");
+    // An error that merely mentions aborting is still a failure.
+    expect(
+      sessionStatus(row({ session_error: { name: "UnknownError", message: "aborted upstream" } })).kind,
+    ).toBe("failed");
+  });
+
   test("busy is running, and running draws the moving mark without a word", () => {
     const s = sessionStatus(row({ busy: true, status: "active" }));
     expect(s.kind).toBe("running");
