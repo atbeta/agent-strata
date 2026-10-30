@@ -1,4 +1,4 @@
-import type { ContentBlock, ToolCallView } from "./api";
+import type { ContentBlock, ToolCallView, Turn } from "./api";
 import { t, tn } from "./i18n";
 
 /**
@@ -317,6 +317,44 @@ export function thinkingDuration(startedMs?: number, endedMs?: number): string |
   if (startedMs < REAL_INSTANT_MS || endedMs < REAL_INSTANT_MS) return undefined;
   if (endedMs < startedMs) return undefined;
   return fmtLatency(endedMs - startedMs);
+}
+
+export interface AssistantMetrics {
+  ttft_ms?: number;
+  output_tps?: number;
+}
+
+/** Completion-time metrics derived only from backend clocks and reported output usage. */
+export function assistantMetrics(
+  message: Pick<Turn["assistant"][number], "content" | "latency_ms" | "partial" | "ts" | "usage">,
+): AssistantMetrics {
+  const latency = message.latency_ms;
+  if (message.partial === true || latency === undefined || !Number.isFinite(latency) || latency < 0 || !message.ts) {
+    return {};
+  }
+  const completed = Date.parse(message.ts);
+  if (!Number.isFinite(completed)) return {};
+  let firstOutput: number | undefined;
+  for (const block of message.content) {
+    if (block.type !== "text" && block.type !== "thinking") continue;
+    const started = block.started_ms;
+    if (block.text.trim() === "" || started === undefined || !Number.isFinite(started) || started < REAL_INSTANT_MS) {
+      continue;
+    }
+    firstOutput = firstOutput === undefined ? started : Math.min(firstOutput, started);
+  }
+  if (firstOutput === undefined) return {};
+
+  const ttft = firstOutput - (completed - latency);
+  const outputWindow = completed - firstOutput;
+  const output = message.usage?.output;
+  const outputTps = output === undefined ? undefined : (output * 1000) / outputWindow;
+  return {
+    ...(ttft >= 0 ? { ttft_ms: ttft } : {}),
+    ...(output !== undefined && Number.isFinite(output) && output >= 0 && outputWindow > 0 && Number.isFinite(outputTps)
+      ? { output_tps: outputTps }
+      : {}),
+  };
 }
 
 /** Milliseconds and seconds are units: `840ms`, `1.5s`, `12s`, `2m 05s`, `10h 15m` in every language. */

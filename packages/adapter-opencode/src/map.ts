@@ -29,8 +29,8 @@ function sourceTime(ms?: number): string | undefined {
   return new Date(ms).toISOString();
 }
 
-/** A reasoning part's clock, kept only when the stamps are real instants. */
-function thinkingTimes(time?: { start: number; end?: number }): {
+/** A content part's clock, kept only when the stamps are real instants. */
+function contentTimes(time?: { start: number; end?: number }): {
   started_ms?: number;
   ended_ms?: number;
 } {
@@ -180,7 +180,7 @@ export const SETTLE_QUIET_MS = 30_000;
 export const SETTLE_STALL_MS = 300_000;
 
 /** Bump when the mapping changes; stored sessions mapped by an older version are rebuilt. */
-export const OPENCODE_MAPPER_VERSION = "opencode-13";
+export const OPENCODE_MAPPER_VERSION = "opencode-14";
 
 /** The event types an import reproduces from OpenCode's own record of a session. */
 export const OPENCODE_REBUILT_TYPES: EventType[] = [...REBUILDABLE_EVENT_TYPES];
@@ -1372,9 +1372,9 @@ export class OpencodeMapper {
           // nudges). An import replays parts before their message, so the role
           // is unknown here and the rule applies to every message.
           if (part.synthetic || part.ignored) m.parts.delete(part.id);
-          else m.parts.set(part.id, { type: "text", text: part.text });
+          else m.parts.set(part.id, { type: "text", text: part.text, ...contentTimes(part.time) });
         } else if (part.type === "reasoning") {
-          m.parts.set(part.id, { type: "thinking", text: part.text, ...thinkingTimes(part.time) });
+          m.parts.set(part.id, { type: "thinking", text: part.text, ...contentTimes(part.time) });
         } else if (part.type === "file") {
           m.parts.set(part.id, fileBlock(part));
         } else if (part.type === "subtask") {

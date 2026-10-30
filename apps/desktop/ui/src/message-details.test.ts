@@ -59,6 +59,35 @@ describe("assistant message details", () => {
     });
   });
 
+  test("shows TTFT and average output speed in both languages", () => {
+    const start = Date.parse("2026-10-22T10:00:00.000Z");
+    const value = message({
+      content: [
+        { type: "thinking", text: "reasoning", started_ms: start + 1500 },
+        { type: "text", text: "answer", started_ms: start + 2500 },
+      ],
+      latency_ms: 5000,
+      usage: { input: 10, output: 30, reasoning: 100 },
+      ts: new Date(start + 5000).toISOString(),
+    });
+    withLocale("en", () => {
+      expect(assistantMessageDetails(value)).toEqual([
+        { key: "latency_ms", label: "Backend latency", value: "5.0s" },
+        { key: "ttft_ms", label: "TTFT", value: "1.5s" },
+        { key: "input", label: "Input", value: "10" },
+        { key: "output", label: "Output", value: "30" },
+        { key: "reasoning", label: "Reasoning", value: "100" },
+        { key: "output_tps", label: "Average output", value: "8.6 output tok/s" },
+        { key: "ts", label: "Completed", value: stamp(value.ts!) },
+      ]);
+    });
+    withLocale("zh", () => {
+      expect(assistantMessageDetails(value).map((row) => row.label)).toEqual([
+        "后端耗时", "TTFT", "输入", "输出", "推理", "平均输出速度", "完成时间",
+      ]);
+    });
+  });
+
   test("labels every field and calls ts the completion time", () => {
     const ts = "2026-10-30T12:34:56.000Z";
     const value = message({

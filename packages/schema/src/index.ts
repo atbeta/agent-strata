@@ -4,7 +4,13 @@ import { monotonicFactory } from "ulid";
 const ulid = monotonicFactory();
 
 export const ContentBlock = z.union([
-  z.object({ type: z.literal("text"), text: z.string() }),
+  z.object({
+    type: z.literal("text"),
+    text: z.string(),
+    // Unix milliseconds, only when the backend reported a real clock.
+    started_ms: z.number().optional(),
+    ended_ms: z.number().optional(),
+  }),
   z.object({
     type: z.literal("thinking"),
     text: z.string(),

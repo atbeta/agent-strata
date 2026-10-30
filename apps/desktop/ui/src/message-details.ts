@@ -1,6 +1,6 @@
 import { fmtUsd, type Turn } from "./api";
 import { num, stamp, t } from "./i18n";
-import { fmtLatency } from "./transcript-format";
+import { assistantMetrics, fmtLatency } from "./transcript-format";
 
 export type AssistantMessageData = Turn["assistant"][number];
 export type MessageDetail = { key: string; label: string; value: string };
@@ -22,6 +22,10 @@ export function assistantMessageDetails(message?: AssistantMessageData): Message
       value: fmtLatency(message.latency_ms)!,
     });
   }
+  const metrics = assistantMetrics(message);
+  if (metrics.ttft_ms !== undefined) {
+    rows.push({ key: "ttft_ms", label: t("message.details.ttft"), value: fmtLatency(metrics.ttft_ms)! });
+  }
   if (message.usage) {
     const usage = [
       ["input", t("info.input"), message.usage.input],
@@ -33,6 +37,13 @@ export function assistantMessageDetails(message?: AssistantMessageData): Message
     for (const [key, label, value] of usage) {
       if (value !== undefined) rows.push({ key, label, value: num(value) });
     }
+  }
+  if (metrics.output_tps !== undefined) {
+    rows.push({
+      key: "output_tps",
+      label: t("message.details.output_tps"),
+      value: t("message.details.output_tps.value", { n: num(Math.round(metrics.output_tps * 10) / 10) }),
+    });
   }
   if (message.cost_usd !== undefined) {
     rows.push({ key: "cost_usd", label: t("info.cost"), value: fmtUsd(message.cost_usd) });

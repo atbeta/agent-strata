@@ -13,6 +13,7 @@ globals.document ??= { documentElement: {} } as Document;
 
 const { locale, setLocale } = await import("./i18n");
 const {
+  assistantMetrics,
   assistantNotice,
   diffStat,
   fmtElapsed,
@@ -566,6 +567,74 @@ describe("goalMetReply", () => {
     expect(transcript).toContain('t("goal.met_reply")');
     expect(bar).toContain('t("goal.met")');
     expect(bar).toContain('t("goal.restart")');
+  });
+});
+
+describe("assistantMetrics", () => {
+  const start = Date.parse("2026-10-22T10:00:00.000Z");
+  const completed = start + 5000;
+  const base: Parameters<typeof assistantMetrics>[0] = {
+    content: [],
+    latency_ms: 5000,
+    usage: { input: 10, output: 30, reasoning: 100 },
+    ts: new Date(completed).toISOString(),
+  };
+
+  test("uses the first thinking clock and only output tokens", () => {
+    expect(assistantMetrics({
+      ...base,
+      content: [
+        { type: "thinking", text: "reasoning", started_ms: start + 1500 },
+        { type: "text", text: "answer", started_ms: start + 2500 },
+      ],
+    })).toEqual({ ttft_ms: 1500, output_tps: 30000 / 3500 });
+  });
+
+  test("uses text when its native clock comes before thinking", () => {
+    expect(assistantMetrics({
+      ...base,
+      content: [
+        { type: "thinking", text: "reasoning", started_ms: start + 1200 },
+        { type: "text", text: "answer", started_ms: start + 800 },
+      ],
+    })).toEqual({ ttft_ms: 800, output_tps: 30000 / 4200 });
+  });
+
+  test("skips blank output and reports TTFT without usage", () => {
+    const { usage: _usage, ...withoutUsage } = base;
+    expect(assistantMetrics({
+      ...withoutUsage,
+      content: [
+        { type: "text", text: "  ", started_ms: start + 100 },
+        { type: "text", text: "answer", started_ms: start + 1000 },
+      ],
+    })).toEqual({ ttft_ms: 1000 });
+  });
+
+  test("hides partial messages and missing or invalid inputs", () => {
+    const content = [{ type: "text" as const, text: "answer", started_ms: start + 1000 }];
+    expect(assistantMetrics({ ...base, content, partial: true })).toEqual({});
+    expect(assistantMetrics({ ...base, content, latency_ms: undefined })).toEqual({});
+    expect(assistantMetrics({ ...base, content, latency_ms: -1 })).toEqual({});
+    expect(assistantMetrics({ ...base, content, ts: "not a date" })).toEqual({});
+    expect(assistantMetrics({ ...base, content: [{ type: "text", text: "answer" }] })).toEqual({});
+    expect(assistantMetrics({ ...base, content: [{ type: "text", text: "answer", started_ms: 20 }] })).toEqual({});
+  });
+
+  test("hides negative TTFT and a zero output window independently", () => {
+    expect(assistantMetrics({
+      ...base,
+      content: [{ type: "text", text: "answer", started_ms: start - 1 }],
+    })).toEqual({ output_tps: 30000 / 5001 });
+    expect(assistantMetrics({
+      ...base,
+      content: [{ type: "text", text: "answer", started_ms: completed }],
+    })).toEqual({ ttft_ms: 5000 });
+    expect(assistantMetrics({
+      ...base,
+      usage: { input: 10, output: -1 },
+      content: [{ type: "text", text: "answer", started_ms: start + 1000 }],
+    })).toEqual({ ttft_ms: 1000 });
   });
 });
 

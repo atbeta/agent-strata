@@ -781,6 +781,42 @@ describe("OpencodeMapper", () => {
     expect((ta.data as { structured?: unknown }).structured).toEqual({ answer: 42 });
   });
 
+  test("text keeps native clocks from partial snapshots through the final message", () => {
+    const start = Date.parse("2026-10-22T10:00:00.000Z");
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    m.handle(msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: start } }));
+    m.handle(msgUpdated({
+      id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
+      time: { created: start }, providerID: "p", modelID: "m",
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    }));
+    const partial = m.handle(partUpdated({
+      id: "pt1", sessionID: sid, messageID: "a1", type: "text", text: "answer",
+      time: { start: start + 1000, end: start + 2000 },
+    }));
+    expect(partial.find((e) => e.type === "turn.assistant")?.data).toMatchObject({
+      partial: true,
+      content: [{ type: "text", text: "answer", started_ms: start + 1000, ended_ms: start + 2000 }],
+    });
+    m.handle(partUpdated({
+      id: "pt2", sessionID: sid, messageID: "a1", type: "text", text: "fixture clock",
+      time: { start: 20, end: 30 },
+    }));
+    const final = m.handle(msgUpdated({
+      id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
+      time: { created: start, completed: start + 5000 }, providerID: "p", modelID: "m",
+      cost: 0, finish: "stop",
+      tokens: { input: 1, output: 2, reasoning: 0, cache: { read: 0, write: 0 } },
+    }));
+    expect(final.find((e) => e.type === "turn.assistant")?.data).toMatchObject({
+      content: [
+        { type: "text", text: "answer", started_ms: start + 1000, ended_ms: start + 2000 },
+        { type: "text", text: "fixture clock" },
+      ],
+    });
+  });
+
   test("basic turn with reasoning+text+tool", () => {
     const m = new OpencodeMapper();
     const out = basicFixture().flatMap((e) => m.handle(e));
@@ -3125,7 +3161,7 @@ describe("what the user sent", () => {
   });
 
   test("the mapping version moved, so stored sessions are rebuilt", () => {
-    expect(OPENCODE_MAPPER_VERSION).toBe("opencode-13");
+    expect(OPENCODE_MAPPER_VERSION).toBe("opencode-14");
   });
 
   test("a reasoning part keeps the clock the backend reported", () => {
