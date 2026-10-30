@@ -28,6 +28,7 @@ import { requestSearchTarget } from "./search-target";
 import { installNotifyActions } from "./notify";
 import { StartupGate } from "./startup-gate";
 import { useStartup } from "./use-startup";
+import { ImageViewerHost } from "./image-viewer";
 import { SyncLine } from "./sync-line";
 import { changesSessionList, isDevEvent } from "./sync-events";
 
@@ -651,6 +652,7 @@ export function App() {
         onChoose={switcher.chooseSwitch}
         onCancel={() => switcher.setSwitchOpen(false)}
       />
+      <ImageViewerHost />
       </>
       </Show>
     </div>

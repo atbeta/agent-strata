@@ -33,3 +33,42 @@ export async function copyText(text: string): Promise<boolean> {
     if (prev?.focus && prev.isConnected) prev.focus();
   }
 }
+
+/**
+ * Pixels for the clipboard, or the address when pixels cannot be had.
+ *
+ * `clipboard.write` accepts PNG and nothing else in WebKit, so whatever the
+ * source was is decoded and re-encoded once. A source the page cannot read —
+ * a file the shell will not serve, a remote image without CORS — falls back
+ * to the address, which is still the useful thing to carry away.
+ */
+export async function copyImage(src: string): Promise<boolean> {
+  try {
+    const png = await pngOf(src);
+    if (png && typeof ClipboardItem === "function" && navigator.clipboard?.write) {
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
+      return true;
+    }
+  } catch {
+    // Fall through to the address.
+  }
+  return src ? copyText(src) : false;
+}
+
+async function pngOf(src: string): Promise<Blob | undefined> {
+  const blob = await (await fetch(src)).blob();
+  const bmp = await createImageBitmap(blob);
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = bmp.width;
+    canvas.height = bmp.height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return undefined;
+    ctx.drawImage(bmp, 0, 0);
+    return await new Promise<Blob | undefined>((resolve) =>
+      canvas.toBlob((b) => resolve(b ?? undefined), "image/png"),
+    );
+  } finally {
+    bmp.close();
+  }
+}

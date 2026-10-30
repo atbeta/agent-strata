@@ -7,6 +7,7 @@ import { stableBoundary } from "./md-stream";
 import { drawDiagram, isDiagramBlock } from "./mermaid";
 import { t } from "./i18n";
 import { MarkdownHtmlCache } from "./md-cache";
+import { openImage } from "./image-viewer";
 import { enqueuePaint } from "./paint-queue";
 import { useRowPaintHold, useRowPaintMode } from "./paint-mode";
 
@@ -117,7 +118,18 @@ export function Md(props: { text: string; class?: string; live?: boolean }) {
     release();
   });
 
-  return <div ref={host} class={`md ${props.class ?? ""}`} />;
+  return (
+    <div
+      ref={host}
+      class={`md ${props.class ?? ""}`}
+      onClick={(e) => {
+        const img = e.target instanceof HTMLImageElement ? e.target : undefined;
+        // A linked image navigates; it is a link first and a picture second.
+        if (!img || img.closest("a")) return;
+        openImage(img.currentSrc || img.src, img.alt);
+      }}
+    />
+  );
 }
 
 function syncCursor(host: HTMLElement, live: boolean) {

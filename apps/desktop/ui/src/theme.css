@@ -504,7 +504,7 @@ textarea {
     @apply border border-border px-2.5 py-1.5 text-left;
   }
   .md th { @apply bg-secondary font-medium; }
-  .md img { @apply max-w-full rounded-lg; }
+  .md img { @apply max-w-full cursor-zoom-in rounded-lg; }
 }
 
 /* Transcript message footers: hidden until the message they belong to is

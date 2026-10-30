@@ -57,6 +57,9 @@ export default {
   "transcript.thought": "思考",
   "transcript.stopped": "已停止生成",
   "transcript.image": "图片",
+  "transcript.image.view": "查看大图",
+  "transcript.image.copy": "复制图片",
+  "transcript.image.close": "关闭",
   "transcript.toolRun.one": "执行了 {n} 个工具",
   "transcript.toolRun.other": "执行了 {n} 个工具",
 

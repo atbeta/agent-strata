@@ -10,8 +10,9 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { copyText } from "./clipboard";
+import { copyImage, copyText } from "./clipboard";
 import { Icon, type Name } from "./icons";
+import { openImage } from "./image-viewer";
 import { Md } from "./md";
 import { enqueuePaint } from "./paint-queue";
 import { useRowPaintHold, useRowPaintMode } from "./paint-mode";
@@ -58,10 +59,40 @@ function MessageMenu(props: {
   onFork?: () => void;
   children: JSX.Element;
 }) {
+  /** What the right-click actually landed on — an image asks for image
+   *  actions, not a copy of the text around it. Read at open time below. */
+  let ctxImage: HTMLImageElement | undefined;
   return (
     <ContextMenu>
-      <ContextMenuTrigger class="contents">{props.children}</ContextMenuTrigger>
+      <ContextMenuTrigger class="contents">
+        <div
+          class="contents"
+          onContextMenu={(e) => {
+            ctxImage = e.target instanceof HTMLImageElement ? e.target : undefined;
+          }}
+        >
+          {props.children}
+        </div>
+      </ContextMenuTrigger>
       <ContextMenuContent class="min-w-40">
+        {(() => {
+          const img = ctxImage;
+          return img ? (
+            <>
+              <ContextMenuItem onSelect={() => openImage(img.currentSrc || img.src, img.alt)}>
+                <Icon name="maximize" class="size-3.5 text-muted-foreground" />
+                {t("transcript.image.view")}
+              </ContextMenuItem>
+              <ContextMenuItem
+                onSelect={() => void copyImage(img.currentSrc || img.src)}
+              >
+                <Icon name="copy" class="size-3.5 text-muted-foreground" />
+                {t("transcript.image.copy")}
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+            </>
+          ) : null;
+        })()}
         {(() => {
           // Read at open time: a selection the pointer just made is what a
           // "copy selection" item is for, and the menu renders lazily.
@@ -295,11 +326,23 @@ function ImageBlock(props: { block: Extract<ContentBlock, { type: "image" }> }) 
   const src = () => imageSrc(props.block);
   return (
     <Show when={src()} fallback={<p class="my-1 text-xs text-muted-foreground">{t("transcript.image")}</p>}>
-      <img
-        src={src()}
-        alt=""
-        class="my-2 max-h-80 max-w-full rounded-lg border border-border object-contain"
-      />
+      {(s) => (
+        <img
+          src={s()}
+          alt=""
+          role="button"
+          tabindex={0}
+          aria-label={t("transcript.image.view")}
+          draggable={false}
+          class="my-2 max-h-80 max-w-full cursor-zoom-in rounded-lg border border-border object-contain"
+          onClick={() => openImage(s())}
+          onKeyDown={(e) => {
+            if (e.key !== "Enter" && e.key !== " ") return;
+            e.preventDefault();
+            openImage(s());
+          }}
+        />
+      )}
     </Show>
   );
 }
