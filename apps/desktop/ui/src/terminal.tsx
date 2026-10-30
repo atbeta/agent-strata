@@ -28,6 +28,7 @@ import {
   shouldWarnFallback,
 } from "./terminal-shell";
 import { t } from "./i18n";
+import { createRequestOwner } from "./request-owner";
 
 export function TerminalPane(props: { sessionId: string; onEmpty?: () => void }) {
   const [tabs, setTabs] = createSignal<PtySession[]>([]);
@@ -38,15 +39,28 @@ export function TerminalPane(props: { sessionId: string; onEmpty?: () => void })
   const [ready, setReady] = createSignal(false);
   let host: HTMLDivElement | undefined;
   let opening = false;
+  const requests = createRequestOwner();
+  const sockets = createRequestOwner();
+  onCleanup(() => {
+    requests.invalidate();
+    sockets.invalidate();
+  });
 
   const fail = (e: unknown) => setErr(e instanceof Error ? e.message : t("terminal.failed"));
 
-  const load = async () => {
-    const listed = await listTerminals(props.sessionId);
-    setTabs(listed.sessions);
-    setShells(listed.shells ?? []);
-    applyFallback(listed.shells ?? []);
-    return listed.sessions;
+  const load = async (sessionId: string) => {
+    const token = requests.begin(sessionId);
+    try {
+      const listed = await listTerminals(sessionId);
+      if (!requests.isCurrent(token)) return undefined;
+      setTabs(listed.sessions);
+      setShells(listed.shells ?? []);
+      applyFallback(listed.shells ?? []);
+      return listed.sessions;
+    } catch (e) {
+      if (requests.isCurrent(token)) fail(e);
+      return undefined;
+    }
   };
 
   /**
@@ -79,20 +93,26 @@ export function TerminalPane(props: { sessionId: string; onEmpty?: () => void })
 
   const create = async (shell?: string) => {
     if (opening) return;
+    const sessionId = props.sessionId;
+    const token = requests.begin(sessionId);
     opening = true;
     setErr("");
     try {
-      const created = await openTerminal(props.sessionId, { title: nextTitle(), shell });
+      const created = await openTerminal(sessionId, { title: nextTitle(), shell });
+      if (!requests.isCurrent(token)) return;
       setTabs((rows) => [...rows.filter((row) => row.id !== created.id), created]);
       setActive(created.id);
     } catch (e) {
-      fail(e);
+      if (requests.isCurrent(token)) fail(e);
     } finally {
-      opening = false;
+      if (requests.isCurrent(token)) opening = false;
     }
   };
 
   const close = async (id: string) => {
+    const sessionId = props.sessionId;
+    const token = requests.begin(sessionId);
+    opening = false;
     setErr("");
     const next = tabs().filter((row) => row.id !== id);
     setTabs(next);
@@ -101,24 +121,25 @@ export function TerminalPane(props: { sessionId: string; onEmpty?: () => void })
     // so the panel folds itself away rather than waiting for a new tab.
     if (next.length === 0) props.onEmpty?.();
     try {
-      await closeTerminal(props.sessionId, id);
+      await closeTerminal(sessionId, id);
     } catch (e) {
-      fail(e);
+      if (requests.isCurrent(token)) fail(e);
     }
   };
 
   createEffect(() => {
     const session = props.sessionId;
+    requests.invalidate();
+    sockets.invalidate();
+    opening = false;
     setErr("");
-    void load()
-      .then((rows) => {
-        if (session !== props.sessionId) return;
-        const current = rows.find((row) => row.id === active());
-        if (current) return;
-        if (rows[0]) setActive(rows[0].id);
-        else void create(defaultShell());
-      })
-      .catch(fail);
+    void load(session).then((rows) => {
+      if (!rows || session !== props.sessionId) return;
+      const current = rows.find((row) => row.id === active());
+      if (current) return;
+      if (rows[0]) setActive(rows[0].id);
+      else void create(defaultShell());
+    });
   });
 
   createEffect(() => {
@@ -126,6 +147,8 @@ export function TerminalPane(props: { sessionId: string; onEmpty?: () => void })
     const id = active();
     const el = host;
     if (!id || !el) return;
+    const sessionId = props.sessionId;
+    const token = sockets.begin(sessionId);
     const term = new Terminal({
       cursorBlink: true,
       fontFamily: termFont(),
@@ -143,28 +166,36 @@ export function TerminalPane(props: { sessionId: string; onEmpty?: () => void })
     let ws: WebSocket | undefined;
     let wsClosed = false;
     let fitted = false;
+    const socketCurrent = () => !wsClosed && sockets.isCurrent(token);
     const applySize = () => {
+      if (!socketCurrent()) return;
       fit.fit();
       if (term.cols < 1 || term.rows < 1) return;
-      void resizeTerminal(props.sessionId, id, term.rows, term.cols).catch(() => {});
+      void resizeTerminal(sessionId, id, term.rows, term.cols).catch(() => {});
     };
-    void terminalSocket(props.sessionId, id).then((url) => {
-      if (wsClosed) return;
+    void terminalSocket(sessionId, id).then((url) => {
+      if (!socketCurrent()) return;
       const socket = new WebSocket(url);
       ws = socket;
       socket.binaryType = "arraybuffer";
       socket.onopen = () => {
+        if (!socketCurrent()) return;
         fitted = true;
         applySize();
       };
       socket.onmessage = (ev) => {
+        if (!socketCurrent()) return;
         if (typeof ev.data === "string") term.write(ev.data);
         else term.write(new Uint8Array(ev.data as ArrayBuffer));
       };
-      socket.onclose = () => term.write(`\r\n${t("terminal.closed")}\r\n`);
+      socket.onclose = () => {
+        if (socketCurrent()) term.write(`\r\n${t("terminal.closed")}\r\n`);
+      };
       term.onData((data) => {
-        if (socket.readyState === WebSocket.OPEN) socket.send(data);
+        if (socketCurrent() && socket.readyState === WebSocket.OPEN) socket.send(data);
       });
+    }).catch((e) => {
+      if (socketCurrent()) fail(e);
     });
     const observer = new ResizeObserver(() => {
       if (fitted) applySize();
@@ -177,6 +208,7 @@ export function TerminalPane(props: { sessionId: string; onEmpty?: () => void })
     };
     window.addEventListener("strata-fonts", onFonts);
     onCleanup(() => {
+      sockets.invalidate();
       window.removeEventListener("strata-fonts", onFonts);
       observer.disconnect();
       wsClosed = true;

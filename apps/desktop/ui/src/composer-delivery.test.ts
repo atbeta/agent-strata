@@ -1,0 +1,121 @@
+import { describe, expect, test } from "bun:test";
+import { createComposerDelivery } from "./composer-delivery";
+import type { Outgoing } from "./composer-input";
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+const out = (text: string, sessionId = "a"): Outgoing => ({
+  text,
+  picked: ["a.ts"],
+  attachments: [{ id: "one", name: "a.png", mime: "image/png", url: "data:image/png;base64,AA==" }],
+  sessionId,
+});
+
+function memoryQueue() {
+  const values = new Map<string, string[]>();
+  return {
+    readQueued: (id: string) => [...(values.get(id) ?? [])],
+    writeQueued: (id: string, texts: readonly string[]) => {
+      if (texts.length) values.set(id, [...texts]);
+      else values.delete(id);
+    },
+    values,
+  };
+}
+
+describe("composer delivery settlement", () => {
+  test("a successful A response after switching to B does not write B", async () => {
+    const queue = memoryQueue();
+    const delivery = createComposerDelivery(queue);
+    const pending = deferred<void>();
+    let visible = "B draft";
+    let requests = 0;
+
+    const sending = delivery.settle({
+      sessionId: "a",
+      out: out("from A"),
+      request: () => {
+        requests++;
+        return pending.promise;
+      },
+      onSuccess: () => {
+        visible = "A success polluted B";
+      },
+      onFailure: () => {
+        visible = "A failure polluted B";
+      },
+    });
+    delivery.invalidate();
+    pending.resolve();
+
+    expect(await sending).toBe("stale-success");
+    expect(visible).toBe("B draft");
+    expect(queue.values.has("a")).toBe(false);
+    expect(requests).toBe(1);
+  });
+
+  test("a failed A response is retained for A without touching or resending into B", async () => {
+    const queue = memoryQueue();
+    const delivery = createComposerDelivery(queue);
+    const pending = deferred<void>();
+    let visible = "B draft";
+    let requests = 0;
+
+    const sending = delivery.settle({
+      sessionId: "a",
+      out: out("from A"),
+      request: () => {
+        requests++;
+        return pending.promise;
+      },
+      onSuccess: () => {
+        visible = "A success polluted B";
+      },
+      onFailure: () => {
+        visible = "A failure polluted B";
+      },
+    });
+    delivery.invalidate();
+    pending.reject(new Error("offline"));
+
+    expect(await sending).toBe("stale-failure");
+    expect(visible).toBe("B draft");
+    expect(queue.values.get("a")).toEqual(["from A"]);
+
+    const restored = delivery.restore("a", {
+      text: "typed on return",
+      picked: ["b.ts"],
+      attachments: [],
+      sessionId: "a",
+    });
+    expect(restored.draft.text).toBe("from A\ntyped on return");
+    expect(restored.draft.picked).toEqual(["a.ts", "b.ts"]);
+    expect(restored.draft.attachments.map((a) => a.id)).toEqual(["one"]);
+    expect(queue.values.has("a")).toBe(false);
+    expect(requests).toBe(1);
+  });
+
+  test("a current failure still reports to the visible session", async () => {
+    const delivery = createComposerDelivery();
+    let error = "";
+    const result = await delivery.settle({
+      sessionId: "a",
+      out: out("kept"),
+      request: () => Promise.reject(new Error("no")),
+      onSuccess: () => {},
+      onFailure: () => {
+        error = "no";
+      },
+    });
+    expect(result).toBe("failure");
+    expect(error).toBe("no");
+  });
+});

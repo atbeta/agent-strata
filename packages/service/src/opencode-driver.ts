@@ -105,6 +105,7 @@ export async function connectOpencodeDriver(opts: {
     mcpAuthFinish: (name, code, directory, signal) => conn.mcpAuthFinish(name, code, directory, signal),
     revert: (nativeId, messageId, directory) => conn.revert(nativeId, messageId, directory),
     unrevert: (nativeId, directory) => conn.unrevert(nativeId, directory),
+    replyPermission: (requestId, reply, directory) => conn.replyPermission(requestId, reply, directory),
     replyQuestion: (requestId, answers, directory) => conn.replyQuestion(requestId, answers, directory),
     rejectQuestion: (requestId, directory) => conn.rejectQuestion(requestId, directory),
     async fork(nativeId, messageId, directory) {

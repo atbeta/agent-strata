@@ -2,7 +2,7 @@
 // The desktop shell (Tauri) runs this as a sidecar and talks to it over
 // localhost. One store file, many backend connections, SSE fan-out to clients.
 
-import { mkdirSync, readFileSync, unlinkSync, watch } from "node:fs";
+import { mkdirSync, readFileSync, unlinkSync, unwatchFile, watchFile } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { openStore, type Store, type EventQuery } from "@agent-strata/store";
@@ -10,6 +10,7 @@ import { projectSession, aggregate, emptySessionView, runningShell, type Session
 import { compareSessions, exportEvents, sessionBriefing } from "@agent-strata/core";
 import { autoAccept, evaluate, loadPolicy, type Policy } from "@agent-strata/policy";
 import { UnknownCommandError } from "@agent-strata/adapter-opencode";
+import type { OpencodeLaunchMode, OpencodeLaunchState } from "@agent-strata/api";
 import type { BackendDriver, BackendSink, ModelChoice, PromptPart } from "./driver";
 import { connectOpencodeDriver } from "./opencode-driver";
 import { LiveOverlay } from "./live";
@@ -47,6 +48,7 @@ import { writeSecureJson } from "./secure-write";
 import { terminalClose, terminalMessage, terminalOpen, terminalRoute, terminalUpgrade } from "./terminal";
 import { createDevManager, type DevEvent } from "./dev-process";
 import { SessionClaims } from "./identity";
+import { promptRoute, type PendingAsk, type PendingQuestion } from "./prompt-routes";
 
 /** A log read is bounded by what a person can read, not by what the process wrote. */
 const MAX_DEV_LOG_TAIL = 5000;
@@ -70,30 +72,6 @@ export interface ServiceOpts {
   desktopDir?: string;
 }
 
-interface PendingAsk {
-  request_id: string;
-  session_id: string;
-  tool: string;
-  input: Record<string, unknown>;
-  asked_at: string;
-  call_id?: string;
-  resolve: (ans: { decision: "allow" | "deny"; scope?: "once" | "always"; external?: boolean }) => void;
-}
-
-interface PendingQuestion {
-  request_id: string;
-  session_id: string;
-  questions: {
-    question: string;
-    header: string;
-    options: { label: string; description: string }[];
-    multiple?: boolean;
-    custom?: boolean;
-  }[];
-  asked_at: string;
-  resolve: (ans: { decision: "reply" | "reject"; answers?: string[][]; external?: boolean }) => void;
-}
-
 export interface RunningService {
   port: number;
   store: Store;
@@ -111,6 +89,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   // launch; a service started by hand runs without it and asks for nothing.
   const apiToken = readApiToken(opts);
   const store = openStore(opts.db ?? ":memory:");
+  let stopped = false;
   const conns = new Map<string, BackendDriver>();
   // casf session id -> driver id, filled as sessions are indexed or created
   const owners = new Map<string, string>();
@@ -542,6 +521,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
    *  stays dismissed — its replacement is a new server, not the same row back. */
   const dismissedEmbedded = new Map<string, string>();
   const connectBackend = (body: ConnectBody): Promise<{ id: string; indexed: number }> => {
+    if (stopped) return Promise.reject(new Error("service is stopped"));
     const key = endpointOf(body);
     const pending = inflightConnects.get(key);
     if (pending) return pending;
@@ -550,6 +530,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     return job;
   };
   const connectOnce = async (body: ConnectBody): Promise<{ id: string; indexed: number }> => {
+    if (stopped) throw new Error("service is stopped");
     const backend = body.backend ?? "opencode";
     const endpoint = endpointOf(body);
     const already = [...conns.values()].find((c) => c.baseUrl === endpoint);
@@ -619,6 +600,10 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     } else {
       throw new Error(`backend ${backend} is not registered`);
     }
+    if (stopped) {
+      driver.stop();
+      throw new Error("service is stopped");
+    }
     conns.set(driver.id, driver);
     connPassword.set(driver.id, body.password);
     let indexed: string[] = [];
@@ -627,6 +612,10 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       for (const casfId of indexed) owners.set(casfId, driver.id);
     } catch (e) {
       console.error(`index sessions on ${driver.id} failed: ${e}`);
+    }
+    if (stopped) {
+      driver.stop();
+      throw new Error("service is stopped");
     }
     void syncDriver(driver).catch((e) => console.error(`sync ${driver.id} failed: ${e}`));
     finishAttempt(endpoint);
@@ -720,7 +709,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
    * whose pair no longer matches is replaced rather than trusted.
    */
   const reconcileEmbedded = () => {
-    if (readOpencodeMode(desktopDir) !== "embed") return;
+    if (stopped || readOpencodeMode(desktopDir) !== "embed") return;
     const status = readOpencodeStatus(desktopDir);
     const url = status.url;
     if (status.state !== "running" || !url || !status.username || !status.password) return;
@@ -746,17 +735,18 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       .then(() => memory.remember(body))
       .catch((e) => failAttempt(body, e, true));
   };
-  // Every status transition lands in that file — the watcher is the trigger
-  // and the slow interval the fallback for writes it missed.
+  // Polling is cheap to unregister; closing fs.watch can block for seconds on macOS.
+  const statusFile = join(desktopDir, "opencode-status.json");
+  let reconcileTimer: ReturnType<typeof setTimeout> | undefined;
+  const onStatusChange = () => {
+    if (stopped) return;
+    clearTimeout(reconcileTimer);
+    reconcileTimer = setTimeout(reconcileEmbedded, 200);
+  };
   try {
-    let reconcileTimer: ReturnType<typeof setTimeout> | undefined;
-    const watcher = watch(desktopDir, (_event, filename) => {
-      if (filename !== "opencode-status.json") return;
-      clearTimeout(reconcileTimer);
-      reconcileTimer = setTimeout(reconcileEmbedded, 200);
-    });
+    const statusWatcher = watchFile(statusFile, { interval: 200 }, onStatusChange);
     // An in-process service — a test — must be free to exit when done.
-    watcher.unref?.();
+    statusWatcher.unref();
   } catch {
     // No desktop directory to watch; the interval below still catches up.
   }
@@ -1935,29 +1925,40 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       return json(evaluate(p, { tool: body.tool, input: body.input ?? {} }));
     }
 
-    if (path === "/permissions" && req.method === "GET") {
-      return json({
-        pending: [...pendingAsks.values()].map(({ resolve: _r, ...p }) => p),
-      });
-    }
-
-    const permMatch = path.match(/^\/permissions\/([^/]+)\/respond$/);
-    if (permMatch && req.method === "POST") {
-      const ask = pendingAsks.get(decodeURIComponent(permMatch[1]!));
-      if (!ask) return json({ error: "no pending ask" }, 404);
-      const body = (await req.json().catch(() => ({}))) as {
-        decision?: string;
-        scope?: "once" | "always";
-      };
-      const decision = body.decision === "deny" ? "deny" : "allow";
-      pendingAsks.delete(ask.request_id);
-      rememberAsk(ask.request_id, decision);
-      ask.resolve({
-        decision,
-        scope: body.scope,
-      });
-      return json({ ok: true });
-    }
+    const prompted = await promptRoute(req, path, {
+      pendingAsks,
+      pendingQuestions,
+      driverFor,
+      directoryOf,
+      rememberAsk,
+      resolvePermissionLocally(sessionId, requestId, decision, scope) {
+        store.append([
+          makeEvent({
+            id: `opencode:${requestId}:permission.resolved`,
+            session_id: sessionId,
+            source: { backend: "desktop" },
+            type: "permission.resolved",
+            data: { request_id: requestId, decision, by: "user", scope: scope ?? "once" },
+          }) as EventInput,
+        ]);
+        settleAsk(requestId, decision);
+      },
+      sessionIdOfPendingQuestion,
+      replyQuestion,
+      resolveQuestionLocally(sessionId, requestId, decision, answers) {
+        store.append([
+          makeEvent({
+            id: `opencode:${requestId}:question.resolved`,
+            session_id: sessionId,
+            source: { backend: "desktop" },
+            type: "question.resolved",
+            data: { request_id: requestId, decision, answers },
+          }) as EventInput,
+        ]);
+        settleQuestion(requestId);
+      },
+    });
+    if (prompted) return prompted;
 
     if (path === "/questions" && req.method === "GET") {
       // Read from the projection rather than from `pendingQuestions`. That map
@@ -1974,41 +1975,6 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         sessionView(session_id).pending_questions.map((q) => ({ ...q, session_id })),
       );
       return json({ pending });
-    }
-
-    const questionMatch = path.match(/^\/questions\/([^/]+)\/respond$/);
-    if (questionMatch && req.method === "POST") {
-      const requestId = decodeURIComponent(questionMatch[1]!);
-      const q = pendingQuestions.get(requestId);
-      const body = (await req.json().catch(() => ({}))) as {
-        decision?: string;
-        answers?: string[][];
-      };
-      const decision = body.decision === "reject" ? "reject" : "reply";
-      if (q) {
-        pendingQuestions.delete(q.request_id);
-        q.resolve({ decision, answers: body.answers });
-        return json({ ok: true });
-      }
-      // Not in the map — the service restarted while the question was still
-      // open, so there is no promise to resolve. That does not make the answer
-      // wrong. It is recorded against the session that asked it, which is what
-      // the projection reads and therefore what retires the card; and the
-      // backend is told directly, because it is the one holding the turn.
-      const sessionId = sessionIdOfPendingQuestion(requestId);
-      if (!sessionId) return json({ error: "no pending question" }, 404);
-      store.append([
-        makeEvent({
-          session_id: sessionId,
-          source: { backend: "desktop" },
-          type: "question.resolved",
-          data: { request_id: requestId, decision, answers: body.answers },
-        }) as EventInput,
-      ]);
-      await replyQuestion(sessionId, requestId, decision, body.answers).catch((err) =>
-        console.error("question reply failed:", err),
-      );
-      return json({ ok: true });
     }
 
     if (path === "/desktop/editor" && req.method === "POST") {
@@ -2298,7 +2264,13 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     store,
     sink,
     stop: () => {
+      if (stopped) return;
+      stopped = true;
+      clearTimeout(reconcileTimer);
+      clearInterval(reconcilePoll);
+      unwatchFile(statusFile, onStatusChange);
       for (const c of conns.values()) c.stop();
+      conns.clear();
       // Nothing outlives the service: a dev server still listening after the
       // app is gone is the orphan this module exists to prevent.
       void dev.stopAll();
@@ -2307,18 +2279,6 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     },
   };
 }
-
-type OpencodeLaunchMode = "embed" | "external";
-type OpencodeLaunchState =
-  | "starting"
-  | "running"
-  | "missing"
-  | "restarting"
-  | "stopped"
-  | "external"
-  | "authRequired"
-  | "authFailed"
-  | "unmanaged";
 
 function isOpencodeMode(value: unknown): value is OpencodeLaunchMode {
   return value === "embed" || value === "external";

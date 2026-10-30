@@ -14,16 +14,10 @@ import { planVisible } from "./plan-progress";
 import { PlanStrip } from "./plan-strip";
 import { TurnBlock } from "./transcript";
 import { TranscriptView } from "./transcript-view";
-import { applyStreamingSnapshot, mergeViewTail, runInProgress, type StreamingSnapshot } from "./live";
+import { applyStreamingSnapshot, runInProgress, type StreamingSnapshot } from "./live";
 import { isDevEvent } from "./sync-events";
-import {
-  filesKeyOf,
-  peekView,
-  rememberView,
-  tailMatches,
-  TAIL_TURNS,
-  viewFromTail,
-} from "./view-cache";
+import { createSessionViewLoader } from "./session-view-loader";
+import { peekView, rememberView, TAIL_TURNS } from "./view-cache";
 import { t } from "./i18n";
 import { clearPaneBusy, publishPaneBusy } from "./pane-activity";
 import type { SessionRowSummary } from "./pane-stage";
@@ -53,10 +47,15 @@ export function PeerSessionTranscript(props: {
   const [booting, setBooting] = createSignal(!opening);
   let filesKey: string | undefined = opening?.filesKey;
   let forceFull = false;
-  let fetchGen = 0;
   let alive = true;
+  const viewLoader = createSessionViewLoader({
+    readFull: (id) => getJson<SessionView>(`/sessions/${encodeURIComponent(id)}/view`),
+    readTail: (id, key) => readViewTail(id, TAIL_TURNS, key),
+    currentSessionId: () => props.sessionId,
+  });
   onCleanup(() => {
     alive = false;
+    viewLoader.invalidate();
     // This pane stops vouching for the session the moment it stops existing. A
     // claim outliving its pane is the exact failure `pane-activity` was written
     // to remove, reintroduced by the cleanup that was supposed to prevent it.
@@ -65,38 +64,30 @@ export function PeerSessionTranscript(props: {
 
   const [view, { refetch, mutate }] = createResource(
     () => props.sessionId,
-    (id: string) => {
-      const gen = ++fetchGen;
-      const path = `/sessions/${encodeURIComponent(id)}/view`;
+    async (id: string) => {
+      viewLoader.invalidate();
       const fullNow = forceFull;
       forceFull = false;
       if (fullNow) {
-        return getJson<SessionView>(path).then((full) => {
-          if (gen === fetchGen) {
-            filesKey = filesKeyOf(full);
-            rememberView(id, full, filesKey);
-          }
-          return full;
+        const full = await viewLoader.loadFull(id, null, (loaded, keyOf) => {
+          filesKey = keyOf;
+          rememberView(id, loaded, keyOf);
         });
+        return full ?? peekView(props.sessionId)?.view;
       }
       const hit = peekView(id);
       if (hit) {
-        if (hit.filesKey) filesKey = hit.filesKey;
-        return Promise.resolve(hit.view);
+        filesKey = hit.filesKey;
+        return hit.view;
       }
-      return readViewTail(id, TAIL_TURNS).then(async (tail) => {
-        if (gen !== fetchGen) return viewFromTail(tail);
-        if (alive) {
-          filesKey = tail.files_key;
-          mutate(viewFromTail(tail));
-        }
-        const full = await getJson<SessionView>(path).catch(() => undefined);
-        if (gen !== fetchGen || !full) return viewFromTail(tail);
-        const keyOf = filesKeyOf(full);
-        if (alive) filesKey = keyOf;
+      const loaded = await viewLoader.loadCold(id, (preview, keyOf) => {
+        filesKey = keyOf;
+        mutate(preview);
+      }, (full, keyOf) => {
+        filesKey = keyOf;
         rememberView(id, full, keyOf);
-        return full;
       });
+      return loaded ?? peekView(props.sessionId)?.view;
     },
     opening ? { initialValue: opening.view } : undefined,
   );
@@ -128,28 +119,18 @@ export function PeerSessionTranscript(props: {
             forceFull = true;
             await refetch();
             if (!alive) return;
-            const fullView = settled(view);
-            if (fullView) {
-              filesKey = filesKeyOf(fullView);
-              rememberView(props.sessionId, fullView, filesKey);
-            }
           } else {
-            const tail = await readViewTail(props.sessionId, TAIL_TURNS, filesKey);
-            if (!alive) return;
-            const base = settled(view) ?? current;
-            if (tailMatches(base, tail)) {
-              filesKey = tail.files_key;
-              rememberView(props.sessionId, base, filesKey);
-            } else {
-              const merged = mergeViewTail(base, tail);
-              if (!merged) {
-                filesKey = undefined;
-                wantFull = true;
-                continue;
-              }
-              filesKey = tail.files_key;
-              mutate(merged);
-              rememberView(props.sessionId, merged, filesKey);
+            const id = props.sessionId;
+            const outcome = await viewLoader.refreshTail(id, filesKey, () => settled(view) ?? current, (next, keyOf, changed) => {
+              filesKey = keyOf;
+              if (changed) mutate(next);
+              rememberView(id, next, keyOf);
+            });
+            if (!alive || outcome === "stale") return;
+            if (outcome === "full") {
+              filesKey = undefined;
+              wantFull = true;
+              continue;
             }
           }
           if (!nextRefresh) break;

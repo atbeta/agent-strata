@@ -24,16 +24,18 @@ export class ViewCache {
     let entry = this.entries.get(sessionId);
     if (entry) {
       this.entries.delete(sessionId);
-      if (head > entry.head) {
-        const more = this.store.read({ session_id: sessionId, after_seq: entry.head, limit: 20_000 });
-        entry.events = entry.events.concat(more);
-        entry.head = more.at(-1)?.seq ?? entry.head;
-        entry.view = undefined;
-        entry.body = undefined;
-      }
     } else {
-      const events = this.store.read({ session_id: sessionId, limit: 20_000 });
-      entry = { events, head: events.at(-1)?.seq ?? 0 };
+      entry = { events: [], head: 0 };
+    }
+    if (head > entry.head) {
+      entry.view = undefined;
+      entry.body = undefined;
+      while (entry.head < head) {
+        const more = this.store.read({ session_id: sessionId, after_seq: entry.head, limit: 20_000 });
+        if (more.length === 0) break;
+        entry.events = entry.events.concat(more);
+        entry.head = more.at(-1)!.seq;
+      }
     }
     this.entries.set(sessionId, entry);
     while (this.entries.size > CAPACITY) {

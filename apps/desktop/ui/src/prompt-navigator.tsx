@@ -128,10 +128,13 @@ export function PromptNavigator(props: {
   // Positions are arithmetic (fixed row size), so the check needs no layout
   // read; the frame delay just coalesces a run of activeId moves into one
   // scroll decision against the layout the reader sees.
+  let railScrollVersion = 0;
   createEffect(() => {
     const id = props.activeId;
     if (!id) return;
+    const scheduledVersion = railScrollVersion;
     const raf = requestAnimationFrame(() => {
+      if (scheduledVersion !== railScrollVersion) return;
       const i = byId().get(id);
       if (i === undefined || !rail) return;
       const top = i * rowPx();
@@ -418,7 +421,10 @@ export function PromptNavigator(props: {
         class={`rail overflow-y-auto overscroll-contain ${chrome() ? "min-h-0 w-full flex-1" : "h-full"}`}
         role="group"
         aria-label={t("nav.outline", { n: props.entries.length })}
-        onScroll={(e) => setRailTop(e.currentTarget.scrollTop)}
+        onScroll={(e) => {
+          railScrollVersion++;
+          setRailTop(e.currentTarget.scrollTop);
+        }}
         onPointerMove={onRailMove}
         onPointerLeave={onRailLeave}
         onKeyDown={onKey}

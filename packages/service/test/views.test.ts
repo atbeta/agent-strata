@@ -38,4 +38,31 @@ describe("view body cache", () => {
     expect(JSON.parse(cache.viewBody("a")).title).toBe("rebuilt");
     store.close();
   });
+
+  test("a cold read loads every page", () => {
+    const store = openStore(":memory:");
+    store.append(Array.from({ length: 20_001 }, (_, i) =>
+      mk("a", "turn.user", { turn_id: `t${i}`, content: [] }),
+    ));
+    const cache = new ViewCache(store);
+
+    expect(cache.events("a")).toHaveLength(20_001);
+    expect(JSON.parse(cache.viewBody("a")).turns).toHaveLength(20_001);
+    store.close();
+  });
+
+  test("a bulk append invalidates the cached view and reads every page", () => {
+    const store = openStore(":memory:");
+    store.append([mk("a", "turn.user", { turn_id: "t0", content: [] })]);
+    const cache = new ViewCache(store);
+    expect(JSON.parse(cache.viewBody("a")).turns).toHaveLength(1);
+
+    store.append(Array.from({ length: 20_001 }, (_, i) =>
+      mk("a", "turn.user", { turn_id: `t${i + 1}`, content: [] }),
+    ));
+
+    expect(cache.events("a")).toHaveLength(20_002);
+    expect(JSON.parse(cache.viewBody("a")).turns).toHaveLength(20_002);
+    store.close();
+  });
 });

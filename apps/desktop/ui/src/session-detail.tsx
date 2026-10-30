@@ -66,18 +66,12 @@ import { createTraceData } from "./trace-data";
 import { TerminalPane } from "./terminal";
 import { TurnBlock } from "./transcript";
 import { TranscriptView, type TranscriptApi } from "./transcript-view";
-import { applyStreamingSnapshot, mergeViewTail, type StreamingSnapshot } from "./live";
+import { applyStreamingSnapshot, type StreamingSnapshot } from "./live";
 import { ECHO_TURN_ID } from "./prompt-echo";
 import { descendantSessions } from "./session-tree";
 import { ChildBoard } from "./child-board";
-import {
-  filesKeyOf,
-  peekView,
-  rememberView,
-  tailMatches,
-  TAIL_TURNS,
-  viewFromTail,
-} from "./view-cache";
+import { createSessionViewLoader } from "./session-view-loader";
+import { peekView, rememberView, TAIL_TURNS } from "./view-cache";
 import { registerCommand } from "./commands";
 import { LayoutSwitcher, PaneStage, type SessionRowSummary } from "./pane-stage";
 import {
@@ -275,52 +269,54 @@ export function SessionDetail(props: {
   // an unchanged list off the wire. forceFull skips the cache for one fetch.
   let filesKey: string | undefined = opening?.filesKey;
   let forceFull = false;
-  let fetchGen = 0;
   let viewAlive = true;
+  const viewLoader = createSessionViewLoader({
+    readFull: (id, replayPos) => getJson<SessionView>(
+      `/sessions/${encodeURIComponent(id)}/view${replayPos != null ? `?until_seq=${replayPos}` : ""}`,
+    ),
+    readTail: (id, key) => readViewTail(id, TAIL_TURNS, key),
+    currentSessionId: () => props.id,
+  });
   /** Consecutive automatic reload attempts after a failed one. */
   let retries = 0;
   onCleanup(() => {
     viewAlive = false;
+    viewLoader.invalidate();
   });
   const [view, { refetch, mutate }] = createResource(
     () => ({ id: props.id, pos: replayPos() }),
-    (key: { id: string; pos: number | null }) => {
-      const gen = ++fetchGen;
-      const path = `/sessions/${encodeURIComponent(key.id)}/view`;
+    async (key: { id: string; pos: number | null }) => {
+      viewLoader.invalidate();
       // Consume the flag even when this fetch is a replay, so leaving the
       // replay does not turn the next live open into a full download.
       const fullNow = forceFull;
       forceFull = false;
-      if (key.pos !== null) return getJson<SessionView>(`${path}?until_seq=${key.pos}`);
+      if (key.pos !== null) {
+        const replay = await viewLoader.loadFull(key.id, key.pos, () => {});
+        return replay ?? peekView(props.id)?.view;
+      }
       if (fullNow) {
-        return getJson<SessionView>(path).then((full) => {
-          if (gen === fetchGen) {
-            filesKey = filesKeyOf(full);
-            rememberView(key.id, full, filesKey);
-          }
-          return full;
+        const full = await viewLoader.loadFull(key.id, null, (loaded, keyOf) => {
+          filesKey = keyOf;
+          rememberView(key.id, loaded, keyOf);
         });
+        return full ?? peekView(props.id)?.view;
       }
       const hit = peekView(key.id);
       if (hit) {
-        if (hit.filesKey) filesKey = hit.filesKey;
-        return Promise.resolve(hit.view);
+        filesKey = hit.filesKey;
+        return hit.view;
       }
       // Paint the tail, then replace it with the settled view. The preview is
       // not cached: storing it would make the next open a transcript with no history.
-      return readViewTail(key.id, TAIL_TURNS).then(async (tail) => {
-        if (gen !== fetchGen) return viewFromTail(tail);
-        if (viewAlive) {
-          filesKey = tail.files_key;
-          mutate(viewFromTail(tail));
-        }
-        const full = await getJson<SessionView>(path).catch(() => undefined);
-        if (gen !== fetchGen || !full) return viewFromTail(tail);
-        const keyOf = filesKeyOf(full);
-        if (viewAlive) filesKey = keyOf;
+      const loaded = await viewLoader.loadCold(key.id, (preview, keyOf) => {
+        filesKey = keyOf;
+        mutate(preview);
+      }, (full, keyOf) => {
+        filesKey = keyOf;
         rememberView(key.id, full, keyOf);
-        return full;
       });
+      return loaded ?? peekView(props.id)?.view;
     },
     opening ? { initialValue: opening.view } : undefined,
   );
@@ -580,32 +576,18 @@ export function SessionDetail(props: {
           forceFull = true;
           await refetch();
           if (!viewAlive || replayPos() !== null) return;
-          const fullView = settled(view);
-          if (fullView) {
-            filesKey = filesKeyOf(fullView);
-            rememberView(props.id, fullView, filesKey);
-          }
         } else {
-          const tail = await readViewTail(props.id, TAIL_TURNS, filesKey);
-          if (!viewAlive || replayPos() !== null) return;
-          if (view.loading) {
-            nextRefresh = nextRefresh ?? "tail";
+          const id = props.id;
+          const outcome = await viewLoader.refreshTail(id, filesKey, () => settled(view) ?? current, (next, keyOf, changed) => {
+            filesKey = keyOf;
+            if (changed) mutate(next);
+            rememberView(id, next, keyOf);
+          });
+          if (!viewAlive || replayPos() !== null || outcome === "stale") return;
+          if (outcome === "full") {
+            filesKey = undefined;
+            wantFull = true;
             continue;
-          }
-          const base = settled(view) ?? current;
-          if (tailMatches(base, tail)) {
-            filesKey = tail.files_key;
-            rememberView(props.id, base, filesKey);
-          } else {
-            const merged = mergeViewTail(base, tail);
-            if (!merged) {
-              filesKey = undefined;
-              wantFull = true;
-              continue;
-            }
-            filesKey = tail.files_key;
-            mutate(merged);
-            rememberView(props.id, merged, filesKey);
           }
         }
         if (!nextRefresh) break;

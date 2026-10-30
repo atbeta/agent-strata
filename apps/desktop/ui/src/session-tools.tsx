@@ -1,4 +1,4 @@
-import { createEffect, createSignal, onCleanup, For, Show } from "solid-js";
+import { createEffect, createSignal, on, onCleanup, For, Show } from "solid-js";
 import {
   addMcp,
   beginMcpLogin,
@@ -25,6 +25,7 @@ import { Tip } from "./tip";
 import { Button } from "@/components/ui/button";
 import { MiniTabs } from "@/components/ui/mini-tabs";
 import { TextFieldInput } from "@/components/ui/text-field";
+import { createRequestOwner } from "./request-owner";
 
 const MCP_STATUS: Record<McpServerStatus["status"], MessageKey> = {
   connected: "mcp.status.connected",
@@ -80,17 +81,41 @@ export function useMcpTools(args: {
   const [mcpBusy, setMcpBusy] = createSignal<string>();
   const [mcpNote, setMcpNote] = createSignal<{ name: string; text: string }>();
   const [mcpAddOpen, setMcpAddOpen] = createSignal(false);
+  const loads = createRequestOwner();
+  const actions = createRequestOwner();
+  const authRequests = createRequestOwner();
 
-  const loadTools = async (report: boolean) => {
+  const loadTools = async (report: boolean): Promise<boolean> => {
+    const sessionId = args.sessionId();
+    const token = loads.begin(sessionId);
     try {
-      const mcp = await readMcp(args.sessionId());
+      const mcp = await readMcp(sessionId);
+      if (!loads.isCurrent(token)) return false;
       setMcpServers(Object.entries(mcp ?? {}).sort(([a], [b]) => a.localeCompare(b)));
+      return true;
     } catch (err) {
-      if (report) args.onError(err instanceof Error ? err.message : t("err.network"));
+      if (report && loads.isCurrent(token)) args.onError(err instanceof Error ? err.message : t("err.network"));
+      return false;
     } finally {
-      setToolsReady(true);
+      if (loads.isCurrent(token)) setToolsReady(true);
     }
   };
+
+  createEffect(on(() => args.sessionId(), () => {
+    loads.invalidate();
+    actions.invalidate();
+    authRequests.invalidate();
+    mcpAuthWait?.abort();
+    mcpAuthWait = undefined;
+    setToolsReady(false);
+    setMcpServers([]);
+    setMcpBusy(undefined);
+    setMcpAdding(false);
+    setMcpNote(undefined);
+    setMcpAddErr("");
+    setMcpAuth(undefined);
+    setMcpCode("");
+  }, { defer: true }));
 
   const toggleTools = () => {
     if (toolsOpen()) {
@@ -110,20 +135,24 @@ export function useMcpTools(args: {
   });
 
   const toggleMcp = async (name: string, action: "connect" | "disconnect") => {
+    const sessionId = args.sessionId();
+    const token = actions.begin(sessionId);
     setMcpBusy(name);
     setMcpNote(undefined);
     let follow: ReturnType<typeof mcpFollowUp> = "stay";
     try {
-      if (action === "connect") await connectMcp(args.sessionId(), name);
-      else await disconnectMcp(args.sessionId(), name);
-      await loadTools(false);
+      if (action === "connect") await connectMcp(sessionId, name);
+      else await disconnectMcp(sessionId, name);
+      if (!actions.isCurrent(token)) return;
+      const loaded = await loadTools(false);
+      if (!actions.isCurrent(token) || !loaded) return;
       follow = mcpFollowUp(action, mcpServers().find(([n]) => n === name)?.[1].status);
     } catch (err) {
-      setMcpNote({ name, text: err instanceof Error ? err.message : t("err.network") });
+      if (actions.isCurrent(token)) setMcpNote({ name, text: err instanceof Error ? err.message : t("err.network") });
     } finally {
-      setMcpBusy(undefined);
+      if (actions.isCurrent(token)) setMcpBusy(undefined);
     }
-    if (follow === "auth") await beginMcpAuth(name);
+    if (follow === "auth" && actions.isCurrent(token)) await beginMcpAuth(name);
   };
 
   const [mcpKind, setMcpKind] = createSignal<"command" | "url">("url");
@@ -147,54 +176,71 @@ export function useMcpTools(args: {
     e.preventDefault();
     const name = mcpName().trim();
     const value = mcpValue().trim();
-    if (!name || !value || mcpAdding() || mcpAddProblem(mcpKind(), name, value)) return;
+    const kind = mcpKind();
+    if (!name || !value || mcpAdding() || mcpAddProblem(kind, name, value)) return;
+    const sessionId = args.sessionId();
+    const token = actions.begin(sessionId);
     setMcpAdding(true);
     setMcpAddErr("");
     try {
-      await addMcp(args.sessionId(), mcpKind() === "command" ? { name, command: value } : { name, url: value });
+      await addMcp(sessionId, kind === "command" ? { name, command: value } : { name, url: value });
+      if (!actions.isCurrent(token)) return;
       setMcpName("");
       setMcpValue("");
       setMcpAddOpen(false);
       await loadTools(false);
     } catch (err) {
+      if (!actions.isCurrent(token)) return;
       const text = err instanceof Error ? err.message : t("err.network");
       setMcpAddErr(value.length >= 8 && text.includes(value) ? t("mcp.add.failed") : text);
     } finally {
-      setMcpAdding(false);
+      if (actions.isCurrent(token)) setMcpAdding(false);
     }
   };
 
   const [mcpAuth, setMcpAuth] = createSignal<{ name: string; url: string }>();
   const [mcpCode, setMcpCode] = createSignal("");
   let mcpAuthWait: AbortController | undefined;
-  onCleanup(() => mcpAuthWait?.abort());
 
   const cancelMcpAuth = () => {
+    authRequests.invalidate();
     mcpAuthWait?.abort();
     mcpAuthWait = undefined;
+    setMcpBusy(undefined);
     setMcpAuth(undefined);
     setMcpCode("");
   };
 
+  onCleanup(() => {
+    loads.invalidate();
+    actions.invalidate();
+    authRequests.invalidate();
+    mcpAuthWait?.abort();
+  });
+
   const beginMcpAuth = async (name: string) => {
     if (mcpBusy()) return;
     cancelMcpAuth();
-    mcpAuthWait = new AbortController();
+    const sessionId = args.sessionId();
+    const token = authRequests.begin(sessionId);
+    const ctl = new AbortController();
+    mcpAuthWait = ctl;
     setMcpBusy(name);
     setMcpNote(undefined);
     try {
-      const started = await beginMcpLogin(args.sessionId(), name, mcpAuthWait.signal);
+      const started = await beginMcpLogin(sessionId, name, ctl.signal);
+      if (!authRequests.isCurrent(token)) return;
       if ("url" in started && (started.url.startsWith("https://") || started.url.startsWith("http://"))) {
         setMcpAuth({ name, url: started.url });
       } else {
         await loadTools(false);
       }
     } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
+      if (!authRequests.isCurrent(token) || (err instanceof DOMException && err.name === "AbortError")) return;
       const text = err instanceof Error ? err.message : t("mcp.auth.failed");
       setMcpNote({ name, text: text || t("mcp.auth.failed") });
     } finally {
-      setMcpBusy(undefined);
+      if (authRequests.isCurrent(token)) setMcpBusy(undefined);
     }
   };
 
@@ -202,20 +248,24 @@ export function useMcpTools(args: {
     const code = mcpCode().trim();
     if (!code || mcpBusy()) return;
     mcpAuthWait?.abort();
-    mcpAuthWait = new AbortController();
+    const sessionId = args.sessionId();
+    const token = authRequests.begin(sessionId);
+    const ctl = new AbortController();
+    mcpAuthWait = ctl;
     setMcpBusy(name);
     setMcpNote(undefined);
     try {
-      await finishMcpLogin(args.sessionId(), name, code, mcpAuthWait.signal);
+      await finishMcpLogin(sessionId, name, code, ctl.signal);
+      if (!authRequests.isCurrent(token)) return;
       setMcpCode("");
       setMcpAuth(undefined);
       await loadTools(false);
     } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
+      if (!authRequests.isCurrent(token) || (err instanceof DOMException && err.name === "AbortError")) return;
       const text = err instanceof Error ? err.message : t("mcp.auth.failed");
       setMcpNote({ name, text: code.length >= 8 && text.includes(code) ? t("mcp.auth.failed") : text || t("mcp.auth.failed") });
     } finally {
-      setMcpBusy(undefined);
+      if (authRequests.isCurrent(token)) setMcpBusy(undefined);
     }
   };
 

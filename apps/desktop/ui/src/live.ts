@@ -59,6 +59,7 @@ export function applyStreamingSnapshot(view: SessionView, snap: StreamingSnapsho
 
 /** Lay a view's last turns over the one the reader holds; undefined when the two no longer line up. */
 export function mergeViewTail(view: SessionView, tail: ViewTail): SessionView | undefined {
+  if (view.session_id !== tail.session_id) return undefined;
   const { turn_offset, prev_turn_id, files_key: _key, files_changed, ...rest } = tail;
   if (turn_offset > view.turns.length) return undefined;
   if ((view.turns[turn_offset - 1]?.turn_id ?? null) !== prev_turn_id) return undefined;

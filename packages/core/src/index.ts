@@ -20,14 +20,20 @@ export interface ExportOptions {
  * no-op because event ids are stable and appends are idempotent.
  */
 export function exportEvents(store: Store, opts: ExportOptions = {}): string {
-  const events = store.query({
-    session_id: opts.session_id,
-    backend: opts.backend,
-    since: opts.since,
-    until: opts.until,
-    order: "asc",
-    limit: 10_000,
-  });
+  const events: Event[] = [];
+  for (let offset = 0; ; offset += 10_000) {
+    const page = store.query({
+      session_id: opts.session_id,
+      backend: opts.backend,
+      since: opts.since,
+      until: opts.until,
+      order: "asc",
+      limit: 10_000,
+      offset,
+    });
+    events.push(...page);
+    if (page.length < 10_000) break;
+  }
   const scrub = opts.redact !== false;
   const lines = events.map((e) =>
     JSON.stringify(scrub ? redact(e, { patterns: DEFAULT_SECRET_PATTERNS }) : e),

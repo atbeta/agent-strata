@@ -15,6 +15,7 @@ Cross-backend agent session layer: one canonical event format (CASF v0) that Ope
 
 | Package | Purpose |
 | --- | --- |
+| `@agent-strata/api` | Shared HTTP request/response contracts between the service and desktop UI |
 | `@agent-strata/schema` | CASF v0 event schemas (zod), `parseEvent`/`makeEvent`, `redact` |
 | `@agent-strata/store` | Append-only `bun:sqlite` event store with FTS5 search and subscriptions |
 | `@agent-strata/projector` | Pure projections from events to `SessionView` + cross-session `aggregate` |
@@ -69,7 +70,9 @@ Answering a permission card with **always** is a different thing and stays what 
 ```sh
 bun install
 bun test          # all package tests
+bun run test:ui   # desktop UI tests
 bun run typecheck # tsc --noEmit per package and the desktop UI
+(cd apps/desktop/src-tauri && cargo test --locked)
 
 # strata service (local API for UIs)
 # STRATA_POLICY persists the live permission policy (default ~/.agent-strata/policy.json)
@@ -110,10 +113,10 @@ Then run the shell from the repo root:
 ```sh
 bun run sidecar
 bun --cwd apps/desktop/ui run dev     # optional: only for UI-only iteration in a browser
-bun x @tauri-apps/cli@latest dev --config apps/desktop/src-tauri/tauri.conf.json
+bun x tauri dev --config apps/desktop/src-tauri/tauri.conf.json
 ```
 
-(`bun x tauri` resolves a different package and fails; `cargo tauri dev
+(`bun x tauri` uses the CLI pinned in the root lockfile. `cargo tauri dev
 --config apps/desktop/src-tauri/tauri.conf.json` works too when tauri-cli is
 installed through cargo.)
 
@@ -137,11 +140,13 @@ A background window notifies when a session finishes, and when it stops for a pe
 
 ## Releasing
 
-Pushing a `v*` tag is the release. GitHub Actions builds the Windows NSIS
-installer, the macOS dmg, and the Linux AppImage, and attaches them to that
-tag's GitHub release. The tag has to name the version in
-`apps/desktop/src-tauri/tauri.conf.json` (`v0.1.0` for `0.1.0`). Nothing else
-runs this build. The macOS and Linux artifacts are unsigned.
+Pushing a `v*` tag is the release. GitHub Actions first runs the reusable CI
+checks (TypeScript, package/UI/Rust tests and WebKit smoke), then builds the
+Windows NSIS installer, the macOS dmg, and the Linux AppImage, and attaches
+them to that tag's GitHub release. The tag has to be either `v<version>` or
+`v<version>-intranet`, matching `apps/desktop/src-tauri/tauri.conf.json`
+(`v0.1.0` or `v0.1.0-intranet` for `0.1.0`). Nothing else runs this build.
+The macOS and Linux artifacts are unsigned.
 
 ```sh
 git tag v0.1.0

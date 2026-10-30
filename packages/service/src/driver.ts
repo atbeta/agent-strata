@@ -177,6 +177,11 @@ export interface BackendDriver {
    * exists in the process that received the question. Answering one after a
    * restart goes through here instead.
    */
+  replyPermission?(
+    requestId: string,
+    reply: "once" | "always" | "reject",
+    directory?: string,
+  ): Promise<unknown>;
   replyQuestion?(requestId: string, answers: string[][], directory?: string): Promise<unknown>;
   rejectQuestion?(requestId: string, directory?: string): Promise<unknown>;
   /** copies the messages before `beforeId`, or all of them without one */

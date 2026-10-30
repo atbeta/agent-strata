@@ -177,6 +177,11 @@ export async function connectOpencode(opts: {
   listSessions: () => Promise<{ id: string; title: string; directory: string }[]>;
   listWorkspaces: () => Promise<{ id: string; name?: string; directory: string }[]>;
   abort: (sessionID: string, directory?: string) => Promise<void>;
+  replyPermission: (
+    requestID: string,
+    reply: "once" | "always" | "reject",
+    directory?: string,
+  ) => Promise<void>;
   replyQuestion: (requestID: string, answers: string[][], directory?: string) => Promise<void>;
   rejectQuestion: (requestID: string, directory?: string) => Promise<void>;
   mcpConnect: (name: string, directory?: string) => Promise<void>;
@@ -570,6 +575,16 @@ export async function connectOpencode(opts: {
      * it. Answering after a restart goes through here instead, and says so in the
      * log — the projector reads the log, so that is what retires the card.
      */
+    async replyPermission(requestId: string, reply: "once" | "always" | "reject", directory?: string) {
+      const res = await client.permission.reply({
+        requestID: requestId,
+        reply,
+        directory: directory ?? opts.directory,
+      });
+      if (res.error || res.data !== true) {
+        throw new Error(`permission reply failed: ${JSON.stringify(res.error ?? res.data)}`);
+      }
+    },
     async replyQuestion(requestId: string, answers: string[][], directory?: string) {
       await client.question.reply({ requestID: requestId, answers, directory: directory ?? opts.directory });
     },

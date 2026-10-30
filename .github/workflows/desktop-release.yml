@@ -12,7 +12,11 @@ permissions:
   contents: write
 
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   build:
+    needs: ci
     strategy:
       fail-fast: false
       matrix:
@@ -59,6 +63,8 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.95.0
 
       - name: Cache Rust
         uses: swatinem/rust-cache@v2
@@ -83,7 +89,7 @@ jobs:
         run: |
           $conf = (Get-Content apps/desktop/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
           $tag = $env:GITHUB_REF_NAME
-          if ($tag -ne "v$conf") { throw "tag $tag does not match tauri.conf.json version $conf" }
+          if ($tag -ne "v$conf" -and $tag -ne "v$conf-intranet") { throw "tag $tag does not match tauri.conf.json version $conf (expected v$conf or v$conf-intranet)" }
 
       # The brand is resolved here, once: `scripts/brand.ts` writes the Tauri
       # overlay and the Rust constants, and Vite injects the same answer into
@@ -125,7 +131,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: apps/desktop/src-tauri
-          tauriScript: bunx --bun @tauri-apps/cli@2
+          tauriScript: bunx --bun tauri
           args: --bundles ${{ matrix.bundles }} ${{ steps.brand.outputs.config }}
           tagName: ${{ github.ref_name }}
           releaseName: ${{ steps.brand.outputs.name }} v__VERSION__

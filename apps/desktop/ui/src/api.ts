@@ -1,3 +1,23 @@
+import {
+  DevStopResult,
+  type ApiProvider,
+  type OAuthStart,
+  type OpencodeLaunch,
+  type OpencodeLaunchMode,
+} from "../../../../packages/api/src/index";
+
+export type {
+  ApiProvider,
+  DevStopResult,
+  OAuthStart,
+  OpencodeLaunch,
+  OpencodeLaunchMode,
+  OpencodeLaunchState,
+  OpencodeRuntime,
+  OpencodeRuntimeSource,
+  ProviderMethod,
+  ProviderPrompt,
+} from "../../../../packages/api/src/index";
 import { inDesktopShell } from "./shell";
 import { t } from "./i18n";
 import type { MessageKey } from "./locales/zh";
@@ -859,37 +879,6 @@ async function throwOnError(res: Response): Promise<void> {
   throw new Error(body.error ?? t("api.err.service", { status: res.status }));
 }
 
-export interface ProviderPrompt {
-  type: "text" | "select";
-  key: string;
-  message: string;
-  placeholder?: string;
-  options?: { label: string; value: string }[];
-  when?: { key: string; op: "eq" | "neq"; value: string };
-}
-
-export interface ProviderMethod {
-  index: number;
-  type: "api" | "oauth";
-  label: string;
-  prompts?: ProviderPrompt[];
-}
-
-export interface ApiProvider {
-  id: string;
-  name: string;
-  connected: boolean;
-  methods: ProviderMethod[];
-  /** An API key can be pasted, even though there is no sign-in method to pick. */
-  canKey: boolean;
-}
-
-export interface OAuthStart {
-  url: string;
-  method: "auto" | "code";
-  instructions: string;
-}
-
 export function listProviders(connectionId: string): Promise<{ providers: ApiProvider[] }> {
   return getJson(`/connections/${encodeURIComponent(connectionId)}/providers`);
 }
@@ -943,36 +932,6 @@ export async function finishProviderLogin(
   );
   await throwOnError(res);
 }
-
-export type OpencodeLaunchMode = "embed" | "external";
-
-export type OpencodeRuntimeSource = "setting" | "env" | "path" | "missing" | "external";
-
-/** What the shell found when it last inspected the local opencode binary. */
-export type OpencodeRuntime = {
-  source: OpencodeRuntimeSource;
-  bin?: string;
-  version?: string;
-  error?: string;
-  /** Unix seconds; the UI formats it in the reader's zone. */
-  checked_at?: number;
-};
-
-export type OpencodeLaunch = {
-  mode: OpencodeLaunchMode;
-  state:
-    | "starting"
-    | "running"
-    | "missing"
-    | "restarting"
-    | "stopped"
-    | "external"
-    | "authRequired"
-    | "authFailed"
-    | "unmanaged";
-  url?: string;
-  runtime?: OpencodeRuntime;
-};
 
 export function readOpencodeLaunch(): Promise<OpencodeLaunch> {
   return getJson<OpencodeLaunch>("/desktop/opencode");
@@ -1216,25 +1175,10 @@ export async function readDevLogs(
   });
 }
 
-/**
- * What a stop achieved.
- *
- * A stop that leaves the port held is not a stop, and the reader has to be
- * told: the next command collides with it, and the collision looks like the
- * next command's fault.
- */
-export interface DevStopResult {
-  ok: boolean;
-  clean: boolean;
-  residual: number[];
-  port?: number;
-  port_free?: boolean;
-}
-
 export async function stopDevProcess(processId: string): Promise<DevStopResult> {
   const res = await apiFetch(`/dev/${encodeURIComponent(processId)}/stop`, { method: "POST" });
   if (!res.ok) await throwOnError(res);
-  const result = (await res.json()) as DevStopResult;
+  const result = DevStopResult.parse(await res.json());
   if (result.clean) return result;
   // The service says what survived, so the reader is told what survived
   // rather than being shown a stop that did not happen.

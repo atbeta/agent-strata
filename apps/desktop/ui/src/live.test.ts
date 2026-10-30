@@ -145,6 +145,10 @@ describe("a view's tail laid over the one the reader holds", () => {
     expect(mergeViewTail(held(), tail({ files_changed: [] }))!.files_changed).toEqual([]);
   });
 
+  test("a tail from another session is refused", () => {
+    expect(mergeViewTail(held(), tail({ session_id: "other" }))).toBeUndefined();
+  });
+
   test("a tail that starts past what the reader holds asks for the full view", () => {
     expect(mergeViewTail(held(), tail({ turn_offset: 5, prev_turn_id: "u9" }))).toBeUndefined();
   });

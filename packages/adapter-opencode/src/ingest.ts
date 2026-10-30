@@ -229,9 +229,10 @@ export function createIngestor(opts: {
       const key = `perm:${evt.properties.id}`;
       if (!inflightPrompts.has(key)) {
         inflightPrompts.add(key);
-        void handlePermission(evt).catch((err) =>
-          console.error("opencode permission handling error:", err),
-        );
+        void handlePermission(evt).catch((err) => {
+          inflightPrompts.delete(key);
+          console.error("opencode permission handling error:", err);
+        });
       }
     }
     if (evt.type === "permission.replied") {
@@ -243,9 +244,10 @@ export function createIngestor(opts: {
       const key = `q:${evt.properties.id}`;
       if (!inflightPrompts.has(key)) {
         inflightPrompts.add(key);
-        void handleQuestion(evt).catch((err) =>
-          console.error("opencode question handling error:", err),
-        );
+        void handleQuestion(evt).catch((err) => {
+          inflightPrompts.delete(key);
+          console.error("opencode question handling error:", err);
+        });
       }
     }
     if (evt.type === "question.replied" || evt.type === "question.rejected") {

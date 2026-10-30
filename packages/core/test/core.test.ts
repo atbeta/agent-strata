@@ -86,6 +86,29 @@ describe("exportEvents", () => {
     ).toBe(3);
     s.close();
   });
+
+  test("exports every page across sessions", () => {
+    const s = openStore(":memory:");
+    const events: EventInput[] = [];
+    for (let i = 0; i < 5_001; i++) {
+      events.push(
+        mk("a", "turn.user", { turn_id: `a${i}`, content: [] }, "2026-01-01T00:00:00Z"),
+        mk("b", "turn.user", { turn_id: `b${i}`, content: [] }, "2026-01-01T00:00:00Z"),
+      );
+    }
+    s.append(events);
+
+    const lines = exportEvents(s, { redact: false }).trimEnd().split("\n");
+    expect(JSON.parse(lines[0]!).event_count).toBe(10_002);
+    expect(lines).toHaveLength(10_003);
+    const exported = lines.slice(1).map((line) => JSON.parse(line));
+    expect(exported[0].session_id).toBe("a");
+    expect(exported[5_000].seq).toBe(5_001);
+    expect(exported[5_001].session_id).toBe("b");
+    expect(exported[10_001].seq).toBe(5_001);
+    expect(new Set(exported.map((event) => event.id)).size).toBe(10_002);
+    s.close();
+  });
 });
 
 describe("compareSessions", () => {

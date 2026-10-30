@@ -1,36 +1,11 @@
 /** API-key providers. The key is written to OpenCode and never copied into a response. */
 
+import type { ApiProvider, OAuthStart, ProviderMethod, ProviderPrompt } from "@agent-strata/api";
+
+export type { ApiProvider, OAuthStart, ProviderMethod, ProviderPrompt } from "@agent-strata/api";
+
 const PROVIDER_ID = /^[\w.-]+$/;
 const KEY_MAX = 4096;
-
-export interface ProviderPrompt {
-  type: "text" | "select";
-  key: string;
-  message: string;
-  placeholder?: string;
-  options?: { label: string; value: string }[];
-  when?: { key: string; op: "eq" | "neq"; value: string };
-}
-
-export interface ProviderMethod {
-  index: number;
-  type: "api" | "oauth";
-  label: string;
-  prompts?: ProviderPrompt[];
-}
-
-export interface ApiProvider {
-  id: string;
-  name: string;
-  connected: boolean;
-  methods: ProviderMethod[];
-  /**
-   * An API key can be pasted for this one. A row with no `methods` has no
-   * sign-in choice to offer, so without this the page cannot tell "nothing to
-   * do here" apart from "a key is exactly what this wants".
-   */
-  canKey: boolean;
-}
 
 /**
  * The vendors to put in front of someone who asked which ones people actually
@@ -70,12 +45,6 @@ const COMMON: readonly { id: string; name: string }[] = [
   { id: "modelscope", name: "ModelScope" },
   { id: "stepfun", name: "StepFun" },
 ];
-
-export interface OAuthStart {
-  url: string;
-  method: "auto" | "code";
-  instructions: string;
-}
 
 export interface ProviderApi {
   list(): Promise<ApiProvider[]>;

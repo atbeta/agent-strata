@@ -1754,23 +1754,31 @@ describe("createIngestor seam", () => {
     store.close();
   });
 
-  test("(b) reply throwing leaves stream usable and stores no resolved", async () => {
+  test("(b) reply throwing leaves stream usable and a replay can retry", async () => {
     const store = openStore(":memory:");
+    let replies = 0;
     const ing = createIngestor({
       mapper: new OpencodeMapper(),
       sink: store,
       policy: loadPolicy({ version: 1, rules: [{ id: "ok", effect: "allow", tool: "*" }] }),
       reply: async () => {
-        throw new Error("network down");
+        replies++;
+        if (replies === 1) throw new Error("network down");
       },
     });
     ing.handle(sessionCreated());
     ing.handle(asked("bash", ["ls"]));
     await Bun.sleep(50);
     ing.handle(partUpdated({ id: "pt", sessionID: sid, messageID: "u1", type: "text", text: "after" }));
-    const evs = store.read({ session_id: `opencode:${sid}` });
+    let evs = store.read({ session_id: `opencode:${sid}` });
     expect(evs.some((e) => e.type === "permission.resolved")).toBe(false);
     expect(evs.some((e) => e.type === "permission.requested")).toBe(true);
+
+    ing.handle(asked("bash", ["ls"]));
+    await Bun.sleep(50);
+    evs = store.read({ session_id: `opencode:${sid}` });
+    expect(replies).toBe(2);
+    expect(evs.some((e) => e.type === "permission.resolved")).toBe(true);
     store.close();
   });
 

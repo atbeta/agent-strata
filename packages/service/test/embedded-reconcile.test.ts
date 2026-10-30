@@ -123,6 +123,19 @@ describe("embedded reconcile", () => {
     expect(ok).toBe(true);
   });
 
+  test("stopping closes the watcher and prevents a later status change from connecting", async () => {
+    dir = tempDir();
+    fake = fakeOpencode();
+    writeStatus(dir, "authRequired", fake.baseUrl, "pair-one");
+    svc = startService({ db: ":memory:", port: 0, desktopDir: dir });
+    svc.stop();
+    svc.stop();
+
+    writeStatus(dir, "running", fake.baseUrl, "pair-one");
+    await Bun.sleep(500);
+    expect(fake.seen).toHaveLength(0);
+  });
+
   test("a server the reader cut stays cut while the same pair stands", async () => {
     // This one waits for a connection, watches the file, waits for another
     // connection: up to twelve and a half seconds of it, and the suite's

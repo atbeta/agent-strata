@@ -32,6 +32,7 @@ import { GoalButton, GoalStrip, useGoal } from "./goal-bar";
 import { runInProgress, SEND_GRACE_MS } from "./live";
 import { stopConfirmed } from "./stop-verdict";
 import { ComposerToolbar } from "./composer-toolbar";
+import { createComposerDelivery } from "./composer-delivery";
 import { withEcho, type PendingEcho } from "./prompt-echo";
 import {
   joinQueued,
@@ -114,6 +115,8 @@ export function useSessionComposer(args: {
 }) {
   const opencode = () => args.caps()?.extension === "opencode";
   const connected = () => args.caps()?.connected !== false;
+  const deliveries = createComposerDelivery();
+  onCleanup(deliveries.invalidate);
 
   const [draft, setDraft] = createSignal(readDraft(args.sessionId()));
   const [queued, setQueued] = createSignal<Outgoing[]>([]);
@@ -455,43 +458,51 @@ export function useSessionComposer(args: {
       : args.caps()?.commands
         ? commandOf(out.text, (args.commands() ?? []).map((c) => c.name))
         : undefined;
-    try {
-      if (out.revertTurnId) {
-        try {
-          await revertSession(target, out.revertTurnId);
-        } catch (err) {
-          // A later edit owns the signal now; don't overwrite it with this failure.
-          if (editTurnId() === undefined) setEditTurnId(out.revertTurnId);
-          throw err;
+    let revertFailed = false;
+    await deliveries.settle({
+      sessionId: target,
+      out,
+      request: async () => {
+        if (out.revertTurnId) {
+          try {
+            await revertSession(target, out.revertTurnId);
+          } catch (err) {
+            revertFailed = true;
+            throw err;
+          }
         }
-      }
-      if (shell) {
-        // Deliberately no attachments: the shell endpoint takes a command
-        // string, and a file the reader attached would be dropped in silence if
-        // this path were chosen with one in hand.
-        await runShell(target, shell, choice);
-      } else if (command) {
-        await runCommand(target, { ...command, parts: commandParts(out.text, out.picked, out.attachments) }, choice);
-      } else {
-        await sendPrompt(target, promptParts(out.text, out.picked, out.attachments), choice);
-      }
-      // The backend has it now. The handover that mattered — "the reader gave
-      // this over and nothing has come back" — is over; what is left is the
-      // projection catching up, so the window restarts from here rather than
-      // from the press.
-      openHandover();
-    } catch (err) {
-      setSendErr(explainSend(err instanceof Error ? err.message : "", t("err.send")));
-      const back = restoreFailed(out, { text: draft(), picked: picked(), attachments: attachments() });
-      setDraft(back.draft.text);
-      setPicked(back.draft.picked);
-      setAttachments(back.draft.attachments);
-      if (back.dropped) setAttachErr(t("composer.attach.too_many", { n: MAX_ATTACHMENTS }));
-      setQueuePaused(true);
-      closeHandover();
-      setEcho(undefined);
-      queueMicrotask(autogrow);
-    }
+        if (shell) {
+          // Deliberately no attachments: the shell endpoint takes a command
+          // string, and a file the reader attached would be dropped in silence if
+          // this path were chosen with one in hand.
+          await runShell(target, shell, choice);
+        } else if (command) {
+          await runCommand(target, { ...command, parts: commandParts(out.text, out.picked, out.attachments) }, choice);
+        } else {
+          await sendPrompt(target, promptParts(out.text, out.picked, out.attachments), choice);
+        }
+      },
+      onSuccess: () => {
+        // The backend has it now. The handover that mattered — "the reader gave
+        // this over and nothing has come back" — is over; what is left is the
+        // projection catching up, so the window restarts from here rather than
+        // from the press.
+        openHandover();
+      },
+      onFailure: (err) => {
+        if (revertFailed && editTurnId() === undefined) setEditTurnId(out.revertTurnId);
+        setSendErr(explainSend(err instanceof Error ? err.message : "", t("err.send")));
+        const back = restoreFailed(out, { text: draft(), picked: picked(), attachments: attachments() });
+        setDraft(back.draft.text);
+        setPicked(back.draft.picked);
+        setAttachments(back.draft.attachments);
+        if (back.dropped) setAttachErr(t("composer.attach.too_many", { n: MAX_ATTACHMENTS }));
+        setQueuePaused(true);
+        closeHandover();
+        setEcho(undefined);
+        queueMicrotask(autogrow);
+      },
+    });
   };
 
   const send = () => {
@@ -885,10 +896,17 @@ export function useSessionComposer(args: {
 
   /** the session behind the composer changed — drop everything that belonged to the old one */
   const resetFor = (id: string) => {
-    // Messages that were waiting for this session come back as draft text.
-    // Read-and-clear, so they are folded in once rather than piling up on
-    // every open. Attachments cannot make this trip — see `queuedKey`.
-    setDraft(joinQueued(readDraft(id), takeQueuedText(id)));
+    deliveries.invalidate();
+    const restored = deliveries.restore(id, {
+      text: readDraft(id),
+      picked: [],
+      attachments: [],
+      sessionId: id,
+    });
+    // Persisted waiting messages come back as draft text, read-and-clear so
+    // they do not pile up on every open. Only the in-memory failures above can
+    // bring their attachments; the persisted queue is text-only — see `queuedKey`.
+    setDraft(joinQueued(restored.draft.text, takeQueuedText(id)));
     setQueued([]);
     setHistIndex(-1);
     setHistSaved("");
@@ -901,9 +919,9 @@ export function useSessionComposer(args: {
     setAbortAccepted(false);
     setModelTouched(false);
     setModelSel("");
-    setPicked([]);
-    setAttachments([]);
-    setAttachErr("");
+    setPicked(restored.draft.picked);
+    setAttachments(restored.draft.attachments);
+    setAttachErr(restored.dropped ? t("composer.attach.too_many", { n: MAX_ATTACHMENTS }) : "");
     setQueuePaused(false);
     setEditTurnId(undefined);
     setTrigger(undefined);

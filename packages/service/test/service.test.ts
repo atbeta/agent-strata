@@ -1125,7 +1125,7 @@ describe("agent-strata service", () => {
     expect(marked).toBe(true);
 
     expect((await post("/permissions/perm1/respond", { decision: "allow", scope: "always" })).status).toBe(200);
-    // The 200 is sent before the adapter's reply fetch is recorded on the fake.
+    // The reply is recorded before the service resolves the local card.
     let reply: (typeof oc.seen)[number] | undefined;
     for (let i = 0; i < 20 && !reply; i++) {
       reply = oc.seen.find((s) => s.path === "/permission/perm1/reply");

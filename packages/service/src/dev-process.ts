@@ -17,6 +17,9 @@ import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { basename } from "node:path";
 import { jobPlan } from "./dev-process-job";
+import type { DevStopResult } from "@agent-strata/api";
+
+export type { DevStopResult } from "@agent-strata/api";
 
 /**
  * Where a command is in its life.
@@ -63,27 +66,6 @@ export interface DevProcess {
   stopped_at?: number;
   /** The shell the command ran in, so a caller knows what syntax it accepted. */
   shell?: string;
-}
-
-/**
- * What a stop actually achieved.
- *
- * A stop that says "stopped" while the port is still held is the worst
- * answer a service can give: the next command collides with it and nobody
- * knows why. So a stop reports what it can prove — whether the tree is gone,
- * and what is left if it is not.
- */
-export interface DevStopResult {
-  /** The process was known and the stop was carried out. */
-  stopped: boolean;
-  /** Nothing of the command is left running. */
-  clean: boolean;
-  /** Processes that survived the stop. */
-  residual: number[];
-  /** The port, when it was known. */
-  port?: number;
-  /** Whether that port is free now. */
-  port_free?: boolean;
 }
 
 export interface DevLogLine {
