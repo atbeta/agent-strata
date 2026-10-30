@@ -849,6 +849,7 @@ function AssistantMessage(props: {
           <MessageActions
             text={text()}
             align="start"
+            details={props.message}
             disabled={props.message.partial === true}
             onFork={forkable() ? () => props.onFork!(props.message.msg_id!) : undefined}
           />

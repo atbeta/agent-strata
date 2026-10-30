@@ -40,6 +40,7 @@ export type Name =
   | "brain"
   | "stop"
   | "alert"
+  | "info"
   | "target"
   | "plus"
   | "x"
@@ -564,6 +565,14 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
         <circle cx="8" cy="8" r="5.5" />
         <path d="M8 4.5v4" />
         <circle cx="8" cy="11" r=".6" fill="currentColor" stroke="none" />
+      </Glyph>
+    );
+  if (name === "info")
+    return (
+      <Glyph class={cls}>
+        <circle cx="8" cy="8" r="5.5" />
+        <path d="M8 7.5v4" />
+        <circle cx="8" cy="5" r=".6" fill="currentColor" stroke="none" />
       </Glyph>
     );
   // Concentric rings with a filled centre: the mark a session goal is aimed at.

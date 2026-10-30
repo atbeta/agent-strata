@@ -370,6 +370,12 @@ export default {
   "context.percent": "上下文 {percent}% · {n} tokens",
 
   // Actions on a user message, and the restore / compaction chrome around them.
+  "message.details": "回复详情",
+  "message.details.agent": "智能体",
+  "message.details.variant": "变体",
+  "message.details.latency": "后端耗时",
+  "message.details.stop_reason": "结束原因",
+  "message.details.completed": "完成时间",
   "message.copy": "复制",
   "message.copySelection": "复制选中内容",
   "message.copied": "已复制",

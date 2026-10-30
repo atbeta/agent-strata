@@ -1,9 +1,10 @@
-import { createEffect, createSignal, on, onCleanup, Show } from "solid-js";
+import { createEffect, createSignal, For, on, onCleanup, Show } from "solid-js";
 import { Icon } from "./icons";
 import { Tip } from "./tip";
 import { copyText } from "./clipboard";
 import { Button } from "./components/ui/button";
 import { t } from "./i18n";
+import { assistantMessageDetails, type AssistantMessageData } from "./message-details";
 
 /**
  * The small copy/edit/revert/fork row under a transcript message. The footer
@@ -15,6 +16,7 @@ import { t } from "./i18n";
 export function MessageActions(props: {
   text: string;
   align: "start" | "end";
+  details?: AssistantMessageData;
   onEdit?: () => void;
   onRevert?: () => void;
   onFork?: () => void;
@@ -55,6 +57,7 @@ export function MessageActions(props: {
     }, 2000);
   };
 
+  const details = () => assistantMessageDetails(props.details);
   const btn = "size-6 text-muted-foreground";
   return (
     <div
@@ -78,6 +81,38 @@ export function MessageActions(props: {
                 name={copied() ? "check" : "copy"}
                 class={`size-3.5 ${copied() ? "text-status-active" : ""}`}
               />
+            </Button>
+          </Tip>
+        </Show>
+        <Show when={details().length > 0}>
+          <Tip
+            label={t("message.details")}
+            content={() => (
+              <div class="w-72">
+                <div class="mb-2 text-xs font-medium text-foreground">{t("message.details")}</div>
+                <div class="grid grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)] gap-x-4 gap-y-1.5">
+                  <For each={details()}>
+                    {(row) => (
+                      <>
+                        <span class="text-2xs text-muted-foreground">{row.label}</span>
+                        <span class="min-w-0 break-words text-right font-mono text-2xs tabular-nums" title={row.value}>
+                          {row.value}
+                        </span>
+                      </>
+                    )}
+                  </For>
+                </div>
+              </div>
+            )}
+          >
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              class={btn}
+              aria-label={t("message.details")}
+            >
+              <Icon name="info" class="size-3.5" />
             </Button>
           </Tip>
         </Show>

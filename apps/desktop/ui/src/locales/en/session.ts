@@ -369,6 +369,12 @@ export default {
   "context.percent": "{percent}% of context · {n} tokens",
 
   // Actions on a user message, and the restore / compaction chrome around them.
+  "message.details": "Reply details",
+  "message.details.agent": "Agent",
+  "message.details.variant": "Variant",
+  "message.details.latency": "Backend latency",
+  "message.details.stop_reason": "Stop reason",
+  "message.details.completed": "Completed",
   "message.copy": "Copy",
   "message.copySelection": "Copy selection",
   "message.copied": "Copied",
