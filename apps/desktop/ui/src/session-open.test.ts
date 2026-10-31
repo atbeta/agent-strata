@@ -23,7 +23,7 @@ describe("opening a session does not keep the previous one on screen", () => {
     expect(src).toContain("sessionId={displayed()?.session_id ?? props.id}");
     expect(src).toContain("turns={turns()}");
     const view = code("transcript-view.tsx");
-    expect(view).toContain("promptEntries(props.turns)");
+    expect(view).toContain("promptEntries(props.turns, prev)");
     expect(view).not.toContain("promptEntries(settled(view)");
   });
 

@@ -3,6 +3,7 @@ import {
   createMemo,
   createResource,
   createSignal,
+  on,
   onCleanup,
   onMount,
   Show,
@@ -15,6 +16,7 @@ import { PlanStrip } from "./plan-strip";
 import { TurnBlock } from "./transcript";
 import { TranscriptView } from "./transcript-view";
 import { applyStreamingSnapshot, runInProgress, type StreamingSnapshot } from "./live";
+import { createScrollDeferral, deferTranscriptWrite } from "./scroll-defer";
 import { isDevEvent } from "./sync-events";
 import { createSessionViewLoader } from "./session-view-loader";
 import { outlineIsPartial, peekView, rememberView, TAIL_TURNS } from "./view-cache";
@@ -147,6 +149,40 @@ export function PeerSessionTranscript(props: {
   };
 
 
+  let scrollGate = { gesturing: false, following: true };
+  const scrollDeferral = createScrollDeferral();
+  const holdingWrites = () => deferTranscriptWrite(scrollGate.gesturing, scrollGate.following);
+  const paintSnapshot = (snap: StreamingSnapshot) => {
+    if (settled(view)?.busy !== true && row()?.busy !== true) return;
+    mutate((v) => {
+      if (!v) return v;
+      const next = applyStreamingSnapshot(v, snap);
+      const held = peekView(props.sessionId);
+      if (
+        next !== v &&
+        held &&
+        next.turns.length >= held.view.turns.length &&
+        next.turns[0]?.turn_id === held.view.turns[0]?.turn_id
+      ) {
+        rememberView(props.sessionId, next);
+      }
+      return next;
+    });
+  };
+  const flushScrollDeferral = () => {
+    if (holdingWrites() || !scrollDeferral.pending()) return;
+    const held = scrollDeferral.take();
+    if (held.snap) paintSnapshot(held.snap);
+    if (held.refresh) void refreshPeerView(held.refresh === "full");
+  };
+  const onScrollGate = (gate: { gesturing: boolean; following: boolean }) => {
+    scrollGate = gate;
+    flushScrollDeferral();
+  };
+  createEffect(on(() => props.sessionId, () => {
+    scrollDeferral.take();
+  }, { defer: true }));
+
   onMount(() => {
     if (peekView(props.sessionId)) {
       queueMicrotask(() => {
@@ -164,23 +200,9 @@ export function PeerSessionTranscript(props: {
       // keep a peer view from ever settling.
       if (isDevEvent(evt.type)) return;
       if (evt.type === "turn.assistant" && evt.data?.partial === true) {
-        // Same rule as the focused pane: a snapshot after idle is not a run.
-        if (settled(view)?.busy !== true && row()?.busy !== true) return;
         const snap = evt.data as unknown as StreamingSnapshot;
-        mutate((v) => {
-          if (!v) return v;
-          const next = applyStreamingSnapshot(v, snap);
-          const held = peekView(props.sessionId);
-          if (
-            next !== v &&
-            held &&
-            next.turns.length >= held.view.turns.length &&
-            next.turns[0]?.turn_id === held.view.turns[0]?.turn_id
-          ) {
-            rememberView(props.sessionId, next);
-          }
-          return next;
-        });
+        if (holdingWrites()) scrollDeferral.noteSnap(snap);
+        else paintSnapshot(snap);
         return;
       }
       // Permissions are not turns. The switch that governs them moved, and the
@@ -189,8 +211,18 @@ export function PeerSessionTranscript(props: {
       // thing on screen.
       if (evt.type === "session.policy") return;
       if (evt.type === "session.rebuilt") rebuilt = true;
+      if (holdingWrites()) {
+        scrollDeferral.noteRefresh(rebuilt);
+        rebuilt = false;
+        return;
+      }
       clearTimeout(timer);
       timer = setTimeout(() => {
+        if (holdingWrites()) {
+          scrollDeferral.noteRefresh(rebuilt);
+          rebuilt = false;
+          return;
+        }
         void refreshPeerView(rebuilt);
         rebuilt = false;
       }, 90);
@@ -219,6 +251,10 @@ export function PeerSessionTranscript(props: {
         .then((seq) => {
           if (seq === head) return;
           head = seq;
+          if (holdingWrites()) {
+            scrollDeferral.noteRefresh(false);
+            return;
+          }
           void refreshPeerView(false);
         })
         .catch(() => {});
@@ -272,6 +308,7 @@ const turns = () => shown().turns;
       paneId={props.paneId}
       sessionId={displayed()?.session_id ?? props.sessionId}
       turns={turns()}
+      onScrollGate={onScrollGate}
       ready={!booting()}
       nav={!booting() && !outlineIsPartial(displayed())}
       class="min-h-0"

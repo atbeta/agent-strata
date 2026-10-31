@@ -73,14 +73,31 @@ const replyOf = (turn: Turn): string => {
  * that re-derived the list. Reusing it keeps the row's identity stable: the
  * rail's `<For>` then leaves every unchanged tick in the DOM instead of
  * rebuilding all of them on each streaming snapshot.
+ *
+ * The cache is keyed by the turn object. A streaming reply replaces that
+ * object, so the caller also passes the entries it built last time: the same
+ * prompt at the same index keeps the same entry, and only the reply cell
+ * moves. The tick under a hovering pointer then stays the node it already is.
  */
 const entryCache = new WeakMap<Turn, PromptEntry>();
+const replyCells = new WeakMap<PromptEntry, { turn: Turn; text?: string }>();
+
+const retarget = (entry: PromptEntry, turn: Turn) => {
+  const cell = replyCells.get(entry);
+  if (!cell || cell.turn === turn) return;
+  cell.turn = turn;
+  cell.text = undefined;
+};
 
 /**
  * One outline entry per turn the reader actually prompted. The list is built
  * from the transcript already on screen — no summarization, no fetch.
+ *
+ * `previous` is the list this session already handed the rail. Pass it so an
+ * assistant-only update does not mint a new entry for the same prompt.
  */
-export function promptEntries(turns: readonly Turn[]): PromptEntry[] {
+export function promptEntries(turns: readonly Turn[], previous?: readonly PromptEntry[]): PromptEntry[] {
+  const prevById = previous?.length ? new Map(previous.map((e) => [e.turnId, e])) : undefined;
   const out: PromptEntry[] = [];
   turns.forEach((turn, turnIndex) => {
     if (!hasPrompt(turn)) return;
@@ -91,20 +108,30 @@ export function promptEntries(turns: readonly Turn[]): PromptEntry[] {
     }
     const text = compact(messageText(turn.user ?? []), PROMPT_MAX);
     const file = (turn.user ?? []).find((b) => b.type === "file_ref");
+    const prompt = text || (file && file.type === "file_ref" ? fileBase(file.path) : "");
+    const reverted = Boolean(turn.reverted);
+    const carried = prevById?.get(turn.turn_id);
+    if (carried && carried.turnIndex === turnIndex && carried.prompt === prompt && carried.reverted === reverted) {
+      retarget(carried, turn);
+      entryCache.set(turn, carried);
+      out.push(carried);
+      return;
+    }
     // The reply only shows in the hover card, so it is computed on first
     // read: building it for every row made opening a long session pay for
     // a thousand cards nobody hovers.
-    let reply: string | undefined;
+    const cell: { turn: Turn; text?: string } = { turn };
     const entry: PromptEntry = {
       turnId: turn.turn_id,
       turnIndex,
       number: turnIndex + 1,
-      prompt: text || (file && file.type === "file_ref" ? fileBase(file.path) : ""),
+      prompt,
       get reply() {
-        return (reply ??= replyOf(turn));
+        return (cell.text ??= replyOf(cell.turn));
       },
-      reverted: Boolean(turn.reverted),
+      reverted,
     };
+    replyCells.set(entry, cell);
     entryCache.set(turn, entry);
     out.push(entry);
   });

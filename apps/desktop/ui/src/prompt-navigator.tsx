@@ -65,7 +65,18 @@ export function PromptNavigator(props: {
   ));
 
   const text = (e: PromptEntry) => e.prompt || t("nav.attach");
-  const current = () => props.entries.find((e) => e.turnId === previewId());
+  /**
+   * The card shows the reply as it was when the pointer arrived. A session
+   * still writing would otherwise change that text on every snapshot, and the
+   * card under the cursor would resize for as long as the reply ran.
+   */
+  const [frozen, setFrozen] = createSignal<{
+    turnId: string;
+    number: number;
+    prompt: string;
+    reply: string;
+    reverted: boolean;
+  } | null>(null);
 
   /**
    * The rail windows its ticks the way the transcript windows its rows: a
@@ -113,6 +124,17 @@ export function PromptNavigator(props: {
   const showFor = (id: string, anchorEl?: HTMLElement) => {
     const el = anchorEl ?? refs.get(id);
     if (!el) return;
+    if (frozen()?.turnId !== id) {
+      const entry = props.entries.find((e) => e.turnId === id);
+      if (!entry) return;
+      setFrozen({
+        turnId: id,
+        number: entry.number,
+        prompt: text(entry),
+        reply: entry.reply,
+        reverted: entry.reverted,
+      });
+    }
     setAnchor(el.getBoundingClientRect());
     setPreviewId(id);
     setPos(null);
@@ -121,6 +143,7 @@ export function PromptNavigator(props: {
     setPreviewId(null);
     setAnchor(null);
     setPos(null);
+    setFrozen(null);
   };
 
   // Keep the active line inside the rail's own scrollbox — rail.scrollTop only,
@@ -150,7 +173,7 @@ export function PromptNavigator(props: {
   // the 24px margin. Chrome (arrows and end dots) only appears once the ticks
   // are taller than that, which is the case the hidden scrollbar used to hide.
   createEffect(() => {
-    props.entries.length;
+    void props.entries.length;
     const el = nav;
     if (!el) return;
     // No synchronous read: clientHeight here would force a full layout
@@ -498,7 +521,7 @@ export function PromptNavigator(props: {
           </>
         )}
       </Show>
-      <Show when={current()}>
+      <Show when={frozen()}>
         {(en) => (
           <Portal>
             <div
@@ -521,7 +544,7 @@ export function PromptNavigator(props: {
                   </span>
                 </Show>
               </div>
-              <p class="mt-1 line-clamp-2 break-words text-xs leading-snug">{text(en())}</p>
+              <p class="mt-1 line-clamp-2 break-words text-xs leading-snug">{en().prompt}</p>
               <Show when={en().reply}>
                 <p class="mt-0.5 line-clamp-3 break-words text-2xs leading-snug text-muted-foreground">
                   {en().reply}

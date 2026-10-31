@@ -32,3 +32,28 @@ export function mountedRange(input: {
   const last = at(top + Math.max(0, viewport) + overscan);
   return { first, last: Math.max(first, last) };
 }
+
+/**
+ * The index list for a window, reused when that window did not move.
+ *
+ * The range is read on every scroll frame. A fresh array each time woke the
+ * row list and its measurement pass even though the same rows were already
+ * mounted. The same reference means those subscribers stay quiet.
+ */
+export function stableIndexWindow(
+  prev: readonly number[] | undefined,
+  first: number,
+  last: number,
+): number[] {
+  const count = last >= first ? last - first + 1 : 0;
+  if (
+    prev &&
+    prev.length === count &&
+    (count === 0 || (prev[0] === first && prev[count - 1] === last))
+  ) {
+    return prev as number[];
+  }
+  const out: number[] = [];
+  for (let i = first; i <= last; i++) out.push(i);
+  return out;
+}

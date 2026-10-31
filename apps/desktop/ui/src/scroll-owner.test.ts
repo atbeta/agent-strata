@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isClamp, readingAt, targetScrollTop } from "./scroll-owner";
+import { isClamp, readingAt, readingNotifies, targetScrollTop } from "./scroll-owner";
 import { JUMP_GAP, TAIL_TOLERANCE } from "./virtual-tail";
 
 // A three-row list under a padded column: origin 40, rows of 200, 300, 400
@@ -97,6 +97,26 @@ describe("targetScrollTop", () => {
         scrollHeight: 1400, clientHeight: 400,
       }),
     ).toBe(40 + 210 - JUMP_GAP);
+  });
+});
+
+describe("readingNotifies", () => {
+  test("a pixel inside the same turn does not publish", () => {
+    const prev = { pinned: false as const, turnId: "t2", offset: 10 };
+    expect(readingNotifies(prev, { ...prev, offset: 48 })).toBe(false);
+  });
+
+  test("leaving the tail, and crossing a turn, does", () => {
+    expect(readingNotifies({ pinned: true }, { pinned: false, turnId: "t2", offset: 0 })).toBe(true);
+    expect(
+      readingNotifies(
+        { pinned: false, turnId: "t1", offset: 20 },
+        { pinned: false, turnId: "t2", offset: 0 },
+      ),
+    ).toBe(true);
+    expect(
+      readingNotifies({ pinned: false, turnId: "t2", offset: 80 }, { pinned: true }),
+    ).toBe(true);
   });
 });
 

@@ -1,6 +1,6 @@
 import { createEffect, createMemo, For, onCleanup, untrack, type JSX } from "solid-js";
 import { createPaintHold, rowPaintHold, rowPaintMode } from "./paint-mode";
-import { mountedRange } from "./virtual-window";
+import { mountedRange, stableIndexWindow } from "./virtual-window";
 import type { RowLayout } from "./row-layout";
 
 /**
@@ -129,9 +129,9 @@ export function Virtual<T>(props: {
     if (next) props.commit(next);
   });
 
-  const rows = createMemo(() => {
+  const rows = createMemo<number[]>((prev) => {
     const n = props.items.length;
-    if (!n) return [];
+    if (!n) return stableIndexWindow(prev, 0, -1);
     // Pixel window only. A row cap unmounted rows the reader was about to
     // reach, and mounting them again parsed markdown on the scroll frame.
     // The estimate is what keeps this count near the rows actually on screen.
@@ -142,22 +142,11 @@ export function Virtual<T>(props: {
       overscan: overscan(),
       rowAt: (y) => props.layout.rowAt(y),
     });
-    /**
-     * A window that starts past the last row renders nothing at all.
-     *
-     * `top` mirrors a scroller position this list does not own, and a position
-     * remembered from another session can be past this one's end: `rowAt`
-     * answers `n`, `last` answers `n - 1`, and the loop below runs zero times.
-     *
-     * The result was a conversation with turns in it drawing as an empty pane,
-     * and nothing on screen to say the list had lost its place. A window that
-     * cannot be placed falls back to the end of the session, which is where a
-     * reader who was anywhere near the bottom of the last conversation expects
-     * to land anyway.
-     */
-    const out: number[] = [];
-    for (let i = first; i <= last; i++) out.push(i);
-    return out;
+    // A position remembered from another session can sit past this one's end.
+    // mountedRange clamps that onto the last row, so the pane still has rows
+    // to draw. While the window does not move, the same index list is reused
+    // and the measurement pass stays quiet.
+    return stableIndexWindow(prev, first, last);
   });
 
   /**

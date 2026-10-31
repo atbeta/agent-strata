@@ -1,7 +1,6 @@
 import {
   createEffect,
   createMemo,
-  createRenderEffect,
   createResource,
   createSignal,
   For,
@@ -13,7 +12,6 @@ import {
 } from "solid-js";
 import {
   abortSession,
-  api,
   backendLabel,
   downloadExport,
   fmtUsd,
@@ -66,6 +64,7 @@ import { TerminalPane } from "./terminal";
 import { TurnBlock } from "./transcript";
 import { TranscriptView, type TranscriptApi } from "./transcript-view";
 import { applyStreamingSnapshot, type StreamingSnapshot } from "./live";
+import { createScrollDeferral, deferTranscriptWrite } from "./scroll-defer";
 import { ECHO_TURN_ID } from "./prompt-echo";
 import { descendantSessions } from "./session-tree";
 import { ChildBoard } from "./child-board";
@@ -98,7 +97,7 @@ import {
 } from "./session-chrome";
 import { writePanelOpen, writePanelTab, type SidePanelTab } from "./right-pane";
 import { PeerSessionTranscript } from "./peer-transcript";
-import { ContentSashes, LoadingTranscript } from "./content-sashes";
+import { LoadingTranscript } from "./content-sashes";
 import { AskCard, QuestionCard } from "./session-prompts";
 import { useSessionSearch, SearchPanel } from "./session-search";
 import { clearSearchTarget, searchTarget } from "./search-target";
@@ -107,12 +106,6 @@ import { useSessionComposer, SessionComposer } from "./session-composer";
 import { SessionRail } from "./session-rail";
 import { createEntranceLedger } from "./entrance";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { EmptyState } from "@/components/ui/empty-state";
 import { DragBar } from "./chrome";
 import { clearPaneBusy, publishPaneBusy } from "./pane-activity";
@@ -893,6 +886,7 @@ const turns = () => shown().turns;
      * the next time anything here changes instead of being remembered as done.
      */
     try {
+      scrollDeferral.take();
       const hit = peekView(id);
       filesKey = hit?.filesKey;
       forceFull = false;
@@ -962,6 +956,41 @@ const turns = () => shown().turns;
     });
   });
 
+  let scrollGate = { gesturing: false, following: true };
+  const scrollDeferral = createScrollDeferral();
+  const holdingWrites = () => deferTranscriptWrite(scrollGate.gesturing, scrollGate.following);
+  const paintSnapshot = (snap: StreamingSnapshot) => {
+    if (replayPos() !== null) return;
+    if (settled(view)?.busy !== true && !composer.generating()) return;
+    mutate((v) => {
+      if (!v) return v;
+      const next = applyStreamingSnapshot(v, snap);
+      const held = peekView(props.id);
+      if (
+        next !== v &&
+        held &&
+        next.turns.length >= held.view.turns.length &&
+        next.turns[0]?.turn_id === held.view.turns[0]?.turn_id
+      ) {
+        rememberView(props.id, next);
+      }
+      return next;
+    });
+  };
+  const flushScrollDeferral = () => {
+    if (holdingWrites() || !scrollDeferral.pending()) return;
+    const held = scrollDeferral.take();
+    if (held.snap) paintSnapshot(held.snap);
+    if (held.refresh) {
+      void refreshView(held.refresh === "full");
+      void refetchSeq();
+    }
+  };
+  const onScrollGate = (gate: { gesturing: boolean; following: boolean }) => {
+    scrollGate = gate;
+    flushScrollDeferral();
+  };
+
   onMount(() => {
     // Re-import in the background and only pay for a second full view when it
     // actually moved the session — the head probe is index-only, so this stays
@@ -999,6 +1028,10 @@ const turns = () => shown().turns;
       void readHead(props.id)
         .then((seq) => {
           if (seq === maxSeq()) return;
+          if (holdingWrites()) {
+            scrollDeferral.noteRefresh(false);
+            return;
+          }
           void refreshView();
           void refetchSeq();
         })
@@ -1029,25 +1062,9 @@ const turns = () => shown().turns;
         if (evt.session_id === props.id && evt.type === "turn.assistant" && evt.data?.partial === true) {
           // An idle session keeps receiving a leftover snapshot. Painting it
           // puts the cursor back on a turn that has finished.
-          if (replayPos() === null && (settled(view)?.busy === true || composer.generating())) {
-            const snap = evt.data as unknown as StreamingSnapshot;
-            mutate((v) => {
-              if (!v) return v;
-              const next = applyStreamingSnapshot(v, snap);
-              // Only extend a view we already settled. A tail preview is shorter
-              // and must not replace the full transcript in the reader cache.
-              const held = peekView(props.id);
-              if (
-                next !== v &&
-                held &&
-                next.turns.length >= held.view.turns.length &&
-                next.turns[0]?.turn_id === held.view.turns[0]?.turn_id
-              ) {
-                rememberView(props.id, next);
-              }
-              return next;
-            });
-          }
+          const snap = evt.data as unknown as StreamingSnapshot;
+          if (holdingWrites()) scrollDeferral.noteSnap(snap);
+          else paintSnapshot(snap);
           return;
         }
         if (evt.session_id === props.id && evt.type === "session.status" && evt.data?.state === "idle")
@@ -1063,12 +1080,45 @@ const turns = () => shown().turns;
         }
         if (evt.session_id === props.id || evt.type === "permission.requested" || evt.type === "question.asked") {
           if (replayPos() === null) {
+            const ask = evt.type === "permission.requested" || evt.type === "question.asked";
             if (evt.session_id === props.id && evt.type === "session.rebuilt") {
               rebuilt = true;
               setTraceEpoch((e) => e + 1);
             }
+            // A scroll through history keeps the column still. Asks still
+            // surface — those are decisions, not transcript layout.
+            if (holdingWrites() && evt.session_id === props.id && !ask) {
+              scrollDeferral.noteRefresh(rebuilt);
+              rebuilt = false;
+              clearTimeout(timer);
+              timer = setTimeout(() => {
+                refetchAsks();
+                refetchQuestions();
+                refetchSeq();
+              }, 80);
+              return;
+            }
+            if (holdingWrites() && ask) {
+              clearTimeout(timer);
+              timer = setTimeout(() => {
+                refetchAsks();
+                refetchQuestions();
+                refetchSeq();
+              }, 80);
+              return;
+            }
             clearTimeout(timer);
             timer = setTimeout(() => {
+              // The gesture can start during this wait. Applying the view then
+              // is the hitch the hold is there to avoid.
+              if (holdingWrites()) {
+                scrollDeferral.noteRefresh(rebuilt);
+                rebuilt = false;
+                refetchAsks();
+                refetchQuestions();
+                refetchSeq();
+                return;
+              }
               void refreshView(rebuilt);
               rebuilt = false;
               refetchAsks();
@@ -1569,6 +1619,7 @@ const turns = () => shown().turns;
                 paneId={paneWorkspace().focusedPaneId}
                 sessionId={displayed()?.session_id ?? props.id}
                 turns={turns()}
+                onScrollGate={onScrollGate}
                 ready={viewReady() && !(importing() && turns().length === 0)}
                 nav={viewReady() && replayPos() === null && !outlineIsPartial(displayed())}
                 latest={replayPos() === null}
@@ -1661,7 +1712,9 @@ const turns = () => shown().turns;
                         broken. Say so, and let them ask again. */}
                     <Show when={questions.error || asks.error}>
                       <div class="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2.5">
-                        <Icon name="alert" class="mt-0.5 size-3.5 shrink-0 text-destructive" />
+                        <span class="flex h-[1lh] shrink-0 items-center text-destructive">
+                          <Icon name="alert" class="size-3.5" />
+                        </span>
                         <div class="min-w-0 flex-1">
                           <div class="text-sm text-destructive">
                             {t("prompt.load_failed")}

@@ -11,15 +11,30 @@
  * User scrolls come in through `onScroll` (coalesced by the caller) or are
  * absorbed inside the effect when they arrived between a write and the
  * handler's frame. The reading is remembered on every change, so whatever the
- * reader was looking at survives the transcript unmounting.
+ * reader was looking at survives the transcript unmounting. The signal itself
+ * moves only when the pin or the anchored turn changes — a pixel of offset
+ * would re-run the writer and measure the column again.
  */
 import { createEffect, createSignal, onCleanup } from "solid-js";
 import { JUMP_GAP, TAIL_TOLERANCE } from "./virtual-tail";
 import type { RowLayout } from "./row-layout";
 
+/** How long after the last user scroll a gesture still counts as in progress. */
+export const SCROLL_HOLD_MS = 150;
+
 export type Reading =
   | { pinned: true }
   | { pinned: false; turnId: string; offset: number };
+
+/**
+ * Whether a reading change has to notify. Pixel offsets stay off the signal:
+ * the outline and the follow button only move when the pin or the turn changes.
+ */
+export function readingNotifies(prev: Reading, next: Reading): boolean {
+  if (prev.pinned !== next.pinned) return true;
+  if (next.pinned) return false;
+  return prev.pinned === false && prev.turnId !== next.turnId;
+}
 
 /**
  * The reading for a scroll position. Pinned covers the tail, including the
@@ -108,8 +123,11 @@ export interface ScrollOwner {
    * event.
    */
   top: () => number;
-  /** Where the list host starts in the scroller's content (the column's padding). */
+  /** Where the list host starts in the scroller's content (the column's padding).
+   * The last value measured by a scroll or apply pass — readers do not measure again. */
   origin: () => number;
+  /** True from a user scroll until SCROLL_HOLD_MS after the last one. */
+  gesturing: () => boolean;
   /** Scroller clientHeight, from a ResizeObserver on the scroller. */
   viewport: () => number;
   /** Prompt the outline highlights: last index when following, else the anchored row's. */
@@ -136,6 +154,10 @@ export function createScrollOwner(opts: {
   const [reading, setReading] = createSignal<Reading>(opts.initial);
   const [top, setTop] = createSignal(0);
   const [viewport, setViewport] = createSignal(0);
+  const [gesturing, setGesturing] = createSignal(false);
+  /** Latest reading, including pixel offsets the signal deliberately does not publish. */
+  let live: Reading = opts.initial;
+  let settleTimer: ReturnType<typeof setTimeout> | undefined;
   /** The position this owner last wrote — or last absorbed — and the layout it was taken against. */
   let lastWritten: number | undefined;
   let seen: { offsets: Float64Array; ids: readonly string[] } | undefined;
@@ -144,7 +166,7 @@ export function createScrollOwner(opts: {
    * reading was already taken against the layout that just changed. */
   let fresh = false;
 
-  const origin = (st?: number): number => {
+  const measureOrigin = (st?: number): number => {
     const el = opts.scroller();
     const host = opts.host();
     if (!el || !host) return lastOrigin;
@@ -174,9 +196,21 @@ export function createScrollOwner(opts: {
 
   /** Record a reading change and hand it to whoever remembers it for this transcript. */
   const place = (r: Reading) => {
-    if (same(reading(), r)) return;
+    live = r;
+    const prev = reading();
+    if (!readingNotifies(prev, r)) {
+      if (!same(prev, r)) opts.remember(r);
+      return;
+    }
+    if (same(prev, r)) return;
     setReading(r);
     opts.remember(r);
+  };
+
+  const markGesture = () => {
+    if (!gesturing()) setGesturing(true);
+    if (settleTimer) clearTimeout(settleTimer);
+    settleTimer = setTimeout(() => setGesturing(false), SCROLL_HOLD_MS);
   };
 
   /** The scroller's own height as a signal, so following the tail re-pins when it grows. */
@@ -211,7 +245,7 @@ export function createScrollOwner(opts: {
       ch: el.clientHeight,
       orig: 0,
     };
-    p.orig = origin(p.st);
+    p.orig = measureOrigin(p.st);
 
     // Absorb a user scroll that landed since the last write and has not yet
     // been coalesced through onScroll — judged against `seen`, the layout the
@@ -234,8 +268,11 @@ export function createScrollOwner(opts: {
       }
     }
 
+    // `live` carries the pixel offset. The signal above is only the pin and
+    // the turn, so a height change during a scroll anchors to where the
+    // reader actually is.
     const target = targetScrollTop({
-      reading: reading(),
+      reading: live,
       origin: p.orig,
       offsets,
       indexOf: (id) => opts.layout.indexOf(id),
@@ -254,6 +291,7 @@ export function createScrollOwner(opts: {
   });
 
   onCleanup(() => {
+    if (settleTimer) clearTimeout(settleTimer);
     const el = opts.scroller();
     if (!el?.isConnected) return;
     // A scroll right before a switch would be lost: absorb once more against
@@ -261,7 +299,7 @@ export function createScrollOwner(opts: {
     if (lastWritten !== undefined && Math.abs(el.scrollTop - lastWritten) >= 1) {
       const s = seen ?? { offsets: opts.layout.offsets(), ids: opts.layout.ids() };
       const p = { st: el.scrollTop, sh: el.scrollHeight, ch: el.clientHeight, orig: 0 };
-      p.orig = origin(p.st);
+      p.orig = measureOrigin(p.st);
       opts.remember(readPosition(p, s));
     }
   });
@@ -270,7 +308,8 @@ export function createScrollOwner(opts: {
     reading,
     following: () => reading().pinned,
     top,
-    origin,
+    origin: () => lastOrigin,
+    gesturing,
     viewport,
     activeIndex: () => {
       const r = reading();
@@ -306,7 +345,7 @@ export function createScrollOwner(opts: {
         ch: el.clientHeight,
         orig: 0,
       };
-      p.orig = origin(p.st);
+      p.orig = measureOrigin(p.st);
       const moved =
         lastWritten !== undefined
           ? Math.abs(p.st - lastWritten) >= 1
@@ -331,13 +370,14 @@ export function createScrollOwner(opts: {
         clientHeight: p.ch,
         lastWritten,
       })) return;
-      p.orig = origin(p.st);
+      p.orig = measureOrigin(p.st);
       const offsets = opts.layout.offsets();
       const ids = opts.layout.ids();
       place(readPosition(p, { offsets, ids }));
       lastWritten = p.st;
       setTop(p.st);
       seen = { offsets, ids };
+      markGesture();
     },
   };
 }

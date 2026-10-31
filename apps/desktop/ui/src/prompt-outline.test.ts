@@ -121,6 +121,22 @@ describe("promptEntries", () => {
     expect(shifted[1]).not.toBe(before[0]);
     expect(shifted[1]!.turnIndex).toBe(1);
   });
+
+  test("an assistant update keeps the prompt's entry when the previous list is passed", () => {
+    const first = turn("a", text("one"));
+    const second = turn("b", text("two"));
+    const before = promptEntries([first, second]);
+    expect(before[1]!.reply).toBe("");
+    const streamed: Turn = { ...second, assistant: [{ content: text("answer") }] };
+    const after = promptEntries([first, streamed], before);
+    expect(after[0]).toBe(before[0]);
+    expect(after[1]).toBe(before[1]);
+    expect(after[1]!.reply).toBe("answer");
+    const edited: Turn = { ...second, user: text("rewritten") };
+    const replaced = promptEntries([first, edited], after);
+    expect(replaced[1]).not.toBe(before[1]);
+    expect(replaced[1]!.prompt).toBe("rewritten");
+  });
 });
 
 describe("promptAt", () => {

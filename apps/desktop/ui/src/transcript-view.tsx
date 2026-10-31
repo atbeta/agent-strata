@@ -14,7 +14,7 @@
  * What does survive is the remembered reading for that pair, and the row
  * heights already measured there.
  */
-import { createMemo, Show, type JSX } from "solid-js";
+import { createEffect, createMemo, Show, type JSX } from "solid-js";
 import type { Turn } from "./api";
 import { Virtual } from "./virtual";
 import { createRowLayout } from "./row-layout";
@@ -31,7 +31,7 @@ import {
 import { scrollCoalescer } from "./scroll-frame";
 import { ContentSashes, LoadingTranscript } from "./content-sashes";
 import { PromptNavigator } from "./prompt-navigator";
-import { promptAt, promptEntries } from "./prompt-outline";
+import { promptAt, promptEntries, type PromptEntry } from "./prompt-outline";
 import { contentW } from "./session-chrome";
 import { Tip } from "./tip";
 import { Button } from "@/components/ui/button";
@@ -63,14 +63,18 @@ export function TranscriptView(props: {
   renderTurn: (turn: () => Turn, index: number) => JSX.Element;
   /** Receives the imperative handle once, and again on each remount. */
   api?: (a: TranscriptApi) => void;
+  /**
+   * Scroll gesture and whether the reader is on the tail. The session uses
+   * this to hold transcript writes until the gesture ends.
+   */
+  onScrollGate?: (gate: { gesturing: boolean; following: boolean }) => void;
 }): JSX.Element {
-  const entries = createMemo(() => promptEntries(props.turns));
-  const showNav = () => props.nav && entries().length >= 2;
-
   return (
     <div class={`relative flex flex-1 flex-col ${props.class ?? ""}`}>
       <Show when={layoutKey(props.paneId, props.sessionId)} keyed>
         {(key) => {
+          const entries = createMemo<PromptEntry[]>((prev) => promptEntries(props.turns, prev));
+          const showNav = () => props.nav && entries().length >= 2;
           const ids = createTurnIds(() => props.turns);
           const layout = createRowLayout({
             ids,
@@ -89,6 +93,12 @@ export function TranscriptView(props: {
             remember: (reading) => rememberReading(key, reading),
           });
           const onScroll = scrollCoalescer(owner.onScroll);
+          createEffect(() => {
+            props.onScrollGate?.({
+              gesturing: owner.gesturing(),
+              following: owner.following(),
+            });
+          });
           // Memoized so the rail's ticks compare a stable id: computing it
           // per read ran the outline lookup once per tick per frame. With the
           // memo, a scroll that never crosses a prompt boundary changes
@@ -153,6 +163,7 @@ export function TranscriptView(props: {
                             if (owner.following()) {
                               return Math.max(0, layout.end() - Math.max(0, owner.viewport()));
                             }
+                            // origin is the value this scroll pass already measured.
                             return owner.top() - owner.origin();
                           }}
                           viewport={owner.viewport}

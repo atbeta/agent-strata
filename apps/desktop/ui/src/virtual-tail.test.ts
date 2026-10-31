@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { atTail, TAIL_TOLERANCE } from "./virtual-tail";
+import { atTail } from "./virtual-tail";
 
 const read = (file: string) => readFileSync(join(import.meta.dir, file), "utf8");
 
@@ -42,7 +42,7 @@ describe("a window that cannot be placed still draws something", () => {
     const memoStart = rows.indexOf("const rows = createMemo");
     const call = rows.indexOf("mountedRange({");
     expect(call).toBeGreaterThan(memoStart);
-    expect(call).toBeLessThan(rows.indexOf("const out: number[]"));
+    expect(call).toBeLessThan(rows.indexOf("stableIndexWindow(prev, first, last)"));
   });
 });
 
