@@ -194,6 +194,9 @@ export function useSessionComposer(args: {
   };
   const queuePaused = () => queueHold() !== null;
   let composerClosed = false;
+  // `deliver` and the drain effect both write this. The binding has to exist
+  // before those closures, or it is still in the temporal dead zone.
+  let persistedQueueSessions = new Set<string>();
   const inflightSessions = new Set<string>();
   const graceUntil = new Map<string, number>();
   const graceTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -918,7 +921,6 @@ export function useSessionComposer(args: {
    * after a restart: only cold initialization takes its text into the draft.
    * Tracking the previous ids also removes storage for queues sent or deleted.
    */
-  let persistedQueueSessions = new Set<string>();
   createEffect(() => {
     queued();
     drainClock();
