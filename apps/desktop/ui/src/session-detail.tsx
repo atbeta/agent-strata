@@ -772,6 +772,8 @@ export function SessionDetail(props: {
     replayPos,
     refreshView: (full) => refreshView(full),
     branch: () => settled(vcs)?.branch ?? undefined,
+    sessionActivity: () =>
+      props.sessions.map((row) => ({ id: row.summary.session_id, busy: row.busy === true })),
   });
 
   let tools: ReturnType<typeof useMcpTools>;

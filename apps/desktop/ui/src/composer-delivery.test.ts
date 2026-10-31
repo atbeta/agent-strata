@@ -103,6 +103,73 @@ describe("composer delivery settlement", () => {
     expect(requests).toBe(1);
   });
 
+  test("a request for A still commits after a request for B has started", async () => {
+    const delivery = createComposerDelivery(memoryQueue());
+    const pendingA = deferred<void>();
+    const pendingB = deferred<void>();
+    let committed = "";
+
+    const sendingA = delivery.settle({
+      sessionId: "a",
+      out: out("from A"),
+      request: () => pendingA.promise,
+      onSuccess: () => {
+        committed = "A";
+      },
+      onFailure: () => {
+        committed = "A failed";
+      },
+    });
+    const sendingB = delivery.settle({
+      sessionId: "b",
+      out: out("from B", "b"),
+      request: () => pendingB.promise,
+      onSuccess: () => {},
+      onFailure: () => {
+        committed = "B failed";
+      },
+    });
+    pendingA.resolve();
+    pendingB.resolve();
+
+    expect(await sendingA).toBe("success");
+    expect(await sendingB).toBe("success");
+    expect(committed).toBe("A");
+  });
+
+  test("a failed A response stays A's failure after B has started", async () => {
+    const queue = memoryQueue();
+    const delivery = createComposerDelivery(queue);
+    const pendingA = deferred<void>();
+    const pendingB = deferred<void>();
+    let failed = "";
+
+    const sendingA = delivery.settle({
+      sessionId: "a",
+      out: out("from A"),
+      request: () => pendingA.promise,
+      onSuccess: () => {},
+      onFailure: () => {
+        failed = "A";
+      },
+    });
+    void delivery.settle({
+      sessionId: "b",
+      out: out("from B", "b"),
+      request: () => pendingB.promise,
+      onSuccess: () => {},
+      onFailure: () => {
+        failed = "B";
+      },
+    });
+    pendingA.reject(new Error("offline"));
+
+    expect(await sendingA).toBe("failure");
+    expect(failed).toBe("A");
+    expect(queue.values.has("a")).toBe(false);
+    pendingB.resolve();
+  });
+
   test("a current failure still reports to the visible session", async () => {
     const delivery = createComposerDelivery();
     let error = "";

@@ -1,4 +1,4 @@
-import type { CommandPart, PromptPart } from "./api";
+import type { CommandPart, PromptChoice, PromptPart } from "./api";
 
 /** An `@file` mention or a leading `/command` the caret is in the middle of typing. */
 export interface Trigger {
@@ -98,6 +98,13 @@ export interface Outgoing {
    * put into the queue, which is the only place that can be wrong later.
    */
   sessionId?: string;
+  /**
+   * Model, agent, and effort as they were when this was queued.
+   *
+   * A follow-up can leave while another session is on screen. Reading the
+   * pickers then would send it as whichever model that other session is using.
+   */
+  choice?: PromptChoice;
 }
 
 /** The service says this when a prompt was refused or never accepted. */

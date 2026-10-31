@@ -35,7 +35,7 @@ describe("request ownership", () => {
     expect(commits).toEqual(["new"]);
   });
 
-  test("changing sessions and invalidating both reject a deferred response", async () => {
+  test("a request for A stays current when B starts, and closing drops it", async () => {
     const owner = createRequestOwner();
     const pending = deferred<string>();
     const token = owner.begin("a");
@@ -44,9 +44,12 @@ describe("request ownership", () => {
       if (owner.isCurrent(token)) commits.push(value);
     });
 
+    // Leaving A for B is not a cancel. The request was made for A and still
+    // belongs to A; only a newer request for A, or closing the composer, drops it.
     owner.begin("b");
-    expect(owner.isCurrent(token)).toBe(false);
+    expect(owner.isCurrent(token)).toBe(true);
     const invalidated = owner.begin("a");
+    expect(owner.isCurrent(token)).toBe(false);
     owner.invalidate();
     expect(owner.isCurrent(invalidated)).toBe(false);
 

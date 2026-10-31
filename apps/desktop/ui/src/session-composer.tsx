@@ -19,6 +19,7 @@ import {
   sendPrompt,
   type CommandInfo,
   type OptionsResponse,
+  type PromptChoice,
   type SessionCapabilities,
   type SessionView,
 } from "./api";
@@ -33,7 +34,15 @@ import { runInProgress, SEND_GRACE_MS } from "./live";
 import { createSessionStop } from "./session-stop";
 import { ComposerToolbar } from "./composer-toolbar";
 import { createComposerDelivery } from "./composer-delivery";
-import { createSessionQueues, persistSessionQueues, restoreColdDraft, restoreSessionDraft } from "./composer-queue";
+import {
+  createSessionQueues,
+  parkSessionQueues,
+  persistSessionQueues,
+  queueGate,
+  restoreColdDraft,
+  restoreSessionDraft,
+  takeIdleHeads,
+} from "./composer-queue";
 import { withEcho, type PendingEcho } from "./prompt-echo";
 import {
   navigateHistory,
@@ -43,6 +52,7 @@ import {
   sessionContext,
   writeDraft,
   writeHistory,
+  writeQueuedText,
 } from "./prompt-memory";
 import {
   attachmentProblem,
@@ -60,7 +70,6 @@ import {
   stepAgent,
   promptParts,
   explainSend,
-  nextQueued,
   restoreFailed,
   toAttachment,
   triggerAt,
@@ -110,6 +119,14 @@ export function useSessionComposer(args: {
   refreshView: (full?: boolean) => Promise<void>;
   /** the git branch, for the details popover — the header chip hides when narrow */
   branch?: () => string | undefined;
+  /**
+   * Busy flags from the session list.
+   *
+   * A queue for a session that is not on screen drains from this, because
+   * that session's view is not being read. No row means the list has not
+   * spoken, and the queue waits.
+   */
+  sessionActivity: () => readonly { id: string; busy: boolean }[];
 }) {
   const opencode = () => args.caps()?.extension === "opencode";
   const connected = () => args.caps()?.connected !== false;
@@ -176,6 +193,23 @@ export function useSessionComposer(args: {
     applyHold(untrack(args.sessionId), paused ? "stopped" : null);
   };
   const queuePaused = () => queueHold() !== null;
+  let composerClosed = false;
+  const inflightSessions = new Set<string>();
+  const graceUntil = new Map<string, number>();
+  const graceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const [drainClock, setDrainClock] = createSignal(0);
+  const armGrace = (sessionId: string) => {
+    const previous = graceTimers.get(sessionId);
+    if (previous) clearTimeout(previous);
+    graceUntil.set(sessionId, Date.now() + SEND_GRACE_MS);
+    const timer = setTimeout(() => {
+      graceTimers.delete(sessionId);
+      if (composerClosed) return;
+      graceUntil.delete(sessionId);
+      setDrainClock((n) => n + 1);
+    }, SEND_GRACE_MS);
+    graceTimers.set(sessionId, timer);
+  };
   /** turn the next send should revert first, set when the reader edits a message */
   const [editTurnId, setEditTurnId] = createSignal<string>();
   const menuId = createUniqueId();
@@ -448,29 +482,42 @@ export function useSessionComposer(args: {
    */
   const [echo, setEcho] = createSignal<PendingEcho>();
 
-  const deliver = async (out: Outgoing) => {
-    // The session this message was written for. A queued message carries its
-    // own; a direct send has none and means the one on screen.
-    const target = out.sessionId ?? args.sessionId();
-    setSendErr("");
-    // A confirmation about the run that just ended says nothing about the one
-    // starting, and two of them stacked read as a session stopped twice.
-    sessionStop.clearStopped();
-    openHandover();
-    setHistIndex(-1);
-    // The reader's own sentence goes on screen now. Until the store's turn
-    // count passes this baseline, `turns()` draws it in place of a turn the
-    // backend has not produced yet; a send that fails clears it below, and a
-    // send that succeeds clears it by itself.
-    setEcho({ base: args.view()?.turns.length ?? 0, text: out.text });
-    if (out.text) writeHistory(rememberPrompt(readHistory(), out.text));
+  const currentChoice = (): PromptChoice => {
     const chosen = selectedModel();
     const implied = !chosen && variantSel() ? effortModel() : undefined;
     const source = chosen ?? implied;
     const model = source
       ? { providerID: source.providerID, modelID: source.modelID }
       : splitModel(modelSel());
-    const choice = { model, agent: agentSel() || undefined, variant: variantSel() || undefined };
+    return { model, agent: agentSel() || undefined, variant: variantSel() || undefined };
+  };
+
+  const deliver = async (out: Outgoing) => {
+    // The session this message was written for. A queued message carries its
+    // own; a direct send has none and means the one on screen.
+    const target = out.sessionId ?? untrack(args.sessionId);
+    const onScreen = () => untrack(args.sessionId) === target;
+    inflightSessions.add(target);
+    // A confirmation about the run that just ended says nothing about the one
+    // starting, and two of them stacked read as a session stopped twice.
+    // None of this belongs on the session the reader happens to be looking at
+    // when a different session's queue leaves.
+    if (onScreen()) {
+      setSendErr("");
+      sessionStop.clearStopped();
+      openHandover();
+      setHistIndex(-1);
+      // The reader's own sentence goes on screen now. Until the store's turn
+      // count passes this baseline, `turns()` draws it in place of a turn the
+      // backend has not produced yet; a send that fails clears it below, and a
+      // send that succeeds clears it by itself.
+      setEcho({ base: args.view()?.turns.length ?? 0, text: out.text });
+    }
+    if (out.text) writeHistory(rememberPrompt(readHistory(), out.text));
+    // A queued message keeps the model it was queued with. Falling back to the
+    // pickers is only safe for the session on screen; another session's model
+    // is not this message's.
+    const choice = out.choice ?? (onScreen() ? currentChoice() : {});
     // A leading `!` is a shell command, not a prompt and not a slash command.
     // Checked first: `/` and `!` cannot both lead, and reading the draft twice
     // would let a command named like a shell call win on a tie that cannot exist.
@@ -505,13 +552,34 @@ export function useSessionComposer(args: {
         }
       },
       onSuccess: () => {
-        // The backend has it now. The handover that mattered — "the reader gave
-        // this over and nothing has come back" — is over; what is left is the
-        // projection catching up, so the window restarts from here rather than
-        // from the press.
-        openHandover();
+        inflightSessions.delete(target);
+        if (composerClosed) return;
+        if (onScreen()) {
+          // The backend has it now. The handover that mattered — "the reader gave
+          // this over and nothing has come back" — is over; what is left is the
+          // projection catching up, so the window restarts from here rather than
+          // from the press.
+          openHandover();
+          return;
+        }
+        // The list may already show the run. A grace on top of that would hold
+        // the next follow-up after the run had finished.
+        if (args.sessionActivity().some((row) => row.id === target && row.busy)) return;
+        armGrace(target);
       },
       onFailure: (err) => {
+        inflightSessions.delete(target);
+        if (composerClosed || !onScreen()) {
+          if (composerClosed) return;
+          // The words stay on the session they were typed in. Putting them in
+          // the draft on screen, or in this session's draft, is how a switch
+          // used to look like the queue had been given up.
+          sessionQueues.replaceSession(target, [out, ...sessionQueues.read(target)]);
+          persistedQueueSessions = persistSessionQueues(sessionQueues.snapshot(), persistedQueueSessions);
+          applyHold(target, "send");
+          setDrainClock((n) => n + 1);
+          return;
+        }
         if (revertFailed && editTurnId() === undefined) setEditTurnId(out.revertTurnId);
         setSendErr(explainSend(err instanceof Error ? err.message : "", t("err.send")));
         const back = restoreFailed(out, { text: draft(), picked: picked(), attachments: attachments() });
@@ -519,7 +587,7 @@ export function useSessionComposer(args: {
         setPicked(back.draft.picked);
         setAttachments(back.draft.attachments);
         if (back.dropped) setAttachErr(t("composer.attach.too_many", { n: MAX_ATTACHMENTS }));
-        applyHold(untrack(args.sessionId), "send");
+        applyHold(target, "send");
         closeHandover();
         setEcho(undefined);
         queueMicrotask(autogrow);
@@ -542,6 +610,7 @@ export function useSessionComposer(args: {
       // message can outlive the session it was written in, and the queue drains
       // on whatever is open when the run ends.
       sessionId: args.sessionId(),
+      choice: currentChoice(),
       ...(revertTurnId ? { revertTurnId } : {}),
     };
     if (!out.text && out.attachments.length === 0) return;
@@ -617,20 +686,52 @@ export function useSessionComposer(args: {
     if (decision.action === "run") runSlash(decision.name, decision.args);
   };
 
-  // A follow-up typed while the agent is running waits here, then goes out
-  // on the next idle. deliver() opens the handover in the same turn, so this
-  // does not drain the rest of the queue until that turn finishes.
+  // Each session's queue leaves when that session's run is idle, including
+  // while another session is on screen. Waiting until the reader looks back
+  // is what made a return send the follow-up in front of them. One head at a
+  // time: the in-flight set holds the rest until this request settles.
   createEffect(() => {
-    if (args.replayPos() !== null || queuePaused()) return;
-    const step = nextQueued(queued(), args.sessionId(), generating());
-    if (step.action === "wait") return;
-    if (step.action === "drop") {
-      // The id changes before resetFor swaps in that session's queue. Keep the
-      // foreign entries in their own in-memory queue rather than sending or dropping them.
-      return;
+    if (composerClosed) return;
+    const visibleId = args.sessionId();
+    const replaying = args.replayPos() !== null;
+    const view = args.view();
+    const viewBusy = generating();
+    queueHold();
+    queued();
+    drainClock();
+    const listed = new Map(args.sessionActivity().map((row) => [row.id, row.busy]));
+    const now = Date.now();
+    const gates = new Map<string, { busy: boolean; held: boolean }>();
+    for (const id of sessionQueues.snapshot().keys()) {
+      // Handover is one timer for the composer, so it still belongs to the
+      // session being left on the frame a switch starts. Only a view that
+      // names this session, or the list, is evidence the run has shown up.
+      const runningHere = view?.session_id === id && view.busy === true;
+      if (listed.get(id) === true || runningHere) graceUntil.delete(id);
+      const gate = queueGate({
+        visible: id === visibleId,
+        viewBusy,
+        listedBusy: listed.has(id) ? listed.get(id) : undefined,
+        inflight: inflightSessions.has(id),
+        held: queueHolds.has(id),
+        now,
+        graceUntil: graceUntil.get(id),
+      });
+      if (gate) gates.set(id, gate);
     }
-    setQueued((q) => q.slice(1));
-    void deliver(step.item);
+    const taken = takeIdleHeads(sessionQueues.snapshot(), gates, { id: visibleId, replaying });
+    if (taken.sending.length === 0) return;
+    for (const send of taken.sending) inflightSessions.add(send.sessionId);
+    for (const id of sessionQueues.snapshot().keys()) {
+      if (!taken.queues.has(id)) sessionQueues.replaceSession(id, []);
+    }
+    for (const [id, items] of taken.queues) sessionQueues.replaceSession(id, items);
+    setQueuedSignal(sessionQueues.read(visibleId));
+    persistedQueueSessions = persistSessionQueues(sessionQueues.snapshot(), persistedQueueSessions);
+    for (const send of taken.sending) {
+      const item = send.item.sessionId ? send.item : { ...send.item, sessionId: send.sessionId };
+      void deliver(item);
+    }
   });
 
   const editQueued = (index: number) => {
@@ -641,6 +742,7 @@ export function useSessionComposer(args: {
       picked: picked(),
       attachments: attachments(),
       sessionId: args.sessionId(),
+      choice: currentChoice(),
     };
     setQueued((q) => {
       const rest = q.filter((_, i) => i !== index);
@@ -819,12 +921,30 @@ export function useSessionComposer(args: {
   let persistedQueueSessions = new Set<string>();
   createEffect(() => {
     queued();
+    drainClock();
+    persistedQueueSessions = persistSessionQueues(sessionQueues.snapshot(), persistedQueueSessions);
+  });
+
+  onCleanup(() => {
+    composerClosed = true;
+    for (const timer of graceTimers.values()) clearTimeout(timer);
+    graceTimers.clear();
+    // Leaving the session screen, not switching within it. What is still
+    // queued goes back to the draft and is not sent from here.
+    parkSessionQueues(sessionQueues.snapshot(), {
+      readDraft,
+      writeDraft,
+      writeQueued: writeQueuedText,
+    });
+    for (const id of [...sessionQueues.snapshot().keys()]) sessionQueues.replaceSession(id, []);
     persistedQueueSessions = persistSessionQueues(sessionQueues.snapshot(), persistedQueueSessions);
   });
 
   /** the session behind the composer changed — swap in its own transient state */
   const resetFor = (id: string) => {
-    deliveries.invalidate();
+    // A switch is not a cancel. The request already in flight belongs to the
+    // session that sent it and keeps going; invalidating it here is what put
+    // the words back in the draft on the way back.
     const queuedNow = sessionQueues.switch(id);
     setQueuedSignal(queuedNow);
     const restored = deliveries.restore(id, {
