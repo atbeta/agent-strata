@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createPaintQueue } from "./paint-queue";
+import { createPaintQueue, firstPaint } from "./paint-queue";
 
 describe("paint work spread across frames", () => {
   const harness = (budgetMs: number) => {
@@ -70,5 +70,43 @@ describe("paint work spread across frames", () => {
     cancel();
     flush();
     expect(ran).toEqual([2]);
+  });
+
+  test("a row that scrolled into view paints before the ones still waiting", () => {
+    const { queue, frames, advance, flush } = harness(12);
+    const ran: number[] = [];
+    queue.enqueue(() => {
+      advance(40);
+      ran.push(1);
+    });
+    queue.enqueue(() => {
+      advance(40);
+      ran.push(2);
+    });
+    const later = queue.enqueue(() => {
+      advance(40);
+      ran.push(3);
+    });
+    later.prioritize();
+    expect(frames).toHaveLength(1);
+    flush();
+    expect(ran).toEqual([3]);
+  });
+});
+
+describe("which frame a row's first paint belongs to", () => {
+  test("a row mounted on screen, and a reply still being written, paint now", () => {
+    expect(firstPaint({ live: false, visible: true, queued: false })).toBe("now");
+    expect(firstPaint({ live: true, visible: false, queued: true })).toBe("now");
+    expect(firstPaint({ live: true, visible: true, queued: false })).toBe("now");
+  });
+
+  test("a row that was waiting and then entered the view waits one frame, at the front", () => {
+    expect(firstPaint({ live: false, visible: true, queued: true })).toBe("soon");
+  });
+
+  test("a row still off screen waits its turn", () => {
+    expect(firstPaint({ live: false, visible: false, queued: false })).toBe("later");
+    expect(firstPaint({ live: false, visible: false, queued: true })).toBe("later");
   });
 });

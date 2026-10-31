@@ -8,7 +8,7 @@ import { drawDiagram, isDiagramBlock } from "./mermaid";
 import { t } from "./i18n";
 import { MarkdownHtmlCache } from "./md-cache";
 import { openImage } from "./image-viewer";
-import { enqueuePaint } from "./paint-queue";
+import { enqueuePaint, firstPaint, type PaintCancel } from "./paint-queue";
 import { useRowPaintHold, useRowPaintMode } from "./paint-mode";
 
 marked.setOptions({ gfm: true, breaks: true });
@@ -25,7 +25,7 @@ export function Md(props: { text: string; class?: string; live?: boolean }) {
   let stableCount = 0;
   const mode = useRowPaintMode();
   const paintHold = useRowPaintHold();
-  let cancelIdle: (() => void) | undefined;
+  let cancelIdle: PaintCancel | undefined;
   let releaseHold: (() => void) | undefined;
   const release = () => {
     releaseHold?.();
@@ -80,19 +80,23 @@ export function Md(props: { text: string; class?: string; live?: boolean }) {
     if (!host) return;
     if (!started) {
       // Off-screen rows wait. Parsing every one of them in the scroll turn is
-      // the hitch. A row that scrolls into view flips to `now` and paints on
-      // that frame; a streaming row never waits.
-      const immediate = live || mode() === "now";
+      // the hitch. A row that was already queued and then scrolls into view
+      // stays on the queue and goes first on the next frame — painting it
+      // here would be that parse, on this turn. A row that mounts already on
+      // screen, and a reply that is still being written, do not wait.
       const go = () => {
         if (started || !host) return;
         started = true;
         paint(props.text, props.live === true);
       };
-      if (immediate) {
+      const plan = firstPaint({ live, visible: mode() === "now", queued: cancelIdle !== undefined });
+      if (plan === "now") {
         cancelIdle?.();
         cancelIdle = undefined;
         release();
         go();
+      } else if (plan === "soon") {
+        cancelIdle?.prioritize();
       } else if (!cancelIdle) {
         releaseHold ??= paintHold.hold();
         cancelIdle = enqueuePaint(() => {
