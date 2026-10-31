@@ -32,7 +32,6 @@ import {
   goalMetReply,
   isDiff,
   isInteractiveTool,
-  isInterruptedStop,
   isLengthStop,
   replyInterrupted,
   messageText,
@@ -943,19 +942,25 @@ function AssistantMessage(props: {
           </Show>
           <Show when={truncated()}>
             <p role="status" class="mt-2 flex items-start gap-1.5 text-xs text-event-permission">
-              <Icon name="alert" class="mt-0.5 size-3 shrink-0" />
+              <span class="flex h-[1lh] shrink-0 items-center">
+                <Icon name="alert" class="size-3" />
+              </span>
               <span>{t("message.truncated")}</span>
             </p>
           </Show>
           <Show when={interrupted()}>
             <p role="status" class="mt-2 flex items-start gap-1.5 text-xs text-event-permission">
-              <Icon name="alert" class="mt-0.5 size-3 shrink-0" />
+              <span class="flex h-[1lh] shrink-0 items-center">
+                <Icon name="alert" class="size-3" />
+              </span>
               <span>{t("message.interrupted")}</span>
             </p>
           </Show>
           <Show when={empty()}>
             <p role="status" class="mt-2 flex items-start gap-1.5 text-xs text-event-permission">
-              <Icon name="alert" class="mt-0.5 size-3 shrink-0" />
+              <span class="flex h-[1lh] shrink-0 items-center">
+                <Icon name="alert" class="size-3" />
+              </span>
               <span>{t("message.empty")}</span>
             </p>
           </Show>
@@ -972,7 +977,9 @@ function AssistantMessage(props: {
                 role="alert"
                 class="mt-1 flex items-start gap-1.5 whitespace-pre-wrap break-words rounded-md bg-destructive/6 px-3 py-2 text-xs text-destructive"
               >
-                <Icon name="alert" class="mt-0.5 size-3 shrink-0" />
+                <span class="flex h-[1lh] shrink-0 items-center">
+                  <Icon name="alert" class="size-3" />
+                </span>
                 <span class="min-w-0 flex-1 whitespace-pre-wrap break-words">{n().text}</span>
               </p>
             )}

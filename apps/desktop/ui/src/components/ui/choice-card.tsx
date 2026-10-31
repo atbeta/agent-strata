@@ -45,7 +45,9 @@ export function ChoiceCard(raw: {
     >
       <span class="min-w-0 flex-1">{local.children}</span>
       <Show when={local.check && local.selected}>
-        <Icon name="check" class="mt-0.5 size-3.5 shrink-0 text-foreground" />
+        <span class="flex h-[1lh] shrink-0 items-center">
+          <Icon name="check" class="size-3.5 text-foreground" />
+        </span>
       </Show>
     </button>
   );
