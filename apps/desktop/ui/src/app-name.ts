@@ -23,6 +23,10 @@ export type Brand = {
   dataDir: string;
   sourceUrl: string;
   sourceLabel: string;
+  /** About row title. Absent: the page uses its translated "Source" line. */
+  sourceTitle?: string;
+  /** The sentence under that title. Absent: the translated sentence. */
+  sourceHint?: string;
 };
 
 // A bare `__BRAND__`, not `globalThis.__BRAND__`: Vite's `define` rewrites an
@@ -55,8 +59,14 @@ export const BRAND: Brand = injected ?? UPSTREAM;
 
 export const APP_NAME = BRAND.productName;
 
-/** Where a question about this build should end up. */
+/** Where the About row's link goes. Empty: the row has no link. */
 export const SOURCE_URL = BRAND.sourceUrl;
 
-/** The repository as the About panel names it. */
+/** The words on that link. */
 export const SOURCE_LABEL = BRAND.sourceLabel;
+
+/** About row title, when this build replaces the translated one. */
+export const SOURCE_TITLE = BRAND.sourceTitle ?? "";
+
+/** The sentence under that title, when this build replaces the translated one. */
+export const SOURCE_HINT = BRAND.sourceHint ?? "";

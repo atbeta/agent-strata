@@ -58,6 +58,12 @@ export type Brand = {
   sourceUrl: string;
   sourceLabel: string;
   /**
+   * The About row's title and the sentence under it. Absent means the page
+   * keeps its own translated wording ("Source" / "源代码").
+   */
+  sourceTitle?: string;
+  sourceHint?: string;
+  /**
    * The bundled icon set, relative to `src-tauri`.
    *
    * A white-label build brings its own marks; the upstream set stays where it
@@ -93,6 +99,19 @@ const clean = (value: string | undefined): string | undefined => {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
 };
+
+/**
+ * The link the About row opens.
+ *
+ * A blank variable means "leave whatever the preset or the upstream build
+ * already says". `-` is the explicit empty: the sentence can stay and the
+ * link is not drawn. GitHub turns an unset repository variable into an empty
+ * string, so empty cannot be the signal.
+ */
+function sourceUrl(raw: string | undefined, fallback: string): string {
+  const chosen = clean(raw) ?? fallback;
+  return chosen.trim() === "-" ? "" : chosen;
+}
 
 /**
  * The brand this environment asks for.
@@ -142,17 +161,19 @@ export async function resolveBrand(
     productName: clean(env.STRATA_BRAND_NAME) ?? base.productName,
     identifier: clean(env.STRATA_BRAND_IDENTIFIER) ?? base.identifier,
     dataDir: clean(env.STRATA_BRAND_DATA_DIR) ?? base.dataDir,
-    sourceUrl: clean(env.STRATA_BRAND_SOURCE_URL) ?? base.sourceUrl,
+    sourceUrl: sourceUrl(env.STRATA_BRAND_SOURCE_URL, base.sourceUrl),
     sourceLabel: clean(env.STRATA_BRAND_SOURCE_LABEL) ?? base.sourceLabel,
+    sourceTitle: clean(env.STRATA_BRAND_SOURCE_TITLE) ?? clean(base.sourceTitle),
+    sourceHint: clean(env.STRATA_BRAND_SOURCE_HINT) ?? clean(base.sourceHint),
     ...(base.icons ? { icons: base.icons } : {}),
   };
 }
 
 /** Whether a brand differs from the upstream one in any field. */
 export function isCustom(brand: Brand): boolean {
-  const keys = Object.keys(UPSTREAM) as (keyof Brand)[];
+  const keys = Object.keys(UPSTREAM) as (keyof typeof UPSTREAM)[];
   if (keys.some((key) => brand[key] !== UPSTREAM[key])) return true;
-  return brand.icons !== undefined;
+  return brand.icons !== undefined || brand.sourceTitle !== undefined || brand.sourceHint !== undefined;
 }
 
 /**
@@ -282,6 +303,11 @@ export const PRESETS = {
     dataDir: ".company-agent",
     sourceUrl: "https://github.com/your-org/your-fork",
     sourceLabel: "your-org/your-fork",
+    // Optional: the About row. Leave both out and the page keeps its own
+    // translated "Source" line. Set sourceUrl to "-" for the sentence with
+    // no link.
+    // sourceTitle: "使用说明",
+    // sourceHint: "安装、常见问题和找谁问，都在右边。",
     // Optional: a bundled icon set, relative to apps/desktop/src-tauri.
     // Leave it out to keep the upstream marks.
     // icons: [

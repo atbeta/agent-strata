@@ -75,6 +75,7 @@ mod tests {
             "the data directory is a dotfolder: {}",
             brand.data_dir
         );
-        assert!(!brand.source_url.is_empty());
+        // source_url may be empty: a build can keep the About sentence and draw
+        // no link. The name and the folder are the fields a start requires.
     }
 }

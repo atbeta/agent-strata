@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { APP_NAME, UPSTREAM } from "./app-name";
-import { overlay as brandOverlay, resolveBrand } from "../../../../scripts/brand";
+import { isCustom, overlay as brandOverlay, resolveBrand } from "../../../../scripts/brand";
 
 /**
  * The packaged build and the panels have to call the same thing the same way.
@@ -108,6 +108,40 @@ describe("app name", () => {
  * Every suite was green at the time, because they all checked the overlay's own
  * fields instead of what the window becomes after the merge.
  */
+describe("the about row", () => {
+  test("unset fields keep the upstream link and the translated wording", async () => {
+    const brand = await resolveBrand({});
+    expect(brand.sourceUrl).toBe(UPSTREAM.sourceUrl);
+    expect(brand.sourceLabel).toBe(UPSTREAM.sourceLabel);
+    expect(brand.sourceTitle).toBeUndefined();
+    expect(brand.sourceHint).toBeUndefined();
+    expect(isCustom(brand)).toBe(false);
+  });
+
+  test("a title, a sentence, and a link replace the row", async () => {
+    const brand = await resolveBrand({
+      STRATA_BRAND_SOURCE_TITLE: "使用说明",
+      STRATA_BRAND_SOURCE_HINT: "安装和常见问题。",
+      STRATA_BRAND_SOURCE_URL: "https://git.example.internal/ai/agent",
+      STRATA_BRAND_SOURCE_LABEL: "内网仓库",
+    });
+    expect(brand.sourceTitle).toBe("使用说明");
+    expect(brand.sourceHint).toBe("安装和常见问题。");
+    expect(brand.sourceUrl).toBe("https://git.example.internal/ai/agent");
+    expect(brand.sourceLabel).toBe("内网仓库");
+    expect(isCustom(brand)).toBe(true);
+  });
+
+  test("a dash is no link, and a blank variable leaves the link alone", async () => {
+    const cleared = await resolveBrand({ STRATA_BRAND_SOURCE_URL: "-" });
+    expect(cleared.sourceUrl).toBe("");
+    expect(isCustom(cleared)).toBe(true);
+    const blank = await resolveBrand({ STRATA_BRAND_SOURCE_URL: "  " });
+    expect(blank.sourceUrl).toBe(UPSTREAM.sourceUrl);
+    expect(isCustom(blank)).toBe(false);
+  });
+});
+
 describe("the overlay and the window it merges into", () => {
   const committed = JSON.parse(readFileSync(`${tauriDir}tauri.conf.json`, "utf8")) as {
     app?: { windows?: Record<string, unknown>[] };

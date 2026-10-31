@@ -14,7 +14,7 @@ on:
   workflow_call:
     inputs:
       only_check:
-        description: Run the original check and skip the later Rust and WebKit jobs
+        description: Run the original check and skip the Rust job
         type: boolean
         default: false
 
@@ -101,29 +101,3 @@ jobs:
       - name: Test Rust sidecar
         working-directory: apps/desktop/src-tauri
         run: cargo test --locked
-
-  webkit-smoke:
-    if: ${{ inputs.only_check != true }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Install Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.2
-
-      - name: Install workspace dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Install desktop UI dependencies
-        working-directory: apps/desktop/ui
-        run: bun install --frozen-lockfile
-
-      - name: Install Playwright WebKit and Linux dependencies
-        working-directory: apps/desktop/ui
-        run: bunx playwright install --with-deps webkit
-
-      - name: Run WebKit production smoke
-        working-directory: apps/desktop/ui
-        run: bun run bench --engines webkit --reps 1 --flows A

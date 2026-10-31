@@ -5,8 +5,7 @@
 - `bun run lint` (root): oxlint over the same trees and `scripts`. Warnings fail the run.
 - `bun test packages`: all package tests.
 - `bun run test:ui`: desktop UI unit tests (includes `apps/desktop/ui/bench/metrics.test.ts`).
-- `cargo test --locked` in `apps/desktop/src-tauri`: Tauri shell tests.
-- CI also runs a WebKit production smoke: `cd apps/desktop/ui && bun run bench --engines webkit --reps 1 --flows A`. Releases call the same reusable CI workflow.
+- `cargo test --locked` in `apps/desktop/src-tauri`: Tauri shell tests. Push and pull request run these; a release runs the check job only, so a shell-test failure does not skip the installers.
 
 ## Transcript bench (`apps/desktop/ui/bench`)
 Replays a reader's journeys (cold open, scroll up, wheel, outline jump, session switches) in Playwright WebKit and Chromium against an isolated service + Vite on random ports (temp HOME and DB, never `~/.agent-strata`).

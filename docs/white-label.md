@@ -11,16 +11,26 @@ upstream commit keeps applying without a conflict.
 | `productName` | What the app is called | Installer name, window title, About panel, page title |
 | `identifier` | The bundle id | What a machine uses to hold this build beside another |
 | `dataDir` | Where state lives | `~/<dataDir>/` — database, token, pid table, logs |
-| `sourceUrl` | Where questions go | The About panel's link |
+| `sourceTitle` (optional) | The About row's title | Replaces "Source" / "源代码" |
+| `sourceHint` (optional) | The sentence under that title | Replaces the translated issue line |
+| `sourceUrl` | Where that row's link goes | The About panel's link. `-` draws no link |
 | `sourceLabel` | How that link reads | The About panel's label |
 | `icons` (optional) | The bundled marks | Overrides `bundle.icon` |
 
+`sourceTitle` and `sourceHint` are one string each, in whatever language the
+build speaks. Leave them unset and the page keeps the translated line, so the
+upstream build still says "源代码" in Chinese and "Source" in English. A company
+build that sets them shows those words in every language.
+
 `sourceUrl` is a plain link, not a build input, so a fork points it at its own
-repository — an internal Git host included: `https://git.example.internal/ai/agent`.
+page — a blog, or an internal Git host: `https://git.example.internal/ai/agent`.
 The panel hands it to the system browser; only `http`, `https` and `mailto` are
 ever opened (`external-link.ts`), so an internal HTTPS URL works unchanged. An
 `ssh://` or `git@` address does not: it is not a web page, and clicking it would
-do nothing. Link the web view of the repository, not its clone URL.
+do nothing. Link the web view of the repository, not its clone URL. Set the
+value to `-` when the row should keep its sentence and draw no link. A blank
+variable does not do that: an unset variable arrives as an empty string, and
+empty means "leave the current link".
 
 The upstream build is `Agent Strata` / `me.pbeta.agent-strata` / `.agent-strata`.
 Those are the defaults in `tauri.conf.json`, `src-tauri/src/brand.rs`, and
@@ -79,8 +89,10 @@ CI, as repository variables so a fork's release workflow needs no edit:
 | Repository variable | Value |
 |---|---|
 | `STRATA_BRAND` | the preset name, e.g. `company` |
-| `STRATA_BRAND_SOURCE_URL` | e.g. `https://git.example.internal/ai/agent` |
-| `STRATA_BRAND_SOURCE_LABEL` | e.g. `AI platform / agent` |
+| `STRATA_BRAND_SOURCE_TITLE` | e.g. `使用说明` |
+| `STRATA_BRAND_SOURCE_HINT` | e.g. `安装、常见问题和找谁问，都在右边。` |
+| `STRATA_BRAND_SOURCE_URL` | e.g. `https://git.example.internal/ai/agent`, or `-` for no link |
+| `STRATA_BRAND_SOURCE_LABEL` | e.g. `内网仓库` |
 | or `STRATA_BRAND_NAME` | e.g. `Example Agent` |
 | `STRATA_BRAND_IDENTIFIER` | e.g. `com.example.agent` |
 | `STRATA_BRAND_DATA_DIR` | e.g. `.example-agent` |
@@ -91,6 +103,11 @@ take a company identity and override one field without restating the rest.
 The release workflow reads the name back for the release title and passes
 `--config` only when an overlay exists — `--config` on a missing file is an
 error, and the upstream build has no overlay.
+
+A `v*` tag pushed to this repository publishes a public GitHub release,
+`-branded` included. The `branded` environment changes the name and the About
+row; it does not hide the release. An internal build stays internal when its
+own pipeline keeps the artifacts and does not push that tag here.
 
 ## Why a fork wants a different `dataDir`
 

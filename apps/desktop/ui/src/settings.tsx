@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createResource, createSignal, For, Show } from "solid-js";
-import { APP_NAME, SOURCE_LABEL, SOURCE_URL } from "./app-name";
+import { APP_NAME, SOURCE_HINT, SOURCE_LABEL, SOURCE_TITLE, SOURCE_URL } from "./app-name";
 import {
   listTerminals,
   readOpencodeLaunch,
@@ -1127,19 +1127,21 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
           </Row>
 
           <Row
-            label={t("settings.about.source")}
-            hint={t("settings.about.sourceHint")}
-            controlClass="w-40"
+            label={SOURCE_TITLE || t("settings.about.source")}
+            hint={SOURCE_HINT || t("settings.about.sourceHint")}
+            controlClass={SOURCE_URL ? "w-40" : "w-0"}
           >
-            <a
-              href={SOURCE_URL}
-              target="_blank"
-              rel="noreferrer"
-              class="inline-flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
-            >
-              <Icon name="globe" class="size-3.5 shrink-0" />
-              <span class="truncate">{SOURCE_LABEL}</span>
-            </a>
+            <Show when={SOURCE_URL}>
+              <a
+                href={SOURCE_URL}
+                target="_blank"
+                rel="noreferrer"
+                class="inline-flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+              >
+                <Icon name="globe" class="size-3.5 shrink-0" />
+                <span class="truncate">{SOURCE_LABEL || SOURCE_URL}</span>
+              </a>
+            </Show>
           </Row>
         </Card>
       </Group>

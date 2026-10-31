@@ -142,13 +142,15 @@ A background window notifies when a session finishes, and when it stops for a pe
 
 Pushing a `v*` tag is the release. GitHub Actions first runs the original
 check (typecheck, package tests, desktop UI tests), then builds the
-Windows NSIS installer, the macOS dmg, and the Linux AppImage, and attaches
-them to that tag's GitHub release. The tag has to be either `v<version>` or
+Windows NSIS installer and the macOS dmg, and attaches them to that tag's
+GitHub release. The tag has to be either `v<version>` or
 `v<version>-branded`, matching `apps/desktop/src-tauri/tauri.conf.json`
 (`v0.1.0` or `v0.1.0-branded` for `0.1.0`). Nothing else runs this build.
 A `-branded` tag builds under the `branded` environment, whose variables carry
 a custom brand; without them the build is the upstream one.
-The macOS and Linux artifacts are unsigned.
+The macOS artifact is unsigned. A `-branded` tag on this repository is still a
+public GitHub release. An internal build stays internal when its own pipeline
+keeps the artifacts and does not push that tag here.
 
 ```sh
 git tag v0.1.0
