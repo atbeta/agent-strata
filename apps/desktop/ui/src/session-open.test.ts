@@ -27,6 +27,13 @@ describe("opening a session does not keep the previous one on screen", () => {
     expect(view).not.toContain("promptEntries(settled(view)");
   });
 
+  test("a tail of the last turns does not draw the prompt rail", () => {
+    const src = code("session-detail.tsx");
+    expect(src).toContain("outlineIsPartial(displayed())");
+    const peer = code("peer-transcript.tsx");
+    expect(peer).toContain("outlineIsPartial(");
+  });
+
   test("a stale view does not end the skeleton", () => {
     const src = code("session-detail.tsx");
     expect(src).not.toContain("settled(view))) setBooting(false)");

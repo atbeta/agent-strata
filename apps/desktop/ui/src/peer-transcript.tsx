@@ -17,7 +17,7 @@ import { TranscriptView } from "./transcript-view";
 import { applyStreamingSnapshot, runInProgress, type StreamingSnapshot } from "./live";
 import { isDevEvent } from "./sync-events";
 import { createSessionViewLoader } from "./session-view-loader";
-import { peekView, rememberView, TAIL_TURNS } from "./view-cache";
+import { outlineIsPartial, peekView, rememberView, TAIL_TURNS } from "./view-cache";
 import { t } from "./i18n";
 import { clearPaneBusy, publishPaneBusy } from "./pane-activity";
 import type { SessionRowSummary } from "./pane-stage";
@@ -273,7 +273,7 @@ const turns = () => shown().turns;
       sessionId={displayed()?.session_id ?? props.sessionId}
       turns={turns()}
       ready={!booting()}
-      nav={!booting()}
+      nav={!booting() && !outlineIsPartial(displayed())}
       class="min-h-0"
       empty={
         // Peer panes have no composer, so no key hints — just where

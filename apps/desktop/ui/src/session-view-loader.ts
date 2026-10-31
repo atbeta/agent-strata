@@ -27,6 +27,10 @@ export function createSessionViewLoader(deps: {
       commit: (view: SessionView, filesKey: string) => void,
     ): Promise<SessionView | undefined> {
       tailOwner.invalidate();
+      // begin() keeps other sessions current. A load for this session has to
+      // drop the one already in flight for the session the reader just left,
+      // or that older response still paints.
+      fullOwner.invalidate();
       const token = fullOwner.begin(sessionId);
       const full = await deps.readFull(sessionId, replayPos);
       if (!ownsFull(token, sessionId) || full.session_id !== sessionId) return undefined;
@@ -41,6 +45,7 @@ export function createSessionViewLoader(deps: {
       commitFull: (view: SessionView, filesKey: string) => void,
     ): Promise<SessionView | undefined> {
       tailOwner.invalidate();
+      fullOwner.invalidate();
       const token = fullOwner.begin(sessionId);
       const tail = await deps.readTail(sessionId);
       if (!ownsFull(token, sessionId) || tail.session_id !== sessionId) return undefined;

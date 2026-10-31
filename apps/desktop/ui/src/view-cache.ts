@@ -76,10 +76,30 @@ export const peekView = (id: string) => sessionViews.peek(id);
 export const rememberView = (id: string, view: SessionView, filesKey?: string) =>
   sessionViews.remember(id, view, filesKey);
 
+/**
+ * A tail that is only the end of a longer transcript.
+ *
+ * The mark lives on the object, and object spread keeps it, so a streaming
+ * copy of that preview is still not an outline. A full view from the server
+ * is a new object and does not carry it. `turn_offset` itself is stripped:
+ * the painted view is a `SessionView`, and a leftover offset would be a lie
+ * about a field the type does not have.
+ */
+const PARTIAL_OUTLINE = Symbol("partialOutline");
+
 /** A tail response drawn as the whole transcript until the full view arrives. */
 export function viewFromTail(tail: ViewTail): SessionView {
-  const { turn_offset: _offset, prev_turn_id: _prev, files_key: _key, files_changed, ...rest } = tail;
-  return { ...rest, files_changed: files_changed ?? [] };
+  const { turn_offset, prev_turn_id: _prev, files_key: _key, files_changed, ...rest } = tail;
+  const view = { ...rest, files_changed: files_changed ?? [] } as SessionView & {
+    [PARTIAL_OUTLINE]?: true;
+  };
+  if (turn_offset > 0) view[PARTIAL_OUTLINE] = true;
+  return view;
+}
+
+/** True when this view is the last few turns, not the transcript the rail should draw. */
+export function outlineIsPartial(view: SessionView | undefined): boolean {
+  return Boolean(view && (view as SessionView & { [PARTIAL_OUTLINE]?: true })[PARTIAL_OUTLINE]);
 }
 
 /**

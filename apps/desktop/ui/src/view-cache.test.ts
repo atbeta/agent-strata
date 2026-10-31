@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { SessionView, ViewTail } from "./api";
-import { createViewCache, filesKeyOf, tailMatches, viewFromTail } from "./view-cache";
+import { createViewCache, filesKeyOf, outlineIsPartial, tailMatches, viewFromTail } from "./view-cache";
 
 const view = (turns: string[]): SessionView => ({
   session_id: "s",
@@ -74,6 +74,16 @@ describe("reader view cache", () => {
     expect(preview.turns.map((t) => t.turn_id)).toEqual(["b"]);
     expect("turn_offset" in preview).toBe(false);
     expect(preview.files_changed).toEqual([]);
+  });
+
+  test("the last few turns are not the prompt rail, and a short session is", () => {
+    const preview = viewFromTail(tailOf(view(["a", "b", "c", "d"]), 3));
+    expect(preview.turns.map((t) => t.turn_id)).toEqual(["b", "c", "d"]);
+    expect(outlineIsPartial(preview)).toBe(true);
+    // A streaming update copies the view. The copy is still the same short tail.
+    expect(outlineIsPartial({ ...preview, busy: true })).toBe(true);
+    expect(outlineIsPartial(viewFromTail(tailOf(view(["a", "b"]), 3)))).toBe(false);
+    expect(outlineIsPartial(view(["a", "b", "c", "d"]))).toBe(false);
   });
 
   test("an unchanged tail matches and a moved one does not", () => {

@@ -70,7 +70,7 @@ import { ECHO_TURN_ID } from "./prompt-echo";
 import { descendantSessions } from "./session-tree";
 import { ChildBoard } from "./child-board";
 import { createSessionViewLoader } from "./session-view-loader";
-import { peekView, rememberView, TAIL_TURNS } from "./view-cache";
+import { outlineIsPartial, peekView, rememberView, TAIL_TURNS } from "./view-cache";
 import { registerCommand } from "./commands";
 import { LayoutSwitcher, PaneStage, type SessionRowSummary } from "./pane-stage";
 import {
@@ -1546,7 +1546,7 @@ const turns = () => shown().turns;
                 sessionId={displayed()?.session_id ?? props.id}
                 turns={turns()}
                 ready={viewReady() && !(importing() && turns().length === 0)}
-                nav={viewReady() && replayPos() === null}
+                nav={viewReady() && replayPos() === null && !outlineIsPartial(displayed())}
                 latest={replayPos() === null}
                 class={paneWorkspace().mode === "multiplex" ? "min-h-0" : "min-h-[30vh]"}
                 empty={
