@@ -140,8 +140,8 @@ A background window notifies when a session finishes, and when it stops for a pe
 
 ## Releasing
 
-Pushing a `v*` tag is the release. GitHub Actions first runs the reusable CI
-checks (TypeScript, package/UI/Rust tests and WebKit smoke), then builds the
+Pushing a `v*` tag is the release. GitHub Actions first runs the original
+check (typecheck, package tests, desktop UI tests), then builds the
 Windows NSIS installer, the macOS dmg, and the Linux AppImage, and attaches
 them to that tag's GitHub release. The tag has to be either `v<version>` or
 `v<version>-intranet`, matching `apps/desktop/src-tauri/tauri.conf.json`

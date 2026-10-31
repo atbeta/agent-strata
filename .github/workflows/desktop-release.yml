@@ -12,8 +12,12 @@ permissions:
   contents: write
 
 jobs:
+  # The original check only. Rust and WebKit still run on main, but a
+  # failure there must not skip the installers — that is what held 0.21.0.
   ci:
     uses: ./.github/workflows/ci.yml
+    with:
+      only_check: true
 
   build:
     needs: ci

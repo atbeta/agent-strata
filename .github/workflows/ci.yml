@@ -12,6 +12,11 @@ on:
     branches:
       - main
   workflow_call:
+    inputs:
+      only_check:
+        description: Run the original check and skip the later Rust and WebKit jobs
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -57,7 +62,10 @@ jobs:
         working-directory: apps/desktop/ui
         run: bun test
 
+  # A release calls this workflow with only_check, because a failure here
+  # used to skip the installer entirely. Push and pull request still run it.
   rust:
+    if: ${{ inputs.only_check != true }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -72,11 +80,27 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
 
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Install workspace dependencies
+        run: bun install --frozen-lockfile
+
+      # `tauri_build` refuses to compile the shell unless
+      # `binaries/strata-service-<target>` is already there. The file is not in
+      # git; the release job compiles it for the installer, and this job has to
+      # compile it too or `cargo test` fails before a single test runs.
+      - name: Compile the service sidecar
+        run: bun run sidecar:force
+
       - name: Test Rust sidecar
         working-directory: apps/desktop/src-tauri
         run: cargo test --locked
 
   webkit-smoke:
+    if: ${{ inputs.only_check != true }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
