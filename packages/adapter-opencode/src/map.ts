@@ -204,7 +204,7 @@ export const SETTLE_QUIET_MS = 30_000;
 export const SETTLE_STALL_MS = 300_000;
 
 /** Bump when the mapping changes; stored sessions mapped by an older version are rebuilt. */
-export const OPENCODE_MAPPER_VERSION = "opencode-14";
+export const OPENCODE_MAPPER_VERSION = "opencode-15";
 
 /** The event types an import reproduces from OpenCode's own record of a session. */
 export const OPENCODE_REBUILT_TYPES: EventType[] = [...REBUILDABLE_EVENT_TYPES];
@@ -930,7 +930,19 @@ export class OpencodeMapper {
         s,
         "turn.user",
         { turn_id: msgID, content },
-        `opencode:${msgID}:turn.user`,
+        // Same id shape as the streaming path, and for the same reason: a
+        // fuller snapshot has to be a new event for the store to take it (it
+        // never overwrites a row it already holds), and the projector resolves
+        // the versions by `turn_id`.
+        //
+        // The two paths used to differ, and which one spoke depended on arrival
+        // order: a part that lands before its message finds `role` unset, so
+        // the streaming path stays quiet and this one emits at idle; a part
+        // that lands after it lets the streaming path emit instead. One
+        // sentence therefore had two possible event ids, and a re-import — a
+        // changed revision, a mapper bump — could add the other spelling beside
+        // it, because the store dedupes by id.
+        `opencode:${msgID}:turn.user:${Bun.hash(JSON.stringify(content)).toString(36)}`,
         sourceTime(m.created ?? s.updated),
       ),
     );
