@@ -56,10 +56,10 @@ export default {
   "sidebar.sessionCount.one": "{n} session",
   "sidebar.sessionCount.other": "{n} sessions",
 
-  // Sidebar groups. The waiting lane holds only sessions stopped on a person,
-  // the same set the fleet page lists under "Needs you".
+  // Sidebar groups. A pin is the only lane above the projects: sessions
+  // stopped on a person used to be lifted into a group of their own as well,
+  // which said the same thing as the filter row above it.
   "sidebar.group.pinned": "Pinned",
-  "sidebar.group.waiting": "Needs you",
 
   // The window's own views. These two are the counts the list below cannot
   // give: what is waiting on a person, and what is still working.

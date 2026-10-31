@@ -8,7 +8,7 @@ import {
 } from "./api";
 import { settled } from "./resource";
 import { holdRows, sameValue } from "./session-rows";
-import { fleetWaiting, projectName, dayKey } from "./fleet";
+import { projectName, dayKey } from "./fleet";
 import { readPins, togglePin, writePins } from "./pins";
 import {
   dayLabel,
@@ -247,27 +247,31 @@ export function useSessionList(opts: {
     }
     pinned.sort((a, b) => b.summary.last_ts.localeCompare(a.summary.last_ts));
 
-    const waiting = fleetWaiting(loose);
-    const waitingIds = new Set(waiting.map((s) => s.summary.session_id));
-    const rest = loose.filter((s) => !waitingIds.has(s.summary.session_id));
-
     const out: SidebarGroup[] = [];
     if (pinned.length > 0) {
       out.push({ key: "__pinned__", label: t("sidebar.group.pinned"), rows: pinned });
     }
-    if (waiting.length > 0) {
-      out.push({ key: "__waiting__", label: t("sidebar.group.waiting"), rows: waiting });
-    }
 
-    // The lens narrows the projects, not the lanes above them: a pin is the
-    // reader's own choice and a waiting session is blocked on the reader, and
-    // neither of them is a project the reader has to find.
+    /**
+     * A pin is the one lane above the projects.
+     *
+     * There used to be a second: sessions blocked on the reader were lifted out
+     * into their own 需要处理 group. That duplicated the row of the same name at
+     * the top of the rail, which is a filter the reader can turn off — the group
+     * below it could not be turned off, and said the same thing twice. Running
+     * sessions never had a lane of their own, so removing this one is what makes
+     * the two statuses behave alike: the row filters, the list stays put.
+     *
+     * What is lost is the lift. A waiting session now sits in its project with
+     * the others, marked by its status dot, until the reader presses the filter.
+     * That is the trade the running sessions already make.
+     */
     const now = opts.clock();
     const lensNow = lens();
     out.push(
       ...(lensNow.groupBy === "day"
-        ? dayGroups(rest, lensNow, now)
-        : projectGroups(rest, lensNow, now)),
+        ? dayGroups(loose, lensNow, now)
+        : projectGroups(loose, lensNow, now)),
     );
     return out;
   };

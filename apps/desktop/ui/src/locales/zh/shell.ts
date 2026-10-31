@@ -57,10 +57,10 @@ export default {
   "sidebar.sessionCount.one": "{n} 个会话",
   "sidebar.sessionCount.other": "{n} 个会话",
 
-  // Sidebar groups. The waiting lane holds only sessions stopped on a person,
-  // the same set the fleet page lists under 需要处理.
+  // Sidebar groups. A pin is the only lane above the projects: sessions
+  // stopped on a person used to be lifted into a group of their own as well,
+  // which said the same thing as the filter row above it.
   "sidebar.group.pinned": "置顶",
-  "sidebar.group.waiting": "需要处理",
 
   // The window's own views. These two are the counts the list below cannot
   // give: what is waiting on a person, and what is still working.
