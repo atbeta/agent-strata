@@ -19,6 +19,16 @@ export interface BackendSink {
   /** the transcript revision stored for a session; absent until one is marked */
   sessionRevision(sessionId: string): number | null;
   markRevision(sessionId: string, rev: number): void;
+  /**
+   * Keep a tool attachment's bytes somewhere the reader can fetch them later.
+   *
+   * A screenshot past the inline cap cannot ride in the event — it would be
+   * megabytes every reader of the transcript pays to load — and dropping the
+   * bytes left a filename with nothing behind it. The sink writes them out and
+   * returns the id the block refers to; undefined means it has nowhere to put
+   * them, and the block degrades to the old behaviour.
+   */
+  spillAttachment?(mime: string, base64: string): string | undefined;
 }
 
 export interface ModelChoice {

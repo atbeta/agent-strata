@@ -2,7 +2,8 @@
 // The desktop shell (Tauri) runs this as a sidecar and talks to it over
 // localhost. One store file, many backend connections, SSE fan-out to clients.
 
-import { mkdirSync, readFileSync, unlinkSync, unwatchFile, watchFile } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, unwatchFile, watchFile, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { openStore, type Store, type EventQuery } from "@agent-strata/store";
@@ -77,6 +78,28 @@ export interface RunningService {
   store: Store;
   sink: BackendSink;
   stop: () => void;
+}
+
+/**
+ * A file extension for a mime type, so a spilled attachment opens as what it is.
+ *
+ * The id is a content hash and carries no type of its own. Without the suffix
+ * every screenshot would be an extensionless blob, which the OS and the
+ * browser both refuse to preview.
+ */
+function extFor(mime: string): string {
+  const base = mime.split(";")[0]?.trim().toLowerCase() ?? "";
+  const known: Record<string, string> = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+    "image/svg+xml": ".svg",
+    "application/pdf": ".pdf",
+    "text/plain": ".txt",
+    "application/json": ".json",
+  };
+  return known[base] ?? "";
 }
 
 export function startService(opts: ServiceOpts = {}): RunningService {
@@ -206,6 +229,36 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     markMapped: (sessionId, mapper) => store.markMapper(sessionId, mapper),
     sessionRevision: (sessionId) => store.sessionRevision(sessionId),
     markRevision: (sessionId, rev) => store.markRevision(sessionId, rev),
+    /**
+     * Keep a tool attachment's bytes on disk, under a content-addressed name.
+     *
+     * A screenshot past the inline cap cannot ride in the event: it would be
+     * megabytes that every reader of the transcript pays to load. Dropping the
+     * bytes left a filename and nothing to look at, so they land here instead
+     * and the block keeps the id. Content addressing means the same picture
+     * twice costs one file, and the name cannot collide.
+     *
+     * A failure here is not fatal — the block degrades to what it was before,
+     * a reference with no bytes behind it.
+     */
+    spillAttachment: (mime, base64) => {
+      try {
+        const bytes = Buffer.from(base64, "base64");
+        const id = `${createHash("sha256").update(bytes).digest("hex").slice(0, 32)}${extFor(mime)}`;
+        const dir = join(desktopDir, "attachments");
+        const path = join(dir, id);
+        // Written once per distinct picture. A re-import of the same tool
+        // result would otherwise rewrite it every time.
+        if (!existsSync(path)) {
+          mkdirSync(dir, { recursive: true });
+          writeFileSync(path, bytes, { mode: 0o600 });
+        }
+        return id;
+      } catch (e) {
+        console.error("could not keep a tool attachment:", e);
+        return undefined;
+      }
+    },
   };
   /**
    * Syncs currently running, for subscribers that attach mid-flight: the
@@ -759,6 +812,36 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     const path = url.pathname;
 
     if (path === "/health") return json({ ok: true, conns: conns.size });
+
+    /**
+     * A tool attachment's bytes, by the id the transcript carries.
+     *
+     * The id is a content hash plus an extension, and it is checked against
+     * exactly that shape before it touches the filesystem: the value comes from
+     * an event, and an event can be written by anything the backend talks to.
+     * A looser check — joining whatever arrived — would let `../` walk out of
+     * the directory.
+     */
+    const attachmentMatch = path.match(/^\/attachments\/([0-9a-f]{32})(\.[a-z0-9]{1,8})?$/);
+    if (attachmentMatch && req.method === "GET") {
+      const file = join(desktopDir, "attachments", `${attachmentMatch[1]}${attachmentMatch[2] ?? ""}`);
+      try {
+        const bytes = readFileSync(file);
+        return new Response(bytes, {
+          headers: {
+            // Served as an opaque download rather than sniffed: the extension
+            // is derived from a mime the backend reported, and trusting it to
+            // mean "render this as HTML" would be trusting the backend with
+            // this window's origin.
+            "content-type": "application/octet-stream",
+            "content-length": String(bytes.byteLength),
+            "cache-control": "private, max-age=31536000, immutable",
+          },
+        });
+      } catch {
+        return json({ error: "no such attachment" }, 404);
+      }
+    }
 
     if (path === "/sessions" && req.method === "GET") {
       const requested = Math.min(

@@ -19,6 +19,19 @@ export interface Sink {
    */
   sessionRevision?(sessionId: string): number | null;
   markRevision?(sessionId: string, rev: number): void;
+  /**
+   * Keep an attachment's bytes somewhere the reader can fetch them later.
+   *
+   * A tool result carrying a screenshot larger than the inline cap cannot put
+   * the picture in the event: every reader of the transcript would pay to load
+   * it, and the event would be megabytes. It used to drop the bytes and keep
+   * the filename, which left nothing to look at. This hands them to the sink
+   * instead and returns the id the block refers to.
+   *
+   * Returns undefined when the sink has nowhere to put them; the block then
+   * degrades exactly as it did before.
+   */
+  spillAttachment?(mime: string, base64: string): string | undefined;
 }
 
 /** What the caller knows about a session before this adapter re-reads it. */

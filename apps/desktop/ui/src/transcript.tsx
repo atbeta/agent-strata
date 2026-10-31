@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createSignal, For, Index, Match, on, onCleanup, onMount, Show, Switch, type JSX } from "solid-js";
-import type { ContentBlock, ToolCallView, Turn } from "./api";
+import { attachmentUrl, type ContentBlock, type ToolCallView, type Turn } from "./api";
 import { Button } from "@/components/ui/button";
 import { ListRow } from "@/components/ui/list-row";
 import { RowButton } from "@/components/ui/row-button";
@@ -257,7 +257,19 @@ function ThinkingBlock(props: {
  * the mapper only puts it on a part that arrived as an upload. A workspace
  * mention has a path instead, and a path already says what the file is.
  */
-function FileChip(props: { path: string; range?: { start: number; end: number }; mime?: string }) {
+function FileChip(props: {
+  path: string;
+  range?: { start: number; end: number };
+  mime?: string;
+  /**
+   * The id of an attachment too big to inline.
+   *
+   * A screenshot past the cap carries this instead of its bytes. Without it the
+   * only trace was a filename, and the one thing a screenshot is for — looking
+   * at it — was impossible.
+   */
+  attachment?: string;
+}) {
   const name = () => {
     const parts = props.path.split(/[/\\]/);
     return parts[parts.length - 1] || props.path;
@@ -273,6 +285,23 @@ function FileChip(props: { path: string; range?: { start: number; end: number };
     const base = props.mime?.split(";")[0]?.trim().toLowerCase();
     if (!base || base === "application/octet-stream") return undefined;
     return base;
+  };
+  /**
+   * Whether this is a picture the reader can actually open.
+   *
+   * Both halves matter: a mime that says image, and an id to fetch it by. An
+   * inline image never reaches here — it becomes an `image` block instead — so
+   * this is specifically the too-big-for-the-event case.
+   */
+  const previewable = () => Boolean(props.attachment) && Boolean(props.mime?.startsWith("image/"));
+  const open = () => {
+    if (!props.attachment) return;
+    // The URL is minted on demand and revoked by the viewer when it closes:
+    // the bytes are megabytes, and a page that never lets go of them is a page
+    // that grows for as long as the window stays open.
+    void attachmentUrl(props.attachment)
+      .then((url) => openImage(url, name()))
+      .catch((err) => console.error("could not open the attachment:", err));
   };
 
   return (
@@ -294,11 +323,25 @@ function FileChip(props: { path: string; range?: { start: number; end: number };
     >
       {/* An attachment: its own block, with room for the name to be read. */}
       <span
-        class="my-1.5 flex w-fit max-w-full items-center gap-2.5 rounded-lg border border-border bg-background/60 px-2.5 py-2"
+        class={`my-1.5 flex w-fit max-w-full items-center gap-2.5 rounded-lg border border-border bg-background/60 px-2.5 py-2 ${
+          previewable() ? "cursor-pointer hover:bg-secondary/60" : ""
+        }`}
         title={`${props.path}\n${props.mime}`}
+        role={previewable() ? "button" : undefined}
+        tabindex={previewable() ? 0 : undefined}
+        onClick={previewable() ? open : undefined}
+        onKeyDown={
+          previewable()
+            ? (e) => {
+                if (e.key !== "Enter" && e.key !== " ") return;
+                e.preventDefault();
+                open();
+              }
+            : undefined
+        }
       >
         <span class="grid size-8 shrink-0 place-items-center rounded-md bg-event-file/15 text-event-file">
-          <Icon name="files" class="size-4" />
+          <Icon name={previewable() ? "eye" : "files"} class="size-4" />
         </span>
         <span class="flex min-w-0 flex-col">
           <span class="truncate text-xs font-medium leading-tight text-foreground">{name()}</span>
@@ -308,6 +351,9 @@ function FileChip(props: { path: string; range?: { start: number; end: number };
             </Show>
             <Show when={kind()}>
               <span class="text-muted-foreground/70"> · {kind()}</span>
+            </Show>
+            <Show when={previewable()}>
+              <span class="text-muted-foreground/70"> · {t("transcript.image.view")}</span>
             </Show>
           </span>
         </span>
@@ -363,7 +409,14 @@ function TranscriptBlock(props: { block: ContentBlock; tight?: boolean; live?: b
         )}
       </Match>
       <Match when={props.block.type === "file_ref" ? props.block : undefined}>
-        {(block) => <FileChip path={block().path} range={block().range} mime={block().mime} />}
+        {(block) => (
+          <FileChip
+            path={block().path}
+            range={block().range}
+            mime={block().mime}
+            attachment={block().attachment}
+          />
+        )}
       </Match>
       <Match when={props.block.type === "image" ? props.block : undefined}>
         {(block) => <ImageBlock block={block()} />}

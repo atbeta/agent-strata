@@ -41,6 +41,15 @@ export const ContentBlock = z.union([
      * Optional because a mention of a workspace file has no mime to report.
      */
     mime: z.string().optional(),
+    /**
+     * Where the bytes went, when they were too big to inline.
+     *
+     * An attachment past the inline cap keeps a reference instead of its data,
+     * so the transcript can still offer it: the desktop asks the service for
+     * this id and gets the bytes back. Without it the only trace of a
+     * screenshot was its filename, and there was no way to see the picture.
+     */
+    attachment: z.string().optional(),
   }),
   /**
    * A subagent task statement, as a user message's `subtask` part carries it.

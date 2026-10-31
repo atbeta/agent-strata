@@ -270,7 +270,13 @@ export async function connectOpencode(opts: {
         : undefined,
     fetch: abortingFetch as typeof fetch,
   });
-  const mapper = new OpencodeMapper({ directory: opts.directory });
+  const mapper = new OpencodeMapper({
+    directory: opts.directory,
+    // A screenshot past the inline cap goes to the sink rather than being
+    // dropped. The sink decides where; an adapter without one keeps the old
+    // behaviour.
+    spill: opts.sink.spillAttachment?.bind(opts.sink),
+  });
   const ingestor = createIngestor({
     mapper,
     sink: opts.sink,

@@ -869,6 +869,84 @@ describe("OpencodeMapper", () => {
     ]);
   });
 
+  test("a screenshot too big to inline keeps a way back to its bytes", () => {
+    // A Playwright screenshot is routinely past the inline cap, and dropping
+    // its bytes left a filename and nothing to look at — the one thing a
+    // screenshot is for. The sink is handed the bytes and the block keeps the
+    // id it returns.
+    const spilled: { mime: string; base64: string }[] = [];
+    const m = new OpencodeMapper({
+      spill: (mime, base64) => {
+        spilled.push({ mime, base64 });
+        return "abc123.png";
+      },
+    });
+    m.handle(sessionCreated());
+    m.handle(msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 10 } }));
+    m.handle(
+      msgUpdated({
+        id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
+        time: { created: 20 }, providerID: "p", modelID: "m", agent: "build", mode: "build",
+        path: { cwd: "/repo", root: "/repo" }, cost: 0,
+        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      }),
+    );
+    const out = m.handle(
+      partUpdated({
+        id: "pt9", sessionID: sid, messageID: "a1", type: "tool", callID: "c1", tool: "browser",
+        state: {
+          status: "completed", input: { url: "https://x" }, output: "ok", title: "browser",
+          metadata: {}, time: { start: 21, end: 31 },
+          attachments: [{
+            id: "att1", sessionID: sid, messageID: "a1", type: "file",
+            mime: "image/png", filename: "shot.png",
+            url: `data:image/png;base64,${"B".repeat(1_100_000)}`,
+          }],
+        },
+      }),
+    );
+    const d = out.find((e) => e.type === "tool.result")!.data as { attachments?: ContentBlock[] };
+    expect(d.attachments).toEqual([
+      { type: "file_ref", path: "shot.png", mime: "image/png", attachment: "abc123.png" },
+    ]);
+    // The bytes actually reached the sink, not just the reference.
+    expect(spilled).toHaveLength(1);
+    expect(spilled[0]!.mime).toBe("image/png");
+    expect(spilled[0]!.base64.startsWith("BBBB")).toBe(true);
+  });
+
+  test("without a sink the block degrades to what it was before", () => {
+    // An adapter wired to something that cannot store bytes must not lose the
+    // reference: the transcript still says a screenshot was taken.
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    m.handle(msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 10 } }));
+    m.handle(
+      msgUpdated({
+        id: "a1", sessionID: sid, role: "assistant", parentID: "u1",
+        time: { created: 20 }, providerID: "p", modelID: "m", agent: "build", mode: "build",
+        path: { cwd: "/repo", root: "/repo" }, cost: 0,
+        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      }),
+    );
+    const out = m.handle(
+      partUpdated({
+        id: "pt10", sessionID: sid, messageID: "a1", type: "tool", callID: "c1", tool: "browser",
+        state: {
+          status: "completed", input: {}, output: "ok", title: "browser",
+          metadata: {}, time: { start: 21, end: 31 },
+          attachments: [{
+            id: "att1", sessionID: sid, messageID: "a1", type: "file",
+            mime: "image/png", filename: "shot.png",
+            url: `data:image/png;base64,${"B".repeat(1_100_000)}`,
+          }],
+        },
+      }),
+    );
+    const d = out.find((e) => e.type === "tool.result")!.data as { attachments?: ContentBlock[] };
+    expect(d.attachments).toEqual([{ type: "file_ref", path: "shot.png", mime: "image/png" }]);
+  });
+
   test("a json_schema answer lands as structured on the finished message", () => {
     const m = new OpencodeMapper();
     m.handle(sessionCreated());

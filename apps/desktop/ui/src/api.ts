@@ -639,6 +639,25 @@ export function fetchDailyUsage(tz: string): Promise<DailyUsageRow[]> {
 }
 
 /**
+ * A tool attachment's bytes, as a URL this page can show.
+ *
+ * Fetched rather than linked. The page's CSP allows `img-src 'self' data:
+ * blob:` and nothing else, so an `<img src="http://127.0.0.1:...">` would be
+ * blocked outright — and the service wants the token on the request anyway,
+ * which an `<img>` cannot carry. Fetching brings both into one path: the bytes
+ * arrive authorised, and a blob URL is something the page may render.
+ *
+ * The caller owns the URL and must revoke it. It is deliberately not cached
+ * here: the viewer is opened a few times a session, and a cache would have to
+ * decide when to let go of megabytes.
+ */
+export async function attachmentUrl(id: string): Promise<string> {
+  const res = await apiFetch(`/attachments/${encodeURIComponent(id)}`);
+  await throwOnError(res);
+  return URL.createObjectURL(await res.blob());
+}
+
+/**
  * The shell's page and the service are different origins, so a link to the
  * export would be a cross-site navigation the service refuses. Fetch it and
  * save it from this page instead. In the desktop shell a webview download

@@ -278,14 +278,36 @@ function fileBlock(part: Extract<Part, { type: "file" }>): ContentBlock {
  */
 const ATTACH_INLINE_MAX = 1_000_000;
 
+/**
+ * A completed tool's attachments, as content blocks.
+ *
+ * Inline `data:` payloads are capped: a screenshot the size of a small repo
+ * belongs to the tool's own record, not to a durable event every reader of it
+ * pays to load. Past the cap the bytes used to be dropped outright, leaving a
+ * filename and no way to see the picture — which is useless for the one thing a
+ * screenshot is for. They go to `spill` now and the block keeps a reference, so
+ * the reader can ask for the picture when they want it and nobody else pays.
+ */
 function attachmentBlocks(
   attachments: Array<Extract<Part, { type: "file" }>> | undefined,
+  spill?: (mime: string, base64: string) => string | undefined,
 ): { attachments: ContentBlock[] } | {} {
   if (!attachments?.length) return {};
   const blocks = attachments.map((a) => {
     if (a.url.startsWith("data:") && a.url.length > ATTACH_INLINE_MAX) {
       const source = a.source && "path" in a.source ? a.source.path : undefined;
-      return { type: "file_ref" as const, path: source ?? a.filename ?? a.mime, mime: a.mime };
+      const path = source ?? a.filename ?? a.mime;
+      const comma = a.url.indexOf(",");
+      const base64 = comma > 0 ? a.url.slice(comma + 1) : "";
+      // A sink that cannot store it falls back to the old behaviour: a
+      // reference with no bytes behind it. Better a filename than a crash.
+      const attachment = base64 && spill ? spill(a.mime, base64) : undefined;
+      return {
+        type: "file_ref" as const,
+        path,
+        mime: a.mime,
+        ...(attachment ? { attachment } : {}),
+      };
     }
     return fileBlock(a);
   });
@@ -431,7 +453,18 @@ export class OpencodeMapper {
   /** frames already applied, by `type:id` — see the dedup in `handle` */
   private seenIds = new Set<string>();
 
-  constructor(private opts: { directory?: string; now?: () => number } = {}) {}
+  constructor(
+    private opts: {
+      directory?: string;
+      now?: () => number;
+      /**
+       * Where an attachment too big to inline goes. See `attachmentBlocks`.
+       * Absent means the old behaviour: the reference is kept, the bytes are
+       * not.
+       */
+      spill?: (mime: string, base64: string) => string | undefined;
+    } = {},
+  ) {}
 
   private now(): number {
     return this.opts.now?.() ?? Date.now();
@@ -1134,7 +1167,7 @@ export class OpencodeMapper {
             call_id: part.callID,
             status: st.status === "completed" ? "ok" : "error",
             output: st.status === "completed" ? st.output : st.error,
-            ...(st.status === "completed" ? attachmentBlocks(st.attachments) : {}),
+            ...(st.status === "completed" ? attachmentBlocks(st.attachments, this.opts.spill) : {}),
             latency_ms: Math.max(0, Math.round(st.time.end - st.time.start)),
             ...(child ? { child_session_id: child } : {}),
           },
