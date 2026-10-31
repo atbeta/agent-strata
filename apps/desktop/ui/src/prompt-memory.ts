@@ -243,9 +243,16 @@ export function takeQueuedText(sessionId: string, storage?: Storage): string[] {
  * One message per line, in the order they were queued, above whatever was
  * typed. They arrive as text because that is all that can survive a restart —
  * see `queuedKey`.
+ *
+ * Waiting messages go first because they were written first. The other order —
+ * what this used to do — put them *after* whatever the reader had since typed,
+ * so reopening a session read as "your old messages were appended to the end of
+ * my new one", and a send took the whole pile with it. `restoreFailed` already
+ * orders it this way for the in-memory case; this is the same rule for the
+ * stored one.
  */
 export function joinQueued(typed: string, waiting: readonly string[]): string {
   const rest = waiting.filter((t) => t.trim() !== "");
   if (!rest.length) return typed;
-  return typed.trim() ? `${typed}\n${rest.join("\n")}` : rest.join("\n");
+  return typed.trim() ? `${rest.join("\n")}\n${typed}` : rest.join("\n");
 }

@@ -8,6 +8,14 @@ export function createComposerDelivery(deps: {
   readQueued?: typeof readQueuedText;
   writeQueued?: typeof writeQueuedText;
   owner?: RequestOwner;
+  /**
+   * Told when a message that never left is kept for a session.
+   *
+   * Without this the words were written to storage alone, which nothing on
+   * screen reads: the queue looked empty, the message was invisible, and it
+   * reappeared — all of it at once — the next time that session was opened.
+   */
+  onRetain?: (sessionId: string, out: Outgoing) => void;
 } = {}) {
   const owner = deps.owner ?? createRequestOwner();
   const readQueued = deps.readQueued ?? readQueuedText;
@@ -22,7 +30,17 @@ export function createComposerDelivery(deps: {
       sessionId,
     };
     failed.set(sessionId, [...(failed.get(sessionId) ?? []), kept]);
-    if (out.text.trim()) writeQueued(sessionId, [...readQueued(sessionId), out.text]);
+    // Storage is the restart copy, not the record. It is appended to only when
+    // the words are not already there: a message can be retained more than once
+    // — every stale settlement retains it again — and appending blindly put
+    // three copies of one sentence in the queue.
+    if (out.text.trim()) {
+      const queued = readQueued(sessionId);
+      if (!queued.includes(out.text)) writeQueued(sessionId, [...queued, out.text]);
+    }
+    // And the caller is told, so the message can be shown where the reader will
+    // see it instead of waiting in storage for the next open.
+    deps.onRetain?.(sessionId, kept);
   };
 
   return {

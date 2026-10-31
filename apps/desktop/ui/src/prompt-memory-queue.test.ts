@@ -78,7 +78,14 @@ describe("a queue that outlives the window", () => {
 
 describe("folding a queue back into the draft", () => {
   test("waiting messages go above what was typed", () => {
-    expect(joinQueued("typed now", ["queued then"])).toBe("typed now\nqueued then");
+    // Written first, so it reads first. The old order put it after the new
+    // text, which made reopening a session look like the old messages had been
+    // appended to what the reader had just typed — and a send took both.
+    expect(joinQueued("typed now", ["queued then"])).toBe("queued then\ntyped now");
+  });
+
+  test("the queue keeps its own order", () => {
+    expect(joinQueued("now", ["first", "second"])).toBe("first\nsecond\nnow");
   });
 
   test("an empty draft is just the waiting messages", () => {

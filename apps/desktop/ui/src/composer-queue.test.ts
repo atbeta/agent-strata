@@ -60,7 +60,7 @@ describe("session queue lifetime", () => {
     writeQueuedText("b", ["held for B"], storage);
     expect(restoreSessionDraft("b", "typed", {
       take: (id) => takeQueuedText(id, storage as never),
-    })).toBe("typed\nheld for B");
+    })).toBe("held for B\ntyped");
     expect(readQueuedText("b", storage)).toEqual([]);
   });
 
@@ -77,7 +77,7 @@ describe("session queue lifetime", () => {
         },
       });
 
-    expect(restore()).toBe("typed\nwaiting");
+    expect(restore()).toBe("waiting\ntyped");
     expect(restore()).toBe("typed");
     expect(takes).toBe(2);
     expect(readQueuedText("a", storage)).toEqual([]);
@@ -233,7 +233,7 @@ describe("closing parks the queue in the draft", () => {
         },
       },
     );
-    expect(drafts.get("a")).toBe("typed\nfollow up");
+    expect(drafts.get("a")).toBe("follow up\ntyped");
     expect(drafts.get("b")).toBe("other");
     expect(stored.size).toBe(0);
     expect(takeIdleHeads(new Map(), idle, { id: "b", replaying: false }).sending).toEqual([]);

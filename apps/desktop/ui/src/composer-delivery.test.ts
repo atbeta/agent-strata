@@ -185,4 +185,55 @@ describe("composer delivery settlement", () => {
     expect(result).toBe("failure");
     expect(error).toBe("no");
   });
+
+  test("retaining the same message twice keeps one copy", async () => {
+    // Every stale settlement retains again. Appending blindly put three copies
+    // of one sentence in the queue, and all three came back on the next open.
+    const queue = memoryQueue();
+    const delivery = createComposerDelivery(queue);
+
+    const staleOnce = async () => {
+      const pending = deferred<void>();
+      const sending = delivery.settle({
+        sessionId: "a",
+        out: out("the same sentence"),
+        request: () => pending.promise,
+        onSuccess: () => {},
+        onFailure: () => {},
+      });
+      delivery.invalidate();
+      pending.reject(new Error("gone"));
+      await sending;
+    };
+
+    await staleOnce();
+    await staleOnce();
+    await staleOnce();
+    expect(queue.values.get("a")).toEqual(["the same sentence"]);
+  });
+
+  test("a retained message is reported so it can be shown", async () => {
+    // Storage alone is invisible: nothing on screen reads it, so a retained
+    // message waited there until the next open and then arrived in bulk.
+    const queue = memoryQueue();
+    const seen: { sessionId: string; text: string }[] = [];
+    const delivery = createComposerDelivery({
+      ...queue,
+      onRetain: (sessionId, kept) => seen.push({ sessionId, text: kept.text }),
+    });
+
+    const pending = deferred<void>();
+    const sending = delivery.settle({
+      sessionId: "a",
+      out: out("never left"),
+      request: () => pending.promise,
+      onSuccess: () => {},
+      onFailure: () => {},
+    });
+    delivery.invalidate();
+    pending.reject(new Error("gone"));
+    await sending;
+
+    expect(seen).toEqual([{ sessionId: "a", text: "never left" }]);
+  });
 });

@@ -130,13 +130,31 @@ export function useSessionComposer(args: {
 }) {
   const opencode = () => args.caps()?.extension === "opencode";
   const connected = () => args.caps()?.connected !== false;
-  const deliveries = createComposerDelivery();
-  onCleanup(deliveries.invalidate);
-
   const initialSessionId = args.sessionId();
   const sessionQueues = createSessionQueues<Outgoing>(initialSessionId);
   const [draft, setDraft] = createSignal(restoreColdDraft(initialSessionId));
   const [queued, setQueuedSignal] = createSignal<Outgoing[]>(sessionQueues.current());
+  const deliveries = createComposerDelivery({
+    /**
+     * A message that never left goes back into its session's queue, in memory.
+     *
+     * It used to be written to storage and nothing else, and nothing on screen
+     * reads storage: the queue looked empty, the message was invisible, and it
+     * reappeared — the whole backlog at once — the next time that session was
+     * opened. Storage stays as the restart copy; the queue is what the reader
+     * sees and can remove from.
+     */
+    onRetain: (sessionId, out) => {
+      const existing = sessionQueues.read(sessionId);
+      // `retain` can run more than once for one message — every stale
+      // settlement retains it again — and the queue is a list of things to
+      // send, not a log of attempts.
+      if (existing.some((m) => m.text === out.text && m.sessionId === sessionId)) return;
+      sessionQueues.replaceSession(sessionId, [out, ...existing]);
+      if (sessionId === untrack(args.sessionId)) setQueuedSignal(sessionQueues.read(sessionId));
+    },
+  });
+  onCleanup(deliveries.invalidate);
   const setQueued = (next: Outgoing[] | ((current: Outgoing[]) => Outgoing[])) =>
     setQueuedSignal((current) => {
       const items = typeof next === "function" ? next(current) : next;
