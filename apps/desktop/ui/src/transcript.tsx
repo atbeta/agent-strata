@@ -34,6 +34,7 @@ import {
   isInteractiveTool,
   isInterruptedStop,
   isLengthStop,
+  replyInterrupted,
   messageText,
   silentEmptyReply,
   permissionLabel,
@@ -816,6 +817,17 @@ function AssistantMessage(props: {
   /** The session is running and this is its working turn — a partial under it
    *  is live; anywhere else it is a message the run left behind mid-write. */
   live?: () => boolean;
+  /**
+   * Whether the session is generating at all, this turn or another.
+   *
+   * Separate from `live`, which is scoped to the working turn. The two answer
+   * different questions and one of them was being used for the other: a reply
+   * still arriving was called "cut off when the session ended" the moment the
+   * reader sent a follow-up, because that turn was no longer the last one — and
+   * `live` is false for every turn but the last. The session had not ended at
+   * all; it was busy with the message they had just typed.
+   */
+  running?: () => boolean;
   onFork?: (messageId: string) => void;
 }) {
   const met = () => goalMetReply(props.message.content);
@@ -826,9 +838,7 @@ function AssistantMessage(props: {
   // still open after the run it streamed under stopped being one — and a
   // reply the model simply never sent: the ways a turn ends saying nothing,
   // all silent without a mark.
-  const interrupted = () =>
-    isInterruptedStop(props.message.stop_reason) ||
-    (props.message.partial === true && props.live?.() === false);
+  const interrupted = () => replyInterrupted(props.message, props.running?.() !== false);
   const empty = () => silentEmptyReply(props.message);
   const forkable = () => Boolean(props.onFork && props.message.msg_id);
   const hasFooter = () => !met() && text().trim() !== "";
@@ -1014,6 +1024,15 @@ export function TurnBlock(props: {
   /** The session is running and this is its working turn, so `pending` calls
    *  in it are live work rather than orphans of a dead run. */
   live?: () => boolean;
+  /**
+   * Whether the session is generating at all — this turn or another one.
+   *
+   * `live` is scoped to the working turn and is false for every other, which is
+   * right for pending calls and wrong for "was this reply cut off": a reply
+   * still arriving was called cut off the moment the reader sent a follow-up,
+   * because that turn stopped being the last one. See `AssistantMessage`.
+   */
+  running?: () => boolean;
   childOf?: (id: string) => ChildSession | undefined;
   onOpenChild?: (id: string) => void;
   onEdit?: (turnId: string, text: string) => void;
@@ -1111,6 +1130,7 @@ export function TurnBlock(props: {
                   message={r().message}
                   footer={index === flow().length - 1}
                   live={props.live}
+                  running={props.running}
                   onFork={props.onFork}
                 />
               )}

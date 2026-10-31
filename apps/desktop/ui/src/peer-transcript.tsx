@@ -287,6 +287,7 @@ const turns = () => shown().turns;
           turn={turn()}
           entering={() => shown().arriving.has(turn().turn_id)}
           live={() => peerGenerating() && turns().at(-1)?.turn_id === turn().turn_id}
+          running={() => peerGenerating()}
           awaiting={() => false}
           childOf={childOf}
           onOpenChild={props.onOpenChild}

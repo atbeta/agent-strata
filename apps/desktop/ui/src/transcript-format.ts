@@ -74,6 +74,27 @@ export function isInterruptedStop(reason: string | undefined): boolean {
 }
 
 /**
+ * Whether a reply was cut off rather than finished.
+ *
+ * Two ways: the adapter marked it (the run closed while the message was still
+ * open), or a partial is still open with no run behind it.
+ *
+ * `running` is the session's own state, not the turn's. It used to be read from
+ * the turn's "is this the working turn" flag, and those are different questions:
+ * that flag is false for every turn but the last, so the moment the reader sent
+ * a follow-up the reply they were reading was announced as "cut off when the
+ * session ended" — while the session was busy with the message they had just
+ * typed. A partial with the session still generating is a reply still arriving.
+ */
+export function replyInterrupted(message: {
+  partial?: boolean;
+  stop_reason?: string;
+}, running: boolean): boolean {
+  if (isInterruptedStop(message.stop_reason)) return true;
+  return message.partial === true && !running;
+}
+
+/**
  * A finished reply that came back with nothing to show and nothing to say
  * why. `tool-calls` is exempt — that message's content is its calls, which
  * render in their own rows — and an interrupted reply has its own marker.
