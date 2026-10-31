@@ -876,20 +876,44 @@ const turns = () => shown().turns;
   createEffect(() => {
     const id = props.id;
     if (id === activeSessionId) return;
-    activeSessionId = id;
-    const hit = peekView(id);
-    filesKey = hit?.filesKey;
-    forceFull = false;
-    retries = 0;
-    setImporting(!hit);
-    if (hit) mutate(hit.view);
-    clearReplay();
-    setTraceOn(false);
-    setTraceKey(null);
-    setHiddenAsks(new Set<string>());
-    composer.resetFor(id);
-    search.closeSearch();
-    tools.setToolsOpen(false);
+    /**
+     * Nothing in here may throw, and the latch moves only once the switch has
+     * actually been made.
+     *
+     * The report was a pane that stopped following the sidebar: the selection
+     * moved because it reads the route directly, while the transcript beside it
+     * kept showing the previous conversation — and leaving for the overview,
+     * which unmounts this component, cured it. An effect that has thrown stops
+     * being notified, which fits that exactly; it was not reproduced here, so
+     * treat the mechanism as the likely one rather than a proven one. The two
+     * changes below are right either way.
+     *
+     * The latch used to be set first, so a failure also left it claiming a
+     * switch that never happened. Setting it last means a failure is retried
+     * the next time anything here changes instead of being remembered as done.
+     */
+    try {
+      const hit = peekView(id);
+      filesKey = hit?.filesKey;
+      forceFull = false;
+      retries = 0;
+      setImporting(!hit);
+      if (hit) mutate(hit.view);
+      clearReplay();
+      setTraceOn(false);
+      setTraceKey(null);
+      setHiddenAsks(new Set<string>());
+      composer.resetFor(id);
+      search.closeSearch();
+      tools.setToolsOpen(false);
+      activeSessionId = id;
+    } catch (err) {
+      // The pane is now showing one session's chrome over another's content,
+      // which is worse than either. Say so and let the next change retry.
+      console.error(`switching to ${id} failed; the pane still shows ${activeSessionId}:`, err);
+      composer.setSendErr(err instanceof Error ? err.message : t("err.network"));
+      return;
+    }
     void (async () => {
       const before = await readHead(id).catch(() => undefined);
       await importSession(id).catch(() => {});
