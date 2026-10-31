@@ -991,7 +991,33 @@ export function useSessionComposer(args: {
     if (kept) queueHolds.set(id, kept);
     setQueueHold(kept);
     setModelTouched(false);
-    setModelSel("");
+    /**
+     * The new session's model, resolved here rather than cleared and left to
+     * the effect above.
+     *
+     * Both run on a switch, and the effect can get there first: it sees the new
+     * session, resolves its model, and then this cleared the answer. Nothing
+     * depended on it having been non-empty, so nothing ran again and the picker
+     * sat blank next to a transcript that had already loaded. It was
+     * intermittent because the effect only re-runs when one of its inputs
+     * changes — a reader who had moved the picker before made
+     * `setModelTouched(false)` a change, which re-armed it; one who never had
+     * got the blank.
+     *
+     * A session whose view has not arrived yet still resolves to nothing, and
+     * that is correct: the effect fills it in when the view lands.
+     */
+    const opening = args.view();
+    const readyNow = !!opening && opening.session_id === id && !args.booting();
+    setModelSel(
+      modelForComposer({
+        touched: false,
+        ready: readyNow,
+        inherited: readyNow ? sessionModel(opening) : undefined,
+        models: shownModels(),
+        remembered: readPreferredModel(),
+      }) ?? "",
+    );
     setPicked(restored.draft.picked);
     setAttachments(restored.draft.attachments);
     setAttachErr(restored.dropped ? t("composer.attach.too_many", { n: MAX_ATTACHMENTS }) : "");
