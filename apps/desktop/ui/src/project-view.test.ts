@@ -105,6 +105,23 @@ describe("the project lens", () => {
     expect(groupVisible({ ...NO_LENS, hideEmpty: true }, empty)).toBe(false);
   });
 
+  test("a search for sessions drops a project that never held one", () => {
+    const empty = { rows: 0, total: 0, path: "D:\\Code\\deer-flow" };
+    expect(groupVisible({ ...NO_LENS, status: "waiting" }, empty)).toBe(false);
+    expect(groupVisible({ ...NO_LENS, status: "busy" }, empty)).toBe(false);
+    expect(groupVisible({ ...NO_LENS, status: "idle" }, empty)).toBe(false);
+    expect(groupVisible({ ...NO_LENS, period: "week" }, empty)).toBe(false);
+    expect(groupVisible({ ...NO_LENS, type: "opencode" }, empty)).toBe(false);
+    // The place a new session is aimed at still has to be there to aim at.
+    expect(groupVisible({ ...NO_LENS, status: "waiting" }, empty, empty.path)).toBe(true);
+  });
+
+  test("a name search keeps an empty project only when the path matches", () => {
+    const empty = { rows: 0, total: 0, path: "D:\\Code\\deer-flow" };
+    expect(groupVisible({ ...NO_LENS, query: "deer" }, empty)).toBe(true);
+    expect(groupVisible({ ...NO_LENS, query: "picfast" }, empty)).toBe(false);
+  });
+
   test("the project the reader is standing in stays", () => {
     const lens = { ...NO_LENS, hideEmpty: true };
     expect(groupVisible(lens, { rows: 0, total: 0, path: "D:\\Code\\Beta" }, "D:\\Code\\Beta")).toBe(true);

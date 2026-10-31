@@ -158,10 +158,13 @@ export function sessionVisible(
  * Does this group survive the lens?
  *
  * A group with rows left is in. A group with none left is out: an empty
- * header under a list is noise, whatever emptied it. The one exception is a
- * project that never held a session — it is a place work can start, so it
- * stays unless the reader asks for the empty ones to go, and it stays when it
- * is the place they are standing in.
+ * header under a list is noise, whatever emptied it. A project that never
+ * held a session is a place work can start, so the unfiltered list keeps it
+ * unless the reader asks for the empty ones to go, and the place they are
+ * standing in stays either way.
+ *
+ * A status, a period, or a backend is a search for sessions. A project that
+ * never held one cannot answer it, so it leaves with the rest.
  */
 export function groupVisible(
   lens: ProjectLens,
@@ -171,7 +174,11 @@ export function groupVisible(
   if (group.rows > 0) return true;
   if (group.total > 0) return false;
   if (keep && group.path === keep) return true;
-  return !lens.hideEmpty;
+  if (lens.hideEmpty) return false;
+  if (lens.status !== "all" || lens.period !== "all" || lens.type !== "") return false;
+  const q = lens.query.trim().toLowerCase();
+  if (!q) return true;
+  return group.path.toLowerCase().includes(q);
 }
 
 /**
