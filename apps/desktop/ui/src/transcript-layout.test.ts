@@ -2,8 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  ROW_ESTIMATE,
-  ROW_GAP,
   layoutKey,
   readRowHeights,
   recallReading,

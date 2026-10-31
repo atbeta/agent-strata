@@ -23,7 +23,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { installProbe } from "./probe";
 import { median } from "./metrics";
-import { FLOWS, type FlowContext, type FlowSessions, type Metric, type StepResult } from "./scenarios";
+import { FLOWS, type FlowContext, type FlowSessions, type StepResult } from "./scenarios";
 import { startEnv } from "./env";
 import { FIXTURE_VERSION } from "./fixtures";
 

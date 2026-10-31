@@ -1119,7 +1119,7 @@ export function TraceDrawer(props: {
 }) {
   const [tab, setTab] = createSignal<Tab>("overview");
   createEffect(() => {
-    props.block.key;
+    void props.block.key;
     setTab("overview");
   });
 
@@ -1158,14 +1158,6 @@ export function TraceDrawer(props: {
       ? `${base} ← ${t("trace.level.assistant")} ${displayTitle(parent)}`
       : base;
   };
-
-  const hasFacts = () =>
-    !!props.block.model ||
-    !!props.block.agent ||
-    !!props.block.variant ||
-    !!props.block.stopReason ||
-    !!props.block.usage ||
-    props.block.costUsd !== undefined;
 
   const permText = () => {
     const p = props.block.permission;

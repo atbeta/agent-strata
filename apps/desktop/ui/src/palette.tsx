@@ -5,7 +5,7 @@ import {
   buildPanelHits,
   type PanelHit,
 } from "./command-panel-hits";
-import { commandGroup, commandList, formatChord, GROUP_ORDER } from "./commands";
+import { commandGroup, commandList, formatChord } from "./commands";
 import { t } from "./i18n";
 import { RowButton } from "@/components/ui/row-button";
 import { CommandDialog } from "@/components/ui/command-dialog";

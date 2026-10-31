@@ -3,7 +3,7 @@ import { Icon, type Name } from "./icons";
 import { t } from "./i18n";
 import { displayTitle } from "./session-title";
 import { Tip } from "./tip";
-import { folderLabel, realWorkspace } from "./api";
+import { folderLabel } from "./api";
 import { sessionStatus, showsMark } from "./session-status";
 import { paneStatus } from "./pane-activity";
 import { ToggleIcon } from "./header-toggle";

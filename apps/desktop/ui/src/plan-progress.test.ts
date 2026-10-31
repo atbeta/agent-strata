@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  PLAN_STRIP_PREFIX,
   planKey,
   planOpensOnEntry,
   planProgress,

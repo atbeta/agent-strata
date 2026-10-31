@@ -47,7 +47,6 @@ export function SessionListItem(props: {
   const [draft, setDraft] = createSignal(props.title);
   const [hot, setHot] = createSignal(false);
   const [menuOpen, setMenuOpen] = createSignal(false);
-  let input: HTMLInputElement | undefined;
   // Pointer hover is immediate; group-focus-within below offers the same control
   // to keyboard navigation. An open portal menu also counts as staying on the row.
   const reveal = () => props.actions && (hot() || menuOpen());
@@ -151,7 +150,6 @@ export function SessionListItem(props: {
           >
             <input
               ref={(el) => {
-                input = el;
                 el.focus();
                 el.select();
               }}

@@ -92,7 +92,7 @@ async function available() {
 
 async function call(path, init) {
   const target = await serviceTarget()
-  const headers = { "content-type": "application/json", ...(init?.headers ?? {}) }
+  const headers = { "content-type": "application/json", ...init?.headers }
   // The service may want the token the shell gave it. The handshake is the
   // fallback for a server this shell did not start.
   if (target.token) headers["authorization"] = "Bearer " + target.token

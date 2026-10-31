@@ -4,7 +4,6 @@ import {
   readRailWidth,
   RAIL_CEILING,
   RAIL_DEFAULT,
-  RAIL_MAX,
   RAIL_MIN,
   RAIL_WIDTH_KEY,
   writeRailWidth,

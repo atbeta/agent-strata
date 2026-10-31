@@ -316,7 +316,7 @@ export function tokenizeDiff(src: string): Token[] | null {
   lines.forEach((line, i) => {
     const kind: TokenKind | null = line.startsWith("+") ? "add" : line.startsWith("-") ? "del" : null;
     if (kind) push(out, kind, line);
-    else push(out, /^@@/.test(line) ? "keyword" : "plain", line);
+    else push(out, line.startsWith("@@") ? "keyword" : "plain", line);
     if (i < lines.length - 1) push(out, "plain", "\n");
   });
   return out;

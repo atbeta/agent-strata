@@ -12,7 +12,7 @@
  * `--target` (or STRATA_SIDECAR_TARGET) for cross-compiling.
  */
 import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { $ } from "bun";
 
 const root = resolve(import.meta.dir, "..");

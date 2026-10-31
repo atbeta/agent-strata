@@ -223,9 +223,9 @@ describe("AcpRecorder unit", () => {
       version: 1,
       rules: [{ id: "no", effect: "deny", tool: "*", when: { command: { matches: "rm" } } }],
     });
-    const mk = (options: { optionId: string; kind: string }[]) =>
+    const mk = () =>
       new AcpRecorder({ agentName: "m", sink: { append: (e) => appended.push(e) }, policy: pol });
-    const r1 = mk([]);
+    const r1 = mk();
     r1.startSession("s1", "acp:m:s1");
     r1.sessions.get("s1")!.turnId = "t";
     const res1 = await r1.requestPermission({

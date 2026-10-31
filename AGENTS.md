@@ -2,6 +2,7 @@
 
 ## Checks
 - `bun run typecheck` (root): every package, the desktop UI, and `apps/desktop/ui/bench`.
+- `bun run lint` (root): oxlint over the same trees and `scripts`. Warnings fail the run.
 - `bun test packages`: all package tests.
 - `bun run test:ui`: desktop UI unit tests (includes `apps/desktop/ui/bench/metrics.test.ts`).
 - `cargo test --locked` in `apps/desktop/src-tauri`: Tauri shell tests.

@@ -13,8 +13,10 @@ const ev = (type: string, data: Record<string, unknown>, ts?: number): TraceSour
 });
 const at = (ms: number) => new Date(ms).toISOString();
 
-const user = (turn: string, s = ++seq) =>
-  ev("turn.user", { turn_id: turn, content: [{ type: "text", text: `prompt ${turn}` }] });
+const user = (turn: string, s = ++seq) => {
+  void s;
+  return ev("turn.user", { turn_id: turn, content: [{ type: "text", text: `prompt ${turn}` }] });
+};
 const assistant = (
   turn: string,
   msg: string,
@@ -425,7 +427,7 @@ describe("mergeTraceEvents", () => {
   });
 
   test("merges over a 100k-event tail without argument-spread blowups", () => {
-    const prev = Array.from({ length: 100_000 }, (_, i) => ev("turn.user", { turn_id: "t", content: [] }));
+    const prev = Array.from({ length: 100_000 }, () => ev("turn.user", { turn_id: "t", content: [] }));
     const next = [ev("file.changed", { path: "x", change: "add" })];
     const merged = mergeTraceEvents(prev, next);
     expect(merged.appended).toBe(1);

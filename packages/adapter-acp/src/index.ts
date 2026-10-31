@@ -9,14 +9,13 @@ import {
   type RequestPermissionRequest,
   type RequestPermissionResponse,
   type SessionNotification,
-  type SessionUpdate,
   type ToolCallUpdate,
   type Usage,
 } from "@agentclientprotocol/sdk";
 import { createPatch } from "diff";
 import { monotonicFactory } from "ulid";
-import { makeEvent, type ContentBlock, type EventInput } from "@agent-strata/schema";
-import { evaluate, policyFor, type Policy, type PolicySource } from "@agent-strata/policy";
+import { type ContentBlock, type EventInput } from "@agent-strata/schema";
+import { evaluate, policyFor, type PolicySource } from "@agent-strata/policy";
 
 const ulid = monotonicFactory();
 
@@ -358,7 +357,6 @@ export class AcpRecorder implements Client {
     selected: (o: PermissionOption) => RequestPermissionResponse,
     cancelled: RequestPermissionResponse,
   ): Promise<RequestPermissionResponse> {
-    const request_id = req.data.request_id;
     if (!this.opts.onAsk) {
       resolved("deny", "auto", { reason: "no handler" });
       const opt =

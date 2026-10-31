@@ -54,7 +54,7 @@ function isLoopback(url: string | undefined): boolean {
   if (!url) return false;
   try {
     const host = new URL(url).hostname.toLowerCase();
-    return host === "localhost" || host === "::1" || host === "[::1]" || /^127\./.test(host);
+    return host === "localhost" || host === "::1" || host === "[::1]" || host.startsWith("127.");
   } catch {
     return false;
   }

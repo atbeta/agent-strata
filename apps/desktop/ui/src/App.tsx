@@ -1,4 +1,4 @@
-import { createEffect, createResource, createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createResource, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiFetch, getJson, streamUrl, syncBackend, type StrataEvent } from "./api";
 import { settled } from "./resource";
 import { FleetView } from "./fleet-view";

@@ -5,7 +5,6 @@ import {
   EVENT_DATA_CLASS,
   Event,
   EventInput,
-  LOCAL_ONLY_EVENT_TYPES,
   REBUILDABLE_EVENT_TYPES,
   isStreamingSnapshot,
   makeEvent,

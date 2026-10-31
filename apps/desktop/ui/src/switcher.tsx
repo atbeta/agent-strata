@@ -15,8 +15,8 @@ export function SessionSwitcher(props: {
   let list: HTMLDivElement | undefined;
 
   createEffect(() => {
-    props.at;
-    props.open;
+    void props.at;
+    void props.open;
     if (!props.open) return;
     queueMicrotask(() => list?.querySelector(`[data-at="true"]`)?.scrollIntoView({ block: "nearest" }));
   });

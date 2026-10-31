@@ -399,7 +399,7 @@ export async function runOpencodeStream(opts: {
   };
 
   const quiet: AsyncIterator<unknown> = (async function* () {})();
-  const loop = (async () => {
+  void (async () => {
     let current: AsyncIterator<unknown> = got.iter;
     const seen = { at: Date.now() };
     let pause = 1_000;

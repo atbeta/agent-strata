@@ -50,6 +50,9 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      - name: Lint
+        run: bun run lint
+
       # Scoped to packages: the desktop UI is a separate install with its own
       # lockfile and dependency versions, so it is tested on its own.
       - name: Test packages

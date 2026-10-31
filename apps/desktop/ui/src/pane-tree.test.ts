@@ -3,7 +3,6 @@ import {
   activeSessionOf,
   applyLayoutPreset,
   assignSessionToWorkspace,
-  clampSplitRatio,
   closePane,
   createInitialWorkspace,
   detectPreset,

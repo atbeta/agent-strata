@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createIngestor, OpencodeMapper, OPENCODE_MAPPER_VERSION } from "@agent-strata/adapter-opencode";
 import { startService } from "../src/index";
-import { makeEvent, type EventInput, type Event } from "@agent-strata/schema";
+import { makeEvent, type EventInput } from "@agent-strata/schema";
 import { fakeOpencode } from "./fake-opencode";
 
 const ev = (

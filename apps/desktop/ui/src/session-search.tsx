@@ -8,7 +8,6 @@ import {
   Show,
 } from "solid-js";
 import { searchSession, type SearchHit, type SessionView } from "./api";
-import { settled } from "./resource";
 import { Icon } from "./icons";
 import { t } from "./i18n";
 import { Button } from "@/components/ui/button";

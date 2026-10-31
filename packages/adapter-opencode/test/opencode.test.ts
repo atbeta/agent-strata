@@ -532,7 +532,7 @@ describe("OpencodeMapper", () => {
     // And the completed message names itself the summary, so the transcript
     // can label it rather than draw it as one more reply.
     const ta = done.find((e) => e.type === "turn.assistant");
-    expect((ta?.data as { summary?: boolean }).summary).toBe(true);
+    expect(ta && (ta.data as { summary?: boolean }).summary).toBe(true);
   });
 
   test("a completed summary message clears compaction before it resumes", () => {
@@ -557,7 +557,7 @@ describe("OpencodeMapper", () => {
     const out = snapshotEvents(sid, info as never, messages as never).flatMap((e) => m.handle(e));
     expect(out.filter((e) => e.type === "session.status" && (e.data as { state: string }).state === "compacting")).toEqual([]);
     const ta = out.find((e) => e.type === "turn.assistant" && !(e.data as { partial?: boolean }).partial);
-    expect((ta?.data as { summary?: boolean }).summary).toBe(true);
+    expect(ta && (ta.data as { summary?: boolean }).summary).toBe(true);
   });
 
   test("the legacy compacting clock still announces and closes", () => {
@@ -3474,7 +3474,7 @@ describe("what the user sent", () => {
       }),
     ].flatMap((e) => m.handle(e));
     const snap = out.find((e) => e.type === "turn.assistant");
-    const content = (snap?.data as { content: object[] }).content;
+    const content = snap && (snap.data as { content: object[] }).content;
     expect(content).toEqual([{ type: "thinking", text: "hmm", started_ms: start, ended_ms: end }]);
   });
 });
@@ -4254,7 +4254,7 @@ describe("runOpencodeStream", () => {
     // was about to use, so the loop found itself aborted and left: the bus
     // of that directory was opened exactly once and never again, and the
     // entry in the table kept it from being opened even later.
-    const { client, globals, dirs } = fakeClient([{ directory: "/repo" }], { globalFails: 99 });
+    const { client, dirs } = fakeClient([{ directory: "/repo" }], { globalFails: 99 });
     const abort = new AbortController();
     await runOpencodeStream({
       client,

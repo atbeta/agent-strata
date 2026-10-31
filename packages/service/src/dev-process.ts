@@ -526,7 +526,7 @@ function alive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch (e) {
+  } catch {
     // EPERM means the process exists and belongs to someone else. That is not
     // ours to kill, and it is not one of ours either, so treat it as gone.
     return false;

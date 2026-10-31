@@ -635,7 +635,7 @@ function ProviderList(props: { connectionId: string }) {
                 onDraft={(value) => setDrafts((prev) => ({ ...prev, [row.id]: value }))}
                 onSave={() => void save(row)}
                 onInput={(key, value) =>
-                  setInputs((prev) => ({ ...prev, [row.id]: { ...(prev[row.id] ?? {}), [key]: value } }))
+                  setInputs((prev) => ({ ...prev, [row.id]: { ...prev[row.id], [key]: value } }))
                 }
                 onAuthorize={(values) => void authorize(row, values)}
                 onCode={setCode}

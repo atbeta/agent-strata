@@ -41,7 +41,12 @@ export function endpointHost(url: string): string {
  */
 export function endpointShort(url: string): string {
   const host = endpointHost(url);
-  const loopback = /^127\./.test(host) || /^localhost(:|$)/i.test(host) || /^\[::1\]:/.test(host);
+  const name = host.toLowerCase();
+  const loopback =
+    host.startsWith("127.") ||
+    name === "localhost" ||
+    name.startsWith("localhost:") ||
+    host.startsWith("[::1]:");
   if (!loopback) return host;
   const colon = host.lastIndexOf(":");
   const port = colon === -1 ? "" : host.slice(colon + 1);

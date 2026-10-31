@@ -8,7 +8,6 @@
 //
 //   bun run scripts/probe-abort.ts
 
-const OC = process.env.OPENCODE_URL ?? "http://127.0.0.1:14096";
 const ST = process.env.STRATA_URL ?? "http://127.0.0.1:7700";
 const dir = process.env.PROBE_DIR ?? process.cwd();
 const t0 = Date.now();
@@ -35,7 +34,7 @@ note("session", casfId);
 // 2. Watch strata's event stream for this session only.
 const seen: Frame[] = [];
 const ac = new AbortController();
-const watching = (async () => {
+void (async () => {
   const res = await fetch(`${ST}/stream`, {
     headers: { accept: "text/event-stream" },
     signal: ac.signal,

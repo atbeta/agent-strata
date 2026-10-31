@@ -1,0 +1,14 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "ignorePatterns": ["**/node_modules/**", "**/dist/**", "apps/desktop/ui/bench/results/**", "apps/desktop/ui/bench/.cache/**"],
+  "rules": {
+    // Solid binds these with `ref={(el) => { host = el }}`. The assignment is
+    // real; the rule only sees the declaration.
+    "no-unassigned-vars": "off",
+    // ANSI and control-character stripping is the point of these patterns.
+    "no-control-regex": "off",
+    // Several loops copy a Map or a live NodeList before deleting from it.
+    // The copy is what makes the walk safe, and the rule cannot see that.
+    "unicorn/no-useless-spread": "off"
+  }
+}

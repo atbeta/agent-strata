@@ -4,13 +4,7 @@ import {
   readContentWidth,
   writeContentWidth,
 } from "./content-width";
-import {
-  readPanelOpen,
-  readPanelTab,
-  writePanelOpen,
-  writePanelTab,
-  type SidePanelTab,
-} from "./right-pane";
+import { readPanelOpen, readPanelTab, type SidePanelTab } from "./right-pane";
 import {
   readPaneWorkspace,
   splitPane,
