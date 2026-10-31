@@ -144,8 +144,10 @@ Pushing a `v*` tag is the release. GitHub Actions first runs the original
 check (typecheck, package tests, desktop UI tests), then builds the
 Windows NSIS installer, the macOS dmg, and the Linux AppImage, and attaches
 them to that tag's GitHub release. The tag has to be either `v<version>` or
-`v<version>-intranet`, matching `apps/desktop/src-tauri/tauri.conf.json`
-(`v0.1.0` or `v0.1.0-intranet` for `0.1.0`). Nothing else runs this build.
+`v<version>-branded`, matching `apps/desktop/src-tauri/tauri.conf.json`
+(`v0.1.0` or `v0.1.0-branded` for `0.1.0`). Nothing else runs this build.
+A `-branded` tag builds under the `branded` environment, whose variables carry
+a custom brand; without them the build is the upstream one.
 The macOS and Linux artifacts are unsigned.
 
 ```sh
