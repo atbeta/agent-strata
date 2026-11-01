@@ -557,6 +557,66 @@ describe("projector", () => {
     expect(v.turns[0]!.reverted).toBe(true);
   });
 
+  test("a removed user message stays gone after the revert boundary clears", () => {
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      mk("s", "turn.user", { turn_id: "t0", content: [{ type: "text", text: "before" }] }),
+      mk("s", "tool.call", { turn_id: "t0", call_id: "c0", tool: "edit", input: {} }),
+      mk("s", "file.changed", { path: "keep.ts", change: "modify", call_id: "c0" }),
+      mk("s", "turn.user", { turn_id: "t1", content: [{ type: "text", text: "here" }] }),
+      mk("s", "turn.assistant", {
+        turn_id: "t1",
+        msg_id: "a1",
+        content: [{ type: "text", text: "reply" }],
+        usage: assistantUsage,
+        cost_usd: 0.5,
+      }),
+      mk("s", "tool.call", { turn_id: "t1", call_id: "c1", tool: "edit", input: {}, msg_id: "a1" }),
+      mk("s", "tool.result", { call_id: "c1", status: "error", output: "no" }),
+      mk("s", "file.changed", { path: "gone.ts", change: "modify", call_id: "c1" }),
+      mk("s", "turn.user", { turn_id: "t2", content: [{ type: "text", text: "after" }] }),
+      mk("s", "session.updated", { revert: { turn_id: "t1" } }),
+      mk("s", "message.removed", { message_id: "t1" }),
+      mk("s", "message.removed", { message_id: "a1" }),
+      mk("s", "message.removed", { message_id: "t2" }),
+      mk("s", "session.updated", { revert: null }),
+      mk("s", "turn.user", { turn_id: "t3", content: [{ type: "text", text: "resent" }] }),
+    ]);
+    expect(v.revert_turn_id).toBeUndefined();
+    expect(v.turns.map((t) => t.turn_id)).toEqual(["t0", "t3"]);
+    expect(v.turns.every((t) => !t.reverted)).toBe(true);
+    expect(v.files_changed.map((f) => f.path)).toEqual(["keep.ts"]);
+    expect(v.totals.input).toBe(0);
+    expect(v.totals.cost_usd).toBe(0);
+    expect(v.totals.tool_calls).toBe(1);
+    expect(v.totals.tool_errors).toBe(0);
+  });
+
+  test("a removed assistant reply leaves the user message", () => {
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      mk("s", "turn.user", { turn_id: "t1", content: [{ type: "text", text: "here" }] }),
+      mk("s", "turn.assistant", {
+        turn_id: "t1",
+        msg_id: "a1",
+        content: [{ type: "text", text: "reply" }],
+        usage: { input: 4, output: 2 },
+        cost_usd: 0.25,
+      }),
+      mk("s", "tool.call", { turn_id: "t1", call_id: "c1", tool: "edit", input: {}, msg_id: "a1" }),
+      mk("s", "file.changed", { path: "gone.ts", change: "add", call_id: "c1" }),
+      mk("s", "message.removed", { message_id: "a1" }),
+    ]);
+    expect(v.turns).toHaveLength(1);
+    expect(v.turns[0]!.user).toEqual([{ type: "text", text: "here" }]);
+    expect(v.turns[0]!.assistant).toEqual([]);
+    expect(v.turns[0]!.tool_calls).toEqual([]);
+    expect(v.files_changed).toEqual([]);
+    expect(v.totals.input).toBe(0);
+    expect(v.totals.cost_usd).toBe(0);
+    expect(v.totals.tool_calls).toBe(0);
+  });
+
   test("revert null clears the boundary", () => {
     const v = projectSession([
       mk("s", "session.started", { workspace: "/w" }),

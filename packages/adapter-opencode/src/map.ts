@@ -204,7 +204,7 @@ export const SETTLE_QUIET_MS = 30_000;
 export const SETTLE_STALL_MS = 300_000;
 
 /** Bump when the mapping changes; stored sessions mapped by an older version are rebuilt. */
-export const OPENCODE_MAPPER_VERSION = "opencode-15";
+export const OPENCODE_MAPPER_VERSION = "opencode-16";
 
 /** The event types an import reproduces from OpenCode's own record of a session. */
 export const OPENCODE_REBUILT_TYPES: EventType[] = [...REBUILDABLE_EVENT_TYPES];
@@ -1226,6 +1226,32 @@ export class OpencodeMapper {
     return out;
   }
 
+  /**
+   * OpenCode deletes the boundary message and everything after it when the
+   * next prompt is accepted, one `message.removed` per message. The id is
+   * the user turn or the assistant reply.
+   */
+  private messageRemoved(evt: Event): EventInput[] | undefined {
+    if ((evt.type as string) !== "message.removed") return undefined;
+    const props =
+      "properties" in evt && evt.properties && typeof evt.properties === "object"
+        ? (evt.properties as { sessionID?: unknown; messageID?: unknown })
+        : undefined;
+    const sessionID = typeof props?.sessionID === "string" ? props.sessionID : undefined;
+    const messageID = typeof props?.messageID === "string" ? props.messageID : undefined;
+    if (!sessionID || !messageID) return [];
+    const { s, out } = this.ensureSession(sessionID);
+    out.push(
+      this.ev(
+        s,
+        "message.removed",
+        { message_id: messageID },
+        `opencode:${messageID}:message.removed`,
+      ),
+    );
+    return out;
+  }
+
   handle(evt: Event): EventInput[] {
     const out: EventInput[] = [];
     /**
@@ -1259,6 +1285,8 @@ export class OpencodeMapper {
 
     const boundary = this.revertBoundary(evt);
     if (boundary) return boundary;
+    const removed = this.messageRemoved(evt);
+    if (removed) return removed;
 
     switch (evt.type) {
       case "session.created": {

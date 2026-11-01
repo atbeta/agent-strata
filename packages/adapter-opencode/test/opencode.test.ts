@@ -373,6 +373,26 @@ describe("OpencodeMapper", () => {
     expect(cleared.find((e) => e.type === "session.updated")?.data).toMatchObject({ revert: null });
   });
 
+  test("message.removed records the message the backend deleted", () => {
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    const out = m.handle({
+      id: "rm1",
+      type: "message.removed",
+      properties: { sessionID: sid, messageID: "u1" },
+    } as unknown as Event);
+    const removed = out.find((e) => e.type === "message.removed");
+    expect(removed).toMatchObject({
+      id: "opencode:u1:message.removed",
+      data: { message_id: "u1" },
+    });
+    expect(m.handle({
+      id: "rm2",
+      type: "message.removed",
+      properties: { sessionID: sid, messageID: "u1" },
+    } as unknown as Event).find((e) => e.type === "message.removed")?.id).toBe("opencode:u1:message.removed");
+  });
+
   test("a revert payload carried in data still names the message", () => {
     const evt = normalizeOpencodeEvent({
       type: "session.revert.staged",
@@ -3454,7 +3474,7 @@ describe("what the user sent", () => {
   });
 
   test("the mapping version moved, so stored sessions are rebuilt", () => {
-    expect(OPENCODE_MAPPER_VERSION).toBe("opencode-15");
+    expect(OPENCODE_MAPPER_VERSION).toBe("opencode-16");
   });
 
   test("a reasoning part keeps the clock the backend reported", () => {

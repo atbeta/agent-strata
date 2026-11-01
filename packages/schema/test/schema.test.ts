@@ -50,6 +50,7 @@ const fixtures: Record<string, unknown> = {
     steps: [{ reason: "stop", usage: { input: 1, output: 2 }, cost_usd: 0.01 }],
     structured: { answer: 42 },
   },
+  "message.removed": { message_id: "u1" },
   "tool.call": { turn_id: "t1", call_id: "c1", tool: "bash", input: { command: "ls" } },
   "tool.result": {
     call_id: "c1",
@@ -125,6 +126,7 @@ describe("what a rebuild can get back", () => {
       "session.compacted",
       "turn.user",
       "turn.assistant",
+      "message.removed",
       "tool.call",
       "tool.result",
       "file.changed",

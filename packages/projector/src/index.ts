@@ -263,6 +263,9 @@ export function projectSession(events: Event[]): SessionView {
   const questions = new Map<string, QuestionPrompt>();
   const orphanResults: { call_id: string; status: string; output?: string; latency_ms?: number }[] = [];
   const compacted: { message_id: string; auto?: boolean; overflow?: boolean }[] = [];
+  // Message ids the backend has deleted. A user id is the turn; an assistant
+  // id is one reply inside it. The events that wrote them stay in the log.
+  const removedMessages = new Set<string>();
 
   const getTurn = (id: string): Turn => {
     let t = turns.get(id);
@@ -412,6 +415,9 @@ export function projectSession(events: Event[]): SessionView {
         addUsage(1, e.data.usage, e.data.cost_usd);
         break;
       }
+      case "message.removed":
+        removedMessages.add(e.data.message_id);
+        break;
       case "tool.call": {
         delete view.session_error;
         const known = calls.get(e.data.call_id);
@@ -538,6 +544,53 @@ export function projectSession(events: Event[]): SessionView {
       .map(({ c }) => c);
   }
 
+  // A deleted user message takes its whole turn. A deleted assistant message
+  // takes that reply and the calls it made. File edits of those calls leave
+  // with them, including once the revert boundary itself has been cleared.
+  const droppedCalls = new Set<string>();
+  if (removedMessages.size > 0) {
+    const forgetAssistant = (a: Turn["assistant"][number]) => {
+      if (a.usage) {
+        view.totals.input -= a.usage.input;
+        view.totals.output -= a.usage.output;
+        view.totals.reasoning -= a.usage.reasoning ?? 0;
+        view.totals.cache_read -= a.usage.cache_read ?? 0;
+        view.totals.cache_write -= a.usage.cache_write ?? 0;
+      }
+      view.totals.cost_usd -= a.cost_usd ?? 0;
+    };
+    const forgetCall = (c: ToolCallView) => {
+      droppedCalls.add(c.call_id);
+      calls.delete(c.call_id);
+      view.totals.tool_calls -= 1;
+      if (c.status === "error" || c.status === "interrupted") view.totals.tool_errors -= 1;
+      if (c.permission?.decision === "deny") view.totals.permissions_denied -= 1;
+    };
+    const kept: Turn[] = [];
+    for (const t of view.turns) {
+      if (removedMessages.has(t.turn_id)) {
+        for (const a of t.assistant) forgetAssistant(a);
+        for (const c of t.tool_calls) forgetCall(c);
+        continue;
+      }
+      const assistants: Turn["assistant"] = [];
+      for (const a of t.assistant) {
+        if (a.msg_id !== undefined && removedMessages.has(a.msg_id)) forgetAssistant(a);
+        else assistants.push(a);
+      }
+      t.assistant = assistants;
+      const tools: ToolCallView[] = [];
+      for (const c of t.tool_calls) {
+        if (c.msg_id !== undefined && removedMessages.has(c.msg_id)) forgetCall(c);
+        else tools.push(c);
+      }
+      t.tool_calls = tools;
+      if (t.user === undefined && t.assistant.length === 0 && t.tool_calls.length === 0) continue;
+      kept.push(t);
+    }
+    view.turns = kept;
+  }
+
   if (!view.title) {
     for (const t of view.turns) {
       const block = t.user?.find(
@@ -605,7 +658,11 @@ export function projectSession(events: Event[]): SessionView {
           whole_file: r.whole_file,
         };
       })
-      .filter((e) => e.turn_index === -1 || !view.turns[e.turn_index]?.reverted);
+      .filter(
+        (e) =>
+          (e.call_id === undefined || !droppedCalls.has(e.call_id)) &&
+          (e.turn_index === -1 || !view.turns[e.turn_index]?.reverted),
+      );
     if (edits.length === 0) return [];
     const latest = edits.at(-1)!;
     return [

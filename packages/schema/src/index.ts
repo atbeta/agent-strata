@@ -207,6 +207,11 @@ const data = {
     /** the answer in the schema the caller asked for, when the format was json_schema */
     structured: z.unknown().optional(),
   }),
+  // The backend deleted this message. Earlier transcript events stay in the
+  // log; the view drops the turn or the reply this id names.
+  "message.removed": z.object({
+    message_id: z.string().min(1),
+  }),
   "tool.call": z.object({
     turn_id: z.string(),
     call_id: z.string(),
@@ -324,6 +329,7 @@ export const EVENT_DATA_CLASS: Record<EventType, "rebuildable" | "local"> = {
   "session.compacted": "rebuildable",
   "turn.user": "rebuildable",
   "turn.assistant": "rebuildable",
+  "message.removed": "rebuildable",
   "tool.call": "rebuildable",
   "tool.result": "rebuildable",
   "file.changed": "rebuildable",
