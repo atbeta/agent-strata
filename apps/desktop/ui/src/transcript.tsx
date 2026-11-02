@@ -23,6 +23,7 @@ import { t, tn } from "./i18n";
 import { cn } from "@/lib/utils";
 import { readThinkingOpen } from "./thinking";
 import { stableKeys } from "./keyed";
+import { attributionOf } from "./turn-attribution";
 import {
   assistantNotice,
   diffStat,
@@ -1177,32 +1178,17 @@ export function TurnBlock(props: {
   const lastPart = () => props.part === undefined || props.part.last;
   const flow = createMemo(() => {
     const msgs = props.turn.assistant;
-    // Attribution is computed over the whole turn — a call's msg_id names an
-    // absolute message index — then only this part's slice is emitted, so a
-    // segmented turn draws each call under the message that made it and the
-    // loose ones in the part that ends the turn.
-    const at = new Map<string, number>();
-    msgs.forEach((m, i) => {
-      if (m.msg_id !== undefined) at.set(m.msg_id, i);
-    });
-    const calls = new Map<number, ToolCallView[]>();
-    const loose: ToolCallView[] = [];
-    for (const c of props.turn.tool_calls) {
-      const i = c.msg_id === undefined ? undefined : at.get(c.msg_id);
-      if (i === undefined) {
-        loose.push(c);
-        continue;
-      }
-      const list = calls.get(i) ?? [];
-      list.push(c);
-      calls.set(i, list);
-    }
+    // Attribution is a property of the turn, not of a segment of it: a call's
+    // msg_id names an absolute message index. It is built once per turn and
+    // shared by the turn's segments, so each one emits only its own slice and
+    // the loose calls land in the part that ends the turn.
+    const { byMessage, loose } = attributionOf(props.turn);
     const rows: FlowRow[] = [];
     const from = props.part?.msgFrom ?? 0;
     const to = props.part?.msgTo ?? msgs.length;
     for (let i = from; i < to; i++) {
       rows.push({ kind: "message", id: `m${i}`, message: msgs[i]!, index: i });
-      const mine = calls.get(i);
+      const mine = byMessage.get(i);
       if (mine?.length) rows.push({ kind: "tools", id: runKey(mine), calls: mine });
     }
     if (loose.length && lastPart()) rows.push({ kind: "tools", id: runKey(loose), calls: loose });
