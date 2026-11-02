@@ -343,6 +343,13 @@ export function longReply(): string {
   return sections.join("\n\n");
 }
 
+/**
+ * The message flow S streams and then finishes. A finished reply is written to
+ * the store the reps share, and a snapshot for a message the store already
+ * holds as finished is ignored — so every rep streams a message of its own.
+ */
+let replyId = "bench-reply";
+
 /** Stream `text` into the latest turn, `chunk` characters every 50ms, as whole-message snapshots. */
 function streamReply(ctx: FlowContext, id: string, text: string, chunk: number): Promise<number> {
   const turnId = orderOf(ctx, id).at(-1)!;
@@ -358,7 +365,7 @@ function streamReply(ctx: FlowContext, id: string, text: string, chunk: number):
         type: "turn.assistant",
         data: {
           turn_id: turnId,
-          msg_id: "bench-reply",
+          msg_id: replyId,
           partial: true,
           content: [{ type: "text", text: text.slice(0, sent) }],
         },
@@ -375,6 +382,7 @@ function streamReply(ctx: FlowContext, id: string, text: string, chunk: number):
 
 export async function streamingReply(ctx: FlowContext, name: string, id: string): Promise<StepResult> {
   const b = bench(ctx.page);
+  replyId = `bench-reply-${Date.now()}`;
   const t0 = await b.now();
   const partials = await streamReply(ctx, id, longReply(), 64);
   await ctx.page.waitForTimeout(200);
@@ -384,24 +392,41 @@ export async function streamingReply(ctx: FlowContext, name: string, id: string)
   return runningResult(ctx, name, rec, t0, t1, partials, { atTail });
 }
 
-/** The reply finishes: its last block stops being written and is drawn as a finished one. */
+/**
+ * The reply finishes: its last block stops being written and is drawn as a
+ * finished one. A finished message makes the app read the view again, so it
+ * has to be in the store first — announced alone, the re-read drops it.
+ */
 export async function replyDone(ctx: FlowContext, name: string, id: string): Promise<StepResult> {
+  if (!ctx.dbPath) throw new Error("reply-done needs a writable store");
   const b = bench(ctx.page);
   const turnId = orderOf(ctx, id).at(-1)!;
+  const data = { turn_id: turnId, msg_id: replyId, content: [{ type: "text", text: longReply() }] };
+  const store = openStore(ctx.dbPath);
+  try {
+    store.append([
+      {
+        id: `${replyId}-done`,
+        session_id: id,
+        ts: new Date().toISOString(),
+        source: { backend: id.split(":")[0]!, native_id: replyId },
+        type: "turn.assistant",
+        data,
+      } as never,
+    ]);
+  } finally {
+    store.close();
+  }
   const t0 = await b.now();
-  ctx.emit({
-    session_id: id,
-    type: "turn.assistant",
-    data: {
-      turn_id: turnId,
-      msg_id: "bench-reply",
-      partial: false,
-      content: [{ type: "text", text: longReply() }],
-    },
-  });
+  ctx.emit({ session_id: id, type: "turn.assistant", data });
   const r = await b.settle(t0, 400, 8_000);
   const rec = await b.take(t0);
-  return finish(ctx, name, common(rec, t0, r.at, r), []);
+  const last = longReply().split("\n").at(-1)!.slice(2, 40);
+  const shown = await ctx.page.evaluate(
+    (needle) => [...document.querySelectorAll("[data-message-role=assistant] .md")].some((m) => m.textContent?.includes(needle)),
+    last,
+  );
+  return finish(ctx, name, common(rec, t0, r.at, r), shown ? [] : ["the finished reply is not on screen"]);
 }
 
 /** Click a prompt in the outline and land on it. */
@@ -559,7 +584,11 @@ export const flowD: Flow = async (ctx, s, record) => {
   record(await runningWheelUp(ctx, "running-wheel-up", s.long, 6_000, 100));
 };
 
-/** S: a long reply streams into the session the reader is following, then finishes. */
+/**
+ * S: a long reply streams into the session the reader is following, then
+ * finishes. Each finished reply stays in the shared store, so a later rep's
+ * open carries the earlier ones — read stream-reply and reply-done, not open.
+ */
 export const flowS: Flow = async (ctx, s, record) => {
   record(await openCold(ctx, "open", s.long));
   record(await streamingReply(ctx, "stream-reply", s.long));
