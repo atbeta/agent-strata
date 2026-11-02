@@ -7,8 +7,13 @@ import { attributionOf } from "./turn-attribution";
  * the reader pays for all of it the moment any of it is on screen. The virtual
  * list is generic over row ids, so a turn is cut into fixed-size parts and
  * each part becomes a row of its own.
+ *
+ * A row mounts whole, in one frame, so the size of a part is the size of the
+ * longest frame a reader can scroll into. Twelve heavy messages laid out at
+ * once was a 50ms frame in WebKit; six is about half that. Smaller costs a few
+ * ms on a jump into a giant turn, which mounts more rows to land.
  */
-export const SEGMENT_MESSAGES = 12;
+export const SEGMENT_MESSAGES = 6;
 
 /** A slice of a turn's assistant messages: absolute indexes into turn.assistant, msgTo exclusive. */
 export interface TurnPart {

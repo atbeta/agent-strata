@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import type { Turn } from "./api";
 import { MESSAGE_CHARS, SEGMENT_MESSAGES, TOOL_ROW, TURN_BASE, estimateSegmentHeight, turnSegments } from "./turn-segments";
 
+const S = SEGMENT_MESSAGES;
+
 const turn = (id: string, messages: number): Turn =>
   ({
     turn_id: id,
@@ -21,16 +23,16 @@ describe("turn segments", () => {
   });
 
   test("a longer turn splits into fixed-size rows", () => {
-    const segs = turnSegments([turn("t1", 25)]);
+    const segs = turnSegments([turn("t1", 2 * S + 1)]);
     expect(segs.map((s) => [s.id, s.msgFrom, s.msgTo, s.last])).toEqual([
-      ["t1", 0, 12, false],
-      ["t1#1", 12, 24, false],
-      ["t1#2", 24, 25, true],
+      ["t1", 0, S, false],
+      ["t1#1", S, 2 * S, false],
+      ["t1#2", 2 * S, 2 * S + 1, true],
     ]);
   });
 
   test("turnIndex is the turn's position, not the row's", () => {
-    const segs = turnSegments([turn("t1", 1), turn("t2", 25), turn("t3", 1)]);
+    const segs = turnSegments([turn("t1", 1), turn("t2", 2 * S + 1), turn("t3", 1)]);
     expect(segs.map((s) => [s.id, s.turnIndex])).toEqual([
       ["t1", 0],
       ["t2", 1],
@@ -41,7 +43,7 @@ describe("turn segments", () => {
   });
 
   test("an unchanged turn keeps its segment objects", () => {
-    const t = turn("t1", 25);
+    const t = turn("t1", 2 * S + 1);
     const first = turnSegments([t]);
     const second = turnSegments([t], first);
     expect(second[0]).toBe(first[0]);
@@ -56,15 +58,15 @@ describe("turn segments", () => {
   });
 
   test("a live turn crossing a boundary adds a row and unlasts the previous last", () => {
-    const t = turn("t1", 12);
+    const t = turn("t1", S);
     const first = turnSegments([t]);
     expect(first.at(-1)!.last).toBe(true);
-    const grown = { ...t, assistant: [...t.assistant, { content: [{ type: "text" as const, text: "m12" }] }] };
+    const grown = { ...t, assistant: [...t.assistant, { content: [{ type: "text" as const, text: `m${S}` }] }] };
     const second = turnSegments([grown], first);
     expect(second.length).toBe(2);
-    expect(second[0]).toMatchObject({ id: "t1", last: false, msgTo: 12 });
+    expect(second[0]).toMatchObject({ id: "t1", last: false, msgTo: S });
     expect(second[0]).not.toBe(first[0]);
-    expect(second[1]).toMatchObject({ id: "t1#1", last: true, msgFrom: 12, msgTo: 13 });
+    expect(second[1]).toMatchObject({ id: "t1#1", last: true, msgFrom: S, msgTo: S + 1 });
   });
 });
 
@@ -75,11 +77,11 @@ describe("how tall a row is expected to be", () => {
     // The user message and the turn's padding live on the first segment only.
     // A continuation is messages alone, so it must not carry them again.
     const t = { turn_id: "t1", assistant: [{ content: text(100) }], tool_calls: [] } as unknown as Turn;
-    const segs = turnSegments([{ ...t, assistant: Array.from({ length: 24 }, () => ({ content: text(100) })) } as unknown as Turn]);
+    const segs = turnSegments([{ ...t, assistant: Array.from({ length: 2 * S }, () => ({ content: text(100) })) } as unknown as Turn]);
     const first = estimateSegmentHeight(segs[0]!);
     const second = estimateSegmentHeight(segs[1]!);
-    expect(first).toBe(TURN_BASE + 12 * 100 * MESSAGE_CHARS);
-    expect(second).toBe(12 * 100 * MESSAGE_CHARS);
+    expect(first).toBe(TURN_BASE + S * 100 * MESSAGE_CHARS);
+    expect(second).toBe(S * 100 * MESSAGE_CHARS);
     expect(first - second).toBe(TURN_BASE);
   });
 
@@ -97,7 +99,7 @@ describe("how tall a row is expected to be", () => {
     const short = { turn_id: "t1", assistant: [{ content: text(200) }], tool_calls: [] } as unknown as Turn;
     const long = {
       turn_id: "t2",
-      assistant: Array.from({ length: 12 }, () => ({ content: text(800) })),
+      assistant: Array.from({ length: S }, () => ({ content: text(800) })),
       tool_calls: [],
     } as unknown as Turn;
     const a = estimateSegmentHeight(turnSegments([short])[0]!);
