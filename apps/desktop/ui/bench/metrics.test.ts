@@ -10,6 +10,7 @@ import {
   placeError,
   placeOf,
   switchStats,
+  turnOf,
   type Sample,
   type Write,
 } from "./metrics";
@@ -185,6 +186,18 @@ describe("openStats", () => {
     expect(openStats(s, order, 0, 30).blankFrames).toBe(1);
   });
 
+  test("a segmented turn's rows still resolve to its turn", () => {
+    // Rows after part 0 carry `${turnId}#${part}` ids; the checks that compare
+    // against the session's turn order derive the turn.
+    const s = [
+      sample(10, { ids: ["t98", "t99", "t99#1", "t99#2"], tops: [0, 100, 300, 450], st: 500, sh: 1000, ch: 500 }),
+    ];
+    const o = openStats(s, order, 0, 10);
+    expect(o.firstContentMs).toBe(10);
+    expect(o.atTail).toBe(true);
+    expect(o.minIndexShown).toBe(98);
+  });
+
   test("the head is the turns further than max(5, 10%) from the end", () => {
     expect(headLimit(1600)).toBe(1440);
     expect(headLimit(38)).toBe(33);
@@ -233,6 +246,11 @@ describe("places and jumps", () => {
     const s = [sample(0, { st: 10 }), sample(16, { st: 10, ids: ["x"], tops: [0] })];
     expect(jumpStats(s, "goal", 5)).toEqual({ firstMoveMs: null, landingError: null });
   });
+});
+
+test("turnOf", () => {
+  expect(turnOf("t1")).toBe("t1");
+  expect(turnOf("t1#2")).toBe("t1");
 });
 
 test("median", () => {

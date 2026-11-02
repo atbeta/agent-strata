@@ -15,7 +15,11 @@ export interface Sample {
   st: number;
   sh: number;
   ch: number;
-  /** Turn ids of the rows intersecting the scroller's viewport, top to bottom. */
+  /**
+   * Row ids of the rows intersecting the scroller's viewport, top to bottom.
+   * A segmented turn mounts several rows: part 0's row id is the turn id,
+   * later parts are `${turnId}#${part}` — see turnOf for the mapping.
+   */
   ids: string[];
   /** Each visible row's top edge, relative to the scroller's top edge. */
   tops: number[];
@@ -34,12 +38,29 @@ export interface Write {
   driver: boolean;
 }
 
+/** The turn a row belongs to: part 0's row id is the turn id, later parts append `#<part>`. */
+export function turnOf(rowId: string): string {
+  const i = rowId.indexOf("#");
+  return i < 0 ? rowId : rowId.slice(0, i);
+}
+
+/** A transcript row the page mounted, and whether it arrived playing the entrance. */
+export interface RowInsert {
+  rowId: string;
+  t: number;
+  /** A descendant already carried .rise-in when the row was inserted. */
+  riseIn: boolean;
+  /** CSS animation names running on the row's subtree one frame after insertion. */
+  anims: string[];
+}
+
 export interface Recording {
   samples: Sample[];
   writes: Write[];
   clicks: number[];
   errors: string[];
   longtasks: { t: number; d: number }[];
+  rows: RowInsert[];
 }
 
 const within = <T extends { t: number }>(xs: readonly T[], from: number, to: number) =>
@@ -164,7 +185,7 @@ export function headLimit(count: number): number {
 export function openStats(samples: readonly Sample[], order: readonly string[], from: number, settledAt: number): OpenStats {
   const index = new Map(order.map((id, i) => [id, i]));
   const s = within(samples, from, Number.POSITIVE_INFINITY);
-  const first = s.find((x) => x.ids.length > 0 && x.ids.every((id) => index.has(id)));
+  const first = s.find((x) => x.ids.length > 0 && x.ids.every((id) => index.has(turnOf(id))));
   let minIndex: number | null = null;
   let blank = 0;
   if (first) {
@@ -172,20 +193,24 @@ export function openStats(samples: readonly Sample[], order: readonly string[], 
       if (x.t < first.t || x.t > settledAt) continue;
       if (x.ids.length === 0) blank += 1;
       for (const id of x.ids) {
-        const i = index.get(id);
+        const i = index.get(turnOf(id));
         if (i !== undefined && (minIndex === null || i < minIndex)) minIndex = i;
       }
     }
   }
   const last = s.at(-1);
+  const lastTurn = order.at(-1);
   const atTail =
-    !!last && last.sh - last.st - last.ch <= TAIL_PX && order.length > 0 && last.ids.includes(order.at(-1)!);
+    !!last &&
+    last.sh - last.st - last.ch <= TAIL_PX &&
+    lastTurn !== undefined &&
+    last.ids.some((id) => turnOf(id) === lastTurn);
   // A short session can have its head on the final screen. Only turns above
   // both the head limit and the first turn the open settled on were passed
   // through on the way — with a couple of rows of slack, because a tail screen
   // whose rows are still growing into their painted height legitimately shows
   // a row or two above where it ends up.
-  const finalFirst = last?.ids.length ? index.get(last.ids[0]!) : undefined;
+  const finalFirst = last?.ids.length ? index.get(turnOf(last.ids[0]!)) : undefined;
   const limit = Math.min(headLimit(order.length), (finalFirst ?? Number.POSITIVE_INFINITY) - HEAD_SLACK_ROWS);
   return {
     firstContentMs: first ? first.t - from : null,
@@ -220,8 +245,8 @@ export function switchStats(
   let before = 0;
   let after = 0;
   for (const x of s) {
-    if (x.ids.some((id) => prev.has(id) && !want.has(id))) stale = x.t - from;
-    if (first === null && x.ids.length > 0 && x.ids.every((id) => want.has(id))) first = x.t;
+    if (x.ids.some((id) => prev.has(turnOf(id)) && !want.has(turnOf(id)))) stale = x.t - from;
+    if (first === null && x.ids.length > 0 && x.ids.every((id) => want.has(turnOf(id)))) first = x.t;
     if (x.ids.length === 0) {
       if (first === null) before += 1;
       else after += 1;

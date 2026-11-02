@@ -23,12 +23,15 @@ export interface BenchSessions {
   long: string;
   heavy: string;
   small: string[];
+  /** Session with hundred-message turns, and the turn ids flow E visits. */
+  giant?: { id: string; turns: string[] };
 }
 
 export interface BenchEnv {
   uiUrl: string; // e.g. http://127.0.0.1:5191  (page: `${uiUrl}/#/session/${encodeURIComponent(id)}`)
   serviceUrl: string; // direct service URL, for node-side fetches
   token: string; // bearer token the service expects
+  dbPath: string; // the throwaway store the service reads; flows may append to it
   sessions: BenchSessions;
   emit(event: unknown): void;
   stop(): Promise<void>;
@@ -190,7 +193,8 @@ export async function startEnv(opts?: {
   build?: "prod" | "dev";
   db?: string; // a real store to benchmark instead of fixtures (e.g. ~/.agent-strata/events.db)
   sessions?: Partial<BenchSessions>; // required with db
-  running?: boolean;
+  /** Sessions to mark busy in the store copy — the flows that stream into them. */
+  busy?: string[];
   log?: (line: string) => void;
 }): Promise<BenchEnv> {
   const log = opts?.log ?? log0;
@@ -202,8 +206,14 @@ export async function startEnv(opts?: {
         long: opts.sessions!.long!,
         heavy: opts.sessions!.heavy!,
         small: opts.sessions!.small ?? [],
+        giant: opts.sessions!.giant,
       }
-    : { long: FIXTURE_SESSIONS.long, heavy: FIXTURE_SESSIONS.heavy, small: [...FIXTURE_SESSIONS.small] };
+    : {
+        long: FIXTURE_SESSIONS.long,
+        heavy: FIXTURE_SESSIONS.heavy,
+        small: [...FIXTURE_SESSIONS.small],
+        giant: { id: FIXTURE_SESSIONS.giant, turns: ["giant-t19", "giant-t9"] },
+      };
 
   const root = mkdtempSync(join(tmpdir(), "strata-bench-"));
   const tmpDb = join(root, "events.db");
@@ -231,19 +241,19 @@ export async function startEnv(opts?: {
         `[env] fixture store ${tmpDb}: ${info.sessions.map((s) => `${s.id.split(":").pop()}=${s.turns}t/${s.bytes}B`).join(" ")}`,
       );
     }
-    if (opts?.running) {
+    if (opts?.busy?.length) {
       const store = openStore(tmpDb);
       try {
-        store.append([
-          {
-            id: "bench-running-status",
-            session_id: sessions.long,
+        store.append(
+          opts.busy.map((sid, i) => ({
+            id: `bench-busy-${i}`,
+            session_id: sid,
             ts: new Date().toISOString(),
-            source: { backend: sessions.long.split(":")[0]!, native_id: "bench-running" },
+            source: { backend: sid.split(":")[0]!, native_id: "bench-busy" },
             type: "session.status",
             data: { state: "busy" },
-          },
-        ]);
+          })) as never,
+        );
       } finally {
         store.close();
       }
@@ -398,7 +408,7 @@ export async function startEnv(opts?: {
       await waitUp(uiUrl, vite, "vite dev server");
     }
 
-    return { uiUrl, serviceUrl, token, sessions, emit, stop };
+    return { uiUrl, serviceUrl, token, dbPath: tmpDb, sessions, emit, stop };
   } catch (e) {
     await stop();
     throw e;

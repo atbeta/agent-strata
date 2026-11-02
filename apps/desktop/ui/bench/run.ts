@@ -7,6 +7,8 @@
  *   bun run bench --compare bench/results/<file>.json
  *   bun run bench --dev                   against the Vite dev server instead of a production build
  *   bun run bench --db ~/.agent-strata/events.db --long <id> --heavy <id> --small <id>,<id>,<id>
+ *   bun run bench --flows E --giant <id> --giant-turns <turnId>,<turnId>   giant-turn ids flow E jumps between
+ *   bun run bench --flows F             entrance: a turn arrives live and grows past a segment
  *
  * WebKit is the engine the desktop app ships in (Tauri on macOS is WKWebView),
  * so it is the one that decides. Chromium is there because that is where every
@@ -25,7 +27,7 @@ import { installProbe } from "./probe";
 import { median } from "./metrics";
 import { FLOWS, type FlowContext, type FlowSessions, type StepResult } from "./scenarios";
 import { startEnv } from "./env";
-import { FIXTURE_VERSION } from "./fixtures";
+import { FIXTURE_SESSIONS, FIXTURE_VERSION } from "./fixtures";
 
 const ENGINES: Record<string, BrowserType> = { webkit, chromium };
 
@@ -46,6 +48,8 @@ function args() {
     long: get("long"),
     heavy: get("heavy"),
     small: get("small"),
+    giant: get("giant"),
+    giantTurns: get("giant-turns"),
     verbose: a.includes("--verbose"),
     build: (a.includes("--dev") ? "dev" : "prod") as "dev" | "prod",
   };
@@ -156,11 +160,22 @@ async function main() {
   const real = !!opt.db;
   if (real && (!opt.long || !opt.heavy || !opt.small)) throw new Error("--db needs --long, --heavy and --small");
   const logs: string[] = [];
+  const small = real ? opt.small!.split(",") : [...FIXTURE_SESSIONS.small];
   const env = await startEnv({
     build: opt.build,
     db: opt.db,
-    sessions: real ? { long: opt.long!, heavy: opt.heavy!, small: opt.small!.split(",") } : undefined,
-    running: opt.flows.includes("D"),
+    sessions: real
+      ? {
+          long: opt.long!,
+          heavy: opt.heavy!,
+          small,
+          giant: opt.giant ? { id: opt.giant, turns: (opt.giantTurns ?? "").split(",").filter(Boolean) } : undefined,
+        }
+      : undefined,
+    busy: [
+      ...(opt.flows.includes("D") ? [(real ? opt.long! : FIXTURE_SESSIONS.long)] : []),
+      ...(opt.flows.includes("F") && small[3] ? [small[3]] : []),
+    ],
     log: (l) => (opt.verbose ? console.error(l) : logs.push(l)),
   });
   const failures: string[] = [];
@@ -168,7 +183,9 @@ async function main() {
   const orders = new Map<string, string[]>();
   try {
     const sessions: FlowSessions = env.sessions;
-    for (const id of new Set([sessions.long, sessions.heavy, ...sessions.small])) {
+    for (const id of new Set(
+      [sessions.long, sessions.heavy, sessions.giant?.id, ...sessions.small].filter((x): x is string => !!x),
+    )) {
       const res = await fetch(`${env.serviceUrl}/sessions/${encodeURIComponent(id)}/view`, {
         headers: { authorization: `Bearer ${env.token}` },
       });
@@ -195,7 +212,7 @@ async function main() {
             });
             await context.addInitScript(installProbe);
             const page = await context.newPage();
-            const ctx: FlowContext = { page, uiUrl: env.uiUrl, orders, errors: [], emit: env.emit };
+            const ctx: FlowContext = { page, uiUrl: env.uiUrl, dbPath: env.dbPath, orders, errors: [], emit: env.emit };
             // WebKit hands some errors over with an empty name and stack; the message is what is left.
             page.on("pageerror", (e) => ctx.errors.push([e.message, e.stack].filter(Boolean).join("\n") || String(e)));
             const record: RunRecord = { engine, rep, flow, steps: [] };

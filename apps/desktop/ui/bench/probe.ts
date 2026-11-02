@@ -32,11 +32,48 @@ export function installProbe(): void {
     drive: number;
   };
   type Write = { t: number; kind: string; from: number; to: number; driver: boolean };
+  type RowInsert = { rowId: string; t: number; riseIn: boolean; anims: string[] };
   const w = window as unknown as { __bench?: unknown };
   if (w.__bench) return;
 
   const samples: Sample[] = [];
   const writes: Write[] = [];
+  // Every row the transcript mounts, with whether it arrived already
+  // animating: the entrance belongs to the turn that just arrived, not to
+  // each segment the turn grows into. Off until a flow asks for it — a
+  // document-wide observer costs on every insert, and flows that never read
+  // `rows` must not pay it.
+  const rowInserts: RowInsert[] = [];
+  let rowsWatched = false;
+  const watchRows = () => {
+    if (rowsWatched) return;
+    rowsWatched = true;
+    new MutationObserver((muts) => {
+      for (const m of muts) {
+        for (const n of m.addedNodes) {
+          if (!(n instanceof HTMLElement)) continue;
+          const rows: HTMLElement[] = [];
+          if (n.dataset?.rowId) rows.push(n);
+          else n.querySelectorAll?.("[data-row-id]").forEach((r) => rows.push(r as HTMLElement));
+          for (const r of rows) {
+            const rec: RowInsert = {
+              rowId: r.dataset.rowId!,
+              t: performance.now(),
+              riseIn: !!r.querySelector(".rise-in"),
+              anims: [],
+            };
+            rowInserts.push(rec);
+            requestAnimationFrame(() => {
+              rec.anims = r
+                .getAnimations({ subtree: true })
+                .map((a) => (a as { animationName?: string }).animationName ?? "")
+                .filter(Boolean);
+            });
+          }
+        }
+      }
+    }).observe(document, { childList: true, subtree: true });
+  };
   const clicks: number[] = [];
   const errors: string[] = [];
   const longtasks: { t: number; d: number }[] = [];
@@ -113,10 +150,18 @@ export function installProbe(): void {
     // WebKit: no Long Tasks API. Frame gaps still cover it.
   }
 
+  // A row id is its turn id for part 0 of a segmented turn, `${turnId}#${part}`
+  // after it; everything the bench compares against a session's turn order
+  // wants the turn.
+  const turnOf = (rowId: string) => {
+    const i = rowId.indexOf("#");
+    return i < 0 ? rowId : rowId.slice(0, i);
+  };
+
   const contentOk = (s: Sample | undefined) => {
     if (!s || s.ids.length === 0) return false;
     if (!target) return true;
-    for (const id of s.ids) if (!target.has(id)) return false;
+    for (const id of s.ids) if (!target.has(turnOf(id))) return false;
     return true;
   };
 
@@ -175,12 +220,13 @@ export function installProbe(): void {
       s.sh = sc.scrollHeight;
       s.ch = sc.clientHeight;
       const box = sc.getBoundingClientRect();
-      const rows = sc.querySelectorAll<HTMLElement>("[data-turn-id]");
+      // Rows carry data-row-id; data-turn-id only stays for older builds.
+      const rows = sc.querySelectorAll<HTMLElement>("[data-row-id], [data-turn-id]");
       s.rows = rows.length;
       for (const r of rows) {
         const b = r.getBoundingClientRect();
         if (b.bottom <= box.top || b.top >= box.bottom || b.height === 0) continue;
-        s.ids.push(r.dataset.turnId!);
+        s.ids.push(r.dataset.rowId ?? r.dataset.turnId!);
         s.tops.push(b.top - box.top);
       }
     }
@@ -211,6 +257,7 @@ export function installProbe(): void {
 
   w.__bench = {
     now: () => performance.now(),
+    watchRows,
     setTarget(ids: string[] | null) {
       target = ids ? new Set(ids) : undefined;
     },
@@ -241,6 +288,7 @@ export function installProbe(): void {
         clicks: clicks.filter((x) => x >= from),
         errors: errors.slice(),
         longtasks: longtasks.filter((x) => x.t >= from),
+        rows: rowInserts.filter((x) => x.t >= from),
       };
     },
   };

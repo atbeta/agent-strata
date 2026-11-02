@@ -15,7 +15,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { startEnv } from "./env";
 import { installProbe } from "./probe";
-import { jump, openCold, stepUp, wheelUp, type FlowContext } from "./scenarios";
+import { jump, jumpToTurn, openCold, stepUp, wheelUp, type FlowContext } from "./scenarios";
 
 interface ProfileNode {
   id: number;
@@ -81,7 +81,7 @@ mkdirSync(out, { recursive: true });
 try {
   const S = env.sessions;
   const orders = new Map<string, string[]>();
-  for (const id of [S.long, S.heavy]) {
+  for (const id of [S.long, S.heavy, S.giant?.id].filter((x): x is string => !!x)) {
     const res = await fetch(`${env.serviceUrl}/sessions/${encodeURIComponent(id)}/view`, {
       headers: { authorization: `Bearer ${env.token}` },
     });
@@ -103,10 +103,24 @@ try {
       writeFileSync(join(out, `${flow}-${name}.cpuprofile`), JSON.stringify(profile));
       console.log(`\n### ${flow}/${name}: ${summarize(profile as Profile)}`);
     };
-    await step("open", () => openCold(ctx, "open", sid));
-    await step("step-up", () => stepUp(ctx, "step-up", 6_000, 120));
-    if (flow === "A") await step("wheel-up", () => wheelUp(ctx, "wheel-up", 6_000, 100));
-    await step("jump", () => jump(ctx, "jump", sid, flow === "A" ? 0.25 : 0.5));
+    if (flow === "E") {
+      const g = S.giant;
+      if (!g) throw new Error("flow E needs a giant session");
+      const order = orders.get(g.id) ?? [];
+      const after = order[order.indexOf(g.turns[0]!) + 1];
+      if (!after) throw new Error(`no turn after ${g.turns[0]} in ${g.id}`);
+      await step("open", () => openCold(ctx, "open", g.id));
+      await step("step-up", () => stepUp(ctx, "step-up", 6_000, 120));
+      await step("jump-after", () => jumpToTurn(ctx, "jump-after", g.id, after));
+      await step("step-into", () => stepUp(ctx, "step-into", 6_000, 120));
+      await step("jump-giant", () => jumpToTurn(ctx, "jump-giant", g.id, g.turns[1]!));
+      await step("return-giant", () => jumpToTurn(ctx, "return-giant", g.id, g.turns[0]!));
+    } else {
+      await step("open", () => openCold(ctx, "open", sid));
+      await step("step-up", () => stepUp(ctx, "step-up", 6_000, 120));
+      if (flow === "A") await step("wheel-up", () => wheelUp(ctx, "wheel-up", 6_000, 100));
+      await step("jump", () => jump(ctx, "jump", sid, flow === "A" ? 0.25 : 0.5));
+    }
     await context.close();
   }
 } finally {

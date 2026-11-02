@@ -16,11 +16,12 @@ import { fileURLToPath } from "node:url";
 import { openStore } from "../../../../packages/store/src/index";
 import type { ContentBlock, EventInput } from "../../../../packages/schema/src/index";
 
-export const FIXTURE_VERSION = 2;
+export const FIXTURE_VERSION = 3;
 
 export const FIXTURE_SESSIONS = {
   long: "opencode:ses_benchlong",
   heavy: "opencode:ses_benchheavy",
+  giant: "opencode:ses_benchgiant",
   small: [
     "opencode:ses_benchsmall1",
     "opencode:ses_benchsmall2",
@@ -212,6 +213,15 @@ function assistantMarkdown(): string {
   return fitText(blocks.join("\n\n"), 600, 3000);
 }
 
+/** Assistant markdown for one step of a giant turn: 150–1,500 chars. */
+function stepMarkdown(): string {
+  return fitText(
+    paragraph(int(1, 3)) + (chance(0.2) ? `\n\n${codeBlock(pick(["ts", "py", "bash"] as const), int(4, 15))}` : ""),
+    150,
+    1_500,
+  );
+}
+
 /** Assistant markdown for the heavy session: 8–20KB, 3–6 code blocks, one table. */
 function heavyMarkdown(): string {
   const target = int(8_000, 20_000);
@@ -333,6 +343,7 @@ interface SessionSpec {
   title: string;
   turns: number;
   heavy?: boolean;
+  giant?: boolean;
 }
 
 function sessionEvents(spec: SessionSpec, startSeq: number): EventInput[] {
@@ -362,6 +373,50 @@ function sessionEvents(spec: SessionSpec, startSeq: number): EventInput[] {
       turn_id: turnId,
       content: [{ type: "text", text: userText() }] satisfies ContentBlock[],
     });
+    if (spec.giant) {
+      // One turn is hundreds of assistant messages, each maybe followed by
+      // the tool call it asked for — the shape a long opencode turn takes.
+      const nMsgs = i === 9 || i === 19 ? 200 : int(10, 40);
+      for (let k = 0; k < nMsgs; k++) {
+        const msgId = `${turnId}-m${k}`;
+        const content: ContentBlock[] = [];
+        if (chance(0.3)) content.push({ type: "thinking", text: prose(200, 1_200) });
+        content.push({ type: "text", text: stepMarkdown() });
+        ev("turn.assistant", {
+          turn_id: turnId,
+          msg_id: msgId,
+          content,
+          model: MODEL,
+          usage: {
+            input: int(400, 4_000),
+            output: int(200, 3_000),
+            ...(chance(0.2) ? { reasoning: int(50, 800) } : {}),
+          },
+          cost_usd: Math.round(rand() * 90) / 10_000,
+          latency_ms: int(800, 9_000),
+          stop_reason: k === nMsgs - 1 ? "end_turn" : "tool_use",
+        });
+        if (chance(0.9)) {
+          const callId = `${turnId}-c${k}`;
+          const tool = pick(["bash", "read", "edit", "grep", "write"] as const);
+          ev("tool.call", {
+            turn_id: turnId,
+            call_id: callId,
+            tool,
+            input: toolInput(tool),
+            order: 0,
+            msg_id: msgId,
+          });
+          ev("tool.result", {
+            call_id: callId,
+            status: "ok",
+            output: toolOutput(tool, int(300, 3_000)),
+            latency_ms: int(4, 2_500),
+          });
+        }
+      }
+      continue;
+    }
     const nTools = spec.heavy ? int(8, 20) : toolCount();
     for (let k = 0; k < nTools; k++) {
       const callId = `${turnId}-c${k}`;
@@ -416,6 +471,7 @@ const SPECS: SessionSpec[] = [
     title: `Bench: small session ${i + 1}`,
     turns: 20,
   })),
+  { id: FIXTURE_SESSIONS.giant, nativeId: "ses_benchgiant", tag: "giant", title: "Bench: giant turns", turns: 30, giant: true },
 ];
 
 const here = dirname(fileURLToPath(import.meta.url));

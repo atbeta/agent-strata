@@ -1,4 +1,5 @@
 import type { Page } from "playwright";
+import { openStore } from "../../../../packages/store/src/index";
 import {
   appWrites,
   drift,
@@ -31,6 +32,8 @@ export interface StepResult {
 export interface FlowContext {
   page: Page;
   uiUrl: string;
+  /** The throwaway store the service reads — a flow that adds stored events writes here. */
+  dbPath?: string;
   /** Turn ids of each session, in order, as the service projects them. */
   orders: ReadonlyMap<string, readonly string[]>;
   /** Page errors raised since the current step began; drained by each step. */
@@ -307,14 +310,22 @@ export async function runningWheelUp(
 
 /** Click a prompt in the outline and land on it. */
 export async function jump(ctx: FlowContext, name: string, id: string, fraction: number): Promise<StepResult> {
+  const order = orderOf(ctx, id);
+  const index = Math.min(order.length - 1, Math.max(0, Math.floor(order.length * fraction)));
+  return jumpToTurn(ctx, name, id, order[index]!);
+}
+
+/** Click the outline tick of a known turn and land on it. */
+export async function jumpToTurn(ctx: FlowContext, name: string, id: string, turnId: string): Promise<StepResult> {
   const b = bench(ctx.page);
   const order = orderOf(ctx, id);
   // The rail windows its ticks, so "whichever tick is mounted in the middle"
   // is a different turn on every run — a tail tick when the scroll has not
   // landed yet, a near one when it has. The turn is fixed from the session;
   // the rail is scrolled until that tick exists, then that tick is clicked.
-  const index = Math.min(order.length - 1, Math.max(0, Math.floor(order.length * fraction)));
-  const target = order[index]!;
+  const index = order.indexOf(turnId);
+  if (index < 0) throw new Error(`turn ${turnId} is not in ${id}`);
+  const target = turnId;
   const rail = ctx.page.locator(".prompt-nav .rail");
   await rail.evaluate((el, i) => {
     const row = parseFloat(getComputedStyle(el).getPropertyValue("--nav-row-size"));
@@ -395,6 +406,8 @@ export interface FlowSessions {
   heavy: string;
   /** Flow A uses the first, flow C the next two. */
   small: readonly string[];
+  /** Flow E: a session with hundred-message turns, and the two it visits. */
+  giant?: { id: string; turns: string[] };
 }
 
 const smallAt = (s: FlowSessions, i: number) => {
@@ -450,4 +463,143 @@ export const flowD: Flow = async (ctx, s, record) => {
   record(await runningWheelUp(ctx, "running-wheel-up", s.long, 6_000, 100));
 };
 
-export const FLOWS: Record<string, Flow> = { A: flowA, B: flowB, C: flowC, D: flowD };
+/**
+ * E: a session whose individual turns hold hundreds of messages. Scroll up
+ * into one from below, jump straight onto another, then come back to the
+ * first — the revisit is where the markdown cache earns its keep.
+ */
+export const flowE: Flow = async (ctx, s, record) => {
+  const g = s.giant;
+  if (!g) throw new Error("flow E needs a giant session (a real store needs --giant and --giant-turns)");
+  record(await openCold(ctx, "open", g.id));
+  record(await stepUp(ctx, "step-up", 6_000, 120));
+  const order = orderOf(ctx, g.id);
+  const after = order[order.indexOf(g.turns[0]!) + 1];
+  if (!after) throw new Error(`no turn after ${g.turns[0]} in ${g.id}`);
+  record(await jumpToTurn(ctx, "jump-after", g.id, after));
+  record(await stepUp(ctx, "step-into", 6_000, 120));
+  record(await jumpToTurn(ctx, "jump-giant", g.id, g.turns[1]!));
+  record(await jumpToTurn(ctx, "return-giant", g.id, g.turns[0]!));
+};
+
+/**
+ * F: the entrance. A turn that arrives while the reader is watching animates
+ * once — and then keeps writing. Growing it past a segment boundary mounts
+ * new rows that are continuations of the same arrival, not new arrivals, so
+ * none of them may play rise-in again.
+ */
+export const flowF: Flow = async (ctx, s, record) => {
+  if (!ctx.dbPath) throw new Error("flow F needs a writable store");
+  const id = s.small[3];
+  if (!id) throw new Error("flow F needs a fourth small session");
+  const b = bench(ctx.page);
+  // The appended turn persists in the shared store across reps, so each rep
+  // arrives a turn of its own — and the order it lands in is updated so later
+  // reps open onto a session that already carries the earlier ones.
+  const tag = `bench-arrive-${orderOf(ctx, id).length}`;
+  const order = [...orderOf(ctx, id), tag];
+  record(await openCold(ctx, "open", id));
+  // Row-insert recording is flow F's alone; other flows pay no observer cost.
+  await ctx.page.evaluate(() => (window as any).__bench.watchRows());
+
+  const store = openStore(ctx.dbPath);
+  try {
+    store.append([
+      {
+        id: `${tag}-e0`,
+        session_id: id,
+        ts: new Date().toISOString(),
+        source: { backend: id.split(":")[0]!, native_id: tag },
+        type: "turn.user",
+        data: {
+          turn_id: tag,
+          content: [{ type: "text", text: "arriving while you read" }],
+        },
+      } as never,
+    ]);
+  } finally {
+    store.close();
+  }
+  const t0 = await b.now();
+  (ctx.orders as Map<string, readonly string[]>).set(id, order);
+  ctx.emit({ session_id: id, type: "turn.user", data: { turn_id: tag } });
+  await b.setTarget(order);
+  const mounted = await ctx.page
+    .waitForSelector(`[data-row-id="${tag}"]`, { state: "attached", timeout: 10_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!mounted) {
+    record({ name: "arrive", failures: ["arriving turn never mounted"], metrics: {} });
+    record({ name: "stream-across", failures: ["arriving turn never mounted"], metrics: {} });
+    return;
+  }
+  await ctx.page.waitForTimeout(120); // the animation check fills in on the next frame
+  const recA = await b.take(t0);
+  const arrivals = recA.rows.filter((r) => r.rowId === tag);
+  const rise = arrivals.some((r) => r.riseIn || r.anims.includes("rise-in"));
+  record(
+    finish(ctx, "arrive", { ...activity(recA, t0, await b.now()), riseIn: rise },
+      rise ? [] : ["arriving turn mounted without the entrance"]),
+  );
+
+  // stream-across: 16 partial messages push the turn past SEGMENT_MESSAGES,
+  // mounting bench-arrive#1 — a continuation, not a new arrival.
+  const t1 = await b.now();
+  for (let k = 0; k < 16; k++) {
+    ctx.emit({
+      session_id: id,
+      type: "turn.assistant",
+      data: {
+        turn_id: tag,
+        msg_id: `${tag}-m${k}`,
+        partial: true,
+        content: [{ type: "text", text: `arriving ${"delta ".repeat(k + 1)}` }],
+      },
+    });
+    await ctx.page.waitForTimeout(50);
+  }
+  const t2 = await b.now();
+  const grown = await ctx.page
+    .waitForSelector(`[data-row-id="${tag}#1"]`, { state: "attached", timeout: 3_000 })
+    .then(() => true)
+    .catch(() => false);
+  await ctx.page.waitForTimeout(120);
+  const recS = await b.take(t1);
+  const continued = recS.rows.filter((r) => r.rowId.startsWith(`${tag}#`));
+  const failures: string[] = [];
+  if (!grown) failures.push("turn grew past a segment without mounting a continuation row");
+  for (const r of continued) {
+    if (r.riseIn || r.anims.includes("rise-in")) failures.push(`continuation row ${r.rowId} played the entrance`);
+  }
+  const atTail = openStats(recS.samples, order, t1, t2).atTail;
+  if (!atTail) failures.push("reader lost the tail while the turn grew");
+  record(
+    finish(ctx, "stream-across",
+      { ...activity(recS, t1, t2), partials: 16, atTail, continuationRows: continued.length },
+      failures),
+  );
+
+  // scroll-back: remounts are allowed to play whatever they played before
+  // segmentation; it is recorded, not failed.
+  const t3 = await b.now();
+  await b.stepUp(3_000, 120);
+  await b.settle(await b.now(), 500, 8_000);
+  await ctx.page.evaluate(() => {
+    const sc = document.querySelector("[data-transcript-scroller]") as HTMLElement | null;
+    if (sc) sc.scrollTop = sc.scrollHeight;
+  });
+  await ctx.page.waitForTimeout(400);
+  const recB = await b.take(t3);
+  const remounts = recB.rows.filter((r) => r.rowId === tag || r.rowId.startsWith(`${tag}#`));
+  record(
+    finish(ctx, "scroll-back",
+      {
+        ...activity(recB, t3, await b.now()),
+        remounted: remounts.length,
+        replayRiseIn: remounts.some((r) => r.riseIn || r.anims.includes("rise-in")),
+      },
+      []),
+  );
+};
+
+export const FLOWS: Record<string, Flow> = { A: flowA, B: flowB, C: flowC, D: flowD, E: flowE, F: flowF };
