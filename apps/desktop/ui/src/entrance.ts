@@ -13,9 +13,28 @@
  * you were already here", which is the only reading worth animating: a column
  * built in one pass because the reader asked for a different conversation is a
  * page, not news.
+ *
+ * ## Why an arrival expires
+ *
+ * Being an arrival is a moment, not a property. A turn used to be remembered as
+ * arriving for the rest of the session, and while a reply streams the virtual
+ * window mounts and unmounts rows constantly as the content grows — so every
+ * remount replayed the entrance. The whole column faded in over and over for as
+ * long as the answer kept coming, which is the flicker readers reported. A turn
+ * stops being news `ARRIVAL_MS` after it landed.
  */
 
 const NONE: ReadonlySet<string> = new Set<string>();
+
+/**
+ * How long a turn stays "arriving", in milliseconds.
+ *
+ * A little longer than the 0.16s entrance, so the class is still on the element
+ * when the animation finishes rather than being pulled out from under it. It
+ * has to expire: the entrance is tied to the element, so a row that remounts
+ * while the class is still on it replays from the first frame.
+ */
+export const ARRIVAL_MS = 250;
 
 export interface EntranceLedger {
   /**
@@ -29,17 +48,22 @@ export interface EntranceLedger {
   arriving(session: string, ids: readonly string[]): ReadonlySet<string>;
 }
 
-export function createEntranceLedger(): EntranceLedger {
+export function createEntranceLedger(now: () => number = Date.now): EntranceLedger {
   let session: string | null = null;
   let painted = new Set<string>();
-  let entered = new Set<string>();
+  /** Turn id → when it arrived. Anything older than `ARRIVAL_MS` is forgotten. */
+  let entered = new Map<string, number>();
   let primed = false;
+  /** Handed out again while the set of arrivals is unchanged. */
+  let snapshot: ReadonlySet<string> = NONE;
+
   return {
     arriving(who, ids) {
       if (who !== session) {
         session = who;
         primed = false;
-        entered = new Set();
+        entered = new Map();
+        snapshot = NONE;
       }
       // An empty column is not a look. A session still loading would otherwise
       // be remembered as having nothing in it, and would then announce its
@@ -48,11 +72,31 @@ export function createEntranceLedger(): EntranceLedger {
       if (!primed) {
         primed = true;
         painted = new Set(ids);
+        snapshot = NONE;
         return NONE;
       }
-      for (const id of ids) if (!painted.has(id)) entered.add(id);
+      const at = now();
+      let changed = false;
+      for (const [id, when] of entered) {
+        if (at - when >= ARRIVAL_MS) {
+          entered.delete(id);
+          changed = true;
+        }
+      }
+      for (const id of ids) {
+        if (!painted.has(id)) {
+          entered.set(id, at);
+          changed = true;
+        }
+      }
       painted = new Set(ids);
-      return entered.size ? entered : NONE;
+      // Identity is kept while nothing moved: the row reads this as it is
+      // built, and a fresh set on every streaming tick churns every mounted
+      // turn for no reason.
+      if (changed || snapshot === NONE) {
+        snapshot = entered.size ? new Set(entered.keys()) : NONE;
+      }
+      return snapshot;
     },
   };
 }

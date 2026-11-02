@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createEntranceLedger } from "./entrance";
+import { ARRIVAL_MS, createEntranceLedger } from "./entrance";
 
 /**
  * The entrance has to mean "this arrived while you were already here", and every
@@ -72,6 +72,39 @@ describe("which turns may play the entrance", () => {
     l.arriving("a", ["t1"]);
     const once = l.arriving("a", ["t1", "t2"]);
     expect(l.arriving("a", ["t1", "t2"])).toBe(once);
+  });
+
+  test("an arrival expires, so a remount does not replay the entrance", () => {
+    // The virtual window mounts and unmounts rows as a streaming reply grows.
+    // While a turn stayed "arriving" for the rest of the session, every remount
+    // ran the entrance again — a column that faded in over and over for as long
+    // as the answer kept coming.
+    let at = 1_000;
+    const l = createEntranceLedger(() => at);
+    l.arriving("a", ["t1"]);
+    expect([...l.arriving("a", ["t1", "t2"])]).toEqual(["t2"]);
+
+    // Still news a moment later: a row that remounts inside the window is the
+    // same arrival, and pulling the class out from under a running animation
+    // would cut it short.
+    at += ARRIVAL_MS - 1;
+    expect([...l.arriving("a", ["t1", "t2"])]).toEqual(["t2"]);
+
+    // Past the window it is history, and a row that scrolls back in paints
+    // still.
+    at += ARRIVAL_MS;
+    expect(l.arriving("a", ["t1", "t2"]).size).toBe(0);
+  });
+
+  test("a later arrival gets its own window", () => {
+    let at = 0;
+    const l = createEntranceLedger(() => at);
+    l.arriving("a", ["t1"]);
+    expect([...l.arriving("a", ["t1", "t2"])]).toEqual(["t2"]);
+    at += ARRIVAL_MS;
+    expect(l.arriving("a", ["t1", "t2"]).size).toBe(0);
+    // t3 lands after t2 expired: it animates, t2 does not come back with it.
+    expect([...l.arriving("a", ["t1", "t2", "t3"])]).toEqual(["t3"]);
   });
 
   test("it cannot tell a stale column from a new one", () => {
