@@ -74,6 +74,16 @@ export function useDisclosure(): Disclosure;
 
 **`renderTurn`**：去掉没人用的 `index` 参数。
 
+**落地记录**（`4a2c9ab`、`459dfd1`、`2496448`、`f2bd018`）
+
+- `renderTurn` 的 index 参数在第 3 步的 `d4a7024` 里已经去掉，同一提交修了"流式时整个 turn 每帧重建"。
+- `stableIndexWindow`、`shareTurnIds` 与 `stableKeys` 重复，已删除，统一用 `stableKeys`。
+- 工具组的 flow id 加了 `run:` 前缀，保证永远不会和消息的 `m${i}` 相撞。
+- `ToolCallCard` 的展开状态也纳入 disclosure（键 `call:${call_id}`）。在 WebKit 里实测：改动前，点开的工具输出在"滚出窗口再滚回"和"切走会话再切回"后都会合上；改动后都能保持。思考块和工具组的键分别是 `thinking:${scope}` 和 `${turn_id}:run:${firstCallId}`。
+- 从备份分支带回了 `e4b72fa`（工具调用每个 turn 只归属一次，E 流程的打开和跳转快 4–6%）。`d726cb3`（按内容估算行高）改的是估算值，是另一个变量，放到第 2 步之前单独评估。
+- bench：S 流程改为每轮先追加一个新 prompt（`d4599d1`）。之前每轮的终稿都写进同一个 turn，下一轮又流进这个越来越大的行，5 轮之间相差一个数量级。
+- 性能：A–D 没有正确性失败，中位数与第 3 步之后持平；D 的 `position-old` 和 `running-wheel-up` 有所下降。`A/wheel-up` 曾一度看起来变差，交替复测三对后中位数 blockedMs 为 9ms 对 8ms，确认是机器负载高时的噪声（当时负载均值约 10–14）。
+
 ### 第 2 步：把时间从视图里拿掉
 
 **不变式落地**：挂载即完整绘制。`Md`、`Code`、`StructuredAnswer` 首次渲染全部同步；删除 `paint-mode.ts`、`firstPaint`、`rowHolds`、`queueMeasure`、`inView` 及 `rowPaintMode` / `rowPaintHold` 两个 context。
