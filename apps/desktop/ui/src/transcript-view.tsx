@@ -23,12 +23,14 @@ import {
   ROW_ESTIMATE,
   ROW_GAP,
   layoutKey,
+  readDisclosure,
   readRowHeights,
   recallReading,
   rememberReading,
   writeRowHeight,
 } from "./transcript-layout";
 import { scrollCoalescer } from "./scroll-frame";
+import { DisclosureContext } from "./disclosure";
 import { ContentSashes, LoadingTranscript } from "./content-sashes";
 import { PromptNavigator } from "./prompt-navigator";
 import { promptAt, promptEntries, type PromptEntry } from "./prompt-outline";
@@ -127,7 +129,7 @@ export function TranscriptView(props: {
           });
 
           return (
-            <>
+            <DisclosureContext.Provider value={readDisclosure(key)}>
               <ContentSashes />
               <div
                 ref={(el) => (scroller = el)}
@@ -222,7 +224,7 @@ export function TranscriptView(props: {
                   </Button>
                 </Tip>
               </Show>
-            </>
+            </DisclosureContext.Provider>
           );
         }}
       </Show>

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   layoutKey,
+  readDisclosure,
   readRowHeights,
   recallReading,
   rememberReading,
@@ -64,5 +65,24 @@ describe("a pane keeps the layout it already measured", () => {
     // The key itself is what keeps one pane's reading out of another's.
     expect(layoutKey("pane-1", "s1")).toBe("pane-1:s1");
     expect(layoutKey("pane-2", "s1")).not.toBe(layoutKey("pane-1", "s1"));
+  });
+});
+
+describe("a reader's open and closed choices belong to the pane and session", () => {
+  test("a choice is kept for the key it was made under, and only there", () => {
+    readDisclosure("pane-a:s1").set("run:x", true);
+    expect(readDisclosure("pane-a:s1").get("run:x")).toBe(true);
+    expect(readDisclosure("pane-b:s1").get("run:x")).toBeUndefined();
+    expect(readDisclosure("pane-a:s2").get("run:x")).toBeUndefined();
+  });
+
+  test("the transcript hands its blocks the memory for its own key", () => {
+    const view = readFileSync(join(import.meta.dir, "transcript-view.tsx"), "utf8");
+    expect(view).toContain("<DisclosureContext.Provider value={readDisclosure(key)}>");
+    const transcript = readFileSync(join(import.meta.dir, "transcript.tsx"), "utf8");
+    // A module map kept every choice for every pane and session, forever.
+    expect(transcript).not.toContain("thinkingChoice");
+    expect(transcript).not.toContain("runChoice");
+    expect(transcript.match(/useDisclosure\(\)/g)?.length).toBe(3);
   });
 });

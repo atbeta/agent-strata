@@ -23,6 +23,7 @@ import { t, tn } from "./i18n";
 import { cn } from "@/lib/utils";
 import { readThinkingOpen } from "./thinking";
 import { stableKeys } from "./keyed";
+import { useDisclosure } from "./disclosure";
 import { attributionOf } from "./turn-attribution";
 import {
   assistantNotice,
@@ -145,23 +146,6 @@ function MessageMenu(props: {
   );
 }
 
-/** A reader's own open/closed choice, so a refresh does not snap it back. */
-const thinkingChoice = new Map<string, boolean>();
-
-/**
- * The same, for a tool run.
- *
- * A run's open state cannot live only in the component. Rows are matched by
- * position, and a run moves: while a turn streams its calls are unattributed,
- * so they draw as one run at the end, and the moment a call is attributed to an
- * earlier message that run is no longer last. Measured in a browser, opening
- * the run and then letting one attribution land collapsed the panel on 9 of 14
- * frames — the row's slot became a message and the run was built again, closed.
- *
- * Keyed by the run, the choice belongs to the reader rather than the slot.
- */
-const runChoice = new Map<string, boolean>();
-
 function ThinkingBlock(props: {
   text: string;
   live?: boolean;
@@ -169,14 +153,16 @@ function ThinkingBlock(props: {
   startedMs?: number;
   endedMs?: number;
 }) {
-  const [open, setOpen] = createSignal(
-    props.scope !== undefined && thinkingChoice.has(props.scope)
-      ? thinkingChoice.get(props.scope)!
-      : readThinkingOpen(),
-  );
+  const disclosure = useDisclosure();
+  const key = () => (props.scope === undefined ? undefined : `thinking:${props.scope}`);
+  const chosen = () => {
+    const k = key();
+    return k === undefined ? undefined : disclosure.get(k);
+  };
+  const [open, setOpen] = createSignal(chosen() ?? readThinkingOpen());
   onMount(() => {
     const onPref = () => {
-      if (props.scope !== undefined && thinkingChoice.has(props.scope)) return;
+      if (chosen() !== undefined) return;
       setOpen(readThinkingOpen());
     };
     window.addEventListener("strata-thinking", onPref);
@@ -185,7 +171,8 @@ function ThinkingBlock(props: {
   let blockEl!: HTMLDivElement;
   const toggle = () => {
     const next = !open();
-    if (props.scope !== undefined) thinkingChoice.set(props.scope, next);
+    const k = key();
+    if (k !== undefined) disclosure.set(k, next);
     // Collapsing from a pinned header should land on the collapsed row, not
     // wherever the thought used to end. The header being stuck means the
     // thought's own top is already above the viewport, so pull the row back.
@@ -617,7 +604,9 @@ function ToolCallCard(props: {
   };
   /** A pending call is only "running" while the session is. */
   const running = () => props.call.status === "pending" && props.live === true;
-  const [open, setOpen] = createSignal(running() || props.call.status === "error");
+  const disclosure = useDisclosure();
+  const choice = () => `call:${props.call.call_id}`;
+  const [open, setOpen] = createSignal(disclosure.get(choice()) ?? (running() || props.call.status === "error"));
   createEffect(
     on(
       () => props.call.status,
@@ -625,6 +614,8 @@ function ToolCallCard(props: {
         if (status === "error" || (status === "pending" && props.live)) setOpen(true);
         else if (prev === "pending" && status === "ok") setOpen(false);
       },
+      // The first state is the signal's own: a choice the reader made, or the default.
+      { defer: true },
     ),
   );
   /**
@@ -667,7 +658,11 @@ function ToolCallCard(props: {
         <ListRow
           class="h-auto py-1.5 text-xs hover:bg-secondary/60 focus-visible:ring-inset"
           expanded={open()}
-          onOpen={() => setOpen((v) => !v)}
+          onOpen={() => {
+            const next = !open();
+            disclosure.set(choice(), next);
+            setOpen(next);
+          }}
         >
           <Icon
             name={toolIcon(props.call.tool, props.call.input)}
@@ -1044,7 +1039,7 @@ function AssistantMessage(props: {
  * inside one call uses.
  */
 function ToolRun(props: {
-  /** Stable identity of this run, so its open state survives a rebuild. */
+  /** Stable identity of this run, so the reader's choice outlives the row. */
   runId?: string;
   calls: ToolCallView[];
   /** The session is running — a `pending` call is live work, not an orphan. */
@@ -1065,12 +1060,13 @@ function ToolRun(props: {
   // Folded by default only once there is nothing left to watch. A call that is
   // still running, or one that ended badly, is the reason the reader is here.
   const folded = () => many() && settled();
+  const disclosure = useDisclosure();
   const [open, setOpen] = createSignal(
-    props.runId !== undefined && runChoice.has(props.runId) ? runChoice.get(props.runId)! : !folded(),
+    (props.runId === undefined ? undefined : disclosure.get(props.runId)) ?? !folded(),
   );
   const toggle = () => {
     const next = !open();
-    if (props.runId !== undefined) runChoice.set(props.runId, next);
+    if (props.runId !== undefined) disclosure.set(props.runId, next);
     setOpen(next);
   };
   // A run animates only while a call is still `pending` AND the session is

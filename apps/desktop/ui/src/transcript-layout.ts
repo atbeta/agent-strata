@@ -12,7 +12,7 @@
  * conversation narrower in one pane than the other, and a narrower column
  * wraps taller. The reading position is a row plus how far into that row the
  * viewport has moved, which stays meaningful when a row above it changes
- * height.
+ * height. The reader's open and closed choices are kept the same way.
  */
 
 /**
@@ -33,6 +33,7 @@ const EPS = 0.5;
 
 const heights = new Map<string, Map<string, number>>();
 const readings = new Map<string, Reading>();
+const disclosures = new Map<string, Map<string, boolean>>();
 
 import type { Reading } from "./scroll-owner";
 
@@ -64,6 +65,15 @@ export function rememberReading(key: string, reading: Reading): void {
 
 export function recallReading(key: string): Reading | undefined {
   return readings.get(key);
+}
+
+export function readDisclosure(key: string): Map<string, boolean> {
+  let choices = disclosures.get(key);
+  if (!choices) {
+    choices = new Map();
+    disclosures.set(key, choices);
+  }
+  return choices;
 }
 
 const EMPTY: ReadonlyMap<string, number> = new Map();
