@@ -3855,6 +3855,124 @@ describe("sync stays off the live path", () => {
     expect(transcripts).toBe(2);
     expect(yieldedBeforeSecond).toBe(true);
   });
+
+  test("opening a session takes the transcript fetch away from the sync", async () => {
+    // A click used to wait out whatever transcripts the background sync had
+    // already asked for — up to six at once — and a short session waited as
+    // long as a long one. The open is the thing the reader is looking at, so
+    // those other fetches stop, and they start again only after this one has
+    // the messages.
+    const { connectOpencode } = await import("../src/index");
+    const enc = new TextEncoder();
+    const tokens = { input: 1, output: 1, reasoning: 0, cache: { read: 0, write: 0 } };
+    const info = (id: string) => ({ id, title: id, directory: "/repo", time: { created: 1, updated: 10 } });
+    const messages = (id: string) => [
+      {
+        info: { id: `${id}-u`, sessionID: id, role: "user", time: { created: 10 } },
+        parts: [{ id: `${id}-p`, sessionID: id, messageID: `${id}-u`, type: "text", text: "hi" }],
+      },
+      {
+        info: {
+          id: `${id}-a`, sessionID: id, role: "assistant", parentID: `${id}-u`,
+          time: { created: 20, completed: 30 }, providerID: "p", modelID: "m",
+          cost: 0, tokens, finish: "stop",
+        },
+        parts: [{ id: `${id}-ap`, sessionID: id, messageID: `${id}-a`, type: "text", text: "ok" }],
+      },
+    ];
+    let backAttempts = 0;
+    let backSignal: AbortSignal | undefined;
+    let markBack: () => void;
+    const backStarted = new Promise<void>((resolve) => {
+      markBack = resolve;
+    });
+    let releaseOpened: () => void;
+    const holdOpened = new Promise<void>((resolve) => {
+      releaseOpened = resolve;
+    });
+    let markOpened: () => void;
+    const openedStarted = new Promise<void>((resolve) => {
+      markOpened = resolve;
+    });
+    let openedInFlight = false;
+    let othersDuringOpen = 0;
+    const fakeFetch = async (input: Request | URL | string, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : String(input);
+      const signal = (input instanceof Request ? input.signal : undefined) ?? init?.signal;
+      const path = new URL(url).pathname;
+      if (path === "/session") return Response.json([info("ses_back"), info("ses_rest")]);
+      if (path.endsWith("/message")) {
+        const id = path.split("/")[2]!;
+        if (id === "ses_back") {
+          backAttempts += 1;
+          if (backAttempts === 1) {
+            backSignal = signal;
+            markBack();
+            await new Promise<void>((_resolve, reject) => {
+              const abort = () => reject(new DOMException("aborted", "AbortError"));
+              if (signal?.aborted) {
+                abort();
+                return;
+              }
+              signal?.addEventListener("abort", abort, { once: true });
+            });
+          }
+          return Response.json(messages(id));
+        }
+        if (id === "ses_open") {
+          openedInFlight = true;
+          markOpened();
+          await holdOpened;
+          openedInFlight = false;
+          return Response.json(messages(id));
+        }
+        if (openedInFlight) othersDuringOpen += 1;
+        return Response.json(messages(id));
+      }
+      if (path.endsWith("/children")) return Response.json([]);
+      if (path.startsWith("/session/")) return Response.json(info(path.split("/")[2]!));
+      if (url.includes("/event")) {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(ctrl) {
+              ctrl.enqueue(enc.encode('data: {"type":"server.connected","properties":{}}\n\n'));
+            },
+          }),
+          { status: 200, headers: { "content-type": "text/event-stream" } },
+        );
+      }
+      return Response.json([]);
+    };
+    const store = openStore(":memory:");
+    const conn = await connectOpencode({
+      baseUrl: "http://fake",
+      sink: {
+        append: (events) => store.append(events),
+        sessionRevision: (id) => store.sessionRevision(id),
+        markRevision: (id, rev) => store.markRevision(id, rev),
+      },
+      fetch: fakeFetch as typeof fetch,
+      connectTimeoutMs: 5_000,
+    });
+    try {
+      const syncing = conn.refreshSessions();
+      await backStarted;
+      const opening = conn.importSession("ses_open", "/repo");
+      await openedStarted;
+      expect(backSignal?.aborted).toBe(true);
+      expect(othersDuringOpen).toBe(0);
+      releaseOpened!();
+      expect(await opening).toBe(true);
+      await syncing;
+      expect(backAttempts).toBe(2);
+      expect(store.read({ session_id: "opencode:ses_open" }).some((e) => e.type === "turn.user")).toBe(true);
+      expect(store.read({ session_id: "opencode:ses_back" }).some((e) => e.type === "turn.user")).toBe(true);
+      expect(store.read({ session_id: "opencode:ses_rest" }).some((e) => e.type === "turn.user")).toBe(true);
+    } finally {
+      conn.stop();
+      store.close();
+    }
+  });
 });
 
 describe("sync reconciles local sessions", () => {

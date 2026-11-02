@@ -32,24 +32,88 @@ export function createSessionImport(args: {
     if (!sess.data) throw new Error(`session ${sessionID} not found`);
     return sess.data;
   };
-  const readSession = async (sessionID: string, directory?: string): Promise<Event[]> => {
-    const info = await sessionInfo(sessionID, directory);
-    const msgs = await client.session.messages({ sessionID, directory: directory ?? opts.directory });
-    return snapshotEvents(sessionID, info, msgs.data ?? []);
+  /**
+   * A reader opening a session. Background transcript fetches stop for the
+   * duration: up to six of them at once is what made a click wait out other
+   * people's history. The ones already in flight are aborted and tried again
+   * after this read has its messages. An unchanged session does not take the
+   * lane — it never asks for the transcript.
+   */
+  let readers = 0;
+  const quietWaiters: Array<() => void> = [];
+  const background = new Set<AbortController>();
+  const untilQuiet = () =>
+    readers === 0 ? Promise.resolve() : new Promise<void>((resolve) => quietWaiters.push(resolve));
+  const releaseReader = () => {
+    readers -= 1;
+    if (readers > 0) return;
+    const pending = quietWaiters.splice(0);
+    for (const wake of pending) wake();
+  };
+  const claimReader = () => {
+    readers += 1;
+    for (const ctrl of background) ctrl.abort();
+  };
+  const withBackground = async <T>(fn: (signal: AbortSignal) => Promise<T>): Promise<T> => {
+    for (;;) {
+      await untilQuiet();
+      const ctrl = new AbortController();
+      background.add(ctrl);
+      if (readers > 0) {
+        ctrl.abort();
+        background.delete(ctrl);
+        continue;
+      }
+      try {
+        return await fn(ctrl.signal);
+      } catch (err) {
+        if (ctrl.signal.aborted) continue;
+        throw err;
+      } finally {
+        background.delete(ctrl);
+      }
+    }
+  };
+  const readSession = async (sessionID: string, directory?: string, signal?: AbortSignal): Promise<Event[]> => {
+    const sess = await client.session.get(
+      { sessionID, directory: directory ?? opts.directory },
+      signal ? { signal } : undefined,
+    );
+    if (signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
+    if (!sess.data) throw new Error(`session ${sessionID} not found`);
+    const msgs = await client.session.messages(
+      { sessionID, directory: directory ?? opts.directory },
+      signal ? { signal } : undefined,
+    );
+    if (signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
+    return snapshotEvents(sessionID, sess.data, msgs.data ?? []);
   };
   const fetchSnapshot = async (
     sessionID: string,
     directory?: string,
-    options: { force?: boolean } = {},
+    options: { force?: boolean; signal?: AbortSignal } = {},
   ): Promise<{ updated: number; events: Event[] } | null> => {
-    const info = await sessionInfo(sessionID, directory);
+    const sess = await client.session.get(
+      { sessionID, directory: directory ?? opts.directory },
+      options.signal ? { signal: options.signal } : undefined,
+    );
+    if (options.signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
+    if (!sess.data) throw new Error(`session ${sessionID} not found`);
+    const info = sess.data;
     // The session doc carries its own revision. An unchanged one means the
     // messages fetch — the expensive part, the whole transcript — would replay
     // exactly what the store already holds, so a click on a session the
     // listener already imported costs one small GET instead.
     const updated = info.time?.updated ?? info.time?.created ?? 0;
     if (!options.force && knownRevision(sessionID) === updated) return null;
-    const msgs = await client.session.messages({ sessionID, directory: directory ?? opts.directory });
+    const msgs = await client.session.messages(
+      { sessionID, directory: directory ?? opts.directory },
+      options.signal ? { signal: options.signal } : undefined,
+    );
+    // The client reports a cancelled read as an empty result rather than a
+    // rejection. Treating that as a transcript would record the session as
+    // imported and never ask again.
+    if (options.signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
     return { updated, events: snapshotEvents(sessionID, info, msgs.data ?? []) };
   };
   const importSession = async (
@@ -57,20 +121,32 @@ export function createSessionImport(args: {
     directory?: string,
     options: { force?: boolean } = {},
   ): Promise<boolean> => {
-    const snap = await fetchSnapshot(sessionID, directory, options);
-    if (!snap) return false;
-    ingestor.handleBatch(snap.events);
-    noteRevision(sessionID, snap.updated);
-    return true;
+    const info = await sessionInfo(sessionID, directory);
+    const updated = info.time?.updated ?? info.time?.created ?? 0;
+    if (!options.force && knownRevision(sessionID) === updated) return false;
+    claimReader();
+    try {
+      const msgs = await client.session.messages({ sessionID, directory: directory ?? opts.directory });
+      ingestor.handleBatch(snapshotEvents(sessionID, info, msgs.data ?? []));
+      noteRevision(sessionID, updated);
+      return true;
+    } finally {
+      releaseReader();
+    }
   };
   const rebuildSession = async (sessionID: string, directory?: string): Promise<number> => {
     if (!opts.sink.replaceSession) throw new Error("this sink cannot rebuild sessions");
-    const events = rebuildEvents(await readSession(sessionID, directory), opts.directory);
-    await opts.sink.replaceSession(`opencode:${sessionID}`, events, {
-      replaceTypes: OPENCODE_REBUILT_TYPES,
-      mapper: OPENCODE_MAPPER_VERSION,
-    });
-    return events.length;
+    claimReader();
+    try {
+      const events = rebuildEvents(await readSession(sessionID, directory), opts.directory);
+      await opts.sink.replaceSession(`opencode:${sessionID}`, events, {
+        replaceTypes: OPENCODE_REBUILT_TYPES,
+        mapper: OPENCODE_MAPPER_VERSION,
+      });
+      return events.length;
+    } finally {
+      releaseReader();
+    }
   };
 
   /** Sync crawl fans out over session trees; bound it so one idle poll is cheap. */
@@ -318,6 +394,10 @@ export function createSessionImport(args: {
     let write = Promise.resolve();
     const turn = (fn: () => Promise<void>) => {
       const run = write.then(async () => {
+        // A transcript the reader just opened writes outside this queue. Hold
+        // the next background write until that read has its messages, or the
+        // open lands behind a session nobody is looking at.
+        await untilQuiet();
         try {
           await fn();
         } finally {
@@ -340,13 +420,20 @@ export function createSessionImport(args: {
       }
       try {
         if (guard?.stale?.(`opencode:${info.id}`)) {
-          await turn(async () => {
-            await rebuildSession(info.id, directory);
-            noteRevision(info.id, updated);
-            imported += 1;
+          await withBackground(async (signal) => {
+            const events = rebuildEvents(await readSession(info.id, directory, signal), opts.directory);
+            await turn(async () => {
+              if (!opts.sink.replaceSession) throw new Error("this sink cannot rebuild sessions");
+              await opts.sink.replaceSession(`opencode:${info.id}`, events, {
+                replaceTypes: OPENCODE_REBUILT_TYPES,
+                mapper: OPENCODE_MAPPER_VERSION,
+              });
+              noteRevision(info.id, updated);
+              imported += 1;
+            });
           });
         } else {
-          const snap = await fetchSnapshot(info.id, directory);
+          const snap = await withBackground((signal) => fetchSnapshot(info.id, directory, { signal }));
           if (snap) {
             await turn(async () => {
               ingestor.handleBatch(snap.events);
