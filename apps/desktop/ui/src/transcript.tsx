@@ -22,6 +22,7 @@ import { Code, CopyButton } from "./payload";
 import { t, tn } from "./i18n";
 import { cn } from "@/lib/utils";
 import { readThinkingOpen } from "./thinking";
+import { stableKeys } from "./keyed";
 import {
   assistantNotice,
   diffStat,
@@ -840,9 +841,9 @@ function ToolCallCard(props: {
 }
 
 type AssistantMessageData = Turn["assistant"][number];
-type FlowRow =
-  | { kind: "message"; id: string; message: AssistantMessageData; index: number }
-  | { kind: "tools"; id: string; calls: ToolCallView[] };
+type MessageRow = { kind: "message"; id: string; message: AssistantMessageData; index: number };
+type ToolsRow = { kind: "tools"; id: string; calls: ToolCallView[] };
+type FlowRow = MessageRow | ToolsRow;
 
 /**
  * What a run is, for the reader.
@@ -854,9 +855,10 @@ type FlowRow =
  * the run was rebuilt closed (measured: 9 of 14 frames).
  *
  * The first call belongs to the run wherever it lands, so it names the run.
+ * Prefixed, so a run's id can never read as a message's.
  */
 function runKey(calls: readonly ToolCallView[]): string {
-  return calls[0]?.call_id ?? "empty";
+  return `run:${calls[0]?.call_id ?? "empty"}`;
 }
 
 /** Structured output is the answer, and stringifying it is not scroll work. */
@@ -1206,6 +1208,8 @@ export function TurnBlock(props: {
     if (loose.length && lastPart()) rows.push({ kind: "tools", id: runKey(loose), calls: loose });
     return rows;
   });
+  const flowIds = createMemo<readonly string[]>((prev) => stableKeys(prev, flow().map((row) => row.id)));
+  const byId = createMemo(() => new Map(flow().map((row) => [row.id, row] as const)));
 
   return (
     <div
@@ -1253,36 +1257,39 @@ export function TurnBlock(props: {
           </MessageMenu>
         )}
       </Show>
-      <Index each={flow()}>
-        {(row, index) => (
-          <Switch>
-            <Match when={row().kind === "message" ? (row() as Extract<FlowRow, { kind: "message" }>) : undefined}>
-              {(r) => (
-                <AssistantMessage
-                  turnId={props.turn.turn_id}
-                  index={r().index}
-                  message={r().message}
-                  footer={lastPart() && index === flow().length - 1}
-                  live={props.live}
-                  running={props.running}
-                  onFork={props.onFork}
-                />
-              )}
-            </Match>
-            <Match when={row().kind === "tools" ? (row() as Extract<FlowRow, { kind: "tools" }>) : undefined}>
-              {(r) => (
-                <ToolRun
-                  runId={`${props.turn.turn_id}:${r().id}`}
-                  calls={r().calls}
-                  live={props.live?.()}
-                  childOf={props.childOf}
-                  onOpenChild={props.onOpenChild}
-                />
-              )}
-            </Match>
-          </Switch>
-        )}
-      </Index>
+      <For each={flowIds()}>
+        {(id) => {
+          // `For` drops a row in the same update that removed its id, and
+          // whatever inside reads the row before then gets the last one it had.
+          const row = createMemo<FlowRow>((prev) => byId().get(id) ?? prev!);
+          // An id names one kind for life — `m${i}` a message, `run:` a run —
+          // so the row picks its component once.
+          if (row().kind === "message") {
+            const message = () => row() as MessageRow;
+            return (
+              <AssistantMessage
+                turnId={props.turn.turn_id}
+                index={message().index}
+                message={message().message}
+                footer={lastPart() && id === flowIds().at(-1)}
+                live={props.live}
+                running={props.running}
+                onFork={props.onFork}
+              />
+            );
+          }
+          const run = () => row() as ToolsRow;
+          return (
+            <ToolRun
+              runId={`${props.turn.turn_id}:${id}`}
+              calls={run().calls}
+              live={props.live?.()}
+              childOf={props.childOf}
+              onOpenChild={props.onOpenChild}
+            />
+          );
+        }}
+      </For>
       <Show when={lastPart() && props.awaiting?.()}>
         <div class="flex items-center gap-2 text-xs font-medium text-muted-foreground">
           <Icon name="brain" class="size-3.5 shrink-0 text-status-active motion-safe:animate-pulse" />

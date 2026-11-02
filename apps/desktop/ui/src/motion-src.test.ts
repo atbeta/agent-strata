@@ -2,29 +2,28 @@ import { describe, expect, test } from "bun:test";
 
 /**
  * TurnBlock renders a streaming turn: it is re-evaluated as tokens arrive, and
- * its rows are an `<Index>` over the message/tool flow rather than a `<For>`.
+ * its rows are a `<For>` over the flow's row ids.
  *
- * That choice is what makes entrance motion safe here. `<For>` maps by
- * identity — replace every item and it tears every node down and builds a new
- * one — so an entrance animation on a `<For>` row replays on every token and
- * the transcript strobes. `<Index>` maps by position: an item arriving at the
- * end creates one node and leaves the rest alone, so the animation runs once,
- * when a block first appears, which is what a reader can read as motion rather
- * than as a flicker.
+ * Every snapshot builds a fresh flow, so a `<For>` over the row objects would
+ * tear every row down on every token, and an `<Index>` over them re-used each
+ * slot for whatever landed there — a tool call attributed to an earlier
+ * message shifted every later slot, rebuilt the messages in them and closed
+ * the run that moved. A row id names the same message or run for life: a row
+ * that moves is moved, and only a row that is new gets built, so an entrance
+ * runs once, when a block first appears.
  */
-describe("the transcript's flow is positioned so motion is possible", () => {
+describe("the transcript's flow is keyed so motion is possible", () => {
   const transcript = () =>
     require("node:fs").readFileSync(
       require("node:path").join(import.meta.dir, "transcript.tsx"),
       "utf8",
     ) as string;
 
-  test("rows are indexed by position, not by identity", () => {
+  test("rows are keyed by id, not by object or position", () => {
     const src = transcript();
-    const flow = src.slice(src.indexOf("<Index each={flow()}>"));
-    expect(flow).toContain("<Index each={flow()}>");
-    // A `<For>` anywhere in the flow would rebuild the rows on every token.
-    expect(flow.slice(0, 400)).not.toContain("<For each=");
+    expect(src).toContain("<For each={flowIds()}>");
+    expect(src).not.toContain("<For each={flow()}>");
+    expect(src).not.toContain("<Index each={flow()}>");
   });
 
   test("a turn block is keyed by turn id where it is mounted", () => {
