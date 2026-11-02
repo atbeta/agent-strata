@@ -61,4 +61,11 @@ describe("settled markdown HTML cache", () => {
     expect(src).toContain("finished ? htmlCache.get(markdown) : undefined");
     expect(src.indexOf("if (finished) drawDiagrams")).toBeGreaterThan(src.indexOf("htmlCache.set"));
   });
+
+  test("warming parses into the cache and draws nothing", () => {
+    const src = readFileSync(join(import.meta.dir, "md.tsx"), "utf8");
+    const warm = src.slice(src.indexOf("export function warmMarkdown")).slice(0, 400);
+    expect(warm).toContain("parsed(block, true)");
+    expect(warm).not.toContain("drawDiagrams");
+  });
 });

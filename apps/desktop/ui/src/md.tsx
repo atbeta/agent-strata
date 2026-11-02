@@ -166,16 +166,11 @@ function cursorTarget(block: Element): Element | undefined {
 }
 
 /**
- * Parse one block of markdown into nodes.
- *
- * `finished` says whether no further token can change this block. It decides
- * two things. A finished block replays its sanitised, highlighted HTML from the
- * cache; the block a reply is still writing is new on every token, so caching
- * it would only evict what is worth keeping. And a finished block draws its
- * diagram: a fence that is still arriving is not a diagram yet, it is half of
- * one, and drawing it would mean drawing it again on the next frame.
+ * Sanitised, highlighted nodes for one block. A finished block replays its HTML
+ * from the cache; the block a reply is still writing is new on every token, so
+ * caching it would only evict what is worth keeping.
  */
-function nodesFrom(markdown: string, finished: boolean): DocumentFragment {
+function parsed(markdown: string, finished: boolean): DocumentFragment {
   const tpl = document.createElement("template");
   const cached = finished ? htmlCache.get(markdown) : undefined;
   if (cached === undefined) {
@@ -185,8 +180,32 @@ function nodesFrom(markdown: string, finished: boolean): DocumentFragment {
   } else {
     tpl.innerHTML = cached;
   }
-  if (finished) drawDiagrams(tpl.content);
   return tpl.content;
+}
+
+/**
+ * Parse one block of markdown into nodes.
+ *
+ * `finished` says whether no further token can change this block. It decides
+ * two things: whether the block goes through the cache, and whether it draws
+ * its diagram — a fence that is still arriving is not a diagram yet, it is
+ * half of one, and drawing it would mean drawing it again on the next frame.
+ */
+function nodesFrom(markdown: string, finished: boolean): DocumentFragment {
+  const content = parsed(markdown, finished);
+  if (finished) drawDiagrams(content);
+  return content;
+}
+
+/**
+ * Parse a message into the cache ahead of its row, so the row that mounts
+ * later replays HTML instead of parsing it. Nothing is drawn: a diagram is
+ * drawn by the block that mounts.
+ */
+export function warmMarkdown(text: string): void {
+  for (const block of splitBlocks(text)) {
+    if (htmlCache.get(block) === undefined) parsed(block, true);
+  }
 }
 
 /**

@@ -17,7 +17,7 @@ describe("mermaid rendering ratchet", () => {
     // that last one to the diagram engine means parsing a source that is
     // still being written, and drawing it again on the next frame.
     const src = read("md.tsx");
-    expect(src).toContain("if (finished) drawDiagrams(tpl.content)");
+    expect(src).toContain("if (finished) drawDiagrams(content)");
     expect(src).toMatch(/blockNodes\(last, false\)/);
   });
 

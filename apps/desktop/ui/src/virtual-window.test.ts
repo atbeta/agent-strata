@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ROW_ESTIMATE, ROW_GAP } from "./transcript-layout";
-import { mountedRange } from "./virtual-window";
+import { aheadOrder, mountedRange } from "./virtual-window";
 
 /**
  * A prefix-sum stand-in: rows of a fixed height, so `rowAt` is arithmetic.
@@ -92,6 +92,20 @@ describe("the rows a transcript mounts", () => {
       expect(last).toBeGreaterThanOrEqual(first);
       expect(last).toBeLessThan(100);
     }
+  });
+});
+
+describe("which rows ahead of the view are warmed first", () => {
+  test("nearest the view first, alternating above and below", () => {
+    expect(aheadOrder({ first: 5, last: 6 }, { first: 2, last: 9 })).toEqual([4, 7, 3, 8, 2, 9]);
+  });
+
+  test("an edge of the list leaves one side to run on", () => {
+    expect(aheadOrder({ first: 0, last: 1 }, { first: 0, last: 4 })).toEqual([2, 3, 4]);
+  });
+
+  test("nothing ahead is nothing to warm", () => {
+    expect(aheadOrder({ first: 3, last: 5 }, { first: 3, last: 5 })).toEqual([]);
   });
 });
 

@@ -17,6 +17,11 @@
  * the last row.
  */
 
+export interface Range {
+  first: number;
+  last: number;
+}
+
 export function mountedRange(input: {
   count: number;
   top: number;
@@ -24,11 +29,26 @@ export function mountedRange(input: {
   overscan: number;
   /** Index of the row containing a pixel, from the prefix sum. `count` means past the end. */
   rowAt: (y: number) => number;
-}): { first: number; last: number } {
+}): Range {
   const { count, top, viewport, overscan, rowAt } = input;
   if (count <= 0) return { first: 0, last: -1 };
   const at = (y: number) => Math.min(count - 1, Math.max(0, rowAt(y)));
   const first = at(Math.max(0, top - overscan));
   const last = at(top + Math.max(0, viewport) + overscan);
   return { first, last: Math.max(first, last) };
+}
+
+/**
+ * The rows of `ahead` outside `visible`, nearest the view first, alternating
+ * above and below — the order the reader reaches them in either direction.
+ */
+export function aheadOrder(visible: Range, ahead: Range): number[] {
+  const out: number[] = [];
+  let up = visible.first - 1;
+  let down = visible.last + 1;
+  while (up >= ahead.first || down <= ahead.last) {
+    if (up >= ahead.first) out.push(up--);
+    if (down <= ahead.last) out.push(down++);
+  }
+  return out;
 }
