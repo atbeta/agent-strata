@@ -100,6 +100,14 @@ export function useDisclosure(): Disclosure;
 
 **取舍**：快速甩进从未预热的重内容时，`visible` 行会在滚动帧里冷解析。用 bench B/C/D 的 `maxGap`、`over50`、`blockedMs` 在 WebKit 下判断；回退阈值见"验证"。
 
+**落地记录**（`9e762b6`、`71e570a`、`8d467bb`、`bd4fde9`）
+
+- 按计划分三次提交：`warmMarkdown` 与 `aheadOrder`；窗口层预热；删除行内延后绘制（`paint-mode.ts` 整个删除，`paint-queue` 只剩预热队列 `enqueueWarm`）。
+- 计划外补的一条规则：在屏幕上挂载过的行直接记为已预热。否则这一行滚出视口、但还在预热范围内时会被卸载，然后重新排队预热、再挂载。
+- 挂载即完整之后，一行的布局只能在一帧里做完。E 流程的 `step-into`（每帧 120px 滚进巨型 turn）因此多出一帧约 50ms。Chromium profile 显示这一帧的 JS 只有约 17ms，其余是一次布局 12 条重消息的开销。另外试了三种做法：每帧只挂一行、把预热拆成按块逐步执行、只预热不挂载的 2 倍外圈。三种都没有测出收益，均未并入。最后把 `SEGMENT_MESSAGES` 从 12 改成 6，`step-into` 的 maxGap 从约 50ms 降到约 21–26ms。代价是跳进巨型 turn 时落地慢 3–7ms。
+- 性能（WebKit，在负载均值约 5 时交替 5 轮两对，HEAD 对比 `8acc235`）：A、D 没有正确性失败；maxGap 方面 `A/wheel-up` 25 对 54.5、`D/position-old` 22 对 47、`D/running-wheel-up` 18 对 43，`A/step-up` 持平；E 和 S 在逐步对比中持平或更好（`E/open` 85 对 97，`S/stream-reply` 的 blockedMs 0 对 5）。
+- 测量方法上的教训：同一份代码在不同时段的 `A/step-up` maxGap 中位数可以在 19 到 55 之间变化。一组总对比曾显示 A 和 D 变差，二分时三个提交逐个对比都持平或更好，直接重测也没有复现。没有二分和复测的支持时，单组对比的结论不可信。
+
 ### 第 3 步：Markdown 块化
 
 > 执行顺序上第 3 步最先做（见"交付顺序"）。此时第 2 步尚未落地，`Md` 保留现有的首帧调度（`firstPaint` / `enqueuePaint` / paint hold），只把"画什么"换成块化渲染；调度在第 2 步删除。
