@@ -13,6 +13,7 @@ Replays a reader's journeys (cold open, scroll up, wheel, outline jump, session 
 - `--flows D` — running long session: latest-turn assistant partials every 50ms while following the tail and scrolling old content; continuous steps end with the gesture, not quiet settle.
 - `--flows E` — hundred-message turns: scroll into one from below, jump straight onto another, revisit the first (markdown-cache territory). Real stores need `--giant <id> --giant-turns <turnId>,<turnId>`.
 - `--flows F` — entrance correctness: a turn arrives live (must play rise-in), grows past a segment boundary (continuation rows must not), then scrolls away and back (remount replay is informational).
+- `--flows S` — a ~9KB markdown reply (prose, lists, code, tables) streams into the followed tail at 64 chars / 50ms, then finishes: what markdown parsing costs per frame.
 - `--engines webkit --reps 5 --flows C`, `--compare bench/results/<baseline>.json`, `--headed`, `--dev` (Vite dev server instead of the default production build; dev-mode Solid and HMR wrappers distort costs).
 - `bun run bench/profile.ts [--flows A,B]`: Chromium JS CPU profile per step (self/inclusive top functions + .cpuprofile files) to find what to change; judge the change with the bench in WebKit.
 - Real store: `--db ~/.agent-strata/events.db --long <id> --heavy <id> --small <id>,<id>,<id>` (copied with `VACUUM INTO`, read-only).

@@ -308,6 +308,102 @@ export async function runningWheelUp(
   });
 }
 
+/**
+ * A reply the way a model writes one: headings, mixed-language prose, lists,
+ * several code blocks, a table and a quote, about 10KB. D's snapshot is one
+ * line of plain words and never reaches what the markdown parser costs.
+ */
+export function longReply(): string {
+  const sections: string[] = [];
+  for (let i = 0; i < 6; i++) {
+    sections.push(
+      [
+        `## 第 ${i + 1} 节：render pipeline step ${i + 1}`,
+        `这一节说明第 ${i + 1} 步在做什么。The renderer reads the source once per frame, keeps the blocks that have already closed, and only parses the part that can still change. 如果某一块已经结束，它的节点就不应该再被替换；selection、图片和滚动锚点都依赖这一点。`,
+        [
+          "- 第一项：`stableKeys` 在键不变时返回原数组",
+          "- 第二项：**已完成的块**按源码缓存 HTML",
+          `- 第三项：[参考链接](https://example.com/${i}) 和行内 \`code\``,
+        ].join("\n"),
+        [
+          "```ts",
+          ...Array.from({ length: 16 }, (_, k) => `const value${k} = compute(${i}, ${k}); // step ${k} of section ${i}`),
+          "```",
+        ].join("\n"),
+        [
+          "| 指标 | 之前 | 之后 |",
+          "| --- | --- | --- |",
+          `| maxGap | ${40 + i} | ${20 + i} |`,
+          `| blockedMs | ${30 + i} | ${10 + i} |`,
+        ].join("\n"),
+        `> 第 ${i + 1} 节结束。A quote closes the section so the next heading starts a new block.`,
+      ].join("\n\n"),
+    );
+  }
+  return sections.join("\n\n");
+}
+
+/** Stream `text` into the latest turn, `chunk` characters every 50ms, as whole-message snapshots. */
+function streamReply(ctx: FlowContext, id: string, text: string, chunk: number): Promise<number> {
+  const turnId = orderOf(ctx, id).at(-1)!;
+  let sent = 0;
+  let count = 0;
+  return new Promise((resolve) => {
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const write = () => {
+      sent = Math.min(text.length, sent + chunk);
+      count += 1;
+      ctx.emit({
+        session_id: id,
+        type: "turn.assistant",
+        data: {
+          turn_id: turnId,
+          msg_id: "bench-reply",
+          partial: true,
+          content: [{ type: "text", text: text.slice(0, sent) }],
+        },
+      });
+      if (sent >= text.length) {
+        clearInterval(timer);
+        resolve(count);
+      }
+    };
+    timer = setInterval(write, 50);
+    write();
+  });
+}
+
+export async function streamingReply(ctx: FlowContext, name: string, id: string): Promise<StepResult> {
+  const b = bench(ctx.page);
+  const t0 = await b.now();
+  const partials = await streamReply(ctx, id, longReply(), 64);
+  await ctx.page.waitForTimeout(200);
+  const t1 = await b.now();
+  const rec = await b.take(t0);
+  const atTail = openStats(rec.samples, orderOf(ctx, id), t0, t1).atTail;
+  return runningResult(ctx, name, rec, t0, t1, partials, { atTail });
+}
+
+/** The reply finishes: its last block stops being written and is drawn as a finished one. */
+export async function replyDone(ctx: FlowContext, name: string, id: string): Promise<StepResult> {
+  const b = bench(ctx.page);
+  const turnId = orderOf(ctx, id).at(-1)!;
+  const t0 = await b.now();
+  ctx.emit({
+    session_id: id,
+    type: "turn.assistant",
+    data: {
+      turn_id: turnId,
+      msg_id: "bench-reply",
+      partial: false,
+      content: [{ type: "text", text: longReply() }],
+    },
+  });
+  const r = await b.settle(t0, 400, 8_000);
+  const rec = await b.take(t0);
+  return finish(ctx, name, common(rec, t0, r.at, r), []);
+}
+
 /** Click a prompt in the outline and land on it. */
 export async function jump(ctx: FlowContext, name: string, id: string, fraction: number): Promise<StepResult> {
   const order = orderOf(ctx, id);
@@ -463,6 +559,13 @@ export const flowD: Flow = async (ctx, s, record) => {
   record(await runningWheelUp(ctx, "running-wheel-up", s.long, 6_000, 100));
 };
 
+/** S: a long reply streams into the session the reader is following, then finishes. */
+export const flowS: Flow = async (ctx, s, record) => {
+  record(await openCold(ctx, "open", s.long));
+  record(await streamingReply(ctx, "stream-reply", s.long));
+  record(await replyDone(ctx, "reply-done", s.long));
+};
+
 /**
  * E: a session whose individual turns hold hundreds of messages. Scroll up
  * into one from below, jump straight onto another, then come back to the
@@ -602,4 +705,4 @@ export const flowF: Flow = async (ctx, s, record) => {
   );
 };
 
-export const FLOWS: Record<string, Flow> = { A: flowA, B: flowB, C: flowC, D: flowD, E: flowE, F: flowF };
+export const FLOWS: Record<string, Flow> = { A: flowA, B: flowB, C: flowC, D: flowD, E: flowE, F: flowF, S: flowS };

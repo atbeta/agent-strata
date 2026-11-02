@@ -173,7 +173,7 @@ async function main() {
         }
       : undefined,
     busy: [
-      ...(opt.flows.includes("D") ? [(real ? opt.long! : FIXTURE_SESSIONS.long)] : []),
+      ...(opt.flows.includes("D") || opt.flows.includes("S") ? [(real ? opt.long! : FIXTURE_SESSIONS.long)] : []),
       ...(opt.flows.includes("F") && small[3] ? [small[3]] : []),
     ],
     log: (l) => (opt.verbose ? console.error(l) : logs.push(l)),
