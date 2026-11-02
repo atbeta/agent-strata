@@ -81,7 +81,9 @@ function patchChildren(from: Node, to: Node): void {
     while (from.childNodes.length > i) from.removeChild(from.childNodes[i]!);
     break;
   }
-  for (let j = i; j < to.childNodes.length; j += 1) from.appendChild(to.childNodes[j]!);
+  // Copied first: a node appended elsewhere leaves `to`, and `childNodes` is
+  // live, so walking it by index while moving out of it skips every other node.
+  for (const node of Array.from(to.childNodes).slice(i)) from.appendChild(node);
 }
 
 /**

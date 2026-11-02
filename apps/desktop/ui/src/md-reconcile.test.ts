@@ -43,7 +43,9 @@ class FakeNode {
     return this.attributes.find((a) => a.name === name)?.value ?? null;
   }
 
+  /** Moves the child, as the DOM does: it leaves the parent it had. */
   appendChild(child: FakeNode): FakeNode {
+    child.parent?.removeChild(child);
     child.parent = this;
     this.childNodes.push(child);
     return child;
@@ -172,6 +174,27 @@ describe("patching a rebuilt tail into the nodes on screen", () => {
     expect(host.childNodes[0]).toBe(kept);
     expect(host.childNodes[1]).not.toBe(doomed);
     expect(host.childNodes[1]!.nodeName).toBe("PRE");
+  });
+
+  test("every child after a difference arrives, not every other one", () => {
+    // A highlighted line is a run of spans and text nodes. When a token
+    // changes kind the rest of the line is moved over from the new parse —
+    // and a moved node leaves its old parent, so walking that parent by index
+    // while moving out of it skipped every second token.
+    const before = el("code", text("const"), text(" a"));
+    const host = run(
+      [before],
+      [el("code", el("span", text("const")), text(" "), el("span", text("a")), text(" = "), el("span", text("1")))],
+    );
+    const code = host.childNodes[0] as FakeNode;
+    expect(code).toBe(before);
+    expect(code.childNodes.map((c) => c.childNodes[0]?.nodeValue ?? c.nodeValue)).toEqual([
+      "const",
+      " ",
+      "a",
+      " = ",
+      "1",
+    ]);
   });
 
   test("canPatch asks about shape, not content", () => {
