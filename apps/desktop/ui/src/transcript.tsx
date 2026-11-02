@@ -146,6 +146,20 @@ function MessageMenu(props: {
 /** A reader's own open/closed choice, so a refresh does not snap it back. */
 const thinkingChoice = new Map<string, boolean>();
 
+/**
+ * The same, for a tool run.
+ *
+ * A run's open state cannot live only in the component. Rows are matched by
+ * position, and a run moves: while a turn streams its calls are unattributed,
+ * so they draw as one run at the end, and the moment a call is attributed to an
+ * earlier message that run is no longer last. Measured in a browser, opening
+ * the run and then letting one attribution land collapsed the panel on 9 of 14
+ * frames — the row's slot became a message and the run was built again, closed.
+ *
+ * Keyed by the run, the choice belongs to the reader rather than the slot.
+ */
+const runChoice = new Map<string, boolean>();
+
 function ThinkingBlock(props: {
   text: string;
   live?: boolean;
@@ -827,8 +841,23 @@ function ToolCallCard(props: {
 
 type AssistantMessageData = Turn["assistant"][number];
 type FlowRow =
-  | { kind: "message"; message: AssistantMessageData; index: number }
-  | { kind: "tools"; calls: ToolCallView[] };
+  | { kind: "message"; id: string; message: AssistantMessageData; index: number }
+  | { kind: "tools"; id: string; calls: ToolCallView[] };
+
+/**
+ * What a run is, for the reader.
+ *
+ * A run's place in the list is not its identity: while a turn streams its calls
+ * arrive unattributed and draw as one run at the end, and the moment a call is
+ * attributed to an earlier message that run is somewhere else entirely. Keyed
+ * by its position, the reader's open panel stayed behind with the position and
+ * the run was rebuilt closed (measured: 9 of 14 frames).
+ *
+ * The first call belongs to the run wherever it lands, so it names the run.
+ */
+function runKey(calls: readonly ToolCallView[]): string {
+  return calls[0]?.call_id ?? "empty";
+}
 
 /** Structured output is the answer, and stringifying it is not scroll work. */
 function StructuredAnswer(props: { value: unknown }) {
@@ -1012,27 +1041,54 @@ function AssistantMessage(props: {
  * inside one call uses.
  */
 function ToolRun(props: {
+  /** Stable identity of this run, so its open state survives a rebuild. */
+  runId?: string;
   calls: ToolCallView[];
   /** The session is running — a `pending` call is live work, not an orphan. */
   live?: boolean;
   childOf?: (id: string) => ChildSession | undefined;
   onOpenChild?: (id: string) => void;
 }) {
-  const foldable = () =>
-    props.calls.length > 3 &&
+  // Whether this run has outgrown the text it serves. A count, not a state: it
+  // only ever grows, so the header is mounted once and stays put.
+  //
+  // It used to also require every call to be settled, and that is what made the
+  // wrench rows strobe — a call arriving pending took the header away and the
+  // call finishing put it back, once per call. Measured on a run of four: five
+  // distinct header buttons and four disappearances.
+  const many = () => props.calls.length > 3;
+  const settled = () =>
     props.calls.every((c) => c.status === "ok" && c.permission?.decision !== "deny");
-  const [open, setOpen] = createSignal(!foldable());
+  // Folded by default only once there is nothing left to watch. A call that is
+  // still running, or one that ended badly, is the reason the reader is here.
+  const folded = () => many() && settled();
+  const [open, setOpen] = createSignal(
+    props.runId !== undefined && runChoice.has(props.runId) ? runChoice.get(props.runId)! : !folded(),
+  );
+  const toggle = () => {
+    const next = !open();
+    if (props.runId !== undefined) runChoice.set(props.runId, next);
+    setOpen(next);
+  };
   // A run animates only while a call is still `pending` AND the session is
   // live — `pending` alone is just "no result yet", which an orphaned call
   // keeps saying forever.
   const live = () => props.live === true && props.calls.some((c) => c.status === "pending");
+  // The dim-in marks a run that started working — once. Latching it off the
+  // first time the run falls quiet is what keeps a run that goes pending,
+  // settled, pending… from replaying the animation on every call.
+  const [watching, setWatching] = createSignal(live());
+  createEffect(() => {
+    if (!live()) setWatching(false);
+  });
+  const showLive = () => watching() && live();
   return (
-    <div class={`space-y-1 ${live() ? "tool-live-in" : ""}`}>
-      <Show when={foldable()}>
+    <div class={`space-y-1 ${showLive() ? "tool-live-in" : ""}`}>
+      <Show when={many()}>
         <RowButton
           class="-ml-2 text-xs focus-visible:ring-inset"
           aria-expanded={open()}
-          onClick={() => setOpen((v) => !v)}
+          onClick={toggle}
         >
           <Icon name="wrench" class="size-3.5 shrink-0 text-muted-foreground" />
           <span class="min-w-0 truncate text-xs font-medium text-muted-foreground">
@@ -1047,7 +1103,7 @@ function ToolRun(props: {
         </RowButton>
       </Show>
       <Show when={open()}>
-        <div class={`expand-in ${foldable() ? "ml-[22px] " : ""}space-y-1`}>
+        <div class={`expand-in ${many() ? "ml-[22px] " : ""}space-y-1`}>
           {/*
            * `<Index>`, not `<For>`. A run is built while it works — calls arrive
            * one at a time — and `<For>` maps by identity, so it tore down and
@@ -1143,11 +1199,11 @@ export function TurnBlock(props: {
     const from = props.part?.msgFrom ?? 0;
     const to = props.part?.msgTo ?? msgs.length;
     for (let i = from; i < to; i++) {
-      rows.push({ kind: "message", message: msgs[i]!, index: i });
+      rows.push({ kind: "message", id: `m${i}`, message: msgs[i]!, index: i });
       const mine = calls.get(i);
-      if (mine?.length) rows.push({ kind: "tools", calls: mine });
+      if (mine?.length) rows.push({ kind: "tools", id: runKey(mine), calls: mine });
     }
-    if (loose.length && lastPart()) rows.push({ kind: "tools", calls: loose });
+    if (loose.length && lastPart()) rows.push({ kind: "tools", id: runKey(loose), calls: loose });
     return rows;
   });
 
@@ -1216,6 +1272,7 @@ export function TurnBlock(props: {
             <Match when={row().kind === "tools" ? (row() as Extract<FlowRow, { kind: "tools" }>) : undefined}>
               {(r) => (
                 <ToolRun
+                  runId={`${props.turn.turn_id}:${r().id}`}
                   calls={r().calls}
                   live={props.live?.()}
                   childOf={props.childOf}

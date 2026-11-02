@@ -44,9 +44,17 @@ describe("the transcript's flow is positioned so motion is possible", () => {
     // each card's internal state and would have replayed their entrance on every
     // arrival.
     const src = transcript();
-    const run = src.slice(src.indexOf("function ToolRun("));
-    expect(run.slice(0, 2600)).toContain("<Index each={props.calls}>");
-    expect(run.slice(0, 2600)).not.toContain("<For each={props.calls}>");
+    // Bounded by the next function, not by a character count. This used to be
+    // `slice(0, 2600)`, which read as "the body of ToolRun" only for as long as
+    // the function stayed shorter than that — a comment added later pushed the
+    // `<Index>` past the window and the test failed while the code was still
+    // correct. The claim is about the whole function, so measure that.
+    const start = src.indexOf("function ToolRun(");
+    expect(start).toBeGreaterThan(-1);
+    const next = src.indexOf("\nfunction ", start + 1);
+    const run = src.slice(start, next === -1 ? src.length : next);
+    expect(run).toContain("<Index each={props.calls}>");
+    expect(run).not.toContain("<For each={props.calls}>");
     // `<Index>` hands over an accessor, and the card takes a value.
     expect(run).toContain("call={call()}");
   });
