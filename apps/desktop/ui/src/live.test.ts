@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { applyStreamingSnapshot, isStreamingSnapshotMessage, mergeViewTail, runInProgress, SEND_GRACE_MS } from "./live";
+import {
+  applyStreamingSnapshot,
+  isStreamingSnapshotMessage,
+  keepStreamingLead,
+  mergeViewTail,
+  runInProgress,
+  SEND_GRACE_MS,
+} from "./live";
 import type { SessionView, ViewTail } from "./api";
 
 const base = (): SessionView => ({
@@ -68,6 +75,39 @@ describe("streaming snapshots in the reader's view", () => {
     expect(twice.turns[0]!.assistant[1]!.content).toEqual([{ type: "text", text: "writing" }]);
   });
 
+  test("a snapshot that only shortens a reply still being written is ignored", () => {
+    // A refresh, or a part update that landed behind the deltas, used to
+    // replace the paragraph with a prefix of itself. The next snapshot put
+    // the words back. That is the reply blinking out and in.
+    const once = applyStreamingSnapshot(base(), {
+      turn_id: "u1",
+      msg_id: "a2",
+      content: [{ type: "text", text: "Hello world" }],
+    });
+    const back = applyStreamingSnapshot(once, {
+      turn_id: "u1",
+      msg_id: "a2",
+      content: [{ type: "text", text: "Hello" }],
+    });
+    expect(back).toBe(once);
+    const blank = applyStreamingSnapshot(once, { turn_id: "u1", msg_id: "a2", content: [] });
+    expect(blank).toBe(once);
+  });
+
+  test("a snapshot that rewrites the reply still replaces it", () => {
+    const once = applyStreamingSnapshot(base(), {
+      turn_id: "u1",
+      msg_id: "a2",
+      content: [{ type: "text", text: "draft" }],
+    });
+    const next = applyStreamingSnapshot(once, {
+      turn_id: "u1",
+      msg_id: "a2",
+      content: [{ type: "text", text: "final" }],
+    });
+    expect(next.turns[0]!.assistant[1]!.content).toEqual([{ type: "text", text: "final" }]);
+  });
+
   test("a finished message is left alone", () => {
     const v = base();
     expect(applyStreamingSnapshot(v, { turn_id: "u1", msg_id: "a1", content: [] })).toBe(v);
@@ -111,6 +151,57 @@ describe("streaming snapshots in the reader's view", () => {
     expect(isStreamingSnapshotMessage(JSON.stringify({ type: "turn.assistant", data: { partial: true } }))).toBe(true);
     expect(isStreamingSnapshotMessage(JSON.stringify({ type: "turn.assistant", data: {} }))).toBe(false);
     expect(isStreamingSnapshotMessage("not json")).toBe(false);
+  });
+});
+
+describe("a fetched view laid over a reply still being written", () => {
+  const streaming = (text: string) =>
+    applyStreamingSnapshot(base(), { turn_id: "u1", msg_id: "a2", content: [{ type: "text", text }] });
+
+  test("a view fetched behind the reply does not shorten it", () => {
+    const held = streaming("Hello world");
+    const fetched = streaming("Hello");
+    fetched.busy = true;
+    const next = keepStreamingLead(held, fetched);
+    expect(next.turns[0]!.assistant[1]!.content).toEqual([{ type: "text", text: "Hello world" }]);
+    expect(next.turns[0]!.assistant[0]).toBe(fetched.turns[0]!.assistant[0]);
+  });
+
+  test("a view fetched ahead of the reply is kept", () => {
+    const held = streaming("Hello");
+    const fetched = streaming("Hello world");
+    expect(keepStreamingLead(held, fetched)).toBe(fetched);
+  });
+
+  test("a view that has not caught the reply up yet keeps the words already on screen", () => {
+    const held = streaming("Hello world");
+    const fetched = base();
+    fetched.busy = true;
+    const next = keepStreamingLead(held, fetched);
+    expect(next.turns[0]!.assistant.map((a) => a.msg_id)).toEqual(["a1", "a2"]);
+    expect(next.turns[0]!.assistant[1]!.content).toEqual([{ type: "text", text: "Hello world" }]);
+  });
+
+  test("an idle view does not put a removed reply back", () => {
+    const held = streaming("Hello world");
+    const fetched = base();
+    fetched.busy = false;
+    expect(keepStreamingLead(held, fetched)).toBe(fetched);
+  });
+
+  test("a finished reply replaces the one still being written", () => {
+    const held = streaming("Hello world");
+    const fetched = base();
+    fetched.turns[0]!.assistant.push({ content: [{ type: "text", text: "done" }], msg_id: "a2" });
+    expect(keepStreamingLead(held, fetched)).toBe(fetched);
+  });
+
+  test("a reply from the turn before this one is not copied onto the new turn", () => {
+    const held = streaming("Hello world");
+    const fetched = base();
+    fetched.busy = true;
+    fetched.turns.push({ turn_id: "u2", user: [{ type: "text", text: "next" }], assistant: [], tool_calls: [] });
+    expect(keepStreamingLead(held, fetched)).toBe(fetched);
   });
 });
 

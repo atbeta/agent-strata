@@ -63,7 +63,7 @@ import { createTraceData } from "./trace-data";
 import { TerminalPane } from "./terminal";
 import { TurnBlock } from "./transcript";
 import { TranscriptView, type TranscriptApi } from "./transcript-view";
-import { applyStreamingSnapshot, type StreamingSnapshot } from "./live";
+import { applyStreamingSnapshot, keepStreamingLead, type StreamingSnapshot } from "./live";
 import { createScrollDeferral, deferTranscriptWrite } from "./scroll-defer";
 import { ECHO_TURN_ID } from "./prompt-echo";
 import { descendantSessions } from "./session-tree";
@@ -274,6 +274,10 @@ export function SessionDetail(props: {
     viewAlive = false;
     viewLoader.invalidate();
   });
+  // Assigned once `view` exists. The fetcher can run before that assignment
+  // finishes, and the first paint has nothing streaming to protect; every
+  // refetch after it does, and a refetch must not take words off the reply.
+  let overLead = (incoming: SessionView): SessionView => incoming;
   const [view, { refetch, mutate }] = createResource(
     () => ({ id: props.id, pos: replayPos() }),
     async (key: { id: string; pos: number | null }) => {
@@ -289,28 +293,33 @@ export function SessionDetail(props: {
       if (fullNow) {
         const full = await viewLoader.loadFull(key.id, null, (loaded, keyOf) => {
           filesKey = keyOf;
-          rememberView(key.id, loaded, keyOf);
+          const painted = overLead(loaded);
+          rememberView(key.id, painted, keyOf);
         });
-        return full ?? peekView(props.id)?.view;
+        return full ? overLead(full) : peekView(props.id)?.view;
       }
       const hit = peekView(key.id);
       if (hit) {
         filesKey = hit.filesKey;
-        return hit.view;
+        return overLead(hit.view);
       }
       // Paint the tail, then replace it with the settled view. The preview is
       // not cached: storing it would make the next open a transcript with no history.
       const loaded = await viewLoader.loadCold(key.id, (preview, keyOf) => {
         filesKey = keyOf;
-        mutate(preview);
+        mutate((current) => (current ? keepStreamingLead(current, preview) : preview));
       }, (full, keyOf) => {
         filesKey = keyOf;
-        rememberView(key.id, full, keyOf);
+        rememberView(key.id, overLead(full), keyOf);
       });
-      return loaded ?? peekView(props.id)?.view;
+      return loaded ? overLead(loaded) : peekView(props.id)?.view;
     },
     opening ? { initialValue: opening.view } : undefined,
   );
+  overLead = (incoming) => {
+    const held = settled(view);
+    return held ? keepStreamingLead(held, incoming) : incoming;
+  };
   const [maxSeq, { refetch: refetchSeq }] = createResource(() => props.id, readHead);
 
   /**
@@ -573,8 +582,10 @@ export function SessionDetail(props: {
           const id = props.id;
           const outcome = await viewLoader.refreshTail(id, filesKey, () => settled(view) ?? current, (next, keyOf, changed) => {
             filesKey = keyOf;
-            if (changed) mutate(next);
-            rememberView(id, next, keyOf);
+            const held = settled(view) ?? current;
+            const painted = keepStreamingLead(held, next);
+            if (changed || painted !== next) mutate(painted);
+            rememberView(id, painted, keyOf);
           });
           if (!viewAlive || replayPos() !== null || outcome === "stale") return;
           if (outcome === "full") {

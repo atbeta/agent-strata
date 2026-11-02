@@ -23,6 +23,8 @@ export function Md(props: { text: string; class?: string; live?: boolean }) {
   let renderedStable = "";
   /** How many of `host`'s child nodes belong to that slice. The rest is the tail. */
   let stableCount = 0;
+  /** The source last committed into `host`. The same string must not clear it. */
+  let lastSource: string | undefined;
   const mode = useRowPaintMode();
   const paintHold = useRowPaintHold();
   let cancelIdle: PaintCancel | undefined;
@@ -34,32 +36,50 @@ export function Md(props: { text: string; class?: string; live?: boolean }) {
 
   const paint = (source: string, live: boolean) => {
     if (!host) return;
+    // A refresh that resolved to the same words used to tear the nodes down
+    // and parse them again. For a reply with nothing closed yet that empty
+    // gap is the whole paragraph, and it is what blinks.
+    if (source === lastSource && host.childNodes.length > 0) {
+      syncCursor(host, live);
+      return;
+    }
     const cut = stableBoundary(source);
     const stable = source.slice(0, cut);
     const tail = source.slice(cut);
 
     // A rewrite of earlier text, rather than a longer reply, cannot reuse the
     // nodes. Streaming only ever appends, so this is the other path: an edit,
-    // a replaced message, a row the list handed a different turn.
-    if (!stable.startsWith(renderedStable)) {
-      host.replaceChildren();
+    // a replaced message, a row the list handed a different turn. The reset is
+    // recorded first so the parse below covers the whole message, but the
+    // nodes stay up until that parse has finished.
+    const rewrite = !stable.startsWith(renderedStable);
+    if (rewrite) {
       renderedStable = "";
       stableCount = 0;
     }
 
+    let stableFrag: DocumentFragment | undefined;
+    let stableAdded = 0;
     if (stable.length > renderedStable.length) {
-      // The new finished region includes the previous tail. Drop that tail
-      // before appending, or the closed fence would sit after its own leftover.
+      // The new finished region includes the previous tail. That tail is
+      // dropped after this parse, or the closed fence would sit after its
+      // own leftover.
+      stableFrag = nodesFrom(stable.slice(renderedStable.length), true, !live);
+      stableAdded = stableFrag.childNodes.length;
+    }
+    const tailFrag = tail.length > 0 ? nodesFrom(tail, false, !live) : undefined;
+
+    if (rewrite) host.replaceChildren();
+    if (stableFrag) {
       dropTail(host, stableCount);
-      const frag = nodesFrom(stable.slice(renderedStable.length), true, !live);
-      const count = frag.childNodes.length;
-      host.append(frag);
-      stableCount += count;
+      host.append(stableFrag);
+      stableCount += stableAdded;
       renderedStable = stable;
     }
 
     dropTail(host, stableCount);
-    if (tail.length > 0) host.append(nodesFrom(tail, false, !live));
+    if (tailFrag) host.append(tailFrag);
+    lastSource = source;
     syncCursor(host, live);
   };
 

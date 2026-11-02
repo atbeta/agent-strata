@@ -3088,6 +3088,22 @@ describe("text that arrives as deltas", () => {
     expect(done.at(-1)!.content).toEqual([{ type: "text", text: "Hello world" }]);
   });
 
+  test("a live part update that is behind the deltas does not shrink the reply", () => {
+    // OpenCode re-sends the part while deltas are still arriving. The copy it
+    // sends can be a prefix of the text already built. Taking it replaced the
+    // paragraph with that prefix, and the next deltas put the words back, so
+    // the reply blinked for the whole generation.
+    let t = 0;
+    const m = streaming(() => t);
+    t = 1000;
+    m.handle(partUpdated({ id: "pa", sessionID: sid, messageID: "a1", type: "text", text: "" }));
+    t = 1100;
+    m.handle(delta("pa", "Hello"));
+    t = 1200;
+    const out = snaps(m.handle(partUpdated({ id: "pa", sessionID: sid, messageID: "a1", type: "text", text: "He" })));
+    expect(out[0]!.content).toEqual([{ type: "text", text: "Hello" }]);
+  });
+
   test("the live closing update of a part replaces what the deltas built", () => {
     let t = 0;
     const m = streaming(() => t);

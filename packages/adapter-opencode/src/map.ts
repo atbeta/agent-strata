@@ -1527,7 +1527,20 @@ export class OpencodeMapper {
           !!m.streamed?.has(part.id) &&
           (part.type === "text" || part.type === "reasoning") &&
           part.time?.end === undefined;
-        if (stale) {
+        // A live part update can be the same kind of stale copy: OpenCode
+        // re-sends the part while deltas are still landing, and the text on
+        // that frame is a prefix of what the deltas already built. Taking it
+        // publishes a shorter snapshot, the next deltas put the words back,
+        // and the reply blinks for the whole generation. A closed part is the
+        // final text and still replaces, as does a rewrite that is not a prefix.
+        const behind = (() => {
+          if (part.type !== "text" && part.type !== "reasoning") return false;
+          if (part.time?.end !== undefined || !m.streamed?.has(part.id)) return false;
+          const cur = m.parts.get(part.id);
+          if (!cur || (cur.type !== "text" && cur.type !== "thinking")) return false;
+          return part.text.length < cur.text.length && cur.text.startsWith(part.text);
+        })();
+        if (stale || behind) {
           // keep the delta-built text
         } else if (part.type === "text") {
           // Text OpenCode writes itself (a read file's contents, "continue"

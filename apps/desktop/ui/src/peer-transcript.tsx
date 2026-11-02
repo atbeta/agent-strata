@@ -15,7 +15,7 @@ import { planVisible } from "./plan-progress";
 import { PlanStrip } from "./plan-strip";
 import { TurnBlock } from "./transcript";
 import { TranscriptView } from "./transcript-view";
-import { applyStreamingSnapshot, runInProgress, type StreamingSnapshot } from "./live";
+import { applyStreamingSnapshot, keepStreamingLead, runInProgress, type StreamingSnapshot } from "./live";
 import { createScrollDeferral, deferTranscriptWrite } from "./scroll-defer";
 import { isDevEvent } from "./sync-events";
 import { createSessionViewLoader } from "./session-view-loader";
@@ -64,6 +64,7 @@ export function PeerSessionTranscript(props: {
     clearPaneBusy(props.sessionId);
   });
 
+  let overLead = (incoming: SessionView): SessionView => incoming;
   const [view, { refetch, mutate }] = createResource(
     () => props.sessionId,
     async (id: string) => {
@@ -73,26 +74,30 @@ export function PeerSessionTranscript(props: {
       if (fullNow) {
         const full = await viewLoader.loadFull(id, null, (loaded, keyOf) => {
           filesKey = keyOf;
-          rememberView(id, loaded, keyOf);
+          rememberView(id, overLead(loaded), keyOf);
         });
-        return full ?? peekView(props.sessionId)?.view;
+        return full ? overLead(full) : peekView(props.sessionId)?.view;
       }
       const hit = peekView(id);
       if (hit) {
         filesKey = hit.filesKey;
-        return hit.view;
+        return overLead(hit.view);
       }
       const loaded = await viewLoader.loadCold(id, (preview, keyOf) => {
         filesKey = keyOf;
-        mutate(preview);
+        mutate((current) => (current ? keepStreamingLead(current, preview) : preview));
       }, (full, keyOf) => {
         filesKey = keyOf;
-        rememberView(id, full, keyOf);
+        rememberView(id, overLead(full), keyOf);
       });
-      return loaded ?? peekView(props.sessionId)?.view;
+      return loaded ? overLead(loaded) : peekView(props.sessionId)?.view;
     },
     opening ? { initialValue: opening.view } : undefined,
   );
+  overLead = (incoming) => {
+    const held = settled(view);
+    return held ? keepStreamingLead(held, incoming) : incoming;
+  };
 
   // The header's dot is 28px tall and is where you look to decide whether to
   // switch to this pane, so it has to be right while the pane is not the one
@@ -125,8 +130,10 @@ export function PeerSessionTranscript(props: {
             const id = props.sessionId;
             const outcome = await viewLoader.refreshTail(id, filesKey, () => settled(view) ?? current, (next, keyOf, changed) => {
               filesKey = keyOf;
-              if (changed) mutate(next);
-              rememberView(id, next, keyOf);
+              const held = settled(view) ?? current;
+              const painted = keepStreamingLead(held, next);
+              if (changed || painted !== next) mutate(painted);
+              rememberView(id, painted, keyOf);
             });
             if (!alive || outcome === "stale") return;
             if (outcome === "full") {
