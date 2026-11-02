@@ -92,12 +92,19 @@ export function useDisclosure(): Disclosure;
 
 ### 第 3 步：Markdown 块化
 
+> 执行顺序上第 3 步最先做（见"交付顺序"）。此时第 2 步尚未落地，`Md` 保留现有的首帧调度（`firstPaint` / `enqueuePaint` / paint hold），只把"画什么"换成块化渲染；调度在第 2 步删除。
+
 **`md-blocks.ts`（新，纯函数，不碰 DOM）**
 
 ```ts
-export interface MdBlock { key: string; raw: string }
-/** Top-level blocks from `marked.lexer`. Key = `${index}\0${raw}`: same text in the same place, same block. */
-export function splitBlocks(source: string): MdBlock[];
+/**
+ * Top-level blocks from `marked.lexer`, each as the source that renders it on
+ * its own. `space` and `def` tokens are dropped; when the message defines
+ * reference links, every block carries those definitions so a block parsed
+ * alone still resolves them. The source is the block's key: same source, same
+ * nodes. Duplicates are allowed — Solid's `<For>` maps each occurrence.
+ */
+export function splitBlocks(source: string): string[];
 ```
 
 **`md-render.ts`（新，碰 DOM，不碰调度）**
@@ -111,13 +118,16 @@ export function splitBlocks(source: string): MdBlock[];
 **`Md` 组件**
 
 ```tsx
-const source = coalesced(() => props.text);       // 首次同步，之后每帧至多一次
-const blocks = createMemo(() => splitBlocks(source()));
-const settled = () => (live ? blocks().slice(0, -1) : blocks());
-const tail = createMemo<Node[]>((prev) => live && last ? reconcileList(prev ?? [], withCaret(blockNodes(last.raw, { finished: false }))) : []);
+const [shown, setShown] = createSignal<{ text: string; live: boolean }>(); // 首帧按现有调度，之后每帧至多一次
+const blocks = createMemo(() => splitBlocks(shown()?.text ?? ""));
+const settled = createMemo((prev) => stableKeys(prev, live() ? blocks().slice(0, -1) : blocks()));
+const tail = createMemo<Node[]>((prev) => {
+  const last = live() ? blocks().at(-1) : undefined;
+  return last === undefined ? [] : reconcileList(prev ?? [], withCaret(blockNodes(last, { finished: false })));
+});
 
 <div class="md ...">
-  <For each={stableKeys(prevKeys, settled().map(b => b.key))}>{(key) => blockNodes(rawOf(key), { finished: true })}</For>
+  <For each={settled()}>{(source) => blockNodes(source, { finished: true })}</For>
   {tail()}
 </div>
 ```
@@ -136,11 +146,12 @@ const tail = createMemo<Node[]>((prev) => live && last ? reconcileList(prev ?? [
 
 ## 验证
 
-- 基线：`bench/results/baseline-77fdabd-wk.json`（WebKit，A–D，3 reps，无正确性失败）。
+- 新增 bench 流程 S（流式长回复）：冷开长会话后，向最新 turn 以 50ms 一次的快照流式写入一条约 10KB 的回复（标题、中英混排段落、列表、多个代码块、表格、引用），每次增长 64 个字符；写完后再发一次 `partial: false` 的终稿。步骤 `stream-reply` 与 `reply-done` 记录 `maxGap` / `over50` / `blockedMs` / `longtaskMs` / `partials` / `atTail`。现有 D 流程的快照只有一行纯文本，量不到 Markdown 解析成本。
+- 基线：`bench/results/baseline-77fdabd-wk.json`（WebKit，A–D，3 reps，无正确性失败）；S 流程在 `77fdabd` 的代码上补测，存为 `bench/results/baseline-77fdabd-wk-S.json`。
 - 每步提交前：`bun run bench --engines webkit --flows A,B,C,D --compare bench/results/baseline-77fdabd-wk.json`。退出码 1（落点错、空白帧、页面错误）一律视为阻断。
 - 第 2 步额外关注 `A/open settleMs`、`B/C step-up`、`D/running-wheel-up` 的 `maxGap` / `over50` / `blockedMs`。若中位数 `over50` 或 `blockedMs` 明显恶化（超过基线一倍），先调大预热范围；仍不行再讨论。
 - 手动：在 Tauri 桌面端打开真实长会话，检查流式回复、工具调用归属时展开状态、回显替换、滚动上翻。
 
 ## 交付顺序
 
-三步各自独立提交（`refactor(transcript): …` / `perf(transcript): …`），每步都能单独回滚。备份分支 `backup/pre-forcepush-0.22.5` 上的 `d726cb3`（行高跟随内容）和 `e4b72fa`（工具调用只归属一次）在第 1 步时对照，有价值的部分一并带回。
+性能优先，执行顺序为：bench 流程 S 与其基线 → 第 3 步（Markdown 块化）→ 第 1 步（按身份做键）→ 第 2 步（挂载即完整）。三步各自独立提交（`refactor(transcript): …` / `perf(transcript): …`），每步都能单独回滚。备份分支 `backup/pre-forcepush-0.22.5` 上的 `d726cb3`（行高跟随内容）和 `e4b72fa`（工具调用只归属一次）在第 1 步时对照，有价值的部分一并带回。
