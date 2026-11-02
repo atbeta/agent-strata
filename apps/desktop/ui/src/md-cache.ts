@@ -11,7 +11,7 @@ export class MarkdownHtmlCache {
   private cost = 0;
 
   constructor(
-    private readonly maxEntries = 500,
+    private readonly maxEntries = 4000,
     private readonly maxCost = 16_000_000,
   ) {}
 
