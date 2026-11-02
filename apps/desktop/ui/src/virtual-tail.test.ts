@@ -16,7 +16,7 @@ describe("scroll hot paths reuse work already done", () => {
   test("a measurement uses its observed row instead of indexing every turn", () => {
     const src = read("virtual.tsx");
     expect(src).not.toContain("const rowIndex");
-    expect(src).toContain("const observation = observed.get(e.target)");
+    expect(src).toContain("const id = observed.get(e.target)");
   });
 });
 
@@ -29,7 +29,7 @@ describe("a window that cannot be placed still draws something", () => {
    * window by hand again.
    */
   const rows = read("virtual.tsx").slice(
-    read("virtual.tsx").indexOf("const rows = createMemo"),
+    read("virtual.tsx").indexOf("const windowIds = createMemo"),
   );
 
   test("the window is computed by the range helper, not by hand", () => {
@@ -39,10 +39,10 @@ describe("a window that cannot be placed still draws something", () => {
   });
 
   test("the range is taken inside the window memo, where the rows are decided", () => {
-    const memoStart = rows.indexOf("const rows = createMemo");
+    const memoStart = rows.indexOf("const windowIds = createMemo");
     const call = rows.indexOf("mountedRange({");
     expect(call).toBeGreaterThan(memoStart);
-    expect(call).toBeLessThan(rows.indexOf("stableIndexWindow(prev, first, last)"));
+    expect(call).toBeLessThan(rows.indexOf("stableKeys(prev, ids)"));
   });
 });
 

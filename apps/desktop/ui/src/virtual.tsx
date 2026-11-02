@@ -1,6 +1,7 @@
 import { createEffect, createMemo, For, onCleanup, untrack, type JSX } from "solid-js";
 import { createPaintHold, rowPaintHold, rowPaintMode } from "./paint-mode";
-import { mountedRange, stableIndexWindow } from "./virtual-window";
+import { stableKeys } from "./keyed";
+import { mountedRange } from "./virtual-window";
 import type { RowLayout } from "./row-layout";
 
 /**
@@ -22,8 +23,11 @@ import type { RowLayout } from "./row-layout";
  */
 export function Virtual<T>(props: {
   items: readonly T[];
-  /** Stable per-row identity. Measurements are keyed by it, so it must survive re-renders. */
-  id: (item: T, index: number) => string;
+  /**
+   * Stable per-row identity. Rows are mounted and measured by it, so it must
+   * survive re-renders. `layout` is built over these same ids.
+   */
+  id: (item: T) => string;
   /** Row heights and offsets, shared with the scroll owner. */
   layout: RowLayout;
   /**
@@ -53,18 +57,16 @@ export function Virtual<T>(props: {
    * lets whatever inside it re-read `item()` on its own terms, so a row updates
    * only when its own contents actually change.
    */
-  children: (item: () => T, index: number) => JSX.Element;
+  children: (item: () => T) => JSX.Element;
 }) {
   const overscan = () => props.overscan ?? 800;
   /**
-   * Element → the row it was bound to. `For` keeps a node when `rows()` still
-   * holds its index, so on a session switch the same element renders a new
-   * item while its recorded key still names the old one — the sweep below
-   * rebinds it before a measurement can land under the wrong name.
+   * Element → the id of the row it renders. Rows are keyed by id, so an
+   * element renders one row for its whole life and its id never goes stale.
    */
-  const observed = new Map<Element, { key: string; i: number }>();
+  const observed = new Map<Element, string>();
   /**
-   * Rows with deferred paints pending, by index. A deferred row paints
+   * Rows with deferred paints pending, by id. A deferred row paints
    * half-empty and fills in later, so a measurement taken while it is held is
    * the empty box's height — committing it erases the real height learned the
    * last time the row was on screen, the content shrinks by a column, and the
@@ -72,33 +74,24 @@ export function Virtual<T>(props: {
    * sweep alike; when the last hold releases, the row is queued for exactly
    * one measurement, flushed in a single commit per microtask.
    */
-  const rowHolds = new Map<number, { hold: () => () => void; pending: () => number }>();
-  const held = (i: number) => (rowHolds.get(i)?.pending() ?? 0) > 0;
+  const rowHolds = new Map<string, { hold: () => () => void; pending: () => number }>();
+  const held = (id: string) => (rowHolds.get(id)?.pending() ?? 0) > 0;
   const pendingEls = new Set<Element>();
   let flushQueued = false;
-  const queueMeasure = (i: number) => {
-    for (const [el, observation] of observed) {
-      if (observation.i === i) {
-        pendingEls.add(el);
-        break;
-      }
-    }
+  const queueMeasure = (el: Element) => {
+    pendingEls.add(el);
     if (flushQueued) return;
     flushQueued = true;
     queueMicrotask(() => {
       flushQueued = false;
       let next: Map<string, number> | undefined;
       for (const el of pendingEls) {
-        const observation = observed.get(el);
-        if (!observation || !el.isConnected) continue;
-        const current = props.items[observation.i];
-        const key = current === undefined ? undefined : props.id(current, observation.i);
-        if (key === undefined) continue;
-        observation.key = key;
+        const id = observed.get(el);
+        if (id === undefined || !el.isConnected) continue;
         const h = (el as HTMLElement).offsetHeight;
         if (!h) continue;
         next ??= new Map();
-        next.set(key, h);
+        next.set(id, h);
       }
       pendingEls.clear();
       if (next) props.commit(next);
@@ -117,21 +110,21 @@ export function Virtual<T>(props: {
   const ro = new ResizeObserver((entries) => {
     let next: Map<string, number> | undefined;
     for (const e of entries) {
-      const observation = observed.get(e.target);
-      if (!observation || held(observation.i)) continue;
+      const id = observed.get(e.target);
+      if (id === undefined || held(id)) continue;
       const h = e.borderBoxSize?.[0]?.blockSize ?? (e.target as HTMLElement).offsetHeight;
       if (!h) continue;
       next ??= new Map();
-      next.set(observation.key, h);
+      next.set(id, h);
     }
     // One commit for the whole pass: the layout recomputes its prefix sum once,
     // and the scroll owner re-anchors in the same task, before paint.
     if (next) props.commit(next);
   });
 
-  const rows = createMemo<number[]>((prev) => {
+  const windowIds = createMemo<readonly string[]>((prev) => {
     const n = props.items.length;
-    if (!n) return stableIndexWindow(prev, 0, -1);
+    if (!n) return stableKeys(prev, []);
     // Pixel window only. A row cap unmounted rows the reader was about to
     // reach, and mounting them again parsed markdown on the scroll frame.
     // The estimate is what keeps this count near the rows actually on screen.
@@ -144,9 +137,10 @@ export function Virtual<T>(props: {
     });
     // A position remembered from another session can sit past this one's end.
     // mountedRange clamps that onto the last row, so the pane still has rows
-    // to draw. While the window does not move, the same index list is reused
-    // and the measurement pass stays quiet.
-    return stableIndexWindow(prev, first, last);
+    // to draw. While the same rows are in the window the same list is reused,
+    // so a streaming tick or a scroll inside the window leaves the rows alone.
+    const ids = props.items.slice(first, last + 1).map((item) => props.id(item));
+    return stableKeys(prev, ids);
   });
 
   /**
@@ -163,28 +157,18 @@ export function Virtual<T>(props: {
   // reference to everything it watches, so a row that left the DOM has to be
   // released — otherwise scrolling a long session leaks every row it passed.
   createEffect(() => {
-    rows();
+    windowIds();
     queueMicrotask(() => {
       // One commit for the whole pass. Committing inside the loop gave each
       // row its own invalidation, and every one rebuilt the prefix sum and
       // re-ran the owner's apply effect — N forced layouts on the scroll path.
       let next: Map<string, number> | undefined;
-      for (const [el, entry] of [...observed]) {
+      for (const [el, id] of [...observed]) {
         if (!el.isConnected) {
           ro.unobserve(el);
           observed.delete(el);
           continue;
         }
-        // The node may have been re-used for a different item since its ref
-        // ran — `For` keys rows by index value, and a session switch swaps the
-        // items behind the same indices. Rebind before reading; measuring the
-        // element under its old key would feed the new row a height that
-        // belongs to a conversation it is not in — which is exactly how rows
-        // landed on top of one another until a scroll remounted them.
-        const current = props.items[entry.i];
-        const key = current === undefined ? undefined : props.id(current, entry.i);
-        if (key === undefined) continue;
-        entry.key = key;
         // A mounted row that has no measurement is being positioned from the
         // estimate, and the estimate is a guess about a row's height, not a
         // layout: a guess well under a turn that renders at several hundred
@@ -194,11 +178,11 @@ export function Virtual<T>(props: {
         // is still holding — and once that happens there may be no further
         // resize to report. So a mounted row without a measurement is read here
         // rather than waited on. Anything read too early, the observer corrects.
-        if (held(entry.i) || props.layout.isMeasured(key)) continue;
+        if (held(id) || props.layout.isMeasured(id)) continue;
         const h = (el as HTMLElement).offsetHeight;
         if (!h) continue;
         next ??= new Map();
-        next.set(key, h);
+        next.set(id, h);
       }
       if (next) props.commit(next);
     });
@@ -209,9 +193,12 @@ export function Virtual<T>(props: {
       class="relative w-full"
       style={{ height: `${props.layout.offsets()[props.items.length]}px` }}
     >
-      <For each={rows()}>
-        {(i) => {
-          const item = () => props.items[i];
+      <For each={windowIds()}>
+        {(id) => {
+          const index = createMemo(() => props.layout.indexOf(id));
+          // `For` drops a row in the same update that removed its id, and
+          // whatever inside reads the item before then gets the last one it had.
+          const item = createMemo<T>((prev) => props.items[index()] ?? prev!);
           // A memo, not the scroll position itself. Markdown subscribes to this,
           // and a subscription to `top` would re-run the paint effect on every
           // pixel. The boolean flips only when the row crosses the fold.
@@ -219,14 +206,17 @@ export function Virtual<T>(props: {
             const viewport = props.viewport();
             if (viewport <= 0) return true;
             const top = props.top();
-            const y = props.layout.offsets()[i] ?? 0;
-            return y + props.layout.heightOf(i) > top && y < top + viewport;
+            const y = props.layout.offsets()[index()] ?? 0;
+            return y + props.layout.heightOf(index()) > top && y < top + viewport;
           });
           const mode = () => (inView() ? "now" : "idle");
-          const paintHold = createPaintHold(() => queueMeasure(i));
-          rowHolds.set(i, paintHold);
+          let rowEl: HTMLDivElement | undefined;
+          const paintHold = createPaintHold(() => {
+            if (rowEl) queueMeasure(rowEl);
+          });
+          rowHolds.set(id, paintHold);
           onCleanup(() => {
-            if (rowHolds.get(i) === paintHold) rowHolds.delete(i);
+            if (rowHolds.get(id) === paintHold) rowHolds.delete(id);
           });
           return (
             <rowPaintHold.Provider value={paintHold}>
@@ -234,22 +224,23 @@ export function Virtual<T>(props: {
               <div
                 class="absolute left-0 right-0"
                 ref={(el) => {
-                  observed.set(el, { key: props.id(item(), i), i });
+                  rowEl = el;
+                  observed.set(el, id);
                   ro.observe(el);
                 }}
                 // `top`, not `transform`: a transformed ancestor becomes a
                 // containing block that `position: sticky` cannot see past,
                 // which would keep an open thought's header from pinning.
-                style={{ top: `${props.layout.offsets()[i]}px` }}
+                style={{ top: `${props.layout.offsets()[index()]}px` }}
               >
                 {/* Once, outside the insert that tracks `items`. Written in
-                    the markup as `{props.children(props.items[i], i)}` it
+                    the markup as `{props.children(props.items[i])}` it
                     became a thunk that reads `items`, and every streaming
                     tick tore the row down and parsed its markdown again.
                     `untrack` keeps that call from joining the style update,
                     and it still runs under the provider so the row can see
                     whether it is on screen. */}
-                {untrack(() => props.children(item, i))}
+                {untrack(() => props.children(item))}
               </div>
             </rowPaintMode.Provider>
             </rowPaintHold.Provider>

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ROW_ESTIMATE, ROW_GAP } from "./transcript-layout";
-import { mountedRange, stableIndexWindow } from "./virtual-window";
+import { mountedRange } from "./virtual-window";
 
 /**
  * A prefix-sum stand-in: rows of a fixed height, so `rowAt` is arithmetic.
@@ -95,23 +95,14 @@ describe("the rows a transcript mounts", () => {
   });
 });
 
-describe("stableIndexWindow", () => {
-  test("a window that did not move keeps the array the list already has", () => {
-    const prev = [4, 5, 6];
-    expect(stableIndexWindow(prev, 4, 6)).toBe(prev);
-  });
-
-  test("a window that moved gets a new list", () => {
-    const prev = [4, 5, 6];
-    const next = stableIndexWindow(prev, 5, 7);
-    expect(next).not.toBe(prev);
-    expect(next).toEqual([5, 6, 7]);
-  });
-
-  test("an empty window reuses an empty list", () => {
-    const prev: number[] = [];
-    expect(stableIndexWindow(prev, 0, -1)).toBe(prev);
-    expect(stableIndexWindow(undefined, 2, 3)).toEqual([2, 3]);
+describe("rows follow their segment, not their slot", () => {
+  test("the window is a list of row ids, and the row reads its place from the layout", () => {
+    const virtual = readFileSync(join(import.meta.dir, "virtual.tsx"), "utf8");
+    expect(virtual).toContain("<For each={windowIds()}>");
+    expect(virtual).toContain("props.layout.indexOf(id)");
+    // A row keyed by id renders one item for life, so nothing has to rebind it.
+    expect(virtual).not.toContain("entry.key = key");
+    expect(virtual).not.toContain("stableIndexWindow");
   });
 });
 
