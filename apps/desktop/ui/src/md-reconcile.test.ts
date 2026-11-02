@@ -1,60 +1,191 @@
 import { describe, expect, test } from "bun:test";
-import { samePrefixCount } from "./md-reconcile";
+import { canPatch, reconcileChildren } from "./md-reconcile";
 
 /**
  * A streaming reply is re-parsed on every token. What keeps it from blinking is
- * that the nodes before the change are recognised as unchanged and left alone,
- * so this count is the whole mechanism: too low and the reply is rebuilt every
- * frame, too high and stale nodes stay on screen.
+ * that the nodes before the change are patched in place instead of replaced, so
+ * a paragraph that grew by three characters keeps the very node it had. The
+ * measurement that found this: over a 156-character reply, the first block was
+ * replaced on 154 of 156 frames.
+ *
+ * The project has no DOM in its test runner, so the surface `reconcileChildren`
+ * actually touches is faked here rather than pulling in a DOM library. That
+ * keeps the assertions about this module's algorithm, which is the part that can
+ * be wrong, and leaves the real DOM to the browser harness.
  */
 
-const eq = (a: string, b: string) => a === b;
+const ELEMENT = 1;
+const TEXT = 3;
 
-describe("unchanged prefix of a rebuilt tail", () => {
-  test("a paragraph that grew keeps every node before the change", () => {
-    const before = ["<p>第一段</p>", "<p>第二段写到一半</p>"];
-    const after = ["<p>第一段</p>", "<p>第二段写到一半了</p>"];
-    expect(samePrefixCount(before, after, eq)).toBe(1);
+class FakeNode {
+  nodeType: number;
+  nodeName: string;
+  nodeValue: string | null;
+  childNodes: FakeNode[] = [];
+  attributes: { name: string; value: string }[] = [];
+  parent: FakeNode | null = null;
+
+  constructor(nodeType: number, nodeName: string, nodeValue: string | null = null) {
+    this.nodeType = nodeType;
+    this.nodeName = nodeName;
+    this.nodeValue = nodeValue;
+  }
+
+  /** The value a text node exposes; `patchNode` writes through `data`. */
+  get data(): string {
+    return this.nodeValue ?? "";
+  }
+  set data(next: string) {
+    this.nodeValue = next;
+  }
+
+  getAttribute(name: string): string | null {
+    return this.attributes.find((a) => a.name === name)?.value ?? null;
+  }
+
+  appendChild(child: FakeNode): FakeNode {
+    child.parent = this;
+    this.childNodes.push(child);
+    return child;
+  }
+
+  removeChild(child: FakeNode): FakeNode {
+    const at = this.childNodes.indexOf(child);
+    if (at >= 0) this.childNodes.splice(at, 1);
+    child.parent = null;
+    return child;
+  }
+
+  isEqualNode(other: FakeNode): boolean {
+    if (this.nodeType !== other.nodeType || this.nodeName !== other.nodeName) return false;
+    if (this.nodeValue !== other.nodeValue) return false;
+    if (this.attributes.length !== other.attributes.length) return false;
+    for (let i = 0; i < this.attributes.length; i += 1) {
+      const a = this.attributes[i]!;
+      const b = other.attributes[i]!;
+      if (a.name !== b.name || a.value !== b.value) return false;
+    }
+    if (this.childNodes.length !== other.childNodes.length) return false;
+    return this.childNodes.every((c, i) => c.isEqualNode(other.childNodes[i]!));
+  }
+}
+
+const el = (name: string, ...children: FakeNode[]): FakeNode => {
+  const node = new FakeNode(ELEMENT, name.toUpperCase());
+  for (const c of children) node.appendChild(c);
+  return node;
+};
+
+const text = (value: string): FakeNode => new FakeNode(TEXT, "#text", value);
+
+const para = (value: string): FakeNode => el("p", text(value));
+
+/** Shorthand: build a host, then reconcile it with the given tail. */
+const run = (existing: FakeNode[], incoming: FakeNode[]): FakeNode => {
+  const host = new FakeNode(ELEMENT, "DIV");
+  for (const c of existing) host.appendChild(c);
+  reconcileChildren(host as unknown as Node, 0, incoming as unknown as Node[]);
+  return host;
+};
+
+describe("patching a rebuilt tail into the nodes on screen", () => {
+  test("a paragraph that grew keeps its own node and its own text node", () => {
+    const before = para("第二段写到一半");
+    const host = run([before], [para("第二段写到一半了")]);
+
+    expect(host.childNodes.length).toBe(1);
+    // The whole point: same objects, not equal copies.
+    expect(host.childNodes[0]).toBe(before);
+    expect((host.childNodes[0] as FakeNode).childNodes[0]!.nodeValue).toBe("第二段写到一半了");
   });
 
-  test("an appended block keeps all of the nodes already painted", () => {
-    const before = ["<p>一</p>", "<p>二</p>"];
-    const after = ["<p>一</p>", "<p>二</p>", "<p>三</p>"];
-    expect(samePrefixCount(before, after, eq)).toBe(2);
+  test("a growing reply reuses the text node on every step", () => {
+    const host = new FakeNode(ELEMENT, "DIV");
+    const seen: FakeNode[] = [];
+    const target = host as unknown as Node;
+    for (const s of ["这", "这是", "这是一个", "这是一个回复"]) {
+      reconcileChildren(target, 0, [para(s)] as unknown as Node[]);
+      seen.push((host.childNodes[0] as FakeNode).childNodes[0]!);
+    }
+    expect(new Set(seen).size).toBe(1);
+    expect(seen[0]!.nodeValue).toBe("这是一个回复");
   });
 
-  test("an unchanged tail is entirely kept, so nothing is repainted", () => {
-    const same = ["<p>一</p>", "<p>二</p>"];
-    expect(samePrefixCount(same, [...same], eq)).toBe(2);
+  test("a finished block before the change is left alone", () => {
+    const first = para("一");
+    const second = para("二写到一半");
+    const host = run([first, second], [para("一"), para("二写到一半了")]);
+
+    expect(host.childNodes[0]).toBe(first);
+    expect(host.childNodes[1]).toBe(second);
   });
 
-  test("a change in the first node keeps nothing before it", () => {
-    expect(samePrefixCount(["<p>a</p>", "<p>b</p>"], ["<p>z</p>", "<p>b</p>"], eq)).toBe(0);
+  test("an appended block keeps everything already painted", () => {
+    const first = para("一");
+    const host = run([first], [para("一"), para("二")]);
+
+    expect(host.childNodes.length).toBe(2);
+    expect(host.childNodes[0]).toBe(first);
+    expect((host.childNodes[1] as FakeNode).childNodes[0]!.nodeValue).toBe("二");
   });
 
-  test("an emptied tail keeps nothing, so the old nodes are dropped", () => {
-    expect(samePrefixCount(["<p>一</p>"], [], eq)).toBe(0);
+  test("a shorter tail drops what is no longer there", () => {
+    const host = run([para("一"), para("二")], [para("一")]);
+    expect(host.childNodes.length).toBe(1);
+    expect((host.childNodes[0] as FakeNode).childNodes[0]!.nodeValue).toBe("一");
   });
 
-  test("a first tail keeps nothing", () => {
-    expect(samePrefixCount([], ["<p>一</p>"], eq)).toBe(0);
+  test("an emptied tail leaves the host empty", () => {
+    expect(run([para("一")], []).childNodes.length).toBe(0);
   });
 
-  test("a shorter tail keeps only the part that still matches", () => {
-    expect(samePrefixCount(["<p>一</p>", "<p>二</p>"], ["<p>一</p>"], eq)).toBe(1);
+  test("a different tag is replaced, not patched around", () => {
+    const before = para("一");
+    const host = run([before], [el("h2", text("一"))]);
+    expect(host.childNodes[0]).not.toBe(before);
+    expect(host.childNodes[0]!.nodeName).toBe("H2");
   });
 
-  test("the walk stops at the first difference, not at the last", () => {
-    let calls = 0;
-    const counted = (a: string, b: string) => {
-      calls += 1;
-      return a === b;
-    };
-    const before = ["a", "b", "c", "d"];
-    const after = ["a", "b", "X", "d"];
-    expect(samePrefixCount(before, after, counted)).toBe(2);
-    // Three comparisons for four nodes: the mismatch ends the walk, and `d`
-    // after it is never looked at.
-    expect(calls).toBe(3);
+  test("a changed attribute rebuilds the block", () => {
+    const before = el("pre");
+    before.attributes = [{ name: "class", value: "language-ts" }];
+    const after = el("pre");
+    after.attributes = [{ name: "class", value: "language-rs" }];
+
+    const host = run([before], [after]);
+    expect(host.childNodes[0]).not.toBe(before);
+    expect((host.childNodes[0] as FakeNode).getAttribute("class")).toBe("language-rs");
+  });
+
+  test("a node after the first real difference is rebuilt", () => {
+    const kept = para("一");
+    const doomed = el("div", text("old"));
+    const host = run([kept, doomed], [para("一"), el("pre", text("new"))]);
+
+    expect(host.childNodes[0]).toBe(kept);
+    expect(host.childNodes[1]).not.toBe(doomed);
+    expect(host.childNodes[1]!.nodeName).toBe("PRE");
+  });
+
+  test("the tail starts after the finished region", () => {
+    const stable = para("已完成的段落");
+    const tail = para("正在写");
+    const host = new FakeNode(ELEMENT, "DIV");
+    host.appendChild(stable);
+    host.appendChild(tail);
+
+    // from = 1: only the tail is reconciled, so the stable block is untouched.
+    reconcileChildren(host as unknown as Node, 1, [para("正在写了")] as unknown as Node[]);
+
+    expect(host.childNodes[0]).toBe(stable);
+    expect(host.childNodes[1]).toBe(tail);
+    expect(host.childNodes.length).toBe(2);
+  });
+
+  test("canPatch asks about shape, not content", () => {
+    expect(canPatch({ nodeType: TEXT, nodeName: "#text" }, { nodeType: TEXT, nodeName: "#text" })).toBe(true);
+    expect(canPatch({ nodeType: ELEMENT, nodeName: "P" }, { nodeType: ELEMENT, nodeName: "P" })).toBe(true);
+    expect(canPatch({ nodeType: ELEMENT, nodeName: "P" }, { nodeType: ELEMENT, nodeName: "DIV" })).toBe(false);
+    expect(canPatch({ nodeType: TEXT, nodeName: "#text" }, { nodeType: ELEMENT, nodeName: "P" })).toBe(false);
   });
 });

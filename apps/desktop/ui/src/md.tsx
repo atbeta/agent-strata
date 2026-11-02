@@ -4,7 +4,7 @@ import DOMPurify from "dompurify";
 import { stripAnsi } from "./ansi";
 import { grammarFor, guessGrammar, tokenize, tokenizeDiff } from "./highlight";
 import { stableBoundary } from "./md-stream";
-import { samePrefixCount } from "./md-reconcile";
+import { reconcileChildren } from "./md-reconcile";
 import { drawDiagram, isDiagramBlock } from "./mermaid";
 import { t } from "./i18n";
 import { MarkdownHtmlCache } from "./md-cache";
@@ -63,12 +63,17 @@ export function Md(props: { text: string; class?: string; live?: boolean }) {
     }
 
     if (stable.length > renderedStable.length) {
-      // The new finished region includes the previous tail. Drop that tail
-      // before appending, or the closed fence would sit after its own leftover.
-      dropTail(host, stableCount);
-      const frag = nodesFrom(stable.slice(renderedStable.length), true, !live);
-      const count = frag.childNodes.length;
-      host.append(frag);
+      // A block has just finished. Its nodes are appended after the finished
+      // region, which is where the tail used to be, so the old tail goes first.
+      // Reconciling this transition as one list looked tempting — it is the
+      // same swap — but a fence closing turns source text into a code block,
+      // and patching across that boundary left a stray run of backticks on
+      // screen. Measured in the browser harness: it happens on a handful of
+      // frames, only where a fence closes, so it is not worth the risk.
+      while (host.childNodes.length > stableCount) host.removeChild(host.lastChild!);
+      const grown = nodesFrom(stable.slice(renderedStable.length), true, !live);
+      const count = grown.childNodes.length;
+      host.appendChild(grown);
       stableCount += count;
       renderedStable = stable;
     }
@@ -79,7 +84,7 @@ export function Md(props: { text: string; class?: string; live?: boolean }) {
     // reply's worth of nodes replaced on every frame, which is what flickered.
     // Keeping the nodes that did not change also keeps an image from reloading,
     // a selection from collapsing and a scroll anchor where the reader left it.
-    reconcileFrom(host, stableCount, nodesFrom(tail, false, !live));
+    reconcileChildren(host, stableCount, [...nodesFrom(tail, false, !live).childNodes]);
     syncCursor(host, live);
   };
 
@@ -181,37 +186,6 @@ function cursorTarget(block: Element): Element | undefined {
   if (!last) return item;
   if (last.tagName === "PRE") return undefined;
   return /^(P|UL|OL)$/.test(last.tagName) ? cursorTarget(last) : item;
-}
-
-function dropTail(host: HTMLElement, stableCount: number) {
-  while (host.childNodes.length > stableCount) host.lastChild!.remove();
-}
-
-/**
- * Replace the tail in place, keeping the nodes that did not change.
- *
- * The tail is rebuilt from the source on every token, but most of it is the
- * same string it was a frame ago: a paragraph that grew by three characters is
- * nineteen of its twenty nodes unchanged. Removing the whole tail and appending
- * a freshly parsed one throws those away anyway — which is what made a
- * streaming reply flicker, reset a reader's selection, and reload the images
- * inside it.
- *
- * Comparison is `isEqualNode`, so this is a deep structural check rather than
- * a string one. The tail is a handful of blocks, and the walk stops at the
- * first difference, so the common case costs a couple of comparisons.
- */
-function reconcileFrom(host: HTMLElement, from: number, next: DocumentFragment): void {
-  const incoming = [...next.childNodes];
-  const existing = [...host.childNodes].slice(from);
-  const same = samePrefixCount(existing, incoming, (a, b) => a.isEqualNode(b));
-  // Drop what changed, and anything the new tail no longer has, from the end so
-  // the earlier indexes stay valid.
-  for (let i = existing.length - 1; i >= same; i -= 1) existing[i]!.remove();
-  if (same >= incoming.length) return;
-  const rest = document.createDocumentFragment();
-  for (let i = same; i < incoming.length; i += 1) rest.append(incoming[i]!);
-  host.append(rest);
 }
 
 /**
