@@ -1,10 +1,11 @@
-import { createEffect, onCleanup } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup } from "solid-js";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { stripAnsi } from "./ansi";
 import { grammarFor, guessGrammar, tokenize, tokenizeDiff } from "./highlight";
-import { stableBoundary } from "./md-stream";
-import { reconcileChildren } from "./md-reconcile";
+import { splitBlocks } from "./md-blocks";
+import { reconcileList } from "./md-reconcile";
+import { stableKeys } from "./keyed";
 import { drawDiagram, isDiagramBlock } from "./mermaid";
 import { t } from "./i18n";
 import { MarkdownHtmlCache } from "./md-cache";
@@ -16,17 +17,20 @@ marked.setOptions({ gfm: true, breaks: true });
 
 const htmlCache = new MarkdownHtmlCache();
 
+type Painted = { text: string; live: boolean };
+
+const samePaint = (a: Painted | undefined, b: Painted | undefined) =>
+  a?.text === b?.text && a?.live === b?.live;
+
+/**
+ * Markdown as blocks: every block but the one a reply is still writing is
+ * rendered once, by its source, and kept; only that last block is parsed again
+ * on each token. A reply of prose used to be parsed whole on every frame,
+ * because the only place it could be cut was a closed code fence.
+ */
 export function Md(props: { text: string; class?: string; live?: boolean }) {
-  let host: HTMLDivElement | undefined;
   let frame = 0;
   let started = false;
-  /** Source slice already sitting in `host` as finished blocks. */
-  let renderedStable = "";
-  /** How many of `host`'s child nodes belong to that slice. The rest is the tail. */
-  let stableCount = 0;
-  /** The source last painted, and whether it was still being written. */
-  let lastSource: string | undefined;
-  let lastLive: boolean | undefined;
   const mode = useRowPaintMode();
   const paintHold = useRowPaintHold();
   let cancelIdle: PaintCancel | undefined;
@@ -35,58 +39,14 @@ export function Md(props: { text: string; class?: string; live?: boolean }) {
     releaseHold?.();
     releaseHold = undefined;
   };
-
-  const paint = (source: string, live: boolean) => {
-    if (!host) return;
-    // A frame that resolved to the same words must not touch the nodes. While
-    // a reply streams, the view refreshes faster than the text changes, and
-    // tearing the message down for an unchanged string is a blink for nothing.
-    // `live` is part of it: the flip from streaming to finished re-renders the
-    // nodes once, which is what draws a diagram.
-    if (source === lastSource && live === lastLive && host.childNodes.length > 0) {
-      syncCursor(host, live);
-      return;
-    }
-    lastSource = source;
-    lastLive = live;
-    const cut = stableBoundary(source);
-    const stable = source.slice(0, cut);
-    const tail = source.slice(cut);
-
-    // A rewrite of earlier text, rather than a longer reply, cannot reuse the
-    // nodes. Streaming only ever appends, so this is the other path: an edit,
-    // a replaced message, a row the list handed a different turn.
-    if (!stable.startsWith(renderedStable)) {
-      host.replaceChildren();
-      renderedStable = "";
-      stableCount = 0;
-    }
-
-    if (stable.length > renderedStable.length) {
-      // A block has just finished. Its nodes are appended after the finished
-      // region, which is where the tail used to be, so the old tail goes first.
-      // Reconciling this transition as one list looked tempting — it is the
-      // same swap — but a fence closing turns source text into a code block,
-      // and patching across that boundary left a stray run of backticks on
-      // screen. Measured in the browser harness: it happens on a handful of
-      // frames, only where a fence closes, so it is not worth the risk.
-      while (host.childNodes.length > stableCount) host.removeChild(host.lastChild!);
-      const grown = nodesFrom(stable.slice(renderedStable.length), true, !live);
-      const count = grown.childNodes.length;
-      host.appendChild(grown);
-      stableCount += count;
-      renderedStable = stable;
-    }
-
-    // The tail is rebuilt every token. Reconciled in place rather than removed
-    // and re-appended: for ordinary prose `stableBoundary` returns 0, so every
-    // token used to empty the message and parse all of it again — the whole
-    // reply's worth of nodes replaced on every frame, which is what flickered.
-    // Keeping the nodes that did not change also keeps an image from reloading,
-    // a selection from collapsing and a scroll anchor where the reader left it.
-    reconcileChildren(host, stableCount, [...nodesFrom(tail, false, !live).childNodes]);
-    syncCursor(host, live);
-  };
+  /**
+   * The text on screen and whether it was still being written. A frame that
+   * resolves to the same pair is not a change: the view refreshes faster than
+   * a reply grows, and nothing downstream should wake for it. `live` is part of
+   * it — the flip from streaming to finished is what draws a diagram.
+   */
+  const [shown, setShown] = createSignal<Painted | undefined>(undefined, { equals: samePaint });
+  const current = (): Painted => ({ text: props.text, live: props.live === true });
 
   /**
    * A message being written hands this a new text on every token. The first
@@ -94,15 +54,10 @@ export function Md(props: { text: string; class?: string; live?: boolean }) {
    * least once, and deferring them all would flash an empty line. Later text
    * waits for the frame, so a burst costs one paint rather than one each, and
    * the frame reads whatever is current rather than what was queued.
-   *
-   * That paint does not rebuild the blocks already closed. A fence that has
-   * finished stays where it is, colours and all; only the tail, the part a
-   * further token can still change, is parsed and coloured again.
    */
   createEffect(() => {
-    const source = props.text;
     const live = props.live === true;
-    if (!host) return;
+    void props.text;
     if (!started) {
       // Off-screen rows wait. Parsing every one of them in the scroll turn is
       // the hitch. A row that was already queued and then scrolls into view
@@ -110,9 +65,9 @@ export function Md(props: { text: string; class?: string; live?: boolean }) {
       // here would be that parse, on this turn. A row that mounts already on
       // screen, and a reply that is still being written, do not wait.
       const go = () => {
-        if (started || !host) return;
+        if (started) return;
         started = true;
-        paint(props.text, props.live === true);
+        setShown(current());
       };
       const plan = firstPaint({ live, visible: mode() === "now", queued: cancelIdle !== undefined });
       if (plan === "now") {
@@ -129,16 +84,31 @@ export function Md(props: { text: string; class?: string; live?: boolean }) {
           go();
         });
       }
-      void source;
       return;
     }
     if (frame) return;
     frame = requestAnimationFrame(() => {
       frame = 0;
-      if (!host) return;
-      paint(props.text, props.live === true);
+      setShown(current());
     });
   });
+
+  const live = () => shown()?.live === true;
+  const blocks = createMemo(() => splitBlocks(shown()?.text ?? ""));
+  /** Every block but the one still being written. Each renders once, by its source. */
+  const settled = createMemo<readonly string[]>((prev) =>
+    stableKeys(prev, live() ? blocks().slice(0, -1) : blocks()),
+  );
+  /**
+   * The block a reply is still writing, patched into the nodes it had a frame
+   * ago — a paragraph that grew keeps its node and its text node, so nothing
+   * blinks, a selection holds and an image does not reload.
+   */
+  const tail = createMemo<Node[]>((prev) => {
+    const last = live() ? blocks().at(-1) : undefined;
+    if (last === undefined) return [];
+    return reconcileList(prev, withCaret(blockNodes(last, false)));
+  }, []);
 
   onCleanup(() => {
     if (frame) cancelAnimationFrame(frame);
@@ -149,7 +119,6 @@ export function Md(props: { text: string; class?: string; live?: boolean }) {
 
   return (
     <div
-      ref={host}
       class={`md ${props.class ?? ""}`}
       onClick={(e) => {
         const img = e.target instanceof HTMLImageElement ? e.target : undefined;
@@ -157,20 +126,28 @@ export function Md(props: { text: string; class?: string; live?: boolean }) {
         if (!img || img.closest("a")) return;
         openImage(img.currentSrc || img.src, img.alt);
       }}
-    />
+    >
+      {/* Straight into `.md`, no wrapper: the theme styles `.md > :first-child`. */}
+      <For each={settled()}>{(source) => blockNodes(source, true)}</For>
+      {tail()}
+    </div>
   );
 }
 
-function syncCursor(host: HTMLElement, live: boolean) {
-  host.querySelector(".streaming-caret")?.remove();
-  if (!live) return;
-  const last = host.lastElementChild;
+function blockNodes(source: string, finished: boolean): Node[] {
+  return [...nodesFrom(source, finished).childNodes];
+}
+
+/** The streaming caret, at the end of the text the last block ends with. */
+function withCaret(nodes: Node[]): Node[] {
+  const last = nodes.findLast((n): n is Element => n.nodeType === 1);
   const target = last ? cursorTarget(last) : undefined;
-  if (!target) return;
+  if (!target) return nodes;
   const caret = document.createElement("span");
   caret.className = "streaming-caret ml-0.5 inline-block h-[1em] w-[2px] translate-y-0.5 motion-safe:animate-pulse bg-foreground/70 align-text-bottom";
   caret.setAttribute("aria-hidden", "true");
   target.append(caret);
+  return nodes;
 }
 
 function cursorTarget(block: Element): Element | undefined {
@@ -189,22 +166,22 @@ function cursorTarget(block: Element): Element | undefined {
 }
 
 /**
- * Parse a slice of markdown into nodes.
+ * Parse one block of markdown into nodes.
  *
- * `finished` says whether this slice is a region no further token can change.
- * It is what decides whether a diagram is drawn or left as source: a fence that
- * is still arriving is not a diagram yet, it is half of one, and drawing it
- * would mean parsing a source that is still being written and drawing it again
- * on the next frame. Settled slices can replay the sanitised, highlighted HTML;
- * diagrams are still drawn against the new nodes below.
+ * `finished` says whether no further token can change this block. It decides
+ * two things. A finished block replays its sanitised, highlighted HTML from the
+ * cache; the block a reply is still writing is new on every token, so caching
+ * it would only evict what is worth keeping. And a finished block draws its
+ * diagram: a fence that is still arriving is not a diagram yet, it is half of
+ * one, and drawing it would mean drawing it again on the next frame.
  */
-function nodesFrom(markdown: string, finished: boolean, useCache: boolean): DocumentFragment {
+function nodesFrom(markdown: string, finished: boolean): DocumentFragment {
   const tpl = document.createElement("template");
-  const cached = useCache ? htmlCache.get(markdown) : undefined;
+  const cached = finished ? htmlCache.get(markdown) : undefined;
   if (cached === undefined) {
     tpl.innerHTML = DOMPurify.sanitize(marked.parse(markdown, { async: false }) as string);
     highlightCode(tpl.content);
-    if (useCache) htmlCache.set(markdown, tpl.innerHTML);
+    if (finished) htmlCache.set(markdown, tpl.innerHTML);
   } else {
     tpl.innerHTML = cached;
   }
@@ -213,14 +190,13 @@ function nodesFrom(markdown: string, finished: boolean, useCache: boolean): Docu
 }
 
 /**
- * Draw every diagram in a finished region.
+ * Draw every diagram in a finished block.
  *
- * Each diagram block is wrapped before the nodes go in: the paint loop counts
- * the stable children it appended and reaps anything past that count on the
- * next pass. A holder the draw inserts as a bare sibling of the block is a
- * child it never counted — it survives until the next append and is dropped
- * with the tail, leaving a drawn flag, a hidden source, and no diagram. The
- * wrapper makes block, holder, and failure note one counted node.
+ * Each diagram block is wrapped before the nodes go in: the list rendering the
+ * message holds the top-level nodes a block produced and nothing else. A holder
+ * the draw inserted as a bare sibling of the block would be a node the list
+ * never held — left behind when the block goes, or dropped while its source
+ * stays hidden. The wrapper makes block, holder, and failure note one node.
  *
  * The blocks are walked here, while the nodes are still in a fragment, and each
  * one is drawn once it is connected — a diagram engine measures its output

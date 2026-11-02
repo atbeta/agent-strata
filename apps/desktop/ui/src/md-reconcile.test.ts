@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { canPatch, reconcileChildren } from "./md-reconcile";
+import { canPatch, reconcileList } from "./md-reconcile";
 
 /**
  * A streaming reply is re-parsed on every token. What keeps it from blinking is
@@ -8,7 +8,7 @@ import { canPatch, reconcileChildren } from "./md-reconcile";
  * measurement that found this: over a 156-character reply, the first block was
  * replaced on 154 of 156 frames.
  *
- * The project has no DOM in its test runner, so the surface `reconcileChildren`
+ * The project has no DOM in its test runner, so the surface `reconcileList`
  * actually touches is faked here rather than pulling in a DOM library. That
  * keeps the assertions about this module's algorithm, which is the part that can
  * be wrong, and leaves the real DOM to the browser harness.
@@ -80,11 +80,11 @@ const text = (value: string): FakeNode => new FakeNode(TEXT, "#text", value);
 
 const para = (value: string): FakeNode => el("p", text(value));
 
-/** Shorthand: build a host, then reconcile it with the given tail. */
+/** Shorthand: reconcile, then put the resulting list in a host the way the renderer does. */
 const run = (existing: FakeNode[], incoming: FakeNode[]): FakeNode => {
+  const list = reconcileList(existing as unknown as Node[], incoming as unknown as Node[]) as unknown as FakeNode[];
   const host = new FakeNode(ELEMENT, "DIV");
-  for (const c of existing) host.appendChild(c);
-  reconcileChildren(host as unknown as Node, 0, incoming as unknown as Node[]);
+  for (const c of list) host.appendChild(c);
   return host;
 };
 
@@ -100,15 +100,22 @@ describe("patching a rebuilt tail into the nodes on screen", () => {
   });
 
   test("a growing reply reuses the text node on every step", () => {
-    const host = new FakeNode(ELEMENT, "DIV");
+    let list: Node[] = [];
     const seen: FakeNode[] = [];
-    const target = host as unknown as Node;
     for (const s of ["这", "这是", "这是一个", "这是一个回复"]) {
-      reconcileChildren(target, 0, [para(s)] as unknown as Node[]);
-      seen.push((host.childNodes[0] as FakeNode).childNodes[0]!);
+      list = reconcileList(list, [para(s)] as unknown as Node[]);
+      seen.push((list[0] as unknown as FakeNode).childNodes[0]!);
     }
     expect(new Set(seen).size).toBe(1);
     expect(seen[0]!.nodeValue).toBe("这是一个回复");
+  });
+
+  test("the list is returned, not written: the nodes on screen stay where they are", () => {
+    const host = new FakeNode(ELEMENT, "DIV");
+    const before = host.appendChild(para("一"));
+    reconcileList([before] as unknown as Node[], [para("一二")] as unknown as Node[]);
+    expect(host.childNodes).toEqual([before]);
+    expect(before.childNodes[0]!.nodeValue).toBe("一二");
   });
 
   test("a finished block before the change is left alone", () => {
@@ -165,21 +172,6 @@ describe("patching a rebuilt tail into the nodes on screen", () => {
     expect(host.childNodes[0]).toBe(kept);
     expect(host.childNodes[1]).not.toBe(doomed);
     expect(host.childNodes[1]!.nodeName).toBe("PRE");
-  });
-
-  test("the tail starts after the finished region", () => {
-    const stable = para("已完成的段落");
-    const tail = para("正在写");
-    const host = new FakeNode(ELEMENT, "DIV");
-    host.appendChild(stable);
-    host.appendChild(tail);
-
-    // from = 1: only the tail is reconciled, so the stable block is untouched.
-    reconcileChildren(host as unknown as Node, 1, [para("正在写了")] as unknown as Node[]);
-
-    expect(host.childNodes[0]).toBe(stable);
-    expect(host.childNodes[1]).toBe(tail);
-    expect(host.childNodes.length).toBe(2);
   });
 
   test("canPatch asks about shape, not content", () => {

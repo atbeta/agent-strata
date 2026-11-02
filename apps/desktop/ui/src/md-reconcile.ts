@@ -85,22 +85,21 @@ function patchChildren(from: Node, to: Node): void {
 }
 
 /**
- * Reconcile everything at or after `from` with `incoming`.
+ * The nodes to show for `incoming`, reusing `current` where it can.
  *
- * Used for the tail of a message, which is re-parsed on every token while the
- * finished region before it is left alone.
+ * Used for the block a reply is still writing, which is re-parsed on every
+ * token. Nodes are patched in order until one cannot be; that one and every
+ * incoming node after it are taken as they are, because a structural change
+ * early on can change what the rest of the block means. The caller puts the
+ * list on screen — nothing here moves a node.
  */
-export function reconcileChildren(host: Node, from: number, incoming: readonly Node[]): void {
+export function reconcileList(current: readonly Node[], incoming: readonly Node[]): Node[] {
+  const out: Node[] = [];
   let i = 0;
-  while (i < incoming.length) {
-    const at = from + i;
-    const existing = host.childNodes[at];
-    if (existing === undefined) break;
-    if (!patchNode(existing, incoming[i]!)) break;
+  while (i < current.length && i < incoming.length && patchNode(current[i]!, incoming[i]!)) {
+    out.push(current[i]!);
     i += 1;
   }
-  // The first block that could not be patched takes the rest of the tail with
-  // it: a structural change here reflows what follows.
-  while (host.childNodes.length > from + i) host.removeChild(host.childNodes[from + i]!);
-  for (let j = i; j < incoming.length; j += 1) host.appendChild(incoming[j]!);
+  for (let j = i; j < incoming.length; j += 1) out.push(incoming[j]!);
+  return out;
 }

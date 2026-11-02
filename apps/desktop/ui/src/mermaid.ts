@@ -39,7 +39,8 @@ const DIAGRAM_LANGUAGES = new Set(["mermaid"]);
  *
  * Kept as a predicate on the rendered DOM rather than on the source because
  * that is where the answer is already known: `marked` puts the language on the
- * `code` element and `stableBoundary` has already guaranteed the fence closed.
+ * `code` element, and only a finished block — one no further token can change —
+ * is asked to draw.
  */
 export function isDiagramBlock(block: Element): block is HTMLElement {
   const code = block.firstElementChild;

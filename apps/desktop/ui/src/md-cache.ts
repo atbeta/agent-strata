@@ -4,14 +4,16 @@ type CacheEntry = { html: string; cost: number };
  * Settled markdown, kept so a row that scrolls away and back does not parse
  * again. A long session is several megabytes of source plus the HTML it
  * became. A 2MB cap evicted that session mid-scroll, and the parse came back
- * as the hitch.
+ * as the hitch. Entries are blocks, not messages — a message is a dozen or
+ * more of them — so the count cap sits far above the cost cap, and the cost
+ * cap is the one that decides.
  */
 export class MarkdownHtmlCache {
   private entries = new Map<string, CacheEntry>();
   private cost = 0;
 
   constructor(
-    private readonly maxEntries = 4000,
+    private readonly maxEntries = 50_000,
     private readonly maxCost = 16_000_000,
   ) {}
 

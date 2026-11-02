@@ -466,7 +466,7 @@ describe("transcript reading details", () => {
 
   test("the streaming caret lives at the end of the markdown, not on a new line", () => {
     expect(transcript).toContain('text={block().text} live={props.live}');
-    expect(markdown).toContain("syncCursor(host, live)");
+    expect(markdown).toContain("withCaret(blockNodes(last, false))");
     expect(markdown).toContain("target.append(caret)");
     expect(transcript).not.toContain("props.message.content.some((block) => block.type === \"text\")");
   });

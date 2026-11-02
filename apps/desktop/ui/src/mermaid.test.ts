@@ -12,13 +12,13 @@ const read = (file: string) => readFileSync(join(import.meta.dir, file), "utf8")
  * places where that is decided.
  */
 describe("mermaid rendering ratchet", () => {
-  test("only a finished region is asked to draw", () => {
-    // `stableBoundary` already separates what has closed from what is still
-    // arriving. Handing the tail to the diagram engine means parsing a source
-    // that is still being written, and drawing it again on the next frame.
+  test("only a finished block is asked to draw", () => {
+    // Every block but the one a reply is still writing is finished. Handing
+    // that last one to the diagram engine means parsing a source that is
+    // still being written, and drawing it again on the next frame.
     const src = read("md.tsx");
     expect(src).toContain("if (finished) drawDiagrams(tpl.content)");
-    expect(src).toMatch(/nodesFrom\(tail, false, !live\)/);
+    expect(src).toMatch(/blockNodes\(last, false\)/);
   });
 
   test("the engine is loaded on first use, never at import", () => {
