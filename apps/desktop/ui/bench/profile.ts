@@ -15,7 +15,8 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { startEnv } from "./env";
 import { installProbe } from "./probe";
-import { jump, jumpToTurn, openCold, stepUp, wheelUp, type FlowContext } from "./scenarios";
+import { jump, jumpToTurn, openCold, replyDone, stepUp, streamingReply, wheelUp, type FlowContext } from "./scenarios";
+import { FIXTURE_SESSIONS } from "./fixtures";
 
 interface ProfileNode {
   id: number;
@@ -74,7 +75,7 @@ const flowsAt = argv.indexOf("--flows");
 const flows = (flowsAt >= 0 ? argv[flowsAt + 1]! : "A,B").split(",");
 const build = argv.includes("--dev") ? "dev" : "prod";
 
-const env = await startEnv({ build });
+const env = await startEnv({ build, busy: flows.includes("S") ? [FIXTURE_SESSIONS.long] : [] });
 const browser = await chromium.launch();
 const out = join(import.meta.dir, "results", "profiles", new Date().toISOString().replace(/[:.]/g, "-"));
 mkdirSync(out, { recursive: true });
@@ -115,6 +116,10 @@ try {
       await step("step-into", () => stepUp(ctx, "step-into", 6_000, 120));
       await step("jump-giant", () => jumpToTurn(ctx, "jump-giant", g.id, g.turns[1]!));
       await step("return-giant", () => jumpToTurn(ctx, "return-giant", g.id, g.turns[0]!));
+    } else if (flow === "S") {
+      await step("open", () => openCold(ctx, "open", S.long));
+      await step("stream-reply", () => streamingReply(ctx, "stream-reply", S.long));
+      await step("reply-done", () => replyDone(ctx, "reply-done", S.long));
     } else {
       await step("open", () => openCold(ctx, "open", sid));
       await step("step-up", () => stepUp(ctx, "step-up", 6_000, 120));
