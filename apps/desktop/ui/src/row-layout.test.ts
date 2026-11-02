@@ -6,7 +6,11 @@ import { createRowLayout } from "./row-layout";
 // inside the layout, and committed heights would stop recomputing offsets.
 const layout = (
   ids: readonly string[],
-  opts?: { seed?: ReadonlyMap<string, number>; onHeight?: (id: string, h: number) => void },
+  opts?: {
+    joined?: (i: number) => boolean;
+    seed?: ReadonlyMap<string, number>;
+    onHeight?: (id: string, h: number) => void;
+  },
 ) => {
   let out!: ReturnType<typeof createRowLayout>;
   createRoot(() => {
@@ -69,6 +73,17 @@ describe("row layout", () => {
     l.commit(new Map([["a", 200]]));
     expect(seen).toEqual(["a"]);
     expect(l.isMeasured("a")).toBe(true);
+  });
+
+  test("a row its successor continues leaves no gap; the rest keep theirs", () => {
+    // A 25-message turn is rows "a", "a#1", "a#2" — joined inside, gapped around.
+    const l = layout(["t0", "a", "a#1", "a#2", "t4"], {
+      joined: (i) => i === 1 || i === 2, // "a#1" and "a#2" continue "a"
+    });
+    expect([...l.offsets()]).toEqual([0, 110, 210, 310, 420, 530]);
+    expect(l.end()).toBe(530);
+    l.commit(new Map([["a#1", 200]]));
+    expect([...l.offsets()]).toEqual([0, 110, 210, 410, 520, 630]);
   });
 
   test("indexOf follows the id list, not a stale map", () => {

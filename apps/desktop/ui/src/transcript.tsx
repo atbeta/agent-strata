@@ -45,6 +45,7 @@ import {
   type ToolKind,
 } from "./transcript-format";
 import { MessageActions } from "./message-actions";
+import type { TurnPart } from "./turn-segments";
 
 /**
  * A right-click on a message gets the same things the action row under it
@@ -825,7 +826,9 @@ function ToolCallCard(props: {
 }
 
 type AssistantMessageData = Turn["assistant"][number];
-type FlowRow = { kind: "message"; message: AssistantMessageData } | { kind: "tools"; calls: ToolCallView[] };
+type FlowRow =
+  | { kind: "message"; message: AssistantMessageData; index: number }
+  | { kind: "tools"; calls: ToolCallView[] };
 
 /** Structured output is the answer, and stringifying it is not scroll work. */
 function StructuredAnswer(props: { value: unknown }) {
@@ -1073,6 +1076,11 @@ function ToolRun(props: {
 export function TurnBlock(props: {
   turn: Turn;
   /**
+   * Which slice of the turn this block renders, when the turn is mounted in
+   * segments. Absent means the whole turn, as before.
+   */
+  part?: TurnPart;
+  /**
    * Whether this turn arrived while the reader was already in this session.
    * Anything built in one pass — opening a conversation, switching to one, or
    * scrolling a long one back into view — is not arriving, and must paint
@@ -1107,8 +1115,14 @@ export function TurnBlock(props: {
    * by its ordinal inside that message. A call the backend never attributed
    * stays at the end, which is the honest place for one of unknown origin.
    */
+  const firstPart = () => props.part === undefined || props.part.part === 0;
+  const lastPart = () => props.part === undefined || props.part.last;
   const flow = createMemo(() => {
     const msgs = props.turn.assistant;
+    // Attribution is computed over the whole turn — a call's msg_id names an
+    // absolute message index — then only this part's slice is emitted, so a
+    // segmented turn draws each call under the message that made it and the
+    // loose ones in the part that ends the turn.
     const at = new Map<string, number>();
     msgs.forEach((m, i) => {
       if (m.msg_id !== undefined) at.set(m.msg_id, i);
@@ -1126,20 +1140,24 @@ export function TurnBlock(props: {
       calls.set(i, list);
     }
     const rows: FlowRow[] = [];
-    msgs.forEach((message, i) => {
-      rows.push({ kind: "message", message });
+    const from = props.part?.msgFrom ?? 0;
+    const to = props.part?.msgTo ?? msgs.length;
+    for (let i = from; i < to; i++) {
+      rows.push({ kind: "message", message: msgs[i]!, index: i });
       const mine = calls.get(i);
       if (mine?.length) rows.push({ kind: "tools", calls: mine });
-    });
-    if (loose.length) rows.push({ kind: "tools", calls: loose });
+    }
+    if (loose.length && lastPart()) rows.push({ kind: "tools", calls: loose });
     return rows;
   });
 
   return (
     <div
-      class={`${props.entering?.() ? "rise-in " : ""}space-y-1 ${props.turn.reverted ? "opacity-50" : ""}`}
+      class={`${firstPart() && props.entering?.() ? "rise-in " : ""}space-y-1 ${props.part && props.part.part > 0 ? "pt-1 " : ""}${
+        props.turn.reverted ? "opacity-50" : ""
+      }`}
     >
-      <Show when={props.turn.user}>
+      <Show when={firstPart() ? props.turn.user : undefined}>
         {(blocks) => (
           <MessageMenu
             text={() => messageText(blocks())}
@@ -1186,9 +1204,9 @@ export function TurnBlock(props: {
               {(r) => (
                 <AssistantMessage
                   turnId={props.turn.turn_id}
-                  index={index}
+                  index={r().index}
                   message={r().message}
-                  footer={index === flow().length - 1}
+                  footer={lastPart() && index === flow().length - 1}
                   live={props.live}
                   running={props.running}
                   onFork={props.onFork}
@@ -1208,13 +1226,13 @@ export function TurnBlock(props: {
           </Switch>
         )}
       </Index>
-      <Show when={props.awaiting?.()}>
+      <Show when={lastPart() && props.awaiting?.()}>
         <div class="flex items-center gap-2 text-xs font-medium text-muted-foreground">
           <Icon name="brain" class="size-3.5 shrink-0 text-status-active motion-safe:animate-pulse" />
           {t("transcript.thinking")}
         </div>
       </Show>
-      <Show when={props.turn.compaction}>
+      <Show when={lastPart() ? props.turn.compaction : undefined}>
         {(c) => (
           <TranscriptDivider icon="archive">
             {[

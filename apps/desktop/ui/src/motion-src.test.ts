@@ -34,7 +34,7 @@ describe("the transcript's flow is positioned so motion is possible", () => {
       require("node:path").join(import.meta.dir, "transcript-view.tsx"),
       "utf8",
     ) as string;
-    expect(view).toContain("data-turn-id={turn().turn_id}");
+    expect(view).toContain("data-turn-id={seg().turn.turn_id}");
   });
 
   test("a tool run is positioned too, so its cards are not rebuilt mid-run", () => {
@@ -117,11 +117,13 @@ describe("the transcript's flow is positioned so motion is possible", () => {
   test("the entrance is asked of the ledger, not carried by the node", () => {
     const src = transcript();
     const turnRoot = src.slice(
-      Math.max(0, src.indexOf("props.turn.reverted ?") - 120),
+      Math.max(0, src.indexOf("props.turn.reverted ?") - 240),
       src.indexOf("props.turn.reverted ?") + 80,
     );
-    // Conditional, so a row that is merely being mounted gets no animation.
-    expect(turnRoot).toContain('props.entering?.() ? "rise-in " : ""');
+    // Conditional, so a row that is merely being mounted gets no animation —
+    // and gated on the first part, so a live turn growing a new segment does
+    // not replay the entrance its first row already ran.
+    expect(turnRoot).toContain('firstPart() && props.entering?.() ? "rise-in " : ""');
     // And still nothing on the assistant message, which is rebuilt as content
     // streams in and as the window moves.
     const message = src.slice(src.indexOf('data-message-role="assistant"'));

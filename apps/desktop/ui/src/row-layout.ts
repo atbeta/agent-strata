@@ -36,6 +36,8 @@ export function createRowLayout(opts: {
   ids: () => readonly string[];
   estimate: number;
   gap: number;
+  /** "row i+1 continues row i": no gap is folded in after a row its successor continues. */
+  joined?: (i: number) => boolean;
   seed?: ReadonlyMap<string, number>;
   onHeight?: (id: string, height: number) => void;
 }): RowLayout {
@@ -57,7 +59,7 @@ export function createRowLayout(opts: {
       let acc = 0;
       for (let i = 0; i < ids.length; i++) {
         out[i] = acc;
-        acc += (known.get(ids[i]!) ?? opts.estimate) + opts.gap;
+        acc += (known.get(ids[i]!) ?? opts.estimate) + (opts.joined?.(i) ? 0 : opts.gap);
       }
       out[ids.length] = acc;
       cachedOffsets = out;

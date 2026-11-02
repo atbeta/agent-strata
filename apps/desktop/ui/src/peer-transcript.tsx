@@ -319,9 +319,10 @@ const turns = () => shown().turns;
           <SessionEmpty workspace={displayed()?.workspace} />
         </div>
       }
-      renderTurn={(turn) => (
+      renderTurn={(turn, index, part) => (
         <TurnBlock
           turn={turn()}
+          part={part()}
           entering={() => shown().arriving.has(turn().turn_id)}
           live={() => peerGenerating() && turns().at(-1)?.turn_id === turn().turn_id}
           running={() => peerGenerating()}

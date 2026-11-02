@@ -1656,9 +1656,10 @@ const turns = () => shown().turns;
                     </div>
                   </Show>
                 }
-                renderTurn={(turn) => (
+                renderTurn={(turn, index, part) => (
                   <TurnBlock
                     turn={turn()}
+                    part={part()}
                     entering={() => shown().arriving.has(turn().turn_id)}
                     live={() => composer.generating() && turns().at(-1)?.turn_id === turn().turn_id}
                     running={() => composer.generating()}

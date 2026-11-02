@@ -37,7 +37,8 @@ import { Tip } from "./tip";
 import { Button } from "@/components/ui/button";
 import { Icon } from "./icons";
 import { t } from "./i18n";
-import { createTurnIds } from "./turn-ids";
+import { createIds } from "./turn-ids";
+import { turnSegments, type TurnPart, type TurnSegment } from "./turn-segments";
 
 export interface TranscriptApi {
   jumpTo: (turnId: string, align?: "start" | "center") => void;
@@ -59,8 +60,8 @@ export function TranscriptView(props: {
   latest?: boolean;
   /** The wrapper's layout classes, which differ between the two panes. */
   class?: string;
-  /** One turn; the <div data-turn-id> wrapper is added here. */
-  renderTurn: (turn: () => Turn, index: number) => JSX.Element;
+  /** One turn segment; the <div data-turn-id data-row-id> wrapper is added here. */
+  renderTurn: (turn: () => Turn, index: number, part: () => TurnPart) => JSX.Element;
   /** Receives the imperative handle once, and again on each remount. */
   api?: (a: TranscriptApi) => void;
   /**
@@ -75,11 +76,17 @@ export function TranscriptView(props: {
         {(key) => {
           const entries = createMemo<PromptEntry[]>((prev) => promptEntries(props.turns, prev));
           const showNav = () => props.nav && entries().length >= 2;
-          const ids = createTurnIds(() => props.turns);
+          // Rows are turn segments: a turn of hundreds of messages is mounted
+          // as many small rows instead of one it takes hundreds of ms to build.
+          const segments = createMemo<TurnSegment[]>((prev) => turnSegments(props.turns, prev));
+          const ids = createIds(segments, (s) => s.id);
           const layout = createRowLayout({
             ids,
             estimate: ROW_ESTIMATE,
             gap: ROW_GAP,
+            // A turn's later segments continue the row above them; the turn
+            // gap is between turns, not every SEGMENT_MESSAGES messages.
+            joined: (i) => (segments()[i + 1]?.part ?? 0) > 0,
             seed: readRowHeights(key),
             onHeight: (id, height) => writeRowHeight(key, id, height),
           });
@@ -103,11 +110,12 @@ export function TranscriptView(props: {
           // per read ran the outline lookup once per tick per frame. With the
           // memo, a scroll that never crosses a prompt boundary changes
           // nothing.
-          const activeId = createMemo(
-            () =>
-              (owner.following() ? entries().at(-1) : promptAt(entries(), owner.activeIndex()))
-                ?.turnId,
-          );
+          const activeId = createMemo(() => {
+            if (owner.following()) return entries().at(-1)?.turnId;
+            // The owner's index is a row index now; the outline counts turns.
+            const turnIndex = segments()[owner.activeIndex()]?.turnIndex ?? 0;
+            return promptAt(entries(), turnIndex)?.turnId;
+          });
 
           props.api?.({
             jumpTo: owner.jumpTo,
@@ -145,8 +153,8 @@ export function TranscriptView(props: {
                           scroller's content — the owner's `origin`. */}
                       <div ref={(el) => (host = el)}>
                         <Virtual
-                          items={props.turns}
-                          id={(turn) => turn.turn_id}
+                          items={segments()}
+                          id={(seg) => seg.id}
                           layout={layout}
                           commit={(heights) => {
                             // Absorb against the layout the reader is looking
@@ -168,9 +176,9 @@ export function TranscriptView(props: {
                           }}
                           viewport={owner.viewport}
                         >
-                          {(turn, i) => (
-                            <div data-turn-id={turn().turn_id}>
-                              {props.renderTurn(turn, i)}
+                          {(seg) => (
+                            <div data-turn-id={seg().turn.turn_id} data-row-id={seg().id}>
+                              {props.renderTurn(() => seg().turn, seg().turnIndex, () => seg())}
                             </div>
                           )}
                         </Virtual>
