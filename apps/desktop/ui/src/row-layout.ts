@@ -34,7 +34,18 @@ export interface RowLayout {
 
 export function createRowLayout(opts: {
   ids: () => readonly string[];
+  /** Height for a row that has not been measured and has no estimate of its own. */
   estimate: number;
+  /**
+   * Per-row heights for rows that have not been measured, by row id.
+   *
+   * Rows are not one size. A turn split into segments has a first segment
+   * that carries the turn's own block and continuations that carry messages
+   * alone, and a one-message turn is a fraction of either. One number for
+   * every row makes the scrollbar wrong by the widest of them, in whichever
+   * direction that is.
+   */
+  estimates?: () => ReadonlyMap<string, number>;
   gap: number;
   /** "row i+1 continues row i": no gap is folded in after a row its successor continues. */
   joined?: (i: number) => boolean;
@@ -51,20 +62,29 @@ export function createRowLayout(opts: {
   let cachedOffsets: Float64Array | undefined;
   let offsetsIds: readonly string[] | undefined;
   let offsetsMeasured: ReadonlyMap<string, number> | undefined;
+  let offsetsEstimates: ReadonlyMap<string, number> | undefined;
   const offsets = (): Float64Array => {
     const known = measured();
     const ids = opts.ids();
-    if (!cachedOffsets || known !== offsetsMeasured || ids !== offsetsIds) {
+    const ests = opts.estimates?.();
+    if (
+      !cachedOffsets ||
+      known !== offsetsMeasured ||
+      ids !== offsetsIds ||
+      ests !== offsetsEstimates
+    ) {
       const out = new Float64Array(ids.length + 1);
       let acc = 0;
       for (let i = 0; i < ids.length; i++) {
+        const id = ids[i]!;
         out[i] = acc;
-        acc += (known.get(ids[i]!) ?? opts.estimate) + (opts.joined?.(i) ? 0 : opts.gap);
+        acc += (known.get(id) ?? ests?.get(id) ?? opts.estimate) + (opts.joined?.(i) ? 0 : opts.gap);
       }
       out[ids.length] = acc;
       cachedOffsets = out;
       offsetsMeasured = known;
       offsetsIds = ids;
+      offsetsEstimates = ests;
     }
     return cachedOffsets;
   };
@@ -85,7 +105,11 @@ export function createRowLayout(opts: {
     ids: opts.ids,
     offsets,
     end: () => offsets()[opts.ids().length] ?? 0,
-    heightOf: (i) => measured().get(opts.ids()[i]!) ?? opts.estimate,
+    heightOf: (i) => {
+      const id = opts.ids()[i];
+      if (id === undefined) return opts.estimate;
+      return measured().get(id) ?? opts.estimates?.().get(id) ?? opts.estimate;
+    },
     indexOf: (id) => index().get(id) ?? -1,
     rowAt: (y) => {
       const o = offsets();
@@ -101,9 +125,10 @@ export function createRowLayout(opts: {
     isMeasured: (id) => measured().has(id),
     commit: (heights) => {
       const current = measured();
+      const ests = opts.estimates?.();
       let next: Map<string, number> | undefined;
       for (const [id, height] of heights) {
-        const prev = current.get(id) ?? opts.estimate;
+        const prev = current.get(id) ?? ests?.get(id) ?? opts.estimate;
         if (Math.abs(prev - height) < EPS) continue;
         next ??= new Map(current);
         next.set(id, height);

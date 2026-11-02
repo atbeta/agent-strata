@@ -8,6 +8,7 @@ const layout = (
   ids: readonly string[],
   opts?: {
     joined?: (i: number) => boolean;
+    estimates?: () => ReadonlyMap<string, number>;
     seed?: ReadonlyMap<string, number>;
     onHeight?: (id: string, h: number) => void;
   },
@@ -95,6 +96,42 @@ describe("row layout", () => {
       ids = ["x", "a", "b"];
       expect(l.indexOf("a")).toBe(1);
     });
+  });
+
+  test("a row with an estimate of its own uses it", () => {
+    // Rows are not one size: a turn's first segment carries the turn's own
+    // block and its continuations carry messages alone. One number for every
+    // row makes the scrollbar wrong by the widest of them.
+    let estimates = new Map([
+      ["a", 150],
+      ["b", 760],
+    ]);
+    const l = layout(["a", "b"], { estimates: () => estimates });
+    expect([...l.offsets()]).toEqual([0, 160, 930]);
+    expect(l.heightOf(0)).toBe(150);
+    expect(l.heightOf(1)).toBe(760);
+    // A measurement still wins over the estimate.
+    l.commit(new Map([["a", 300]]));
+    expect(l.heightOf(0)).toBe(300);
+  });
+
+  test("a new estimate rebuilds the prefix sum", () => {
+    let estimates = new Map([["a", 150]]);
+    const l = layout(["a", "b"], { estimates: () => estimates });
+    expect(l.end()).toBe(270);
+    estimates = new Map([["a", 400]]);
+    expect(l.end()).toBe(520);
+  });
+
+  test("a measurement that matches the row's own estimate is not a change", () => {
+    const seen: string[] = [];
+    const l = layout(["a"], {
+      estimates: () => new Map([["a", 150]]),
+      onHeight: (id) => seen.push(id),
+    });
+    l.commit(new Map([["a", 150]]));
+    expect(seen).toEqual([]);
+    expect(l.isMeasured("a")).toBe(false);
   });
 
   test("rowAt edges: before the first row, inside one, past the end", () => {

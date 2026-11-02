@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Turn } from "./api";
-import { SEGMENT_MESSAGES, turnSegments } from "./turn-segments";
+import { MESSAGE_CHARS, SEGMENT_MESSAGES, TOOL_ROW, TURN_BASE, estimateSegmentHeight, turnSegments } from "./turn-segments";
 
 const turn = (id: string, messages: number): Turn =>
   ({
@@ -65,5 +65,43 @@ describe("turn segments", () => {
     expect(second[0]).toMatchObject({ id: "t1", last: false, msgTo: 12 });
     expect(second[0]).not.toBe(first[0]);
     expect(second[1]).toMatchObject({ id: "t1#1", last: true, msgFrom: 12, msgTo: 13 });
+  });
+});
+
+describe("how tall a row is expected to be", () => {
+  const text = (n: number) => [{ type: "text" as const, text: "x".repeat(n) }];
+
+  test("a turn's own block is counted once, on its first segment", () => {
+    // The user message and the turn's padding live on the first segment only.
+    // A continuation is messages alone, so it must not carry them again.
+    const t = { turn_id: "t1", assistant: [{ content: text(100) }], tool_calls: [] } as unknown as Turn;
+    const segs = turnSegments([{ ...t, assistant: Array.from({ length: 24 }, () => ({ content: text(100) })) } as unknown as Turn]);
+    const first = estimateSegmentHeight(segs[0]!);
+    const second = estimateSegmentHeight(segs[1]!);
+    expect(first).toBe(TURN_BASE + 12 * 100 * MESSAGE_CHARS);
+    expect(second).toBe(12 * 100 * MESSAGE_CHARS);
+    expect(first - second).toBe(TURN_BASE);
+  });
+
+  test("a tool call adds its own row", () => {
+    const t = {
+      turn_id: "t1",
+      assistant: [{ msg_id: "m0", content: text(100) }],
+      tool_calls: [{ call_id: "c0", tool: "bash", input: {}, status: "ok", msg_id: "m0" }],
+    } as unknown as Turn;
+    const seg = turnSegments([t])[0]!;
+    expect(estimateSegmentHeight(seg)).toBe(TURN_BASE + 100 * MESSAGE_CHARS + TOOL_ROW);
+  });
+
+  test("rows are not all one size", () => {
+    const short = { turn_id: "t1", assistant: [{ content: text(200) }], tool_calls: [] } as unknown as Turn;
+    const long = {
+      turn_id: "t2",
+      assistant: Array.from({ length: 12 }, () => ({ content: text(800) })),
+      tool_calls: [],
+    } as unknown as Turn;
+    const a = estimateSegmentHeight(turnSegments([short])[0]!);
+    const b = estimateSegmentHeight(turnSegments([long])[0]!);
+    expect(b).toBeGreaterThan(a * 4);
   });
 });

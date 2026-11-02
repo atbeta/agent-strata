@@ -40,7 +40,7 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "./icons";
 import { t } from "./i18n";
 import { createIds } from "./turn-ids";
-import { turnSegments, type TurnPart, type TurnSegment } from "./turn-segments";
+import { estimateSegmentHeight, turnSegments, type TurnPart, type TurnSegment } from "./turn-segments";
 
 export interface TranscriptApi {
   jumpTo: (turnId: string, align?: "start" | "center") => void;
@@ -85,12 +85,36 @@ export function TranscriptView(props: {
           const layout = createRowLayout({
             ids,
             estimate: ROW_ESTIMATE,
+            estimates: () => estimates(),
             gap: ROW_GAP,
             // A turn's later segments continue the row above them; the turn
             // gap is between turns, not every SEGMENT_MESSAGES messages.
             joined: (i) => (segments()[i + 1]?.part ?? 0) > 0,
             seed: readRowHeights(key),
             onHeight: (id, height) => writeRowHeight(key, id, height),
+          });
+          /**
+           * How tall each row is expected to be, for the rows not yet measured.
+           *
+           * The same map while the numbers hold: a new one rebuilds the prefix
+           * sum and re-runs the owner's write. A measured row is left out — its
+           * estimate is never read, and the row a reply streams into is measured
+           * from its first frame and grows on every tick.
+           */
+          const estimates = createMemo<ReadonlyMap<string, number>>((prev) => {
+            let same = prev !== undefined;
+            let count = 0;
+            for (const seg of segments()) {
+              if (layout.isMeasured(seg.id)) continue;
+              count += 1;
+              if (same && prev!.get(seg.id) !== estimateSegmentHeight(seg)) same = false;
+            }
+            if (same && prev!.size === count) return prev!;
+            const next = new Map<string, number>();
+            for (const seg of segments()) {
+              if (!layout.isMeasured(seg.id)) next.set(seg.id, estimateSegmentHeight(seg));
+            }
+            return next;
           });
           let scroller: HTMLDivElement | undefined;
           let host: HTMLDivElement | undefined;

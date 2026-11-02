@@ -1,4 +1,5 @@
 import type { Turn } from "./api";
+import { attributionOf } from "./turn-attribution";
 
 /**
  * One turn can hold hundreds of assistant messages, and mounted whole it is a
@@ -28,6 +29,57 @@ export interface TurnSegment extends TurnPart {
 /** Part 0 keeps the turn's own id so jumpTo, remembered readings and the outline resolve unchanged. */
 export function segmentId(turnId: string, part: number): string {
   return part === 0 ? turnId : `${turnId}#${part}`;
+}
+
+/**
+ * What a segment is expected to be tall, before it has been measured.
+ *
+ * One number for every row is wrong in both directions, and the two errors
+ * pull against each other: a turn of one long reply draws several hundred
+ * pixels, a segment of twelve short ones draws several times that. A single
+ * guess is either too tall for most rows — the scrollbar claims twice the
+ * conversation — or too short for the big ones, and then the scrollbar grows
+ * under the reader as the tall rows are measured.
+ *
+ * The guess is built from what the row holds: the turn's own block, which
+ * only its first segment carries, the characters of the messages, and a row
+ * for each tool call. Tool output does not add to it — its box is capped, so
+ * a longer answer is not a taller row.
+ */
+export const TURN_BASE = 120;
+export const MESSAGE_CHARS = 0.2;
+export const TOOL_ROW = 60;
+
+/**
+ * By segment object. `turnSegments` hands back the same object while its turn
+ * and span hold, so the whole list is estimated again only where it changed.
+ */
+const estimated = new WeakMap<TurnSegment, number>();
+
+export function estimateSegmentHeight(seg: TurnSegment): number {
+  const hit = estimated.get(seg);
+  if (hit !== undefined) return hit;
+  const height = estimateFresh(seg);
+  estimated.set(seg, height);
+  return height;
+}
+
+function estimateFresh(seg: TurnSegment): number {
+  const msgs = seg.turn.assistant;
+  let chars = 0;
+  for (let i = seg.msgFrom; i < seg.msgTo; i++) {
+    for (const b of msgs[i]?.content ?? []) {
+      // A thought is drawn too, and it is text like any other.
+      if (b.type === "text" || b.type === "thinking") chars += b.text.length;
+    }
+  }
+  const { byMessage } = attributionOf(seg.turn);
+  let calls = 0;
+  for (let i = seg.msgFrom; i < seg.msgTo; i++) calls += byMessage.get(i)?.length ?? 0;
+  // Whole pixels: a fractional height puts the prefix sum off a pixel
+  // boundary, and the browser rounds the rows onto the device grid, so the
+  // content moves under a reader who is only scrolling.
+  return Math.round((seg.part === 0 ? TURN_BASE : 0) + chars * MESSAGE_CHARS + calls * TOOL_ROW);
 }
 
 /**

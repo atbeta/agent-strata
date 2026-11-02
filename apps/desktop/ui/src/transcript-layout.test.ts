@@ -61,6 +61,9 @@ describe("a pane keeps the layout it already measured", () => {
     expect(view).toContain("initial: recallReading(key) ?? { pinned: true }");
     expect(view).toContain("remember: (reading) => rememberReading(key, reading)");
     expect(view).toContain("estimate: ROW_ESTIMATE");
+    // A measured row's estimate is never read. Left in, the row a reply
+    // streams into changed the map on every tick and rebuilt the prefix sum.
+    expect(view).toContain("if (layout.isMeasured(seg.id)) continue;");
     expect(view).toContain("gap: ROW_GAP");
     // The key itself is what keeps one pane's reading out of another's.
     expect(layoutKey("pane-1", "s1")).toBe("pane-1:s1");
