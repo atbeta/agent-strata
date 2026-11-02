@@ -1,6 +1,5 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, untrack, type JSX } from "solid-js";
-import { createPaintHold, rowPaintHold, rowPaintMode } from "./paint-mode";
-import { enqueuePaint } from "./paint-queue";
+import { enqueueWarm } from "./paint-queue";
 import { stableKeys } from "./keyed";
 import { aheadOrder, mountedRange, type Range } from "./virtual-window";
 import type { RowLayout } from "./row-layout";
@@ -73,38 +72,6 @@ export function Virtual<T>(props: {
    */
   const observed = new Map<Element, string>();
   /**
-   * Rows with deferred paints pending, by id. A deferred row paints
-   * half-empty and fills in later, so a measurement taken while it is held is
-   * the empty box's height — committing it erases the real height learned the
-   * last time the row was on screen, the content shrinks by a column, and the
-   * clamp reads as a scroll. Held rows are skipped by the observer and the
-   * sweep alike; when the last hold releases, the row is queued for exactly
-   * one measurement, flushed in a single commit per microtask.
-   */
-  const rowHolds = new Map<string, { hold: () => () => void; pending: () => number }>();
-  const held = (id: string) => (rowHolds.get(id)?.pending() ?? 0) > 0;
-  const pendingEls = new Set<Element>();
-  let flushQueued = false;
-  const queueMeasure = (el: Element) => {
-    pendingEls.add(el);
-    if (flushQueued) return;
-    flushQueued = true;
-    queueMicrotask(() => {
-      flushQueued = false;
-      let next: Map<string, number> | undefined;
-      for (const el of pendingEls) {
-        const id = observed.get(el);
-        if (id === undefined || !el.isConnected) continue;
-        const h = (el as HTMLElement).offsetHeight;
-        if (!h) continue;
-        next ??= new Map();
-        next.set(id, h);
-      }
-      pendingEls.clear();
-      if (next) props.commit(next);
-    });
-  };
-  /**
    * Built before the JSX, not in onMount. Element refs run while the returned
    * markup is being created, so an observer that only existed after mount left
    * the first rows unwatched — and since Solid reuses those same nodes when the
@@ -118,7 +85,7 @@ export function Virtual<T>(props: {
     let next: Map<string, number> | undefined;
     for (const e of entries) {
       const id = observed.get(e.target);
-      if (id === undefined || held(id)) continue;
+      if (id === undefined) continue;
       const h = e.borderBoxSize?.[0]?.blockSize ?? (e.target as HTMLElement).offsetHeight;
       if (!h) continue;
       next ??= new Map();
@@ -200,7 +167,7 @@ export function Virtual<T>(props: {
         if (queued.has(id)) continue;
         queued.set(
           id,
-          enqueuePaint(() => {
+          enqueueWarm(() => {
             queued.delete(id);
             const item = props.items[props.layout.indexOf(id)];
             if (item !== undefined) warm(item);
@@ -254,7 +221,7 @@ export function Virtual<T>(props: {
         // is still holding — and once that happens there may be no further
         // resize to report. So a mounted row without a measurement is read here
         // rather than waited on. Anything read too early, the observer corrects.
-        if (held(id) || props.layout.isMeasured(id)) continue;
+        if (props.layout.isMeasured(id)) continue;
         const h = (el as HTMLElement).offsetHeight;
         if (!h) continue;
         next ??= new Map();
@@ -275,51 +242,25 @@ export function Virtual<T>(props: {
           // `For` drops a row in the same update that removed its id, and
           // whatever inside reads the item before then gets the last one it had.
           const item = createMemo<T>((prev) => props.items[index()] ?? prev!);
-          // A memo, not the scroll position itself. Markdown subscribes to this,
-          // and a subscription to `top` would re-run the paint effect on every
-          // pixel. The boolean flips only when the row crosses the fold.
-          const inView = createMemo(() => {
-            const viewport = props.viewport();
-            if (viewport <= 0) return true;
-            const top = props.top();
-            const y = props.layout.offsets()[index()] ?? 0;
-            return y + props.layout.heightOf(index()) > top && y < top + viewport;
-          });
-          const mode = () => (inView() ? "now" : "idle");
-          let rowEl: HTMLDivElement | undefined;
-          const paintHold = createPaintHold(() => {
-            if (rowEl) queueMeasure(rowEl);
-          });
-          rowHolds.set(id, paintHold);
-          onCleanup(() => {
-            if (rowHolds.get(id) === paintHold) rowHolds.delete(id);
-          });
           return (
-            <rowPaintHold.Provider value={paintHold}>
-            <rowPaintMode.Provider value={mode}>
-              <div
-                class="absolute left-0 right-0"
-                ref={(el) => {
-                  rowEl = el;
-                  observed.set(el, id);
-                  ro.observe(el);
-                }}
-                // `top`, not `transform`: a transformed ancestor becomes a
-                // containing block that `position: sticky` cannot see past,
-                // which would keep an open thought's header from pinning.
-                style={{ top: `${props.layout.offsets()[index()]}px` }}
-              >
-                {/* Once, outside the insert that tracks `items`. Written in
-                    the markup as `{props.children(props.items[i])}` it
-                    became a thunk that reads `items`, and every streaming
-                    tick tore the row down and parsed its markdown again.
-                    `untrack` keeps that call from joining the style update,
-                    and it still runs under the provider so the row can see
-                    whether it is on screen. */}
-                {untrack(() => props.children(item))}
-              </div>
-            </rowPaintMode.Provider>
-            </rowPaintHold.Provider>
+            <div
+              class="absolute left-0 right-0"
+              ref={(el) => {
+                observed.set(el, id);
+                ro.observe(el);
+              }}
+              // `top`, not `transform`: a transformed ancestor becomes a
+              // containing block that `position: sticky` cannot see past,
+              // which would keep an open thought's header from pinning.
+              style={{ top: `${props.layout.offsets()[index()]}px` }}
+            >
+              {/* Once, outside the insert that tracks `items`. Written in
+                  the markup as `{props.children(props.items[i])}` it became
+                  a thunk that reads `items`, and every streaming tick tore
+                  the row down and parsed its markdown again. `untrack` keeps
+                  that call from joining the style update. */}
+              {untrack(() => props.children(item))}
+            </div>
           );
         }}
       </For>

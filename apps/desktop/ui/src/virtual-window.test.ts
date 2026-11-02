@@ -134,18 +134,19 @@ describe("rows ahead of the view mount once they are warm", () => {
   });
 });
 
-describe("off-screen transcript rows wait for a later frame", () => {
-  test("the list tells each row whether it is on screen, and markdown obeys", () => {
-    const virtual = readFileSync(join(import.meta.dir, "virtual.tsx"), "utf8");
-    const md = readFileSync(join(import.meta.dir, "md.tsx"), "utf8");
-    const payload = readFileSync(join(import.meta.dir, "payload.tsx"), "utf8");
-    const transcript = readFileSync(join(import.meta.dir, "transcript.tsx"), "utf8");
-    expect(virtual).toContain("rowPaintMode.Provider");
-    expect(md).toContain("useRowPaintMode");
-    expect(md).toContain("enqueuePaint");
-    expect(payload).toContain("useRowPaintMode");
-    expect(payload).toContain("enqueuePaint");
-    expect(transcript).toContain("function StructuredAnswer");
-    expect(transcript).toContain("enqueuePaint");
+describe("a mounted row is complete", () => {
+  test("nothing inside a row waits for a later frame to draw", () => {
+    // A row that mounts half-empty and fills in later measures as the empty
+    // box, and the scroll owner has to tell that apart from a real height.
+    // Waiting belongs to the window, which does not mount the row until it
+    // can be drawn whole.
+    for (const file of ["md.tsx", "payload.tsx", "transcript.tsx", "virtual.tsx"]) {
+      const src = readFileSync(join(import.meta.dir, file), "utf8");
+      expect(src).not.toContain("paint-mode");
+      expect(src).not.toContain("useRowPaintMode");
+    }
+    for (const file of ["md.tsx", "payload.tsx", "transcript.tsx"]) {
+      expect(readFileSync(join(import.meta.dir, file), "utf8")).not.toContain("paint-queue");
+    }
   });
 });

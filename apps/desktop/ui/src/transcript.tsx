@@ -14,8 +14,6 @@ import { copyImage, copyText } from "./clipboard";
 import { Icon, type Name } from "./icons";
 import { openImage } from "./image-viewer";
 import { Md } from "./md";
-import { enqueuePaint } from "./paint-queue";
-import { useRowPaintHold, useRowPaintMode } from "./paint-mode";
 import { Tip } from "./tip";
 import { stripAnsi } from "./ansi";
 import { Code, CopyButton } from "./payload";
@@ -857,29 +855,9 @@ function runKey(calls: readonly ToolCallView[]): string {
   return `run:${calls[0]?.call_id ?? "empty"}`;
 }
 
-/** Structured output is the answer, and stringifying it is not scroll work. */
+/** The object the caller asked for with json_schema, drawn as the answer. */
 function StructuredAnswer(props: { value: unknown }) {
-  const mode = useRowPaintMode();
-  const paintHold = useRowPaintHold();
-  const [shown, setShown] = createSignal(mode() === "now");
-  createEffect(() => {
-    if (shown()) return;
-    if (mode() === "now") {
-      setShown(true);
-      return;
-    }
-    const release = paintHold.hold();
-    onCleanup(release);
-    onCleanup(enqueuePaint(() => {
-      release();
-      setShown(true);
-    }));
-  });
-  return (
-    <Show when={shown()}>
-      <Code source={JSON.stringify(props.value, null, 2)} class="my-2" />
-    </Show>
-  );
+  return <Code source={JSON.stringify(props.value, null, 2)} class="my-2" />;
 }
 
 /**

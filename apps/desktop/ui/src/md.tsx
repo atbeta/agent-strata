@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, onCleanup } from "solid-js";
+import { createEffect, createMemo, createSignal, For, on, onCleanup, untrack } from "solid-js";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { stripAnsi } from "./ansi";
@@ -10,8 +10,6 @@ import { drawDiagram, isDiagramBlock } from "./mermaid";
 import { t } from "./i18n";
 import { MarkdownHtmlCache } from "./md-cache";
 import { openImage } from "./image-viewer";
-import { enqueuePaint, firstPaint, type PaintCancel } from "./paint-queue";
-import { useRowPaintHold, useRowPaintMode } from "./paint-mode";
 
 marked.setOptions({ gfm: true, breaks: true });
 
@@ -30,71 +28,40 @@ const samePaint = (a: Painted | undefined, b: Painted | undefined) =>
  */
 export function Md(props: { text: string; class?: string; live?: boolean }) {
   let frame = 0;
-  let started = false;
-  const mode = useRowPaintMode();
-  const paintHold = useRowPaintHold();
-  let cancelIdle: PaintCancel | undefined;
-  let releaseHold: (() => void) | undefined;
-  const release = () => {
-    releaseHold?.();
-    releaseHold = undefined;
-  };
+  const current = (): Painted => ({ text: props.text, live: props.live === true });
   /**
    * The text on screen and whether it was still being written. A frame that
    * resolves to the same pair is not a change: the view refreshes faster than
    * a reply grows, and nothing downstream should wake for it. `live` is part of
    * it — the flip from streaming to finished is what draws a diagram.
+   *
+   * The first text renders with the row: the list mounts a row off screen
+   * only once its markdown is in the cache, so this is a replay there and a
+   * parse only for what is on screen.
    */
-  const [shown, setShown] = createSignal<Painted | undefined>(undefined, { equals: samePaint });
-  const current = (): Painted => ({ text: props.text, live: props.live === true });
+  const [shown, setShown] = createSignal<Painted>(untrack(current), { equals: samePaint });
 
   /**
-   * A message being written hands this a new text on every token. The first
-   * one renders at once — every message in a transcript runs this effect at
-   * least once, and deferring them all would flash an empty line. Later text
+   * A message being written hands this a new text on every token. Later text
    * waits for the frame, so a burst costs one paint rather than one each, and
    * the frame reads whatever is current rather than what was queued.
    */
-  createEffect(() => {
-    const live = props.live === true;
-    void props.text;
-    if (!started) {
-      // Off-screen rows wait. Parsing every one of them in the scroll turn is
-      // the hitch. A row that was already queued and then scrolls into view
-      // stays on the queue and goes first on the next frame — painting it
-      // here would be that parse, on this turn. A row that mounts already on
-      // screen, and a reply that is still being written, do not wait.
-      const go = () => {
-        if (started) return;
-        started = true;
-        setShown(current());
-      };
-      const plan = firstPaint({ live, visible: mode() === "now", queued: cancelIdle !== undefined });
-      if (plan === "now") {
-        cancelIdle?.();
-        cancelIdle = undefined;
-        release();
-        go();
-      } else if (plan === "soon") {
-        cancelIdle?.prioritize();
-      } else if (!cancelIdle) {
-        releaseHold ??= paintHold.hold();
-        cancelIdle = enqueuePaint(() => {
-          release();
-          go();
+  createEffect(
+    on(
+      () => [props.text, props.live],
+      () => {
+        if (frame) return;
+        frame = requestAnimationFrame(() => {
+          frame = 0;
+          setShown(current());
         });
-      }
-      return;
-    }
-    if (frame) return;
-    frame = requestAnimationFrame(() => {
-      frame = 0;
-      setShown(current());
-    });
-  });
+      },
+      { defer: true },
+    ),
+  );
 
-  const live = () => shown()?.live === true;
-  const blocks = createMemo(() => splitBlocks(shown()?.text ?? ""));
+  const live = () => shown().live;
+  const blocks = createMemo(() => splitBlocks(shown().text));
   /** Every block but the one still being written. Each renders once, by its source. */
   const settled = createMemo<readonly string[]>((prev) =>
     stableKeys(prev, live() ? blocks().slice(0, -1) : blocks()),
@@ -112,9 +79,6 @@ export function Md(props: { text: string; class?: string; live?: boolean }) {
 
   onCleanup(() => {
     if (frame) cancelAnimationFrame(frame);
-    cancelIdle?.();
-    cancelIdle = undefined;
-    release();
   });
 
   return (
