@@ -14,7 +14,7 @@
  * What does survive is the remembered reading for that pair, and the row
  * heights already measured there.
  */
-import { createEffect, createMemo, Show, type JSX } from "solid-js";
+import { createEffect, createMemo, Show, untrack, type JSX } from "solid-js";
 import type { Turn } from "./api";
 import { Virtual } from "./virtual";
 import { createRowLayout } from "./row-layout";
@@ -61,7 +61,7 @@ export function TranscriptView(props: {
   /** The wrapper's layout classes, which differ between the two panes. */
   class?: string;
   /** One turn segment; the <div data-turn-id data-row-id> wrapper is added here. */
-  renderTurn: (turn: () => Turn, index: number, part: () => TurnPart) => JSX.Element;
+  renderTurn: (turn: () => Turn, part: () => TurnPart) => JSX.Element;
   /** Receives the imperative handle once, and again on each remount. */
   api?: (a: TranscriptApi) => void;
   /**
@@ -178,7 +178,12 @@ export function TranscriptView(props: {
                         >
                           {(seg) => (
                             <div data-turn-id={seg().turn.turn_id} data-row-id={seg().id}>
-                              {props.renderTurn(() => seg().turn, seg().turnIndex, () => seg())}
+                              {/* Untracked for the reason `Virtual` gives: a turn
+                                  built inside an expression that reads the
+                                  segment is torn down and built again whenever
+                                  the segment changes — every snapshot, for the
+                                  turn a reply is streaming into. */}
+                              {untrack(() => props.renderTurn(() => seg().turn, () => seg()))}
                             </div>
                           )}
                         </Virtual>

@@ -1656,7 +1656,7 @@ const turns = () => shown().turns;
                     </div>
                   </Show>
                 }
-                renderTurn={(turn, index, part) => (
+                renderTurn={(turn, part) => (
                   <TurnBlock
                     turn={turn()}
                     part={part()}

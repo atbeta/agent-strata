@@ -319,7 +319,7 @@ const turns = () => shown().turns;
           <SessionEmpty workspace={displayed()?.workspace} />
         </div>
       }
-      renderTurn={(turn, index, part) => (
+      renderTurn={(turn, part) => (
         <TurnBlock
           turn={turn()}
           part={part()}
