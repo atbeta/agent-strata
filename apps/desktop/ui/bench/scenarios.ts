@@ -350,6 +350,33 @@ export function longReply(): string {
  */
 let replyId = "bench-reply";
 
+/**
+ * A new prompt at the end of `id`, written before the session opens so the
+ * open does not count as its arrival. Every rep's reply then streams into a
+ * turn of its own: written into one shared turn, each rep's reply landed in
+ * the row the next rep streams into, and every rep measured a bigger row.
+ */
+export function askAnew(ctx: FlowContext, id: string): void {
+  if (!ctx.dbPath) throw new Error("askAnew needs a writable store");
+  const tag = `bench-ask-${orderOf(ctx, id).length}`;
+  const store = openStore(ctx.dbPath);
+  try {
+    store.append([
+      {
+        id: `${tag}-e0`,
+        session_id: id,
+        ts: new Date().toISOString(),
+        source: { backend: id.split(":")[0]!, native_id: tag },
+        type: "turn.user",
+        data: { turn_id: tag, content: [{ type: "text", text: "write it up" }] },
+      } as never,
+    ]);
+  } finally {
+    store.close();
+  }
+  (ctx.orders as Map<string, readonly string[]>).set(id, [...orderOf(ctx, id), tag]);
+}
+
 /** Stream `text` into the latest turn, `chunk` characters every 50ms, as whole-message snapshots. */
 function streamReply(ctx: FlowContext, id: string, text: string, chunk: number): Promise<number> {
   const turnId = orderOf(ctx, id).at(-1)!;
@@ -590,6 +617,7 @@ export const flowD: Flow = async (ctx, s, record) => {
  * open carries the earlier ones — read stream-reply and reply-done, not open.
  */
 export const flowS: Flow = async (ctx, s, record) => {
+  askAnew(ctx, s.long);
   record(await openCold(ctx, "open", s.long));
   record(await streamingReply(ctx, "stream-reply", s.long));
   record(await replyDone(ctx, "reply-done", s.long));

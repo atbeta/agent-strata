@@ -15,7 +15,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { startEnv } from "./env";
 import { installProbe } from "./probe";
-import { jump, jumpToTurn, openCold, replyDone, stepUp, streamingReply, wheelUp, type FlowContext } from "./scenarios";
+import { askAnew, jump, jumpToTurn, openCold, replyDone, stepUp, streamingReply, wheelUp, type FlowContext } from "./scenarios";
 import { FIXTURE_SESSIONS } from "./fixtures";
 
 interface ProfileNode {
@@ -117,6 +117,7 @@ try {
       await step("jump-giant", () => jumpToTurn(ctx, "jump-giant", g.id, g.turns[1]!));
       await step("return-giant", () => jumpToTurn(ctx, "return-giant", g.id, g.turns[0]!));
     } else if (flow === "S") {
+      askAnew(ctx, S.long);
       await step("open", () => openCold(ctx, "open", S.long));
       await step("stream-reply", () => streamingReply(ctx, "stream-reply", S.long));
       await step("reply-done", () => replyDone(ctx, "reply-done", S.long));
