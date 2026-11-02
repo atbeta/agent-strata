@@ -4,6 +4,7 @@ import DOMPurify from "dompurify";
 import { stripAnsi } from "./ansi";
 import { grammarFor, guessGrammar, tokenize, tokenizeDiff } from "./highlight";
 import { stableBoundary } from "./md-stream";
+import { samePrefixCount } from "./md-reconcile";
 import { drawDiagram, isDiagramBlock } from "./mermaid";
 import { t } from "./i18n";
 import { MarkdownHtmlCache } from "./md-cache";
@@ -23,6 +24,9 @@ export function Md(props: { text: string; class?: string; live?: boolean }) {
   let renderedStable = "";
   /** How many of `host`'s child nodes belong to that slice. The rest is the tail. */
   let stableCount = 0;
+  /** The source last painted, and whether it was still being written. */
+  let lastSource: string | undefined;
+  let lastLive: boolean | undefined;
   const mode = useRowPaintMode();
   const paintHold = useRowPaintHold();
   let cancelIdle: PaintCancel | undefined;
@@ -34,6 +38,17 @@ export function Md(props: { text: string; class?: string; live?: boolean }) {
 
   const paint = (source: string, live: boolean) => {
     if (!host) return;
+    // A frame that resolved to the same words must not touch the nodes. While
+    // a reply streams, the view refreshes faster than the text changes, and
+    // tearing the message down for an unchanged string is a blink for nothing.
+    // `live` is part of it: the flip from streaming to finished re-renders the
+    // nodes once, which is what draws a diagram.
+    if (source === lastSource && live === lastLive && host.childNodes.length > 0) {
+      syncCursor(host, live);
+      return;
+    }
+    lastSource = source;
+    lastLive = live;
     const cut = stableBoundary(source);
     const stable = source.slice(0, cut);
     const tail = source.slice(cut);
@@ -58,8 +73,13 @@ export function Md(props: { text: string; class?: string; live?: boolean }) {
       renderedStable = stable;
     }
 
-    dropTail(host, stableCount);
-    if (tail.length > 0) host.append(nodesFrom(tail, false, !live));
+    // The tail is rebuilt every token. Reconciled in place rather than removed
+    // and re-appended: for ordinary prose `stableBoundary` returns 0, so every
+    // token used to empty the message and parse all of it again — the whole
+    // reply's worth of nodes replaced on every frame, which is what flickered.
+    // Keeping the nodes that did not change also keeps an image from reloading,
+    // a selection from collapsing and a scroll anchor where the reader left it.
+    reconcileFrom(host, stableCount, nodesFrom(tail, false, !live));
     syncCursor(host, live);
   };
 
@@ -165,6 +185,33 @@ function cursorTarget(block: Element): Element | undefined {
 
 function dropTail(host: HTMLElement, stableCount: number) {
   while (host.childNodes.length > stableCount) host.lastChild!.remove();
+}
+
+/**
+ * Replace the tail in place, keeping the nodes that did not change.
+ *
+ * The tail is rebuilt from the source on every token, but most of it is the
+ * same string it was a frame ago: a paragraph that grew by three characters is
+ * nineteen of its twenty nodes unchanged. Removing the whole tail and appending
+ * a freshly parsed one throws those away anyway — which is what made a
+ * streaming reply flicker, reset a reader's selection, and reload the images
+ * inside it.
+ *
+ * Comparison is `isEqualNode`, so this is a deep structural check rather than
+ * a string one. The tail is a handful of blocks, and the walk stops at the
+ * first difference, so the common case costs a couple of comparisons.
+ */
+function reconcileFrom(host: HTMLElement, from: number, next: DocumentFragment): void {
+  const incoming = [...next.childNodes];
+  const existing = [...host.childNodes].slice(from);
+  const same = samePrefixCount(existing, incoming, (a, b) => a.isEqualNode(b));
+  // Drop what changed, and anything the new tail no longer has, from the end so
+  // the earlier indexes stay valid.
+  for (let i = existing.length - 1; i >= same; i -= 1) existing[i]!.remove();
+  if (same >= incoming.length) return;
+  const rest = document.createDocumentFragment();
+  for (let i = same; i < incoming.length; i += 1) rest.append(incoming[i]!);
+  host.append(rest);
 }
 
 /**
