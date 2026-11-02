@@ -29,7 +29,7 @@ describe("a window that cannot be placed still draws something", () => {
    * window by hand again.
    */
   const rows = read("virtual.tsx").slice(
-    read("virtual.tsx").indexOf("const windowIds = createMemo"),
+    read("virtual.tsx").indexOf("const ranges = createMemo"),
   );
 
   test("the window is computed by the range helper, not by hand", () => {
@@ -38,11 +38,11 @@ describe("a window that cannot be placed still draws something", () => {
     expect(rows).not.toContain("const last = Math.min(n - 1, rowAt(");
   });
 
-  test("the range is taken inside the window memo, where the rows are decided", () => {
-    const memoStart = rows.indexOf("const windowIds = createMemo");
+  test("the range is taken in the memo the window's rows are decided from", () => {
     const call = rows.indexOf("mountedRange({");
-    expect(call).toBeGreaterThan(memoStart);
-    expect(call).toBeLessThan(rows.indexOf("stableKeys(prev, ids)"));
+    expect(call).toBeGreaterThan(rows.indexOf("const ranges = createMemo"));
+    expect(call).toBeLessThan(rows.indexOf("const windowIds = createMemo"));
+    expect(rows.slice(rows.indexOf("const windowIds = createMemo"))).toContain("const r = ranges();");
   });
 });
 

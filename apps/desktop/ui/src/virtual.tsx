@@ -1,7 +1,8 @@
-import { createEffect, createMemo, For, onCleanup, untrack, type JSX } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, untrack, type JSX } from "solid-js";
 import { createPaintHold, rowPaintHold, rowPaintMode } from "./paint-mode";
+import { enqueuePaint } from "./paint-queue";
 import { stableKeys } from "./keyed";
-import { mountedRange } from "./virtual-window";
+import { aheadOrder, mountedRange, type Range } from "./virtual-window";
 import type { RowLayout } from "./row-layout";
 
 /**
@@ -42,6 +43,12 @@ export function Virtual<T>(props: {
   viewport: () => number;
   /** Extra pixels kept mounted above and below the viewport. */
   overscan?: number;
+  /**
+   * Prepare a row before it mounts — parse its markdown into the cache — so a
+   * row that comes into the window off screen mounts complete in one go. A row
+   * on screen mounts at once, warmed or not. Without it every row mounts at once.
+   */
+  warm?: (item: T) => void;
   /**
    * Called once per row, when the row is created, and never again.
    *
@@ -122,25 +129,92 @@ export function Virtual<T>(props: {
     if (next) props.commit(next);
   });
 
+  const sameRange = (a: Range, b: Range) => a.first === b.first && a.last === b.last;
+  /**
+   * What is on screen, and what is kept ahead of it. Compared by value, so the
+   * scroll position only wakes the window when a row crosses either edge.
+   *
+   * Pixel windows only. A row cap unmounted rows the reader was about to
+   * reach, and mounting them again parsed markdown on the scroll frame. The
+   * estimate is what keeps the count near the rows actually on screen. A
+   * position remembered from another session can sit past this one's end;
+   * mountedRange clamps that onto the last row, so the pane still has rows to
+   * draw.
+   */
+  const ranges = createMemo<{ visible: Range; ahead: Range } | undefined>(
+    () => {
+      const n = props.items.length;
+      if (!n) return undefined;
+      const at = (pad: number) =>
+        mountedRange({
+          count: n,
+          top: props.top(),
+          viewport: props.viewport(),
+          overscan: pad,
+          rowAt: (y) => props.layout.rowAt(y),
+        });
+      return { visible: at(0), ahead: at(overscan()) };
+    },
+    undefined,
+    {
+      equals: (a, b) =>
+        a === b || (!!a && !!b && sameRange(a.visible, b.visible) && sameRange(a.ahead, b.ahead)),
+    },
+  );
+  /**
+   * Rows whose markdown is already parsed: warmed ahead of the view, or
+   * mounted on screen. Either way the row can stay mounted while it is in the
+   * window, so it is not torn down the moment it scrolls off screen.
+   */
+  const warmed = new Set<string>();
+  const [warmth, setWarmth] = createSignal(0);
+  const queued = new Map<string, () => void>();
+
   const windowIds = createMemo<readonly string[]>((prev) => {
-    const n = props.items.length;
-    if (!n) return stableKeys(prev, []);
-    // Pixel window only. A row cap unmounted rows the reader was about to
-    // reach, and mounting them again parsed markdown on the scroll frame.
-    // The estimate is what keeps this count near the rows actually on screen.
-    const { first, last } = mountedRange({
-      count: n,
-      top: props.top(),
-      viewport: props.viewport(),
-      overscan: overscan(),
-      rowAt: (y) => props.layout.rowAt(y),
-    });
-    // A position remembered from another session can sit past this one's end.
-    // mountedRange clamps that onto the last row, so the pane still has rows
-    // to draw. While the same rows are in the window the same list is reused,
-    // so a streaming tick or a scroll inside the window leaves the rows alone.
-    const ids = props.items.slice(first, last + 1).map((item) => props.id(item));
+    warmth();
+    const r = ranges();
+    if (!r) return stableKeys(prev, []);
+    const ids: string[] = [];
+    for (let i = r.ahead.first; i <= r.ahead.last; i++) {
+      const id = props.id(props.items[i]!);
+      if (i >= r.visible.first && i <= r.visible.last) warmed.add(id);
+      if (!props.warm || warmed.has(id)) ids.push(id);
+    }
+    // While the same rows are in the window the same list is reused, so a
+    // streaming tick or a scroll inside the window leaves the rows alone.
     return stableKeys(prev, ids);
+  });
+
+  // Rows ahead of the view are warmed nearest first, a budget per frame, and
+  // mount as each one finishes. A row that left the window before its turn is
+  // dropped from the queue, so a fling does not leave a trail of parses.
+  createEffect(() => {
+    const warm = props.warm;
+    const r = ranges();
+    const want = new Set<string>();
+    if (warm && r) {
+      for (const i of aheadOrder(r.visible, r.ahead)) {
+        const id = props.id(props.items[i]!);
+        if (warmed.has(id)) continue;
+        want.add(id);
+        if (queued.has(id)) continue;
+        queued.set(
+          id,
+          enqueuePaint(() => {
+            queued.delete(id);
+            const item = props.items[props.layout.indexOf(id)];
+            if (item !== undefined) warm(item);
+            warmed.add(id);
+            setWarmth((n) => n + 1);
+          }),
+        );
+      }
+    }
+    for (const [id, cancel] of queued) {
+      if (want.has(id)) continue;
+      cancel();
+      queued.delete(id);
+    }
   });
 
   /**
@@ -151,6 +225,8 @@ export function Virtual<T>(props: {
   onCleanup(() => {
     ro.disconnect();
     observed.clear();
+    for (const cancel of queued.values()) cancel();
+    queued.clear();
   });
 
   // Rows come and go as the window moves. ResizeObserver holds a strong

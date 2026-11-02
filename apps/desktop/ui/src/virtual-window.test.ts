@@ -120,6 +120,20 @@ describe("rows follow their segment, not their slot", () => {
   });
 });
 
+describe("rows ahead of the view mount once they are warm", () => {
+  test("what is on screen mounts at once, and what is ahead once warmed", () => {
+    const virtual = readFileSync(join(import.meta.dir, "virtual.tsx"), "utf8");
+    expect(virtual).toContain("visible: at(0)");
+    expect(virtual).toContain("if (!props.warm || warmed.has(id)) ids.push(id);");
+    expect(virtual).toContain("aheadOrder(r.visible, r.ahead)");
+    // A row that was mounted on screen is already parsed; dropping it the
+    // moment it scrolls off screen would unmount and warm it all over again.
+    expect(virtual).toContain("if (i >= r.visible.first && i <= r.visible.last) warmed.add(id);");
+    const view = readFileSync(join(import.meta.dir, "transcript-view.tsx"), "utf8");
+    expect(view).toContain("warm={warmSegment}");
+  });
+});
+
 describe("off-screen transcript rows wait for a later frame", () => {
   test("the list tells each row whether it is on screen, and markdown obeys", () => {
     const virtual = readFileSync(join(import.meta.dir, "virtual.tsx"), "utf8");

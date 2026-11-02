@@ -15,8 +15,10 @@
  * heights already measured there.
  */
 import { createEffect, createMemo, Show, untrack, type JSX } from "solid-js";
-import type { Turn } from "./api";
+import type { ContentBlock, Turn } from "./api";
 import { Virtual } from "./virtual";
+import { warmMarkdown } from "./md";
+import { readThinkingOpen } from "./thinking";
 import { createRowLayout } from "./row-layout";
 import { createScrollOwner } from "./scroll-owner";
 import {
@@ -116,6 +118,24 @@ export function TranscriptView(props: {
             }
             return next;
           });
+          /**
+           * The markdown a segment will draw, parsed ahead of it. A reply
+           * still being written is skipped — it mounts on screen and is new on
+           * every token — and a thought only when thoughts open by default.
+           */
+          const warmSegment = (seg: TurnSegment) => {
+            const thoughts = readThinkingOpen();
+            const text = (blocks: readonly ContentBlock[] | undefined) => {
+              for (const b of blocks ?? []) {
+                if (b.type === "text" || (thoughts && b.type === "thinking")) warmMarkdown(b.text);
+              }
+            };
+            if (seg.part === 0) text(seg.turn.user);
+            for (let i = seg.msgFrom; i < seg.msgTo; i++) {
+              const m = seg.turn.assistant[i];
+              if (m && !m.partial) text(m.content);
+            }
+          };
           let scroller: HTMLDivElement | undefined;
           let host: HTMLDivElement | undefined;
           const owner = createScrollOwner({
@@ -201,6 +221,7 @@ export function TranscriptView(props: {
                             return owner.top() - owner.origin();
                           }}
                           viewport={owner.viewport}
+                          warm={warmSegment}
                         >
                           {(seg) => (
                             <div data-turn-id={seg().turn.turn_id} data-row-id={seg().id}>
