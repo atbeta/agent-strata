@@ -1,5 +1,5 @@
 import { createResource, createSignal, For, Show, type JSX } from "solid-js";
-import { fetchDailyUsage, fmtUsd, realWorkspace, type SessionRow } from "./api";
+import { fetchDailyUsage, fmtUsd, realWorkspace, type DailyUsageRow, type SessionRow } from "./api";
 import { sessionStatus } from "./session-status";
 import { SessionStatusMark } from "@/components/ui/session-status";
 import { ShellMark } from "./shell-mark";
@@ -95,16 +95,20 @@ export function FleetView(props: {
   const [period, setPeriod] = createSignal<Period>("total");
   const [rank, setRank] = createSignal<"projects" | "models">("projects");
   const [allRecent, setAllRecent] = createSignal(false);
+  const [lastBuckets, setLastBuckets] = createSignal<DailyUsageRow[]>();
   // The service buckets by the caller's zone, so the UI's day keys agree
   // with the service's day keys by construction.
-  const [daily] = createResource(
+  const [daily, { refetch: refetchDaily }] = createResource(
     () => props.refreshKey ?? 1,
-    () => fetchDailyUsage(Intl.DateTimeFormat().resolvedOptions().timeZone),
+    async () => {
+      const rows = await fetchDailyUsage(Intl.DateTimeFormat().resolvedOptions().timeZone);
+      setLastBuckets(rows);
+      return rows;
+    },
   );
-  // A refresh keeps the last buckets on screen; only a first load or a failed
-  // read has none. Hiding them during the sync-finish reread made every figure
-  // flash to "—" immediately before showing the new total.
-  const buckets = () => (daily.error ? undefined : daily.latest);
+  // Resource reads throw after a failed refresh; the explicit last-success
+  // snapshot keeps known usage visible without turning the failure into zeroes.
+  const buckets = () => lastBuckets();
 
   const totalsFor = (key: Period) =>
     buckets() ? fleetTotals(props.sessions, buckets()!, key, props.now) : undefined;
@@ -152,12 +156,39 @@ export function FleetView(props: {
             <SectionHead label={t("fleet.usage")} />
             <div class="mt-2.5 flex flex-col gap-3">
               <PeriodTabs windows={windows()} value={period()} onChange={setPeriod} />
-              <UsageCard
-                totals={totals()}
-                points={trend()}
-                since={periodStart(period(), props.now)}
-                all={period() === "total"}
-              />
+              <Show when={daily.error && buckets()}>
+                <div class="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2 text-xs text-muted-foreground" role="status">
+                  <span>{t("fleet.usage.stale")}</span>
+                  <Button variant="quiet" size="xs" onClick={() => void refetchDaily()}>
+                    {t("session.retry")}
+                  </Button>
+                </div>
+              </Show>
+              <Show
+                when={!daily.error || buckets()}
+                fallback={
+                  <div class="rounded-lg border border-border bg-card">
+                    <EmptyState
+                      icon="alert"
+                      tone="danger"
+                      title={t("fleet.usage.failed")}
+                      class="py-8"
+                      action={
+                        <Button variant="outline" size="sm" onClick={() => void refetchDaily()}>
+                          {t("session.retry")}
+                        </Button>
+                      }
+                    />
+                  </div>
+                }
+              >
+                <UsageCard
+                  totals={totals()}
+                  points={trend()}
+                  since={periodStart(period(), props.now)}
+                  all={period() === "total"}
+                />
+              </Show>
             </div>
           </section>
 
@@ -169,7 +200,7 @@ export function FleetView(props: {
               </div>
             }
           >
-            <div class="grid grid-cols-1 items-start gap-4 pb-2 md:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)]">
+            <div class="grid grid-cols-1 items-start gap-4 pb-2 @min-[768px]/main:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)]">
               <section class="min-w-0">
                 <SectionHead label={t("fleet.overview.recent")} count={recent().length} />
                 <div class="mt-2.5 overflow-hidden rounded-lg border border-border bg-card">
@@ -244,7 +275,8 @@ export function FleetView(props: {
                 <div class="flex items-baseline justify-between gap-3">
                   <SectionHead label={t("fleet.rank")} />
                   <MiniTabs
-                    kind="tabs"
+                    kind="radio"
+                    label={t("fleet.rank")}
                     value={rank()}
                     onChange={(id) => setRank(id as "projects" | "models")}
                     options={[
@@ -379,8 +411,8 @@ function StatusGroup(props: {
   accent?: boolean;
   onOpen: (id: string) => void;
 }) {
-  const shown = () => props.rows.slice(0, STATUS_SHOWN);
-  const rest = () => props.rows.length - shown().length;
+  const [expanded, setExpanded] = createSignal(false);
+  const shown = () => (expanded() ? props.rows : props.rows.slice(0, STATUS_SHOWN));
   return (
     <Show when={props.rows.length > 0}>
       <div>
@@ -421,8 +453,18 @@ function StatusGroup(props: {
             )}
           </For>
         </ul>
-        <Show when={rest() > 0}>
-          <p class="px-4 pb-2 pt-1 text-2xs tabular-nums text-muted-foreground">+{rest()}</p>
+        <Show when={props.rows.length > STATUS_SHOWN}>
+          <div class="px-4 pb-2 pt-1">
+            <Button
+              variant="quiet"
+              size="xs"
+              class="w-full"
+              aria-expanded={expanded()}
+              onClick={() => setExpanded((value) => !value)}
+            >
+              {expanded() ? t("fleet.status.less") : t("fleet.status.all", { n: num(props.rows.length) })}
+            </Button>
+          </div>
         </Show>
       </div>
     </Show>
@@ -461,7 +503,7 @@ function PeriodTabs(props: {
   return (
     <div
       ref={group}
-      class="grid grid-cols-2 rounded-lg border border-border bg-card sm:grid-cols-4"
+      class="grid grid-cols-2 rounded-lg border border-border bg-card @min-[640px]/main:grid-cols-4"
       role="radiogroup"
       aria-label={t("fleet.usage")}
       onKeyDown={move}
@@ -475,8 +517,8 @@ function PeriodTabs(props: {
             class={cn(
               "group/tab relative flex-col items-start gap-1 rounded-none border-border px-4 py-3 hover:bg-secondary/40",
               i() % 2 === 1 && "border-l",
-              i() >= 2 && "border-t sm:border-t-0",
-              i() > 0 && "sm:border-l",
+              i() >= 2 && "border-t @min-[640px]/main:border-t-0",
+              i() > 0 && "@min-[640px]/main:border-l",
             )}
             onClick={() => props.onChange(w.key)}
           >
@@ -540,9 +582,9 @@ function UsageCard(props: {
     </div>
   );
   return (
-    <section class="grid rounded-lg border border-border bg-card md:grid-cols-[minmax(0,1fr)_15rem]">
+    <section class="grid rounded-lg border border-border bg-card @min-[768px]/main:grid-cols-[minmax(0,1fr)_15rem]">
       <TrendChart points={props.points} since={props.since} all={props.all} />
-      <div class="border-border px-4 py-3 max-md:border-t md:border-l">
+      <div class="border-border px-4 py-3 @max-[767px]/main:border-t @min-[768px]/main:border-l">
         {row(t("fleet.overview.estCost"), () => (
           <span class="font-mono">{fmtUsd(props.totals!.cost)}</span>
         ))}

@@ -246,13 +246,8 @@ function PaneHeader(props: {
   return (
     <div
       class={`@container flex h-7 shrink-0 items-center justify-between gap-1.5 border-b border-border px-2.5 select-none transition-colors ${
-        // Focus used to be `bg-secondary/60` against `bg-background/70`, which
-        // is 13% grey at 60% strength over 6.5% — about a four-point lightness
-        // step on the least contrast-sensitive channel available, on a band
-        // seven pixels tall. At full strength it is a six-and-a-half-point
-        // step, which is a surface you can see without hunting for it.
         props.focused
-          ? "bg-secondary text-foreground"
+          ? "bg-secondary/80 text-foreground"
           : "bg-transparent text-muted-foreground hover:bg-secondary/40"
       }`}
       onPointerDown={() => props.onFocus()}
@@ -552,38 +547,7 @@ export function PaneStage(props: {
       <section
         data-pane-id={leaf.id}
         aria-current={isFocused() ? "true" : undefined}
-        class={`relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-md border transition-colors ${
-          // Focus is stated by the whole rectangle, not by a mark inside it. The
-          // rail it replaces was twenty pixels of accent beside a title, on a
-          // band twenty-eight tall — an invitation to go and inspect the header
-          // of a pane that is half a screen. The frame is the signal instead: an
-          // edge the length of the pane, over a surface stepped once across all
-          // of it. Twenty pixels versus a thousand is the whole difference
-          // between a mark and a region.
-          //
-          // The unfocused state used to be `bg-background/60`, which over a
-          // `bg-background` parent composites to exactly `bg-background`. The
-          // panes were not subtle, they were identical.
-          //
-          // The border is always present and only its colour moves, so a pane
-          // does not shift a pixel every time it takes focus.
-          //
-          // The unfocused border used to be transparent, which made a pane
-          // boundary you could only find by looking for the one hairline
-          // between two identical surfaces. It is `border-border` now: the same
-          // 8%-white rule the rest of the app uses for every edge it needs to
-          // state. Unfocused reads as a rectangle, focused reads as the same
-          // rectangle outlined in accent — so the count is legible whether or
-          // not you care which one has focus.
-          //
-          // `rounded-md` because a pane is now an object sitting on a field
-          // rather than a region cut out of the window: with the padding outside
-          // it there is background for a radius to be cut against, and the
-          // rounded corner is what tells the eye this is a card rather than a
-          // seam. `overflow-hidden` above already clips the header's own
-          // square corner to it.
-          isFocused() ? "border-primary/45 bg-secondary/45" : "border-border bg-background"
-        }`}
+        class="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-md border border-border bg-background"
         onPointerDown={() => {
           if (!isFocused()) props.onFocusPane(leaf.id, leaf.sessionId);
         }}

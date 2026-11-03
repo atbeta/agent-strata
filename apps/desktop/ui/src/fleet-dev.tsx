@@ -5,6 +5,7 @@ import { displayTitle } from "./session-title";
 import { DevRow, DevRowDetail } from "./background-panel";
 import { devLogLineClass, devRunning, stableDevRows } from "./dev-state";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 
 /** How often the running time and an open log refresh. */
 const TICK_MS = 1_000;
@@ -30,10 +31,15 @@ export function FleetDevSection(props: {
   const [openId, setOpenId] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal<string | null>(null);
   const [err, setErr] = createSignal("");
+  const [lastProcesses, setLastProcesses] = createSignal<DevProcess[]>([]);
 
   const [processes, { refetch }] = createResource(
     () => props.refreshKey ?? 1,
-    () => listAllDevProcesses().then((r) => r.processes).catch(() => [] as DevProcess[]),
+    async () => {
+      const rows = (await listAllDevProcesses()).processes;
+      setLastProcesses(rows);
+      return rows;
+    },
   );
 
   createEffect(() => {
@@ -62,7 +68,7 @@ export function FleetDevSection(props: {
     return displayTitle(row.title ?? row.summary.title) ?? t("common.untitled");
   };
 
-  const live = () => (processes() ?? []).filter(devRunning);
+  const live = () => lastProcesses().filter(devRunning);
   const rows = stableDevRows(live);
 
   const stop = async (id: string) => {
@@ -79,55 +85,86 @@ export function FleetDevSection(props: {
   };
 
   return (
-    <Show when={live().length > 0}>
+    <Show when={live().length > 0 || processes.error}>
       <section>
         <h2 class="text-xs font-medium text-muted-foreground">
           {t("fleet.dev")}
-          <span class="ml-1.5 tabular-nums text-muted-foreground/60">{live().length}</span>
+          <Show when={live().length > 0}>
+            <span class="ml-1.5 tabular-nums text-muted-foreground/60">{live().length}</span>
+          </Show>
         </h2>
         <Show when={err()}>
           <p class="mt-1.5 text-xs text-destructive">{err()}</p>
         </Show>
-        <ul class="mt-2.5 divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
-          <For each={rows()}>
-            {(row) => (
-              <li>
-                <DevRow
-                  process={row.process()}
-                  now={now()}
-                  open={openId() === row.id}
-                  onToggle={() => setOpenId(openId() === row.id ? null : row.id)}
-                  busy={busy() === row.id}
-                  onStop={() => void stop(row.id)}
-                  extra={
-                    /* Outside the row, not inside it: a button nested in a
-                        button is invalid markup and swallows the outer row's
-                        click. */
-                    <Button
-                      type="button"
-                      variant="quiet"
-                      size="xs"
-                      class="max-w-[9rem] shrink-0 px-1.5 text-2xs underline decoration-dotted underline-offset-2"
-                      title={titleOf(row.process().session_id)}
-                      onClick={() => props.onOpenSession(row.process().session_id)}
-                    >
-                      {/* The name ends in an ellipsis, it does not lose both of
-                          its ends. A button is an inline-flex box with its
-                          label centred in it, so a name too long for the box
-                          was cut on the left as well as the right; the ellipsis
-                          belongs on the label, not on the button. */}
-                      <span class="min-w-0 truncate">{titleOf(row.process().session_id)}</span>
+        <Show when={processes.error}>
+          <Show
+            when={live().length > 0}
+            fallback={
+              <div class="mt-2.5 rounded-lg border border-border bg-card">
+                <EmptyState
+                  icon="alert"
+                  tone="danger"
+                  title={t("fleet.dev.failed")}
+                  class="py-8"
+                  action={
+                    <Button variant="outline" size="sm" onClick={() => void refetch()}>
+                      {t("session.retry")}
                     </Button>
                   }
                 />
-                <Show when={openId() === row.id}>
-                  <DevRowDetail process={row.process()} />
-                  <FleetDevLogs processId={row.id} />
-                </Show>
-              </li>
-            )}
-          </For>
-        </ul>
+              </div>
+            }
+          >
+            <div class="mt-2.5 flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2 text-xs text-muted-foreground" role="status">
+              <span>{t("fleet.dev.stale")}</span>
+              <Button variant="quiet" size="xs" onClick={() => void refetch()}>
+                {t("session.retry")}
+              </Button>
+            </div>
+          </Show>
+        </Show>
+        <Show when={live().length > 0}>
+          <ul class="mt-2.5 divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
+            <For each={rows()}>
+              {(row) => (
+                <li>
+                  <DevRow
+                    process={row.process()}
+                    now={now()}
+                    open={openId() === row.id}
+                    onToggle={() => setOpenId(openId() === row.id ? null : row.id)}
+                    busy={busy() === row.id}
+                    onStop={() => void stop(row.id)}
+                    extra={
+                      /* Outside the row, not inside it: a button nested in a
+                          button is invalid markup and swallows the outer row's
+                          click. */
+                      <Button
+                        type="button"
+                        variant="quiet"
+                        size="xs"
+                        class="max-w-[9rem] shrink-0 px-1.5 text-2xs underline decoration-dotted underline-offset-2"
+                        title={titleOf(row.process().session_id)}
+                        onClick={() => props.onOpenSession(row.process().session_id)}
+                      >
+                        {/* The name ends in an ellipsis, it does not lose both of
+                            its ends. A button is an inline-flex box with its
+                            label centred in it, so a name too long for the box
+                            was cut on the left as well as the right; the ellipsis
+                            belongs on the label, not on the button. */}
+                        <span class="min-w-0 truncate">{titleOf(row.process().session_id)}</span>
+                      </Button>
+                    }
+                  />
+                  <Show when={openId() === row.id}>
+                    <DevRowDetail process={row.process()} />
+                    <FleetDevLogs processId={row.id} />
+                  </Show>
+                </li>
+              )}
+            </For>
+          </ul>
+        </Show>
       </section>
     </Show>
   );

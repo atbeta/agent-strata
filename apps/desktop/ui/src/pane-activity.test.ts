@@ -167,13 +167,9 @@ describe("a peer pane that cannot be frozen by a hand-off failing silently", () 
 });
 
 describe("focus you can find without hunting", () => {
-  test("the header states it at full strength, not at a fourth of one", () => {
-    // 13% grey at 60% strength over a 6.5% background is about a four-point
-    // lightness step — on the least contrast-sensitive channel available, on a
-    // seven-pixel band. That is the difference between two headers and one
-    // header you have to check.
+  test("the header uses a soft fill rather than another panel surface", () => {
     const header = code("pane-stage.tsx").slice(code("pane-stage.tsx").indexOf("@container flex h-7"));
-    expect(header).toContain('"bg-secondary text-foreground"');
+    expect(header).toContain('"bg-secondary/80 text-foreground"');
     expect(header).not.toContain("bg-secondary/60");
   });
 
@@ -184,25 +180,17 @@ describe("focus you can find without hunting", () => {
     expect(header).toContain("font-medium");
   });
 
-  test("focus frames the pane rather than marking a spot inside it", () => {
-    // What it was: a twenty-pixel rail of accent beside the title, on a
-    // twenty-eight-pixel band, in a pane roughly a thousand pixels tall. That is
-    // a spot to inspect, and it was the only thing on screen saying which half
-    // of the window you were typing into. What it is now: an edge the length of
-    // the pane, over a surface stepped once across all of it — a region, which
-    // is what the reader is actually trying to locate.
+  test("focus needs no colored mark around, below, or beside the pane", () => {
     const stage = code("pane-stage.tsx");
-    expect(stage).not.toContain("rounded-full");
+    const header = stage.slice(stage.indexOf("@container flex h-7"), stage.indexOf("function EmptyPanePicker"));
+    expect(header).not.toContain("bg-primary");
+    expect(header).not.toContain("inset-x-0 bottom-0");
+    expect(header).not.toContain("left-1 top-1/2");
     const section = stage.slice(stage.indexOf("data-pane-id={leaf.id}"));
-    expect(section).toContain('isFocused() ? "border-primary/45 bg-secondary/45"');
-    // Both states carry the border, so focus moves colour and nothing else —
-    // a pane must not gain or lose two pixels every time it is clicked.
-    // Unfocused is a visible `border-border`, not a transparent one: the edge is
-    // what makes a pane countable, and focus is then only a change of its
-    // colour.
-    expect(section).toContain('"border-border bg-background"');
+    expect(section).toContain("rounded-md border border-border bg-background");
+    expect(section).not.toContain("border-primary");
+    expect(section).not.toContain("bg-secondary/45");
     expect(section).not.toContain("border-transparent");
-    expect(section).toContain("overflow-hidden rounded-md border transition-colors");
   });
 
   test("a pane is countable without asking which one has focus", () => {
