@@ -228,21 +228,22 @@ export interface HandoffCandidate {
 export interface HandoffTarget {
   id: string;
   label: string;
+  current: boolean;
 }
 
 /**
- * Backends that can open a session and are not the one already driving this one.
- *
- * A handoff is a new session. The connection that owns the source is not a
- * destination: continuing there is a prompt, which the composer already sends.
+ * Backends that can open a new session with this session's briefing.
+ * The current backend is valid too: a fresh context is not continuing the
+ * source session, which is what the composer already does.
  */
 export function handoffTargets(connections: readonly HandoffCandidate[], ownerId: string | undefined): HandoffTarget[] {
-  const eligible = connections.filter((connection) => connection.prompt && connection.id !== ownerId);
+  const eligible = connections.filter((connection) => connection.prompt);
   const counts = new Map<string, number>();
   for (const connection of eligible) counts.set(connection.label, (counts.get(connection.label) ?? 0) + 1);
   return eligible.map((connection) => ({
     id: connection.id,
     label: (counts.get(connection.label) ?? 0) > 1 ? `${connection.label} ${connection.detail}` : connection.label,
+    current: connection.id === ownerId,
   }));
 }
 
@@ -313,7 +314,7 @@ export function builtinCommands(c: {
   reverted?: boolean;
   abort?: boolean;
   fork?: boolean;
-  /** some other connected backend can open a session */
+  /** a connected backend can open a session */
   handoff?: boolean;
   hasTurns?: boolean;
   manage?: boolean;

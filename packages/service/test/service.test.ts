@@ -1921,10 +1921,58 @@ describe("handoff", () => {
 
     const owned = await post("/sessions", { connection_id: connected.id, directory: tmpdir() }).then((r) => r.json());
     const same = await post(`/sessions/${encodeURIComponent(owned.id)}/handoff`, { connection_id: connected.id });
-    expect(same.status).toBe(400);
-    expect(((await same.json()) as { error: string }).error).toMatch(/already runs/);
+    expect(same.status).toBe(200);
+    const continued = (await same.json()) as { id: string };
+    expect(continued.id).not.toBe(owned.id);
+    expect(continued.id).toStartWith("acp:mock:");
+    expect(await fetch(`${base}/sessions/${encodeURIComponent(owned.id)}/view`).then((r) => r.status)).toBe(200);
 
     svc.stop();
+  });
+
+  test("the first prompt uses the composer's model, agent and effort", async () => {
+    const upstream = fakeOpencode({
+      "/session": (_url, req) =>
+        req.method === "POST" ? Response.json({ id: "ses_handoff" }) : Response.json([]),
+      "/session/ses_handoff/prompt_async": () => new Response(null, { status: 204 }),
+    });
+    const svc = startService({ db: ":memory:", port: 0 });
+    const base = `http://127.0.0.1:${svc.port}`;
+    const post = (path: string, body: unknown) =>
+      fetch(`${base}${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    try {
+      const connected = await post("/connect", { baseUrl: upstream.baseUrl, directory: "/conn" }).then((r) => r.json());
+      svc.store.append([
+        ev(
+          "opencode:source",
+          "session.started",
+          { title: "source", workspace: "/repo" },
+          "2026-01-01T00:00:00Z",
+        ),
+      ]);
+      const res = await post("/sessions/opencode%3Asource/handoff", {
+        connection_id: connected.id,
+        model: { providerID: "opencode-go", modelID: "deepseek-v4.1-flash" },
+        agent: "build",
+        variant: "high",
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ id: "opencode:ses_handoff" });
+      const sent = upstream.seen.find((s) => s.path === "/session/ses_handoff/prompt_async");
+      expect(sent?.query.get("directory")).toBe("/repo");
+      expect(JSON.parse(sent!.body)).toMatchObject({
+        model: { providerID: "opencode-go", modelID: "deepseek-v4.1-flash" },
+        agent: "build",
+        variant: "high",
+      });
+    } finally {
+      svc.stop();
+      upstream.stop();
+    }
   });
 });
 

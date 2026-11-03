@@ -636,8 +636,8 @@ export function SessionDetail(props: {
     terminal: () => t("cmd.terminal"),
   };
   const targets = createMemo(() => {
-    // Until capabilities answer, the owner is unknown, and the menu would
-    // offer the backend that is already driving the session.
+    // Wait for capabilities before marking the current backend, so the single
+    // target's description does not change after the reader opens the menu.
     if (caps.state === "unresolved" || caps.state === "pending") return [];
     return handoffTargets(
       (props.connections ?? []).map((connection) => ({
@@ -674,7 +674,9 @@ export function SessionDetail(props: {
       description:
         name === "handoff"
           ? receiving.length === 1
-            ? t("cmd.handoff.one", { name: receiving[0]!.label })
+            ? receiving[0]!.current
+              ? t("cmd.handoff.current")
+              : t("cmd.handoff.one", { name: receiving[0]!.label })
             : t("cmd.handoff.many", { names: receiving.map((target) => target.label).join(", ") })
           : BUILTIN_DESC[name]?.(),
       argument: name === "handoff" && receiving.length !== 1,
@@ -722,7 +724,7 @@ export function SessionDetail(props: {
               : t("cmd.handoff.missing", { names: list.map((item) => item.label).join(", ") }),
           );
         }
-        const id = await handoffSession(props.id, target.id);
+        const id = await handoffSession(props.id, target.id, composer.choice());
         location.hash = `/session/${encodeURIComponent(id)}`;
         return;
       }

@@ -7,6 +7,7 @@ import {
   fmtDurationDelta,
   fmtUsd,
   fmtUsdFlat,
+  handoffSession,
   opencodePath,
   readMcp,
   readSkills,
@@ -124,6 +125,25 @@ describe("running a backend command", () => {
     const parts = [{ type: "file_ref" as const, path: "a.ts" }];
     await runCommand("opencode:ses_1", { name: "review", args: "be brief", parts }, { agent: "plan" });
     expect(sent[0]!.body).toEqual({ command: "review", arguments: "be brief", parts, agent: "plan" });
+  });
+
+  test("a handoff carries the same prompt choice", async () => {
+    await handoffSession("opencode:ses_1", "conn_1", {
+      model: { providerID: "opencode-go", modelID: "deepseek-v4.1-flash" },
+      agent: "build",
+      variant: "high",
+    });
+    expect(sent).toEqual([
+      {
+        url: "/api/sessions/opencode%3Ases_1/handoff",
+        body: {
+          connection_id: "conn_1",
+          model: { providerID: "opencode-go", modelID: "deepseek-v4.1-flash" },
+          agent: "build",
+          variant: "high",
+        },
+      },
+    ]);
   });
 });
 

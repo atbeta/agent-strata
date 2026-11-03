@@ -1186,6 +1186,7 @@ export function useSessionComposer(args: {
     setAgentSel,
     context,
     modelSel,
+    choice: currentChoice,
     clearPending: closeHandover,
     resetFor,
     onKeyDown,

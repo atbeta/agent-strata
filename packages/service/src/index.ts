@@ -1624,15 +1624,17 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         if (e instanceof Error && e.message === "no events") return json({ error: "session not found" }, 404);
         throw e;
       }
-      const body = (await req.json().catch(() => null)) as { connection_id?: unknown } | null;
+      const body = (await req.json().catch(() => null)) as {
+        connection_id?: unknown;
+        model?: { providerID: string; modelID: string };
+        agent?: string;
+        variant?: string;
+      } | null;
       const connectionId = typeof body?.connection_id === "string" ? body.connection_id : "";
       if (!connectionId) return json({ error: "connection_id required" }, 400);
       const target = conns.get(connectionId);
       if (!target) return json({ error: "no such connection" }, 400);
       if (!target.capabilities.prompt) return json({ error: "backend cannot prompt" }, 400);
-      if (owners.get(casfId) === target.id) {
-        return json({ error: "this session already runs on that backend" }, 400);
-      }
       const titleBase = view.title?.trim() || "session";
       const title = `Handoff: ${titleBase.length > 60 ? `${titleBase.slice(0, 59)}…` : titleBase}`;
       const directory = directoryOf(casfId);
@@ -1641,7 +1643,12 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         owners.set(created.casfId, target.id);
         if (directory) createdDirs.set(created.casfId, directory);
         claims.claim(`${target.agent}:${created.nativeId}`, created.casfId, target.id);
-        await target.prompt(created.nativeId, [{ type: "text", text: sessionBriefing(view) }], { directory });
+        await target.prompt(created.nativeId, [{ type: "text", text: sessionBriefing(view) }], {
+          model: body?.model,
+          agent: body?.agent,
+          variant: body?.variant,
+          directory,
+        });
         return json({ id: created.casfId });
       } catch (e) {
         return json({ error: String(e) }, 502);

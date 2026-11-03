@@ -828,12 +828,12 @@ export async function unrevertSession(id: string): Promise<void> {
   await throwOnError(await apiFetch(`/sessions/${encodeURIComponent(id)}/unrevert`, { method: "POST" }));
 }
 
-/** Opens a new session on another connection, with this session's briefing as its first prompt. */
-export async function handoffSession(id: string, connectionId: string): Promise<string> {
+/** Opens a session on the chosen connection, with this briefing and prompt choice as its first turn. */
+export async function handoffSession(id: string, connectionId: string, choice: PromptChoice): Promise<string> {
   const res = await apiFetch(`/sessions/${encodeURIComponent(id)}/handoff`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ connection_id: connectionId }),
+    body: JSON.stringify({ connection_id: connectionId, ...choice }),
   });
   await throwOnError(res);
   const data = (await res.json()) as { id: string };

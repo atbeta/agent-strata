@@ -166,9 +166,10 @@ describe("who can receive a handoff", () => {
   const codex = { id: "acp:codex:1", label: "Codex", detail: "acp://codex", prompt: true };
   const opencode = { id: "opencode:http://127.0.0.1:4096", label: "OpenCode", detail: "http://127.0.0.1:4096", prompt: true };
 
-  test("drops the backend that already runs the session, and one that cannot prompt", () => {
+  test("keeps the current backend as a new-session target and drops one that cannot prompt", () => {
     expect(handoffTargets([codex, opencode, { ...opencode, id: "dead", prompt: false }], opencode.id)).toEqual([
-      { id: codex.id, label: "Codex" },
+      { id: codex.id, label: "Codex", current: false },
+      { id: opencode.id, label: "OpenCode", current: true },
     ]);
   });
 
