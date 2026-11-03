@@ -20,6 +20,15 @@ export interface Sink {
   sessionRevision?(sessionId: string): number | null;
   markRevision?(sessionId: string, rev: number): void;
   /**
+   * What the store's projection still says about a session's run.
+   *
+   * A correction at connect time has to act on sessions this connection never
+   * watched, so it cannot answer that question from its own memory. The store
+   * can, and it is the only thing that survives a restart — which is exactly
+   * when a run cut off mid-write leaves its `busy` behind.
+   */
+  sessionRunning?(sessionId: string): { running: boolean; seq: number; ts?: string };
+  /**
    * Keep an attachment's bytes somewhere the reader can fetch them later.
    *
    * A tool result carrying a screenshot larger than the inline cap cannot put

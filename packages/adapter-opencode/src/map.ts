@@ -781,15 +781,33 @@ export class OpencodeMapper {
    * Only `idle` is acted on. A `busy` in this answer is not evidence the run is
    * live — the same rule the stream handler follows — and announcing it would
    * put a running dot on a session whose frames are simply late.
+   *
+   * `stillRunning` is how the store's projection gets a say. Without it this
+   * correction could only see the sessions this generation had watched go busy,
+   * and the case it exists for — a run cut off by closing the app — is exactly
+   * the one where this generation watched nothing. Measured: a session busy at
+   * the end of one generation, idle at the start of the next, stayed busy in
+   * the projection forever, because the correction skipped it as unknown.
    */
-  reconcileIdle(idleSessionIDs: Iterable<string>): EventInput[] {
+  reconcileIdle(
+    idleSessionIDs: Iterable<string>,
+    // What the store still thinks. `seq` and `ts` come along for two reasons:
+    // the id has to be unique per position so a second restart after a real
+    // turn is not deduped away, and the event has to carry the session's own
+    // clock or `MAX(last_ts)` moves an old conversation to the top of the list.
+    stillRunning?: (
+      sessionID: string,
+    ) => { running: boolean; seq: number; ts?: string } | undefined,
+  ): EventInput[] {
     const out: EventInput[] = [];
     for (const sessionID of idleSessionIDs) {
-      const s = this.sessions.get(sessionID);
-      // A session this generation has never heard of has nothing to correct:
-      // the store learned about it from an earlier generation, and its own
-      // projection is the only record of a run that is already over.
-      if (!s || !s.sawBusy) continue;
+      const known = this.sessions.get(sessionID);
+      // Memory first — this generation watched it run. Otherwise ask the store,
+      // which is the only thing that remembers a run from before the restart.
+      const stored = stillRunning?.(sessionID);
+      const stale = known?.sawBusy === true || stored?.running === true;
+      if (!stale) continue;
+      const s = known ?? this.adopt(sessionID);
       s.sawBusy = false;
       s.emittedIdle = true;
       s.retryKey = undefined;
@@ -800,16 +818,45 @@ export class OpencodeMapper {
       this.closeOpenMessages(s, out, "reconcile");
       s.liveMsgs?.clear();
       this.retireStreaming(s);
+      // No stored position means nothing to dedupe against and no clock to
+      // borrow; the plain id and the store's own clock are right there.
+      const at = stored?.seq ? `:${stored.seq}` : "";
       out.push(
         this.ev(
           s,
           "session.status",
           { state: "idle" },
-          `opencode:${sessionID}:reconcile:idle`,
+          `opencode:${sessionID}:reconcile:idle${at}`,
+          stored?.ts,
         ),
       );
     }
     return out;
+  }
+
+  /**
+   * The state for a session this generation has not seen, without announcing
+   * it.
+   *
+   * `ensureSession` emits `session.started` because a session it is asked about
+   * is a session starting or resuming. This is the other case: the correction
+   * only needs somewhere to hang an event for a session the store already
+   * knows, and `started` is deliberately left false so the first real event
+   * still announces it the way it always did.
+   */
+  private adopt(sessionID: string): SessionState {
+    const existing = this.sessions.get(sessionID);
+    if (existing) return existing;
+    const s: SessionState = {
+      sessionID,
+      casfId: `opencode:${sessionID}`,
+      started: false,
+      messages: new Map(),
+      pendingUserMsgs: new Set(),
+      lastTouch: this.now(),
+    };
+    this.sessions.set(sessionID, s);
+    return s;
   }
 
   private ensureSession(sessionID: string, clock?: number): { s: SessionState; out: EventInput[] } {

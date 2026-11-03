@@ -351,7 +351,12 @@ export async function connectOpencode(opts: {
       const idle = Object.entries(statuses.data ?? {})
         .filter(([, status]) => (status as { type?: string }).type === "idle")
         .map(([sessionID]) => sessionID);
-      if (idle.length > 0) ingestor.append(mapper.reconcileIdle(idle));
+      if (idle.length > 0) {
+        // The store is asked, not this connection: the run this correction is
+        // for happened before it, so nothing here watched it go busy.
+        const read = opts.sink.sessionRunning?.bind(opts.sink);
+        ingestor.append(mapper.reconcileIdle(idle, read));
+      }
     } catch (err) {
       // A backend that cannot answer says nothing about the run; leave the
       // projection alone rather than guessing in either direction.

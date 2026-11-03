@@ -91,6 +91,20 @@ export interface Store {
   sessionRevision(session_id: string): number | null;
   markRevision(session_id: string, rev: number): void;
   lastSeq(session_id: string): number;
+  /**
+   * Whether the stored projection still says this session is running, and the
+   * position that answer was read at.
+   *
+   * The projection is derived: it replays events in order, and the last one
+   * among the three that carry a run's ending decides. Reading it here rather
+   * than scanning every event keeps the question cheap enough to ask once per
+   * connection for every session the backend reports.
+   *
+   * `seq` and `ts` come back with it because the caller has to write a
+   * correction that survives the store's id dedupe and does not move the
+   * session up the list.
+   */
+  sessionRunning(session_id: string): { running: boolean; seq: number; ts?: string };
   search(
     query: string,
     opts?: { session_id?: string; limit?: number },
@@ -443,6 +457,40 @@ export function openStore(path: string | ":memory:"): Store {
         | { last_seq: number }
         | null;
       return row?.last_seq ?? 0;
+    },
+
+    sessionRunning(session_id) {
+      const head = db.query("SELECT last_seq, last_ts FROM sessions WHERE session_id=?").get(
+        session_id,
+      ) as { last_seq: number; last_ts: string | null } | null;
+      if (!head) return { running: false, seq: 0 };
+      // The four event types that decide whether the projection reads as
+      // running. `session.started` and `session.updated` do not touch it, and
+      // reading only these keeps the answer a single row rather than a replay.
+      //
+      // The body is parsed here instead of with `json_extract` so the query
+      // does not depend on SQLite's JSON1 being compiled in, and one row is
+      // cheaper to parse than the alternative of scanning every event.
+      const last = db
+        .query(
+          `SELECT seq, ts, type, body FROM events
+           WHERE session_id=? AND type IN ('session.status','session.ended','session.error','session.deleted')
+           ORDER BY seq DESC LIMIT 1`,
+        )
+        .get(session_id) as { seq: number; ts: string; type: string; body: string } | null;
+      if (!last) return { running: false, seq: head.last_seq, ts: head.last_ts ?? undefined };
+      let state: string | undefined;
+      try {
+        state = (JSON.parse(last.body) as { data?: { state?: string } }).data?.state;
+      } catch {
+        // A body this store cannot read says nothing about the run either way.
+        return { running: false, seq: head.last_seq, ts: head.last_ts ?? undefined };
+      }
+      return {
+        running: last.type === "session.status" && state !== undefined && state !== "idle",
+        seq: head.last_seq,
+        ts: head.last_ts ?? undefined,
+      };
     },
 
     search(query, { session_id, limit } = {}) {

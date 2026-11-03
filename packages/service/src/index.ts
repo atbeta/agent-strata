@@ -229,6 +229,11 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     markMapped: (sessionId, mapper) => store.markMapper(sessionId, mapper),
     sessionRevision: (sessionId) => store.sessionRevision(sessionId),
     markRevision: (sessionId, rev) => store.markRevision(sessionId, rev),
+    // What the store still believes about a run. The driver's connect-time
+    // correction used to be limited to sessions it had personally watched go
+    // busy, which excluded every run that was cut off by the app closing —
+    // precisely the case it exists for.
+    sessionRunning: (sessionId) => store.sessionRunning(sessionId),
     /**
      * Keep a tool attachment's bytes on disk, under a content-addressed name.
      *

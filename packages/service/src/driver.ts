@@ -20,6 +20,15 @@ export interface BackendSink {
   sessionRevision(sessionId: string): number | null;
   markRevision(sessionId: string, rev: number): void;
   /**
+   * Whether the stored projection still says this session is running.
+   *
+   * A driver's connect-time correction has to act on sessions it never watched
+   * — the run it is correcting was cut off by the app closing — so it cannot
+   * answer this from its own ledger. The store is the only thing that survives
+   * that boundary.
+   */
+  sessionRunning(sessionId: string): { running: boolean; seq: number; ts?: string };
+  /**
    * Keep a tool attachment's bytes somewhere the reader can fetch them later.
    *
    * A screenshot past the inline cap cannot ride in the event — it would be

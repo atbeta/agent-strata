@@ -4323,3 +4323,70 @@ describe("runOpencodeStream", () => {
     abort.abort();
   });
 });
+
+describe("reconciling a run the app was closed in the middle of", () => {
+  /**
+   * The correction at connect time has to act on sessions this connection never
+   * watched, because that is the shape of the failure: a reply still arriving
+   * when the app was closed leaves `busy` in the store and nothing after it.
+   * The previous generation is gone, so an empty ledger is all this one has.
+   */
+  test("a store that still says running is corrected even though this generation never saw it", () => {
+    const gen2 = new OpencodeMapper();
+    const out = gen2.reconcileIdle([sid], () => ({
+      running: true,
+      seq: 7,
+      ts: "2026-01-01T00:00:05.000Z",
+    }));
+    expect(out.map((e) => e.type)).toEqual(["session.status"]);
+    expect((out[0]!.data as { state: string }).state).toBe("idle");
+  });
+
+  /**
+   * Without that answer and without a ledger entry, there is nothing to
+   * correct — a session the store never heard of must not gain a status event
+   * out of nowhere.
+   */
+  test("a session nothing knows about is left alone", () => {
+    const gen2 = new OpencodeMapper();
+    expect(gen2.reconcileIdle([sid], () => ({ running: false, seq: 0 }))).toEqual([]);
+    expect(gen2.reconcileIdle([sid])).toEqual([]);
+  });
+
+  /**
+   * The event id carries the store's position, so the next restart after a real
+   * turn writes a *different* id. A fixed id would be deduped by the store and
+   * the second correction would silently do nothing.
+   */
+  test("the correction's id moves with the session, so a later one is not deduped", () => {
+    const first = new OpencodeMapper().reconcileIdle([sid], () => ({ running: true, seq: 7 }));
+    const later = new OpencodeMapper().reconcileIdle([sid], () => ({ running: true, seq: 12 }));
+    expect(first[0]!.id).not.toBe(later[0]!.id);
+    expect(first[0]!.id).toContain(":7");
+    expect(later[0]!.id).toContain(":12");
+  });
+
+  /**
+   * The event borrows the session's own clock. Stamped with now, it would win
+   * `MAX(last_ts)` and lift a conversation from last week to the top of the
+   * list the moment the app opened.
+   */
+  test("the correction carries the session's clock, not the current one", () => {
+    const when = "2026-01-01T00:00:05.000Z";
+    const out = new OpencodeMapper().reconcileIdle([sid], () => ({ running: true, seq: 7, ts: when }));
+    expect(out[0]!.ts).toBe(when);
+  });
+
+  /**
+   * The path that always worked keeps working: a session this generation did
+   * watch go busy is corrected from memory, with no store answer needed.
+   */
+  test("a run this generation watched is still corrected from memory", () => {
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    m.handle(msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 10 } }));
+    m.handle(partUpdated({ id: "pt1", sessionID: sid, messageID: "u1", type: "text", text: "hi", time: { start: 10 } }));
+    const out = m.reconcileIdle([sid], () => ({ running: false, seq: 3 }));
+    expect(out.some((e) => e.type === "session.status" && (e.data as { state: string }).state === "idle")).toBe(true);
+  });
+});

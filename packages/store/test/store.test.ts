@@ -406,4 +406,45 @@ describe("store.query", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  /**
+   * The question a driver asks when it connects: is anything still running?
+   *
+   * A run cut off by closing the app leaves `busy` in the projection and
+   * nothing after it, so the answer is "yes" for a session that has been
+   * nothing but idle since. Reading it from the store rather than from the
+   * driver's own ledger is the whole point — the ledger does not survive the
+   * restart that left the state stale.
+   */
+  test("a session is running until an ending is the last word", () => {
+    const s = openStore(":memory:");
+    s.append([mk("opencode:ses_1", "session.started", { workspace: "/repo" }, "2026-01-01T00:00:00.000Z")]);
+    s.append([mk("opencode:ses_1", "session.status", { state: "busy" }, "2026-01-01T00:00:01.000Z")]);
+    expect(s.sessionRunning("opencode:ses_1").running).toBe(true);
+
+    s.append([mk("opencode:ses_1", "session.status", { state: "idle" }, "2026-01-01T00:00:02.000Z")]);
+    expect(s.sessionRunning("opencode:ses_1").running).toBe(false);
+
+    // `retry` and `compacting` are still a run in progress, not an ending.
+    s.append([mk("opencode:ses_1", "session.status", { state: "retry" }, "2026-01-01T00:00:03.000Z")]);
+    expect(s.sessionRunning("opencode:ses_1").running).toBe(true);
+
+    s.append([
+      mk("opencode:ses_1", "session.ended", { reason: "completed" }, "2026-01-01T00:00:04.000Z"),
+    ]);
+    expect(s.sessionRunning("opencode:ses_1").running).toBe(false);
+    s.close();
+  });
+
+  test("an ending of any kind clears it, and an unknown session is not running", () => {
+    const s = openStore(":memory:");
+    expect(s.sessionRunning("opencode:nope")).toEqual({ running: false, seq: 0 });
+
+    s.append([mk("opencode:ses_2", "session.started", { workspace: "/repo" })]);
+    s.append([mk("opencode:ses_2", "session.status", { state: "busy" })]);
+    expect(s.sessionRunning("opencode:ses_2").running).toBe(true);
+    s.append([mk("opencode:ses_2", "session.error", { error: { message: "boom" } })]);
+    expect(s.sessionRunning("opencode:ses_2").running).toBe(false);
+    s.close();
+  });
 });
