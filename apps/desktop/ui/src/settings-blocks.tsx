@@ -87,7 +87,7 @@ export function Row(props: {
 export function Segmented(props: {
   label: string;
   value: string;
-  options: { id: string; label: string; swatch?: JSX.Element }[];
+  options: { id: string; label: string }[];
   onChange: (id: string) => void;
 }) {
   const selectedIndex = () => Math.max(0, props.options.findIndex((option) => option.id === props.value));
@@ -105,7 +105,7 @@ export function Segmented(props: {
           role="radio"
           aria-checked={props.value === option.id}
           tabIndex={selectedIndex() === index ? 0 : -1}
-          class={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2.5 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
+          class={`flex shrink-0 items-center whitespace-nowrap rounded-md px-2.5 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
             props.value === option.id
               ? "bg-secondary text-foreground"
               : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
@@ -113,7 +113,6 @@ export function Segmented(props: {
           onClick={() => props.onChange(option.id)}
           onKeyDown={(event) => handleRovingKey(event, index, props.options, props.onChange, items)}
         >
-          {option.swatch}
           {option.label}
         </button>
       ))}

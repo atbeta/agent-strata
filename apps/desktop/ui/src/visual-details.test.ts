@@ -59,6 +59,16 @@ describe("visual details", () => {
     expect(source).toContain("break-words");
   });
 
+  test("theme choices use a plain segmented control without decorative color chips", () => {
+    const source = read("settings.tsx");
+    const theme = source.slice(source.indexOf('controlClass="w-88"'), source.indexOf('label={t("settings.language")}'));
+    expect(theme).toContain("options={CHOICES()}");
+    expect(theme).not.toContain("swatch");
+    expect(theme).not.toContain("linear-gradient");
+    const segmented = read("settings-blocks.tsx");
+    expect(segmented).not.toContain("option.swatch");
+  });
+
   test("first paint applies the same content preferences and CJK font fallbacks", () => {
     const source = readFileSync(join(import.meta.dir, "../index.html"), "utf8");
     expect(source).toContain("root.dataset.contentSize = fonts.size");

@@ -659,21 +659,7 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
               label={t("settings.theme")}
               value={choice()}
               onChange={(id) => pick(id as ThemeChoice)}
-              options={CHOICES().map((item) => ({
-                id: item.id,
-                label: item.label,
-                swatch: (
-                  <span
-                    class={`h-3.5 w-6 shrink-0 rounded-sm border border-border ${
-                      item.id === "light"
-                        ? "bg-white"
-                        : item.id === "system"
-                          ? "bg-[linear-gradient(90deg,#f7f7f8_50%,#17171a_50%)]"
-                          : "bg-[#17171a]"
-                    }`}
-                  />
-                ),
-              }))}
+              options={CHOICES()}
             />
           </Row>
         </Card>
