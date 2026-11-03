@@ -31,6 +31,8 @@ import {
   findLeaf,
   listLeaves,
   RATIO_DEFAULT,
+  RATIO_MAX,
+  RATIO_MIN,
   type LayoutPreset,
   type PaneLeaf,
   type PaneNode,
@@ -430,7 +432,9 @@ function EmptyPanePicker(props: {
  * Resizable split divider between two child nodes.
  */
 function SplitDivider(props: {
+  splitId: string;
   dir: SplitDir;
+  ratio: number;
   onResize: (ratio: number) => void;
 }) {
   let containerEl: HTMLDivElement | undefined;
@@ -470,14 +474,31 @@ function SplitDivider(props: {
     <div
       ref={containerEl}
       role="separator"
+      data-split-id={props.splitId}
       aria-orientation={props.dir === "row" ? "vertical" : "horizontal"}
       aria-label={t("pane.resize")}
+      aria-valuemin={RATIO_MIN * 100}
+      aria-valuemax={RATIO_MAX * 100}
+      aria-valuenow={Math.round(props.ratio * 100)}
+      tabIndex={0}
       onPointerDown={startDrag}
+      onKeyDown={(event) => {
+        const forward = props.dir === "row" ? event.key === "ArrowRight" : event.key === "ArrowDown";
+        const backward = props.dir === "row" ? event.key === "ArrowLeft" : event.key === "ArrowUp";
+        if (!forward && !backward) return;
+        event.preventDefault();
+        const step = event.shiftKey ? 0.1 : 0.02;
+        const id = props.splitId;
+        props.onResize(props.ratio + (forward ? step : -step));
+        requestAnimationFrame(() => {
+          document.querySelector<HTMLElement>(`[data-split-id="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
+        });
+      }}
       onDblClick={() => props.onResize(RATIO_DEFAULT)}
       class={
         props.dir === "row"
-          ? "group relative z-10 flex w-2.5 shrink-0 cursor-col-resize items-stretch justify-center select-none"
-          : "group relative z-10 flex h-2.5 shrink-0 cursor-row-resize items-center justify-center select-none"
+          ? "group relative z-10 flex w-2.5 shrink-0 cursor-col-resize items-stretch justify-center select-none focus-visible:outline-none focus-visible:bg-ring/30"
+          : "group relative z-10 flex h-2.5 shrink-0 cursor-row-resize items-center justify-center select-none focus-visible:outline-none focus-visible:bg-ring/30"
       }
     >
       {/* The gutter is the separator, not the line. It used to be four pixels
@@ -630,7 +651,9 @@ export function PaneStage(props: {
           {renderNode(node.a)}
         </div>
         <SplitDivider
+          splitId={node.id}
           dir={node.dir}
+          ratio={node.ratio}
           onResize={(ratio) => props.onResizeSplit(node.id, ratio)}
         />
         <div

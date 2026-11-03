@@ -232,6 +232,8 @@ export default {
 
   // Command search
   "search.searching": "Searching…",
+  "search.failed": "Search failed",
+  "search.retry": "Retry",
   "palette.title": "Commands",
   "palette.placeholder": "Type a command or session",
   "palette.empty": "No matches",

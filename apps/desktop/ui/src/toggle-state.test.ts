@@ -38,7 +38,8 @@ describe("the header row", () => {
     expect(search).toContain("searchPanelEl");
     expect(search).toContain("searchTriggerEl");
     expect(tools).toContain("toolsPanelEl");
-    expect(tools).toContain("toolsTriggerEl");
+    expect(tools).toContain("visibleToolsTrigger");
+    expect(src).toContain("toolsTriggerEl?.getClientRects().length");
   });
 
   test("both panels register their body so a press inside it is not a dismiss", () => {

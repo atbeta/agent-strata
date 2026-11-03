@@ -106,6 +106,12 @@ import { useSessionComposer, SessionComposer } from "./session-composer";
 import { SessionRail } from "./session-rail";
 import { createEntranceLedger } from "./entrance";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { EmptyState } from "@/components/ui/empty-state";
 import { DragBar } from "./chrome";
 import { clearPaneBusy, publishPaneBusy } from "./pane-activity";
@@ -356,6 +362,15 @@ export function SessionDetail(props: {
     clearTimeout(replayTimer);
     replayTimer = undefined;
     setReplayPos(null);
+  };
+  const toggleTrace = () => {
+    if (traceOn()) {
+      setTraceOn(false);
+      setTraceKey(null);
+      clearReplay();
+    } else {
+      setTraceOn(true);
+    }
   };
   onCleanup(() => clearTimeout(replayTimer));
 
@@ -810,9 +825,12 @@ export function SessionDetail(props: {
   let searchTriggerEl: HTMLButtonElement | undefined;
   let toolsPanelEl: HTMLDivElement | undefined;
   let toolsTriggerEl: HTMLButtonElement | undefined;
+  let moreTriggerEl: HTMLButtonElement | undefined;
   let panelTriggerEl: HTMLButtonElement | undefined;
+  const visibleToolsTrigger = () =>
+    toolsTriggerEl?.getClientRects().length ? toolsTriggerEl : moreTriggerEl;
   useDismiss(search.searchOpen, search.closeSearch, () => searchPanelEl, () => searchTriggerEl);
-  useDismiss(tools.toolsOpen, tools.closeTools, () => toolsPanelEl, () => toolsTriggerEl);
+  useDismiss(tools.toolsOpen, tools.closeTools, () => toolsPanelEl, visibleToolsTrigger);
 
   // `displayed` is already created. `turns` is not: this memo runs at once,
   // and calling `turns()` here threw before the binding existed, which aborted
@@ -1443,105 +1461,124 @@ const turns = () => shown().turns;
                 </div>
                 <span class="flex shrink-0 items-center gap-0.5">
                   <Tip label={t("session.search.tip", { shortcut: findKey() })}>
-                  <PanelToggle
-                    label={t("session.search.label")}
-                    on={search.searchOpen()}
-                    expanded={search.searchOpen()}
-                    onClick={() => (search.searchOpen() ? search.closeSearch() : search.openSearch())}
-                    bindRef={(el) => (searchTriggerEl = el)}
-                  >
-                    <Icon name="search" />
-                  </PanelToggle>
-                </Tip>
-                  <Show when={opencode()}>
-                    <Tip label={terminalOn() ? t("terminal.hide") : t("terminal.show")}>
-                      <PanelToggle
-                        label={terminalOn() ? t("terminal.hide") : t("terminal.show")}
-                        on={terminalOn()}
-                        pressed={terminalOn()}
-                        onClick={() => setTerminalOn((on) => !on)}
-                      >
-                        <Icon name="terminal" />
-                      </PanelToggle>
-                    </Tip>
-                  </Show>
-                  <Tip label={traceOn() ? t("trace.live") : t("trace.replay")}>
                     <PanelToggle
-                      label={traceOn() ? t("trace.live") : t("trace.replay")}
-                      on={traceOn()}
-                      pressed={traceOn()}
-                      onClick={() => {
-                        if (traceOn()) {
-                          setTraceOn(false);
-                          setTraceKey(null);
-                          clearReplay();
-                        } else {
-                          setTraceOn(true);
-                        }
-                      }}
+                      label={t("session.search.label")}
+                      on={search.searchOpen()}
+                      expanded={search.searchOpen()}
+                      onClick={() => (search.searchOpen() ? search.closeSearch() : search.openSearch())}
+                      bindRef={(el) => (searchTriggerEl = el)}
                     >
-                      <Icon name="replay" />
+                      <Icon name="search" />
                     </PanelToggle>
                   </Tip>
-                  <Show when={opencode()}>
-                    <Tip label={t("header.tools")}>
+                  <span class="flex items-center gap-0.5 @max-[719px]:hidden">
+                    <Show when={opencode()}>
+                      <Tip label={terminalOn() ? t("terminal.hide") : t("terminal.show")}>
+                        <PanelToggle
+                          label={terminalOn() ? t("terminal.hide") : t("terminal.show")}
+                          on={terminalOn()}
+                          pressed={terminalOn()}
+                          onClick={() => setTerminalOn((on) => !on)}
+                        >
+                          <Icon name="terminal" />
+                        </PanelToggle>
+                      </Tip>
+                    </Show>
+                    <Tip label={traceOn() ? t("trace.live") : t("trace.replay")}>
                       <PanelToggle
-                        label={t("header.tools")}
-                        on={tools.toolsOpen()}
-                        pressed={tools.toolsOpen()}
-                        onClick={tools.toggleTools}
-                        bindRef={(el) => (toolsTriggerEl = el)}
+                        label={traceOn() ? t("trace.live") : t("trace.replay")}
+                        on={traceOn()}
+                        pressed={traceOn()}
+                        onClick={toggleTrace}
                       >
-                        <span class="relative inline-flex">
-                          <Icon name="plug" />
-                          <McpAttentionMark tone={tools.attention()} />
-                        </span>
+                        <Icon name="replay" />
                       </PanelToggle>
                     </Tip>
-                  </Show>
-                  {/* Two clusters: the four to the left open surfaces that
-                      inspect this transcript (find, terminal, trace, tools);
-                      the rest drive the session itself (pane layout, export,
-                      and the changes-and-files panel). One hairline between
-                      them keeps the buttons from reading as a wall. */}
-                  <span class="mx-1 h-4 w-px shrink-0 bg-border" aria-hidden="true" />
+                    <Show when={opencode()}>
+                      <Tip label={t("header.tools")}>
+                        <PanelToggle
+                          label={t("header.tools")}
+                          on={tools.toolsOpen()}
+                          pressed={tools.toolsOpen()}
+                          onClick={tools.toggleTools}
+                          bindRef={(el) => (toolsTriggerEl = el)}
+                        >
+                          <span class="relative inline-flex">
+                            <Icon name="plug" />
+                            <McpAttentionMark tone={tools.attention()} />
+                          </span>
+                        </PanelToggle>
+                      </Tip>
+                    </Show>
+                    <span class="mx-1 h-4 w-px shrink-0 bg-border" aria-hidden="true" />
+                  </span>
                   <LayoutSwitcher
                     workspace={paneWorkspace()}
                     onPreset={handleSelectPreset}
                     onSplit={(dir) => handleSplitPane(paneWorkspace().focusedPaneId, dir)}
                     onToggleZoom={() => handleToggleZoom(paneWorkspace().focusedPaneId)}
                   />
-                  <Tip label={t("header.export")}>
-                    <Button
-                      type="button"
-                      variant="icon"
-                      size="icon-sm"
-                      aria-label={t("header.export")}
-                      onClick={() =>
-                        void downloadExport(v().session_id).catch((err) =>
-                          composer.setSendErr(err instanceof Error ? err.message : t("err.network")),
-                        )
-                      }
+                  <span class="@max-[719px]:hidden">
+                    <Tip label={t("header.export")}>
+                      <Button
+                        type="button"
+                        variant="icon"
+                        size="icon-sm"
+                        aria-label={t("header.export")}
+                        onClick={() =>
+                          void downloadExport(v().session_id).catch((err) =>
+                            composer.setSendErr(err instanceof Error ? err.message : t("err.network")),
+                          )
+                        }
+                      >
+                        <Icon name="export" class="size-4 text-muted-foreground" />
+                      </Button>
+                    </Tip>
+                  </span>
+                  <DropdownMenu placement="bottom-end">
+                    <DropdownMenuTrigger
+                      ref={(el) => (moreTriggerEl = el)}
+                      class={`relative h-7 w-7 rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground @min-[720px]:hidden ${toggleClasses(terminalOn() || traceOn() || tools.toolsOpen())}`}
+                      aria-label={t("header.more")}
                     >
-                      <Icon name="export" class="size-4 text-muted-foreground" />
-                    </Button>
-                  </Tip>
-                  {/*
-                   * The changes-and-files panel opens from here rather than from
-                   * a strip on the right edge.
-                   *
-                   * That strip was 24 pixels wide and permanently on screen, and
-                   * all it ever said was that something optional existed on the
-                   * other side of it. It held a 288px panel's worth of visual
-                   * weight to advertise 288px. A button in this row says the
-                   * same thing from where the reader's eye already is, and the
-                   * reading column gets a hairline back.
-                   *
-                   * The mark says "panel", not "files": it is the fold button
-                   * for this side of the window, and the window's other side
-                   * has one drawn the same way. The drawer still holds files,
-                   * but what this button does is open a side.
-                   */}
+                      <Icon name="more" class="size-4" />
+                      <McpAttentionMark tone={tools.attention()} />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent class="min-w-48">
+                      <Show when={opencode()}>
+                        <DropdownMenuItem onSelect={() => setTerminalOn((on) => !on)}>
+                          <Icon name="terminal" class="size-3.5 text-muted-foreground" />
+                          <span class="flex-1">{terminalOn() ? t("terminal.hide") : t("terminal.show")}</span>
+                          <Show when={terminalOn()}><Icon name="check" class="size-3.5" /></Show>
+                        </DropdownMenuItem>
+                      </Show>
+                      <DropdownMenuItem onSelect={toggleTrace}>
+                        <Icon name="replay" class="size-3.5 text-muted-foreground" />
+                        <span class="flex-1">{traceOn() ? t("trace.live") : t("trace.replay")}</span>
+                        <Show when={traceOn()}><Icon name="check" class="size-3.5" /></Show>
+                      </DropdownMenuItem>
+                      <Show when={opencode()}>
+                        <DropdownMenuItem onSelect={tools.toggleTools}>
+                          <span class="relative inline-flex">
+                            <Icon name="plug" class="size-3.5 text-muted-foreground" />
+                            <McpAttentionMark tone={tools.attention()} />
+                          </span>
+                          <span class="flex-1">{t("header.tools")}</span>
+                          <Show when={tools.toolsOpen()}><Icon name="check" class="size-3.5" /></Show>
+                        </DropdownMenuItem>
+                      </Show>
+                      <DropdownMenuItem
+                        onSelect={() =>
+                          void downloadExport(v().session_id).catch((err) =>
+                            composer.setSendErr(err instanceof Error ? err.message : t("err.network")),
+                          )
+                        }
+                      >
+                        <Icon name="export" class="size-3.5 text-muted-foreground" />
+                        <span class="flex-1">{t("header.export")}</span>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                   <Tip label={t(panelVisible() ? "panel.hide" : "panel.show")}>
                     <PanelToggle
                       label={t(panelVisible() ? "panel.hide" : "panel.show")}

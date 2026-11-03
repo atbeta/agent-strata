@@ -1,4 +1,4 @@
-import { createResource, createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createResource, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiFetch, getJson, streamUrl, syncBackend, type StrataEvent } from "./api";
 import { settled } from "./resource";
 import { FleetView } from "./fleet-view";
@@ -31,6 +31,7 @@ import { useStartup } from "./use-startup";
 import { ImageViewerHost } from "./image-viewer";
 import { SyncLine } from "./sync-line";
 import { changesSessionList, isDevEvent } from "./sync-events";
+import { createDebouncer } from "./debounce";
 
 export function App() {
   const [route, setRoute] = createSignal<Route>(parseHash());
@@ -81,18 +82,31 @@ export function App() {
    */
   const [focusDir, setFocusDir] = createSignal<string | undefined>(undefined);
 
-  const [query, setQuery] = createSignal("");
-  const [results] = createResource(query, async (q) =>
-    q.trim()
-      ? (
-          await getJson<{ events: StrataEvent[] }>(
-            `/events?text=${encodeURIComponent(q.trim())}&order=desc&limit=40`,
-          )
-        ).events
-      : [],
-  );
-
   const [paletteOpen, setPaletteOpen] = createSignal(false);
+  const [query, setQuery] = createSignal("");
+  const [remoteQuery, setRemoteQuery] = createSignal<string>();
+  const [searchWaiting, setSearchWaiting] = createSignal(false);
+  const searchDebounce = createDebouncer(180);
+  createEffect(() => {
+    const q = paletteOpen() ? query().trim() : "";
+    searchDebounce.cancel();
+    setSearchWaiting(Boolean(q));
+    if (!q) {
+      setRemoteQuery(undefined);
+      return;
+    }
+    searchDebounce.schedule(() => {
+      setRemoteQuery(q);
+      setSearchWaiting(false);
+    });
+  });
+  const [results, { refetch: refetchSearch }] = createResource(remoteQuery, async (q) =>
+    (
+      await getJson<{ events: StrataEvent[] }>(
+        `/events?text=${encodeURIComponent(q)}&order=desc&limit=40`,
+      )
+    ).events,
+  );
   const [compareOn, setCompareOn] = createSignal(false);
   const [compareSel, setCompareSel] = createSignal<string[]>([]);
 
@@ -629,6 +643,9 @@ export function App() {
         }))}
         events={settled(results)}
         searching={results.loading}
+        searchWaiting={searchWaiting()}
+        searchFailed={results.error !== undefined}
+        onRetrySearch={refetchSearch}
         onOpenSession={(id) => {
           location.hash = `/session/${encodeURIComponent(id)}`;
         }}

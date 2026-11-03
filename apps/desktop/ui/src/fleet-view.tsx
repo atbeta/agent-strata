@@ -642,14 +642,14 @@ function TrendChart(props: { points: TrendPoint[]; since: number; all: boolean }
     <div class="min-w-0 px-4 py-3">
       <div class="flex items-baseline justify-between gap-3">
         <span class="text-2xs text-muted-foreground">{t("fleet.overview.trend")}</span>
-        <span class="text-2xs tabular-nums text-muted-foreground/60">{compactNum(total())}</span>
+        <span class="text-2xs tabular-nums text-foreground">{compactNum(total())}</span>
       </div>
       <div class="relative mt-3">
         {/* A faint ceiling so a bar's height has something to be measured
             against; the figure on it is the day that ceiling belongs to. */}
         <Show when={max() > 0}>
           <span class="absolute inset-x-0 top-0 flex items-center gap-1.5">
-            <span class="text-[10px] leading-none tabular-nums text-muted-foreground/60">
+            <span class="text-2xs leading-none tabular-nums text-muted-foreground">
               {compactNum(max())}
             </span>
             <span class="h-px min-w-0 flex-1 bg-border/60" />
@@ -657,28 +657,38 @@ function TrendChart(props: { points: TrendPoint[]; since: number; all: boolean }
         </Show>
         <div class="flex h-14 items-end gap-[3px]">
           <For each={props.points}>
-            {(p) => (
-              <Tip
-                label={`${p.label} · ${num(p.tokens)} · ${tn("fleet.overview.sessionCount", p.sessions)}`}
-                content={() => <TrendTip point={p} />}
-                class="group/bar flex h-full min-w-0 flex-1 flex-col justify-end"
-              >
-                {/* A day with no tokens gets the quiet track, not a 2px bar in the
-                    token colour. Painted at full opacity it reads as a little
-                    activity every single day, which is the one thing a strip
-                    this shape must not imply. */}
-                <span
-                  class={cn(
-                    "block w-full rounded-t-sm transition-colors",
-                    p.tokens > 0
-                      ? "bg-chart-1/70 group-hover/bar:bg-chart-1"
-                      : "bg-foreground/10 group-hover/bar:bg-foreground/20",
-                    !inScope(p) && "opacity-25",
-                  )}
-                  style={{ height: height(p) }}
-                />
-              </Tip>
-            )}
+            {(p) => {
+              const label = `${p.label} · ${num(p.tokens)} · ${tn("fleet.overview.sessionCount", p.sessions)}`;
+              return (
+                <Tip
+                  label={label}
+                  content={() => <TrendTip point={p} />}
+                  class="group/bar flex h-full min-w-0 flex-1 flex-col justify-end"
+                >
+                  <span
+                    tabIndex={0}
+                    role="img"
+                    aria-label={label}
+                    class="flex min-h-0 w-full flex-1 flex-col justify-end rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {/* A day with no tokens gets the quiet track, not a 2px bar in the
+                        token colour. Painted at full opacity it reads as a little
+                        activity every single day, which is the one thing a strip
+                        this shape must not imply. */}
+                    <span
+                      class={cn(
+                        "block w-full rounded-t-sm transition-colors",
+                        p.tokens > 0
+                          ? "bg-chart-1/70 group-hover/bar:bg-chart-1 group-focus-within/bar:bg-chart-1"
+                          : "bg-foreground/10 group-hover/bar:bg-foreground/20 group-focus-within/bar:bg-foreground/20",
+                        !inScope(p) && "opacity-25",
+                      )}
+                      style={{ height: height(p) }}
+                    />
+                  </span>
+                </Tip>
+              );
+            }}
           </For>
         </div>
       </div>
@@ -687,8 +697,8 @@ function TrendChart(props: { points: TrendPoint[]; since: number; all: boolean }
           {(p, i) => (
             <span
               class={cn(
-                "min-w-0 flex-1 text-center text-[10px] leading-none tabular-nums",
-                p === today() ? "text-foreground" : "text-muted-foreground/60",
+                "min-w-0 flex-1 text-center text-2xs leading-none tabular-nums",
+                p === today() ? "text-foreground" : "text-muted-foreground",
               )}
               classList={{ "opacity-0": !labelled(i(), props.points.length) }}
             >

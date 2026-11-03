@@ -226,6 +226,8 @@ export default {
 
   // Command search
   "search.searching": "搜索中…",
+  "search.failed": "搜索失败",
+  "search.retry": "重试",
   "palette.title": "命令",
   "palette.placeholder": "输入命令或会话",
   "palette.empty": "没有匹配",

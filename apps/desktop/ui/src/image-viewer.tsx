@@ -1,6 +1,6 @@
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
-import { Portal } from "solid-js/web";
 import { Button } from "@/components/ui/button";
+import { DialogPrimitive } from "@/components/ui/command-dialog";
 import { copyImage } from "./clipboard";
 import { Icon } from "./icons";
 import { t } from "./i18n";
@@ -26,6 +26,7 @@ export function ImageViewerHost() {
   const [copied, setCopied] = createSignal(false);
   let copyTimer: ReturnType<typeof setTimeout> | undefined;
   let frame: HTMLDivElement | undefined;
+  let returnFocus: HTMLElement | undefined;
   /** A pan in progress; `moved` outlives it long enough for the click after
    *  the pointer-up to tell a pan from a click on the backdrop. */
   let drag: { sx: number; sy: number; px: number; py: number; moved: number } | undefined;
@@ -68,16 +69,7 @@ export function ImageViewerHost() {
     setCopied(false);
     drag = undefined;
     moved = 0;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      close();
-      e.preventDefault();
-    };
-    window.addEventListener("keydown", onKey);
-    onCleanup(() => {
-      window.removeEventListener("keydown", onKey);
-      clearTimeout(copyTimer);
-    });
+    onCleanup(() => clearTimeout(copyTimer));
   });
 
   const copy = async (src: string) => {
@@ -90,92 +82,106 @@ export function ImageViewerHost() {
   return (
     <Show when={viewer()}>
       {(v) => (
-        <Portal>
-          <div
-            ref={(el) => {
-              frame = el;
-              el.addEventListener("wheel", onWheel, { passive: false });
-            }}
-            role="dialog"
-            aria-modal="true"
-            aria-label={t("transcript.image")}
-            class="expand-in fixed inset-0 z-[80] flex touch-none items-center justify-center select-none bg-background/85 backdrop-blur-[2px]"
-            onClick={(e) => {
-              // A pan that ends over the backdrop is still a pan — only an
-              // honest click on the dim part asks to leave.
-              if (moved > 4) return;
-              if (e.target === e.currentTarget) close();
-            }}
-            onPointerDown={(e) => {
-              if (e.button !== 0) return;
-              moved = 0;
-              drag = { sx: pos().x, sy: pos().y, px: e.clientX, py: e.clientY, moved: 0 };
-              e.currentTarget.setPointerCapture(e.pointerId);
-            }}
-            onPointerMove={(e) => {
-              if (!drag) return;
-              const dx = e.clientX - drag.px;
-              const dy = e.clientY - drag.py;
-              drag.moved = Math.max(drag.moved, Math.hypot(dx, dy));
-              if (drag.moved > 2) setPos({ x: drag.sx + dx, y: drag.sy + dy });
-            }}
-            onPointerUp={() => {
-              moved = drag?.moved ?? 0;
-              drag = undefined;
-            }}
-            onPointerCancel={() => {
-              moved = 0;
-              drag = undefined;
-            }}
-            onDblClick={(e) => {
-              // Fit ↔ real pixels; a picture already at 1:1 jumps twice as
-              // far in instead.
-              const alt = fit() >= 1 ? 2.5 : 1;
-              zoomTo(Math.abs(scale() - alt) < 1e-3 ? fit() : alt, anchorAt(e));
-            }}
-          >
-            <img
-              src={v().src}
-              alt={v().alt}
-              draggable={false}
-              class="rounded-md shadow-2xl"
-              style={{
-                "max-width": "none",
-                "max-height": "none",
-                transform: `translate(${pos().x}px, ${pos().y}px) scale(${scale()})`,
+        <DialogPrimitive
+          open
+          onOpenChange={(open) => {
+            if (!open) close();
+          }}
+        >
+          <DialogPrimitive.Portal>
+            <DialogPrimitive.Content
+              ref={(el) => {
+                frame = el;
+                el.addEventListener("wheel", onWheel, { passive: false });
               }}
-              onLoad={(e) => measure(e.currentTarget)}
-            />
-            {/* pointerdown stops here or the buttons start a pan under the
-                press they were meant to take. */}
-            <div
-              class="absolute right-3 top-3 flex gap-1.5"
-              onPointerDown={(e) => e.stopPropagation()}
+              aria-label={t("transcript.image")}
+              class="expand-in fixed inset-0 z-[80] flex touch-none items-center justify-center select-none bg-background/85 backdrop-blur-[2px]"
+              onOpenAutoFocus={(e) => {
+                returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+                e.preventDefault();
+                frame?.focus({ preventScroll: true });
+              }}
+              onCloseAutoFocus={() => {
+                if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
+                returnFocus = undefined;
+              }}
+              onClick={(e: MouseEvent) => {
+                // A pan that ends over the backdrop is still a pan — only an
+                // honest click on the dim part asks to leave.
+                if (moved > 4) return;
+                if (e.target === e.currentTarget) close();
+              }}
+              onPointerDown={(e: PointerEvent & { currentTarget: HTMLDivElement }) => {
+                if (e.button !== 0) return;
+                moved = 0;
+                drag = { sx: pos().x, sy: pos().y, px: e.clientX, py: e.clientY, moved: 0 };
+                e.currentTarget.setPointerCapture(e.pointerId);
+              }}
+              onPointerMove={(e: PointerEvent) => {
+                if (!drag) return;
+                const dx = e.clientX - drag.px;
+                const dy = e.clientY - drag.py;
+                drag.moved = Math.max(drag.moved, Math.hypot(dx, dy));
+                if (drag.moved > 2) setPos({ x: drag.sx + dx, y: drag.sy + dy });
+              }}
+              onPointerUp={() => {
+                moved = drag?.moved ?? 0;
+                drag = undefined;
+              }}
+              onPointerCancel={() => {
+                moved = 0;
+                drag = undefined;
+              }}
+              onDblClick={(e: MouseEvent) => {
+                // Fit ↔ real pixels; a picture already at 1:1 jumps twice as
+                // far in instead.
+                const alt = fit() >= 1 ? 2.5 : 1;
+                zoomTo(Math.abs(scale() - alt) < 1e-3 ? fit() : alt, anchorAt(e));
+              }}
             >
-              <Button
-                variant="icon"
-                size="icon-sm"
-                aria-label={t("transcript.image.copy")}
-                class="bg-secondary/80 hover:bg-secondary"
-                onClick={() => void copy(v().src)}
+              <img
+                src={v().src}
+                alt={v().alt}
+                draggable={false}
+                class="rounded-md shadow-2xl"
+                style={{
+                  "max-width": "none",
+                  "max-height": "none",
+                  transform: `translate(${pos().x}px, ${pos().y}px) scale(${scale()})`,
+                }}
+                onLoad={(e) => measure(e.currentTarget)}
+              />
+              {/* pointerdown stops here or the buttons start a pan under the
+                  press they were meant to take. */}
+              <div
+                class="absolute right-3 top-3 flex gap-1.5"
+                onPointerDown={(e) => e.stopPropagation()}
               >
-                <Icon
-                  name={copied() ? "check" : "copy"}
-                  class={`size-4 ${copied() ? "text-status-active" : ""}`}
-                />
-              </Button>
-              <Button
-                variant="icon"
-                size="icon-sm"
-                aria-label={t("transcript.image.close")}
-                class="bg-secondary/80 hover:bg-secondary"
-                onClick={close}
-              >
-                <Icon name="x" class="size-4" />
-              </Button>
-            </div>
-          </div>
-        </Portal>
+                <Button
+                  variant="icon"
+                  size="icon-sm"
+                  aria-label={t("transcript.image.copy")}
+                  class="bg-secondary/80 hover:bg-secondary"
+                  onClick={() => void copy(v().src)}
+                >
+                  <Icon
+                    name={copied() ? "check" : "copy"}
+                    class={`size-4 ${copied() ? "text-status-active" : ""}`}
+                  />
+                </Button>
+                <Button
+                  variant="icon"
+                  size="icon-sm"
+                  aria-label={t("transcript.image.close")}
+                  class="bg-secondary/80 hover:bg-secondary"
+                  onClick={close}
+                >
+                  <Icon name="x" class="size-4" />
+                </Button>
+              </div>
+            </DialogPrimitive.Content>
+          </DialogPrimitive.Portal>
+        </DialogPrimitive>
       )}
     </Show>
   );

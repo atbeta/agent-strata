@@ -24,12 +24,10 @@ describe("the session rail's responsive and keyboard behavior", () => {
     }
   });
 
-  test("the tabs have one tab stop, arrow navigation, and a named panel", () => {
+  test("the tabs have one tab stop, shared arrow navigation, and a named panel", () => {
     const tabs = read("components/ui/mini-tabs.tsx");
     expect(tabs).toContain("tabIndex={selectedIndex() === index() ? 0 : -1}");
-    expect(tabs).toContain('e.key === "ArrowRight"');
-    expect(tabs).toContain('e.key === "Home"');
-    expect(tabs).toContain('e.key === "End"');
+    expect(tabs).toContain("handleRovingKey(event, index");
 
     const rail = read("session-rail.tsx");
     expect(rail).toContain('panelId="session-rail-panel"');

@@ -29,12 +29,14 @@
           var root = document.documentElement;
           var sans = family(fonts.ui);
           var mono = family(fonts.code);
-          if (sans) root.style.setProperty("--font-sans", '"' + sans + '", ui-sans-serif, system-ui, sans-serif');
-          if (mono) root.style.setProperty("--font-mono", '"' + mono + '", ui-monospace, "Cascadia Code", monospace');
+          var sansFallback = 'ui-sans-serif, system-ui, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif';
+          var monoFallback = 'ui-monospace, "SF Mono", "Cascadia Code", "Cascadia Mono", Consolas, "PingFang SC", "Microsoft YaHei", "Noto Sans Mono CJK SC", monospace';
+          if (sans) root.style.setProperty("--font-sans", '"' + sans + '", ' + sansFallback);
+          if (mono) root.style.setProperty("--font-mono", '"' + mono + '", ' + monoFallback);
           var sizes = { "12": "12px", "13": "13px", "14": "14px", "15": "15px", "16": "16px" };
           if (sizes[fonts.size]) {
-            root.dataset.codeSize = fonts.size;
-            root.style.setProperty("--code-size", sizes[fonts.size]);
+            root.dataset.contentSize = fonts.size;
+            root.style.setProperty("--content-size", sizes[fonts.size]);
           }
           var leads = { compact: "1.35", normal: "1.5", relaxed: "1.7" };
           if (leads[fonts.leading]) {

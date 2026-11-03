@@ -62,6 +62,7 @@ import { PolicyEditor } from "./policy";
 import { ProviderSettings } from "./providers";
 import { MaintenanceSettings } from "./maintenance";
 import { SETTINGS_SECTIONS, settingsSection } from "./settings-sections";
+import { handleRovingKey } from "./roving-key";
 
 /** A function, not a const: the labels are translated, so they have to be read
  *  during render for a language switch to reach them. */
@@ -545,6 +546,11 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
     saveTheme(next);
   };
 
+  const sectionItems: HTMLButtonElement[] = [];
+  const selectSection = (id: string) => {
+    location.hash = id === SETTINGS_SECTIONS[0].id ? "/settings" : `/settings/${id}`;
+  };
+
   const toggleNotify = async () => {
     if (notifyOn()) {
       disableNotify();
@@ -583,19 +589,22 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
       <div class="w-full shrink-0 @min-[880px]/main:w-44">
         <nav class="flex gap-1 overflow-x-auto @min-[880px]/main:sticky @min-[880px]/main:top-0 @min-[880px]/main:block" role="tablist" aria-label={t("settings.title")}>
           <For each={SETTINGS_SECTIONS}>
-            {(item) => (
+            {(item, index) => (
               <RowButton
+                ref={(el) => (sectionItems[index()] = el)}
                 role="tab"
                 id={`settings-tab-${item.id}`}
                 aria-selected={section() === item.id}
                 aria-controls="settings-panel"
+                tabIndex={section() === item.id ? 0 : -1}
                 class={`block w-auto shrink-0 whitespace-nowrap px-2.5 py-1.5 hover:bg-secondary/60 @min-[880px]/main:w-full ${
                   section() === item.id ? "bg-secondary text-foreground" : ""
                 } ${section() === item.id ? "font-medium" : ""}`}
                 active={section() === item.id}
-                onClick={() => {
-                  location.hash = item.id === SETTINGS_SECTIONS[0].id ? "/settings" : `/settings/${item.id}`;
-                }}
+                onClick={() => selectSection(item.id)}
+                onKeyDown={(event) =>
+                  handleRovingKey(event, index(), SETTINGS_SECTIONS, selectSection, sectionItems)
+                }
               >
                 {t(item.label)}
               </RowButton>

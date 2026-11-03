@@ -1,5 +1,6 @@
 import { For, Show, splitProps, type JSX } from "solid-js";
 import { cn } from "@/lib/utils";
+import { handleRovingKey } from "@/roving-key";
 
 type MiniTab = { id: string; label: string; count?: number };
 
@@ -37,17 +38,8 @@ export function MiniTabs(raw: {
   const kind = () => local.kind ?? "radio";
   const selectedIndex = () => Math.max(0, local.options.findIndex((option) => option.id === local.value));
   const items: HTMLButtonElement[] = [];
-  const navigate = (e: KeyboardEvent, index: number) => {
-    let next: number | undefined;
-    if (e.key === "ArrowRight" || e.key === "ArrowDown") next = (index + 1) % local.options.length;
-    else if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = (index - 1 + local.options.length) % local.options.length;
-    else if (e.key === "Home") next = 0;
-    else if (e.key === "End") next = local.options.length - 1;
-    if (next === undefined) return;
-    e.preventDefault();
-    local.onChange(local.options[next]!.id);
-    items[next]?.focus();
-  };
+  const navigate = (event: KeyboardEvent, index: number) =>
+    handleRovingKey(event, index, local.options, local.onChange, items);
   return (
     <div
       class={cn("flex items-center gap-0.5", local.class)}

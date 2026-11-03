@@ -10,6 +10,7 @@ import { t } from "./i18n";
 import { RowButton } from "@/components/ui/row-button";
 import { CommandDialog } from "@/components/ui/command-dialog";
 import { TextFieldInput } from "@/components/ui/text-field";
+import { Button } from "@/components/ui/button";
 
 const GROUP_LABEL: Record<string, () => string> = {
   app: () => t("palette.group.app"),
@@ -137,6 +138,9 @@ export function CommandPalette(props: {
   sessions: { id: string; title: string; workspace?: string | null; summary?: { title?: string | null; workspace?: string | null } }[];
   events?: readonly { id: string; session_id: string; type: string; ts: string; data: Record<string, unknown> }[];
   searching?: boolean;
+  searchWaiting?: boolean;
+  searchFailed: boolean;
+  onRetrySearch: () => void;
   onOpenSession: (id: string) => void;
   /** transcript hits carry the query that found them; the session opens its search */
   onOpenHit?: (sessionId: string, query: string) => void;
@@ -146,6 +150,8 @@ export function CommandPalette(props: {
   let list: HTMLDivElement | undefined;
 
   const query = () => props.query;
+  const searching = () => props.searching || props.searchWaiting;
+  const searchFailed = () => props.searchFailed && !searching();
 
   const hits = createMemo(() =>
     buildPanelHits({
@@ -213,11 +219,32 @@ export function CommandPalette(props: {
         <Show
           when={hits().length > 0}
           fallback={
-            <p class="px-2 py-6 text-center text-sm text-muted-foreground">
-              {props.searching ? t("search.searching") : t("palette.empty")}
-            </p>
+            <div role="status" class="flex flex-col items-center gap-2 px-2 py-6 text-center text-sm text-muted-foreground">
+              <p>
+                {searchFailed()
+                  ? t("search.failed")
+                  : searching()
+                    ? t("search.searching")
+                    : t("palette.empty")}
+              </p>
+              <Show when={searchFailed()}>
+                <Button type="button" variant="outline" size="sm" onClick={props.onRetrySearch}>
+                  {t("search.retry")}
+                </Button>
+              </Show>
+            </div>
           }
         >
+          <Show when={searching() || searchFailed()}>
+            <div role="status" class="flex min-h-7 items-center gap-2 border-b border-border/60 px-2 py-0.5 text-2xs text-muted-foreground">
+              <span class="flex-1">{searchFailed() ? t("search.failed") : t("search.searching")}</span>
+              <Show when={searchFailed()}>
+                <Button type="button" variant="quiet" size="xs" onClick={props.onRetrySearch}>
+                  {t("search.retry")}
+                </Button>
+              </Show>
+            </div>
+          </Show>
           <For each={hits()}>
             {(row, i) => (
               <Switch>

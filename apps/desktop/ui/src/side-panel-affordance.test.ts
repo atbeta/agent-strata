@@ -48,16 +48,14 @@ describe("the side panel is opened from the header, not from a strip on the edge
     expect(detail).toContain('<Icon name="panel-right" />');
   });
 
-  test("export left the overflow menu, and the menu with it", () => {
-    // The menu's comment said so outright: one item today, toggles live in the
-    // row where their lit state reads. Export has no state to show, but it also
-    // has no reason to be two clicks away when the row has room for it.
+  test("only a narrow header moves secondary actions into overflow", () => {
     const header = detail.slice(detail.indexOf("<header"), detail.indexOf("</header>"));
     expect(header).toContain("downloadExport(");
     expect(header).toContain('aria-label={t("header.export")}');
-    // No menu left behind holding nothing.
-    expect(header).not.toContain("header.more");
-    expect(header).not.toContain("<DropdownMenu");
+    expect(header).toContain("@max-[719px]:hidden");
+    expect(header).toContain("@min-[720px]:hidden");
+    expect(header).toContain("header.more");
+    expect(header).toContain("<DropdownMenu");
   });
 
   test("the panel still opens from the command palette and the keyboard", () => {

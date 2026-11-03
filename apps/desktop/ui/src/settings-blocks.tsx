@@ -1,5 +1,6 @@
 import { For, Show, type JSX } from "solid-js";
 import { cn } from "@/lib/utils";
+import { handleRovingKey } from "@/roving-key";
 
 /**
  * The three shapes every settings section is built from. They live here rather
@@ -89,23 +90,28 @@ export function Segmented(props: {
   options: { id: string; label: string; swatch?: JSX.Element }[];
   onChange: (id: string) => void;
 }) {
+  const selectedIndex = () => Math.max(0, props.options.findIndex((option) => option.id === props.value));
+  const items: HTMLButtonElement[] = [];
   return (
     <div
       class="inline-flex max-w-full overflow-x-auto rounded-md border border-border p-0.5"
       role="radiogroup"
       aria-label={props.label}
     >
-      {props.options.map((option) => (
+      {props.options.map((option, index) => (
         <button
+          ref={(el) => (items[index] = el)}
           type="button"
           role="radio"
           aria-checked={props.value === option.id}
+          tabIndex={selectedIndex() === index ? 0 : -1}
           class={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2.5 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
             props.value === option.id
               ? "bg-secondary text-foreground"
               : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
           }`}
           onClick={() => props.onChange(option.id)}
+          onKeyDown={(event) => handleRovingKey(event, index, props.options, props.onChange, items)}
         >
           {option.swatch}
           {option.label}
@@ -145,6 +151,8 @@ export function PillGroup(props: {
   options: { id: string; label: string }[];
   onChange: (id: string) => void;
 }) {
+  const selectedIndex = () => Math.max(0, props.options.findIndex((option) => option.id === props.value));
+  const items: HTMLButtonElement[] = [];
   return (
     <div
       class="flex flex-wrap justify-end gap-1.5"
@@ -152,13 +160,16 @@ export function PillGroup(props: {
       aria-label={props.label}
     >
       <For each={props.options}>
-        {(option) => (
+        {(option, index) => (
           <button
+            ref={(el) => (items[index()] = el)}
             type="button"
             role="radio"
             aria-checked={props.value === option.id}
+            tabIndex={selectedIndex() === index() ? 0 : -1}
             class={pill(props.value === option.id)}
             onClick={() => props.onChange(option.id)}
+            onKeyDown={(event) => handleRovingKey(event, index(), props.options, props.onChange, items)}
           >
             {option.label}
           </button>
