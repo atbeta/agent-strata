@@ -2,6 +2,7 @@ import { createEffect, createMemo, For, onCleanup, Show, createSignal } from "so
 import {
   archiveSession,
   backendLabel,
+  removeWorktree,
   renameSession,
   type SessionRow,
   type StrataEvent,
@@ -112,7 +113,7 @@ export function Sidebar(props: {
   activeId: () => string | undefined;
   clock: () => number;
   onOpenSession: (id: string) => void;
-  onNewSession: (dir?: string) => void;
+  onNewSession: (dir?: string, worktree?: boolean) => void;
   onOpenFleet: () => void;
   /** Set briefly to aim the list at a project group — uncollapse it and
       scroll it into view, then cleared. The overview's project rows use it. */
@@ -241,6 +242,38 @@ export function Sidebar(props: {
   const sectionKeys = () => sectionGroups().map((g) => g.key);
   const groupsByKey = createMemo(() => new Map(list().groups().map((g) => [g.key, g])));
 
+  /**
+   * Removing a worktree is a second click only when it costs something:
+   * a clean checkout goes in one, uncommitted changes arm the button red and
+   * the next click forces. The branch itself is left behind — removing the
+   * checkout must not lose commits.
+   */
+  const [removeArmed, setRemoveArmed] = createSignal<string | undefined>();
+  const dropWorktree = async (dir: string) => {
+    try {
+      if (removeArmed() === dir) {
+        setRemoveArmed(undefined);
+        await removeWorktree(dir, true);
+        props.ws.refetchWs();
+        props.list.refetch();
+        return;
+      }
+      const res = await removeWorktree(dir);
+      if (res === "dirty") {
+        setRemoveArmed(dir);
+        list().setActionErr(t("worktree.dirty"));
+        setTimeout(() => setRemoveArmed((cur) => (cur === dir ? undefined : cur)), 4000);
+        return;
+      }
+      props.ws.refetchWs();
+      props.list.refetch();
+    } catch (e) {
+      list().setActionErr(explain(e));
+    }
+  };
+
+  const repoBase = (repo: string) => repo.split(/[/\\]/).filter(Boolean).at(-1) ?? repo;
+
   /** What the section is called: the places, or the days they are cut by. */
   const sectionLabel = () =>
     list().lens().groupBy === "day" ? t("sidebar.recent") : t("sidebar.projects");
@@ -272,6 +305,18 @@ export function Sidebar(props: {
     // sessions of the one before. An empty folder has nothing underneath, so
     // that air is just a gap between two labels.
     const tight = () => open() && group().rows.length === 0;
+    // The label stays the worktree's slug — its own name; what it cannot say
+    // is which repo it answers to, so the hint names that repo.
+    const wt = () => props.ws.worktreeOf(group().dir);
+    /** the hover-revealed buttons share one look: quiet until the section is hovered */
+    const ghost = (extra?: string) =>
+      cn(
+        "size-4 shrink-0 transition-opacity hover:text-foreground focus-visible:opacity-100",
+        group().rows.length === 0
+          ? "text-muted-foreground/35 group-hover/section:text-muted-foreground"
+          : "text-muted-foreground/60 opacity-0 group-hover/section:opacity-100",
+        extra,
+      );
     return (
       <section
         data-group={key}
@@ -280,35 +325,83 @@ export function Sidebar(props: {
         <SectionHeader
           label={group().label}
           count={group().rows.length > 0 || group().dir === undefined ? group().rows.length : undefined}
-          hint={group().hint}
-          title={group().title}
-          icon={group().dir !== undefined ? (open() ? "folder-open" : "folder") : undefined}
+          hint={wt() ? repoBase(wt()!.repo) : group().hint}
+          title={
+            wt()
+              ? t("worktree.title", {
+                  repo: repoBase(wt()!.repo),
+                  branch: wt()!.branch ?? "—",
+                })
+              : group().title
+          }
+          icon={
+            group().dir !== undefined
+              ? wt()
+                ? "branch"
+                : open()
+                  ? "folder-open"
+                  : "folder"
+              : undefined
+          }
           chevron={group().dir === undefined}
           open={open()}
           tight={tight()}
           onToggle={() => setCollapsed((s) => flip(s, key))}
           action={
             group().dir !== undefined ? (
-              <Tip label={t("action.newSession")}>
-                {/* Revealed on section hover — one "+" per project, always on,
-                    would be a rail of pluses down the rail. An empty project
-                    keeps it visible, one step quieter, since a run of empty
-                    projects would otherwise be that rail again. */}
-                <Button
-                  variant="quiet"
-                  size="icon-2xs"
-                  class={cn(
-                    "size-4 shrink-0 transition-opacity hover:text-foreground focus-visible:opacity-100",
-                    group().rows.length === 0
-                      ? "text-muted-foreground/35 group-hover/section:text-muted-foreground"
-                      : "text-muted-foreground/60 opacity-0 group-hover/section:opacity-100",
-                  )}
-                  aria-label={t("action.newSession")}
-                  onClick={() => props.onNewSession(group().dir)}
-                >
-                  <Icon name="plus" class="size-2.5" />
-                </Button>
-              </Tip>
+              <div class="flex items-center">
+                {/* Revealed on section hover — always-on buttons would be a
+                    rail of glyphs down the rail. An empty project keeps them
+                    visible, one step quieter, since a run of empty projects
+                    would otherwise be that rail again. */}
+                <Show when={wt()}>
+                  <Tip
+                    label={
+                      removeArmed() === group().dir
+                        ? t("worktree.removeConfirm")
+                        : t("action.removeWorktree")
+                    }
+                  >
+                    <Button
+                      variant="quiet"
+                      size="icon-2xs"
+                      class={ghost(
+                        removeArmed() === group().dir
+                          ? "text-destructive opacity-100 hover:text-destructive"
+                          : undefined,
+                      )}
+                      aria-label={t("action.removeWorktree")}
+                      onClick={() => void dropWorktree(group().dir!)}
+                    >
+                      <Icon name="x" class="size-2.5" />
+                    </Button>
+                  </Tip>
+                </Show>
+                <Show when={!wt()}>
+                  <Tip label={t("action.newWorktreeSession")}>
+                    <Button
+                      variant="quiet"
+                      size="icon-2xs"
+                      class={ghost()}
+                      aria-label={t("action.newWorktreeSession")}
+                      onClick={() => props.onNewSession(group().dir, true)}
+                    >
+                      <Icon name="branch" class="size-2.5" />
+                    </Button>
+                  </Tip>
+                </Show>
+                <Tip label={t("action.newSession")}>
+                  <Button
+                    variant="quiet"
+                    size="icon-2xs"
+                    class={ghost()}
+                    aria-label={t("action.newSession")}
+                    onClick={() => props.onNewSession(group().dir)}
+                  >
+                    <Icon name="plus" class="size-2.5" />
+                  </Button>
+                </Tip>
+              </div>
             ) : undefined
           }
         />

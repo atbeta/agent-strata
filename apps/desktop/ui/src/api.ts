@@ -208,6 +208,42 @@ export interface VcsInfo {
   default_branch?: string | null;
 }
 
+export interface WorkspaceInfo {
+  directory: string;
+  name?: string;
+  /** set when the directory is a linked git worktree — `repo` is the main checkout */
+  worktree?: { repo: string; branch?: string };
+}
+
+export interface WorktreeCreated {
+  directory: string;
+  branch: string;
+  repo: string;
+}
+
+/** A second checkout of a workspace's repository, to aim a new session at. */
+export async function createWorktree(directory: string): Promise<WorktreeCreated> {
+  const res = await apiFetch("/worktrees", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ directory }),
+  });
+  await throwOnError(res);
+  return (await res.json()) as WorktreeCreated;
+}
+
+/** "dirty" when uncommitted changes ask for a second, explicit remove. */
+export async function removeWorktree(directory: string, force?: boolean): Promise<"ok" | "dirty"> {
+  const res = await apiFetch("/worktrees/remove", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ directory, force }),
+  });
+  if (res.status === 409) return "dirty";
+  await throwOnError(res);
+  return "ok";
+}
+
 export interface OptionsResponse {
   models: {
     providerID: string;

@@ -2,11 +2,14 @@ import { createEffect, createMemo, createResource, createSignal, For, onCleanup,
 import {
   listDevProcesses,
   readSessionDiff,
+  readVcs,
   readVcsDiff,
   stopDevProcess,
   type DevProcess,
   type SessionView,
+  type VcsInfo,
 } from "./api";
+import { settled } from "./resource";
 import { BackgroundPanel } from "./background-panel";
 import { devRunning } from "./dev-state";
 import { num, t, tn } from "./i18n";
@@ -49,7 +52,14 @@ export function SessionRail(props: {
 }) {
   /** which file the reader opened in the rail, null for the plain list */
   const [openFile, setOpenFile] = createSignal<string | null>(null);
-  const [reviewSource, setReviewSource] = createSignal<"session" | "git">("session");
+  const [reviewSource, setReviewSource] = createSignal<"session" | "git" | "branch">("session");
+  const [vcsInfo] = createResource(
+    () => (props.opencode() ? props.sessionId() : undefined),
+    (sessionId) => readVcs(sessionId).catch(() => ({}) as VcsInfo),
+  );
+  const defaultBranch = () => settled(vcsInfo)?.default_branch ?? undefined;
+  /** "branch" presumes a default branch exists; absent one it answers as "git". */
+  const effectiveSource = () => (reviewSource() === "branch" && !defaultBranch() ? "git" : reviewSource());
   const [reviewLayout, setReviewLayout] = createSignal<"unified" | "split">("unified");
 
   /**
@@ -103,10 +113,10 @@ export function SessionRail(props: {
 
   const reviewKey = () => {
     if (!props.opencode()) return false as const;
-    return { id: props.sessionId(), source: reviewSource() };
+    return { id: props.sessionId(), source: effectiveSource() };
   };
   const [reviewDiff] = createResource(reviewKey, (key) =>
-    key.source === "git" ? readVcsDiff(key.id, "git") : readSessionDiff(key.id),
+    key.source === "session" ? readSessionDiff(key.id) : readVcsDiff(key.id, key.source),
   );
 
   // The file browser only exists for the OpenCode backend.
@@ -158,7 +168,12 @@ export function SessionRail(props: {
 
   const files = () => props.view().files_changed;
   /** An empty diff reads differently per baseline, so it says which. */
-  const emptyNote = () => t(reviewSource() === "git" ? "review.empty.git" : "review.empty");
+  const emptyNote = () =>
+    effectiveSource() === "git"
+      ? t("review.empty.git")
+      : effectiveSource() === "branch"
+        ? t("review.empty.branch", { branch: defaultBranch() ?? "HEAD" })
+        : t("review.empty");
   // A selected file borrows room only while it is open; below 560px its list
   // stacks above the diff instead of crushing it into a narrow column.
   const open = () => files().find((f) => f.path === openFile()) ?? null;
@@ -247,11 +262,14 @@ export function SessionRail(props: {
               <MiniTabs
                 kind="radio"
                 label={t("panel.changes")}
-                value={reviewSource()}
-                onChange={(id) => setReviewSource(id as "session" | "git")}
+                value={effectiveSource()}
+                onChange={(id) => setReviewSource(id as "session" | "git" | "branch")}
                 options={[
                   { id: "session", label: t("review.session") },
                   { id: "git", label: t("review.git") },
+                  ...(defaultBranch()
+                    ? [{ id: "branch", label: t("review.branch", { branch: defaultBranch()! }) }]
+                    : []),
                 ]}
                 class="shrink-0"
               />

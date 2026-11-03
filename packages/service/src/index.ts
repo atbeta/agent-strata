@@ -48,6 +48,7 @@ import { queryTokenOk, readApiToken, tokenOk } from "./api-token";
 import { writeSecureJson } from "./secure-write";
 import { terminalClose, terminalMessage, terminalOpen, terminalRoute, terminalUpgrade } from "./terminal";
 import { createDevManager, type DevEvent } from "./dev-process";
+import { WorktreeError, worktreeAdd, worktreeRemove, withWorktrees } from "./worktree";
 import { SessionClaims } from "./identity";
 import { promptRoute, type PendingAsk, type PendingQuestion } from "./prompt-routes";
 
@@ -1765,7 +1766,48 @@ export function startService(opts: ServiceOpts = {}): RunningService {
           dirs.set(ws, { directory: ws });
         }
       }
-      return json({ workspaces: [...dirs.values()] });
+      return json({ workspaces: await withWorktrees([...dirs.values()], desktopDir) });
+    }
+
+    if (path === "/worktrees" && req.method === "POST") {
+      const body = (await req.json().catch(() => ({}))) as {
+        directory?: string;
+        name?: string;
+        branch?: string;
+      };
+      if (!body.directory) return json({ error: "directory required" }, 400);
+      try {
+        return json(
+          await worktreeAdd({
+            dir: body.directory,
+            name: body.name,
+            branch: body.branch,
+            stateDir: desktopDir,
+          }),
+        );
+      } catch (e) {
+        const err = e instanceof WorktreeError ? e : new WorktreeError(String(e), 500);
+        return json({ error: err.message }, err.status);
+      }
+    }
+
+    if (path === "/worktrees/remove" && req.method === "POST") {
+      const body = (await req.json().catch(() => ({}))) as {
+        directory?: string;
+        force?: boolean;
+      };
+      if (!body.directory) return json({ error: "directory required" }, 400);
+      try {
+        await worktreeRemove({
+          dir: body.directory,
+          force: body.force === true,
+          stateDir: desktopDir,
+        });
+        return json({ ok: true });
+      } catch (e) {
+        const err = e instanceof WorktreeError ? e : new WorktreeError(String(e), 500);
+        return json({ error: err.message }, err.status);
+      }
     }
 
     if (path === "/compare" && req.method === "GET") {

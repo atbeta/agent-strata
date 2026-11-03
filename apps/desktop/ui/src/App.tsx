@@ -1,5 +1,13 @@
 import { createEffect, createResource, createSignal, onCleanup, onMount, Show } from "solid-js";
-import { apiFetch, getJson, streamUrl, syncBackend, type StrataEvent } from "./api";
+import {
+  apiFetch,
+  createWorktree,
+  getJson,
+  removeWorktree,
+  streamUrl,
+  syncBackend,
+  type StrataEvent,
+} from "./api";
 import { settled } from "./resource";
 import { FleetView } from "./fleet-view";
 import { SessionDetail } from "./session-detail";
@@ -337,7 +345,7 @@ export function App() {
     });
   });
 
-  const newSession = async (dir?: string) => {
+  const newSession = async (dir?: string): Promise<string | undefined> => {
     list.setActionErr("");
     const directory = dir ?? defaultDir();
     try {
@@ -351,19 +359,44 @@ export function App() {
         ws.rememberDir(directory);
         list.refetch();
         location.hash = `/session/${encodeURIComponent(body.id)}`;
-      } else {
-        conns.setConnErr(body.error ?? t("error.createSession"));
-        location.hash = "/settings/backends";
+        return body.id;
       }
+      conns.setConnErr(body.error ?? t("error.createSession"));
+      location.hash = "/settings/backends";
     } catch (e) {
       // Reached from `void newSession()`, so a rejection here had nowhere to
       // go: the click did nothing, said nothing, and looked broken. A service
       // that is not answering is the usual reason, and it deserves to be seen.
       list.setActionErr(explain(e));
     }
+    return undefined;
   };
 
-  const requestNewSession = (dir?: string) => {
+  /**
+   * A session in a fresh worktree of the project's repository.
+   *
+   * The worktree is only a directory to everything past this point: the
+   * session is created the ordinary way, in the directory git just made. If
+   * that creation fails, the checkout it was made for goes back — a worktree
+   * no session points at is a leftover only the sidebar's remove can find.
+   */
+  const newWorktreeSession = async (dir?: string) => {
+    list.setActionErr("");
+    const base = dir ?? defaultDir();
+    if (!base) {
+      list.setActionErr(t("worktree.noDir"));
+      return;
+    }
+    try {
+      const wt = await createWorktree(base);
+      const id = await newSession(wt.directory);
+      if (!id) await removeWorktree(wt.directory, true).catch(() => {});
+    } catch (e) {
+      list.setActionErr(explain(e));
+    }
+  };
+
+  const requestNewSession = (dir?: string, worktree?: boolean) => {
     const phase = conns.phase();
     if (phase !== "connected") {
       // Opening the form while a backend is still being dialed asks the reader
@@ -373,7 +406,8 @@ export function App() {
       }
       return;
     }
-    void newSession(dir);
+    if (worktree) void newWorktreeSession(dir);
+    else void newSession(dir);
   };
 
   const openSession = (id: string) => {

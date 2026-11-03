@@ -1,5 +1,5 @@
-import { createResource, createSignal } from "solid-js";
-import { getJson } from "./api";
+import { createMemo, createResource, createSignal } from "solid-js";
+import { getJson, type WorkspaceInfo } from "./api";
 import { settled } from "./resource";
 
 const LAST_DIR_KEY = "strata.lastDir";
@@ -26,7 +26,7 @@ function readDirs(): string[] {
  */
 export function useWorkspace() {
   const [wsList, { refetch: refetchWs }] = createResource(() =>
-    getJson<{ workspaces: { directory: string; name?: string }[] }>("/workspaces"),
+    getJson<{ workspaces: WorkspaceInfo[] }>("/workspaces"),
   );
   const [lastDir, setLastDir] = createSignal<string | null>(localStorage.getItem(LAST_DIR_KEY));
   const [addedDirs, setAddedDirs] = createSignal<string[]>(readDirs());
@@ -41,6 +41,17 @@ export function useWorkspace() {
     for (const d of addedDirs()) dirs.add(d);
     return [...dirs];
   };
+
+  /** What a directory is a worktree of — repo and branch — when it is one. */
+  const worktrees = createMemo(() => {
+    const map = new Map<string, NonNullable<WorkspaceInfo["worktree"]>>();
+    for (const w of settled(wsList)?.workspaces ?? []) {
+      if (w.worktree) map.set(w.directory, w.worktree);
+    }
+    return map;
+  });
+  const worktreeOf = (dir: string | undefined) =>
+    dir === undefined ? undefined : worktrees().get(dir);
 
   const rememberDir = (dir: string | undefined) => {
     if (!dir) return;
@@ -88,6 +99,7 @@ export function useWorkspace() {
     lastDir,
     rememberDir,
     projectDirs,
+    worktreeOf,
     dirOpen,
     setDirOpen,
     dirDraft,
