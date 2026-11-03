@@ -156,17 +156,23 @@ export function useSessionList(opts: {
       noticesReady = true;
       return;
     }
-    if (readNotify()) {
+    const doneOn = readNotify("done");
+    const questionOn = readNotify("question");
+    if (doneOn || questionOn) {
       const waiting = waitingSessions(waitingSeen, next);
       const waitingIds = new Set(waiting.map((row) => row.id));
-      for (const row of finishedSessions(busySeen, next)) {
-        // A turn that stops on a question is waiting, not finished. Announcing
-        // both would put two notices on the same pause.
-        if (!waitingIds.has(row.id) && row.needsInput !== true) {
-          announceFinished(row.title, row.id);
+      if (doneOn) {
+        for (const row of finishedSessions(busySeen, next)) {
+          // A turn that stops on a question is waiting, not finished. Announcing
+          // both would put two notices on the same pause.
+          if (!waitingIds.has(row.id) && row.needsInput !== true) {
+            announceFinished(row.title, row.id);
+          }
         }
       }
-      for (const row of waiting) announceNeedsInput(row.title, row.id);
+      if (questionOn) {
+        for (const row of waiting) announceNeedsInput(row.title, row.id);
+      }
     }
     rememberBusy(busySeen, next);
     rememberWaiting(waitingSeen, next);

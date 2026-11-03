@@ -1,22 +1,52 @@
 import { t } from "./i18n";
 import { inDesktopShell } from "./shell";
 
-export const NOTIFY_KEY = "strata.notify";
+export const NOTIFY_DONE_KEY = "strata.notify.done";
+export const NOTIFY_QUESTION_KEY = "strata.notify.question";
 
-export type BusyRow = { id: string; title: string; busy: boolean; needsInput?: boolean };
-export type NoticeRow = BusyRow;
+/** A finished turn and a request for a person are separate preferences:
+ *  plenty of readers want the tap on the shoulder without the chime on every
+ *  completed turn, or the reverse. */
+export type NotifyKind = "done" | "question";
 
-export function readNotify(): boolean {
+/** Both kinds shared this key before they split; its value seeds whichever
+ *  row has not been saved yet. */
+const NOTIFY_LEGACY_KEY = "strata.notify";
+
+const NOTIFY_KEYS: Record<NotifyKind, string> = {
+  done: NOTIFY_DONE_KEY,
+  question: NOTIFY_QUESTION_KEY,
+};
+
+type NotifyStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
+
+/** Copy the shared key into any kind still unset, then drop it. */
+function migrateNotify(storage: NotifyStorage) {
+  const legacy = storage.getItem(NOTIFY_LEGACY_KEY);
+  if (legacy === null) return;
+  for (const key of Object.values(NOTIFY_KEYS)) {
+    if (storage.getItem(key) === null) storage.setItem(key, legacy);
+  }
+  storage.removeItem(NOTIFY_LEGACY_KEY);
+}
+
+export function readNotify(kind: NotifyKind, storage: NotifyStorage = localStorage): boolean {
   try {
-    return localStorage.getItem(NOTIFY_KEY) === "1";
+    migrateNotify(storage);
+    return storage.getItem(NOTIFY_KEYS[kind]) === "1";
   } catch {
     return false;
   }
 }
 
-export function saveNotify(on: boolean) {
-  localStorage.setItem(NOTIFY_KEY, on ? "1" : "0");
+export function saveNotify(kind: NotifyKind, on: boolean, storage: NotifyStorage = localStorage) {
+  // Saving one kind must not strand the other on the legacy value, so the
+  // copy happens before the write rather than only on read.
+  migrateNotify(storage);
+  storage.setItem(NOTIFY_KEYS[kind], on ? "1" : "0");
 }
+
+export type BusyRow = { id: string; title: string; busy: boolean; needsInput?: boolean };
 
 /** Sessions that were running and have now stopped. The first sight of a list never counts. */
 export function finishedSessions(prev: ReadonlyMap<string, boolean>, next: readonly BusyRow[]): BusyRow[] {
@@ -43,26 +73,22 @@ export function rememberBusy(prev: Map<string, boolean>, next: readonly BusyRow[
  */
 export function waitingSessions(
   prev: ReadonlyMap<string, boolean>,
-  next: readonly NoticeRow[],
-): NoticeRow[] {
-  const waiting: NoticeRow[] = [];
+  next: readonly BusyRow[],
+): BusyRow[] {
+  const waiting: BusyRow[] = [];
   for (const row of next) {
     if (row.needsInput === true && prev.get(row.id) !== true) waiting.push(row);
   }
   return waiting;
 }
 
-export function rememberWaiting(prev: Map<string, boolean>, next: readonly NoticeRow[]) {
+export function rememberWaiting(prev: Map<string, boolean>, next: readonly BusyRow[]) {
   prev.clear();
   for (const row of next) prev.set(row.id, row.needsInput === true);
 }
 
 let actionsInstalled = false;
 let actionsInstalling: Promise<void> | undefined;
-
-async function desktopNotification() {
-  return import("@tauri-apps/plugin-notification");
-}
 
 async function desktopInvoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   const { invoke } = await import("@tauri-apps/api/core");
@@ -109,11 +135,17 @@ export function installNotifyActions(): Promise<void> {
   if (!inDesktopShell()) return Promise.resolve();
   if (actionsInstalled) return Promise.resolve();
   actionsInstalling ??= (async () => {
-    const mod = await desktopNotification();
+    const mod = await import("@tauri-apps/plugin-notification");
     // A preference saved by the old web-notification path can say "on" while
     // the shell has never been granted native permission. Do not keep a switch
     // on that cannot deliver; the settings toggle will ask for it again.
-    if (readNotify() && !(await mod.isPermissionGranted())) saveNotify(false);
+    if (
+      (readNotify("done") || readNotify("question")) &&
+      !(await mod.isPermissionGranted())
+    ) {
+      saveNotify("done", false);
+      saveNotify("question", false);
+    }
     const { onAction } = mod;
     await onAction((event) => {
       if (event.actionId !== "tap") return;
@@ -133,44 +165,44 @@ export function installNotifyActions(): Promise<void> {
  * path that actually delivers a banner; the browser path remains for UI-only
  * iteration.
  */
-export async function enableNotify(): Promise<boolean> {
+export async function enableNotify(kind: NotifyKind): Promise<boolean> {
   if (inDesktopShell()) {
     try {
       let granted = await desktopPermission();
       if (!granted) granted = await requestDesktopPermission();
       if (!granted) {
-        saveNotify(false);
+        saveNotify(kind, false);
         return false;
       }
       // Click handling is a convenience; a failure there must not turn off
       // notifications that the OS has already allowed.
       await installNotifyActions().catch(() => {});
-      saveNotify(true);
+      saveNotify(kind, true);
       return true;
     } catch {
-      saveNotify(false);
+      saveNotify(kind, false);
       return false;
     }
   }
   if (typeof Notification === "undefined") {
-    saveNotify(false);
+    saveNotify(kind, false);
     return false;
   }
   if (Notification.permission === "granted") {
-    saveNotify(true);
+    saveNotify(kind, true);
     return true;
   }
   if (Notification.permission === "denied") {
-    saveNotify(false);
+    saveNotify(kind, false);
     return false;
   }
   const granted = (await Notification.requestPermission()) === "granted";
-  saveNotify(granted);
+  saveNotify(kind, granted);
   return granted;
 }
 
-export function disableNotify() {
-  saveNotify(false);
+export function disableNotify(kind: NotifyKind) {
+  saveNotify(kind, false);
 }
 
 /** Background means minimized or merely behind another window. */
@@ -178,9 +210,8 @@ function inBackground(): boolean {
   return document.hidden || !document.hasFocus();
 }
 
-/** A quiet chime, and only while this window is in the background. */
+/** A quiet chime — the caller decides when one is due. */
 function chime() {
-  if (!readNotify() || !inBackground()) return;
   const Ctx = window.AudioContext;
   if (!Ctx) return;
   const ctx = new Ctx();
@@ -240,20 +271,23 @@ async function systemNotification(
   };
 }
 
-/** A quiet chime plus a system notification, and only while this window is in the background. */
+/** A quiet chime plus a system notification, and only while this window is in
+ *  the background and the reader has the kind switched on. */
+function announce(kind: NotifyKind, title: string, body: string | undefined, sessionId?: string) {
+  if (!readNotify(kind) || !inBackground()) return;
+  void systemNotification(title, body, sessionId);
+  chime();
+}
+
+/** A session's turn ended. */
 export function announceFinished(title: string, sessionId?: string) {
-  if (!readNotify() || !inBackground()) return;
-  void systemNotification(title, undefined, sessionId);
-  chime();
+  announce("done", title, undefined, sessionId);
 }
 
-/** The same, for a session that has stopped and is waiting on the reader. */
+/** A session has stopped and is waiting on the reader. */
 export function announceNeedsInput(title: string, sessionId?: string) {
-  if (!readNotify() || !inBackground()) return;
-  void systemNotification(t("notify.needsInput"), title, sessionId);
-  chime();
+  announce("question", t("notify.needsInput"), title, sessionId);
 }
-
 
 /** Send a banner even while focused, so Settings can prove the path works. */
 export async function sendTestNotification(): Promise<void> {

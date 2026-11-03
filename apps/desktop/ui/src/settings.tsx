@@ -33,6 +33,7 @@ import {
   openNotificationSettings,
   readNotify,
   sendTestNotification,
+  type NotifyKind,
 } from "./notify";
 import {
   CONTENT_SIZES,
@@ -249,8 +250,9 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
   const [saveErr, setSaveErr] = createSignal("");
   const [fonts, setFonts] = createSignal<FontChoice>(readFonts());
   const [thinkingOpen, setThinkingOpen] = createSignal(readThinkingOpen());
-  const [notifyOn, setNotifyOn] = createSignal(readNotify());
-  const [notifyErr, setNotifyErr] = createSignal("");
+  const [notifyDone, setNotifyDone] = createSignal(readNotify("done"));
+  const [notifyQuestion, setNotifyQuestion] = createSignal(readNotify("question"));
+  const [notifyErr, setNotifyErr] = createSignal<{ kind: NotifyKind; text: string }>();
   const [shellDefault, setShellDefault] = createSignal(readTerminalShell());
   const [loginUser, setLoginUser] = createSignal("");
   const [loginPass, setLoginPass] = createSignal("");
@@ -551,18 +553,44 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
     location.hash = id === SETTINGS_SECTIONS[0].id ? "/settings" : `/settings/${id}`;
   };
 
-  const toggleNotify = async () => {
-    if (notifyOn()) {
-      disableNotify();
-      setNotifyOn(false);
-      setNotifyErr("");
+  const toggleNotify = async (kind: NotifyKind) => {
+    const on = kind === "done" ? notifyDone() : notifyQuestion();
+    const setOn = kind === "done" ? setNotifyDone : setNotifyQuestion;
+    if (on) {
+      disableNotify(kind);
+      setOn(false);
+      setNotifyErr(undefined);
       return;
     }
-    const ok = await enableNotify();
-    setNotifyOn(readNotify() && ok);
-    setNotifyErr(ok ? "" : t("settings.notify.blocked"));
-    if (!ok) disableNotify();
+    const ok = await enableNotify(kind);
+    setOn(readNotify(kind) && ok);
+    setNotifyErr(ok ? undefined : { kind, text: t("settings.notify.blocked") });
+    if (!ok) disableNotify(kind);
   };
+
+  /** One notification kind — the rows differ only in which key they move. */
+  const notifyRow = (kind: NotifyKind, on: () => boolean) => (
+    <Row
+      label={t(`settings.notify.${kind}.title`)}
+      hint={t(`settings.notify.${kind}.hint`)}
+      note={
+        <Show when={notifyErr()?.kind === kind}>
+          <p class="mt-1.5 flex items-center gap-1.5 text-2xs text-destructive">
+            <Icon name="alert" class="size-3 shrink-0" />
+            {notifyErr()?.text}
+          </p>
+        </Show>
+      }
+    >
+      <Switch
+        checked={on()}
+        aria-label={t(`settings.notify.${kind}.title`)}
+        onChange={(next) => {
+          if (next !== on()) void toggleNotify(kind);
+        }}
+      />
+    </Row>
+  );
 
   const pickMode = async (next: OpencodeLaunchMode) => {
     if (next === mode()) return;
@@ -683,26 +711,8 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
           />
         </Row>
 
-        <Row
-          label={t("settings.notify.title")}
-          hint={t("settings.notify.hint")}
-          note={
-            <Show when={notifyErr()}>
-              <p class="mt-1.5 flex items-center gap-1.5 text-2xs text-destructive">
-                <Icon name="alert" class="size-3 shrink-0" />
-                {notifyErr()}
-              </p>
-            </Show>
-          }
-        >
-          <Switch
-            checked={notifyOn()}
-            aria-label={t("settings.notify.title")}
-            onChange={(next) => {
-              if (next !== notifyOn()) void toggleNotify();
-            }}
-          />
-        </Row>
+        {notifyRow("done", notifyDone)}
+        {notifyRow("question", notifyQuestion)}
       </Card>
       </Group>
 
