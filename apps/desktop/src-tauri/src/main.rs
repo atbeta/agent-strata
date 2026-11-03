@@ -31,10 +31,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use embed::{
-    child_env, cleanup_stale_opencode, command_for, detect_runtime, health_ok, plan_with_port,
+    child_env, cleanup_stale_opencode, cleanup_stale_service, command_for, detect_runtime,
+    health_ok, plan_with_port,
     previous_port, read_mode, reap_opencode_on_port, resolve_mode, serve_args, service_env,
     supervise, write_pid, write_runtime, write_status, OpencodeMode, OpencodePlan, OpencodeState,
-    resolve_bin, Spawned, AUTH_PROMPT, AUTH_REFUSED,
+    resolve_bin, Attention, Spawned, AUTH_PROMPT, AUTH_REFUSED,
 };
 
 use std::thread::JoinHandle;
@@ -252,6 +253,69 @@ fn port_open(port: u16) -> bool {
     TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok()
 }
 
+/// Whether the service is answering on this port, not merely bound to it.
+///
+/// `spawn` returning `Ok` means a process was created, which is not the same
+/// claim: a service whose port is already taken prints `EADDRINUSE` on stderr
+/// and exits, and the handle it left behind looks exactly like a healthy one.
+/// Everything downstream trusted that handle — the handshake was written for a
+/// port nobody was listening on, and the page retried a read that could never
+/// succeed, with nothing on screen to say why.
+fn service_healthy(port: u16) -> bool {
+    let Ok(addr) = format!("127.0.0.1:{port}").parse::<SocketAddr>() else {
+        return false;
+    };
+    let Ok(mut stream) = TcpStream::connect_timeout(&addr, Duration::from_millis(300)) else {
+        return false;
+    };
+    if stream
+        .set_read_timeout(Some(Duration::from_millis(500)))
+        .is_err()
+    {
+        return false;
+    }
+    // `/health` is the one route that asks for no token, by design: a probe
+    // has to be able to ask before it knows anything else.
+    let request = format!(
+        "GET /health HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
+    );
+    if stream.write_all(request.as_bytes()).is_err() {
+        return false;
+    }
+    let _ = stream.flush();
+    let mut buf = [0u8; 256];
+    let Ok(n) = stream.read(&mut buf) else {
+        return false;
+    };
+    if n == 0 {
+        return false;
+    }
+    String::from_utf8_lossy(&buf[..n])
+        .lines()
+        .next()
+        .unwrap_or("")
+        .contains(" 200 ")
+}
+
+/// Wait for the service to answer, or give up.
+///
+/// Bounded and short: this runs on the setup path, and the window must not be
+/// held shut by a backend that is not going to come up. Five seconds is enough
+/// for a cold Bun start on a slow disk and short enough that a failure is
+/// reported while the reader is still looking at the window.
+fn wait_service_ready(port: u16, deadline: Duration) -> bool {
+    let start = Instant::now();
+    loop {
+        if service_healthy(port) {
+            return true;
+        }
+        if start.elapsed() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
 fn open_log(path: &Path) -> Option<File> {
     OpenOptions::new().create(true).append(true).open(path).ok()
 }
@@ -327,7 +391,30 @@ struct LoginPipe {
 /// on screen; only a fresh answer through `LoginPipe` does. `prompts` counts
 /// each marker shown, so an answer knows when the password prompt is really
 /// on screen rather than written into a buffer the fork will flush.
+// The shell always passes a slot, because it needs to see more than a login.
+// This form exists for the tests that assert the login stages alone, and
+// marking it test-only keeps the release build from carrying a second entry
+// point nobody calls.
+#[cfg(test)]
 fn auth_scan(stage: Arc<AtomicU8>, prompts: Arc<AtomicU32>, tui: Arc<AtomicBool>) -> Scan {
+    // Nothing reads the slot in this form; it exists so the login-only callers
+    // keep working unchanged.
+    auth_scan_into(stage, prompts, tui, Arc::new(Mutex::new(None)))
+}
+
+/// The same scanner, also recording what the child is asking.
+///
+/// `stage` only distinguishes "login" from "login refused". That was the whole
+/// vocabulary, so a build that started rejecting its own version — printing a
+/// question and waiting for a keypress — reached neither branch and looked
+/// exactly like a hang. The slot receives the classifier's answer, message and
+/// all, and the supervisor holds on it instead of respawning.
+fn auth_scan_into(
+    stage: Arc<AtomicU8>,
+    prompts: Arc<AtomicU32>,
+    tui: Arc<AtomicBool>,
+    attention: Arc<Mutex<Option<Attention>>>,
+) -> Scan {
     let tail = Mutex::new(String::new());
     Arc::new(move |chunk: &[u8]| {
         // A redraw is the tell. A line prompt prints text and waits; a TUI
@@ -349,7 +436,17 @@ fn auth_scan(stage: Arc<AtomicU8>, prompts: Arc<AtomicU32>, tui: Arc<AtomicBool>
         } else if hay.contains(AUTH_PROMPT) {
             let _ = stage.compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst);
         }
-        let keep = hay.len().min(64);
+        // A question, if this build recognises one. Only recognised kinds are
+        // recorded: a healthy server prints plenty and then falls quiet, and
+        // treating that as "asking" would park a working process.
+        if let Some(found) = embed::classify(&hay) {
+            if let Ok(mut slot) = attention.lock() {
+                *slot = Some(found);
+            }
+        }
+        // Four kilobytes rather than 64 bytes: the tail is what a message is
+        // cut from now, and one line of a vendor's sentence does not fit in 64.
+        let keep = hay.len().min(4096);
         let mut cut = hay.len() - keep;
         while !hay.is_char_boundary(cut) {
             cut += 1;
@@ -574,6 +671,11 @@ fn spawn_opencode_supervisor(
     // Set by the scanner the first time the child draws with escapes: what
     // "Enter" means depends on it.
     let auth_tui = Arc::new(AtomicBool::new(false));
+    // What the child last turned out to be asking. The scanner recognises more
+    // than a login now — a version gate prints its own question and waits — and
+    // the supervisor holds on this instead of respawning a child that is
+    // waiting for a person.
+    let auth_attention: Arc<Mutex<Option<Attention>>> = Arc::new(Mutex::new(None));
     // The closure needs its own handle: the global install runs outside it,
     // and this one names the plugin.
     let plugin_config_dir = plugin_install::opencode_config_dir();
@@ -644,10 +746,11 @@ fn spawn_opencode_supervisor(
                         &env_refs,
                         &supervise_log,
                         true,
-                        Some(auth_scan(
+                        Some(auth_scan_into(
                             auth_stage.clone(),
                             auth_prompts.clone(),
                             auth_tui.clone(),
+                            auth_attention.clone(),
                         )),
                     )
                     .ok_or_else(|| {
@@ -684,6 +787,13 @@ fn spawn_opencode_supervisor(
                     // the one-shot re-probe is armed again with it. Without this
                     // a restart after a sign-out wrote `authParked` and kept it.
                     reprobed.store(false, Ordering::SeqCst);
+                    // The question belonged to the child that was just reaped.
+                    // Keeping it would make a fresh, silent child look like it
+                    // was still asking, and the supervisor would hold on a
+                    // message nobody printed.
+                    if let Ok(mut asking) = auth_attention.lock() {
+                        *asking = None;
+                    }
                     let kill_slot = opencode_slot.clone();
                     let kill_login = login_slot.clone();
                     Ok(Spawned {
@@ -701,6 +811,7 @@ fn spawn_opencode_supervisor(
                             }
                         }),
                         auth_stage: Some(auth_stage.clone()),
+                        attention: Some(auth_attention.clone()),
                     })
                 }
             },
@@ -812,13 +923,45 @@ impl Sidecars {
         let mut extras: Vec<(String, String)> = Vec::new();
 
         if port_open(port) {
-            eprintln!(
-                "agent-strata: port {port} is already open, leaving the existing service in place"
+            // Most of the time this is our own service from a run that was
+            // killed rather than closed. Reaping it is what makes the next
+            // launch work; the check inside is against the process, not the
+            // pid number, so a reused number cannot cost somebody else their
+            // process.
+            let stale = cleanup_stale_service(&data.join("service.pid"));
+            if let Some(pid) = stale {
+                eprintln!("agent-strata: stopped stale service {pid} holding port {port}");
+                log_note(
+                    &log,
+                    &format!("stopped stale service {pid} holding port {port}"),
+                );
+            }
+        }
+
+        if port_open(port) {
+            // Still taken, and not by anything this app left behind. Returning
+            // silently here is what made a taken port look like a hang: no
+            // service, no token, and a page retrying a read that could never
+            // succeed. Say it, in the log and on the screen.
+            let detail = format!(
+                "port {port} is in use by another program; close it or set STRATA_PORT to a free port"
             );
-            log_note(
-                &log,
-                &format!("port {port} is already open; leaving the existing service in place"),
-            );
+            eprintln!("agent-strata: {detail}");
+            log_note(&log, &detail);
+            let path = data.join("service-error.json");
+            // A code and the number it is about, not the sentence: the screen
+            // is translated and this file is not. `detail` rides along for the
+            // log and for a build that does not know the code.
+            let body = serde_json::json!({
+                "code": "portInUse",
+                "port": port,
+                "detail": detail,
+            });
+            if let Err(e) = fs::write(&path, format!("{body}\n")) {
+                log_note(&log, &format!("could not write service-error.json: {e}"));
+            } else {
+                owner_only(&path);
+            }
             return Sidecars::empty();
         }
 
@@ -943,6 +1086,42 @@ impl Sidecars {
             eprintln!("agent-strata: bun not found on PATH");
             log_note(&log, "bun not found on PATH");
             None
+        };
+
+        // A spawned process is not a running service. The port can already be
+        // taken — by the last run that did not exit cleanly, or by anything
+        // else on the machine — and then the child prints `EADDRINUSE` and
+        // exits while the handle stays `Some`. Everything below used to treat
+        // that handle as proof and carry on.
+        let service_child = match service_child {
+            Some(mut child) => {
+                if wait_service_ready(port, Duration::from_secs(5)) {
+                    // Written while it is known to answer, so the pid names a
+                    // live process that cleanup can check next launch.
+                    let _ = write_pid(&data.join("service.pid"), child.id());
+                    // A port that was taken on an earlier launch leaves a note
+                    // behind. It is stale the moment this one works, and a
+                    // stale note on screen is worse than none.
+                    let _ = fs::remove_file(data.join("service-error.json"));
+                    Some(child)
+                } else {
+                    // Distinguish "it died" from "it is running but silent":
+                    // one is a command that cannot work, the other is a
+                    // service still starting.
+                    let died = matches!(child.try_wait(), Ok(Some(_)));
+                    let detail = if died {
+                        format!("service on port {port} exited during startup (is the port taken?)")
+                    } else {
+                        format!("service on port {port} did not answer within 5s")
+                    };
+                    eprintln!("agent-strata: {detail}");
+                    log_note(&log, &detail);
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    None
+                }
+            }
+            None => None,
         };
 
         // The handshake a globally loaded plugin reads. Written only once the
@@ -1091,6 +1270,36 @@ fn answer_login(
 #[tauri::command]
 fn api_token(state: tauri::State<Sidecars>) -> String {
     state.api_token.clone()
+}
+
+/// Where the page should send its requests.
+///
+/// The page used to hardcode `127.0.0.1:7700`, which was correct only while the
+/// port was always 7700. `STRATA_PORT` moves the service and the page never
+/// heard about it, so setting it produced an app that could not reach its own
+/// backend. One answer from the shell is cheaper than keeping two constants in
+/// step, and it is what makes choosing a free port possible at all.
+#[tauri::command]
+fn service_url(state: tauri::State<Sidecars>) -> String {
+    format!("http://127.0.0.1:{}", state.service_port)
+}
+
+/// Why the service is not running, when the shell knows.
+///
+/// The launch screen could only say "the local service did not start", because
+/// that is all it was told. The one cause it cannot tell apart from a hang is a
+/// port already in use — there is no process to probe and nothing in the page's
+/// own reads distinguishes it from a slow start. The shell writes the reason to
+/// a file, and this reads it back for the screen.
+#[tauri::command]
+fn service_error() -> Option<serde_json::Value> {
+    let path = data_dir().join("service-error.json");
+    let text = fs::read_to_string(path).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+    // Handed back whole: the page needs the code to pick its words and the
+    // port to put in them, and dropping either here would put the choice back
+    // in Rust.
+    Some(value)
 }
 
 /// Open the log the shell and the embedded server share. The path is fixed,
@@ -1280,6 +1489,8 @@ fn main() {
             restart_opencode,
             opencode_login,
             api_token,
+            service_url,
+            service_error,
             open_log_file,
             open_notification_settings,
             opencode_runtime,

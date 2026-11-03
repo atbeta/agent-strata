@@ -5,7 +5,7 @@ import { Button } from "./components/ui/button";
 import { Icon } from "./icons";
 import { t } from "./i18n";
 import { cn } from "./lib/utils";
-import { openOpencodeLog } from "./opencode-runtime";
+import { openOpencodeLog, readServiceError } from "./opencode-runtime";
 import { hostsTrafficLights, inDesktopShell } from "./shell";
 import type { StartupStage, SyncProgress } from "./startup";
 import { endpointHost } from "./use-connections";
@@ -108,6 +108,15 @@ export function StartupGate(props: {
   const launchPoll = setInterval(() => void refetchLaunch(), 2_000);
   onCleanup(() => clearInterval(launchPoll));
 
+  /**
+   * Why the service is not up, when the shell knows.
+   *
+   * Read alongside the launch state and on the same cadence: both live in the
+   * shell's own files, and neither can be answered by the service — it is the
+   * thing that is missing.
+   */
+  const [serviceError] = createResource(() => readServiceError());
+
   const needsLogin = () => {
     const state = launch()?.state;
     return state === "authRequired" || state === "authFailed";
@@ -124,6 +133,15 @@ export function StartupGate(props: {
       case "service":
         return { title: t("startup.service"), hint: t("startup.serviceHint") };
       case "service-error":
+        // A taken port is the one failure with something to say beyond "it did
+        // not start": it names the port, so the reader can find the program
+        // holding it instead of guessing.
+        if (serviceError()?.code === "portInUse") {
+          return {
+            title: t("startup.servicePortInUse", { port: serviceError()?.port ?? 0 }),
+            hint: t("startup.servicePortInUseHint"),
+          };
+        }
         return { title: t("startup.serviceError"), hint: t("startup.serviceErrorHint") };
       case "opencode":
         return { title: t("startup.opencode"), hint: t("startup.opencodeHint") };

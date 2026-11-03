@@ -192,6 +192,8 @@ export default {
   "startup.syncHint": "正在把 OpenCode 的历史会话同步到本地。同步可以在后台继续。",
   "startup.degradedHint": "本地历史仍然可以查看；连接问题可以在设置里处理。",
   "startup.serviceErrorHint": "本地服务没有响应。可以重试，或打开日志查看原因。",
+  "startup.servicePortInUse": "本地服务无法启动：端口 {port} 已被其他程序占用。",
+  "startup.servicePortInUseHint": "关掉占用该端口的程序后重试，或设置 STRATA_PORT 换一个空闲端口。",
   "startup.sessionsErrorHint": "本地服务已启动，但会话列表读取失败。",
   "startup.steps": "启动步骤",
   "startup.step.service": "本地服务",

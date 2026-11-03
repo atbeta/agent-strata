@@ -50,3 +50,24 @@ export async function openOpencodeLog(): Promise<string> {
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<string>("open_log_file");
 }
+
+/**
+ * Why the shell could not start its service, when it knows.
+ *
+ * The one cause that looks exactly like a hang from the page's side is a port
+ * somebody else holds: there is no process to connect to, no error in any read
+ * the page makes, and the only evidence is a line in the shell's own log. The
+ * shell files it; this reads it so the launch screen can say which port.
+ */
+export async function readServiceError(): Promise<{ code?: string; port?: number } | undefined> {
+  if (!inDesktopShell()) return undefined;
+  const { invoke } = await import("@tauri-apps/api/core");
+  try {
+    const value = await invoke<{ code?: string; port?: number } | null>("service_error");
+    return value ?? undefined;
+  } catch {
+    // An older shell has no such command, and a missing explanation is the
+    // same as none having been written.
+    return undefined;
+  }
+}

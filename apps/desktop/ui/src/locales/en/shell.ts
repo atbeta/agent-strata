@@ -196,6 +196,9 @@ export default {
     "Local history is still readable. The connection can be fixed in settings.",
   "startup.serviceErrorHint":
     "The local service is not answering. Retry, or open the log to see why.",
+  "startup.servicePortInUse": "The local service could not start: port {port} is already in use.",
+  "startup.servicePortInUseHint":
+    "Close whatever is holding that port and retry, or set STRATA_PORT to a free one.",
   "startup.sessionsErrorHint":
     "The local service is up, but the session list could not be read.",
   "startup.steps": "Startup steps",

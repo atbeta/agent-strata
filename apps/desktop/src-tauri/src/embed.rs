@@ -16,6 +16,151 @@ use serde::{Deserialize, Serialize};
 pub(crate) const AUTH_PROMPT: &str = "请输入域账号";
 pub(crate) const AUTH_REFUSED: &str = "域账号或密码错误";
 
+/// The words a build uses when it refuses to run against this backend.
+///
+/// A server that rejects the version it is asked for prints a question — open
+/// the download page? — and then sits there, because the question is the reason
+/// it never exits. This build used to read that as "unhealthy": ten seconds in
+/// the version probe, eight silent respawns in the supervisor, and not one word
+/// of the vendor's own explanation reaching the reader.
+///
+/// They are matched case-insensitively as substrings because the sentence gets
+/// a version number and a URL pasted into the middle of it.
+const UPGRADE_MARKERS: &[&str] = &[
+    "不支持当前版本",
+    "不支持该版本",
+    "请下载新版本",
+    "需要新版本",
+    "是否自动打开",
+    "unsupported version",
+    "unsupported protocol",
+    "update required",
+    "please update",
+    "newer version",
+];
+
+/// What a live child is waiting for, when it is waiting for a person.
+///
+/// A process that is running, has said something, and is not serving is not
+/// broken. It asked a question. Every such question used to be flattened into
+/// "not healthy yet", which is why a version gate looked exactly like a hang.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Attention {
+    pub kind: AttentionKind,
+    /// The line that asked, as the child printed it, with terminal escapes
+    /// removed. Shown verbatim because it is the only part the reader can act
+    /// on, and it is in the vendor's words rather than this app's.
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AttentionKind {
+    /// The fork's domain login: answer it and the server comes up.
+    Login,
+    /// This build refuses the backend version and offers a download page.
+    Upgrade,
+    /// It stopped talking while still running, and the words are ones this
+    /// build does not know. Surfaced rather than swallowed, so the next prompt
+    /// a vendor invents does not need a release before it can be seen.
+    Unknown,
+}
+
+impl AttentionKind {
+    /// The stored spelling, which is also the suffix of the runtime error code.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AttentionKind::Login => "login",
+            AttentionKind::Upgrade => "upgrade",
+            AttentionKind::Unknown => "unknown",
+        }
+    }
+}
+
+/// Strip the terminal escapes a TUI leaves in its output.
+///
+/// The line a reader needs is prose with colour instructions wrapped around it,
+/// and a prompt that redraws itself inserts cursor moves *inside* the sentence.
+/// Showing those bytes would replace "the message" with noise.
+fn strip_escapes(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\u{1b}' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            // CSI: ESC [ params final-byte
+            Some('[') => {
+                for c in chars.by_ref() {
+                    if ('\u{40}'..='\u{7e}').contains(&c) {
+                        break;
+                    }
+                }
+            }
+            // OSC: ESC ] … terminated by BEL or ESC \
+            Some(']') => {
+                while let Some(c) = chars.next() {
+                    if c == '\u{07}' {
+                        break;
+                    }
+                    if c == '\u{1b}' {
+                        chars.next();
+                        break;
+                    }
+                }
+            }
+            Some(_) | None => {}
+        }
+    }
+    out
+}
+
+/// The last thing the child said that a person could read.
+///
+/// Blank lines and lines that are nothing but escapes are skipped: a TUI
+/// repainting itself emits plenty of both, and neither is a message.
+pub fn last_meaningful_line(output: &str) -> Option<String> {
+    let cleaned = strip_escapes(output);
+    cleaned
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(str::to_string)
+}
+
+/// Whether this output is a child asking a person something.
+///
+/// One classifier for both call sites. The markers used to be tested in two
+/// places — the version probe and the server's output scanner — with the same
+/// two constants in each, so a build that invented a third question was
+/// invisible to both and no test could see the duplication.
+pub fn classify(output: &str) -> Option<Attention> {
+    let cleaned = strip_escapes(output);
+    let message = last_meaningful_line(&cleaned)?;
+    let lower = cleaned.to_lowercase();
+
+    if cleaned.contains(AUTH_PROMPT) || cleaned.contains(AUTH_REFUSED) {
+        return Some(Attention {
+            kind: AttentionKind::Login,
+            message,
+        });
+    }
+    if UPGRADE_MARKERS
+        .iter()
+        .any(|marker| lower.contains(&marker.to_lowercase()))
+    {
+        return Some(Attention {
+            kind: AttentionKind::Upgrade,
+            message,
+        });
+    }
+    None
+}
+
 /// A command that starts without a console window.
 ///
 /// The shell is a GUI program, so it has no console of its own. A console
@@ -60,6 +205,15 @@ pub enum OpencodeState {
     AuthRequired,
     /// The last credentials written to that prompt were refused.
     AuthFailed,
+    /// The child is running and talking, but it is not serving — it asked a
+    /// question this build does not have a dedicated state for.
+    ///
+    /// A backend that starts rejecting its own version prints "unsupported
+    /// version, download a new one?" and waits for a yes. There is no answer
+    /// for that in this app, but there is a sentence to show, and showing it
+    /// is the difference between a reader who knows what to do and one who
+    /// watches a spinner until it gives up.
+    NeedsInput,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -90,6 +244,13 @@ pub struct OpencodeStatus {
     pub username: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub password: Option<String>,
+    /// What the live child is waiting for, when it is waiting for a person.
+    ///
+    /// Absent for every state that is not asking a question, so an older build
+    /// reading this file sees exactly what it saw before. Present on
+    /// `needsInput`, and the message inside is the vendor's own sentence.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attention: Option<Attention>,
 }
 
 /// Where the binary the app will run came from. The settings page shows this
@@ -120,6 +281,12 @@ pub enum RuntimeSource {
 pub enum RuntimeError {
     /// The company fork parked at its domain login before answering.
     AuthParked,
+    /// It answered with a question this build can repeat but cannot answer.
+    ///
+    /// The message rides along so the settings page can show the vendor's own
+    /// sentence — "unsupported version, open the download page?" — instead of
+    /// a timeout that says nothing about what went wrong.
+    NeedsInput { attention: Attention },
     /// The binary is not a file, or could not be executed.
     NotRunnable { detail: String },
     /// `--version` exited non-zero, with its first non-empty stderr line.
@@ -141,6 +308,11 @@ impl RuntimeError {
     pub fn to_stored(&self) -> String {
         match self {
             RuntimeError::AuthParked => "authParked".into(),
+            // The detail carries the kind and then the sentence, so the UI can
+            // pick its own words for the kind and still quote the vendor.
+            RuntimeError::NeedsInput { attention } => {
+                format!("needsInput:{}:{}", attention.kind.as_str(), attention.message)
+            }
             RuntimeError::NotRunnable { detail } => format!("notRunnable:{detail}"),
             RuntimeError::VersionExited { detail } => format!("versionExited:{detail}"),
             RuntimeError::VersionEmpty => "versionEmpty".into(),
@@ -430,12 +602,29 @@ pub fn write_status(
     url: Option<&str>,
     creds: Option<(&str, &str)>,
 ) -> std::io::Result<()> {
+    write_status_asking(path, mode, state, url, creds, None)
+}
+
+/// The same write, carrying what the child is waiting for.
+///
+/// Separate rather than another parameter on `write_status`: nineteen call
+/// sites have nothing to ask about, and threading `None` through all of them
+/// would bury the two that do.
+pub fn write_status_asking(
+    path: &Path,
+    mode: OpencodeMode,
+    state: OpencodeState,
+    url: Option<&str>,
+    creds: Option<(&str, &str)>,
+    attention: Option<Attention>,
+) -> std::io::Result<()> {
     let status = OpencodeStatus {
         mode,
         state,
         url: url.map(str::to_string),
         username: creds.map(|(username, _)| username.to_string()),
         password: creds.map(|(_, password)| password.to_string()),
+        attention,
     };
     let json = serde_json::to_string(&status)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
@@ -458,6 +647,9 @@ pub struct Spawned {
     /// what it was fed. Forks that never prompt leave this `None` and behave
     /// exactly as before.
     pub auth_stage: Option<Arc<std::sync::atomic::AtomicU8>>,
+    /// What the child turned out to be asking, when its own output scanner
+    /// recognised a question. `None` for a spawn that is not scanned.
+    pub attention: Option<Arc<Mutex<Option<Attention>>>>,
 }
 
 pub fn supervise<S, H, W>(
@@ -520,6 +712,9 @@ pub fn supervise<S, H, W>(
         if !spawned.exited.load(Ordering::SeqCst) {
             let mut polls = 0u32;
             let mut auth_written: i8 = -1;
+            // The last question this child asked, so the status file is written
+            // once per change rather than on every 200ms pass.
+            let mut asking: Option<String> = None;
             while polls < 40 && !spawned.exited.load(Ordering::SeqCst) {
                 // Health wins over the prompt flag: a successful login leaves
                 // the stage marker stale while the server it unblocked comes
@@ -537,6 +732,53 @@ pub fn supervise<S, H, W>(
                     unsuccessful = 0;
                     reached_running = true;
                     break;
+                }
+                // A child that is running, has spoken, and is not serving is
+                // asking something. Waiting is the only thing that helps: a
+                // respawn prints the same question and costs the reader another
+                // eight seconds. This is what a version gate used to look like
+                // from outside — eight silent restarts, then "stopped".
+                let attention = spawned
+                    .attention
+                    .as_ref()
+                    .and_then(|slot| slot.lock().ok().and_then(|found| found.clone()));
+                if let Some(attention) = attention {
+                    // The login states keep their own writers: the login form
+                    // reads them and answers the child. Everything else is a
+                    // sentence to show, and needs no handler to act on it.
+                    if attention.kind != AttentionKind::Login {
+                        let key = format!("{}:{}", attention.kind.as_str(), attention.message);
+                        if asking.as_deref() != Some(key.as_str()) {
+                            let _ = write_status_asking(
+                                status_path,
+                                plan.mode,
+                                OpencodeState::NeedsInput,
+                                Some(&plan.url),
+                                Some((plan.username.as_str(), plan.password.as_str())),
+                                Some(attention),
+                            );
+                            asking = Some(key);
+                        }
+                        wait(Duration::from_millis(400));
+                        if shutdown.load(Ordering::SeqCst) {
+                            (spawned.kill)();
+                            let _ = write_status(
+                                status_path,
+                                plan.mode,
+                                OpencodeState::Stopped,
+                                Some(&plan.url),
+                                None,
+                            );
+                            return;
+                        }
+                        if restart.swap(false, Ordering::SeqCst) {
+                            (spawned.kill)();
+                            break;
+                        }
+                        // Not counted as a poll: an answerable question should
+                        // not run down the readiness budget and end in a kill.
+                        continue;
+                    }
                 }
                 let stage = spawned
                     .auth_stage
@@ -912,6 +1154,50 @@ pub fn cleanup_stale_opencode(path: &Path) -> Option<u32> {
     }
 }
 
+/// Whether this pid is a service this build started.
+///
+/// The bundled sidecar names itself `strata-service`; a dev run is bun reading
+/// the TypeScript entry, so both spellings count. Matching the program rather
+/// than trusting the number is what makes a recycled pid safe: killing by pid
+/// alone is how a stale file ends up stopping somebody else's process.
+fn process_is_service(pid: u32) -> bool {
+    process_command(pid)
+        .map(|command| {
+            let lower = command.to_ascii_lowercase();
+            lower.contains("strata-service")
+                || (lower.contains("bun") && lower.contains("packages/service/src/index.ts"))
+        })
+        .unwrap_or(false)
+}
+
+/// Stop a service left behind by a previous run, so its port comes back.
+///
+/// The embedded server has had this from the start; the service had nothing,
+/// and it is the one whose port the page is hardwired to. A run that was killed
+/// rather than closed leaves the service holding 7700, the next launch's child
+/// prints `EADDRINUSE` and exits, and the window sits on a spinner that cannot
+/// resolve. The pid is checked before it is signalled, so a number that has
+/// since been reused is never enough on its own.
+pub fn cleanup_stale_service(path: &Path) -> Option<u32> {
+    let pid = read_pid(path)?;
+    let killed = process_is_service(pid);
+    if killed {
+        kill_tree(pid);
+        for _ in 0..40 {
+            if !process_is_service(pid) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+    let _ = std::fs::remove_file(path);
+    if killed {
+        Some(pid)
+    } else {
+        None
+    }
+}
+
 /// Keep a file to its owner.
 ///
 /// The status file carries the embedded server's basic-auth pair, so a mode
@@ -1045,6 +1331,15 @@ pub fn command_for(bin: &Path) -> Command {
 /// answer in itself, so the child is killed as soon as the marker shows.
 pub fn version_of(bin: &Path) -> Result<String, RuntimeError> {
     const DEADLINE: Duration = Duration::from_secs(10);
+    /// How long a child may sit on output it has already printed before that
+    /// output counts as the answer.
+    ///
+    /// A version gate prints its question and waits for a keypress, so it never
+    /// exits and the deadline alone used to be the only way out — ten seconds
+    /// to report "timed out", with the actual sentence thrown away. Anything
+    /// still running after this long without a new byte is waiting, not
+    /// working.
+    const QUIET_AFTER: Duration = Duration::from_millis(1_500);
     let mut child = command_for(bin)
         .arg("--version")
         .stdin(Stdio::null())
@@ -1092,10 +1387,20 @@ pub fn version_of(bin: &Path) -> Result<String, RuntimeError> {
         both
     };
     let start = Instant::now();
+    // Where the output last changed, so a child that printed something and then
+    // went quiet can be distinguished from one that has said nothing at all.
+    let mut last_len = 0usize;
+    let mut quiet_since: Option<Instant> = None;
     let status = loop {
         let output = seen(&stdout, &stderr);
-        if output.contains(AUTH_PROMPT) || output.contains(AUTH_REFUSED) {
-            break Err(RuntimeError::AuthParked);
+        // The one classifier, shared with the server's output scanner. A
+        // question this build can repeat is reported the moment it appears,
+        // rather than after the deadline expires.
+        if let Some(attention) = classify(&output) {
+            break match attention.kind {
+                AttentionKind::Login => Err(RuntimeError::AuthParked),
+                _ => Err(RuntimeError::NeedsInput { attention }),
+            };
         }
         match child.try_wait() {
             Ok(Some(status)) => break Ok(status),
@@ -1104,6 +1409,27 @@ pub fn version_of(bin: &Path) -> Result<String, RuntimeError> {
                 return Err(RuntimeError::NotRunnable {
                     detail: format!("{}: {e}", bin.display()),
                 })
+            }
+        }
+        if output.len() != last_len {
+            last_len = output.len();
+            quiet_since = None;
+        } else if quiet_since.is_none() {
+            quiet_since = Some(Instant::now());
+        }
+        // Said something, then stopped talking, and still alive: it is asking.
+        // Reported as Unknown because the words did not match a marker this
+        // build knows — that is a message to show, not a reason to guess.
+        if let Some(since) = quiet_since {
+            if since.elapsed() >= QUIET_AFTER {
+                if let Some(message) = last_meaningful_line(&output) {
+                    break Err(RuntimeError::NeedsInput {
+                        attention: Attention {
+                            kind: AttentionKind::Unknown,
+                            message,
+                        },
+                    });
+                }
             }
         }
         if start.elapsed() >= DEADLINE {
@@ -1467,6 +1793,76 @@ mod tests {
             .to_stored(),
             "versionExited:boom"
         );
+    }
+
+    /// The question a build asks when it rejects the version it was asked for.
+    ///
+    /// This is the case that used to be invisible: the child printed it, waited
+    /// for a keypress, and never exited, so the probe reported a timeout and the
+    /// supervisor respawned it eight times. Nothing in the UI could say what the
+    /// machine had actually been told.
+    #[test]
+    fn a_version_gate_is_recognised_and_quoted() {
+        let out = "正在检查版本…\n当前 OpenCode 版本不受支持，请下载新版本\n是否自动打开浏览器链接？(y/N)\n";
+        let found = classify(out).expect("recognised");
+        assert_eq!(found.kind, AttentionKind::Upgrade);
+        assert_eq!(found.message, "是否自动打开浏览器链接？(y/N)");
+    }
+
+    /// The vendor sentence is quoted, not paraphrased: it carries the version
+    /// and the URL, and it is the only part the reader can act on.
+    #[test]
+    fn an_english_version_gate_is_recognised_too() {
+        let found = classify("Unsupported version, please update\n").expect("recognised");
+        assert_eq!(found.kind, AttentionKind::Upgrade);
+        assert_eq!(found.message, "Unsupported version, please update");
+    }
+
+    /// A login prompt keeps its own state, because the app can answer it.
+    #[test]
+    fn a_login_prompt_is_not_an_upgrade() {
+        let found = classify("◇ 请输入域账号:").expect("recognised");
+        assert_eq!(found.kind, AttentionKind::Login);
+    }
+
+    /// A healthy server prints plenty and asks nothing. Reading that as a
+    /// question would park a working process forever.
+    #[test]
+    fn a_serving_server_is_not_asking_anything() {
+        assert_eq!(classify("opencode serve\nlistening on http://127.0.0.1:4096\n"), None);
+        assert_eq!(classify(""), None);
+    }
+
+    /// A prompt drawn by a TUI wraps its sentence in cursor moves, and the
+    /// bytes in between are not words.
+    #[test]
+    fn escapes_are_stripped_before_the_message_is_read() {
+        let found = classify("\u{1b}[2K\u{1b}[1m不支持当前版本\u{1b}[0m\n").expect("recognised");
+        assert_eq!(found.kind, AttentionKind::Upgrade);
+        assert_eq!(found.message, "不支持当前版本");
+    }
+
+    /// The tail of the output is the message, and blank lines are not it.
+    #[test]
+    fn the_last_readable_line_is_the_message() {
+        assert_eq!(
+            last_meaningful_line("first\n\n\u{1b}[0m\nsecond\n\n"),
+            Some("second".to_string())
+        );
+        assert_eq!(last_meaningful_line("\n\n"), None);
+    }
+
+    /// The stored form names the kind and then quotes the child, so the UI can
+    /// choose its own words for the kind without losing the vendor's.
+    #[test]
+    fn a_question_stores_the_kind_and_the_sentence() {
+        let error = RuntimeError::NeedsInput {
+            attention: Attention {
+                kind: AttentionKind::Upgrade,
+                message: "请下载新版本".into(),
+            },
+        };
+        assert_eq!(error.to_stored(), "needsInput:upgrade:请下载新版本");
     }
 
     #[cfg(unix)]
@@ -1948,6 +2344,7 @@ mod tests {
                             }
                         }),
                         auth_stage: Some(Arc::new(std::sync::atomic::AtomicU8::new(stage))),
+                        attention: None,
                     })
                 }
             },
@@ -2042,6 +2439,7 @@ mod tests {
                         },
                         kill: Box::new(|| {}),
                     auth_stage: None,
+                    attention: None,
                     })
                 }
             },
@@ -2115,6 +2513,7 @@ mod tests {
                             }
                         }),
                         auth_stage: None,
+                        attention: None,
                     })
                 }
             },
@@ -2163,6 +2562,7 @@ mod tests {
                             kills.fetch_add(1, Ordering::SeqCst);
                         }),
                         auth_stage: None,
+                        attention: None,
                     })
                 }
             },
@@ -2209,6 +2609,7 @@ mod tests {
                             }
                         }),
                         auth_stage: None,
+                        attention: None,
                     })
                 }
             },
@@ -2257,6 +2658,7 @@ mod tests {
                         exited: Arc::new(AtomicBool::new(true)),
                         kill: Box::new(|| {}),
                     auth_stage: None,
+                    attention: None,
                     })
                 }
             },

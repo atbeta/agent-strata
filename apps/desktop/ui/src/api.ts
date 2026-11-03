@@ -296,10 +296,37 @@ export interface PolicyDecision {
   reason?: string;
 }
 
-/** Packaged webview has no Vite proxy, so it talks to the sidecar directly. */
-const DESKTOP_SERVICE = "http://127.0.0.1:7700";
+/**
+ * Where the sidecar is, for the packaged webview that has no Vite proxy.
+ *
+ * This used to be a constant. The shell honours `STRATA_PORT`, though, and a
+ * constant meant the service moved and the page did not follow — an app that
+ * could not reach its own backend. The shell knows the real port, so it is
+ * asked once at load; the default is what every build used before, so a page
+ * that starts before the answer arrives still reaches the usual port.
+ */
+let desktopService = "http://127.0.0.1:7700";
 
-export const api = (p: string) => (inDesktopShell() ? `${DESKTOP_SERVICE}${p}` : `/api${p}`);
+/** Resolved once, at module load, when a shell is hosting this page. */
+const desktopServiceRead: Promise<void> = !inDesktopShell()
+  ? Promise.resolve()
+  : (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const url = await invoke<string>("service_url");
+        if (url) desktopService = url.replace(/\/+$/, "");
+      } catch {
+        // A shell that cannot answer is one that started no service; the
+        // default is as good a guess as any and costs nothing to keep.
+      }
+    })();
+
+/** Await before building a URL that must be right the first time. */
+export const serviceUrlSettled = (): Promise<void> => desktopServiceRead;
+
+export const serviceUrl = () => desktopService;
+
+export const api = (p: string) => (inDesktopShell() ? `${desktopService}${p}` : `/api${p}`);
 
 /**
  * The capability token the service expects, when there is one.
@@ -1123,7 +1150,9 @@ export async function resizeTerminal(sessionId: string, ptyId: string, rows: num
 export async function terminalSocket(sessionId: string, ptyId: string): Promise<string> {
   const path = `/sessions/${encodeURIComponent(sessionId)}/terminal/${encodeURIComponent(ptyId)}/connect`;
   const base = inDesktopShell()
-    ? `ws://127.0.0.1:7700${path}`
+    ? // The shell may have moved the service, so the socket follows the same
+      // answer the HTTP calls use rather than repeating the port.
+      `${desktopService.replace(/^http:/, "ws:")}${path}`
     : `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/api${path}`;
   const token = await apiToken();
   if (!token) return base;
