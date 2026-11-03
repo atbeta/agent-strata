@@ -6,6 +6,7 @@ import { grammarFor, guessGrammar, tokenize, tokenizeDiff } from "./highlight";
 import { splitBlocks } from "./md-blocks";
 import { reconcileList } from "./md-reconcile";
 import { stableKeys } from "./keyed";
+import { splitLinkTail } from "./link-tail";
 import { drawDiagram, isDiagramBlock } from "./mermaid";
 import { t } from "./i18n";
 import { MarkdownHtmlCache } from "./md-cache";
@@ -139,12 +140,51 @@ function parsed(markdown: string, finished: boolean): DocumentFragment {
   const cached = finished ? htmlCache.get(markdown) : undefined;
   if (cached === undefined) {
     tpl.innerHTML = DOMPurify.sanitize(marked.parse(markdown, { async: false }) as string);
+    fixAutolinkTails(tpl.content);
     highlightCode(tpl.content);
     if (finished) htmlCache.set(markdown, tpl.innerHTML);
   } else {
     tpl.innerHTML = cached;
   }
   return tpl.content;
+}
+
+/**
+ * Give back the sentence a Chinese autolink swallowed.
+ *
+ * The parser's autolink pattern ends at whitespace, so a full stop or a
+ * parenthetical written straight after an address is taken as part of it:
+ * `http://localhost:3000/。` becomes one link, and following it goes to an
+ * address that cannot exist. ASCII punctuation is handled by the parser; only
+ * CJK is not, which is why this reads as a Chinese-only bug.
+ *
+ * Two conditions keep this from touching links a person wrote. The visible text
+ * has to be the address itself — a `[官方文档](url)` link says something else, and
+ * its text is none of this module's business — and the address has to be one
+ * whose trailing punctuation the splitter actually recognises. Everything else
+ * is left exactly as parsed.
+ */
+function fixAutolinkTails(host: ParentNode) {
+  for (const link of host.querySelectorAll("a[href]")) {
+    const text = link.textContent ?? "";
+    // Only a link that shows its own address is an autolink. A link with
+    // markup inside is a hand-written one, and its text is the author's.
+    if (link.childNodes.length !== 1 || link.firstChild?.nodeType !== Node.TEXT_NODE) continue;
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(link.getAttribute("href") ?? "");
+    } catch {
+      // A malformed escape is not something to guess about.
+      continue;
+    }
+    if (decoded !== text) continue;
+    const { keep, tail } = splitLinkTail(text);
+    if (tail === "") continue;
+    link.setAttribute("href", encodeURI(keep));
+    link.textContent = keep;
+    // The sentence continues right where the address stopped.
+    link.after(document.createTextNode(tail));
+  }
 }
 
 /**
