@@ -16,7 +16,7 @@ import { openImage } from "./image-viewer";
 import { Md } from "./md";
 import { Tip } from "./tip";
 import { stripAnsi } from "./ansi";
-import { Code, CopyButton } from "./payload";
+import { Code, CodeTokens, CopyButton } from "./payload";
 import { t, tn } from "./i18n";
 import { cn } from "@/lib/utils";
 import { readThinkingOpen } from "./thinking";
@@ -506,11 +506,11 @@ function ShellWell(props: { call: ToolCallView; command?: string; running: boole
   const copy = () => (output() ? stripAnsi(output()!) : (props.command ?? ""));
   return (
     <Show when={props.command || output() || props.running}>
-      <div class="group relative overflow-hidden rounded-md border border-border bg-secondary/40">
+      <div class="group relative overflow-hidden rounded-md border border-border bg-code-surface">
         <Show when={props.command}>
-          <p class="whitespace-pre-wrap break-words px-2.5 pb-1.5 pr-16 pt-2 font-mono text-2xs leading-5 text-muted-foreground">
-            <span class="select-none text-muted-foreground/60">$ </span>
-            {props.command}
+          <p class="whitespace-pre-wrap break-words bg-code-header px-3 py-2.5 pr-16 font-mono text-2xs leading-5 text-foreground/90">
+            <span class="mr-2 select-none text-syntax-string">$</span>
+            <CodeTokens source={props.command!} label="sh" />
           </p>
         </Show>
         <Show when={output()}>
@@ -532,9 +532,9 @@ function ShellWell(props: { call: ToolCallView; command?: string; running: boole
 }
 
 function diffLineClass(line: string): string {
-  if (line.startsWith("+") && !line.startsWith("+++")) return "text-status-active";
-  if (line.startsWith("-") && !line.startsWith("---")) return "text-destructive";
-  if (line.startsWith("@@")) return "text-event-tool";
+  if (line.startsWith("+") && !line.startsWith("+++")) return "text-diff-add-fg";
+  if (line.startsWith("-") && !line.startsWith("---")) return "text-diff-del-fg";
+  if (line.startsWith("@@")) return "text-syntax-keyword";
   return "text-muted-foreground";
 }
 
@@ -553,7 +553,7 @@ function OutputWell(props: { text: string; kind: ToolKind }) {
         when={diff()}
         fallback={<Code source={clean()} maxHeight="max-h-72" class="pr-16" />}
       >
-        <pre class="max-h-72 overflow-auto rounded-md border border-border bg-secondary/40 px-3 py-2 pr-16 font-mono text-xs leading-5">
+        <pre class="max-h-72 overflow-auto rounded-md border border-border bg-code-surface px-3 py-2 pr-16 font-mono text-xs leading-5">
         <For each={clean().split("\n")}>
           {(line) => <div class={`break-words whitespace-pre-wrap ${diffLineClass(line)}`}>{line || " "}</div>}
         </For>
@@ -597,7 +597,7 @@ function ToolCallCard(props: {
   // belongs, echoing what the shell actually ran.
   const command = () => {
     if (headline().kind !== "shell") return undefined;
-    const c = props.call.input?.command;
+    const c = props.call.input?.command ?? props.call.input?.cmd;
     return typeof c === "string" ? c : undefined;
   };
   /** A pending call is only "running" while the session is. */

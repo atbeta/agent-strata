@@ -4,8 +4,8 @@
  * Deliberately not a parser. Shiki or highlight.js would add a megabyte of
  * grammars and a WASM boot to an app whose code surface is a few hundred tokens
  * of tool output at a time. What ships here is a single scanner that recognises
- * comments, strings, numbers and keywords — the four things a reader actually
- * uses to orient in a snippet — and leaves everything else as plain text.
+ * the landmarks a reader uses to orient in a snippet — comments, literals,
+ * keywords, calls, properties and types — and leaves everything else plain.
  *
  * Tokens are emitted as spans with a `tok-*` class rather than inline colours,
  * so the palette stays in the theme.
@@ -17,8 +17,10 @@ export type TokenKind =
   | "string"
   | "number"
   | "keyword"
-  | "punct"
+  | "func"
   | "prop"
+  | "type"
+  | "punct"
   | "add"
   | "del";
 
@@ -217,7 +219,14 @@ function push(out: Token[], kind: TokenKind, text: string) {
  */
 const NUMBER = /\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?n?/y;
 const WORD = /[A-Za-z_$][\w$]*/y;
+const CSS_WORD = /[A-Za-z_$][\w$-]*/y;
 const PUNCT = /[{}[\]();,.:<>=+\-*/%!&|^~?]/;
+
+function nextMeaningful(src: string, at: number): string {
+  let ch = src[at] ?? "";
+  while (ch === " " || ch === "\t" || ch === "\n" || ch === "\r") ch = src[++at] ?? "";
+  return ch;
+}
 
 export function tokenize(src: string, grammar: keyof typeof GRAMMARS | null): Token[] {
   if (!grammar) return [{ kind: "plain", text: src }];
@@ -225,6 +234,7 @@ export function tokenize(src: string, grammar: keyof typeof GRAMMARS | null): To
   const out: Token[] = [];
   const len = src.length;
   let i = 0;
+  let shellCommand = grammar === "sh";
 
   while (i < len) {
     const bol = i === 0 || src[i - 1] === "\n";
@@ -266,7 +276,8 @@ export function tokenize(src: string, grammar: keyof typeof GRAMMARS | null): To
         else j += 1;
       }
       const end = Math.min(j, len);
-      push(out, "string", src.slice(i, end));
+      const key = grammar === "json" && src[end - 1] === ch && nextMeaningful(src, end) === ":";
+      push(out, key ? "prop" : "string", src.slice(i, end));
       i = end;
       continue;
     }
@@ -279,21 +290,42 @@ export function tokenize(src: string, grammar: keyof typeof GRAMMARS | null): To
       continue;
     }
 
-    WORD.lastIndex = i;
-    const word = WORD.exec(src);
+    const pattern = grammar === "css" ? CSS_WORD : WORD;
+    pattern.lastIndex = i;
+    const word = pattern.exec(src);
     if (word) {
-      push(out, g.keywords.has(word[0]) ? "keyword" : "plain", word[0]);
-      i += word[0].length;
+      const text = word[0];
+      const end = i + text.length;
+      const next = nextMeaningful(src, end);
+      let kind: TokenKind = "plain";
+      if (g.keywords.has(text)) kind = "keyword";
+      else if (grammar === "sh") {
+        if (text.startsWith("$") || src[i - 1] === "-") kind = "prop";
+        else if (shellCommand && next === "=") kind = "prop";
+        else if (shellCommand) {
+          kind = "func";
+          shellCommand = false;
+        }
+      } else if (grammar === "html" && (src[i - 1] === "<" || (src[i - 1] === "/" && src[i - 2] === "<"))) {
+        kind = "keyword";
+      } else if ((grammar === "html" || grammar === "toml") && next === "=") kind = "prop";
+      else if (/^[A-Z]/.test(text)) kind = "type";
+      else if (next === "(") kind = "func";
+      else if (next === ":" || src[i - 1] === ".") kind = "prop";
+      push(out, kind, text);
+      i = end;
       continue;
     }
 
     if (PUNCT.test(ch)) {
       push(out, "punct", ch);
+      if (grammar === "sh" && "|;&(".includes(ch)) shellCommand = true;
       i += 1;
       continue;
     }
 
     push(out, "plain", ch);
+    if (grammar === "sh" && ch === "\n") shellCommand = true;
     i += 1;
   }
 

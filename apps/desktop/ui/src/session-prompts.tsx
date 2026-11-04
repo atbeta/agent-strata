@@ -4,6 +4,7 @@ import { Icon } from "./icons";
 import { questionAllowsCustom, questionGroups } from "./question-payload";
 import { DiffBlock } from "./diff";
 import { JsonView } from "./json-view";
+import { CodeTokens } from "./payload";
 import { permissionView, type PermissionView } from "./permission-card";
 import { t } from "./i18n";
 import { toolIcon } from "./transcript-format";
@@ -33,8 +34,8 @@ export function AskCard(props: {
     const view = detail();
     if (view.kind === "command") {
       return (
-        <pre class="max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-md bg-secondary/50 px-2.5 py-1.5 font-mono text-xs leading-5">
-          {view.command}
+        <pre class="max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-code-surface px-3 py-2 font-mono text-xs leading-5">
+          <CodeTokens source={view.command} label="sh" />
         </pre>
       );
     }

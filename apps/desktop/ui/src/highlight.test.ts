@@ -70,6 +70,35 @@ describe("tokens", () => {
     expect(tokenize("a # mid-line", "md").some((t) => t.kind === "keyword")).toBe(false);
   });
 
+  test("calls, properties and types have their own landmarks", () => {
+    const out = tokenize('const user: User = makeUser({ name: "Ada" });', "ts");
+    expect(out).toContainEqual({ kind: "type", text: "User" });
+    expect(out).toContainEqual({ kind: "func", text: "makeUser" });
+    expect(out).toContainEqual({ kind: "prop", text: "name" });
+    expect(out).toContainEqual({ kind: "string", text: '"Ada"' });
+  });
+
+  test("JSON keys and HTML attributes do not read as ordinary strings", () => {
+    expect(tokenize('{"name": "Ada", "active": true}', "json")).toContainEqual({ kind: "prop", text: '"name"' });
+    const html = tokenize('<Button loading={true} />', "html");
+    expect(html).toContainEqual({ kind: "keyword", text: "Button" });
+    expect(html).toContainEqual({ kind: "prop", text: "loading" });
+  });
+
+  test("CSS selectors and hyphenated properties stay whole", () => {
+    const out = tokenize(".reading-prose { overflow-wrap: anywhere; }", "css");
+    expect(out).toContainEqual({ kind: "prop", text: "reading-prose" });
+    expect(out).toContainEqual({ kind: "prop", text: "overflow-wrap" });
+  });
+
+  test("shell commands, environment assignments and options read as a command line", () => {
+    const out = tokenize('FOO=1 git commit -m "ship" && bun test', "sh");
+    expect(out).toContainEqual({ kind: "prop", text: "FOO" });
+    expect(out).toContainEqual({ kind: "func", text: "git" });
+    expect(out).toContainEqual({ kind: "prop", text: "m" });
+    expect(out).toContainEqual({ kind: "func", text: "bun" });
+  });
+
   /**
    * The one invariant that covers every offset in the scanner: whatever it
    * decides a token is, the pieces still have to spell the original. An index

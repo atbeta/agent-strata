@@ -462,6 +462,7 @@ describe("tool call icons", () => {
 describe("transcript reading details", () => {
   const transcript = readFileSync(join(import.meta.dir, "transcript.tsx"), "utf8");
   const markdown = readFileSync(join(import.meta.dir, "md.tsx"), "utf8");
+  const prompts = readFileSync(join(import.meta.dir, "session-prompts.tsx"), "utf8");
   const theme = readFileSync(join(import.meta.dir, "theme.css"), "utf8");
 
   test("the streaming caret lives at the end of the markdown, not on a new line", () => {
@@ -473,9 +474,17 @@ describe("transcript reading details", () => {
 
   test("every expanded shell command stays available in full", () => {
     const command = transcript.slice(transcript.indexOf("const command = () =>"), transcript.indexOf("/** A pending call"));
+    expect(command).toContain("props.call.input?.command ?? props.call.input?.cmd");
     expect(command).toContain('return typeof c === "string" ? c : undefined');
     expect(command).not.toContain("c.length");
     expect(command).not.toContain('c.includes("\\n")');
+  });
+
+  test("shell output and permission prompts share the command highlighter", () => {
+    expect(transcript).toContain('<CodeTokens source={props.command!} label="sh" />');
+    expect(prompts).toContain('<CodeTokens source={view.command} label="sh" />');
+    expect(theme).toContain(".tok-func    { @apply text-syntax-function; }");
+    expect(theme).toContain(".tok-prop    { @apply text-syntax-property; }");
   });
 
   test("copy controls cannot cover the first output line", () => {

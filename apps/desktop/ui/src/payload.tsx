@@ -35,7 +35,7 @@ function CopyButton(props: { text: string }) {
   );
 }
 
-function Code(props: { source: string; label?: string; maxHeight?: string; class?: string }) {
+export function CodeTokens(props: { source: string; label?: string }) {
   const tokens = createMemo(() => {
     const src = stripAnsi(props.source);
     const diff = tokenizeDiff(src);
@@ -43,23 +43,28 @@ function Code(props: { source: string; label?: string; maxHeight?: string; class
     const grammar = grammarFor(props.label) ?? guessGrammar(src);
     return tokenize(src, grammar);
   });
+  return (
+    <For each={tokens()}>
+      {(token) => (
+        <Show when={token.kind !== "plain"} fallback={token.text}>
+          <span class={`tok-${token.kind}`}>{token.text}</span>
+        </Show>
+      )}
+    </For>
+  );
+}
 
+function Code(props: { source: string; label?: string; maxHeight?: string; class?: string }) {
   return (
     <pre
       class={cn(
-        "group overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-secondary/40 p-2.5 font-mono text-2xs leading-5 text-foreground/85",
+        "group overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-code-surface p-2.5 font-mono text-2xs leading-5 text-foreground/85",
         props.class,
         props.maxHeight ?? "max-h-96",
       )}
     >
       <code>
-        <For each={tokens()}>
-          {(t) => (
-            <Show when={t.kind !== "plain"} fallback={t.text}>
-              <span class={`tok-${t.kind}`}>{t.text}</span>
-            </Show>
-          )}
-        </For>
+        <CodeTokens source={props.source} label={props.label} />
       </code>
     </pre>
   );
@@ -95,7 +100,7 @@ export function Payload(props: {
         }
       >
         <div
-          class={`overflow-auto rounded-md border border-border bg-secondary/40 p-1.5 ${
+          class={`overflow-auto rounded-md border border-border bg-code-surface p-1.5 ${
             props.maxHeight ?? "max-h-96"
           }`}
         >

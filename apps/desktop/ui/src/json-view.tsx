@@ -13,10 +13,10 @@ import { Button } from "@/components/ui/button";
  */
 
 const SCALAR_CLS: Record<string, string> = {
-  string: "text-status-active",
-  number: "text-status-cancelled",
-  boolean: "text-event-tool",
-  null: "text-muted-foreground italic",
+  string: "text-syntax-string",
+  number: "text-syntax-number",
+  boolean: "text-syntax-keyword",
+  null: "text-syntax-comment italic",
 };
 
 /** Branches shallower than this start open; anything deeper starts collapsed. */
@@ -66,7 +66,7 @@ function Node(props: {
 
       <div class="min-w-0 flex-1 break-words">
         <Show when={props.label !== undefined}>
-          <span class="text-event-user">{props.label}</span>
+          <span class="text-syntax-property">{props.label}</span>
           <span class="text-muted-foreground">: </span>
         </Show>
 

@@ -95,6 +95,8 @@ macOS already overlays the traffic lights in that strip (`pl-[76px]`). Windows i
 | `status-active` / `completed` / `error` / `cancelled` / `pending` | session state. Pair the color with a label or a dot that has a text alternative. |
 | `event-user` / `assistant` / `tool` / `permission` / `file` | transcript markers |
 | `cost-up` / `cost-down` / `cost-flat` | compare deltas |
+| `syntax-comment` / `string` / `number` / `keyword` / `function` / `property` / `type` / `punctuation` | code and structured values; never session state |
+| `code-surface` / `code-header` | code blocks, terminal commands and output |
 
 ### Elevation, motion and responsive layout
 
@@ -129,8 +131,8 @@ Use the named steps. `text-[14px]` is the same size as `text-sm` today, but only
 Tool `input` and `result` arrive as raw event data and are rendered by `Payload` in `payload.tsx`, which decides the shape rather than guessing at draw time:
 
 - An object or array — or a string that parses to one — becomes a `JsonView` tree: keyed rows, type-coloured scalars, one level open by default, collapsible below that.
-- Anything else is highlighted mono: `ansi.ts` drops terminal escapes first, `highlight.ts` colours comments, strings, numbers, keywords and diff markers. Guessing is bounded — a bare version string stays plain rather than being dressed up as shell.
-- Code fences inside markdown go through the same tokenizer, after DOMPurify, and carry their language in `data-lang`.
+- Anything else is highlighted mono: `ansi.ts` drops terminal escapes first, `highlight.ts` colours comments, literals, keywords, calls, properties, types and diff markers. Guessing is bounded — a bare version string stays plain rather than being dressed up as shell.
+- Code fences inside markdown go through the same tokenizer, after DOMPurify, and carry their language in `data-lang`. Shell wells and permission commands reuse `CodeTokens` with an explicit `sh` grammar; terminal output keeps conservative detection instead of treating every log line as a command.
 
 Wrapping is `break-words`, never `break-all`: breaking inside a word turns one long token into a column of fragments.
 

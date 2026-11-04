@@ -60,6 +60,16 @@
   --diff-add-bg: hsl(150 60% 40% / 0.14);
   --diff-del-fg: hsl(0 76% 68%);
   --diff-del-bg: hsl(0 72% 50% / 0.14);
+  --code-surface: hsl(240 7% 8%);
+  --code-header: hsl(240 6% 11%);
+  --syntax-comment: hsl(240 8% 56%);
+  --syntax-string: hsl(152 58% 62%);
+  --syntax-number: hsl(33 85% 65%);
+  --syntax-keyword: hsl(262 75% 74%);
+  --syntax-function: hsl(217 90% 72%);
+  --syntax-property: hsl(190 72% 65%);
+  --syntax-type: hsl(174 62% 64%);
+  --syntax-punctuation: hsl(240 10% 66%);
   --scrollbar: hsl(0 0% 100% / 0.12);
   /* Elevation follows the opencode recipe: the edge of a floating surface is
      a 0.5px ring inside the shadow, not a CSS border, so on retina it reads
@@ -127,6 +137,16 @@ html[data-theme="light"] {
   --diff-add-bg: hsl(150 60% 40% / 0.16);
   --diff-del-fg: hsl(0 70% 40%);
   --diff-del-bg: hsl(0 72% 50% / 0.13);
+  --code-surface: hsl(240 12% 97%);
+  --code-header: hsl(240 10% 94%);
+  --syntax-comment: hsl(240 6% 44%);
+  --syntax-string: hsl(152 65% 30%);
+  --syntax-number: hsl(28 85% 36%);
+  --syntax-keyword: hsl(262 55% 46%);
+  --syntax-function: hsl(217 80% 44%);
+  --syntax-property: hsl(190 75% 32%);
+  --syntax-type: hsl(174 70% 28%);
+  --syntax-punctuation: hsl(240 6% 45%);
   --scrollbar: hsl(240 6% 12% / 0.12);
   --popover-shadow:
     0 8px 16px hsl(240 10% 20% / 0.04), 0 4px 8px hsl(240 10% 20% / 0.08),
@@ -185,6 +205,16 @@ html[data-theme="light"] {
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+  --color-code-surface: var(--code-surface);
+  --color-code-header: var(--code-header);
+  --color-syntax-comment: var(--syntax-comment);
+  --color-syntax-string: var(--syntax-string);
+  --color-syntax-number: var(--syntax-number);
+  --color-syntax-keyword: var(--syntax-keyword);
+  --color-syntax-function: var(--syntax-function);
+  --color-syntax-property: var(--syntax-property);
+  --color-syntax-type: var(--syntax-type);
+  --color-syntax-punctuation: var(--syntax-punctuation);
 }
 
 @theme {
@@ -370,16 +400,17 @@ textarea {
     transform-origin: var(--kb-popper-content-transform-origin, var(--kb-menu-content-transform-origin, top left));
   }
 
-  /* Token colours for the transcript highlighter. One hue per token class so
-     the palette stays here rather than in the tokenizer. */
-  .tok-comment { @apply text-muted-foreground italic; }
-  .tok-string  { @apply text-status-active; }
-  .tok-number  { @apply text-status-cancelled; }
-  .tok-keyword { @apply text-event-tool; }
-  .tok-punct   { @apply text-muted-foreground; }
-  .tok-prop    { @apply text-event-user; }
-  .tok-add     { @apply text-status-active; }
-  .tok-del     { @apply text-destructive; }
+  /* Syntax has its own vocabulary: code colour must not imply a session state. */
+  .tok-comment { @apply text-syntax-comment italic; }
+  .tok-string  { @apply text-syntax-string; }
+  .tok-number  { @apply text-syntax-number; }
+  .tok-keyword { @apply text-syntax-keyword; }
+  .tok-func    { @apply text-syntax-function; }
+  .tok-prop    { @apply text-syntax-property; }
+  .tok-type    { @apply text-syntax-type; }
+  .tok-punct   { @apply text-syntax-punctuation; }
+  .tok-add     { @apply text-diff-add-fg; }
+  .tok-del     { @apply text-diff-del-fg; }
 }
 
 /* The busy session mark. OpenCode's spinner: the inner four breathe between
@@ -455,20 +486,22 @@ textarea {
   .md li { @apply my-1; }
   .md li > p { @apply my-1; }
   .md code {
-    @apply rounded bg-secondary px-1.5 py-0.5 font-mono text-xs text-foreground;
+    @apply rounded border border-border/60 bg-code-header px-1.5 py-0.5 font-mono text-xs text-foreground/90;
   }
   .md pre {
-    @apply my-3 overflow-x-auto rounded-lg border border-border bg-secondary/60 p-3;
+    @apply my-3 overflow-x-auto rounded-lg border border-border bg-code-surface p-3;
   }
+  .md pre[data-lang] { @apply p-0; }
   /* Fence label, drawn from the language marked recorded on the block. */
   .md pre[data-lang]::before {
     content: attr(data-lang);
-    @apply mb-2 block text-2xs normal-case tracking-wide text-muted-foreground;
+    @apply block border-b border-border bg-code-header px-3 py-2 text-2xs normal-case tracking-wider text-syntax-comment;
   }
   .md pre code {
-    @apply block bg-transparent p-0 text-xs leading-relaxed;
+    @apply block rounded-none border-0 bg-transparent p-0 text-xs leading-relaxed;
     white-space: pre;
   }
+  .md pre[data-lang] code { @apply p-3; }
 
   /* A drawn diagram sits where its code block was, and keeps that block's box:
      same margin, same radius, same hairline. A diagram that arrived in its own
