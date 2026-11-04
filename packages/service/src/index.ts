@@ -48,6 +48,13 @@ import { queryTokenOk, readApiToken, tokenOk } from "./api-token";
 import { writeSecureJson } from "./secure-write";
 import { terminalClose, terminalMessage, terminalOpen, terminalRoute, terminalUpgrade } from "./terminal";
 import { createDevManager, type DevEvent } from "./dev-process";
+import {
+  BrowserClientError,
+  browserRef,
+  browserUrl,
+  createBrowserManager,
+  type BrowserAction,
+} from "./browser";
 import { WorktreeError, worktreeAdd, worktreeRemove, withWorktrees } from "./worktree";
 import { SessionClaims } from "./identity";
 import { promptRoute, type PendingAsk, type PendingQuestion } from "./prompt-routes";
@@ -180,6 +187,9 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       console.error(`stopped ${reaped} dev process(es) left by a previous run`);
     }
   });
+  // The browser follows the same rule as dev processes: the service owns it,
+  // and a plugin inside OpenCode is how sessions reach it.
+  const browser = createBrowserManager({ stateDir: desktopDir });
   const maintenanceDirsInfo = maintenanceDirs(opts.db, desktopDir);
   const maintenanceSnapshot = () => {
     const dbPath = maintenanceDirsInfo.dbPath;
@@ -2247,6 +2257,86 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       return json({ error: "method not allowed" }, 405);
     }
 
+    // The service-owned browser. A plugin inside OpenCode calls these with the
+    // native session id; everything browser-side then works in casf ids like
+    // the dev table does.
+    const browserHit = path.match(/^\/browser(?:\/([a-z]+))?$/);
+    if (browserHit) {
+      const verb = browserHit[1];
+      if (!verb) {
+        if (req.method !== "GET") return json({ error: "method not allowed" }, 405);
+        const requested = url.searchParams.get("session") ?? "";
+        return json(browser.state(resolveSessionId(requested)));
+      }
+      if (verb === "console" && req.method === "GET") {
+        const requested = url.searchParams.get("session") ?? "";
+        const tail = Number(url.searchParams.get("tail") ?? 100) || 100;
+        return json({ lines: browser.consoleLines(resolveSessionId(requested), tail) });
+      }
+      if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
+      const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+      if (!body || typeof body.session_id !== "string" || body.session_id.length === 0) {
+        return json({ error: "session_id required" }, 400);
+      }
+      const sessionID = resolveSessionId(body.session_id);
+      const text = (v: unknown) => (typeof v === "string" && v.length > 0 ? v : undefined);
+      try {
+        switch (verb) {
+          case "navigate": {
+            const target = browserUrl(body.url);
+            if (!target) return json({ error: "url required" }, 400);
+            return json(await browser.navigate(sessionID, target));
+          }
+          case "attach": {
+            const port = body.port;
+            if (typeof port !== "number" || !Number.isInteger(port) || port < 1 || port > 65535) {
+              return json({ error: "port required" }, 400);
+            }
+            return json(await browser.attach(sessionID, port));
+          }
+          case "snapshot":
+            return json(await browser.snapshot(sessionID));
+          case "act": {
+            const ACTIONS: ReadonlySet<string> = new Set(["click", "fill", "type", "press", "hover", "select"]);
+            if (typeof body.action !== "string" || !ACTIONS.has(body.action)) {
+              return json({ error: "action required" }, 400);
+            }
+            const ref = browserRef(body.ref);
+            if (!ref) return json({ error: "ref required" }, 400);
+            return json(
+              await browser.act(sessionID, {
+                ref,
+                action: body.action as BrowserAction,
+                text: text(body.text),
+                key: text(body.key),
+              }),
+            );
+          }
+          case "eval": {
+            if (typeof body.js !== "string" || body.js.trim().length === 0) {
+              return json({ error: "js required" }, 400);
+            }
+            return json({ result: await browser.evaluate(sessionID, body.js) });
+          }
+          case "screenshot":
+            return json(await browser.screenshot(sessionID));
+          case "use": {
+            const target = text(body.target);
+            if (!target) return json({ error: "target required" }, 400);
+            return json(await browser.use(sessionID, target));
+          }
+          case "close":
+            return json({ closed: await browser.close(sessionID) });
+          default:
+            return json({ error: "not found" }, 404);
+        }
+      } catch (err) {
+        // A caller's mistake is a 400; the browser itself failing is a 502.
+        const status = err instanceof BrowserClientError ? 400 : 502;
+        return json({ error: err instanceof Error ? err.message : String(err) }, status);
+      }
+    }
+
     const providers = await providerRoute(req, path, (id) => conns.get(id)?.extension?.providers);
     if (providers) return providers;
 
@@ -2423,6 +2513,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       // Nothing outlives the service: a dev server still listening after the
       // app is gone is the orphan this module exists to prevent.
       void dev.stopAll();
+      void browser.dispose();
       server.stop();
       store.close();
     },

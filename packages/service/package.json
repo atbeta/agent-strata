@@ -5,13 +5,14 @@
   "type": "module",
   "main": "src/index.ts",
   "dependencies": {
-    "@agent-strata/api": "workspace:*",
     "@agent-strata/adapter-acp": "workspace:*",
     "@agent-strata/adapter-opencode": "workspace:*",
+    "@agent-strata/api": "workspace:*",
     "@agent-strata/core": "workspace:*",
     "@agent-strata/policy": "workspace:*",
     "@agent-strata/projector": "workspace:*",
     "@agent-strata/schema": "workspace:*",
-    "@agent-strata/store": "workspace:*"
+    "@agent-strata/store": "workspace:*",
+    "playwright-core": "^1.64.1"
   }
 }

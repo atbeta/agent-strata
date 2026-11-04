@@ -727,10 +727,10 @@ fn spawn_opencode_supervisor(
                     // that is not writable from taking the tools away from the
                     // server we started.
                     if let Some(dir) = plugin_config_dir.clone() {
-                        if let Ok(plugin) = plugin_install::install_plugin(&dir) {
+                        if let Ok(plugins) = plugin_install::install_plugins(&dir) {
                             owned.push((
                                 "OPENCODE_CONFIG_CONTENT".into(),
-                                plugin_install::config_content(&plugin),
+                                plugin_install::config_content(&plugins),
                             ));
                         }
                     }
@@ -982,13 +982,13 @@ impl Sidecars {
         // bug — the external server never saw the tools, so the model kept
         // reaching for `Start-Process`.
         if let Some(dir) = plugin_install::opencode_config_dir() {
-            match plugin_install::install_plugin(&dir) {
-                Ok(path) => {
-                    log_note(&log, &format!("installed dev-process plugin at {}", path.display()));
+            match plugin_install::install_plugins(&dir) {
+                Ok(paths) => {
+                    log_note(&log, &format!("installed {} opencode plugins", paths.len()));
                 }
                 Err(e) => {
-                    eprintln!("agent-strata: could not install the dev-process plugin: {e}");
-                    log_note(&log, &format!("could not install dev-process plugin: {e}"));
+                    eprintln!("agent-strata: could not install the opencode plugins: {e}");
+                    log_note(&log, &format!("could not install opencode plugins: {e}"));
                 }
             }
         }

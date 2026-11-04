@@ -22,6 +22,9 @@ use std::path::{Path, PathBuf};
 /// not a runtime one, which is the right place for it to fail.
 pub const DEV_PROCESS_PLUGIN: &str = include_str!("../../../../plugins/dev-process.ts");
 
+/// The shell's browser tools, same delivery channel as `dev-process.ts`.
+pub const BROWSER_PLUGIN: &str = include_str!("../../../../plugins/browser.ts");
+
 /// Where OpenCode keeps its global config.
 ///
 /// Mirrors `xdg-basedir`: `%APPDATA%` on Windows, `$XDG_CONFIG_HOME` or
@@ -62,22 +65,29 @@ pub fn handshake_path(config_dir: &Path) -> PathBuf {
     config_dir.join("strata-dev-process.json")
 }
 
-/// Install the plugin at `dir`, returning the file written.
-pub fn install_plugin(dir: &Path) -> std::io::Result<PathBuf> {
+/// Install the plugins at `dir`, returning the files written.
+pub fn install_plugins(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
     let folder = dir.join("plugin");
     std::fs::create_dir_all(&folder)?;
-    let path = folder.join("dev-process.ts");
-    std::fs::write(&path, DEV_PROCESS_PLUGIN)?;
-    Ok(path)
+    let mut written = Vec::new();
+    for (name, source) in [
+        ("dev-process.ts", DEV_PROCESS_PLUGIN),
+        ("browser.ts", BROWSER_PLUGIN),
+    ] {
+        let path = folder.join(name);
+        std::fs::write(&path, source)?;
+        written.push(path);
+    }
+    Ok(written)
 }
 
-/// `OPENCODE_CONFIG_CONTENT` for a server that should load our plugin.
+/// `OPENCODE_CONFIG_CONTENT` for a server that should load our plugins.
 ///
 /// Only `plugin` is set. Everything else the user configured stays in effect,
 /// because OpenCode concatenates array fields rather than replacing them.
-pub fn config_content(plugin: &Path) -> String {
-    let url = file_url(plugin);
-    let value = serde_json::json!({ "plugin": [url] });
+pub fn config_content(plugins: &[PathBuf]) -> String {
+    let urls: Vec<String> = plugins.iter().map(|p| file_url(p)).collect();
+    let value = serde_json::json!({ "plugin": urls });
     value.to_string()
 }
 
@@ -107,30 +117,49 @@ mod tests {
     }
 
     #[test]
-    fn installing_writes_the_plugin_where_the_config_points() {
+    fn the_browser_plugin_asks_the_service_and_spawns_nothing() {
+        assert!(BROWSER_PLUGIN.contains("STRATA_SERVICE_URL"));
+        assert!(BROWSER_PLUGIN.contains("browser_navigate"));
+        assert!(BROWSER_PLUGIN.contains("browser_attach"));
+        // A static import cannot resolve inside the user's own OpenCode config —
+        // dynamic imports for node builtins are the whole allowance.
+        assert!(!BROWSER_PLUGIN.contains("\nimport "));
+        assert!(!BROWSER_PLUGIN.contains("Bun.spawn"));
+        // The redirect only fires inside a shell-owned server.
+        assert!(BROWSER_PLUGIN.contains("tool.execute.before"));
+    }
+
+    #[test]
+    fn installing_writes_the_plugins_where_the_config_points() {
         let dir = std::env::temp_dir().join(format!("strata-plugin-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
 
-        let path = install_plugin(&dir).unwrap();
-        assert!(path.is_file());
-        let written = std::fs::read_to_string(&path).unwrap();
-        assert_eq!(written, DEV_PROCESS_PLUGIN);
+        let paths = install_plugins(&dir).unwrap();
+        assert_eq!(paths.len(), 2);
+        assert_eq!(std::fs::read_to_string(&paths[0]).unwrap(), DEV_PROCESS_PLUGIN);
+        assert_eq!(std::fs::read_to_string(&paths[1]).unwrap(), BROWSER_PLUGIN);
 
         // A second install overwrites rather than appending.
-        std::fs::write(&path, "stale").unwrap();
-        let again = install_plugin(&dir).unwrap();
-        assert_eq!(std::fs::read_to_string(&again).unwrap(), DEV_PROCESS_PLUGIN);
+        std::fs::write(&paths[0], "stale").unwrap();
+        let again = install_plugins(&dir).unwrap();
+        assert_eq!(std::fs::read_to_string(&again[0]).unwrap(), DEV_PROCESS_PLUGIN);
 
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn config_content_names_the_plugin_as_a_file_url() {
-        let unix = config_content(Path::new("/home/u/.local/share/strata/plugin/dev-process.ts"));
+    fn config_content_names_the_plugins_as_file_urls() {
+        let unix = config_content(&[
+            PathBuf::from("/home/u/.local/share/strata/plugin/dev-process.ts"),
+            PathBuf::from("/home/u/.local/share/strata/plugin/browser.ts"),
+        ]);
         assert!(unix.contains("file:///home/u/.local/share/strata/plugin/dev-process.ts"));
+        assert!(unix.contains("file:///home/u/.local/share/strata/plugin/browser.ts"));
 
-        let windows = config_content(Path::new("C:\\Users\\u\\AppData\\Roaming\\strata\\plugin\\dev-process.ts"));
+        let windows = config_content(&[PathBuf::from(
+            "C:\\Users\\u\\AppData\\Roaming\\strata\\plugin\\dev-process.ts",
+        )]);
         assert!(windows.contains("file:///C:/Users/u/AppData/Roaming/strata/plugin/dev-process.ts"));
         // Backslashes would be read as escapes inside a JSON string.
         assert!(!windows.contains("\\\\"));
