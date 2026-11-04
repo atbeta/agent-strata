@@ -247,16 +247,15 @@ const GIT_CONCURRENCY = 4;
 
 /** Run `fn` over `items` with at most {@link GIT_CONCURRENCY} at a time. */
 async function mapLimit<T, R>(items: readonly T[], fn: (item: T) => Promise<R>): Promise<R[]> {
-  const out: R[] = new Array(items.length);
-  let next = 0;
-  const workers = Array.from({ length: Math.min(GIT_CONCURRENCY, items.length) }, async () => {
-    for (;;) {
-      const i = next++;
-      if (i >= items.length) return;
-      out[i] = await fn(items[i]!);
-    }
-  });
-  await Promise.all(workers);
+  // In chunks rather than a worker pool: the order comes out the same as the
+  // input without an index to write into, and `new Array(n)` — the pool's
+  // shape — is a lint error here because one numeric argument means length
+  // rather than an element, which is the kind of thing that reads fine and
+  // behaves wrong.
+  const out: R[] = [];
+  for (let i = 0; i < items.length; i += GIT_CONCURRENCY) {
+    out.push(...(await Promise.all(items.slice(i, i + GIT_CONCURRENCY).map(fn))));
+  }
   return out;
 }
 
