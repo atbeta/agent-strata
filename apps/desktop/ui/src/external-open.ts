@@ -45,7 +45,7 @@ export function installExternalLinkHandler(): () => void {
  * Rust side that is only present in the packaged app, and a static import
  * would fail to resolve rather than fail to run.
  */
-async function openExternally(url: string): Promise<void> {
+export async function openExternally(url: string): Promise<void> {
   try {
     const { open } = await import("@tauri-apps/plugin-shell");
     await open(url);

@@ -11,6 +11,7 @@ import {
 } from "./api";
 import { settled } from "./resource";
 import { BackgroundPanel } from "./background-panel";
+import { BrowserPane } from "./browser-pane";
 import { devRunning } from "./dev-state";
 import { num, t, tn } from "./i18n";
 import { DiffBlock } from "./diff";
@@ -229,6 +230,7 @@ export function SessionRail(props: {
                 { id: "changes", label: t("panel.changes"), count: changeCount() },
                 { id: "files", label: t("panel.files") },
                 { id: "background", label: t("panel.background"), count: devCount() },
+                { id: "browser", label: t("panel.browser") },
               ]}
               class="min-w-0 flex-1"
             />
@@ -254,6 +256,9 @@ export function SessionRail(props: {
         </Show>
         <Show when={effectiveTab() === "background"}>
           <BackgroundPanel processes={() => devProcesses() ?? []} onStop={stopDev} />
+        </Show>
+        <Show when={effectiveTab() === "browser"}>
+          <BrowserPane sessionId={props.sessionId} />
         </Show>
         <Show when={effectiveTab() === "changes"}>
           <div class="flex min-h-0 flex-1 flex-col">

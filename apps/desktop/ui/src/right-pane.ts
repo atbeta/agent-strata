@@ -2,7 +2,7 @@
 export const SIDE_PANEL_KEY = "strata.side-panel";
 export const SIDE_PANEL_TAB_KEY = "strata.side-panel-tab";
 
-export type SidePanelTab = "changes" | "files" | "background";
+export type SidePanelTab = "changes" | "files" | "background" | "browser";
 
 export function readPanelOpen(storage: Pick<Storage, "getItem"> = localStorage): boolean {
   try {
@@ -24,7 +24,7 @@ export function readPanelTab(storage: Pick<Storage, "getItem"> = localStorage): 
   try {
     const saved = storage.getItem(SIDE_PANEL_TAB_KEY);
     // A stored tab this build no longer has must not leave the panel blank.
-    return saved === "files" || saved === "background" ? saved : "changes";
+    return saved === "files" || saved === "background" || saved === "browser" ? saved : "changes";
   } catch {
     return "changes";
   }

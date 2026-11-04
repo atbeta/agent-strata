@@ -39,6 +39,7 @@ function fakePage(url = "about:blank", locatorCount = 1) {
     bringToFront: async () => {},
     waitForLoadState: async () => {},
     waitForTimeout: async () => {},
+    viewportSize: () => ({ width: 1280, height: 720 }),
     evaluate: async (fn: unknown) => {
       if (typeof fn === "string") return "eval-result";
       return {
@@ -62,8 +63,41 @@ function fakePage(url = "about:blank", locatorCount = 1) {
       return self;
     },
     screenshot: async () => Buffer.from("png-bytes"),
+    mouse: {
+      calls: [] as unknown[],
+      click: async (...a: unknown[]) => void page.mouse.calls.push(["click", ...a]),
+      move: async (...a: unknown[]) => void page.mouse.calls.push(["move", ...a]),
+      down: async (...a: unknown[]) => void page.mouse.calls.push(["down", ...a]),
+      up: async (...a: unknown[]) => void page.mouse.calls.push(["up", ...a]),
+      wheel: async (...a: unknown[]) => void page.mouse.calls.push(["wheel", ...a]),
+    },
+    keyboard: {
+      calls: [] as unknown[],
+      press: async (...a: unknown[]) => void page.keyboard.calls.push(["press", ...a]),
+      type: async (...a: unknown[]) => void page.keyboard.calls.push(["type", ...a]),
+    },
+    context: () => ({
+      newCDPSession: async () => cdp,
+    }),
   };
-  return { page: page as unknown as Page, closed, listeners };
+  const cdp = {
+    sent: [] as unknown[],
+    frames: [] as ((ev: { data: string; sessionId: number }) => void)[],
+    on: (name: string, fn: (ev: { data: string; sessionId: number }) => void) => {
+      if (name === "Page.screencastFrame") cdp.frames.push(fn);
+    },
+    send: async (method: string, params?: unknown) => {
+      cdp.sent.push([method, params]);
+    },
+    detach: async () => {
+      cdp.detached = true;
+    },
+    detached: false,
+    fire: (data: string) => {
+      for (const fn of cdp.frames) fn({ data, sessionId: 1 });
+    },
+  };
+  return { page: page as unknown as Page, closed, listeners, cdp };
 }
 
 function fakeContext(pages: Page[] = []) {
@@ -213,6 +247,69 @@ describe("a session's tabs", () => {
     await expect(manager.navigate("s1", "http://x/")).rejects.toThrow("no chrome");
     const snap = await manager.navigate("s1", "http://x/");
     expect(snap.text).toContain("Fake");
+    await manager.dispose();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a watcher sees the current page and its screencast", async () => {
+    const dir = stateDir();
+    const seen: { type: string; page?: string; data?: string }[] = [];
+    // about:blank gets adopted as the session's first tab, like a real
+    // persistent context's initial page.
+    const { page, cdp } = fakePage("about:blank");
+    const manager = createBrowserManager({
+      stateDir: dir,
+      launch: async () => fakeContext([page]),
+    });
+    await manager.navigate("s1", "http://a/");
+    const stop = manager.watch("s1", (ev) => {
+      seen.push(ev.type === "meta" ? { type: "meta", page: ev.meta.page } : { type: "frame", data: ev.data });
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(seen[0]).toEqual({ type: "meta", page: "pg1" });
+    expect(cdp.sent).toContainEqual(["Page.startScreencast", expect.anything()]);
+    cdp.fire("jpeg-bytes");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(seen).toContainEqual({ type: "frame", data: "jpeg-bytes" });
+    stop();
+    await manager.dispose();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("an empty session's watcher hears the empty meta, not a crash", async () => {
+    const dir = stateDir();
+    const manager = createBrowserManager({ stateDir: dir });
+    const seen: string[] = [];
+    manager.watch("ghost", (ev) => seen.push(ev.type));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(seen).toEqual(["meta"]);
+    await manager.dispose();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("input lands on the current page's mouse and keyboard", async () => {
+    const dir = stateDir();
+    const { page } = fakePage("about:blank");
+    const manager = createBrowserManager({
+      stateDir: dir,
+      launch: async () => fakeContext([page]),
+    });
+    await manager.navigate("s1", "http://a/");
+    const mouse = (page as unknown as { mouse: { calls: unknown[] } }).mouse;
+    const keyboard = (page as unknown as { keyboard: { calls: unknown[] } }).keyboard;
+    await manager.input("s1", { kind: "click", x: 10, y: 20 });
+    await manager.input("s1", { kind: "wheel", x: 5, y: 5, dx: 0, dy: 120 });
+    await manager.input("s1", { kind: "key", key: "Enter" });
+    await manager.input("s1", { kind: "type", text: "hi" });
+    expect(mouse.calls).toEqual([
+      ["click", 10, 20, { button: "left" }],
+      ["move", 5, 5],
+      ["wheel", 0, 120],
+    ]);
+    expect(keyboard.calls).toEqual([
+      ["press", "Enter"],
+      ["type", "hi"],
+    ]);
     await manager.dispose();
     rmSync(dir, { recursive: true, force: true });
   });

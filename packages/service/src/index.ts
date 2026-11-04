@@ -54,6 +54,7 @@ import {
   browserUrl,
   createBrowserManager,
   type BrowserAction,
+  type BrowserInput,
 } from "./browser";
 import { WorktreeError, worktreeAdd, worktreeRemove, withWorktrees } from "./worktree";
 import { SessionClaims } from "./identity";
@@ -108,6 +109,48 @@ function extFor(mime: string): string {
     "application/json": ".json",
   };
   return known[base] ?? "";
+}
+
+/**
+ * A pane's pointer/keyboard event, checked at the door. Coordinates are the
+ * pane's own scaled-to-viewport numbers — anything not a finite number is the
+ * caller's mistake, not the page's.
+ */
+function browserInput(body: Record<string, unknown>): BrowserInput | undefined {
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+  const xy = () => {
+    const x = num(body.x);
+    const y = num(body.y);
+    return x === undefined || x < 0 || y === undefined || y < 0 ? undefined : { x, y };
+  };
+  const button = body.button;
+  const okButton = button === undefined || button === "left" || button === "middle" || button === "right";
+  if (!okButton) return undefined;
+  switch (body.kind) {
+    case "click":
+    case "move":
+    case "down":
+    case "up": {
+      const p = xy();
+      return p ? { kind: body.kind, ...p, ...(button ? { button } : {}) } : undefined;
+    }
+    case "wheel": {
+      const p = xy();
+      const dx = num(body.dx);
+      const dy = num(body.dy);
+      return p && dx !== undefined && dy !== undefined ? { kind: "wheel", ...p, dx, dy } : undefined;
+    }
+    case "key":
+      return typeof body.key === "string" && body.key.length > 0 && body.key.length < 40
+        ? { kind: "key", key: body.key }
+        : undefined;
+    case "type":
+      return typeof body.text === "string" && body.text.length > 0 && body.text.length <= 4096
+        ? { kind: "type", text: body.text }
+        : undefined;
+    default:
+      return undefined;
+  }
 }
 
 export function startService(opts: ServiceOpts = {}): RunningService {
@@ -2273,6 +2316,40 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         const tail = Number(url.searchParams.get("tail") ?? 100) || 100;
         return json({ lines: browser.consoleLines(resolveSessionId(requested), tail) });
       }
+      if (verb === "watch" && req.method === "GET") {
+        const requested = url.searchParams.get("session") ?? "";
+        const sessionID = resolveSessionId(requested);
+        let unwatch: (() => void) | undefined;
+        let heartbeat: ReturnType<typeof setInterval> | undefined;
+        const stream = new ReadableStream<string>({
+          start(ctrl) {
+            const write = (chunk: string) => {
+              try {
+                ctrl.enqueue(chunk);
+              } catch {
+                unwatch?.();
+              }
+            };
+            unwatch = browser.watch(sessionID, (ev) => {
+              const payload = ev.type === "meta" ? ev.meta : { data: ev.data };
+              write(`event: ${ev.type}\ndata: ${JSON.stringify(payload)}\n\n`);
+            });
+            heartbeat = setInterval(() => write(`: hb\n\n`), 15_000);
+          },
+          cancel() {
+            unwatch?.();
+            if (heartbeat) clearInterval(heartbeat);
+          },
+        });
+        return new Response(stream, {
+          headers: {
+            "content-type": "text/event-stream",
+            "cache-control": "no-cache",
+            connection: "keep-alive",
+            "x-accel-buffering": "no",
+          },
+        });
+      }
       if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
       const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
       if (!body || typeof body.session_id !== "string" || body.session_id.length === 0) {
@@ -2317,6 +2394,12 @@ export function startService(opts: ServiceOpts = {}): RunningService {
               return json({ error: "js required" }, 400);
             }
             return json({ result: await browser.evaluate(sessionID, body.js) });
+          }
+          case "input": {
+            const input = browserInput(body);
+            if (!input) return json({ error: "bad input" }, 400);
+            await browser.input(sessionID, input);
+            return json({ ok: true });
           }
           case "screenshot":
             return json(await browser.screenshot(sessionID));

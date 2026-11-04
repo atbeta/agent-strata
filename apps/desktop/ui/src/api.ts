@@ -1252,6 +1252,73 @@ export function listAllDevProcesses(): Promise<{ processes: DevProcess[] }> {
   return getJson(`/dev`, { signal: AbortSignal.timeout(10_000) });
 }
 
+export interface BrowserTabInfo {
+  id: string;
+  url: string;
+  title: string;
+  source: "chrome" | "attached";
+  current: boolean;
+}
+
+export interface BrowserState {
+  chrome: "running" | "off";
+  targets: BrowserTabInfo[];
+}
+
+/** Tabs the service's browser holds for a session — own Chrome pages and attached windows. */
+export function readBrowserState(sessionId: string): Promise<BrowserState> {
+  return getJson(`/browser?session=${encodeURIComponent(sessionId)}`, {
+    signal: AbortSignal.timeout(10_000),
+  });
+}
+
+/** What the pane's pointer and keys become, already scaled to viewport pixels. */
+export type BrowserInputBody =
+  | { kind: "click" | "move" | "down" | "up"; x: number; y: number; button?: "left" | "middle" | "right" }
+  | { kind: "wheel"; x: number; y: number; dx: number; dy: number }
+  | { kind: "key"; key: string }
+  | { kind: "type"; text: string };
+
+async function postBrowser(sessionId: string, verb: string, extra: Record<string, unknown>): Promise<Response> {
+  const res = await apiFetch(`/browser/${verb}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId, ...extra }),
+  });
+  if (!res.ok) await throwOnError(res);
+  return res;
+}
+
+export async function sendBrowserInput(sessionId: string, input: BrowserInputBody): Promise<void> {
+  await postBrowser(sessionId, "input", input as Record<string, unknown>);
+}
+
+/** Drive the current page to an address the reader typed, same verb the agent's tool uses. */
+export async function sendBrowserNavigate(sessionId: string, url: string): Promise<void> {
+  await postBrowser(sessionId, "navigate", { url });
+}
+
+export async function browserUse(sessionId: string, target: string): Promise<void> {
+  await postBrowser(sessionId, "use", { target });
+}
+
+export interface BrowserWatchMeta {
+  page: string;
+  url: string;
+  w: number;
+  h: number;
+}
+
+/**
+ * The frame stream's address, token on the query — an EventSource cannot
+ * carry a header, same rule as streamUrl's.
+ */
+export async function browserWatchUrl(sessionId: string): Promise<string> {
+  const token = await apiToken();
+  const base = api(`/browser/watch?session=${encodeURIComponent(sessionId)}`);
+  return token ? `${base}&${new URLSearchParams({ token })}` : base;
+}
+
 export async function readDevLogs(
   processId: string,
   tail = 200,

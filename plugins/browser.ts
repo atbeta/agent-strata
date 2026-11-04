@@ -131,6 +131,8 @@ Drive real pages with the browser_* tools — they work on a browser the app own
 
 \`browser_navigate\` opens a visible Chrome the app controls. The profile persists:
 log in once (SSO, intranet, staging) and every session after that carries it.
+The reader can watch every page live in the app's Browser panel — they see the
+same pixels you drive, so prefer these tools over describing what a page shows.
 
 To debug an Electron app, start it with \`--remote-debugging-port=<port>\` and then
 \`browser_attach\` with that port — its windows show up as tabs. The same attaches

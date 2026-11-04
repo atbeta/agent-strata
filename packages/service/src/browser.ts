@@ -23,9 +23,10 @@ import {
   chromium,
   type Browser,
   type BrowserContext,
+  type CDPSession,
   type Page,
 } from "playwright-core";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { join } from "node:path";
 
@@ -59,6 +60,8 @@ export interface BrowserSnapshot {
   elements: SnapshotElement[];
   /** How many matching elements were dropped past the cap. */
   truncated: number;
+  /** The navigation error, when the last goto never reached its target. */
+  error?: string;
   /** Pre-rendered lines the caller can hand straight to a reader. */
   text: string;
 }
@@ -81,9 +84,30 @@ export interface BrowserManager {
   consoleLines(sessionID: string, tail?: number): ConsoleLine[];
   screenshot(sessionID: string): Promise<{ data: string; path: string }>;
   use(sessionID: string, target: string): Promise<BrowserState>;
+  watch(sessionID: string, sink: (ev: WatchEvent) => void): () => void;
+  input(sessionID: string, action: BrowserInput): Promise<void>;
   close(sessionID: string): Promise<number>;
   dispose(): Promise<void>;
 }
+
+/** What a watcher sees first: which page the frames belong to and how big they are. */
+export interface WatchMeta {
+  page: string;
+  url: string;
+  w: number;
+  h: number;
+}
+
+export type WatchEvent =
+  | { type: "meta"; meta: WatchMeta }
+  | { type: "frame"; data: string };
+
+/** What the pane's pointer and keys become, in viewport CSS pixels. */
+export type BrowserInput =
+  | { kind: "click" | "move" | "down" | "up"; x: number; y: number; button?: "left" | "middle" | "right" }
+  | { kind: "wheel"; x: number; y: number; dx: number; dy: number }
+  | { kind: "key"; key: string }
+  | { kind: "type"; text: string };
 
 export interface BrowserManagerOptions {
   /** The desktop data directory: profile, state file, and screenshots live under it. */
@@ -110,12 +134,14 @@ const SETTLE_MS = 350;
 const REF_ATTR = "data-strata-ref";
 const REF = /^e\d{1,6}$/;
 
-/** What a state file carries across a restart: the port to adopt the window by. */
+/** What a state file carries across a restart: enough to adopt the window back. */
 interface PersistedBrowser {
   port?: number;
+  pid?: number;
 }
 
 interface SessionBrowsing {
+  id: string;
   pages: Map<string, Page>;
   source: Map<string, "chrome" | "attached">;
   current?: string;
@@ -123,9 +149,59 @@ interface SessionBrowsing {
   attached: Browser[];
 }
 
+/** One pane watching one session's current page. */
+interface Watcher {
+  sink: (ev: WatchEvent) => void;
+  pageId?: string;
+  cdp?: CDPSession;
+  timer?: ReturnType<typeof setInterval>;
+  stopped: boolean;
+}
+
 function randomPort(): number {
   return 20_000 + Math.floor(Math.random() * 20_000);
 }
+
+const pidAlive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/** The command line of a live pid, when the OS will tell us. */
+const cmdlineOf = (pid: number): string | undefined => {
+  try {
+    if (process.platform === "win32") {
+      const out = Bun.spawnSync([
+        "powershell", "-NoProfile", "-Command",
+        `(Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}').CommandLine`,
+      ]);
+      return out.exitCode === 0 ? out.stdout.toString() : undefined;
+    }
+    const out = Bun.spawnSync(["ps", "-o", "command=", "-p", String(pid)]);
+    return out.exitCode === 0 ? out.stdout.toString() : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * Chrome writes its singleton lock as a symlink named for the pid that holds
+ * it — POSIX only; Windows keeps the mutex in kernel space instead.
+ */
+const singletonPid = (profileDir: string): number | undefined => {
+  if (process.platform === "win32") return undefined;
+  try {
+    const target = readlinkSync(join(profileDir, "SingletonLock"));
+    const pid = Number(target.slice(target.lastIndexOf("-") + 1));
+    return Number.isInteger(pid) && pid > 0 && pidAlive(pid) ? pid : undefined;
+  } catch {
+    return undefined;
+  }
+};
 
 async function portFree(port: number): Promise<boolean> {
   const free = await new Promise<boolean>((resolve) => {
@@ -297,15 +373,18 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
   /** The CDP handle when the context was adopted rather than launched. */
   let adopted: Browser | undefined;
   let chromeDead = false;
-  /** The DevTools port the app-owned Chrome was launched with. */
+  /** The DevTools port and pid of the app-owned Chrome, for adopt-back. */
   let launchedPort = 0;
+  let launchedPid = 0;
   /** Which attach connection a foreign page arrived through, for clean-up. */
   const pageOwner = new Map<Page, Browser>();
+  /** Live pane watchers per session, for retarget on current-page changes. */
+  const watchers = new Map<string, Set<Watcher>>();
 
   const sessionOf = (sessionID: string): SessionBrowsing => {
     let s = sessions.get(sessionID);
     if (!s) {
-      s = { pages: new Map(), source: new Map(), attached: [] };
+      s = { id: sessionID, pages: new Map(), source: new Map(), attached: [] };
       sessions.set(sessionID, s);
     }
     return s;
@@ -333,6 +412,7 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
     session.source.set(id, source);
     if (owner) pageOwner.set(page, owner);
     if (!session.current) session.current = id;
+    notifyWatchers(session);
     page.on("console", (msg) => pushLine(page, "console", `${msg.type()}: ${msg.text()}`));
     page.on("pageerror", (err) => pushLine(page, "pageerror", err.message));
     page.on("requestfailed", (req) =>
@@ -343,8 +423,89 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
       session.source.delete(id);
       consoles.delete(page);
       if (session.current === id) session.current = [...session.pages.keys()][0];
+      notifyWatchers(session);
     });
     return id;
+  };
+
+  /**
+   * Point a watcher at the session's current page, starting or restarting the
+   * screencast when the page underneath it changed. A session with no pages
+   * gets an empty meta — the pane clears instead of showing a stale frame.
+   */
+  const retarget = async (w: Watcher, session: SessionBrowsing): Promise<void> => {
+    if (w.stopped) return;
+    const id = session.current;
+    const page = id ? session.pages.get(id) : undefined;
+    if (page && w.pageId === id) return;
+    await w.cdp?.detach().catch(() => {});
+    if (w.timer) clearInterval(w.timer);
+    w.cdp = undefined;
+    w.timer = undefined;
+    w.pageId = id;
+    if (!page || !id) {
+      w.sink({ type: "meta", meta: { page: "", url: "", w: 0, h: 0 } });
+      return;
+    }
+    const vp = page.viewportSize();
+    let lastW = vp?.width ?? 0;
+    let lastH = vp?.height ?? 0;
+    w.sink({
+      type: "meta",
+      meta: { page: id, url: page.url(), w: lastW, h: lastH },
+    });
+    try {
+      const cdp = await page.context().newCDPSession(page);
+      if (w.stopped || w.pageId !== id) {
+        await cdp.detach().catch(() => {});
+        return;
+      }
+      w.cdp = cdp;
+      cdp.on(
+        "Page.screencastFrame",
+        (ev: {
+          data: string;
+          sessionId: number;
+          metadata?: { deviceWidth?: number; deviceHeight?: number };
+        }) => {
+          if (w.stopped) return;
+          const dw = ev.metadata?.deviceWidth ?? 0;
+          const dh = ev.metadata?.deviceHeight ?? 0;
+          // Attached targets report no viewportSize; the frames themselves
+          // carry the real dims — and a resize lands here as a meta change.
+          if (dw && dh && (dw !== lastW || dh !== lastH)) {
+            lastW = dw;
+            lastH = dh;
+            w.sink({ type: "meta", meta: { page: id, url: page.url(), w: dw, h: dh } });
+          }
+          w.sink({ type: "frame", data: ev.data });
+          cdp.send("Page.screencastFrameAck", { sessionId: ev.sessionId }).catch(() => {});
+        },
+      );
+      await cdp.send("Page.startScreencast", {
+        format: "jpeg",
+        quality: 65,
+        everyNthFrame: 1,
+      });
+    } catch {
+      // Screencast is not on every CDP target — a still-valid fallback is a
+      // frame every beat from a plain screenshot.
+      w.cdp = undefined;
+      w.timer = setInterval(() => {
+        page
+          .screenshot({ type: "jpeg", quality: 60 })
+          .then((buf) => {
+            if (!w.stopped) w.sink({ type: "frame", data: buf.toString("base64") });
+          })
+          .catch(() => {});
+      }, 400);
+    }
+  };
+
+  const notifyWatchers = (session: SessionBrowsing): void => {
+    const set = watchers.get(session.id);
+    if (!set) return;
+    for (const w of set) void retarget(w, session);
   };
 
   const launch = async (): Promise<BrowserContext> => {
@@ -376,16 +537,21 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
     }
   };
 
-  /** Adopt the window a previous run left, if it is still answering. */
-  const reconnect = async (): Promise<BrowserContext | undefined> => {
-    let saved: PersistedBrowser = {};
+  const saveState = () => {
     try {
-      saved = JSON.parse(readFileSync(stateFile, "utf8")) as PersistedBrowser;
+      mkdirSync(opts.stateDir, { recursive: true });
+      writeFileSync(
+        stateFile,
+        JSON.stringify({ port: launchedPort, pid: launchedPid } satisfies PersistedBrowser),
+        "utf8",
+      );
     } catch {
-      return undefined;
+      // A state file that cannot be written only costs the reconnect next run.
     }
-    const port = saved.port;
-    if (!port) return undefined;
+  };
+
+  /** One connectOverCDP attempt; a context means the window was adopted. */
+  const tryConnect = async (port: number): Promise<BrowserContext | undefined> => {
     try {
       const browser = await (opts.connect ?? ((e: string) => chromium.connectOverCDP(e)))(
         `http://127.0.0.1:${port}`,
@@ -398,9 +564,68 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
       adopted = browser;
       return context;
     } catch {
-      rmSync(stateFile, { force: true });
       return undefined;
     }
+  };
+
+  /**
+   * Adopt the window a previous run left, if it is still answering.
+   *
+   * The saved port is the fast path. When it is gone — a state file deleted on
+   * a bad day, or a Chrome started before this code — the live instance still
+   * names its port on its own command line, which the pid from the state file
+   * or the profile's SingletonLock leads back to. A same-profile instance we
+   * cannot name a port for gets killed outright: the profile is ours alone,
+   * and a windowless leftover blocks every future launch through the
+   * singleton lock.
+   */
+  const reconnect = async (): Promise<BrowserContext | undefined> => {
+    let saved: PersistedBrowser = {};
+    try {
+      saved = JSON.parse(readFileSync(stateFile, "utf8")) as PersistedBrowser;
+    } catch {
+      saved = {};
+    }
+    const candidates = new Set<number>();
+    if (saved.port) candidates.add(saved.port);
+    try {
+      // Chromium's own record, when it bothers to write one (absent under
+      // playwright's --remote-debugging-pipe, worth the read anyway).
+      const line = readFileSync(join(profileDir, "DevToolsActivePort"), "utf8")
+        .split("\n")[0]?.trim();
+      const port = Number(line);
+      if (Number.isInteger(port) && port > 0) candidates.add(port);
+    } catch {}
+    for (const port of candidates) {
+      const context = await tryConnect(port);
+      if (context) {
+        launchedPort = port;
+        launchedPid = saved.pid ?? 0;
+        saveState();
+        return context;
+      }
+    }
+    const stray = saved.pid && pidAlive(saved.pid) ? saved.pid : singletonPid(profileDir);
+    if (stray) {
+      const port = Number(cmdlineOf(stray)?.match(/--remote-debugging-port=(\d+)/)?.[1]);
+      if (port) {
+        const context = await tryConnect(port);
+        if (context) {
+          launchedPort = port;
+          launchedPid = stray;
+          saveState();
+          return context;
+        }
+      }
+      try {
+        process.kill(stray);
+      } catch {}
+      for (let i = 0; i < 20 && pidAlive(stray); i++) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+    }
+    rmSync(stateFile, { force: true });
+    return undefined;
   };
 
   const ensureContext = (): Promise<BrowserContext> => {
@@ -412,12 +637,13 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
       const revived = await reconnect();
       if (revived) return revived;
       const context = await launch();
-      try {
-        mkdirSync(opts.stateDir, { recursive: true });
-        writeFileSync(stateFile, JSON.stringify({ port: launchedPort }), "utf8");
-      } catch {
-        // A state file that cannot be written only costs the reconnect next run.
+      // Playwright does not hand out the child pid; the profile's singleton
+      // lock names it instead. Give the file a moment to appear.
+      for (let i = 0; i < 10 && !launchedPid; i++) {
+        launchedPid = singletonPid(profileDir) ?? 0;
+        if (!launchedPid) await new Promise((r) => setTimeout(r, 100));
       }
+      saveState();
       context.on("close", () => {
         chromeDead = true;
         rmSync(stateFile, { force: true });
@@ -435,7 +661,12 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
       throw new BrowserClientError(`session already holds ${MAX_TABS_PER_SESSION} tabs — close some first`);
     }
     const context = await ensureContext();
-    const page = await context.newPage();
+    // A persistent context always opens on an about:blank tab, and a relaunch
+    // adopts whatever the old run left. Reuse a blank one before adding
+    // another, or the window fills with stray New Tabs nobody is driving.
+    const page =
+      context.pages().find((p) => p.url() === "about:blank") ??
+      (await context.newPage());
     track(session, page, "chrome");
     return page;
   };
@@ -483,13 +714,21 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
     async navigate(sessionID, url) {
       const session = sessionOf(sessionID);
       const page = session.pages.size > 0 ? currentPage(session) : await newTab(session);
+      let error: string | undefined;
       try {
         await page.goto(url, { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS });
-      } catch {
-        // A server that is slow or never finishes still has a page worth reading.
+      } catch (err) {
+        error = err instanceof Error ? err.message.split("\n")[0]! : String(err);
       }
       await settle(page);
-      return takeSnapshot(page);
+      const snap = await takeSnapshot(page);
+      // goto does not always throw on a refused host, and page.url() keeps
+      // reporting the previous good address. The page itself knows the truth.
+      if (!error && snap.url.startsWith("chrome-error://")) {
+        error = `the browser could not reach ${url}`;
+      }
+      if (!error) return snap;
+      return { ...snap, error, text: `navigation failed: ${error}\n\n${snap.text}` };
     },
 
     async attach(sessionID, port) {
@@ -508,16 +747,29 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
         }
       });
       let added = 0;
+      const fresh: string[] = [];
       for (const context of browser.contexts()) {
         for (const page of context.pages()) {
           // DevTools windows show up as pages too; they are not the app.
           if (page.url().startsWith("devtools://")) continue;
-          track(session, page, "attached", browser);
+          fresh.push(track(session, page, "attached", browser));
           added += 1;
         }
       }
       if (added === 0) {
         throw new BrowserClientError("the port answered but no page was there — nothing to drive");
+      }
+      // An Electron app keeps hidden BrowserWindows around (tray, background
+      // pages); they answer CDP exactly like a real one. "Current" belongs to
+      // the window a person can actually see.
+      for (const id of fresh) {
+        const page = session.pages.get(id);
+        if (!page) continue;
+        const vis = await page.evaluate(() => document.visibilityState).catch(() => "hidden");
+        if (vis === "visible") {
+          session.current = id;
+          break;
+        }
       }
       return state(sessionID);
     },
@@ -599,7 +851,54 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
       }
       session.current = target;
       await session.pages.get(target)!.bringToFront().catch(() => {});
+      notifyWatchers(session);
       return state(sessionID);
+    },
+
+    watch(sessionID, sink) {
+      const session = sessionOf(sessionID);
+      const w: Watcher = { sink, stopped: false };
+      let set = watchers.get(sessionID);
+      if (!set) {
+        set = new Set();
+        watchers.set(sessionID, set);
+      }
+      set.add(w);
+      void retarget(w, session);
+      return () => {
+        w.stopped = true;
+        set.delete(w);
+        void w.cdp?.detach().catch(() => {});
+        if (w.timer) clearInterval(w.timer);
+      };
+    },
+
+    async input(sessionID, action) {
+      const page = currentPage(sessionOf(sessionID));
+      switch (action.kind) {
+        case "click":
+          await page.mouse.click(action.x, action.y, { button: action.button ?? "left" });
+          return;
+        case "move":
+          await page.mouse.move(action.x, action.y);
+          return;
+        case "down":
+          await page.mouse.down({ button: action.button ?? "left" });
+          return;
+        case "up":
+          await page.mouse.up({ button: action.button ?? "left" });
+          return;
+        case "wheel":
+          await page.mouse.move(action.x, action.y);
+          await page.mouse.wheel(action.dx, action.dy);
+          return;
+        case "key":
+          await page.keyboard.press(action.key);
+          return;
+        case "type":
+          await page.keyboard.type(action.text);
+          return;
+      }
     },
 
     async close(sessionID) {
@@ -616,6 +915,15 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
       session.pages.clear();
       session.source.clear();
       sessions.delete(sessionID);
+      const set = watchers.get(sessionID);
+      if (set) {
+        watchers.delete(sessionID);
+        for (const w of set) {
+          w.stopped = true;
+          void w.cdp?.detach().catch(() => {});
+          if (w.timer) clearInterval(w.timer);
+        }
+      }
       return closed;
     },
 
