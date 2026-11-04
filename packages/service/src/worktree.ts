@@ -23,6 +23,17 @@ async function git(args: readonly string[], cwd?: string): Promise<string> {
     ...(cwd ? { cwd } : {}),
     stdout: "pipe",
     stderr: "pipe",
+    // Without this a console program started from a GUI process gets its own
+    // console window on Windows — one black box per `git` invocation, opening
+    // and closing. `dev-process.ts` spells the same thing out; this module was
+    // added later and did not.
+    //
+    // The count is what made it unusable: a single workspace listing runs one
+    // `rev-parse` per directory and one `worktree list` per repository, so a
+    // reader with a few hundred sessions in the store got dozens of windows
+    // per request, and the page retries that request while the service is
+    // still starting.
+    windowsHide: true,
   });
   const [code, out, err] = await Promise.all([
     proc.exited,
@@ -44,6 +55,12 @@ function canonical(path: string): string {
 
 /** The repository's main checkout, or nothing when dir is inside no repo. */
 export async function toplevel(dir: string): Promise<string | undefined> {
+  // A directory that is gone cannot be in a repository, and saying so here
+  // saves spawning a process to be told. Most of what reaches this function
+  // comes from the workspaces of stored sessions, and those outlive the
+  // checkouts they name — a deleted branch, a cleaned /tmp, a colleague's
+  // path from a shared store.
+  if (!existsSync(dir)) return undefined;
   try {
     const top = await git(["-C", dir, "rev-parse", "--show-toplevel"]);
     return top ? canonical(top) : undefined;
@@ -216,32 +233,83 @@ export interface WorkspaceDir {
  * service's root that no session points at: an empty group is where their
  * remove action lives, and it is the only way a leftover shows up at all.
  */
+/**
+ * How many `git` processes may be in flight at once.
+ *
+ * Every directory in the answer costs a process, and the answer is built from
+ * the workspaces of every stored session — hundreds on a real machine, most of
+ * them long since deleted. Unbounded, one workspace listing started that many
+ * processes at the same instant; on Windows each one is a console window, so
+ * the popups arrived in a wave. Four is enough to keep a warm disk busy and
+ * few enough that the wave is not a stampede.
+ */
+const GIT_CONCURRENCY = 4;
+
+/** Run `fn` over `items` with at most {@link GIT_CONCURRENCY} at a time. */
+async function mapLimit<T, R>(items: readonly T[], fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(GIT_CONCURRENCY, items.length) }, async () => {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) return;
+      out[i] = await fn(items[i]!);
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
+
+/**
+ * Answers `toplevel` already paid for, so a repeated listing is cheap.
+ *
+ * The page asks for the workspace list while it starts, and asks again on every
+ * retry; without this each attempt redid the whole sweep. Short-lived on
+ * purpose: a directory can become a repository between two listings, and a
+ * minute is long enough to cover a launch and short enough that nobody has to
+ * restart the app to see a new checkout.
+ */
+const TOPLEVEL_TTL_MS = 60_000;
+const topCache = new Map<string, { at: number; top: string | undefined }>();
+
+async function toplevelCached(dir: string): Promise<string | undefined> {
+  const hit = topCache.get(dir);
+  const now = Date.now();
+  if (hit && now - hit.at < TOPLEVEL_TTL_MS) return hit.top;
+  const top = await toplevel(dir);
+  topCache.set(dir, { at: now, top });
+  // Bound the map: a machine that opens a new directory every hour would grow
+  // it forever otherwise.
+  if (topCache.size > 2_000) {
+    for (const [key, entry] of topCache) {
+      if (now - entry.at >= TOPLEVEL_TTL_MS) topCache.delete(key);
+    }
+  }
+  return top;
+}
+
 export async function withWorktrees(dirs: WorkspaceDir[], stateDir: string): Promise<WorkspaceDir[]> {
   const repos = new Set<string>();
-  await Promise.all(
-    dirs.map(async (w) => {
-      const top = await toplevel(w.directory);
-      if (top) repos.add(top);
-    }),
-  );
+  await mapLimit(dirs, async (w) => {
+    const top = await toplevelCached(w.directory);
+    if (top) repos.add(top);
+  });
   const marks = new Map<string, { repo: string; branch?: string }>();
   const ours = new Set<string>();
   const ourRoot = canonical(join(stateDir, "worktrees")) + sep;
-  await Promise.all(
-    [...repos].map(async (repo) => {
-      let entries: WorktreeEntry[];
-      try {
-        entries = await worktreeList(repo);
-      } catch {
-        return;
-      }
-      for (const e of entries) {
-        if (e.main) continue;
-        marks.set(e.path, { repo, ...(e.branch ? { branch: e.branch } : {}) });
-        if (e.path.startsWith(ourRoot)) ours.add(e.path);
-      }
-    }),
-  );
+  await mapLimit([...repos], async (repo) => {
+    let entries: WorktreeEntry[];
+    try {
+      entries = await worktreeList(repo);
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (e.main) continue;
+      marks.set(e.path, { repo, ...(e.branch ? { branch: e.branch } : {}) });
+      if (e.path.startsWith(ourRoot)) ours.add(e.path);
+    }
+  });
   const byPath = new Map(dirs.map((w) => [canonical(w.directory), w] as const));
   for (const path of ours) {
     if (!byPath.has(path)) byPath.set(path, { directory: path });

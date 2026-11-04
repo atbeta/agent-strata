@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -152,5 +152,29 @@ describe("withWorktrees", () => {
     // the worktree no session points at still gets a row — its remove button
     // lives on that empty group
     expect(byDir.get(orphan.directory)?.worktree?.branch).toBe(orphan.branch);
+  });
+
+  /**
+   * Every `git` this module runs must stay off the desktop.
+   *
+   * On Windows a console program started from a GUI process gets its own
+   * console window. One workspace listing runs a `rev-parse` per directory and
+   * a `worktree list` per repository, so without `windowsHide` a reader with a
+   * few hundred stored sessions got dozens of black windows opening and closing
+   * — and the page retries that request, so the wave repeated.
+   *
+   * No test on this platform can observe the window; the assertion is on the
+   * source, which is the only thing that can be checked from here. It is
+   * deliberately narrow: one `spawn` call, and it must carry the flag.
+   */
+  test("no git runs without hiding its console window", () => {
+    const src = readFileSync(new URL("../src/worktree.ts", import.meta.url), "utf8");
+    const spawns = src.match(/spawn\(\[/g) ?? [];
+    expect(spawns.length).toBe(1);
+    // The options object that follows the single call has to name the flag.
+    const at = src.indexOf('spawn(["git"');
+    expect(at).toBeGreaterThan(-1);
+    const options = src.slice(at, src.indexOf("});", at));
+    expect(options).toContain("windowsHide: true");
   });
 });
