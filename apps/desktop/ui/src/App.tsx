@@ -380,19 +380,29 @@ export function App() {
    * that creation fails, the checkout it was made for goes back — a worktree
    * no session points at is a leftover only the sidebar's remove can find.
    */
+  const [worktreeJob, setWorktreeJob] = createSignal<{
+    dir: string;
+    stage: "worktree" | "session";
+  }>();
   const newWorktreeSession = async (dir?: string) => {
+    if (worktreeJob()) return;
     list.setActionErr("");
     const base = dir ?? defaultDir();
     if (!base) {
       list.setActionErr(t("worktree.noDir"));
       return;
     }
+    setWorktreeJob({ dir: base, stage: "worktree" });
     try {
       const wt = await createWorktree(base);
+      setWorktreeJob({ dir: base, stage: "session" });
       const id = await newSession(wt.directory);
       if (!id) await removeWorktree(wt.directory, true).catch(() => {});
+      else void ws.refetchWs();
     } catch (e) {
       list.setActionErr(explain(e));
+    } finally {
+      setWorktreeJob(undefined);
     }
   };
 
@@ -594,6 +604,7 @@ export function App() {
           clock={clock}
           onOpenSession={openSession}
           onNewSession={requestNewSession}
+          worktreeJob={worktreeJob}
           onOpenFleet={openFleet}
           focusDir={focusDir}
           clearFocusDir={() => setFocusDir(undefined)}

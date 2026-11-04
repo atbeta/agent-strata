@@ -21,7 +21,7 @@ import { TopLeftControls } from "./chrome";
 import type { SessionListCtl, SidebarGroup } from "./use-session-list";
 import { ProjectLensMenu } from "./project-lens";
 import type { StatusLens } from "./project-view";
-import { needsProjectView } from "./project-view";
+import { needsProjectView, partitionWorktreeGroups } from "./project-view";
 import type { ConnectionsCtl } from "./use-connections";
 import { endpointHost, endpointShort, ConnectionsFooter } from "./use-connections";
 import { sidebarEmptyKind } from "./connection-status";
@@ -114,6 +114,7 @@ export function Sidebar(props: {
   clock: () => number;
   onOpenSession: (id: string) => void;
   onNewSession: (dir?: string, worktree?: boolean) => void;
+  worktreeJob: () => { dir: string; stage: "worktree" | "session" } | undefined;
   onOpenFleet: () => void;
   /** Set briefly to aim the list at a project group — uncollapse it and
       scroll it into view, then cleared. The overview's project rows use it. */
@@ -229,7 +230,15 @@ export function Sidebar(props: {
   /** Pinned and waiting are lanes; projects and days are places. The label
       row and its "+" sit between them. */
   const metaGroups = () => list().groups().filter((g) => g.key.startsWith("__"));
-  const sectionGroups = () => list().groups().filter((g) => !g.key.startsWith("__"));
+  const sections = createMemo(() =>
+    partitionWorktreeGroups(
+      list().groups().filter((g) => !g.key.startsWith("__")),
+      (dir) => props.ws.worktreeOf(dir) !== undefined,
+    ),
+  );
+  const sectionGroups = () => sections().projects;
+  const worktreeGroups = () => sections().worktrees;
+  const [worktreesOpen, setWorktreesOpen] = createSignal(false);
   /**
    * Sections and rows are rendered by key, not by object. `holdRows` keeps a
    * row's object only while its value is unchanged, and a running session
@@ -240,6 +249,7 @@ export function Sidebar(props: {
    */
   const metaKeys = () => metaGroups().map((g) => g.key);
   const sectionKeys = () => sectionGroups().map((g) => g.key);
+  const worktreeKeys = () => worktreeGroups().map((g) => g.key);
   const groupsByKey = createMemo(() => new Map(list().groups().map((g) => [g.key, g])));
 
   /**
@@ -384,9 +394,13 @@ export function Sidebar(props: {
                       size="icon-2xs"
                       class={ghost()}
                       aria-label={t("action.newWorktreeSession")}
+                      disabled={props.worktreeJob() !== undefined}
                       onClick={() => props.onNewSession(group().dir, true)}
                     >
-                      <Icon name="branch" class="size-2.5" />
+                      <Icon
+                        name={props.worktreeJob()?.dir === group().dir ? "activity" : "branch"}
+                        class={cn("size-2.5", props.worktreeJob()?.dir === group().dir && "animate-pulse")}
+                      />
                     </Button>
                   </Tip>
                 </Show>
@@ -518,6 +532,14 @@ export function Sidebar(props: {
           onClick={toggleStatus("busy")}
         />
       </nav>
+      <Show when={props.worktreeJob()}>
+        {(job) => (
+          <p role="status" class="flex items-center gap-1.5 px-3 pb-1.5 text-2xs text-muted-foreground">
+            <Icon name="activity" class="size-3 shrink-0 animate-pulse text-syntax-function" />
+            {t(job().stage === "worktree" ? "worktree.creating" : "worktree.creatingSession")}
+          </p>
+        )}
+      </Show>
       <Show when={list().actionErr()}>
         <p class="truncate px-3 pb-1.5 font-mono text-2xs text-destructive" title={list().actionErr()}>
           {list().actionErr()}
@@ -649,7 +671,7 @@ export function Sidebar(props: {
           </div>
         </div>
         <Show
-          when={sectionGroups().length > 0}
+          when={sectionGroups().length + worktreeGroups().length > 0}
           fallback={
             <Show
               when={list().lensActive()}
@@ -721,6 +743,27 @@ export function Sidebar(props: {
           }
         >
           <For each={sectionKeys()}>{renderGroup}</For>
+          <Show when={worktreeKeys().length > 0}>
+            <div class="mt-2 border-t border-border pt-1">
+              <RowButton
+                class="h-8 items-center gap-2 px-2 text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+                aria-expanded={worktreesOpen()}
+                onClick={() => setWorktreesOpen((open) => !open)}
+              >
+                <Icon name="branch" class="size-3.5 shrink-0" />
+                <span class="min-w-0 flex-1 truncate text-left text-xs">{t("worktree.section")}</span>
+                <span class="shrink-0 font-mono text-2xs tabular-nums">
+                  {worktreeGroups().length}
+                </span>
+                <Icon name={worktreesOpen() ? "chevron" : "chevron-right"} class="size-3 shrink-0" />
+              </RowButton>
+              <Show when={worktreesOpen()}>
+                <div class="pl-1">
+                  <For each={worktreeKeys()}>{renderGroup}</For>
+                </div>
+              </Show>
+            </div>
+          </Show>
           <Show when={list().more()}>
             <div class="px-2 pb-2 pt-1">
               <Button

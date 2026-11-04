@@ -21,6 +21,8 @@ export const ECHO_TURN_ID = "__pending__";
 export interface PendingEcho {
   /** How many real turns existed when this went out. */
   base: number;
+  /** The last real turn at that moment; a revert can replace it without growing the count. */
+  baseTurnId?: string;
   /** The draft as it was sent. Attachments are not echoed — see below. */
   text: string;
 }
@@ -37,12 +39,15 @@ export function echoTurn(text: string): Turn {
 }
 
 /**
- * The real turns, plus the one in flight — until the real turns outnumber the
- * baseline, which is the point at which the backend's own turn is in hand and
- * the echo would be a second copy of one sentence.
+ * The real turns, plus the one in flight — until the backend's own turn arrives.
+ * A new id matters as much as a new row: reverting and resending can remove one
+ * real turn and add its replacement without changing the count.
  */
 export function withEcho(turns: readonly Turn[], echo: PendingEcho | undefined): Turn[] {
   if (!echo) return [...turns];
-  if (turns.length > echo.base) return [...turns];
+  const last = turns.at(-1)?.turn_id;
+  if (turns.length > echo.base || (echo.baseTurnId !== undefined && last !== undefined && last !== echo.baseTurnId)) {
+    return [...turns];
+  }
   return [...turns, echoTurn(echo.text)];
 }

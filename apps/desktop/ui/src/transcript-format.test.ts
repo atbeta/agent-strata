@@ -698,28 +698,25 @@ describe("assistantNotice", () => {
 });
 
 describe("replyInterrupted", () => {
-  test("a reply still arriving is not cut off", () => {
-    // The bug: this was decided from "is this the working turn", which is false
-    // for every turn but the last. Sending a follow-up made the reply above it
-    // announce itself as cut off while the session was busy with the new one.
-    expect(replyInterrupted({ partial: true }, true)).toBe(false);
+  test("a partial is stream evidence, not an interruption", () => {
+    expect(replyInterrupted({ partial: true })).toBe(false);
   });
 
-  test("a partial with nothing running is a reply the run left behind", () => {
-    expect(replyInterrupted({ partial: true }, false)).toBe(true);
+  test("the adapter's own mark counts", () => {
+    expect(replyInterrupted({ stop_reason: "interrupted" })).toBe(true);
   });
 
-  test("the adapter's own mark counts whatever the session is doing", () => {
-    // A run that closed mid-write marks the message. The session can be busy
-    // again — a queued follow-up went out — and the mark still stands.
-    expect(replyInterrupted({ stop_reason: "interrupted" }, true)).toBe(true);
-    expect(replyInterrupted({ stop_reason: "interrupted" }, false)).toBe(true);
+  test("the UI gives a late completed final a chance to cancel the warning", () => {
+    const transcript = readFileSync(join(import.meta.dir, "transcript.tsx"), "utf8");
+    expect(transcript).toContain("createDebouncer(250)");
+    expect(transcript).toContain("confirmInterruption.cancel()");
+    expect(transcript).toContain("confirmInterruption.schedule(() => setInterrupted(true))");
   });
 
   test("a finished reply is never interrupted", () => {
-    expect(replyInterrupted({ stop_reason: "stop" }, false)).toBe(false);
-    expect(replyInterrupted({}, false)).toBe(false);
-    expect(replyInterrupted({ stop_reason: "length" }, false)).toBe(false);
+    expect(replyInterrupted({ stop_reason: "stop" })).toBe(false);
+    expect(replyInterrupted({})).toBe(false);
+    expect(replyInterrupted({ stop_reason: "length" })).toBe(false);
   });
 });
 

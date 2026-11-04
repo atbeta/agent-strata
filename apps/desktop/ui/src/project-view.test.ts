@@ -7,6 +7,7 @@ import {
   needsProjectView,
   lensTypes,
   NO_LENS,
+  partitionWorktreeGroups,
   readLens,
   sessionVisible,
   writeLens,
@@ -193,5 +194,17 @@ describe("the project lens", () => {
     expect(dayLabel("2026-10-21", NOW)).toBe("今天");
     expect(dayLabel("2026-10-20", NOW)).toBe("昨天");
     expect(dayLabel("2026-10-11", NOW)).not.toBe("今天");
+  });
+
+  test("worktrees leave the project sections without losing empty cleanup rows", () => {
+    const groups = [
+      { key: "repo", dir: "/repo" },
+      { key: "wt", dir: "/state/worktrees/repo/ember" },
+      { key: "empty", dir: "/state/worktrees/repo/empty" },
+      { key: "none" },
+    ];
+    const split = partitionWorktreeGroups(groups, (dir) => dir?.startsWith("/state/worktrees/") === true);
+    expect(split.projects.map((g) => g.key)).toEqual(["repo", "none"]);
+    expect(split.worktrees.map((g) => g.key)).toEqual(["wt", "empty"]);
   });
 });

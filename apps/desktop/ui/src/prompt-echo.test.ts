@@ -43,6 +43,20 @@ describe("prompt echo", () => {
     expect(out.some((t) => t.turn_id === ECHO_TURN_ID)).toBe(false);
   });
 
+  test("a revert and resend replaces the echo even when the turn count is unchanged", () => {
+    const pending = { base: 2, baseTurnId: "b", text: "same words" };
+    expect(withEcho([turn("a"), turn("b")], pending).map((t) => t.turn_id)).toEqual(["a", "b", ECHO_TURN_ID]);
+    const replaced = withEcho([turn("a"), turn("c")], pending);
+    expect(replaced.map((t) => t.turn_id)).toEqual(["a", "c"]);
+    expect(replaced.some((t) => t.turn_id === ECHO_TURN_ID)).toBe(false);
+  });
+
+  test("identity, not repeated text, decides when the echo leaves", () => {
+    const pending = { base: 1, baseTurnId: "a", text: "sent a" };
+    expect(withEcho([turn("a")], pending)).toHaveLength(2);
+    expect(withEcho([turn("b")], pending)).toHaveLength(1);
+  });
+
   test("an attachment-only send still gets a turn to be replaced by", () => {
     // No prose, but the backend makes a turn regardless. Without the echo there
     // would be nothing on screen until it did.

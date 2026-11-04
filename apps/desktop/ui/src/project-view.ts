@@ -96,6 +96,17 @@ export function readLens(storage: Pick<Storage, "getItem"> = localStorage): Proj
   return legacy ?? NO_LENS;
 }
 
+/** Keep linked checkouts out of the ordinary project sections without losing their management rows. */
+export function partitionWorktreeGroups<T extends { dir?: string }>(
+  groups: readonly T[],
+  isWorktree: (dir: string | undefined) => boolean,
+): { projects: T[]; worktrees: T[] } {
+  const projects: T[] = [];
+  const worktrees: T[] = [];
+  for (const group of groups) (isWorktree(group.dir) ? worktrees : projects).push(group);
+  return { projects, worktrees };
+}
+
 export function writeLens(lens: ProjectLens, storage: Pick<Storage, "setItem"> = localStorage): void {
   try {
     storage.setItem(LENS_KEY, JSON.stringify(lens));

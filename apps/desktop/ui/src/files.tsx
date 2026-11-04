@@ -1,11 +1,15 @@
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 import { listFiles, openInEditor, readFileBody, type FileNode } from "./api";
 import { t } from "./i18n";
 import { Code } from "./payload";
 import { RowButton } from "@/components/ui/row-button";
 import { Button } from "@/components/ui/button";
+import { MiniTabs } from "@/components/ui/mini-tabs";
 import { Icon } from "./icons";
 import { FileTypeIcon } from "./file-icon";
+import { filePreview } from "./file-preview";
+import { openImage } from "./image-viewer";
+import { Md } from "./md";
 
 const PREVIEW_LIMIT = 200_000;
 
@@ -136,6 +140,7 @@ function NodeList(props: {
 /** The session workspace as a tree, with the selected file beside it. */
 export function FileBrowser(props: { sessionId: string }) {
   const [selected, setSelected] = createSignal<FileNode | null>(null);
+  const [mode, setMode] = createSignal<"preview" | "source">("preview");
   const [openErr, setOpenErr] = createSignal("");
   const [body] = createResource(
     () => {
@@ -144,6 +149,23 @@ export function FileBrowser(props: { sessionId: string }) {
     },
     (key) => readFileBody(key.id, key.path),
   );
+  const preview = createMemo(() => {
+    const node = selected();
+    const value = body();
+    return node && value ? filePreview(node.name, value) : undefined;
+  });
+  const binaryPreview = createMemo(() => {
+    const value = preview();
+    return value?.kind === "binary" ? value : undefined;
+  });
+  const imagePreview = createMemo(() => {
+    const value = preview();
+    return value?.kind === "image" ? value : undefined;
+  });
+  const choose = (node: FileNode) => {
+    setSelected(node);
+    setMode("preview");
+  };
 
   const openInVsCode = async () => {
     const node = selected();
@@ -166,52 +188,106 @@ export function FileBrowser(props: { sessionId: string }) {
     <div class="@container flex min-h-0 flex-1 flex-col">
       <div class="flex min-h-0 min-w-0 flex-1 flex-col @min-[560px]:flex-row">
         <div class="max-h-[40%] shrink-0 overflow-auto border-b border-border py-2 @min-[560px]:max-h-none @min-[560px]:w-56 @min-[560px]:border-b-0 @min-[560px]:border-r">
-          <Branch sessionId={props.sessionId} path="" depth={0} selected={() => selected()?.path ?? null} onOpen={setSelected} />
+          <Branch sessionId={props.sessionId} path="" depth={0} selected={() => selected()?.path ?? null} onOpen={choose} />
         </div>
         <div class="flex min-h-0 min-w-0 flex-1 flex-col">
-        <Show
-          when={selected()}
-          fallback={<p class="px-3 py-3 text-xs text-muted-foreground">{t("files.pick")}</p>}
-        >
-          {(node) => (
-            <>
-              <div class="flex shrink-0 flex-wrap items-center gap-1 border-b border-border px-3 py-2">
-                <span class="min-w-0 flex-1 truncate font-mono text-2xs text-muted-foreground" title={node().absolute}>
-                  {node().path}
-                </span>
-                <Button
-                  type="button"
-                  variant="icon"
-                  size="xs"
-                  class="px-1.5"
-                  onClick={() => void openInVsCode()}
-                >
-                  {t("files.vscode")}
-                </Button>
-              </div>
-              <Show when={openErr()}>
-                <p class="px-3 py-1 text-xs text-destructive">{openErr()}</p>
-              </Show>
-              <div class="min-h-0 flex-1 overflow-auto px-3 py-2">
-                <Show when={body.loading}>
-                  <p class="text-xs text-muted-foreground">{t("files.loading")}</p>
+          <Show
+            when={selected()}
+            fallback={<p class="px-3 py-3 text-xs text-muted-foreground">{t("files.pick")}</p>}
+          >
+            {(node) => (
+              <>
+                <div class="flex shrink-0 flex-wrap items-center gap-1 border-b border-border px-3 py-2">
+                  <span class="min-w-0 flex-1 truncate font-mono text-2xs text-muted-foreground" title={node().absolute}>
+                    {node().path}
+                  </span>
+                  <Show when={preview()?.kind === "html" || preview()?.kind === "markdown"}>
+                    <MiniTabs
+                      kind="radio"
+                      label={t("files.preview")}
+                      value={mode()}
+                      options={[
+                        { id: "preview", label: t("files.preview") },
+                        { id: "source", label: t("files.source") },
+                      ]}
+                      onChange={(id) => setMode(id as "preview" | "source")}
+                    />
+                  </Show>
+                  <Button
+                    type="button"
+                    variant="icon"
+                    size="xs"
+                    class="px-1.5"
+                    onClick={() => void openInVsCode()}
+                  >
+                    {t("files.vscode")}
+                  </Button>
+                </div>
+                <Show when={openErr()}>
+                  <p class="px-3 py-1 text-xs text-destructive">{openErr()}</p>
                 </Show>
-                <Show when={body.error}>
-                  <p class="text-xs text-destructive">{t("files.readErr")}</p>
-                </Show>
-                <Show when={!body.loading && body()?.type === "binary"}>
-                  <p class="text-xs text-muted-foreground">{t("files.binary")}</p>
-                </Show>
-                <Show when={!body.loading && body()?.type === "text"}>
-                  <Code source={text()} label={node().name} maxHeight="max-h-none" />
-                  <Show when={(body()?.content.length ?? 0) > PREVIEW_LIMIT}>
+                <div class="min-h-0 flex-1 overflow-auto px-3 py-2">
+                  <Show when={body.loading}>
+                    <p class="text-xs text-muted-foreground">{t("files.loading")}</p>
+                  </Show>
+                  <Show when={body.error}>
+                    <p class="text-xs text-destructive">{t("files.readErr")}</p>
+                  </Show>
+                  <Show when={!body.loading && !body.error && !body()}>
+                    <p class="text-xs text-muted-foreground">{t("files.emptyBody")}</p>
+                  </Show>
+                  <Show when={!body.loading && binaryPreview()}>
+                    {(binary) => (
+                      <p class="text-xs text-muted-foreground">
+                        {t(binary().oversized ? "files.imageTooLarge" : "files.binary")}
+                      </p>
+                    )}
+                  </Show>
+                  <Show when={imagePreview()}>
+                    {(image) => (
+                      <Button
+                        type="button"
+                        variant="quiet"
+                        class="h-auto max-w-full cursor-zoom-in rounded-md border border-border bg-code-surface p-2"
+                        onClick={() => openImage(image().url, node().name)}
+                      >
+                        <img class="max-h-[70vh] max-w-full object-contain" src={image().url} alt={node().name} />
+                      </Button>
+                    )}
+                  </Show>
+                  <Show
+                    when={
+                      (preview()?.kind === "html" || preview()?.kind === "markdown") && mode() === "preview"
+                    }
+                  >
+                    <Show
+                      when={preview()?.kind === "html"}
+                      fallback={<Md text={text()} class="rounded-md border border-border bg-card p-4" />}
+                    >
+                      <iframe
+                        class="h-full min-h-72 w-full rounded-md border border-border bg-white"
+                        srcdoc={text()}
+                        sandbox=""
+                        title={node().name}
+                      />
+                    </Show>
+                  </Show>
+                  <Show when={preview()?.kind === "code" || mode() === "source"}>
+                    <Code source={text()} label={node().name} maxHeight="max-h-none" />
+                  </Show>
+                  <Show
+                    when={
+                      body()?.type === "text" &&
+                      (preview()?.kind === "code" || mode() === "source") &&
+                      (body()?.content.length ?? 0) > PREVIEW_LIMIT
+                    }
+                  >
                     <p class="mt-2 text-xs text-muted-foreground">{t("files.truncated")}</p>
                   </Show>
-                </Show>
-              </div>
-            </>
-          )}
-        </Show>
+                </div>
+              </>
+            )}
+          </Show>
         </div>
       </div>
     </div>

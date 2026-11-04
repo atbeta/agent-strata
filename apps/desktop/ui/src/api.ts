@@ -510,6 +510,8 @@ export type FileNode = {
 export type FileBody = {
   type: "text" | "binary";
   content: string;
+  encoding?: "base64";
+  mimeType?: string;
 };
 
 export function listFiles(sessionId: string, path: string): Promise<FileNode[] | undefined> {

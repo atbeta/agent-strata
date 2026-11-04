@@ -1701,7 +1701,6 @@ const turns = () => shown().turns;
                     part={part()}
                     entering={() => shown().arriving.has(turn().turn_id)}
                     live={() => composer.generating() && turns().at(-1)?.turn_id === turn().turn_id}
-                    running={() => composer.generating()}
                     awaiting={() => turn().turn_id === ECHO_TURN_ID || lastSilentTurn() === turn()}
                     childOf={childOf}
                     onOpenChild={openChild}

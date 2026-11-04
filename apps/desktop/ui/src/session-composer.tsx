@@ -528,11 +528,11 @@ export function useSessionComposer(args: {
       sessionStop.clearStopped();
       openHandover();
       setHistIndex(-1);
-      // The reader's own sentence goes on screen now. Until the store's turn
-      // count passes this baseline, `turns()` draws it in place of a turn the
-      // backend has not produced yet; a send that fails clears it below, and a
-      // send that succeeds clears it by itself.
-      setEcho({ base: args.view()?.turns.length ?? 0, text: out.text });
+      // The reader's own sentence goes on screen now. A new real turn replaces
+      // it by count or identity: a revert can remove the old row before the
+      // resent one arrives, leaving the count exactly where it started.
+      const turns = args.view()?.turns ?? [];
+      setEcho({ base: turns.length, baseTurnId: turns.at(-1)?.turn_id, text: out.text });
     }
     if (out.text) writeHistory(rememberPrompt(readHistory(), out.text));
     // A queued message keeps the model it was queued with. Falling back to the
