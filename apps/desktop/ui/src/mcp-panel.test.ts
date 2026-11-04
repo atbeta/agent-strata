@@ -8,6 +8,7 @@ import {
   mcpRowAction,
   mcpShowAddForm,
   mcpShowLoading,
+  skillDraft,
 } from "./mcp-panel";
 
 describe("which servers need the reader", () => {
@@ -76,6 +77,18 @@ describe("the add form while typing", () => {
     expect(mcpAddProblem("url", "docs", "https://")).toBe("url");
     expect(mcpAddProblem("command", "docs", 'npx "pkg')).toBe("command");
     expect(mcpAddProblem("command", "docs", Array.from({ length: 17 }, () => "a").join(" "))).toBe("command");
+  });
+});
+
+describe("a skill landing in the draft", () => {
+  test("an empty draft takes the command and a space for arguments", () => {
+    expect(skillDraft("", "review")).toBe("/review ");
+    expect(skillDraft("   ", "review")).toBe("/review ");
+  });
+
+  test("a draft keeps its text; the command lands on its own line", () => {
+    expect(skillDraft("look at this", "review")).toBe("look at this\n/review ");
+    expect(skillDraft("look at this\n", "review")).toBe("look at this\n/review ");
   });
 });
 

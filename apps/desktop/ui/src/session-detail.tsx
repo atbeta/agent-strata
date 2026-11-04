@@ -102,6 +102,7 @@ import { AskCard, QuestionCard } from "./session-prompts";
 import { useSessionSearch, SearchPanel } from "./session-search";
 import { clearSearchTarget, searchTarget } from "./search-target";
 import { useMcpTools, McpAttentionMark, McpToolsPanel } from "./session-tools";
+import { skillDraft } from "./mcp-panel";
 import { useSessionComposer, SessionComposer } from "./session-composer";
 import { SessionRail } from "./session-rail";
 import { createEntranceLedger } from "./entrance";
@@ -1602,7 +1603,16 @@ const turns = () => shown().turns;
               </Show>
 
               <Show when={tools.toolsOpen()}>
-                <McpToolsPanel tools={tools} lsp={lspServers} bindPanel={(el) => (toolsPanelEl = el)} />
+                <McpToolsPanel
+                  tools={tools}
+                  lsp={lspServers}
+                  bindPanel={(el) => (toolsPanelEl = el)}
+                  onSkill={(name) => {
+                    tools.setToolsOpen(false);
+                    composer.setDraft((d) => skillDraft(d, name));
+                    composer.focusDraft();
+                  }}
+                />
               </Show>
 
               <Show when={traceOn()}>

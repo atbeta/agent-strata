@@ -54,6 +54,17 @@ export function mcpShowLoading(ready: boolean, serverCount: number): boolean {
   return !ready && serverCount === 0;
 }
 
+/**
+ * A picked skill becomes `/name ` in the draft, ready for arguments or a
+ * send. A draft that already holds text keeps it: the command lands on its
+ * own line at the end rather than replacing what was being written.
+ */
+export function skillDraft(draft: string, name: string): string {
+  const insert = `/${name} `;
+  if (!draft.trim()) return insert;
+  return draft.endsWith("\n") ? `${draft}${insert}` : `${draft}\n${insert}`;
+}
+
 /** No servers: the form is the panel. Otherwise it waits for the add control. */
 export function mcpShowAddForm(ready: boolean, serverCount: number, addOpen: boolean): boolean {
   if (!ready && serverCount === 0) return false;

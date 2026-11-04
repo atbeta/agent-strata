@@ -109,7 +109,7 @@ export default {
   "header.cost.tip": "{amount} so far — open the context ring for the breakdown",
   "header.export": "Export transcript",
   "header.branch.tip": "Current Git branch: {branch}",
-  "header.tools": "MCP",
+  "header.tools": "MCP and skills",
   "header.autoAccept": "Auto-accept",
   "header.autoAccept.on": "This session and its subagents stop asking · anything already pending is allowed too",
   "header.autoAccept.off": "Auto-accept permissions in this session",
@@ -165,6 +165,10 @@ export default {
   "mcp.auth.confirm": "Confirm",
   "mcp.auth.cancel": "Cancel",
   "mcp.auth.failed": "Sign-in did not finish",
+
+  // Skills installed for this backend. A row drops /name into the composer.
+  "skill.title": "Skills",
+  "skill.empty": "No skills",
 
   // The replay / trace toggle, which is one control with two labels.
   "trace.replay": "Replay",

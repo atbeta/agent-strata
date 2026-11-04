@@ -109,7 +109,7 @@ export default {
   "header.cost.tip": "已花费 {amount} — 打开上下文环查看明细",
   "header.export": "导出会话记录",
   "header.branch.tip": "当前 Git 分支：{branch}",
-  "header.tools": "MCP",
+  "header.tools": "MCP 与技能",
   "header.autoAccept": "本会话自动接受",
   "header.autoAccept.on": "本会话及其子会话不再询问权限 · 当前挂起的也会一并允许",
   "header.autoAccept.off": "本会话自动接受权限",
@@ -165,6 +165,10 @@ export default {
   "mcp.auth.confirm": "确认",
   "mcp.auth.cancel": "取消",
   "mcp.auth.failed": "登录没有完成",
+
+  // Skills installed for this backend. A row drops /name into the composer.
+  "skill.title": "技能",
+  "skill.empty": "没有技能",
 
   // The replay / trace toggle, which is one control with two labels.
   "trace.replay": "回放",

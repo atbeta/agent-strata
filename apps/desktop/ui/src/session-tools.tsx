@@ -6,8 +6,10 @@ import {
   disconnectMcp,
   finishMcpLogin,
   readMcp,
+  readSkills,
   type LspServer,
   type McpServerStatus,
+  type SkillInfo,
 } from "./api";
 import { t } from "./i18n";
 import { Icon } from "./icons";
@@ -23,6 +25,7 @@ import {
 } from "./mcp-panel";
 import { Tip } from "./tip";
 import { Button } from "@/components/ui/button";
+import { RowButton } from "@/components/ui/row-button";
 import { MiniTabs } from "@/components/ui/mini-tabs";
 import { TextFieldInput } from "@/components/ui/text-field";
 import { createRequestOwner } from "./request-owner";
@@ -78,6 +81,8 @@ export function useMcpTools(args: {
   const [toolsOpen, setToolsOpen] = createSignal(false);
   const [toolsReady, setToolsReady] = createSignal(false);
   const [mcpServers, setMcpServers] = createSignal<[string, McpServerStatus][]>([]);
+  /** Undefined while the backend cannot say: old OpenCode without the route. */
+  const [skills, setSkills] = createSignal<SkillInfo[] | undefined>();
   const [mcpBusy, setMcpBusy] = createSignal<string>();
   const [mcpNote, setMcpNote] = createSignal<{ name: string; text: string }>();
   const [mcpAddOpen, setMcpAddOpen] = createSignal(false);
@@ -89,9 +94,12 @@ export function useMcpTools(args: {
     const sessionId = args.sessionId();
     const token = loads.begin(sessionId);
     try {
-      const mcp = await readMcp(sessionId);
+      // A missing or failing /skill only dims its own section; the server
+      // list still lands.
+      const [mcp, skillList] = await Promise.all([readMcp(sessionId), readSkills(sessionId).catch(() => undefined)]);
       if (!loads.isCurrent(token)) return false;
       setMcpServers(Object.entries(mcp ?? {}).sort(([a], [b]) => a.localeCompare(b)));
+      setSkills(skillList);
       return true;
     } catch (err) {
       if (report && loads.isCurrent(token)) args.onError(err instanceof Error ? err.message : t("err.network"));
@@ -109,6 +117,7 @@ export function useMcpTools(args: {
     mcpAuthWait = undefined;
     setToolsReady(false);
     setMcpServers([]);
+    setSkills(undefined);
     setMcpBusy(undefined);
     setMcpAdding(false);
     setMcpNote(undefined);
@@ -279,6 +288,7 @@ export function useMcpTools(args: {
     toggleTools,
     attention: () => mcpAttention(mcpServers().map(([, server]) => server.status)),
     mcpServers,
+    skills,
     mcpBusy,
     mcpNote,
     mcpAddOpen,
@@ -310,18 +320,20 @@ export function McpToolsPanel(props: {
   bindPanel: (el: HTMLDivElement | undefined) => void;
   /** LSP health used to sit in the status bar; it reads here with the servers now */
   lsp?: () => LspServer[] | undefined;
+  /** picking a skill drops `/name ` into the composer; the caller owns the draft */
+  onSkill?: (name: string) => void;
 }) {
   const m = () => props.tools;
   const showForm = () => mcpShowAddForm(m().toolsReady(), m().mcpServers().length, m().mcpAddOpen());
   const problem = () => mcpAddProblem(m().mcpKind(), m().mcpName(), m().mcpValue());
-  let scroller: HTMLDivElement | undefined;
+  let addForm: HTMLFormElement | undefined;
   createEffect(() => {
     if (!m().mcpAddOpen()) return;
-    // The form is the last block. Pin its buttons after the row has laid out.
+    // The skills list sits under the form, so pinning the scroller's bottom
+    // lands past the inputs. Reveal the form itself after the row has laid out.
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        if (!scroller) return;
-        scroller.scrollTop = scroller.scrollHeight;
+        addForm?.scrollIntoView({ block: "nearest" });
       });
     });
   });
@@ -330,12 +342,7 @@ export function McpToolsPanel(props: {
       ref={props.bindPanel}
       class="surface-popover absolute right-4 top-11 z-30 w-80 max-w-[calc(100%-2rem)] overflow-hidden rounded-lg bg-popover"
     >
-      <div
-        ref={(el) => {
-          scroller = el;
-        }}
-        class="max-h-80 overflow-y-auto px-2 pb-3 pt-2"
-      >
+      <div class="max-h-80 overflow-y-auto px-2 pb-3 pt-2">
         <h2 class="flex items-center gap-1.5 px-1.5 text-2xs font-medium text-muted-foreground">
           <Icon name="mcp" class="size-3.5 shrink-0" />
           <span>{t("mcp.title")}</span>
@@ -473,6 +480,9 @@ export function McpToolsPanel(props: {
         </Show>
         <Show when={showForm()}>
           <form
+            ref={(el) => {
+              addForm = el;
+            }}
             class={`px-1.5 ${m().mcpServers().length > 0 ? "mt-2 border-t border-border pt-2" : "mt-2"}`}
             onSubmit={(e) => void m().submitMcp(e)}
           >
@@ -543,6 +553,35 @@ export function McpToolsPanel(props: {
               </Show>
             </div>
           </form>
+        </Show>
+        <Show when={m().skills() !== undefined}>
+          <h2 class="mt-2 flex items-center gap-1.5 border-t border-border px-1.5 pt-2.5 text-2xs font-medium text-muted-foreground">
+            <Icon name="spark" class="size-3.5 shrink-0" />
+            <span>{t("skill.title")}</span>
+          </h2>
+          <Show
+            when={m().skills()!.length > 0}
+            fallback={<p class="mt-1.5 px-1.5 text-xs text-muted-foreground">{t("skill.empty")}</p>}
+          >
+            <ul class="mt-1">
+              <For each={m().skills()!}>
+                {(skill) => (
+                  <li>
+                    <Tip label={skill.location} class="w-full">
+                      <RowButton class="px-1.5" onClick={() => props.onSkill?.(skill.name)}>
+                        <div class="min-w-0 flex-1">
+                          <div class="truncate text-sm">{skill.name}</div>
+                          <Show when={skill.description}>
+                            <div class="truncate text-2xs text-muted-foreground">{skill.description}</div>
+                          </Show>
+                        </div>
+                      </RowButton>
+                    </Tip>
+                  </li>
+                )}
+              </For>
+            </ul>
+          </Show>
         </Show>
       </div>
       <Show when={props.lsp?.() !== undefined}>
