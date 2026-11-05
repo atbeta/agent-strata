@@ -27,6 +27,7 @@ import {
   type StatusLens,
 } from "./project-view";
 import { t } from "./i18n";
+import { explain, fadeSignal } from "./errors";
 import { displayTitle } from "./session-title";
 import { compareProjectRows, rememberBusySince } from "./session-order";
 import { windowTitle } from "./permission-card";
@@ -396,7 +397,7 @@ export function useSessionList(opts: {
     ),
   );
 
-  const [actionErr, setActionErr] = createSignal("");
+  const [actionErr, setActionErr] = fadeSignal("");
   const runAction = async (id: string, fn: () => Promise<void>, leave: boolean) => {
     setActionErr("");
     try {
@@ -404,7 +405,7 @@ export function useSessionList(opts: {
       if (leave && opts.activeId() === id) location.hash = "/";
       refetch();
     } catch (e) {
-      setActionErr(e instanceof Error ? e.message : String(e));
+      setActionErr(explain(e));
     }
   };
 

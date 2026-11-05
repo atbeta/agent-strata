@@ -2,6 +2,7 @@ import { createEffect, createSignal, For, onCleanup, Show, type JSX } from "soli
 import { readDevLogs, type DevLogLine, type DevProcess } from "./api";
 import { devLogLineClass, dotClass, devRunning, stableDevRows, stateClass, stateLabel } from "./dev-state";
 import { t } from "./i18n";
+import { fadeSignal } from "./errors";
 import { fmtLatency } from "./transcript-format";
 import { Button } from "@/components/ui/button";
 import { RowButton } from "@/components/ui/row-button";
@@ -115,7 +116,7 @@ export function BackgroundPanel(props: {
   const [now, setNow] = createSignal(Date.now());
   const [openId, setOpenId] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal<string | null>(null);
-  const [err, setErr] = createSignal("");
+  const [err, setErr] = fadeSignal("");
   const rows = stableDevRows(props.processes);
 
   createEffect(() => {

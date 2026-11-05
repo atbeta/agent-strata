@@ -2,6 +2,7 @@ import { createEffect, createSignal, on, Show } from "solid-js";
 import { clearGoal, setGoal, setGoalPaused } from "./api";
 import { Icon } from "./icons";
 import { t } from "./i18n";
+import { fadeSignal } from "./errors";
 import { Tip } from "./tip";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -14,7 +15,7 @@ export function useGoal(
   paused: () => boolean | undefined,
 ) {
   const [draft, setDraft] = createSignal("");
-  const [err, setErr] = createSignal("");
+  const [err, setErr] = fadeSignal("");
   const [busy, setBusy] = createSignal(false);
   const [open, setOpen] = createSignal(false);
   // The view arrives a beat after the write. Hold the text we just saved so

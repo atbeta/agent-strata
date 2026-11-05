@@ -13,6 +13,7 @@ import {
   type ProviderPrompt,
 } from "./api";
 import { t } from "./i18n";
+import { fadeKeyed } from "./errors";
 import { Icon } from "./icons";
 import { Card, Group } from "./settings-blocks";
 import { Button } from "@/components/ui/button";
@@ -462,7 +463,7 @@ function ProviderList(props: { connectionId: string }) {
   const [picks, setPicks] = createSignal<Record<string, number>>({});
   const [drafts, setDrafts] = createSignal<Record<string, string>>({});
   const [inputs, setInputs] = createSignal<Record<string, Record<string, string>>>({});
-  const [errors, setErrors] = createSignal<Record<string, string>>({});
+  const [errors, setKeyedError] = fadeKeyed();
   /**
    * A removal that landed but cannot show up in the list yet.
    *
@@ -506,11 +507,11 @@ function ProviderList(props: { connectionId: string }) {
         : message && !message.includes(secret)
           ? message
           : t("settings.provider.failed");
-    setErrors((prev) => ({ ...prev, [id]: text }));
+    setKeyedError(id, text);
     setOpen(id);
   };
 
-  const clearError = (id: string) => setErrors((prev) => ({ ...prev, [id]: "" }));
+  const clearError = (id: string) => setKeyedError(id, "");
   const clearNotice = (id: string) => setNotices((prev) => ({ ...prev, [id]: "" }));
 
   // The notice has an ending of its own: once the server stops reporting the

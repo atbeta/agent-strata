@@ -7,6 +7,7 @@ import { JsonView } from "./json-view";
 import { CodeTokens } from "./payload";
 import { permissionView, type PermissionView } from "./permission-card";
 import { t } from "./i18n";
+import { fadeSignal } from "./errors";
 import { toolIcon } from "./transcript-format";
 import { Button } from "@/components/ui/button";
 import { ChoiceCard } from "@/components/ui/choice-card";
@@ -108,7 +109,7 @@ export function QuestionCard(props: { q: PendingQuestion; from?: string; onDone:
   const groups = questionGroups(props.q.questions);
   const [picks, setPicks] = createSignal<string[][]>(groups.map(() => []));
   const [custom, setCustom] = createSignal<string[]>(groups.map(() => ""));
-  const [err, setErr] = createSignal("");
+  const [err, setErr] = fadeSignal("");
 
   const toggle = (qi: number, label: string, multiple?: boolean) => {
     setPicks((all) =>

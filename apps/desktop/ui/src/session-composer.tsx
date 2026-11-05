@@ -25,6 +25,7 @@ import {
 } from "./api";
 import { Icon } from "./icons";
 import { num, t, tn } from "./i18n";
+import { fadeSignal } from "./errors";
 import { displayTitle } from "./session-title";
 import { Tip } from "./tip";
 import { planVisible } from "./plan-progress";
@@ -163,9 +164,9 @@ export function useSessionComposer(args: {
     });
   const [histIndex, setHistIndex] = createSignal(-1);
   const [histSaved, setHistSaved] = createSignal("");
-  const [sendErr, setSendErr] = createSignal("");
+  const [sendErr, setSendErr] = fadeSignal("");
   /** a one-line confirmation for a built-in command that succeeded quietly (share, …) */
-  const [notice, setNotice] = createSignal("");
+  const [notice, setNotice] = fadeSignal("");
   /**
    * When the backend last took a prompt off our hands.
    *
@@ -192,7 +193,7 @@ export function useSessionComposer(args: {
     items: [],
   });
   const [menuActive, setMenuActive] = createSignal(0);
-  const [attachErr, setAttachErr] = createSignal("");
+  const [attachErr, setAttachErr] = fadeSignal("");
   /**
    * Why the queue is holding, per session.
    *

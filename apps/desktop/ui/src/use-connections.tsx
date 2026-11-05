@@ -12,7 +12,7 @@ import {
 } from "./api";
 import { settled } from "./resource";
 import { backendHeadline, viewPhase, type ViewPhase } from "./connection-status";
-import { explain } from "./errors";
+import { explain, fadeSignal } from "./errors";
 import { t } from "./i18n";
 import { Icon } from "./icons";
 import { Tip } from "./tip";
@@ -86,13 +86,7 @@ export function useConnections(opts: {
     onCleanup(() => clearInterval(timer));
   });
 
-  const [connErr, setConnErrRaw] = createSignal("");
-  let connErrTimer: ReturnType<typeof setTimeout> | undefined;
-  const setConnErr = (msg: string) => {
-    clearTimeout(connErrTimer);
-    setConnErrRaw(msg);
-    connErrTimer = msg ? setTimeout(() => setConnErrRaw(""), 12_000) : undefined;
-  };
+  const [connErr, setConnErr] = fadeSignal("");
   const [connUrl, setConnUrl] = createSignal("http://127.0.0.1:4096");
   const [connName, setConnName] = createSignal("");
   const [connKind, setConnKind] = createSignal<"opencode" | "acp">("opencode");

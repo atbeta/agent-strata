@@ -28,14 +28,15 @@ import {
   shouldWarnFallback,
 } from "./terminal-shell";
 import { t } from "./i18n";
+import { fadeSignal } from "./errors";
 import { createRequestOwner } from "./request-owner";
 
 export function TerminalPane(props: { sessionId: string; onEmpty?: () => void }) {
   const [tabs, setTabs] = createSignal<PtySession[]>([]);
   const [active, setActive] = createSignal<string | undefined>();
   const [shells, setShells] = createSignal<PtyShell[]>([]);
-  const [err, setErr] = createSignal("");
-  const [notice, setNotice] = createSignal("");
+  const [err, setErr] = fadeSignal("");
+  const [notice, setNotice] = fadeSignal("");
   const [ready, setReady] = createSignal(false);
   let host: HTMLDivElement | undefined;
   let opening = false;

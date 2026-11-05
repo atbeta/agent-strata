@@ -25,6 +25,7 @@ import {
   writeTerminalShell,
 } from "./terminal-shell";
 import { LOCALES, LOCALE_LABEL, locale, setLocale, stamp, t, type Locale } from "./i18n";
+import { fadeSignal } from "./errors";
 import { Icon } from "./icons";
 import { readTheme, saveTheme, type ThemeChoice } from "./theme";
 import {
@@ -240,19 +241,19 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
   const [mode, setMode] = createSignal<OpencodeLaunchMode>("embed");
   const [runtime, setRuntime] = createSignal<OpencodeRuntime>();
   const [runtimeBusy, setRuntimeBusy] = createSignal(false);
-  const [runtimeErr, setRuntimeErr] = createSignal("");
-  const [runtimeNote, setRuntimeNote] = createSignal("");
+  const [runtimeErr, setRuntimeErr] = fadeSignal("");
+  const [runtimeNote, setRuntimeNote] = fadeSignal("");
   const [restartArmed, setRestartArmed] = createSignal(false);
-  const [diagNote, setDiagNote] = createSignal("");
-  const [diagErr, setDiagErr] = createSignal("");
+  const [diagNote, setDiagNote] = fadeSignal("");
+  const [diagErr, setDiagErr] = fadeSignal("");
   const [diagKey, setDiagKey] = createSignal("");
   const [hydrated, setHydrated] = createSignal(false);
-  const [saveErr, setSaveErr] = createSignal("");
+  const [saveErr, setSaveErr] = fadeSignal("");
   const [fonts, setFonts] = createSignal<FontChoice>(readFonts());
   const [thinkingOpen, setThinkingOpen] = createSignal(readThinkingOpen());
   const [notifyDone, setNotifyDone] = createSignal(readNotify("done"));
   const [notifyQuestion, setNotifyQuestion] = createSignal(readNotify("question"));
-  const [notifyErr, setNotifyErr] = createSignal<{ kind: NotifyKind; text: string }>();
+  const [notifyErr, setNotifyErr] = fadeSignal<{ kind: NotifyKind; text: string } | undefined>(undefined);
   const [shellDefault, setShellDefault] = createSignal(readTerminalShell());
   const [loginUser, setLoginUser] = createSignal("");
   const [loginPass, setLoginPass] = createSignal("");

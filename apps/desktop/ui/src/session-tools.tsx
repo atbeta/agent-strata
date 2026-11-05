@@ -12,6 +12,7 @@ import {
   type SkillInfo,
 } from "./api";
 import { t } from "./i18n";
+import { fadeSignal } from "./errors";
 import { Icon } from "./icons";
 import type { MessageKey } from "./locales/zh";
 import {
@@ -84,7 +85,7 @@ export function useMcpTools(args: {
   /** Undefined while the backend cannot say: old OpenCode without the route. */
   const [skills, setSkills] = createSignal<SkillInfo[] | undefined>();
   const [mcpBusy, setMcpBusy] = createSignal<string>();
-  const [mcpNote, setMcpNote] = createSignal<{ name: string; text: string }>();
+  const [mcpNote, setMcpNote] = fadeSignal<{ name: string; text: string } | undefined>(undefined);
   const [mcpAddOpen, setMcpAddOpen] = createSignal(false);
   const loads = createRequestOwner();
   const actions = createRequestOwner();
@@ -168,7 +169,7 @@ export function useMcpTools(args: {
   const [mcpName, setMcpName] = createSignal("");
   const [mcpValue, setMcpValue] = createSignal("");
   const [mcpAdding, setMcpAdding] = createSignal(false);
-  const [mcpAddErr, setMcpAddErr] = createSignal("");
+  const [mcpAddErr, setMcpAddErr] = fadeSignal("");
 
   // The popover has no refresh control. While it is open, a server can finish
   // connecting after the fetch that opened it, so the same list is read again.

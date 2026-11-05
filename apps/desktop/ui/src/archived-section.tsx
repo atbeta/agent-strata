@@ -4,7 +4,7 @@ import type { SessionListCtl } from "./use-session-list";
 import { deleteSession, readSessionData, unarchiveSession, type SessionData } from "./maintenance-api";
 import { displayTitle } from "./session-title";
 import { relTime } from "./fleet";
-import { explain } from "./errors";
+import { explain, fadeSignal } from "./errors";
 import { t } from "./i18n";
 import { Icon } from "./icons";
 import { Button } from "@/components/ui/button";
@@ -35,8 +35,8 @@ export function ArchivedSection(props: {
 }) {
   const [open, setOpen] = createSignal(false);
   const [busy, setBusy] = createSignal("");
-  const [note, setNote] = createSignal<{ id: string; text: string }>();
-  const [error, setError] = createSignal("");
+  const [note, setNote] = fadeSignal<{ id: string; text: string } | undefined>(undefined);
+  const [error, setError] = fadeSignal("");
   const [confirm, setConfirm] = createSignal<{ row: SessionRow; data: SessionData }>();
 
   const rows = () => props.list.archived();

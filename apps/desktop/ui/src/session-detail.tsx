@@ -50,6 +50,7 @@ import { messageText } from "./transcript-format";
 import { isDevEvent } from "./sync-events";
 import { Icon } from "./icons";
 import { t } from "./i18n";
+import { fadeSignal } from "./errors";
 import { SessionEmpty } from "./session-empty";
 import { displayTitle } from "./session-title";
 import { settled } from "./resource";
@@ -469,7 +470,7 @@ export function SessionDetail(props: {
     () => props.id,
     (id) => readSessionPolicy(id).catch(() => "unknown" as const),
   );
-  const [autoAcceptErr, setAutoAcceptErr] = createSignal("");
+  const [autoAcceptErr, setAutoAcceptErr] = fadeSignal("");
   const autoAcceptOn = () => autoAccept() === "auto";
   const toggleAutoAccept = async () => {
     const next = autoAcceptOn() ? "inherit" : "auto";

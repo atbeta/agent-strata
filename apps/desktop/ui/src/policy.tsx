@@ -11,6 +11,7 @@ import {
   type PolicyRule,
 } from "./api";
 import { t, tn } from "./i18n";
+import { fadeSignal } from "./errors";
 import type { MessageKey } from "./locales/zh";
 import { Icon } from "./icons";
 import { Button } from "@/components/ui/button";
@@ -252,12 +253,12 @@ export function PolicyEditor() {
   const [saved] = createResource(() => getJson<PolicyResponse>("/policy"));
   const [draft, setDraftRaw] = createStore<Draft>({ default: "ask", rules: [] });
   const setDraft = (fn: (d: Draft) => void) => setDraftRaw(produce(fn));
-  const [err, setErr] = createSignal("");
-  const [notice, setNotice] = createSignal("");
+  const [err, setErr] = fadeSignal("");
+  const [notice, setNotice] = fadeSignal("");
   const [testTool, setTestTool] = createSignal("bash");
   const [testInput, setTestInput] = createSignal('{"command": "ls -la"}');
   const [testResult, setTestResult] = createSignal<PolicyDecision | null>(null);
-  const [testErr, setTestErr] = createSignal("");
+  const [testErr, setTestErr] = fadeSignal("");
 
   createEffect(() => {
     const p = saved()?.policy;

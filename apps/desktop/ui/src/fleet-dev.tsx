@@ -1,6 +1,7 @@
 import { createEffect, createResource, createSignal, For, onCleanup, Show } from "solid-js";
 import { listAllDevProcesses, readDevLogs, stopDevProcess, type DevLogLine, type DevProcess, type SessionRow } from "./api";
 import { t } from "./i18n";
+import { fadeSignal } from "./errors";
 import { displayTitle } from "./session-title";
 import { DevRow, DevRowDetail } from "./background-panel";
 import { devLogLineClass, devRunning, stableDevRows } from "./dev-state";
@@ -30,7 +31,7 @@ export function FleetDevSection(props: {
   const [now, setNow] = createSignal(Date.now());
   const [openId, setOpenId] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal<string | null>(null);
-  const [err, setErr] = createSignal("");
+  const [err, setErr] = fadeSignal("");
   const [lastProcesses, setLastProcesses] = createSignal<DevProcess[]>([]);
 
   const [processes, { refetch }] = createResource(

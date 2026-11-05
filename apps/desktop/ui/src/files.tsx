@@ -1,6 +1,7 @@
 import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 import { listFiles, openInEditor, readFileBody, type FileNode } from "./api";
 import { t } from "./i18n";
+import { fadeSignal } from "./errors";
 import { Code } from "./payload";
 import { RowButton } from "@/components/ui/row-button";
 import { Button } from "@/components/ui/button";
@@ -141,7 +142,7 @@ function NodeList(props: {
 export function FileBrowser(props: { sessionId: string }) {
   const [selected, setSelected] = createSignal<FileNode | null>(null);
   const [mode, setMode] = createSignal<"preview" | "source">("preview");
-  const [openErr, setOpenErr] = createSignal("");
+  const [openErr, setOpenErr] = fadeSignal("");
   const [body] = createResource(
     () => {
       const node = selected();
