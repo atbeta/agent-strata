@@ -1,7 +1,8 @@
-import { createMemo, createResource, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createResource, createSignal, For, Show } from "solid-js";
 import { listFiles, openInEditor, readFileBody, type FileNode } from "./api";
 import { t } from "./i18n";
-import { fadeSignal } from "./errors";
+import { explain, fadeSignal } from "./errors";
+import { PathActions, resolveTarget, revealResolved, type PathApi } from "./path-link";
 import { Code } from "./payload";
 import { RowButton } from "@/components/ui/row-button";
 import { Button } from "@/components/ui/button";
@@ -29,8 +30,21 @@ function Branch(props: {
   depth: number;
   selected: () => string | null;
   onOpen: (node: FileNode) => void;
+  /** the path a click asked for — ancestors open so it can mount */
+  focus?: () => string | undefined;
 }) {
   const [open, setOpen] = createSignal(props.depth === 0);
+  // The focus path and the selector both read POSIX separators; a Windows
+  // backend hands back `\`, so this branch's own name is normalised once.
+  const mine = () => props.path.replace(/\\/g, "/");
+  // Each level asks the same question — is the focused path inside me — and
+  // the cascade fetches its way down to the row.
+  createEffect(() => {
+    const f = props.focus?.();
+    if (f !== undefined && mine() !== "" && (f === mine() || f.startsWith(`${mine()}/`))) {
+      setOpen(true);
+    }
+  });
   const [kids] = createResource(
     () => (open() ? props.path : false),
     (path) => listFiles(props.sessionId, path).then((list) => sortNodes(list ?? [])),
@@ -48,10 +62,11 @@ function Branch(props: {
           error={kids.error}
           selected={props.selected}
           onOpen={props.onOpen}
+          focus={props.focus}
         />
       }
     >
-      <li>
+      <li data-fpath={mine()}>
         <RowButton
           class="gap-1.5 px-1 py-0.5 hover:bg-secondary"
           style={{ "padding-left": `${props.depth * 12}px` }}
@@ -72,6 +87,7 @@ function Branch(props: {
             error={kids.error}
             selected={props.selected}
             onOpen={props.onOpen}
+            focus={props.focus}
           />
         </Show>
       </li>
@@ -87,6 +103,7 @@ function NodeList(props: {
   error: unknown;
   selected: () => string | null;
   onOpen: (node: FileNode) => void;
+  focus?: () => string | undefined;
 }) {
   return (
     <>
@@ -109,7 +126,7 @@ function NodeList(props: {
             <Show
               when={node.type === "directory"}
               fallback={
-                <li>
+                <li data-fpath={node.path.replace(/\\/g, "/")}>
                   <RowButton
                     class={`gap-1.5 px-1 py-0.5 hover:bg-secondary ${
                       props.selected() === node.path ? "bg-secondary" : ""
@@ -129,6 +146,7 @@ function NodeList(props: {
                 depth={props.depth + 1}
                 selected={props.selected}
                 onOpen={props.onOpen}
+                focus={props.focus}
               />
             </Show>
           )}
@@ -139,10 +157,54 @@ function NodeList(props: {
 }
 
 /** The session workspace as a tree, with the selected file beside it. */
-export function FileBrowser(props: { sessionId: string }) {
+export function FileBrowser(props: {
+  sessionId: string;
+  /** the session's workspace — anchors relative paths in file previews */
+  workspace?: () => string | undefined;
+  /** a path the reader clicked elsewhere — expand the tree to it and select it */
+  focus?: () => { path: string; n: number } | undefined;
+}) {
   const [selected, setSelected] = createSignal<FileNode | null>(null);
   const [mode, setMode] = createSignal<"preview" | "source">("preview");
   const [openErr, setOpenErr] = fadeSignal("");
+  /** The path ancestors compare themselves against to know they should open. */
+  const [treeFocus, setTreeFocus] = createSignal<string>();
+  let browserEl: HTMLDivElement | undefined;
+
+  createEffect(() => {
+    const f = props.focus?.();
+    if (f) void focusPath(f.path);
+  });
+
+  /** One parent listing answers both of a click's questions — is the path
+   *  there, and is it a file or a folder. */
+  const focusPath = async (path: string) => {
+    const rel = path.replace(/\/+$/, "");
+    if (rel === "") {
+      setTreeFocus("");
+      return;
+    }
+    const parent = rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "";
+    const siblings = await listFiles(props.sessionId, parent).catch(() => undefined);
+    const node = siblings?.find((n) => n.path.replace(/\\/g, "/") === rel);
+    if (!node) {
+      setOpenErr(t("path.missing"));
+      return;
+    }
+    // A folder opens to itself; a file's parent opens and the file selects.
+    setTreeFocus(node.type === "directory" ? rel : parent);
+    choose(node);
+    // The row exists only after the last ancestor's fetch lands — check for
+    // it a few beats rather than guessing a single delay.
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setTimeout(r, 50));
+      const el = browserEl?.querySelector(`[data-fpath="${CSS.escape(rel)}"]`);
+      if (el) {
+        el.scrollIntoView({ block: "nearest" });
+        break;
+      }
+    }
+  };
   const [body] = createResource(
     () => {
       const node = selected();
@@ -175,7 +237,7 @@ export function FileBrowser(props: { sessionId: string }) {
     try {
       await openInEditor("vscode", node.absolute);
     } catch (e) {
-      setOpenErr(e instanceof Error ? e.message : String(e));
+      setOpenErr(explain(e));
     }
   };
 
@@ -185,11 +247,33 @@ export function FileBrowser(props: { sessionId: string }) {
     return value.content.length > PREVIEW_LIMIT ? value.content.slice(0, PREVIEW_LIMIT) : value.content;
   };
 
+  /** Paths inside a preview resolve against this same browser — opening one
+   *  just focuses it here; the file manager covers what is outside. */
+  const pathApi: PathApi = {
+    open: (raw) => {
+      const target = resolveTarget(raw, props.workspace?.());
+      if (target.rel !== undefined) {
+        void focusPath(target.rel);
+        return;
+      }
+      if (target.abs !== undefined) {
+        void revealResolved(raw, props.workspace?.()).catch((e) => setOpenErr(explain(e)));
+        return;
+      }
+      setOpenErr(t("path.missing"));
+    },
+    revealable: (raw) => resolveTarget(raw, props.workspace?.()).abs !== undefined,
+    reveal: (raw) => {
+      void revealResolved(raw, props.workspace?.()).catch((e) => setOpenErr(explain(e)));
+    },
+  };
+
   return (
-    <div class="@container flex min-h-0 flex-1 flex-col">
+    <PathActions.Provider value={pathApi}>
+    <div class="@container flex min-h-0 flex-1 flex-col" ref={(el) => (browserEl = el)}>
       <div class="flex min-h-0 min-w-0 flex-1 flex-col @min-[560px]:flex-row">
         <div class="max-h-[40%] shrink-0 overflow-auto border-b border-border py-2 @min-[560px]:max-h-none @min-[560px]:w-56 @min-[560px]:border-b-0 @min-[560px]:border-r">
-          <Branch sessionId={props.sessionId} path="" depth={0} selected={() => selected()?.path ?? null} onOpen={choose} />
+          <Branch sessionId={props.sessionId} path="" depth={0} selected={() => selected()?.path ?? null} onOpen={choose} focus={treeFocus} />
         </div>
         <div class="flex min-h-0 min-w-0 flex-1 flex-col">
           <Show
@@ -292,5 +376,6 @@ export function FileBrowser(props: { sessionId: string }) {
         </div>
       </div>
     </div>
+    </PathActions.Provider>
   );
 }

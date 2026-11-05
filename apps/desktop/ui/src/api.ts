@@ -533,6 +533,16 @@ export async function openInEditor(editor: "cursor" | "vscode", path: string): P
   await throwOnError(res);
 }
 
+/** Ask the OS file manager to show `path` — a file selects, a folder opens. */
+export async function revealPath(path: string): Promise<void> {
+  const res = await apiFetch("/desktop/reveal", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ path }),
+  });
+  await throwOnError(res);
+}
+
 export function readCapabilities(sessionId: string): Promise<SessionCapabilities> {
   return getJson<SessionCapabilities>(`/sessions/${encodeURIComponent(sessionId)}/capabilities`);
 }

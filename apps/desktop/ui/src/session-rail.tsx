@@ -4,6 +4,7 @@ import {
   readSessionDiff,
   readVcs,
   readVcsDiff,
+  realWorkspace,
   stopDevProcess,
   type DevProcess,
   type SessionView,
@@ -49,6 +50,8 @@ export function SessionRail(props: {
   onJumpToTurn: (turnIndex: number) => void;
   /** drop a review comment into the composer draft */
   onCite: (note: string) => void;
+  /** a transcript path the reader clicked — focus it in the files tab */
+  pathFocus?: () => { path: string; n: number } | undefined;
 }) {
   /** which file the reader opened in the rail, null for the plain list */
   const [openFile, setOpenFile] = createSignal<string | null>(null);
@@ -250,7 +253,11 @@ export function SessionRail(props: {
           class="flex min-h-0 flex-1 flex-col"
         >
         <Show when={effectiveTab() === "files"}>
-          <FileBrowser sessionId={props.sessionId()} />
+          <FileBrowser
+            sessionId={props.sessionId()}
+            workspace={() => realWorkspace(props.view().workspace)}
+            focus={props.pathFocus}
+          />
         </Show>
         <Show when={effectiveTab() === "background"}>
           <BackgroundPanel processes={() => devProcesses() ?? []} onStop={stopDev} />

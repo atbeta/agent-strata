@@ -42,6 +42,7 @@ import {
   safeName,
 } from "./maintenance";
 import { editorLaunch } from "./editor";
+import { revealTarget } from "./reveal";
 import { forkBefore, forkTitle } from "./fork";
 import { refused, shellCors } from "./shell-origin";
 import { queryTokenOk, readApiToken, tokenOk } from "./api-token";
@@ -2140,6 +2141,20 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       if (!bin) return json({ error: "editor is not installed" }, 400);
       try {
         Bun.spawn({ cmd: [bin, target.file], stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+      } catch (e) {
+        return json({ error: String(e) }, 500);
+      }
+      return json({ ok: true });
+    }
+
+    if (path === "/desktop/reveal" && req.method === "POST") {
+      const body = (await req.json().catch(() => null)) as { path?: unknown } | null;
+      const target = revealTarget(body?.path);
+      if ("error" in target) return json({ error: target.error }, 400);
+      const bin = Bun.which(target.cmd[0]!);
+      if (!bin) return json({ error: "file manager is not available" }, 400);
+      try {
+        Bun.spawn({ cmd: [bin, ...target.cmd.slice(1)], stdin: "ignore", stdout: "ignore", stderr: "ignore" });
       } catch (e) {
         return json({ error: String(e) }, 500);
       }

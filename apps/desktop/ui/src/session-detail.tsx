@@ -538,6 +538,17 @@ export function SessionDetail(props: {
     writePanelTab(tab);
   };
 
+  /**
+   * A path clicked in the transcript asks for the files tab and a row in it.
+   * The nonce lets the same file be focused twice — the rail sees a new
+   * request each time, not a value that compares equal and never fires.
+   */
+  const [pathFocus, setPathFocus] = createSignal<{ path: string; n: number }>();
+  const openPathInRail = (rel: string) => {
+    openPanel("files");
+    setPathFocus({ path: rel, n: Date.now() });
+  };
+
   // A durable event during a reply only moves the last turns, and the whole
   // view of a long session is megabytes. A rebuild, a replay, or a tail that no
   // longer lines up goes back to the full view. Every view load goes through
@@ -1670,6 +1681,8 @@ const turns = () => shown().turns;
                 sessionId={displayed()?.session_id ?? props.id}
                 turns={turns()}
                 onScrollGate={onScrollGate}
+                workspace={() => realWorkspace(displayed()?.workspace)}
+                onOpenPath={openPathInRail}
                 ready={viewReady() && !(importing() && turns().length === 0)}
                 nav={viewReady() && replayPos() === null && !outlineIsPartial(displayed())}
                 latest={replayPos() === null}
@@ -1879,6 +1892,7 @@ const turns = () => shown().turns;
             tab={panelTab}
             onSelectTab={selectTab}
             onClose={closePanel}
+            pathFocus={pathFocus}
             onJumpToTurn={(i) => {
               if (i >= 0) list?.jumpToIndex(i);
             }}

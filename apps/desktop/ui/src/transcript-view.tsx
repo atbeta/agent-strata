@@ -43,6 +43,8 @@ import { Icon } from "./icons";
 import { t } from "./i18n";
 import { createIds } from "./turn-ids";
 import { estimateSegmentHeight, turnSegments, type TurnPart, type TurnSegment } from "./turn-segments";
+import { explain, fadeSignal } from "./errors";
+import { PathActions, resolveTarget, revealResolved, type PathApi } from "./path-link";
 
 export interface TranscriptApi {
   jumpTo: (turnId: string, align?: "start" | "center") => void;
@@ -73,7 +75,39 @@ export function TranscriptView(props: {
    * this to hold transcript writes until the gesture ends.
    */
   onScrollGate?: (gate: { gesturing: boolean; following: boolean }) => void;
+  /** The session's workspace — anchors relative paths in the transcript. */
+  workspace?: () => string | undefined;
+  /** Open a workspace-relative path in the session's right rail. Without this
+   *  there is nothing to open into, and paths stay plain text. */
+  onOpenPath?: (rel: string) => void;
 }): JSX.Element {
+  /**
+   * What a path in this transcript can do. Nothing to open into without
+   * onOpenPath — a peer pane gets no rail — so there is no context at all and
+   * the paths stay text rather than dead links.
+   */
+  const [pathErr, setPathErr] = fadeSignal("");
+  const pathApi: PathApi | undefined = props.onOpenPath
+    ? {
+        open: (raw) => {
+          const target = resolveTarget(raw, props.workspace?.());
+          if (target.rel !== undefined) {
+            props.onOpenPath!(target.rel);
+            return;
+          }
+          if (target.abs !== undefined) {
+            void revealResolved(raw, props.workspace?.()).catch((e) => setPathErr(explain(e)));
+            return;
+          }
+          setPathErr(t("path.missing"));
+        },
+        revealable: (raw) => resolveTarget(raw, props.workspace?.()).abs !== undefined,
+        reveal: (raw) => {
+          void revealResolved(raw, props.workspace?.()).catch((e) => setPathErr(explain(e)));
+        },
+      }
+    : undefined;
+
   return (
     <div class={`relative flex flex-1 flex-col ${props.class ?? ""}`}>
       <Show when={layoutKey(props.paneId, props.sessionId)} keyed>
@@ -174,6 +208,7 @@ export function TranscriptView(props: {
 
           return (
             <DisclosureContext.Provider value={readDisclosure(key)}>
+              <PathActions.Provider value={pathApi}>
               <ContentSashes />
               <div
                 ref={(el) => (scroller = el)}
@@ -269,6 +304,15 @@ export function TranscriptView(props: {
                   </Button>
                 </Tip>
               </Show>
+
+              {/* A path that resolved to nothing reachable gets a fading word
+                  where the click happened, high enough to clear the nav. */}
+              <Show when={pathErr()}>
+                <p class="surface-popover absolute bottom-16 left-1/2 z-30 -translate-x-1/2 rounded-md px-3 py-1.5 text-xs text-destructive">
+                  {pathErr()}
+                </p>
+              </Show>
+              </PathActions.Provider>
             </DisclosureContext.Provider>
           );
         }}

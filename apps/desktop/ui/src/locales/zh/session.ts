@@ -412,6 +412,12 @@ export default {
   "message.interrupted": "这条回复没有写完，会话就结束了。",
   "message.empty": "模型这次没有返回任何内容。",
 
+  // 转录里识别出的本地路径 —— 点击在右栏打开，菜单可开所在目录或复制。
+  "path.open": "在右栏打开",
+  "path.reveal": "打开所在目录",
+  "path.copy": "复制路径",
+  "path.missing": "找不到这个路径。",
+
   // The prompt outline on the transcript's left edge.
   "nav.outline": "提问导航，共 {n} 条",
   "nav.previous": "上一条提问",

@@ -503,6 +503,25 @@ textarea {
   }
   .md pre[data-lang] code { @apply p-3; }
 
+  /* A recognised local path — an underline that promises it opens, quiet
+     enough to live inside prose and code without reading as a link. */
+  .md .path-link {
+    all: unset;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+    text-decoration: underline dotted;
+    text-underline-offset: 3px;
+  }
+  .md .path-link:hover {
+    text-decoration-style: solid;
+  }
+  .md .path-link:focus-visible {
+    outline: 2px solid var(--ring, currentColor);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
   /* A drawn diagram sits where its code block was, and keeps that block's box:
      same margin, same radius, same hairline. A diagram that arrived in its own
      chrome would read as a different kind of thing from everything else in the

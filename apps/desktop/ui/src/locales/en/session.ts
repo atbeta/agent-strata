@@ -411,6 +411,13 @@ export default {
   "message.interrupted": "This reply was cut off when the session ended.",
   "message.empty": "The model returned nothing this time.",
 
+  // A local path recognised in the transcript — click opens it in the rail,
+  // the menu offers the file manager and a copy.
+  "path.open": "Open in panel",
+  "path.reveal": "Open enclosing folder",
+  "path.copy": "Copy path",
+  "path.missing": "This path could not be found.",
+
   // The prompt outline on the transcript's left edge.
   "nav.outline": "Prompt outline, {n} prompts",
   "nav.previous": "Previous prompt",

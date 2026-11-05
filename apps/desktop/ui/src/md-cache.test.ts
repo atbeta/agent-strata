@@ -56,8 +56,8 @@ describe("settled markdown HTML cache", () => {
 
   test("the block still being written bypasses the cache and diagrams still draw on new nodes", () => {
     const src = readFileSync(join(import.meta.dir, "md.tsx"), "utf8");
-    expect(src).toContain("blockNodes(source, true)");
-    expect(src).toContain("blockNodes(last, false)");
+    expect(src).toContain("paint(source, true)");
+    expect(src).toContain("paint(last, false)");
     expect(src).toContain("finished ? htmlCache.get(markdown) : undefined");
     expect(src.indexOf("if (finished) drawDiagrams")).toBeGreaterThan(src.indexOf("htmlCache.set"));
   });

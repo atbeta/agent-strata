@@ -11,6 +11,7 @@ import { drawDiagram, isDiagramBlock } from "./mermaid";
 import { t } from "./i18n";
 import { MarkdownHtmlCache } from "./md-cache";
 import { openImage } from "./image-viewer";
+import { linkifyPaths, pathActions } from "./path-link";
 
 marked.setOptions({ gfm: true, breaks: true });
 
@@ -72,10 +73,25 @@ export function Md(props: { text: string; class?: string; live?: boolean }) {
    * ago — a paragraph that grew keeps its node and its text node, so nothing
    * blinks, a selection holds and an image does not reload.
    */
+  /**
+   * Path linkification is a per-instance pass, not part of `parsed()`: the
+   * cached HTML stays shared, and a view with no PathActions context — the
+   * trace drawer — keeps its paths as plain text instead of dead links.
+   */
+  const paths = pathActions();
+  const paint = (source: string, finished: boolean): Node[] => {
+    const nodes = blockNodes(source, finished);
+    if (!paths) return nodes;
+    const frag = document.createDocumentFragment();
+    frag.append(...nodes);
+    linkifyPaths(frag);
+    return [...frag.childNodes];
+  };
+
   const tail = createMemo<Node[]>((prev) => {
     const last = live() ? blocks().at(-1) : undefined;
     if (last === undefined) return [];
-    return reconcileList(prev, withCaret(blockNodes(last, false)));
+    return reconcileList(prev, withCaret(paint(last, false)));
   }, []);
 
   onCleanup(() => {
@@ -86,14 +102,21 @@ export function Md(props: { text: string; class?: string; live?: boolean }) {
     <div
       class={`md ${props.class ?? ""}`}
       onClick={(e) => {
-        const img = e.target instanceof HTMLImageElement ? e.target : undefined;
+        const target = e.target instanceof Element ? e.target : undefined;
+        const pathEl = target?.closest("[data-path]");
+        if (pathEl instanceof HTMLElement && pathEl.dataset.path) {
+          e.preventDefault();
+          paths?.open(pathEl.dataset.path);
+          return;
+        }
+        const img = target instanceof HTMLImageElement ? target : undefined;
         // A linked image navigates; it is a link first and a picture second.
         if (!img || img.closest("a")) return;
         openImage(img.currentSrc || img.src, img.alt);
       }}
     >
       {/* Straight into `.md`, no wrapper: the theme styles `.md > :first-child`. */}
-      <For each={settled()}>{(source) => blockNodes(source, true)}</For>
+      <For each={settled()}>{(source) => paint(source, true)}</For>
       {tail()}
     </div>
   );

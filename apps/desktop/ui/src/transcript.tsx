@@ -11,6 +11,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { copyImage, copyText } from "./clipboard";
+import { pathActions } from "./path-link";
 import { Icon, type Name } from "./icons";
 import { openImage } from "./image-viewer";
 import { Md } from "./md";
@@ -63,8 +64,11 @@ function MessageMenu(props: {
   children: JSX.Element;
 }) {
   /** What the right-click actually landed on — an image asks for image
-   *  actions, not a copy of the text around it. Read at open time below. */
+   *  actions, a path for path actions, not a copy of the text around them.
+   *  Read at open time below. */
   let ctxImage: HTMLImageElement | undefined;
+  let ctxPath: string | undefined;
+  const paths = pathActions();
   return (
     <ContextMenu>
       <ContextMenuTrigger class="contents">
@@ -72,12 +76,39 @@ function MessageMenu(props: {
           class="contents"
           onContextMenu={(e) => {
             ctxImage = e.target instanceof HTMLImageElement ? e.target : undefined;
+            ctxPath =
+              e.target instanceof Element
+                ? (e.target.closest("[data-path]") as HTMLElement | null)?.dataset.path
+                : undefined;
           }}
         >
           {props.children}
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent class="min-w-40">
+        {(() => {
+          const raw = ctxPath;
+          const api = paths;
+          return raw && api ? (
+            <>
+              <ContextMenuItem onSelect={() => api.open(raw)}>
+                <Icon name="page" class="size-3.5 text-muted-foreground" />
+                {t("path.open")}
+              </ContextMenuItem>
+              <Show when={api.revealable(raw)}>
+                <ContextMenuItem onSelect={() => api.reveal(raw)}>
+                  <Icon name="folder-open" class="size-3.5 text-muted-foreground" />
+                  {t("path.reveal")}
+                </ContextMenuItem>
+              </Show>
+              <ContextMenuItem onSelect={() => void copyText(raw)}>
+                <Icon name="copy" class="size-3.5 text-muted-foreground" />
+                {t("path.copy")}
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+            </>
+          ) : null;
+        })()}
         {(() => {
           const img = ctxImage;
           return img ? (
