@@ -283,6 +283,7 @@ export default {
   "composer.remove_queued": "Remove queued message",
   "composer.placeholder.queue": "Queue a follow-up…",
   "composer.disconnected": "Backend not connected. Messages can't be sent right now.",
+  "composer.childReadonly": "This is a child session — write in its parent instead.",
   "composer.placeholder.message": "Message…",
   "composer.running": "Running",
   "composer.stopping": "Stopping…",

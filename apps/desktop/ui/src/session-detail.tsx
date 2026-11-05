@@ -797,6 +797,9 @@ export function SessionDetail(props: {
     branch: () => settled(vcs)?.branch ?? undefined,
     sessionActivity: () =>
       props.sessions.map((row) => ({ id: row.summary.session_id, busy: row.busy === true })),
+    // A child session is driven by its parent — nothing can be sent into it.
+    readOnly: () =>
+      displayed()?.parent_session_id ? t("composer.childReadonly") : undefined,
   });
 
   let tools: ReturnType<typeof useMcpTools>;
@@ -1856,6 +1859,9 @@ const turns = () => shown().turns;
                       goal={v().goal}
                       goalMet={v().goal_met}
                       goalPaused={v().goal_paused}
+                      readOnly={() =>
+                        v().parent_session_id ? t("composer.childReadonly") : undefined
+                      }
                     />
                   </div>
                 </div>

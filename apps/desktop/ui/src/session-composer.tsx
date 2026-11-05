@@ -115,6 +115,9 @@ export function useSessionComposer(args: {
   commands: () => CommandInfo[] | undefined;
   /** runs a `source: "builtin"` entry; the backend owns the rest of the list */
   onBuiltin: (name: string, args: string) => void | Promise<void>;
+  /** Set when the session cannot take input — a child session is driven by
+   *  its parent. The value is the reason shown where the placeholder was. */
+  readOnly?: () => string | undefined;
   options: () => OptionsResponse | undefined;
   replayPos: () => number | null;
   refreshView: (full?: boolean) => Promise<void>;
@@ -131,6 +134,9 @@ export function useSessionComposer(args: {
 }) {
   const opencode = () => args.caps()?.extension === "opencode";
   const connected = () => args.caps()?.connected !== false;
+  /** A read-only session refuses at the logic layer too: a readonly textarea
+   *  still fires Enter, and cite/edit paths send without touching the box. */
+  const writable = () => args.readOnly?.() === undefined;
   const initialSessionId = args.sessionId();
   const sessionQueues = createSessionQueues<Outgoing>(initialSessionId);
   const [draft, setDraft] = createSignal(restoreColdDraft(initialSessionId));
@@ -412,7 +418,7 @@ export function useSessionComposer(args: {
       setAttachments((list) => [...list, a]);
     }
   };
-  const canAttach = () => args.caps()?.attachments === true;
+  const canAttach = () => writable() && args.caps()?.attachments === true;
 
   const generating = () => runInProgress({ handover: handover(), busy: args.view()?.busy });
 
@@ -623,6 +629,7 @@ export function useSessionComposer(args: {
   };
 
   const send = () => {
+    if (!writable()) return;
     if (!connected()) {
       setSendErr(t("composer.disconnected"));
       return;
@@ -680,7 +687,7 @@ export function useSessionComposer(args: {
     }
     void deliver(out);
   };
-  const canSend = () => connected() && (Boolean(draft().trim()) || attachments().length > 0);
+  const canSend = () => writable() && connected() && (Boolean(draft().trim()) || attachments().length > 0);
 
   const runSlash = (name: string, slashArgs: string) => {
     setDraft(slashArgs ? `/${name} ${slashArgs}` : `/${name}`);
@@ -1258,17 +1265,22 @@ export function SessionComposer(props: {
   goalMet?: boolean;
   /** The reader paused the goal. The text stays; idle does not continue it. */
   goalPaused?: boolean;
+  /** Set when the session cannot take input — the reason replaces the
+   *  placeholder and the box goes read-only. */
+  readOnly?: () => string | undefined;
 }) {
   const c = () => props.c;
   const g = useGoal(props.sessionId, () => props.goal, () => props.goalMet, () => props.goalPaused);
+  const ro = () => props.readOnly?.();
   const placeholder = () =>
-    paneWorkspace().mode === "multiplex"
+    ro() ??
+    (paneWorkspace().mode === "multiplex"
       ? c().generating()
         ? t("pane.composer.queue_target", { title: displayTitle(props.title) ?? t("session.untitled") })
         : t("pane.composer.target", { title: displayTitle(props.title) ?? t("session.untitled") })
       : c().generating()
         ? t("composer.placeholder.queue")
-        : t("composer.placeholder.message");
+        : t("composer.placeholder.message"));
   return (
     <>
       <div class="relative">
@@ -1383,6 +1395,7 @@ export function SessionComposer(props: {
             ref={c().bindDraft}
             class="max-h-56 w-full resize-none bg-transparent px-4 py-3 font-sans text-base leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none"
             rows={1}
+            readOnly={ro() !== undefined}
             placeholder={placeholder()}
             aria-label={placeholder()}
             aria-autocomplete="list"
@@ -1425,12 +1438,12 @@ export function SessionComposer(props: {
           </Show>
           <ComposerToolbar
             context={c().contextSlot}
-            agent={c().optionsAgents() > 0 ? c().agentSlot : undefined}
-            model={c().modelAvailable() ? c().modelSlot : undefined}
-            effort={c().effortVariants() > 0 ? c().effortSlot : undefined}
+            agent={!ro() && c().optionsAgents() > 0 ? c().agentSlot : undefined}
+            model={!ro() && c().modelAvailable() ? c().modelSlot : undefined}
+            effort={!ro() && c().effortVariants() > 0 ? c().effortSlot : undefined}
             onAttach={c().canAttach() ? c().openFilePicker : undefined}
-            permission={props.permission}
-            goal={() => <GoalButton g={g} />}
+            permission={ro() ? undefined : props.permission}
+            goal={ro() ? undefined : () => <GoalButton g={g} />}
             generating={c().generating()}
             stopping={c().stopping()}
             canSend={c().canSend()}
