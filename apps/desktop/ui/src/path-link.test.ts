@@ -81,8 +81,31 @@ describe("resolving a path against the session workspace", () => {
     expect(resolveTarget("/tmp/a.ts", undefined)).toEqual({ abs: "/tmp/a.ts" });
   });
 
+  test("windows forms: backslash relatives, drive workspace, UNC", () => {
+    const dws = "C:\\proj";
+    // Backslash-separated tokens detect the same as their / cousins.
+    expect(raws("edited src\\main.ts and src\\components\\ today")).toEqual([
+      "src\\main.ts",
+      "src\\components",
+    ]);
+    expect(raws("either and\\or works")).toEqual([]);
+    expect(raws("share at \\\\srv\\pub\\dir")).toEqual(["\\\\srv\\pub\\dir"]);
+    // Relatives anchor on a drive workspace too — this was silently broken.
+    expect(resolveTarget("src\\main.ts", dws)).toEqual({
+      rel: "src/main.ts",
+      abs: "C:\\proj\\src\\main.ts",
+    });
+    expect(resolveTarget("src/main.ts", dws)).toEqual({
+      rel: "src/main.ts",
+      abs: "C:\\proj\\src\\main.ts",
+    });
+    expect(resolveTarget("..\\outside\\f.md", dws)).toEqual({ abs: "C:\\outside\\f.md" });
+    expect(resolveTarget("\\\\srv\\pub", dws)).toEqual({ abs: "\\\\srv\\pub" });
+    expect(resolveTarget("src\\a.ts", undefined)).toEqual({});
+  });
+
   test("drive paths join a drive workspace and lose their backslashes", () => {
-    expect(resolveTarget("C:\\proj\\src\\a.ts", "C:\\proj")).toEqual({ rel: "src/a.ts", abs: "C:/proj/src/a.ts" });
+    expect(resolveTarget("C:\\proj\\src\\a.ts", "C:\\proj")).toEqual({ rel: "src/a.ts", abs: "C:\\proj\\src\\a.ts" });
     expect(resolveTarget("C:\\other\\a.ts", ws)).toEqual({ abs: "C:\\other\\a.ts" });
   });
 });

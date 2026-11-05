@@ -5,10 +5,11 @@ import { revealPath } from "./api";
  * Local paths in rendered text, recognised and made clickable.
  *
  * Detection is deliberately narrow: a token has to announce itself as a path
- * (`~/`, `./`, `../`, a drive letter, or `/` under a known filesystem root) or
- * carry a file extension across a slash (`src/foo.ts`). Bare `a/b` tokens
- * without an extension stay text — `and/or`, `feature/branch`, and `either/or`
- * are not files — and neither are API routes like `/docs/getting-started`.
+ * (`~/`, `./`, `../`, a drive letter, a UNC `\\server`, or `/` under a known
+ * filesystem root) or carry a file extension across a separator (`src/foo.ts`,
+ * `src\foo.ts`). Bare `a/b` tokens without an extension stay text — `and/or`,
+ * `feature/branch`, and `either/or` are not files — and neither are API
+ * routes like `/docs/getting-started`.
  */
 
 /** One path-shaped token inside a text node. */
@@ -19,14 +20,18 @@ const GAP = String.raw`[^\s<>"'\`|()\[\]{}]`;
 
 const PATHISH = new RegExp(
   [
+    // UNC paths — \\server\share — before the plain absolute arm eats the
+    // single backslashes as ordinary characters
+    String.raw`\\\\${GAP}*`,
     // ~ and absolute POSIX paths, and protocol-relative //host (dropped later)
     String.raw`~?\/${GAP}*`,
     // Drive-letter paths, both separators
     String.raw`[A-Za-z]:[\\/][^\s<>"'\`|()\[\]{}]*`,
     // ./ and ../ relatives
     String.raw`\.{1,2}\/${GAP}*`,
-    // Bare relatives: starts on a word-ish character, contains a slash
-    String.raw`[\w@+.,%=\-]${GAP}*\/${GAP}*`,
+    // Bare relatives: starts on a word-ish character, contains a separator —
+    // / on one platform, \ on the other
+    String.raw`[\w@+.,%=\-]${GAP}*[\\/]${GAP}*`,
   ].join("|"),
   "g",
 );
@@ -76,15 +81,15 @@ export function findPaths(text: string): PathMatch[] {
     // scheme's colon is the tail of one. Neither is a filesystem path.
     if (raw.startsWith("//")) continue;
     if (raw.startsWith("/") && text[start - 1] === ":") continue;
-    const dir = raw.endsWith("/");
+    const dir = /[\\/]$/.test(raw);
     if (dir) raw = raw.slice(0, -1);
     raw = raw.replace(TRAILING, "");
     if (!isPath(raw)) continue;
     // A bare relative has to end like a file (or it already said it is a
     // directory) — `src/foo.ts` qualifies, `and/or` does not. A colon in the
     // first segment means the match swallowed `scheme://…` instead.
-    const anchored = /^([~.]?\/|[A-Za-z]:[\\/])/.test(raw);
-    if (!anchored && (raw.split("/")[0]!.includes(":") || (!dir && !FILE_TAIL.test(raw)))) continue;
+    const anchored = /^([~.]?\/|\\\\|[A-Za-z]:[\\/])/.test(raw);
+    if (!anchored && (raw.split(/[/\\]/)[0]!.includes(":") || (!dir && !FILE_TAIL.test(raw)))) continue;
     // An absolute path without a file tail is a filesystem path only under a
     // known root — otherwise it reads exactly like an API route.
     if (raw.startsWith("/") && !raw.startsWith("~/")) {
@@ -97,7 +102,7 @@ export function findPaths(text: string): PathMatch[] {
 }
 
 function isPath(raw: string): boolean {
-  if (raw === "/" || raw === "~" || raw === "." || raw === "..") return false;
+  if (raw === "/" || raw === "~" || raw === "." || raw === ".." || raw === "\\\\") return false;
   if (/^~$|^~[^/]/.test(raw)) return false;
   return /[/\\]/.test(raw) || /^[A-Za-z]:$/.test(raw);
 }
@@ -129,35 +134,43 @@ function under(path: string, root: string): string | undefined {
   return path.startsWith(prefix) ? path.slice(prefix.length) : undefined;
 }
 
+/** `under` for the drive world: compares lowercased, slices the real case. */
+function underCi(path: string, root: string): string | undefined {
+  if (path.toLowerCase() === root.toLowerCase()) return "";
+  const prefix = root.endsWith("/") ? root : `${root}/`;
+  return path.toLowerCase().startsWith(prefix.toLowerCase())
+    ? path.slice(prefix.length)
+    : undefined;
+}
+
 export function resolveTarget(raw: string, workspace: string | undefined): ResolvedPath {
   const p = raw.trim();
   if (p === "~" || p.startsWith("~/")) return { abs: p };
+  // A UNC path anchors on its server — there is no workspace to place it in.
+  if (p.startsWith("\\\\")) return { abs: p };
   const ws = workspace?.replace(/\\/g, "/").replace(/\/+$/, "");
+  const wsDrive = ws !== undefined && /^[A-Za-z]:\//.test(ws);
   // A drive-letter path is compared case-insensitively on its own separator
   // world; mixing `C:/x` against a POSIX workspace can never land inside it.
   if (/^[A-Za-z]:[\\/]/.test(p)) {
     const posix = normSegs(p.replace(/\\/g, "/"));
-    // Case-insensitive containment, but the rel slice keeps its real case.
-    const rel =
-      ws && /^[A-Za-z]:\//.test(ws) && posix.toLowerCase().startsWith(`${ws.toLowerCase()}/`)
-        ? posix.slice(ws.length + 1)
-        : posix.toLowerCase() === ws?.toLowerCase()
-          ? ""
-          : undefined;
-    return rel === undefined ? { abs: p } : { rel, abs: posix };
+    const rel = wsDrive ? underCi(posix, ws) : undefined;
+    // The revealable copy goes back to native separators for explorer.
+    return rel === undefined ? { abs: p } : { rel, abs: posix.replace(/\//g, "\\") };
   }
   if (p.startsWith("/")) {
     const abs = normSegs(p);
-    const rel = ws && ws.startsWith("/") ? under(abs, ws) : undefined;
+    const rel = ws && !wsDrive ? under(abs, ws) : undefined;
     return rel === undefined ? { abs } : { rel, abs };
   }
   // Relative: only a session workspace can anchor it.
-  if (!ws || !ws.startsWith("/")) return {};
-  const joined = normSegs(`${ws}/${p}`);
-  const rel = under(joined, ws);
+  if (!ws) return {};
+  const joined = normSegs(`${ws}/${p.replace(/\\/g, "/")}`);
+  const rel = wsDrive ? underCi(joined, ws) : ws.startsWith("/") ? under(joined, ws) : undefined;
   // `../x` walks out of the workspace — still a real local path, just not
   // one the file API will serve.
-  return rel === undefined ? { abs: joined } : { rel, abs: joined };
+  if (rel === undefined) return { abs: wsDrive ? joined.replace(/\//g, "\\") : joined };
+  return { rel, abs: wsDrive ? joined.replace(/\//g, "\\") : joined };
 }
 
 /**
