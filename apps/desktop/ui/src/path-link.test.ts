@@ -35,6 +35,19 @@ describe("finding local paths in prose", () => {
     }
   });
 
+  test("api routes stay text — they are shaped like extension-less absolute paths", () => {
+    for (const text of [
+      "`/` 200、`/zh` 200、`/docs/getting-started` 200",
+      "POST /api/users/42 then GET /v1/status",
+      "proxy /admin/settings to the app",
+    ]) {
+      expect(raws(text)).toEqual([]);
+    }
+    // …while real roots and extension-carrying paths still link.
+    expect(raws("/Users/b/proj and /etc/hosts and /api/v2.json"))
+      .toEqual(["/Users/b/proj", "/etc/hosts", "/api/v2.json"]);
+  });
+
   test("code and emphasis still count", () => {
     expect(raws("error at `/var/log/x.log`")).toEqual(["/var/log/x.log"]);
     expect(raws("**src/main.rs** broke")).toEqual(["src/main.rs"]);

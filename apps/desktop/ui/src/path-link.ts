@@ -5,9 +5,10 @@ import { revealPath } from "./api";
  * Local paths in rendered text, recognised and made clickable.
  *
  * Detection is deliberately narrow: a token has to announce itself as a path
- * (`/`, `~/`, `./`, `../`, a drive letter) or carry a file extension across a
- * slash (`src/foo.ts`). Bare `a/b` tokens without an extension stay text —
- * `and/or`, `feature/branch`, and `either/or` are not files.
+ * (`~/`, `./`, `../`, a drive letter, or `/` under a known filesystem root) or
+ * carry a file extension across a slash (`src/foo.ts`). Bare `a/b` tokens
+ * without an extension stay text — `and/or`, `feature/branch`, and `either/or`
+ * are not files — and neither are API routes like `/docs/getting-started`.
  */
 
 /** One path-shaped token inside a text node. */
@@ -33,6 +34,35 @@ const PATHISH = new RegExp(
 const TRAILING = /[*_.,;:!?]+$/;
 const FILE_TAIL = /\.[A-Za-z0-9]{1,12}$/;
 
+/**
+ * Top-level directories an extension-less absolute path may start with and
+ * still be a filesystem path. Without this, `/docs/getting-started` and
+ * `/api/users` — API routes, not files — link the same way `/Users/x` does.
+ * A route never carries a file extension, so `/api/v2.json` still qualifies.
+ */
+const POSIX_ROOTS = new Set([
+  "Users",
+  "home",
+  "tmp",
+  "var",
+  "etc",
+  "opt",
+  "usr",
+  "private",
+  "Volumes",
+  "mnt",
+  "media",
+  "root",
+  "srv",
+  "dev",
+  "run",
+  "boot",
+  "data",
+  "System",
+  "Library",
+  "Applications",
+]);
+
 export function findPaths(text: string): PathMatch[] {
   const out: PathMatch[] = [];
   for (const m of text.matchAll(PATHISH)) {
@@ -55,6 +85,12 @@ export function findPaths(text: string): PathMatch[] {
     // first segment means the match swallowed `scheme://…` instead.
     const anchored = /^([~.]?\/|[A-Za-z]:[\\/])/.test(raw);
     if (!anchored && (raw.split("/")[0]!.includes(":") || (!dir && !FILE_TAIL.test(raw)))) continue;
+    // An absolute path without a file tail is a filesystem path only under a
+    // known root — otherwise it reads exactly like an API route.
+    if (raw.startsWith("/") && !raw.startsWith("~/")) {
+      const segs = raw.split("/").filter(Boolean);
+      if (!POSIX_ROOTS.has(segs[0]!) && !FILE_TAIL.test(segs.at(-1) ?? "")) continue;
+    }
     out.push({ start, end: start + raw.length, raw, dir });
   }
   return out;
