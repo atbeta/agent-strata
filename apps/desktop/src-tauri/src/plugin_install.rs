@@ -68,6 +68,10 @@ pub fn install_plugin(dir: &Path) -> std::io::Result<PathBuf> {
     std::fs::create_dir_all(&folder)?;
     let path = folder.join("dev-process.ts");
     std::fs::write(&path, DEV_PROCESS_PLUGIN)?;
+    // 0.25.0-0.25.3 wrote a browser plugin beside this one. OpenCode loads
+    // every file in the directory, so a leftover keeps offering browser tools
+    // against routes this build no longer has.
+    let _ = std::fs::remove_file(folder.join("browser.ts"));
     Ok(path)
 }
 
@@ -112,10 +116,14 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
 
+        let stale = dir.join("plugin").join("browser.ts");
+        std::fs::create_dir_all(stale.parent().unwrap()).unwrap();
+        std::fs::write(&stale, "leftover browser plugin").unwrap();
         let path = install_plugin(&dir).unwrap();
         assert!(path.is_file());
         let written = std::fs::read_to_string(&path).unwrap();
         assert_eq!(written, DEV_PROCESS_PLUGIN);
+        assert!(!stale.exists());
 
         // A second install overwrites rather than appending.
         std::fs::write(&path, "stale").unwrap();
