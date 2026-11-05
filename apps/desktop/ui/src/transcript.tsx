@@ -36,6 +36,7 @@ import {
   isDiff,
   isInteractiveTool,
   isLengthStop,
+  isStoppedStop,
   replyInterrupted,
   messageText,
   silentEmptyReply,
@@ -913,17 +914,20 @@ function AssistantMessage(props: {
   const text = () => (met() ? t("goal.met_reply") : messageText(props.message.content));
   const notice = () => assistantNotice(props.message.error);
   const truncated = () => isLengthStop(props.message.stop_reason);
-  const [interrupted, setInterrupted] = createSignal(false);
-  const confirmInterruption = createDebouncer(250);
+  const stopped = () => isStoppedStop(props.message.stop_reason);
+  // A cut-off mark is provisional until two things have passed: the session
+  // being live (the real completed final may still be in flight), and a beat
+  // after idle for that final to replace the provisional close. Showing it
+  // before then is a warning that appears and vanishes.
+  const [cutOff, setCutOff] = createSignal(false);
+  const confirmInterruption = createDebouncer(1500);
   createEffect(() => {
-    if (!replyInterrupted(props.message)) {
+    if ((!replyInterrupted(props.message) && !stopped()) || props.live?.() === true) {
       confirmInterruption.cancel();
-      setInterrupted(false);
+      setCutOff(false);
       return;
     }
-    // Idle can precede the real completed final by a beat. Give that final a
-    // chance to replace the provisional close before announcing a cut-off.
-    confirmInterruption.schedule(() => setInterrupted(true));
+    confirmInterruption.schedule(() => setCutOff(true));
   });
   onCleanup(() => confirmInterruption.cancel());
   const empty = () => silentEmptyReply(props.message);
@@ -935,7 +939,7 @@ function AssistantMessage(props: {
         hasMessageContent(props.message.content) ||
         notice() ||
         truncated() ||
-        interrupted() ||
+        cutOff() ||
         empty() ||
         props.message.structured !== undefined
       }
@@ -983,12 +987,12 @@ function AssistantMessage(props: {
               <span>{t("message.truncated")}</span>
             </p>
           </Show>
-          <Show when={interrupted()}>
+          <Show when={cutOff()}>
             <p role="status" class="mt-2 flex items-start gap-1.5 text-xs text-event-permission">
               <span class="flex h-[1lh] shrink-0 items-center">
                 <Icon name="alert" class="size-3" />
               </span>
-              <span>{t("message.interrupted")}</span>
+              <span>{stopped() ? t("message.stopped") : t("message.interrupted")}</span>
             </p>
           </Show>
           <Show when={empty()}>

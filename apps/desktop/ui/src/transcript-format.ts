@@ -74,6 +74,17 @@ export function isInterruptedStop(reason: string | undefined): boolean {
 }
 
 /**
+ * A reply the reader chose to end. Both words mark a write that was cut off;
+ * "stopped" just names who did it, so the notice can say so instead of
+ * sounding like the session died.
+ */
+export const STOPPED_STOP = "stopped";
+
+export function isStoppedStop(reason: string | undefined): boolean {
+  return reason === STOPPED_STOP;
+}
+
+/**
  * Whether the adapter confirmed that a reply was cut off. A partial without a
  * running flag is only a transient view of the stream, not proof of an ended
  * turn; the adapter writes an explicit final when the close is real.
@@ -98,7 +109,12 @@ export function silentEmptyReply(message: {
 }): boolean {
   if (message.partial === true) return false;
   if (message.error !== undefined || message.structured !== undefined) return false;
-  if (message.stop_reason === "tool-calls" || isInterruptedStop(message.stop_reason)) return false;
+  if (
+    message.stop_reason === "tool-calls" ||
+    isInterruptedStop(message.stop_reason) ||
+    isStoppedStop(message.stop_reason)
+  )
+    return false;
   return !hasMessageContent(message.content);
 }
 

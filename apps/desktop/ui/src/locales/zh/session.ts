@@ -411,6 +411,7 @@ export default {
   "message.subtask.named": "子代理 · {agent}",
   "message.truncated": "这条回复因达到长度上限而结束，内容可能不完整。",
   "message.interrupted": "这条回复没有写完，会话就结束了。",
+  "message.stopped": "这条回复已停止，内容未写完。",
   "message.empty": "模型这次没有返回任何内容。",
 
   // 转录里识别出的本地路径 —— 点击在右栏打开，菜单可开所在目录或复制。

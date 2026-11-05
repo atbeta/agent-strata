@@ -410,6 +410,7 @@ export default {
   "message.subtask.named": "Subagent · {agent}",
   "message.truncated": "This reply reached the model's length limit and may be incomplete.",
   "message.interrupted": "This reply was cut off when the session ended.",
+  "message.stopped": "This reply was stopped before it finished.",
   "message.empty": "The model returned nothing this time.",
 
   // A local path recognised in the transcript — click opens it in the rail,

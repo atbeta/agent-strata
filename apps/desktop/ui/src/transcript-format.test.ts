@@ -23,6 +23,7 @@ const {
   hasMessageContent,
   isInteractiveTool,
   isInterruptedStop,
+  isStoppedStop,
   isLengthStop,
   messageText,
   permissionLabel,
@@ -708,9 +709,11 @@ describe("replyInterrupted", () => {
 
   test("the UI gives a late completed final a chance to cancel the warning", () => {
     const transcript = readFileSync(join(import.meta.dir, "transcript.tsx"), "utf8");
-    expect(transcript).toContain("createDebouncer(250)");
+    expect(transcript).toContain("createDebouncer(1500)");
     expect(transcript).toContain("confirmInterruption.cancel()");
-    expect(transcript).toContain("confirmInterruption.schedule(() => setInterrupted(true))");
+    expect(transcript).toContain("confirmInterruption.schedule(() => setCutOff(true))");
+    // …and a mark is never announced while the session is still running.
+    expect(transcript).toContain("props.live?.() === true");
   });
 
   test("a finished reply is never interrupted", () => {
@@ -742,6 +745,9 @@ describe("silentEmptyReply", () => {
   test("an interrupted reply and a failed one already carry their why", () => {
     expect(silentEmptyReply(msg({ stop_reason: "interrupted" }))).toBe(false);
     expect(isInterruptedStop("interrupted")).toBe(true);
+    // A stop the reader asked for is the same shape, a different word.
+    expect(isStoppedStop("stopped")).toBe(true);
+    expect(silentEmptyReply(msg({ stop_reason: "stopped" }))).toBe(false);
     expect(silentEmptyReply(msg({ error: "boom" }))).toBe(false);
     expect(silentEmptyReply(msg({ structured: null }))).toBe(false);
   });

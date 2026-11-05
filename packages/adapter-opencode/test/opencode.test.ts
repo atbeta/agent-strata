@@ -692,10 +692,11 @@ describe("OpencodeMapper", () => {
         error: { name: "MessageAbortedError", data: { message: "Aborted" } },
       },
     } as unknown as Event);
-    // The reply still open when the stop landed is closed, not left to vanish.
+    // The reply still open when the stop landed is closed, not left to vanish —
+    // and it is marked stopped, because the close was the reader's own doing.
     expect(out.find((e) => e.type === "turn.assistant")?.data).toMatchObject({
       msg_id: "a1",
-      stop_reason: "interrupted",
+      stop_reason: "stopped",
     });
     expect(out.find((e) => e.type === "session.error")?.data).toEqual({ error: null });
   });
@@ -1410,6 +1411,54 @@ describe("OpencodeMapper", () => {
     expect(m.flushSettles().some((e) => e.type === "session.status")).toBe(true);
     now += STREAM_SNAPSHOT_MS;
     expect(m.flushStreaming()).toEqual([]);
+  });
+
+  test("a parked question or permission holds the settle for as long as the reader thinks", () => {
+    // The five-minute tool ceiling exists for calls that went silent — but a
+    // request still open on the backend is the reader's clock, not a stall.
+    // Declaring idle mid-decision closes the open message as interrupted, a
+    // warning the reader's own answer then revokes: the flash this prevents.
+    let now = 1_000_000;
+    const m = new OpencodeMapper({ now: () => now });
+    m.handle({
+      id: "s1", type: "session.status", properties: { sessionID: sid, status: { type: "busy" } },
+    } as unknown as Event);
+    m.handle(msgUpdated({
+      id: "a2", sessionID: sid, role: "assistant", parentID: "u1",
+      time: { created: 31 }, providerID: "anthropic", modelID: "claude",
+      agent: "build", mode: "build", path: { cwd: "/repo", root: "/repo" }, cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    }));
+    m.handle(partUpdated({
+      id: "pt2", sessionID: sid, messageID: "a2", type: "tool", callID: "c1", tool: "bash",
+      state: { status: "running", input: { command: "rm -rf build" }, time: { start: 32 } },
+    }));
+    m.handle({
+      id: "pa",
+      type: "permission.asked",
+      properties: {
+        id: "perm1", sessionID: sid, permission: "bash",
+        patterns: ["rm -rf build"], metadata: {}, always: [],
+        tool: { messageID: "a2", callID: "c1" },
+      },
+    } as unknown as Event);
+    // Past every ceiling the tool alone would earn — the ask still holds.
+    now += SETTLE_STALL_MS + 1;
+    expect(m.flushSettles().some((e) => e.type === "session.status")).toBe(false);
+    expect(m.settleTimerMs()).toBeUndefined();
+    // Answered, the ordinary stall rules own the close again.
+    m.handle({
+      id: "pr",
+      type: "permission.replied",
+      properties: { sessionID: sid, requestID: "perm1", reply: "once" },
+    } as unknown as Event);
+    now += SETTLE_STALL_MS;
+    const settled = m.flushSettles();
+    expect(settled.find((e) => e.type === "session.status")?.data).toEqual({ state: "idle" });
+    expect(settled.find((e) => e.type === "turn.assistant")?.data).toMatchObject({
+      msg_id: "a2",
+      stop_reason: "interrupted",
+    });
   });
 
   test("a running tool keeps the quiet window from speaking", () => {

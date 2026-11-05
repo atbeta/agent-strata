@@ -422,6 +422,14 @@ interface SessionState {
    * run that is genuinely going.
    */
   liveMsgs?: Map<string, string | undefined>;
+  /**
+   * Questions and permissions the backend is still holding open, by request
+   * id. While one is outstanding the run is parked on the reader — knowable
+   * state, unlike a silent tool — so the settle fallback holds its verdict
+   * unconditionally rather than writing an interrupted final the reader's own
+   * answer will revoke.
+   */
+  awaiting?: Set<string>;
   /** last title / directory / archive we emitted, so cost-only session.updated stays quiet */
   metaSeen?: boolean;
   title?: string;
@@ -534,8 +542,17 @@ export class OpencodeMapper {
    *
    * The flag stays soft: a completion that arrives anyway still emits its own
    * final, which replaces this one by msg_id.
+   *
+   * `reason` is normally "interrupted" — the run's close cut the write off.
+   * A close the reader asked for reads as "stopped" instead, so the notice
+   * names their action rather than sounding like an accident.
    */
-  private closeOpenMessages(s: SessionState, out: EventInput[], tag: string): void {
+  private closeOpenMessages(
+    s: SessionState,
+    out: EventInput[],
+    tag: string,
+    reason: "interrupted" | "stopped" = "interrupted",
+  ): void {
     if (!s.liveMsgs?.size) return;
     for (const [msgID, turnID] of s.liveMsgs) {
       const m = s.messages.get(msgID);
@@ -551,7 +568,7 @@ export class OpencodeMapper {
             turn_id: turnID,
             msg_id: msgID,
             content: [...m.parts.values()].filter((b) => b.type !== "file_ref"),
-            stop_reason: "interrupted",
+            stop_reason: reason,
             ...(m.summary ? { summary: true } : {}),
             ...(m.steps?.size ? { steps: [...m.steps.values()] } : {}),
           },
@@ -645,6 +662,7 @@ export class OpencodeMapper {
       s.retryError = undefined;
       s.compacting = undefined;
       s.summaryMsg = undefined;
+      s.awaiting = undefined;
       this.closeOpenMessages(s, out, "settle");
       s.liveMsgs?.clear();
       // The same streaming retirement a real idle does; durable finals still land.
@@ -711,6 +729,9 @@ export class OpencodeMapper {
    */
   private settleReady(s: SessionState, entry: { afterCompletion: boolean }): boolean {
     const quietFor = this.now() - (s.lastTouch ?? 0);
+    // An unanswered question or permission is the reader's clock, not a
+    // stall: however long they take, the run is parked on them, not dead.
+    if (s.awaiting?.size) return false;
     if (!entry.afterCompletion && quietFor < SETTLE_QUIET_MS) return false;
     if (this.toolRunning(s) && quietFor < SETTLE_STALL_MS) return false;
     if ((s.liveMsgs?.size ?? 0) > 0 && quietFor < SETTLE_QUIET_MS) return false;
@@ -732,6 +753,9 @@ export class OpencodeMapper {
     let candidate: number | undefined;
     for (const [s, entry] of this.pendingSettles) {
       if (!s.sawBusy) continue;
+      // A parked question can hold its settle for as long as the reader
+      // thinks — no timer to re-arm meanwhile.
+      if (s.awaiting?.size) continue;
       if (this.settleReady(s, entry)) return SETTLE_DELAY_MS;
       const until = Math.max(
         // Not ready because nothing finished: the whole quiet window is still
@@ -815,6 +839,7 @@ export class OpencodeMapper {
       s.retryError = undefined;
       s.compacting = undefined;
       s.summaryMsg = undefined;
+      s.awaiting = undefined;
       this.closeOpenMessages(s, out, "reconcile");
       s.liveMsgs?.clear();
       this.retireStreaming(s);
@@ -1138,13 +1163,20 @@ export class OpencodeMapper {
     s.retryError = undefined;
     s.compacting = undefined;
     s.summaryMsg = undefined;
+    s.awaiting = undefined;
     this.pendingSettles.delete(s);
     for (const [msgID, held] of this.held) if (held.s === s) this.held.delete(msgID);
-    this.closeOpenMessages(s, out, "error");
-    s.liveMsgs?.clear();
     // A stop the reader asked for arrives as MessageAbortedError; it closes
-    // the session without naming it a failure.
+    // the session without naming it a failure, and the reply it was cutting
+    // off is marked stopped rather than interrupted.
     const diagnostic = sessionDiagnostic(error);
+    this.closeOpenMessages(
+      s,
+      out,
+      "error",
+      abortedDiagnostic(diagnostic) ? "stopped" : "interrupted",
+    );
+    s.liveMsgs?.clear();
     out.push(
       this.ev(s, "session.error", { error: abortedDiagnostic(diagnostic) ? null : diagnostic }, id),
     );
@@ -1829,6 +1861,7 @@ export class OpencodeMapper {
         s.retryError = undefined;
         s.compacting = undefined;
         s.summaryMsg = undefined;
+        s.awaiting = undefined;
         this.closeOpenMessages(s, out, "idle");
         s.liveMsgs?.clear();
         // The backend re-issues idle under fresh ids — a status-idle and a
@@ -1863,6 +1896,7 @@ export class OpencodeMapper {
         const { s, out: pre } = this.ensureSession(p.sessionID);
         out.push(...pre);
         this.noteWork(s, out, `q:${p.id}`);
+        (s.awaiting ??= new Set()).add(p.id);
         out.push(
           this.ev(
             s,
@@ -1886,6 +1920,7 @@ export class OpencodeMapper {
         const p = evt.properties;
         const { s, out: pre } = this.ensureSession(p.sessionID);
         out.push(...pre);
+        s.awaiting?.delete(p.requestID);
         out.push(
           this.ev(
             s,
@@ -1900,6 +1935,7 @@ export class OpencodeMapper {
         const p = evt.properties;
         const { s, out: pre } = this.ensureSession(p.sessionID);
         out.push(...pre);
+        s.awaiting?.delete(p.requestID);
         out.push(
           this.ev(
             s,
@@ -1915,6 +1951,7 @@ export class OpencodeMapper {
         const { s, out: pre } = this.ensureSession(p.sessionID);
         out.push(...pre);
         this.noteWork(s, out, `perm:${p.id}`);
+        (s.awaiting ??= new Set()).add(p.id);
         const shell = SHELL_PERMS.has(p.permission);
         const input: Record<string, unknown> = { ...p.metadata, patterns: p.patterns };
         if (shell) input.command = p.patterns.join("\n");
@@ -1937,6 +1974,7 @@ export class OpencodeMapper {
         const p = evt.properties;
         const { s, out: pre } = this.ensureSession(p.sessionID);
         out.push(...pre);
+        s.awaiting?.delete(p.requestID);
         out.push(
           this.ev(
             s,
