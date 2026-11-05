@@ -104,6 +104,19 @@ describe("the capability token", () => {
     expect(refused.status).toBe(401);
   });
 
+  test("the browser watch stream takes the token in the query too", async () => {
+    const base = started("secret-test-token");
+    const controller = new AbortController();
+    const res = await fetch(`${base}/browser/watch?session=x&token=secret-test-token`, {
+      signal: controller.signal,
+    });
+    expect(res.status).toBe(200);
+    controller.abort();
+
+    const refused = await fetch(`${base}/browser/watch?session=x`);
+    expect(refused.status).toBe(401);
+  });
+
   test("the preflight is answered before the token is asked for", async () => {
     // A browser sends the preflight without credentials; answering it with a
     // 401 would fail the request before it was ever made.

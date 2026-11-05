@@ -2562,7 +2562,8 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       // and the health check carries none, so a probe can ask whether the
       // service is up without holding a secret.
       const upgrade = req.headers.get("upgrade")?.toLowerCase() === "websocket";
-      const browserless = upgrade || url.pathname === "/stream";
+      const browserless =
+        upgrade || url.pathname === "/stream" || url.pathname === "/browser/watch";
       const authorized = tokenOk(req, apiToken) || (browserless && queryTokenOk(url, apiToken));
       const health = req.method === "GET" && url.pathname === "/health";
       if (!health && !authorized)

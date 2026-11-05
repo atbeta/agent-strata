@@ -154,7 +154,10 @@ interface Watcher {
   sink: (ev: WatchEvent) => void;
   pageId?: string;
   cdp?: CDPSession;
-  timer?: ReturnType<typeof setInterval>;
+  /** Screenshot fallback: interval while polling, timeout while arming the watchdog. */
+  timer?: ReturnType<typeof setInterval> | ReturnType<typeof setTimeout>;
+  /** True while the watchdog fell back to screenshot polling. */
+  polling?: boolean;
   stopped: boolean;
 }
 
@@ -442,6 +445,7 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
     if (w.timer) clearInterval(w.timer);
     w.cdp = undefined;
     w.timer = undefined;
+    w.polling = false;
     w.pageId = id;
     if (!page || !id) {
       w.sink({ type: "meta", meta: { page: "", url: "", w: 0, h: 0 } });
@@ -454,6 +458,43 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
       type: "meta",
       meta: { page: id, url: page.url(), w: lastW, h: lastH },
     });
+    // Screencast is not on every CDP target, and a headed window that is
+    // occluded or off the screen stops producing frames at all. The stream
+    // then falls back to polling a screenshot instead of the pane waiting on
+    // a frame that will never come — fromSurface:false asks for the page's
+    // own surface, which exists even when the window's does not.
+    const shoot = async (): Promise<string> => {
+      try {
+        const cdp = w.cdp ?? (w.cdp = await page.context().newCDPSession(page));
+        const shot = (await cdp.send("Page.captureScreenshot", {
+          format: "jpeg",
+          quality: 60,
+          fromSurface: false,
+        })) as { data: string };
+        return shot.data;
+      } catch {
+        const buf = await page.screenshot({ type: "jpeg", quality: 60 });
+        return buf.toString("base64");
+      }
+    };
+    const poll = () => {
+      if (w.stopped || w.pageId !== id || w.polling) return;
+      w.polling = true;
+      w.timer = setInterval(() => {
+        void shoot()
+          .then((data) => {
+            if (!w.stopped) w.sink({ type: "frame", data });
+          })
+          .catch(() => {});
+      }, 600);
+    };
+    // Any screencast frame resets the wait; silence past the timeout polls,
+    // and a frame arriving while polling means screencast is alive again.
+    const arm = () => {
+      w.polling = false;
+      if (w.timer) clearInterval(w.timer as ReturnType<typeof setInterval>);
+      w.timer = setTimeout(poll, 2_500);
+    };
     try {
       const cdp = await page.context().newCDPSession(page);
       if (w.stopped || w.pageId !== id) {
@@ -480,6 +521,7 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
           }
           w.sink({ type: "frame", data: ev.data });
           cdp.send("Page.screencastFrameAck", { sessionId: ev.sessionId }).catch(() => {});
+          arm();
         },
       );
       await cdp.send("Page.startScreencast", {
@@ -487,18 +529,9 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
         quality: 65,
         everyNthFrame: 1,
       });
+      arm();
     } catch {
-      // Screencast is not on every CDP target — a still-valid fallback is a
-      // frame every beat from a plain screenshot.
-      w.cdp = undefined;
-      w.timer = setInterval(() => {
-        page
-          .screenshot({ type: "jpeg", quality: 60 })
-          .then((buf) => {
-            if (!w.stopped) w.sink({ type: "frame", data: buf.toString("base64") });
-          })
-          .catch(() => {});
-      }, 400);
+      poll();
     }
   };
 

@@ -77,7 +77,15 @@ function MessageMenu(props: {
           {props.children}
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent class="min-w-40">
+      {/* The menu must not take focus: in WebKit that collapses the text
+       *  selection the right-click is supposed to operate on, and copy-
+       *  selection would lose its input. Keep focus in the document on open
+       *  and on close. */}
+      <ContextMenuContent
+        class="min-w-40"
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        onCloseAutoFocus={(e) => e.preventDefault()}
+      >
         {(() => {
           const img = ctxImage;
           return img ? (
