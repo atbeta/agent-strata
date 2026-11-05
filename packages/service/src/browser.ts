@@ -618,12 +618,13 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
       chromium.launchPersistentContext(profileDir, {
         channel,
         headless: false,
+        args: [`--remote-debugging-port=${port}`],
         // The compiled sidecar cannot answer Chrome's ws upgrade (Bun's ws
         // client never finishes the handshake against this DevTools server),
         // and playwright picks ws whenever pipe is not forced. Stdio pipes
-        // work in both runtimes, so the transport is pinned.
-        pipe: true,
-        args: [`--remote-debugging-port=${port}`],
+        // work in both runtimes, so the transport is pinned — the option is
+        // real at run time, just absent from the persistent-context typings.
+        ...({ pipe: true } as Record<string, unknown>),
       });
     try {
       return await attempt("chrome");
