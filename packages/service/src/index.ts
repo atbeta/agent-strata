@@ -2745,24 +2745,36 @@ function userHome(): string {
   return home && home.length > 0 ? home : ".";
 }
 
-if (import.meta.main) {
+/** Start the service from the environment the desktop shell sets. */
+export function main(): void {
   const home = userHome();
   const db = process.env.STRATA_DB ?? join(home, ".agent-strata", "events.db");
   const port = Number(process.env.STRATA_PORT ?? 7700);
   const policyFile = process.env.STRATA_POLICY ?? join(home, ".agent-strata", "policy.json");
   const placement = process.env.STRATA_OPENCODE_PLACEMENT;
-  const svc = startService({
-    db,
-    port,
-    policyFile,
-    // The capability token. The desktop sets one for every launch; a service
-    // started by hand runs without it and asks for nothing.
-    apiToken: process.env.STRATA_API_TOKEN,
-    // e.g. STRATA_OPENCODE_URL=http://127.0.0.1:4096 (Tauri embed sets this)
-    autoConnect: process.env.STRATA_OPENCODE_URL,
-    autoConnectUsername: process.env.STRATA_OPENCODE_USERNAME,
-    autoConnectPassword: process.env.STRATA_OPENCODE_PASSWORD,
-    autoConnectPlacement: placement === "embed" || placement === "external" ? placement : undefined,
-  });
-  console.log(`agent-strata service listening on http://127.0.0.1:${svc.port} (db: ${db})`);
+  try {
+    const svc = startService({
+      db,
+      port,
+      policyFile,
+      // The capability token. The desktop sets one for every launch; a service
+      // started by hand runs without it and asks for nothing.
+      apiToken: process.env.STRATA_API_TOKEN,
+      // e.g. STRATA_OPENCODE_URL=http://127.0.0.1:4096 (Tauri embed sets this)
+      autoConnect: process.env.STRATA_OPENCODE_URL,
+      autoConnectUsername: process.env.STRATA_OPENCODE_USERNAME,
+      autoConnectPassword: process.env.STRATA_OPENCODE_PASSWORD,
+      autoConnectPlacement: placement === "embed" || placement === "external" ? placement : undefined,
+    });
+    console.log(`agent-strata service listening on http://127.0.0.1:${svc.port} (db: ${db})`);
+  } catch (err) {
+    console.error(err);
+    process.exit(1);
+  }
 }
+
+// `bun packages/service/src/index.ts` (tauri dev). The compiled sidecar does
+// not use this: on Windows, bun --compile reports import.meta.main as false,
+// so a binary that gated listen on the flag started, printed nothing, and
+// exited. The shell then reported the port as taken.
+if (import.meta.main) main();

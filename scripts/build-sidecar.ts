@@ -123,7 +123,9 @@ const windows = triple.includes("windows") ? { hideConsole: true } : undefined;
 // inlines the two manifests playwright loads through __dirname, which a
 // compiled binary otherwise keeps as the path on the build machine.
 const built = await Bun.build({
-  entrypoints: [join(root, "packages/service/src/index.ts")],
+  // cli.ts, not index.ts: index starts only when import.meta.main is set,
+  // and the Windows compile target leaves that flag false.
+  entrypoints: [join(root, "packages/service/src/cli.ts")],
   compile: { outfile, ...(windows ? { windows } : {}) },
   external: ["chromium-bidi"],
   plugins: [playwrightCorePlugin],

@@ -1107,12 +1107,15 @@ impl Sidecars {
                 } else {
                     // Distinguish "it died" from "it is running but silent":
                     // one is a command that cannot work, the other is a
-                    // service still starting.
-                    let died = matches!(child.try_wait(), Ok(Some(_)));
-                    let detail = if died {
-                        format!("service on port {port} exited during startup (is the port taken?)")
-                    } else {
-                        format!("service on port {port} did not answer within 5s")
+                    // service still starting. A child that exits on its own
+                    // is not a taken port — that case is reported before
+                    // spawn, when the port is already open. The status is
+                    // the only trace a crash that printed nothing leaves.
+                    let detail = match child.try_wait() {
+                        Ok(Some(status)) => format!(
+                            "service on port {port} exited during startup (status {status})"
+                        ),
+                        _ => format!("service on port {port} did not answer within 5s"),
                     };
                     eprintln!("agent-strata: {detail}");
                     log_note(&log, &detail);
