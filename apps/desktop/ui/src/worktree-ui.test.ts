@@ -22,4 +22,8 @@ describe("worktree creation feedback", () => {
     expect(sidebar).toContain("{worktreeGroups().length}");
     expect(sidebar).toContain("<For each={worktreeKeys()}>{renderGroup}</For>");
   });
+
+  test("the fork button only appears where git claims the directory", () => {
+    expect(sidebar).toContain("props.ws.repoOf(group().dir)");
+  });
 });

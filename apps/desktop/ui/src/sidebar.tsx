@@ -387,7 +387,9 @@ export function Sidebar(props: {
                     </Button>
                   </Tip>
                 </Show>
-                <Show when={!wt()}>
+                {/* A worktree forks a repository — the button has no business
+                    on a directory git does not claim, where it could only fail. */}
+                <Show when={!wt() && props.ws.repoOf(group().dir) !== undefined}>
                   <Tip label={t("action.newWorktreeSession")}>
                     <Button
                       variant="quiet"

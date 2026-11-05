@@ -226,6 +226,8 @@ export interface WorkspaceDir {
   name?: string;
   /** set when the directory is a linked git worktree — repo is the main checkout */
   worktree?: { repo: string; branch?: string };
+  /** the repository's main checkout, set whenever the directory sits inside a repo at all */
+  repo?: string;
 }
 
 /**
@@ -288,10 +290,14 @@ async function toplevelCached(dir: string): Promise<string | undefined> {
 }
 
 export async function withWorktrees(dirs: WorkspaceDir[], stateDir: string): Promise<WorkspaceDir[]> {
+  const tops = new Map<string, string>();
   const repos = new Set<string>();
   await mapLimit(dirs, async (w) => {
     const top = await toplevelCached(w.directory);
-    if (top) repos.add(top);
+    if (top) {
+      tops.set(w.directory, top);
+      repos.add(top);
+    }
   });
   const marks = new Map<string, { repo: string; branch?: string }>();
   const ours = new Set<string>();
@@ -303,9 +309,12 @@ export async function withWorktrees(dirs: WorkspaceDir[], stateDir: string): Pro
     } catch {
       return;
     }
+    // The listing may have run inside a linked worktree — its `repo` is the
+    // first entry, the repository's own checkout, not the dir that was asked.
+    const main = entries.find((e) => e.main)?.path ?? repo;
     for (const e of entries) {
       if (e.main) continue;
-      marks.set(e.path, { repo, ...(e.branch ? { branch: e.branch } : {}) });
+      marks.set(e.path, { repo: main, ...(e.branch ? { branch: e.branch } : {}) });
       if (e.path.startsWith(ourRoot)) ours.add(e.path);
     }
   });
@@ -315,6 +324,11 @@ export async function withWorktrees(dirs: WorkspaceDir[], stateDir: string): Pro
   }
   return [...byPath.values()].map((w) => {
     const wt = marks.get(canonical(w.directory));
-    return wt ? { ...w, worktree: wt } : w;
+    const repo = wt?.repo ?? tops.get(w.directory);
+    return {
+      ...w,
+      ...(wt ? { worktree: wt } : {}),
+      ...(repo ? { repo } : {}),
+    };
   });
 }

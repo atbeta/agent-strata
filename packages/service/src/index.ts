@@ -1773,6 +1773,12 @@ export function startService(opts: ServiceOpts = {}): RunningService {
           dirs.set(ws, { directory: ws });
         }
       }
+      // Places the window added by hand ride along as `dir` params — nothing
+      // in the store may point at them yet, and the sidebar still needs to
+      // know what kind of directory each one is.
+      for (const dir of url.searchParams.getAll("dir")) {
+        if (dir && !dirs.has(dir)) dirs.set(dir, { directory: dir });
+      }
       return json({ workspaces: await withWorktrees([...dirs.values()], desktopDir) });
     }
 

@@ -213,6 +213,8 @@ export interface WorkspaceInfo {
   name?: string;
   /** set when the directory is a linked git worktree — `repo` is the main checkout */
   worktree?: { repo: string; branch?: string };
+  /** the repository's main checkout, set whenever the directory sits inside a repo at all */
+  repo?: string;
 }
 
 export interface WorktreeCreated {

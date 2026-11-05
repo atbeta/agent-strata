@@ -154,6 +154,23 @@ describe("withWorktrees", () => {
     expect(byDir.get(orphan.directory)?.worktree?.branch).toBe(orphan.branch);
   });
 
+  test("marks which dirs a repository claims — the worktree button's gate", async () => {
+    const repo = makeRepo();
+    const state = tempDir();
+    const wt = await worktreeAdd({ dir: repo, stateDir: state });
+    const plain = tempDir();
+    const marked = await withWorktrees(
+      [{ directory: repo }, { directory: wt.directory }, { directory: plain }],
+      state,
+    );
+    const byDir = new Map(marked.map((w) => [w.directory, w]));
+    expect(byDir.get(repo)?.repo).toBe(realpathSync(repo));
+    // a linked worktree names its repo's main checkout, not its own root —
+    // the listing that ran inside it must not point the mark at itself
+    expect(byDir.get(wt.directory)?.repo).toBe(realpathSync(repo));
+    expect(byDir.get(plain)?.repo).toBeUndefined();
+  });
+
   /**
    * Every `git` this module runs must stay off the desktop.
    *

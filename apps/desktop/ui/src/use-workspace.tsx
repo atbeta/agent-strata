@@ -25,11 +25,15 @@ function readDirs(): string[] {
  * the picker — two ways to say the same thing, one of them modal.
  */
 export function useWorkspace() {
-  const [wsList, { refetch: refetchWs }] = createResource(() =>
-    getJson<{ workspaces: WorkspaceInfo[] }>("/workspaces"),
-  );
   const [lastDir, setLastDir] = createSignal<string | null>(localStorage.getItem(LAST_DIR_KEY));
   const [addedDirs, setAddedDirs] = createSignal<string[]>(readDirs());
+  // The reader's own additions ride along as `dir` params: a just-added place
+  // has no sessions yet, so nothing the service already knows can say what
+  // kind of directory it is — and the answer decides which actions it shows.
+  const [wsList, { refetch: refetchWs }] = createResource(addedDirs, (dirs) => {
+    const q = dirs.map((d) => `dir=${encodeURIComponent(d)}`).join("&");
+    return getJson<{ workspaces: WorkspaceInfo[] }>(`/workspaces${q ? `?${q}` : ""}`);
+  });
   const [dirOpen, setDirOpen] = createSignal(false);
   const [dirDraft, setDirDraft] = createSignal("");
 
@@ -52,6 +56,18 @@ export function useWorkspace() {
   });
   const worktreeOf = (dir: string | undefined) =>
     dir === undefined ? undefined : worktrees().get(dir);
+
+  /** The repository a directory sits inside — the answer's absence hides the
+      worktree action, since a worktree needs a repo to fork. */
+  const repos = createMemo(() => {
+    const map = new Map<string, string>();
+    for (const w of settled(wsList)?.workspaces ?? []) {
+      if (w.repo) map.set(w.directory, w.repo);
+    }
+    return map;
+  });
+  const repoOf = (dir: string | undefined) =>
+    dir === undefined ? undefined : repos().get(dir);
 
   const rememberDir = (dir: string | undefined) => {
     if (!dir) return;
@@ -100,6 +116,7 @@ export function useWorkspace() {
     rememberDir,
     projectDirs,
     worktreeOf,
+    repoOf,
     dirOpen,
     setDirOpen,
     dirDraft,
