@@ -83,7 +83,7 @@ import { paneWorkspace } from "./session-chrome";
 import { Button } from "@/components/ui/button";
 import { Picker } from "@/components/ui/picker";
 import { ProviderIcon } from "./provider-icon";
-import { hiddenProviders, modelPickerOptions, visibleModels } from "./provider-visibility";
+import { hiddenProviders, modelDisplayName, modelPickerOptions, visibleModels } from "./provider-visibility";
 import { modelForComposer, readPreferredModel, writePreferredModel } from "./model-preference";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
@@ -482,6 +482,11 @@ export function useSessionComposer(args: {
 
   const selectedModel = () =>
     allModels().find((m) => `${m.providerID}/${m.modelID}` === modelSel());
+  const shownModel = () => {
+    const chosen = selectedModel();
+    if (chosen) return modelDisplayName(chosen);
+    return splitModel(modelSel())?.modelID || modelSel();
+  };
   // empty model means "server default"; still offer that leading model's efforts
   const effortModel = () =>
     selectedModel() ?? shownModels().find((m) => (m.variants?.length ?? 0) > 0);
@@ -820,7 +825,8 @@ export function useSessionComposer(args: {
               id={args.sessionId()}
               totals={v().totals}
               context={context()}
-              model={modelSel()}
+              model={shownModel()}
+              modelId={modelSel()}
               backend={v().backend}
               status={v().status}
               busy={v().busy}

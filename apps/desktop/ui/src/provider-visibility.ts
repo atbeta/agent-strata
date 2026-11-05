@@ -103,6 +103,19 @@ export function visibleModels<T extends { providerID: string }>(
 export interface PickableModel {
   providerID: string;
   modelID: string;
+  /** Catalog display name. The id is what a request sends. */
+  name?: string;
+}
+
+/**
+ * The name a person reads.
+ *
+ * Catalogs publish a display name beside the id (`GPT-5 Mini` beside
+ * `gpt-5-mini`). A blank name means the catalog had nothing better than the id.
+ */
+export function modelDisplayName(model: { modelID: string; name?: string }): string {
+  const name = model.name?.trim();
+  return name ? name : model.modelID;
 }
 
 export interface ModelPickerOption {
@@ -130,7 +143,7 @@ export function modelPickerOptions<T extends PickableModel>(
   if (!current || known.has(current)) {
     return shown.map((model) => ({
       value: `${model.providerID}/${model.modelID}`,
-      label: model.modelID,
+      label: modelDisplayName(model),
       group: model.providerID,
     }));
   }
@@ -140,12 +153,12 @@ export function modelPickerOptions<T extends PickableModel>(
   return [
     {
       value: current,
-      label: found ? found.modelID : label,
+      label: found ? modelDisplayName(found) : label,
       group: found ? labels.hidden : labels.unavailable,
     },
     ...shown.map((model) => ({
       value: `${model.providerID}/${model.modelID}`,
-      label: model.modelID,
+      label: modelDisplayName(model),
       group: model.providerID,
     })),
   ];

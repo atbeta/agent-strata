@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import {
   HIDDEN_PROVIDERS_KEY,
   isProviderVisible,
+  modelDisplayName,
   modelPickerOptions,
   readHiddenProviders,
   serializeHiddenProviders,
@@ -109,6 +110,20 @@ describe("provider visibility", () => {
       { value: "other/o1", label: "o1", group: "Hidden" },
       { value: "mine/m1", label: "m1", group: "mine" },
     ]);
+  });
+
+  test("the picker shows the catalog display name and keeps the id as the value", () => {
+    expect(modelDisplayName({ modelID: "gpt-5-mini", name: "GPT-5 Mini" })).toBe("GPT-5 Mini");
+    expect(modelDisplayName({ modelID: "gpt-5-mini", name: "  " })).toBe("gpt-5-mini");
+    expect(modelDisplayName({ modelID: "gpt-5-mini" })).toBe("gpt-5-mini");
+    expect(
+      modelPickerOptions(
+        [{ providerID: "openai", modelID: "gpt-5-mini", name: "GPT-5 Mini" }],
+        "openai/gpt-5-mini",
+        new Set(),
+        { hidden: "Hidden", unavailable: "Unavailable" },
+      ),
+    ).toEqual([{ value: "openai/gpt-5-mini", label: "GPT-5 Mini", group: "openai" }]);
   });
 
   test("a current model the server no longer lists is kept as unavailable", () => {

@@ -242,6 +242,8 @@ export function SessionInfo(props: {
    *  publish one. */
   context: SessionContext | undefined;
   model: string;
+  /** The id behind `model`, named on hover when the two differ. */
+  modelId?: string;
   backend: string;
   status: string;
   /** Live generation, so the header says "running" when it is, not when the
@@ -347,7 +349,12 @@ export function SessionInfo(props: {
       </div>
 
       <InfoGroup divided={false}>
-        <InfoRow label={t("info.model")} value={props.model || "—"} mono title={props.model} />
+        <InfoRow
+          label={t("info.model")}
+          value={props.model || "—"}
+          mono={!props.modelId || props.modelId === props.model}
+          title={props.modelId && props.modelId !== props.model ? props.modelId : props.model}
+        />
         <InfoRow label={t("info.cost")} value={fmtUsd(props.totals.cost_usd)} mono />
         {/* A cache-read count runs to nine digits. Spelled out it is the
             widest thing in the panel and pushes every other row's decimal out
