@@ -189,6 +189,12 @@ workspace. Do not \`cd\`, \`Set-Location\`, or \`pushd\` inside the command. The
 working directory is \`workdir\`, and a command that changes directory itself
 fails when the shell is not already there.
 
+A \`$\` in the command is expanded by the outer shell before \`dev_start\` sees
+it. \`$true\` becomes \`True\`, and PowerShell then says \`True\` is not a
+command. Escape a dollar that must survive — a backtick in PowerShell, a
+backslash in bash — or avoid it (\`while(1)\` rather than \`while($true)\`).
+\`$!\` and \`$?\` need the same treatment.
+
 A port that is already served is refused, with the reason. Stop what holds it
 first; starting a second command on the same port only produces a failure that
 looks like it belongs to the new command.
@@ -230,11 +236,16 @@ export default async () => ({
         "",
         "Pass `workdir` for a subdirectory of the session workspace. Do not `cd` or",
         "`Set-Location` inside the command.",
+        "",
+        "A `$` in the command is expanded by the outer shell before it runs. `$true`",
+        "arrives as `True`. Escape a dollar that must survive (a backtick in PowerShell,",
+        "a backslash in bash), or avoid it (`while(1)` rather than `while($true)`).",
       ].join("\n"),
       args: {
         command: {
           type: "string",
-          description: "The command to run, as a shell would take it. Do not cd or Set-Location in it.",
+          description:
+            "The command to run, as a shell would take it. Do not cd or Set-Location in it. A $ is expanded by the outer shell before this tool sees it: $true arrives as True. Escape a dollar that must survive (a backtick in PowerShell, a backslash in bash).",
         },
         workdir: {
           type: "string",
