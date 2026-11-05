@@ -14,6 +14,7 @@
 import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { $ } from "bun";
+import { playwrightCorePlugin } from "../packages/service/src/playwright-bundle";
 
 const root = resolve(import.meta.dir, "..");
 const outDir = join(root, "apps/desktop/src-tauri/binaries");
@@ -112,14 +113,25 @@ if (!force && existsSync(outfile)) {
 }
 
 console.log(`building sidecar for ${triple} -> ${outfile}`);
-// --windows-hide-console keeps the sidecar from opening a console window, and
-// bun rejects it on any other target, so it cannot just stay in the command.
-const hideConsole = triple.includes("windows") ? ["--windows-hide-console"] : [];
+// Hide the console only for the Windows sidecar. Bun rejects the flag for
+// every other target, so it cannot just stay in the options.
+const windows = triple.includes("windows") ? { hideConsole: true } : undefined;
 // playwright-core lazy-requires chromium-bidi behind its own try/catch for a
 // codepath (WebDriver BiDi) the service never enters; the require still has
 // to resolve at bundle time, so mark it external instead of vendoring a
-// package whose layout playwright does not even match anymore.
-await $`bun build --compile ${hideConsole} --external chromium-bidi ./packages/service/src/index.ts --outfile ${outfile}`;
+// package whose layout playwright does not even match anymore. The plugin
+// inlines the two manifests playwright loads through __dirname, which a
+// compiled binary otherwise keeps as the path on the build machine.
+const built = await Bun.build({
+  entrypoints: [join(root, "packages/service/src/index.ts")],
+  compile: { outfile, ...(windows ? { windows } : {}) },
+  external: ["chromium-bidi"],
+  plugins: [playwrightCorePlugin],
+});
+if (!built.success) {
+  for (const log of built.logs) console.error(log);
+  throw new Error("sidecar build failed");
+}
 
 const size = statSync(outfile).size;
 console.log(`built ${outfile} (${(size / 1e6).toFixed(1)} MB)`);

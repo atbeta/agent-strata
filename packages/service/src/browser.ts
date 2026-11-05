@@ -19,13 +19,12 @@
 // action answers with a fresh snapshot — the ref a click produced may already
 // be gone, and an action that reuses it must fail with that said plainly.
 
-import {
-  chromium,
-  type Browser,
-  type BrowserContext,
-  type CDPSession,
-  type ConnectOverCDPTransport,
-  type Page,
+import type {
+  Browser,
+  BrowserContext,
+  CDPSession,
+  ConnectOverCDPTransport,
+  Page,
 } from "playwright-core";
 import { mkdirSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
@@ -135,6 +134,21 @@ const SETTLE_MS = 350;
 const REF_ATTR = "data-strata-ref";
 const REF = /^e\d{1,6}$/;
 
+type Playwright = typeof import("playwright-core");
+
+let playwrightP: Promise<Playwright> | undefined;
+
+/**
+ * Load playwright on first use.
+ *
+ * Its module init reads package.json through a path that `bun build --compile`
+ * freezes to the machine that built the sidecar. A static import evaluates
+ * that during process start, so a missing file exits the service before it
+ * listens and the shell reports the port as taken. The browser is optional;
+ * a failure stays on the call that needed it.
+ */
+const playwright = (): Promise<Playwright> => (playwrightP ??= import("playwright-core"));
+
 /**
  * A CDP transport that answers playwright over the runtime's own WebSocket.
  *
@@ -196,8 +210,10 @@ const wsEndpointOf = async (endpoint: string): Promise<string> => {
 };
 
 /** One connectOverCDP, over a transport that actually finishes the handshake. */
-const connectCdp = async (endpoint: string): Promise<Browser> =>
-  chromium.connectOverCDP(new BunWsTransport(await wsEndpointOf(endpoint)));
+const connectCdp = async (endpoint: string): Promise<Browser> => {
+  const { chromium } = await playwright();
+  return chromium.connectOverCDP(new BunWsTransport(await wsEndpointOf(endpoint)));
+};
 
 /** What a state file carries across a restart: enough to adopt the window back. */
 interface PersistedBrowser {
@@ -614,8 +630,9 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
     launchedPort = port;
     if (opts.launch) return opts.launch(profileDir, port);
     mkdirSync(profileDir, { recursive: true });
-    const attempt = (channel: "chrome" | "msedge" | "chromium") =>
-      chromium.launchPersistentContext(profileDir, {
+    const attempt = async (channel: "chrome" | "msedge" | "chromium") => {
+      const { chromium } = await playwright();
+      return chromium.launchPersistentContext(profileDir, {
         channel,
         headless: false,
         args: [`--remote-debugging-port=${port}`],
@@ -626,6 +643,7 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
         // real at run time, just absent from the persistent-context typings.
         ...({ pipe: true } as Record<string, unknown>),
       });
+    };
     try {
       return await attempt("chrome");
     } catch (first) {
