@@ -24,6 +24,7 @@ import {
   type Browser,
   type BrowserContext,
   type CDPSession,
+  type ConnectOverCDPTransport,
   type Page,
 } from "playwright-core";
 import { mkdirSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
@@ -133,6 +134,70 @@ const SETTLE_MS = 350;
 
 const REF_ATTR = "data-strata-ref";
 const REF = /^e\d{1,6}$/;
+
+/**
+ * A CDP transport that answers playwright over the runtime's own WebSocket.
+ *
+ * Playwright's vendored `ws` cannot finish the DevTools upgrade under Bun —
+ * the 101 arrives as a plain response and the handshake dies — so attaching
+ * to a running Chrome or an Electron window would hang for its timeout. The
+ * runtime's native WebSocket (the browser-grade one) handshakes fine; all
+ * the transport has to do is carry JSON messages once it opens.
+ */
+class BunWsTransport implements ConnectOverCDPTransport {
+  onmessage?: (message: object) => void;
+  onclose?: (reason?: string) => void;
+  private ws: WebSocket;
+  private ready = false;
+  private queue: string[] = [];
+
+  constructor(url: string) {
+    this.ws = new WebSocket(url);
+    this.ws.onopen = () => {
+      this.ready = true;
+      for (const m of this.queue.splice(0)) this.ws.send(m);
+    };
+    this.ws.onmessage = (event) => {
+      try {
+        const data =
+          typeof event.data === "string"
+            ? event.data
+            : Buffer.from(event.data as ArrayBuffer).toString("utf8");
+        this.onmessage?.(JSON.parse(data) as object);
+      } catch {
+        // A message that is not JSON is not CDP — drop it.
+      }
+    };
+    this.ws.onclose = (event) => this.onclose?.(event.reason);
+    this.ws.onerror = () => this.onclose?.("ws error");
+  }
+
+  send(message: object): void {
+    const data = JSON.stringify(message);
+    if (this.ready) this.ws.send(data);
+    else this.queue.push(data);
+  }
+
+  close(): void {
+    try {
+      this.ws.close();
+    } catch {}
+  }
+}
+
+/** The endpoint's browser-level ws address, asked over plain http. */
+const wsEndpointOf = async (endpoint: string): Promise<string> => {
+  const base = endpoint.replace(/\/+$/, "");
+  const res = await fetch(`${base}/json/version`);
+  if (!res.ok) throw new Error(`${endpoint} answered ${res.status}, not a CDP endpoint`);
+  const info = (await res.json()) as { webSocketDebuggerUrl?: string };
+  if (!info.webSocketDebuggerUrl) throw new Error(`${endpoint} named no ws endpoint`);
+  return info.webSocketDebuggerUrl;
+};
+
+/** One connectOverCDP, over a transport that actually finishes the handshake. */
+const connectCdp = async (endpoint: string): Promise<Browser> =>
+  chromium.connectOverCDP(new BunWsTransport(await wsEndpointOf(endpoint)));
 
 /** What a state file carries across a restart: enough to adopt the window back. */
 interface PersistedBrowser {
@@ -553,6 +618,11 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
       chromium.launchPersistentContext(profileDir, {
         channel,
         headless: false,
+        // The compiled sidecar cannot answer Chrome's ws upgrade (Bun's ws
+        // client never finishes the handshake against this DevTools server),
+        // and playwright picks ws whenever pipe is not forced. Stdio pipes
+        // work in both runtimes, so the transport is pinned.
+        pipe: true,
         args: [`--remote-debugging-port=${port}`],
       });
     try {
@@ -586,9 +656,7 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
   /** One connectOverCDP attempt; a context means the window was adopted. */
   const tryConnect = async (port: number): Promise<BrowserContext | undefined> => {
     try {
-      const browser = await (opts.connect ?? ((e: string) => chromium.connectOverCDP(e)))(
-        `http://127.0.0.1:${port}`,
-      );
+      const browser = await (opts.connect ?? connectCdp)(`http://127.0.0.1:${port}`);
       const context = browser.contexts()[0];
       if (!context) {
         await browser.close().catch(() => {});
@@ -766,9 +834,7 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
 
     async attach(sessionID, port) {
       const session = sessionOf(sessionID);
-      const browser = await (opts.connect ?? ((e: string) => chromium.connectOverCDP(e)))(
-        `http://127.0.0.1:${port}`,
-      );
+      const browser = await (opts.connect ?? connectCdp)(`http://127.0.0.1:${port}`);
       session.attached.push(browser);
       browser.on("disconnected", () => {
         for (const [id, page] of session.pages) {

@@ -115,7 +115,11 @@ console.log(`building sidecar for ${triple} -> ${outfile}`);
 // --windows-hide-console keeps the sidecar from opening a console window, and
 // bun rejects it on any other target, so it cannot just stay in the command.
 const hideConsole = triple.includes("windows") ? ["--windows-hide-console"] : [];
-await $`bun build --compile ${hideConsole} ./packages/service/src/index.ts --outfile ${outfile}`;
+// playwright-core lazy-requires chromium-bidi behind its own try/catch for a
+// codepath (WebDriver BiDi) the service never enters; the require still has
+// to resolve at bundle time, so mark it external instead of vendoring a
+// package whose layout playwright does not even match anymore.
+await $`bun build --compile ${hideConsole} --external chromium-bidi ./packages/service/src/index.ts --outfile ${outfile}`;
 
 const size = statSync(outfile).size;
 console.log(`built ${outfile} (${(size / 1e6).toFixed(1)} MB)`);
