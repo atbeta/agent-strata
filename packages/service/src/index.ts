@@ -47,7 +47,7 @@ import { refused, shellCors } from "./shell-origin";
 import { queryTokenOk, readApiToken, tokenOk } from "./api-token";
 import { writeSecureJson } from "./secure-write";
 import { terminalClose, terminalMessage, terminalOpen, terminalRoute, terminalUpgrade } from "./terminal";
-import { createDevManager, type DevEvent } from "./dev-process";
+import { createDevManager, resolveWorkdir, type DevEvent } from "./dev-process";
 import { WorktreeError, worktreeAdd, worktreeRemove, withWorktrees } from "./worktree";
 import { SessionClaims } from "./identity";
 import { promptRoute, type PendingAsk, type PendingQuestion } from "./prompt-routes";
@@ -2178,13 +2178,16 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     }
 
     if (path === "/dev" && req.method === "POST") {
-      // No `cwd`: the workspace is the session's, and a caller that could name
-      // a directory would be a caller that could leave the project.
+      // `cwd` is ignored. `workdir` may name a directory, and only one inside
+      // the session workspace: a command that can point anywhere can leave
+      // the project, and a `cd` stuffed into the command fails when the shell
+      // is not already there.
       const body = (await req.json().catch(() => null)) as {
         session_id?: unknown;
         command?: unknown;
         port?: unknown;
         wait_ms?: unknown;
+        workdir?: unknown;
       } | null;
       if (typeof body?.session_id !== "string" || body.session_id.length === 0) {
         return json({ error: "session_id required" }, 400);
@@ -2211,11 +2214,19 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       // its projection, so fall back to the connection that owns it.
       const directory = directoryOf(sessionID) ?? driverFor(sessionID)?.directory;
       if (!directory) return json({ error: "session has no workspace" }, 400);
+      let cwd = directory;
+      if (typeof body.workdir === "string") {
+        try {
+          cwd = resolveWorkdir(directory, body.workdir);
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+      }
       try {
         const started = await dev.start({
           session_id: sessionID,
           command: body.command,
-          cwd: directory,
+          cwd,
           port,
           waitMs,
         });
@@ -2225,7 +2236,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       }
     }
 
-    const devHit = path.match(/^\/dev\/([A-Za-z0-9_]+)(?:\/(logs|stop))?$/);
+    const devHit = path.match(/^\/dev\/([A-Za-z0-9_]+)(?:\/(logs|stop|restart))?$/);
     if (devHit) {
       const id = devHit[1];
       const action = devHit[2];
@@ -2234,8 +2245,27 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       if (!info) return json({ error: "not found" }, 404);
       if (!action && req.method === "GET") return json(info);
       if (action === "logs" && req.method === "GET") {
-        const tail = Number(url.searchParams.get("tail") ?? 200) || 200;
-        return json({ process: info, lines: dev.logs(id, Math.min(Math.max(tail, 1), MAX_DEV_LOG_TAIL)) });
+        const numberParam = (name: string) => {
+          const raw = url.searchParams.get(name);
+          if (raw === null || raw.length === 0) return undefined;
+          const value = Number(raw);
+          return Number.isFinite(value) ? value : undefined;
+        };
+        const tail = numberParam("tail");
+        const page = dev.readLogs(id, {
+          tail: tail === undefined ? undefined : Math.min(Math.max(Math.floor(tail), 1), MAX_DEV_LOG_TAIL),
+          since: numberParam("since"),
+          offset: numberParam("offset"),
+        });
+        return json({ process: info, ...page });
+      }
+      if (action === "restart" && req.method === "POST") {
+        try {
+          const started = await dev.restart(id);
+          return json(started, started.error ? 502 : 200);
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
       }
       if (action === "stop" && req.method === "POST") {
         // The answer says what is left, not just that a stop was asked for: a

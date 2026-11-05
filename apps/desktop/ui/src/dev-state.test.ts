@@ -51,6 +51,27 @@ describe("background command states", () => {
     expect(stateLabel(lost)).toBe(t("dev.lost"));
   });
 
+  test("a lost command says whether its process and its port are still there", () => {
+    const held = process({
+      state: "lost",
+      exit_code: 1,
+      stopped: false,
+      port: 3000,
+      lost: { process: "gone", port_held: true, port_holders: [4242] },
+    });
+    expect(stateLabel(held)).toBe(
+      `${t("dev.lost")} — ${t("dev.lost.gone")}, ${t("dev.lost.port_held_by", { port: 3000, pids: "4242" })}`,
+    );
+    const reused = process({
+      state: "lost",
+      exit_code: 1,
+      port: 3000,
+      lost: { process: "reused", port_held: false },
+    });
+    expect(stateLabel(reused)).toContain(t("dev.lost.reused", { pid: 4242 }));
+    expect(stateLabel(reused)).toContain(t("dev.lost.port_free", { port: 3000 }));
+  });
+
   test("a command left behind by a run that died is an orphan, and was cleaned up", () => {
     const orphan = process({ state: "orphaned", exit_code: 1, stopped: true });
     expect(devRunning(orphan)).toBe(false);

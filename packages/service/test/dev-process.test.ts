@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { chooseWindowsShell, createDevManager, looksLongRunning, commandName } from "../src/dev-process";
+import { chooseWindowsShell, createDevManager, looksLongRunning, commandName, resolveWorkdir } from "../src/dev-process";
 
 function workspace(): string {
   return mkdtempSync(join(tmpdir(), "strata-dev-"));
@@ -596,6 +596,9 @@ describe("stale process cleanup", () => {
     expect(await dev.reapStale()).toBe(0);
     const row = dev.list().find((entry) => entry.id === "dev_reused");
     expect(row?.state).toBe("lost");
+    // The pid is alive, and it is not the command this record is about.
+    expect(row?.lost?.process).toBe("reused");
+    expect(row?.lost?.port_held).toBeUndefined();
 
     // The stranger is still running: nothing here had the right to kill it.
     let alive_ = true;
@@ -700,7 +703,43 @@ describe("the registry outlives the service", () => {
     expect(await dev.reapStale()).toBe(0);
     const row = dev.list().find((entry) => entry.id === "dev_gone");
     expect(row?.state).toBe("lost");
+    expect(row?.lost?.process).toBe("gone");
+    expect(row?.lost?.port_held).toBeUndefined();
     cleanup(dir);
+  }, 30_000);
+
+  test("a lost command says whether its port is still held", async () => {
+    const dir = workspace();
+    const pidFile = join(dir, "dev-processes.json");
+    const probe = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response("ok") });
+    writeFileSync(
+      pidFile,
+      JSON.stringify({
+        version: 2,
+        processes: [
+          {
+            id: "dev_held",
+            session_id: "casf:restart:4",
+            command: "serve",
+            cwd: dir,
+            pid: 999_999,
+            started_at: Date.now(),
+            port: probe.port,
+            state: "running",
+          },
+        ],
+      }),
+    );
+    try {
+      const dev = createDevManager({ pidFile });
+      expect(await dev.reapStale()).toBe(0);
+      const row = dev.list().find((entry) => entry.id === "dev_held");
+      expect(row?.lost?.process).toBe("gone");
+      expect(row?.lost?.port_held).toBe(true);
+    } finally {
+      probe.stop(true);
+      cleanup(dir);
+    }
   }, 30_000);
 
   test("a command still running after a restart is an orphan, and is cleaned up", async () => {
@@ -936,6 +975,108 @@ describe("readiness", () => {
         cwd: dir,
       });
       expect(started.port).toBe(45999);
+    } finally {
+      await dev.stopAll();
+      cleanup(dir);
+    }
+  }, 30_000);
+});
+
+describe("workdir", () => {
+  test("an empty workdir is the workspace, and a subdirectory stays inside it", () => {
+    const dir = workspace();
+    const child = join(dir, "web");
+    mkdirSync(child);
+    expect(resolveWorkdir(dir)).toBe(dir);
+    expect(resolveWorkdir(dir, "web")).toBe(child);
+    expect(resolveWorkdir(dir, child)).toBe(child);
+    expect(() => resolveWorkdir(dir, "..")).toThrow(/inside the session workspace/);
+    expect(() => resolveWorkdir(dir, join(dir, "..", "elsewhere"))).toThrow(/inside the session workspace/);
+    cleanup(dir);
+  });
+});
+
+describe("log cursor", () => {
+  test("offset returns only lines written after it", async () => {
+    const dir = workspace();
+    const dev = createDevManager();
+    try {
+      const started = await dev.start({
+        session_id: "casf:test:cursor",
+        command: `node -e "console.log('first'); setTimeout(() => console.log('second'), 200)"`,
+        cwd: dir,
+      });
+      let page = dev.readLogs(started.id, { offset: 0 });
+      for (let i = 0; i < 40 && !page.lines.some((line) => line.text === "second"); i++) {
+        await Bun.sleep(50);
+        page = dev.readLogs(started.id, { offset: 0 });
+      }
+      const first = page.lines.find((line) => line.text === "first");
+      expect(first?.seq).toBeGreaterThan(0);
+      const rest = dev.readLogs(started.id, { offset: first!.seq });
+      expect(rest.lines.map((line) => line.text)).toEqual(["second"]);
+      expect(rest.dropped).toBe(false);
+      expect(rest.next_offset).toBe(rest.lines[0]!.seq);
+      const after = dev.readLogs(started.id, { since: first!.at });
+      expect(after.lines.map((line) => line.text)).toEqual(["second"]);
+      const again = dev.readLogs(started.id, { offset: rest.next_offset });
+      expect(again.lines).toEqual([]);
+      expect(again.next_offset).toBe(rest.next_offset);
+    } finally {
+      await dev.stopAll();
+      cleanup(dir);
+    }
+  }, 30_000);
+
+  test("a cursor into a trimmed log says the earlier lines are gone", async () => {
+    const dir = workspace();
+    const dev = createDevManager();
+    try {
+      const started = await dev.start({
+        session_id: "casf:test:drop",
+        command: `node -e "for (let i = 0; i < 2100; i++) console.log('n' + i)"`,
+        cwd: dir,
+      });
+      let page = dev.readLogs(started.id, { offset: 0 });
+      for (let i = 0; i < 80 && page.lines.length < 2000; i++) {
+        await Bun.sleep(50);
+        page = dev.readLogs(started.id, { offset: 0 });
+      }
+      expect(page.dropped).toBe(true);
+      expect(page.lines.length).toBe(2000);
+      expect(page.lines[0]?.seq).toBeGreaterThan(1);
+    } finally {
+      await dev.stopAll();
+      cleanup(dir);
+    }
+  }, 30_000);
+});
+
+describe("restart", () => {
+  test("keeps the id and replaces the process", async () => {
+    const dir = workspace();
+    const dev = createDevManager();
+    try {
+      const started = await dev.start({ session_id: "casf:test:again", command: "sleep 30", cwd: dir });
+      const firstPid = started.pid;
+      const again = await dev.restart(started.id);
+      expect(again.id).toBe(started.id);
+      expect(again.pid).toBeGreaterThan(0);
+      expect(again.pid).not.toBe(firstPid);
+      expect(again.state).toBe("running");
+      expect(dev.list().filter((row) => row.id === started.id)).toHaveLength(1);
+      let gone = false;
+      for (let i = 0; i < 40; i++) {
+        try {
+          process.kill(firstPid!, 0);
+        } catch {
+          gone = true;
+          break;
+        }
+        await Bun.sleep(25);
+      }
+      expect(gone).toBe(true);
+      expect(dev.readLogs(again.id).lines.some((line) => line.marker && line.text === "--- restart ---")).toBe(true);
     } finally {
       await dev.stopAll();
       cleanup(dir);

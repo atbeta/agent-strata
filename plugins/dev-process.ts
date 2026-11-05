@@ -124,10 +124,33 @@ async function call(path, init) {
  * vanished on its own is not the same as one that was stopped, and one that
  * was found running after a restart — an orphan, cleaned up — is neither.
  */
+/**
+ * What "lost" is leaving behind, in one sentence.
+ *
+ * The state alone does not say whether the process is still the one that was
+ * started, or whether its port is still taken. Both are in the record.
+ */
+function lostText(process) {
+  const detail = process.lost
+  const proc =
+    detail && detail.process === "reused"
+      ? "pid " + (process.pid ?? "?") + " belongs to another process"
+      : "process is not running"
+  if (!detail || detail.port_held === undefined || process.port === undefined) {
+    return "lost (" + proc + "; no port was recorded)"
+  }
+  if (!detail.port_held) return "lost (" + proc + "; port " + process.port + " is free)"
+  const who =
+    Array.isArray(detail.port_holders) && detail.port_holders.length > 0
+      ? " by pid " + detail.port_holders.join(", ")
+      : ""
+  return "lost (" + proc + "; port " + process.port + " is still held" + who + ")"
+}
+
 function describe(process) {
   const state =
     process.state === "lost"
-      ? "lost"
+      ? lostText(process)
       : process.state === "orphaned"
         ? "orphaned"
         : process.exit_code === null
@@ -161,9 +184,24 @@ and stopping it means finding its pid by hand.
 Pass \`port\` when you know it — \`dev_start\` then returns once the port answers,
 so there is no need to sleep and guess.
 
+Pass \`workdir\` when the command belongs in a subdirectory of the session
+workspace. Do not \`cd\`, \`Set-Location\`, or \`pushd\` inside the command. The
+working directory is \`workdir\`, and a command that changes directory itself
+fails when the shell is not already there.
+
 A port that is already served is refused, with the reason. Stop what holds it
 first; starting a second command on the same port only produces a failure that
 looks like it belongs to the new command.
+
+\`dev_logs\` takes \`offset\`. Pass the \`next_offset\` from the previous read so
+only new lines come back. Do not re-read the whole log.
+
+A row marked lost says whether the process is still the one that was started
+and whether its port is still held. Read that sentence.
+
+Use \`dev_restart\` to run the same command again under the same id. Do not
+\`dev_stop\` and then \`dev_start\`: that mints a new id and throws away the one
+already written down.
 
 If \`dev_start\` reports that the shell is not running, say so and ask — do not
 fall back to \`Start-Process\`.
@@ -188,12 +226,20 @@ export default async () => ({
         "connection, so you do not need to sleep and guess before the first request.",
         "",
         "The command keeps running after this tool returns. Read it with `dev_logs`, end it",
-        "with `dev_stop`.",
+        "with `dev_stop`, or run it again under the same id with `dev_restart`.",
+        "",
+        "Pass `workdir` for a subdirectory of the session workspace. Do not `cd` or",
+        "`Set-Location` inside the command.",
       ].join("\n"),
       args: {
         command: {
           type: "string",
-          description: "The command to run, as a shell would take it",
+          description: "The command to run, as a shell would take it. Do not cd or Set-Location in it.",
+        },
+        workdir: {
+          type: "string",
+          description:
+            "Directory to run in, relative to the session workspace. Omit to use the workspace itself. Must stay inside it.",
         },
         port: {
           type: "number",
@@ -209,6 +255,7 @@ export default async () => ({
             body: JSON.stringify({
               session_id: context.sessionID,
               command: args.command,
+              workdir: args.workdir,
               port: args.port,
             }),
           })
@@ -251,6 +298,10 @@ export default async () => ({
       description: [
         "Read the output of a process started with `dev_start`.",
         "",
+        "Pass `offset` from the previous reply's `next_offset` to read only lines written",
+        "since then. Omit it the first time. `since` is a timestamp in milliseconds for the",
+        "same job when there is no offset.",
+        "",
         "A dev server usually needs a moment before it prints anything useful; read again",
         "rather than restarting it.",
       ].join("\n"),
@@ -259,14 +310,32 @@ export default async () => ({
           type: "string",
           description: "The id `dev_start` returned",
         },
+        offset: {
+          type: "number",
+          description: "Return only lines after this cursor. Pass the next_offset from the previous read.",
+        },
+        since: {
+          type: "number",
+          description: "Return only lines written after this timestamp, in milliseconds. Prefer offset.",
+        },
       },
       async execute(args) {
-        const result = await call("/dev/" + encodeURIComponent(args.process_id) + "/logs?tail=100")
+        const query = new URLSearchParams()
+        if (typeof args.offset === "number") query.set("offset", String(args.offset))
+        else if (typeof args.since === "number") query.set("since", String(args.since))
+        else query.set("tail", "100")
+        const suffix = query.toString()
+        const queryText = suffix.length > 0 ? "?" + suffix : ""
+        const result = await call("/dev/" + encodeURIComponent(args.process_id) + "/logs" + queryText)
+        const cursor = "next_offset: " + result.next_offset
+        const dropped = result.dropped ? "\nEarlier lines were discarded; this is what is still kept." : ""
         if (result.lines.length === 0) {
-          return describe(result.process) + "\n\n(no output yet)"
+          return describe(result.process) + "\n" + cursor + dropped + "\n\n(no new output)"
         }
-        const body = result.lines.map((line) => (line.stream === "err" ? "! " : "  ") + line.text).join("\n")
-        return describe(result.process) + "\n\n" + body
+        const body = result.lines
+          .map((line) => (line.marker ? "— " + line.text : (line.stream === "err" ? "! " : "  ") + line.text))
+          .join("\n")
+        return describe(result.process) + "\n" + cursor + dropped + "\n\n" + body
       },
     },
 
@@ -308,6 +377,45 @@ export default async () => ({
           "",
           "Something of it survived and may still hold its port. Find it by hand",
           "before starting it again, or the next start collides with it.",
+        ].join("\n")
+      },
+    },
+
+    dev_restart: {
+      description: [
+        "Stop a process started with `dev_start` and start the same command again, under the same id.",
+        "",
+        "Use this instead of `dev_stop` followed by `dev_start`. The id stays the one already",
+        "written down, and the reply says whether the new process is up.",
+      ].join("\n"),
+      args: {
+        process_id: {
+          type: "string",
+          description: "The id `dev_start` returned",
+        },
+      },
+      async execute(args) {
+        let started
+        try {
+          started = await call("/dev/" + encodeURIComponent(args.process_id) + "/restart", { method: "POST" })
+        } catch (e) {
+          return [
+            "Did not restart " + args.process_id + ": " + (e && e.message ? e.message : String(e)),
+            "",
+            "The id is unchanged. If the port is still held, the command was not started again.",
+          ].join("\n")
+        }
+        if (started.error) {
+          return "Restarted " + started.id + ", but it failed: " + started.error
+        }
+        return [
+          "Restarted " + started.id + " (pid " + (started.pid ?? "?") + ") in " + started.cwd + ".",
+          started.ready === "yes"
+            ? "Port " + started.port + " accepts connections" +
+              (typeof started.ready_ms === "number" ? " (ready in " + started.ready_ms + "ms)." : ".")
+            : started.ready === "no"
+              ? "It is running, but no port answered yet. Check `dev_logs`."
+              : "It is running.",
         ].join("\n")
       },
     },

@@ -15,7 +15,7 @@
 import { spawn as bunSpawn, type Subprocess } from "bun";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
-import { basename } from "node:path";
+import { basename, isAbsolute, relative, resolve, sep } from "node:path";
 import { jobPlan } from "./dev-process-job";
 import type { DevStopResult } from "@agent-strata/api";
 
@@ -31,6 +31,22 @@ export type { DevStopResult } from "@agent-strata/api";
  * was there and was cleaned up.
  */
 export type DevState = "running" | "stopped" | "lost" | "orphaned";
+
+/**
+ * What "lost" is leaving behind.
+ *
+ * The word alone does not say whether the process is still the one that was
+ * started, or whether its port is still taken. Both are answered here, at the
+ * moment the record is closed, so a later read does not have to guess.
+ */
+export interface DevLost {
+  /** `gone`: the pid is dead. `reused`: the number is alive, but it is a different process. */
+  process: "gone" | "reused";
+  /** Whether the recorded port still accepts a connection. Absent when no port was recorded. */
+  port_held?: boolean;
+  /** Pids listening on that port, when any could be named. */
+  port_holders?: number[];
+}
 
 /** One running command, as the UI and the agent both see it. */
 export interface DevProcess {
@@ -66,12 +82,27 @@ export interface DevProcess {
   stopped_at?: number;
   /** The shell the command ran in, so a caller knows what syntax it accepted. */
   shell?: string;
+  /** Set when `state` is `lost`: whether the process and its port are still there. */
+  lost?: DevLost;
 }
 
 export interface DevLogLine {
+  /** Monotonic per process. Pass the last one back as `offset` to read only what followed. */
+  seq: number;
   at: number;
   stream: "out" | "err";
   text: string;
+  /** Written by the service, not by the command. A restart leaves one of these. */
+  marker?: boolean;
+}
+
+/** One read of a process's output, plus the cursor for the next read. */
+export interface DevLogPage {
+  lines: DevLogLine[];
+  /** Pass this as `offset` to receive only lines written after this page. */
+  next_offset: number;
+  /** Lines the cursor asked for had already fallen out of the retained window. */
+  dropped: boolean;
 }
 
 export interface DevStartInput {
@@ -315,6 +346,13 @@ interface Entry {
   info: DevProcess;
   child: Subprocess<"ignore", "pipe", "pipe"> | undefined;
   logs: DevLogLine[];
+  /** The next line's seq. It survives the ring buffer trimming old lines. */
+  nextSeq: number;
+  /**
+   * Which run this entry is on. A restart bumps it so the previous process's
+   * exit cannot settle the one that replaced it.
+   */
+  generation: number;
   listeners: Set<(line: DevLogLine) => void>;
   /** When the command last said something, for the silence check. */
   lastOutputAt?: number;
@@ -334,6 +372,7 @@ interface PersistedProcess {
   state: DevState;
   exit_code?: number | null;
   stopped_at?: number;
+  lost?: DevLost;
 }
 
 export type DevEvent =
@@ -346,8 +385,17 @@ export interface DevManager {
   list(sessionID?: string): DevProcess[];
   get(id: string): DevProcess | undefined;
   logs(id: string, tail?: number): DevLogLine[];
+  /** Lines after a cursor. `offset` is a seq; `since` is a timestamp in ms. */
+  readLogs(id: string, query?: { tail?: number; since?: number; offset?: number }): DevLogPage;
   /** Stop a command, and say what is left of it. */
   stop(id: string): Promise<DevStopResult>;
+  /**
+   * Stop a command and start the same one again, under the same id.
+   *
+   * The id is what a caller remembered. A stop followed by a start mints a
+   * new one and throws that memory away.
+   */
+  restart(id: string): Promise<DevProcess>;
   /** Every process a session owns, stopped together. Called when a session goes away. */
   stopSession(sessionID: string): Promise<number>;
   stopAll(): Promise<void>;
@@ -622,6 +670,7 @@ export function readRecords(file: string): PersistedProcess[] {
       state: item.state ?? "running",
       exit_code: typeof item.exit_code === "number" ? item.exit_code : undefined,
       stopped_at: typeof item.stopped_at === "number" ? item.stopped_at : undefined,
+      lost: parseLost(item.lost),
     });
   }
   return records;
@@ -710,6 +759,49 @@ function stillOurs(record: PersistedProcess): boolean {
   return created <= record.started_at + 2_000;
 }
 
+/**
+ * The directory a command runs in, confined to the session workspace.
+ *
+ * `workdir` is how a command names a subdirectory. Putting `cd` or
+ * `Set-Location` in the command string fails when the shell is not already
+ * there, and an absolute path outside the workspace is a path that leaves
+ * the project. An empty value is the workspace itself.
+ */
+export function resolveWorkdir(workspace: string, workdir?: string): string {
+  const root = resolve(workspace);
+  const raw = workdir?.trim() ?? "";
+  if (raw.length === 0) return root;
+  const target = resolve(root, raw);
+  if (!insideWorkspace(root, target)) {
+    throw new Error(`workdir must stay inside the session workspace (${root})`);
+  }
+  return target;
+}
+
+function insideWorkspace(root: string, target: string): boolean {
+  const rel = relative(root, target);
+  if (rel === "") return true;
+  if (rel.startsWith("..") || isAbsolute(rel)) return false;
+  const fold = (value: string) => (process.platform === "win32" ? value.toLowerCase() : value);
+  const base = fold(root);
+  const child = fold(target);
+  const prefix = base.endsWith(sep) ? base : base + sep;
+  return child === base || child.startsWith(prefix);
+}
+
+function parseLost(value: unknown): DevLost | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const row = value as { process?: unknown; port_held?: unknown; port_holders?: unknown };
+  if (row.process !== "gone" && row.process !== "reused") return undefined;
+  const lost: DevLost = { process: row.process };
+  if (typeof row.port_held === "boolean") lost.port_held = row.port_held;
+  if (Array.isArray(row.port_holders)) {
+    const pids = row.port_holders.filter((pid): pid is number => typeof pid === "number" && Number.isInteger(pid) && pid > 0);
+    if (pids.length > 0) lost.port_holders = pids;
+  }
+  return lost;
+}
+
 export function createDevManager(options: DevManagerOptions = {}): DevManager {
   const entries = new Map<string, Entry>();
   const listeners = new Set<(event: DevEvent) => void>();
@@ -773,6 +865,7 @@ export function createDevManager(options: DevManagerOptions = {}): DevManager {
         state: entry.info.state ?? (entry.info.exit_code === null ? "running" : "stopped"),
         exit_code: entry.info.exit_code,
         stopped_at: entry.info.exit_code === null ? undefined : entry.info.stopped_at,
+        lost: entry.info.lost,
       }))
       // The newest are the ones worth keeping: the table is bounded, and an
       // old command is a story nobody is still asking about.
@@ -797,12 +890,23 @@ export function createDevManager(options: DevManagerOptions = {}): DevManager {
     }
   };
 
-  const push = (entry: Entry, stream: "out" | "err", text: string) => {
-    const line: DevLogLine = { at: Date.now(), stream, text };
+  const push = (entry: Entry, stream: "out" | "err", text: string, marker = false) => {
+    const line: DevLogLine = {
+      seq: entry.nextSeq,
+      at: Date.now(),
+      stream,
+      text,
+      ...(marker ? { marker: true } : {}),
+    };
+    entry.nextSeq += 1;
     entry.logs.push(line);
     if (entry.logs.length > MAX_LOG_LINES) entry.logs.splice(0, entry.logs.length - MAX_LOG_LINES);
-    entry.info.last_line = text;
-    entry.lastOutputAt = line.at;
+    // A marker is the service talking, not the command. Treating it as output
+    // would make a restart look like the command had already spoken.
+    if (!marker) {
+      entry.info.last_line = text;
+      entry.lastOutputAt = line.at;
+    }
     emit({ type: "dev.output", session_id: entry.info.session_id, process_id: entry.info.id, line });
   };
 
@@ -818,11 +922,16 @@ export function createDevManager(options: DevManagerOptions = {}): DevManager {
     // No output at all yet is "still coming up", not "silent": the supervisor
     // itself has to start before the command can print, and on a slow machine
     // that alone outlasts the silence window.
-    if (entry.logs.length === 0) return Date.now() - began > FIRST_OUTPUT_GRACE_MS;
+    if (!entry.logs.some((line) => !line.marker)) return Date.now() - began > FIRST_OUTPUT_GRACE_MS;
     return Date.now() - (entry.lastOutputAt ?? began) > SILENCE_MS;
   };
 
-  const read = async (entry: Entry, stream: "out" | "err", source: ReadableStream<Uint8Array>) => {
+  const read = async (
+    entry: Entry,
+    stream: "out" | "err",
+    source: ReadableStream<Uint8Array>,
+    generation = entry.generation,
+  ) => {
     // Bytes are buffered and decoded a line at a time, not through a streaming
     // decoder: the encoding is decided per line, because a Windows console and a
     // Node tool can disagree about it inside one process's output.
@@ -843,6 +952,8 @@ export function createDevManager(options: DevManagerOptions = {}): DevManager {
         clixml = false;
       }
       if (text.trim().length === 0) return;
+      // A line from the run that was just replaced is not this run's output.
+      if (generation !== entry.generation) return;
       push(entry, stream, text);
       // A server that announces its port is telling the truth about where to
       // look; a caller who named one is not overruled.
@@ -870,7 +981,8 @@ export function createDevManager(options: DevManagerOptions = {}): DevManager {
     }
   };
 
-  const settle = (entry: Entry, code: number | null) => {
+  const settle = (entry: Entry, code: number | null, generation = entry.generation) => {
+    if (generation !== entry.generation) return;
     if (entry.info.exit_code !== null) return;
     entry.info.exit_code = code ?? 0;
     entry.info.stopped_at = Date.now();
@@ -1055,8 +1167,127 @@ export function createDevManager(options: DevManagerOptions = {}): DevManager {
       port: record.port,
       state: record.state,
       stopped_at: record.stopped_at,
+      lost: record.lost,
     };
-    entries.set(record.id, { info, child: undefined, logs: [], listeners: new Set(), restored: true });
+    entries.set(record.id, {
+      info,
+      child: undefined,
+      logs: [],
+      listeners: new Set(),
+      nextSeq: 1,
+      generation: 0,
+      restored: true,
+    });
+    return info;
+  };
+
+  /**
+   * Close a lost record with the two facts a reader cannot see from the word.
+   *
+   * `gone` is a pid that is dead. `reused` is a pid that is alive and is not
+   * the command this record is about — the number was handed out again.
+   * The port is asked separately: a dead process can leave its port held,
+   * and a live stranger can be holding nothing this record cares about.
+   */
+  const classifyLost = async (record: PersistedProcess, kind: DevLost["process"]): Promise<DevLost> => {
+    const lost: DevLost = { process: kind };
+    if (record.port === undefined) return lost;
+    const holders = await portHolders(record.port);
+    const held = holders.length > 0 || (await portAccepts(record.port, 200));
+    lost.port_held = held;
+    if (holders.length > 0) lost.port_holders = holders;
+    return lost;
+  };
+
+  /**
+   * Spawn the command an entry already describes, and wait until it is honest
+   * to answer. Start and restart share this: the difference is whether the
+   * entry is new.
+   */
+  const runEntry = async (entry: Entry, wait: { port?: number; waitMs?: number }): Promise<DevProcess> => {
+    const info = entry.info;
+    entry.generation += 1;
+    const generation = entry.generation;
+    const beganAt = Date.now();
+    let child: Subprocess<"ignore", "pipe", "pipe">;
+    try {
+      // On Windows the command runs inside a job object, under a supervisor
+      // that holds the job handle. Stopping the supervisor then stops the
+      // tree — the shell, the runtime and everything the runtime started —
+      // without anyone having to walk a tree that is already coming apart.
+      const commandArgv = argv(info.command);
+      const plan = jobPlan(info.command, info.cwd, resolveSupervisorPath());
+      const env = childEnv();
+      let file: string;
+      let args: string[];
+      if (plan) {
+        file = plan.file;
+        args = plan.args;
+        Object.assign(env, plan.env);
+      } else {
+        file = commandArgv[0]!;
+        args = commandArgv.slice(1);
+      }
+      child = bunSpawn([file, ...args], spawnOptions(info.cwd, env));
+    } catch (e) {
+      info.error = e instanceof Error ? e.message : String(e);
+      settle(entry, null);
+      return info;
+    }
+
+    entry.child = child;
+    info.pid = child.pid;
+    // Recorded before the first line of output: a crash between here and the
+    // next write would otherwise leave a pid nobody knows about.
+    persist();
+
+    // Both pipes are read for as long as the process lives. A dev server that
+    // writes a lot and has nobody draining it blocks on its own stdout.
+    void read(entry, "out", child.stdout as ReadableStream<Uint8Array>, generation);
+    void read(entry, "err", child.stderr as ReadableStream<Uint8Array>, generation);
+
+    void child.exited.then((code) => settle(entry, code, generation)).catch(() => settle(entry, null, generation));
+
+    // Wait for the port, not for a stopwatch. See start() for why the two
+    // waits are one wait.
+    if (info.exit_code === null) {
+      info.ready = "unknown";
+      const named = wait.port !== undefined;
+      if (named) info.port = wait.port;
+      const budget = wait.waitMs ?? (named ? DEFAULT_WAIT_MS : ANNOUNCE_WINDOW_MS);
+      const deadline = Date.now() + budget;
+      let acceptUntil = named ? deadline : undefined;
+      let spoken = false;
+      while (info.exit_code === null && Date.now() < deadline) {
+        if (!spoken && entry.logs.some((line) => !line.marker)) {
+          spoken = true;
+          const end = Date.now() + 250;
+          while (info.exit_code === null && Date.now() < end) {
+            await new Promise((resolve) => setTimeout(resolve, 25));
+          }
+        }
+        if (info.port !== undefined) {
+          if (acceptUntil === undefined) acceptUntil = Date.now() + ANNOUNCED_WAIT_MS;
+          if (Date.now() > acceptUntil) break;
+          if (await portAccepts(info.port)) {
+            info.ready = "yes";
+            info.ready_ms = Date.now() - beganAt;
+            break;
+          }
+        } else if (quiet(entry, beganAt)) {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      if (info.port !== undefined && info.ready !== "yes") info.ready = "no";
+    }
+
+    if (info.exit_code !== null && info.exit_code !== 0 && !info.stopped) {
+      const tail = entry.logs.filter((line) => !line.marker).slice(-3).map((line) => line.text).join("\n");
+      info.error = tail.length > 0 ? tail : `exited with ${info.exit_code}`;
+    }
+
+    emit({ type: "dev.started", session_id: info.session_id, process: info });
     return info;
   };
 
@@ -1115,118 +1346,10 @@ export function createDevManager(options: DevManagerOptions = {}): DevManager {
         }
       }
 
-      const entry: Entry = { info, child: undefined, logs: [], listeners: new Set() };
+      const entry: Entry = { info, child: undefined, logs: [], listeners: new Set(), nextSeq: 1, generation: 0 };
       entries.set(id, entry);
       trim();
-
-      // The clock the readiness report is measured against: the moment the
-      // command was asked to run, not the moment the wait started. "Ready in
-      // 951ms" has to mean the same thing to every reader.
-      const beganAt = Date.now();
-
-      let child: Subprocess<"ignore", "pipe", "pipe">;
-      try {
-        // On Windows the command runs inside a job object, under a supervisor
-        // that holds the job handle. Stopping the supervisor then stops the
-        // tree — the shell, the runtime and everything the runtime started —
-        // without anyone having to walk a tree that is already coming apart.
-        const commandArgv = argv(command);
-        const plan = jobPlan(command, input.cwd, resolveSupervisorPath());
-        const env = childEnv();
-        let file: string;
-        let args: string[];
-        if (plan) {
-          file = plan.file;
-          args = plan.args;
-          Object.assign(env, plan.env);
-        } else {
-          file = commandArgv[0]!;
-          args = commandArgv.slice(1);
-        }
-        child = bunSpawn([file, ...args], spawnOptions(input.cwd, env));
-      } catch (e) {
-        info.error = e instanceof Error ? e.message : String(e);
-        settle(entry, null);
-        return info;
-      }
-
-      entry.child = child;
-      info.pid = child.pid;
-      // Recorded before the first line of output: a crash between here and the
-      // next write would otherwise leave a pid nobody knows about.
-      persist();
-
-      // Both pipes are read for as long as the process lives. A dev server that
-      // writes a lot and has nobody draining it blocks on its own stdout.
-      void read(entry, "out", child.stdout as ReadableStream<Uint8Array>);
-      void read(entry, "err", child.stderr as ReadableStream<Uint8Array>);
-
-      void child.exited.then((code) => settle(entry, code)).catch(() => settle(entry, null));
-
-      // Wait for the port, not for a stopwatch.
-      //
-      // A caller that needs the server up has only one honest way to know: try
-      // to reach it. `Start-Sleep 7; curl` is the same idea with a guess in place
-      // of a check, and it is either too long or too short every time.
-      //
-      // The two waits are one wait. A command that has not spoken yet has
-      // neither proved it is up nor said which port it serves, and the
-      // supervisor needs a moment to come up before the command runs at all —
-      // so a window shorter than that reports a command that has already
-      // failed as one that is running. The wait ends when the port answers,
-      // when the command dies, or when the command goes quiet: silence is
-      // what a watcher says when it is not going to announce anything.
-      //
-      // A command that fails at once says so and then exits, so the first
-      // thing it says is waited for with a moment's grace. The failure
-      // belongs in this answer, not in a later surprise.
-      if (info.exit_code === null) {
-        info.ready = "unknown";
-        const named = input.port !== undefined;
-        if (named) info.port = input.port;
-        const budget = input.waitMs ?? (named ? DEFAULT_WAIT_MS : ANNOUNCE_WINDOW_MS);
-        const deadline = Date.now() + budget;
-        // A named port gets the whole budget to answer. A port that was
-        // announced was already listening, so it gets a short grace period.
-        let acceptUntil = named ? deadline : undefined;
-        let spoken = false;
-        while (info.exit_code === null && Date.now() < deadline) {
-          if (!spoken && entry.logs.length > 0) {
-            spoken = true;
-            const end = Date.now() + 250;
-            while (info.exit_code === null && Date.now() < end) {
-              await new Promise((resolve) => setTimeout(resolve, 25));
-            }
-          }
-          if (info.port !== undefined) {
-            if (acceptUntil === undefined) acceptUntil = Date.now() + ANNOUNCED_WAIT_MS;
-            if (Date.now() > acceptUntil) break;
-            if (await portAccepts(info.port)) {
-              info.ready = "yes";
-              info.ready_ms = Date.now() - beganAt;
-              break;
-            }
-          } else if (quiet(entry, beganAt)) {
-            // A command that has said nothing for a moment is not about to
-            // announce a port.
-            break;
-          }
-          await new Promise((resolve) => setTimeout(resolve, 100));
-        }
-        // A port that never opened is not a failure: the command may still be
-        // compiling, or listening somewhere it has not printed yet.
-        if (info.port !== undefined && info.ready !== "yes") info.ready = "no";
-      }
-
-      // The command has had its chance to say so. A failure it reported
-      // belongs in the answer the caller is holding.
-      if (info.exit_code !== null && info.exit_code !== 0 && !info.stopped) {
-        const tail = entry.logs.slice(-3).map((line) => line.text).join("\n");
-        info.error = tail.length > 0 ? tail : `exited with ${info.exit_code}`;
-      }
-
-      emit({ type: "dev.started", session_id: info.session_id, process: info });
-      return info;
+      return runEntry(entry, { port: input.port, waitMs: input.waitMs });
     },
 
     list(sessionID) {
@@ -1240,9 +1363,76 @@ export function createDevManager(options: DevManagerOptions = {}): DevManager {
     },
 
     logs(id, tail = 200) {
+      return this.readLogs(id, { tail }).lines;
+    },
+
+    readLogs(id, query = {}) {
       const entry = entries.get(id);
-      if (!entry) return [];
-      return tail > 0 ? entry.logs.slice(-tail) : entry.logs;
+      if (!entry) return { lines: [], next_offset: query.offset ?? 0, dropped: false };
+      let lines = entry.logs;
+      let dropped = false;
+      if (query.offset !== undefined) {
+        const first = lines[0]?.seq;
+        // The cursor points at a line the ring buffer has already forgotten.
+        if (first !== undefined && query.offset + 1 < first) dropped = true;
+        lines = lines.filter((line) => line.seq > query.offset!);
+      } else if (query.since !== undefined) {
+        const first = lines[0];
+        if (first && first.seq > 1 && query.since < first.at) dropped = true;
+        lines = lines.filter((line) => line.at > query.since!);
+      }
+      const hasCursor = query.offset !== undefined || query.since !== undefined;
+      const tail = query.tail ?? (hasCursor ? lines.length : 200);
+      if (tail > 0 && lines.length > tail) lines = lines.slice(-tail);
+      const next = lines.at(-1)?.seq ?? entry.logs.at(-1)?.seq ?? query.offset ?? 0;
+      return { lines, next_offset: next, dropped };
+    },
+
+    async restart(id) {
+      const entry = entries.get(id);
+      if (!entry) throw new Error(`no process ${id}`);
+      await cleanup;
+      if (entry.info.exit_code === null) {
+        const stopped = await stopEntry(entry);
+        if (!stopped.stopped || !stopped.clean) {
+          const bits: string[] = [];
+          if (stopped.residual.length > 0) bits.push(`still running: ${stopped.residual.join(", ")}`);
+          if (stopped.port !== undefined && stopped.port_free === false) {
+            bits.push(`port ${stopped.port} is still held`);
+          }
+          throw new Error(`could not restart ${id}: ${bits.join("; ") || "the command did not stop"}`);
+        }
+      } else if (entry.info.port !== undefined) {
+        const holders = await portHolders(entry.info.port);
+        if (holders.length > 0 || (await portAccepts(entry.info.port, 200))) {
+          const who = holders.length > 0 ? ` by pid ${holders.join(", ")}` : "";
+          throw new Error(`port ${entry.info.port} is still held${who} — it has to be free before ${id} can start again`);
+        }
+      }
+      const other = [...entries.values()].find(
+        (row) => row !== entry && row.info.exit_code === null && entry.info.port !== undefined && row.info.port === entry.info.port,
+      );
+      if (other) {
+        throw new Error(
+          `port ${entry.info.port} is already served by ${other.info.id} (${other.info.command}) — stop it first`,
+        );
+      }
+      const info = entry.info;
+      info.pid = undefined;
+      info.started_at = Date.now();
+      info.exit_code = null;
+      info.stopped = false;
+      info.error = undefined;
+      info.ready = undefined;
+      info.ready_ms = undefined;
+      info.state = "running";
+      info.stopped_at = undefined;
+      info.lost = undefined;
+      info.shell = commandShell();
+      entry.child = undefined;
+      entry.restored = false;
+      push(entry, "err", "--- restart ---", true);
+      return runEntry(entry, { port: info.port });
     },
 
     async stop(id) {
@@ -1302,11 +1492,12 @@ export function createDevManager(options: DevManagerOptions = {}): DevManager {
           record.exit_code = record.exit_code ?? 1;
           killed += 1;
         } else {
-          // The command is gone. Either it finished on its own, or the
-          // number it had belongs to something else now — and that something
-          // else is none of this table's business.
+          // The command is gone, or the number it had belongs to something
+          // else now. Say which, and whether the port it served is still
+          // taken: "lost" on its own makes the reader guess both.
           record.state = "lost";
           record.exit_code = record.exit_code ?? 1;
+          record.lost = await classifyLost(record, running ? "reused" : "gone");
         }
         const info = keepRestored(record);
         // A reader that cached this row has no other way to learn it is gone;

@@ -1221,6 +1221,12 @@ export interface DevProcess {
   last_line?: string;
   /** Where it is in its life. */
   state?: "running" | "stopped" | "lost" | "orphaned";
+  /** Set when state is lost: whether the process and its port are still there. */
+  lost?: {
+    process: "gone" | "reused";
+    port_held?: boolean;
+    port_holders?: number[];
+  };
   /** The port it was asked to serve on, when the caller named one. */
   port?: number;
   /** Whether it has proved it can serve. */
@@ -1232,6 +1238,7 @@ export interface DevProcess {
 }
 
 export interface DevLogLine {
+  seq?: number;
   at: number;
   stream: "out" | "err";
   text: string;

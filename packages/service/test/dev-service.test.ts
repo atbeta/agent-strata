@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeEvent, type EventInput } from "@agent-strata/schema";
@@ -155,5 +155,63 @@ describe("dev commands over the service", () => {
     } finally {
       rmSync(elsewhere, { recursive: true, force: true });
     }
+  }, 30_000);
+
+  test("workdir runs inside the workspace and cannot leave it", async () => {
+    const child = join(work, "web");
+    mkdirSync(child);
+    const started = await post("/dev", {
+      session_id: "opencode:ses_x",
+      command: "node -e \"setTimeout(() => {}, 500)\"",
+      workdir: "web",
+    });
+    expect(started.status).toBe(200);
+    const info = (await started.json()) as { id: string; cwd: string };
+    expect(info.cwd).toBe(child);
+    await post(`/dev/${info.id}/stop`, {});
+
+    const escaped = await post("/dev", {
+      session_id: "opencode:ses_x",
+      command: "node -e \"setTimeout(() => {}, 500)\"",
+      workdir: "..",
+    });
+    expect(escaped.status).toBe(400);
+    const body = (await escaped.json()) as { error: string };
+    expect(body.error).toMatch(/inside the session workspace/);
+  }, 30_000);
+
+  test("logs take an offset, and restart keeps the id", async () => {
+    const started = await post("/dev", {
+      session_id: "opencode:ses_x",
+      command: "node -e \"console.log('one'); setTimeout(() => {}, 30000)\"",
+    });
+    expect(started.status).toBe(200);
+    const info = (await started.json()) as { id: string; pid: number };
+    let page = (await (await get(`/dev/${info.id}/logs?offset=0`)).json()) as {
+      lines: { seq: number; text: string }[];
+      next_offset: number;
+    };
+    for (let i = 0; i < 40 && !page.lines.some((line) => line.text === "one"); i++) {
+      await Bun.sleep(50);
+      page = (await (await get(`/dev/${info.id}/logs?offset=0`)).json()) as typeof page;
+    }
+    expect(page.lines.some((line) => line.text === "one")).toBe(true);
+    const next = (await (await get(`/dev/${info.id}/logs?offset=${page.next_offset}`)).json()) as {
+      lines: { text: string }[];
+      next_offset: number;
+    };
+    expect(next.lines.filter((line) => line.text === "one")).toEqual([]);
+
+    const again = await post(`/dev/${info.id}/restart`, {});
+    expect(again.status).toBe(200);
+    const restarted = (await again.json()) as { id: string; pid: number; state: string };
+    expect(restarted.id).toBe(info.id);
+    expect(restarted.pid).not.toBe(info.pid);
+    expect(restarted.state).toBe("running");
+    const listed = (await (await get("/dev?session=opencode%3Ases_x")).json()) as {
+      processes: { id: string }[];
+    };
+    expect(listed.processes.filter((row) => row.id === info.id)).toHaveLength(1);
+    await post(`/dev/${info.id}/stop`, {});
   }, 30_000);
 });

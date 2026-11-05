@@ -31,8 +31,24 @@ export function devRunning(process: DevProcess): boolean {
  * and that error is the whole story. A stopped one is not "exited 143" to a
  * reader who pressed the button — it is stopped.
  */
+function lostLabel(process: DevProcess): string {
+  const detail = process.lost;
+  if (!detail) return t("dev.lost");
+  const head =
+    detail.process === "reused"
+      ? t("dev.lost.reused", { pid: process.pid ?? 0 })
+      : t("dev.lost.gone");
+  if (process.port === undefined || detail.port_held === undefined) return `${t("dev.lost")} — ${head}`;
+  const port = !detail.port_held
+    ? t("dev.lost.port_free", { port: process.port })
+    : detail.port_holders && detail.port_holders.length > 0
+      ? t("dev.lost.port_held_by", { port: process.port, pids: detail.port_holders.join(", ") })
+      : t("dev.lost.port_held", { port: process.port });
+  return `${t("dev.lost")} — ${head}, ${port}`;
+}
+
 export function stateLabel(process: DevProcess): string {
-  if (process.state === "lost") return t("dev.lost");
+  if (process.state === "lost") return lostLabel(process);
   if (process.state === "orphaned") return t("dev.orphaned");
   if (process.error && process.exit_code !== 0) return t("dev.failed");
   if (devRunning(process)) return t("dev.running");
