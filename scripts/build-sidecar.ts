@@ -115,7 +115,9 @@ console.log(`building sidecar for ${triple} -> ${outfile}`);
 // --windows-hide-console keeps the sidecar from opening a console window, and
 // bun rejects it on any other target, so it cannot just stay in the command.
 const hideConsole = triple.includes("windows") ? ["--windows-hide-console"] : [];
-await $`bun build --compile ${hideConsole} ./packages/service/src/index.ts --outfile ${outfile}`;
+// cli.ts, not index.ts: index starts only when import.meta.main is set, and
+// the Windows compile target leaves that flag false.
+await $`bun build --compile ${hideConsole} ./packages/service/src/cli.ts --outfile ${outfile}`;
 
 const size = statSync(outfile).size;
 console.log(`built ${outfile} (${(size / 1e6).toFixed(1)} MB)`);
