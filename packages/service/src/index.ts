@@ -421,6 +421,19 @@ export function startService(opts: ServiceOpts = {}): RunningService {
    * folder open. The app started these shells, so it ends them here rather
    * than asking the reader to find a panel that is no longer on screen.
    */
+  /** Wait, bounded, for a session to stop being busy after an abort. */
+  const settle = async (sessionId: string): Promise<void> => {
+    const until = Date.now() + 5_000;
+    while (Date.now() < until) {
+      try {
+        if (!sessionView(sessionId).busy) return;
+      } catch {
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+  };
+
   const releaseInside = async (dir: string): Promise<void> => {
     await stopInside(dev, dir);
     for (const s of store.listSessions({ limit: 500 })) {
@@ -444,6 +457,13 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       const native = conn.nativeId(s.session_id);
       if (!native) continue;
       await conn.abort(native, ws).catch(() => {});
+      // abort asks the backend to stop; it does not wait for the turn to
+      // unwind. A tool still finishing in the folder — a build, a watcher, a
+      // child process — would keep recreating what the removal just deleted,
+      // and the retry loop would expire while the turn was still alive. Wait
+      // for the session to report idle, with a bound so a stuck turn cannot
+      // hold the button forever.
+      await settle(s.session_id);
     }
     // A turn that was just aborted can still be writing for a moment. The
     // caller retries at once; a brief pause lets the handles go first.
