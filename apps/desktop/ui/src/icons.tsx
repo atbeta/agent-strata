@@ -17,6 +17,7 @@ export type Name =
   | "filter"
   | "sliders"
   | "collapse-all"
+  | "expand-all"
   | "chevron"
   | "chevron-right"
   | "arrow-down"
@@ -278,6 +279,17 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
         <path d="M4.6 2.6 8 5.4l3.4-2.8" />
         <path d="M2.4 8h11.2" />
         <path d="M4.6 13.4 8 10.6l3.4 2.8" />
+      </Glyph>
+    );
+  if (name === "expand-all")
+    return (
+      <Glyph class={cls}>
+        {/* The same tree, opening: the bar stays, and both marks move away
+            from it. A reader who folds everything is one press from the list
+            they had. */}
+        <path d="M4.6 5.4 8 2.6l3.4 2.8" />
+        <path d="M2.4 8h11.2" />
+        <path d="M4.6 10.6 8 13.4l3.4-2.8" />
       </Glyph>
     );
   if (name === "arrow-down")

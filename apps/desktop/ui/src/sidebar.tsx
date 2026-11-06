@@ -25,6 +25,7 @@ import { needsProjectView, partitionWorktreeGroups } from "./project-view";
 import type { ConnectionsCtl } from "./use-connections";
 import { endpointHost, endpointShort, ConnectionsFooter } from "./use-connections";
 import { sidebarEmptyKind } from "./connection-status";
+import { everyGroupFolded, foldGroups } from "./sidebar-visibility";
 import type { WorkspaceCtl } from "./use-workspace";
 import { SessionListItem } from "./sidebar-row";
 import { ArchivedSection } from "./archived-section";
@@ -238,6 +239,13 @@ export function Sidebar(props: {
   );
   const sectionGroups = () => sections().projects;
   const worktreeGroups = () => sections().worktrees;
+  /** The folders the one control folds — directories, not lanes or worktrees. */
+  const folderKeys = () => sectionGroups().filter((g) => g.dir !== undefined).map((g) => g.key);
+  const allFolded = () => everyGroupFolded(folderKeys(), collapsed());
+  const toggleAllFolds = () => {
+    const fold = !allFolded();
+    setCollapsed((s) => foldGroups(folderKeys(), s, fold));
+  };
   const [worktreesOpen, setWorktreesOpen] = createSignal(false);
   /**
    * Sections and rows are rendered by key, not by object. `holdRows` keeps a
@@ -596,24 +604,35 @@ export function Sidebar(props: {
         <div class="mb-0.5 flex items-center justify-between px-2 pb-0.5 pt-2.5">
           <span class="text-xs font-medium text-muted-foreground">{sectionLabel()}</span>
           <div class="flex items-center gap-0.5">
-            {/* Fold every project. A run of open folders, most of them empty,
-                is the list the reader cannot scan; one control puts them all
-                back to rows. Days are not folders, so the control stays off
-                that cut of the list. */}
+            {/* Fold every project, and unfold them again. A run of open
+                folders, most of them empty, is the list the reader cannot
+                scan; one control puts them all back to rows, and once they
+                are rows it is the way out. Days are not folders, so the
+                control stays off that cut of the list. */}
             <Show when={sectionGroups().some((g) => g.dir !== undefined)}>
-              <Tip label={t("sidebar.project.collapseAll")}>
+              {/* One control for the whole run: it folds every folder, and
+                  once they are all folded it is the way back — the label and
+                  the arrow turn around with the list, so the reader never has
+                  to hunt for a second control that only appears afterwards. */}
+              <Tip
+                label={
+                  allFolded()
+                    ? t("sidebar.project.expandAll")
+                    : t("sidebar.project.collapseAll")
+                }
+              >
                 <Button
                   variant="icon"
                   size="icon-2xs"
                   class="text-muted-foreground/60"
-                  aria-label={t("sidebar.project.collapseAll")}
-                  onClick={() =>
-                    setCollapsed(
-                      new Set(sectionGroups().filter((g) => g.dir !== undefined).map((g) => g.key)),
-                    )
+                  aria-label={
+                    allFolded()
+                      ? t("sidebar.project.expandAll")
+                      : t("sidebar.project.collapseAll")
                   }
+                  onClick={toggleAllFolds}
                 >
-                  <Icon name="collapse-all" class="size-3.5" />
+                  <Icon name={allFolded() ? "expand-all" : "collapse-all"} class="size-3.5" />
                 </Button>
               </Tip>
             </Show>

@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { readSidebarOpen, SIDEBAR_KEY, writeSidebarOpen } from "./sidebar-visibility";
+import {
+  everyGroupFolded,
+  foldGroups,
+  readSidebarOpen,
+  SIDEBAR_KEY,
+  writeSidebarOpen,
+} from "./sidebar-visibility";
 
 function store(seed: Record<string, string> = {}) {
   const map = new Map(Object.entries(seed));
@@ -31,5 +37,27 @@ describe("the left column's state", () => {
 
   test("any value other than closed reads as open", () => {
     expect(readSidebarOpen(store({ [SIDEBAR_KEY]: "yes" }))).toBe(true);
+  });
+});
+
+describe("the run of folders", () => {
+  test("is folded only when every folder is", () => {
+    const folded = new Set(["a", "b"]);
+    expect(everyGroupFolded(["a", "b"], folded)).toBe(true);
+    expect(everyGroupFolded(["a"], folded)).toBe(true);
+    expect(everyGroupFolded(["a", "b", "c"], folded)).toBe(false);
+    expect(everyGroupFolded([], folded)).toBe(false);
+  });
+
+  test("folds and unfolds the named groups, and only those", () => {
+    const folded = new Set(["elsewhere"]);
+    const all = foldGroups(["a", "b"], folded, true);
+    expect([...all]).toEqual(["elsewhere", "a", "b"]);
+    const one = foldGroups(["a"], all, false);
+    expect(one.has("a")).toBe(false);
+    expect(one.has("b")).toBe(true);
+    expect(one.has("elsewhere")).toBe(true);
+    // The input is not mutated: the signal's Set is the previous frame.
+    expect(folded.size).toBe(1);
   });
 });
