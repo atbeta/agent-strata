@@ -122,6 +122,34 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       lands — the view's `workspace` cannot come from events that do not
       exist yet. */
   const createdDirs = new Map<string, string>();
+  /**
+   * The directories this service knows about: what a backend lists as its
+   * workspaces, and the workspace of every session in the store.
+   *
+   * The sidebar shows them, and a reveal may only open something inside one
+   * of them — a path can arrive from rendered text, which the model wrote.
+   */
+  const knownDirs = async (): Promise<Map<string, { directory: string; name?: string }>> => {
+    const dirs = new Map<string, { directory: string; name?: string }>();
+    for (const conn of conns.values()) {
+      try {
+        for (const w of await conn.listWorkspaces()) {
+          if (w.directory && !dirs.has(w.directory)) {
+            dirs.set(w.directory, { directory: w.directory, name: w.name });
+          }
+        }
+      } catch {
+        // a backend that cannot list projects still contributes its sessions
+      }
+    }
+    for (const s of store.listSessions({ limit: 500 })) {
+      const ws = s.workspace;
+      if (ws && ws !== "unknown" && ws !== "no workspace" && !dirs.has(ws)) {
+        dirs.set(ws, { directory: ws });
+      }
+    }
+    return dirs;
+  };
   // live policy: applies to every connection (hot-swapped via PUT /policy)
   let currentPolicy: Policy | undefined;
   const loadPolicyFile = (): Policy | undefined => {
@@ -1756,24 +1784,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     }
 
     if (path === "/workspaces" && req.method === "GET") {
-      const dirs = new Map<string, { directory: string; name?: string }>();
-      for (const conn of conns.values()) {
-        try {
-          for (const w of await conn.listWorkspaces()) {
-            if (w.directory && !dirs.has(w.directory)) {
-              dirs.set(w.directory, { directory: w.directory, name: w.name });
-            }
-          }
-        } catch {
-          // a backend that cannot list projects still contributes its sessions
-        }
-      }
-      for (const s of store.listSessions({ limit: 500 })) {
-        const ws = s.workspace;
-        if (ws && ws !== "unknown" && ws !== "no workspace" && !dirs.has(ws)) {
-          dirs.set(ws, { directory: ws });
-        }
-      }
+      const dirs = await knownDirs();
       // Places the window added by hand ride along as `dir` params — nothing
       // in the store may point at them yet, and the sidebar still needs to
       // know what kind of directory each one is.
@@ -2149,7 +2160,13 @@ export function startService(opts: ServiceOpts = {}): RunningService {
 
     if (path === "/desktop/reveal" && req.method === "POST") {
       const body = (await req.json().catch(() => null)) as { path?: unknown } | null;
-      const target = revealTarget(body?.path);
+      // A reveal opens a folder in the file manager. The path may have come
+      // from rendered text — which the model wrote — so it is confined to the
+      // folders the reader works in: their home, and the workspaces this
+      // service knows about.
+      const dirs = await knownDirs();
+      const roots = [homedir(), ...[...dirs.values()].map((d) => d.directory)];
+      const target = revealTarget(body?.path, roots);
       if ("error" in target) return json({ error: target.error }, 400);
       const bin = Bun.which(target.cmd[0]!);
       if (!bin) return json({ error: "file manager is not available" }, 400);
