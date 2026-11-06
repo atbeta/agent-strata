@@ -99,6 +99,8 @@ export default {
   "action.removeWorktree": "移除 worktree",
   "worktree.title": "{repo} 的 worktree · {branch}",
   "worktree.dirty": "有未提交的改动，再点一次将连同改动一起移除。",
+  "worktree.locked": "这个 worktree 被锁定了，再点一次将强制移除。",
+  "worktree.inUse": "这个 worktree 目录删不掉 —— 关掉在里面运行的程序，并检查目录权限。",
   "worktree.removeConfirm": "连同未提交的改动一起移除？",
   "worktree.noDir": "先打开一个项目目录。",
   "worktree.section": "Worktrees",

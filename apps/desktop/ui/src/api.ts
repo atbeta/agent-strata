@@ -234,14 +234,28 @@ export async function createWorktree(directory: string): Promise<WorktreeCreated
   return (await res.json()) as WorktreeCreated;
 }
 
-/** "dirty" when uncommitted changes ask for a second, explicit remove. */
-export async function removeWorktree(directory: string, force?: boolean): Promise<"ok" | "dirty"> {
+/**
+ * "dirty" when uncommitted changes ask for a second, explicit remove,
+ * "locked" when git was told to keep the checkout, and "busy" when something
+ * still holds the folder open — a program running in it, an editor with a
+ * file in it. The first two need the reader's second click; the last one needs
+ * the holder to let go.
+ */
+export async function removeWorktree(
+  directory: string,
+  force?: boolean,
+): Promise<"ok" | "dirty" | "locked" | "busy"> {
   const res = await apiFetch("/worktrees/remove", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ directory, force }),
   });
-  if (res.status === 409) return "dirty";
+  if (res.status === 409 || res.status === 423) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    if (body.error === "worktree locked") return "locked";
+    if (res.status === 423) return "busy";
+    return "dirty";
+  }
   await throwOnError(res);
   return "ok";
 }

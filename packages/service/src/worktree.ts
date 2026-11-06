@@ -6,7 +6,8 @@
 
 import { spawn } from "bun";
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, realpathSync, rmdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, rmdirSync } from "node:fs";
+import type { Dirent } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 
 /** A git failure worded for a person, carrying the status the route answers. */
@@ -91,10 +92,21 @@ export async function worktreeInfo(
 
 export interface WorktreeEntry {
   path: string;
+  /**
+   * The path as git itself spells it.
+   *
+   * git matches a worktree by comparing that string, not by resolving it, so
+   * the real path of a checkout under a symlink (`/var` → `/private/var` on
+   * macOS) is a path git has never heard of. Commands that name a worktree
+   * have to use this one; the resolved one is for comparing.
+   */
+  gitPath: string;
   head: string;
   branch?: string;
   detached: boolean;
   bare: boolean;
+  /** git was told to keep this one — it refuses to remove it until unlocked */
+  locked: boolean;
   /** --porcelain lists the repository's own checkout first */
   main: boolean;
 }
@@ -110,10 +122,12 @@ export async function worktreeList(dir: string): Promise<WorktreeEntry[]> {
     const ref = lines.find((l) => l.startsWith("branch "))?.slice(7);
     entries.push({
       path: canonical(path),
+      gitPath: path,
       head: lines.find((l) => l.startsWith("HEAD "))?.slice(5) ?? "",
       ...(ref ? { branch: ref.replace(/^refs\/heads\//, "") } : {}),
       detached: lines.includes("detached"),
       bare: lines.includes("bare"),
+      locked: lines.some((l) => l === "locked" || l.startsWith("locked ")),
       main: entries.length === 0,
     });
   }
@@ -183,7 +197,7 @@ export async function worktreeAdd(opts: {
 
 /**
  * Drop a linked worktree's checkout. Uncommitted changes refuse without
- * `force`, and the branch stays either way: `git worktree remove` deletes the
+ * `force`, and the branch stays either way: removing the checkout deletes the
  * directory, not the ref — removing `strata/<name>` would lose commits the
  * session made, and that is not ours to take.
  */
@@ -191,26 +205,40 @@ export async function worktreeRemove(opts: {
   dir: string;
   force?: boolean;
   stateDir: string;
+  /**
+   * Called when the folder will not empty — the app's own programs inside it
+   * may be what is holding it. It is not called before that: a dirty
+   * checkout only asks for a second click, and nothing should die for it.
+   */
+  release?: () => Promise<void>;
 }): Promise<void> {
   const dir = canonical(opts.dir);
   if (!existsSync(dir)) throw new WorktreeError("worktree not found", 404);
   const info = await worktreeInfo(dir);
-  if (!info) throw new WorktreeError("not a worktree");
+  if (!info) {
+    // git has already given this checkout up: it drops the registration
+    // before it deletes the folder, so a removal that failed leaves a
+    // directory with nothing left naming it. Under our own root that is ours
+    // to finish, and it is the only way it goes away.
+    if (!underOwnRoot(dir, opts.stateDir)) throw new WorktreeError("not a worktree");
+    await removeDirectory(dir, opts.release);
+    return;
+  }
   if (!opts.force && (await git(["-C", dir, "status", "--porcelain"]))) {
     throw new WorktreeError("worktree has uncommitted changes", 409);
   }
-  await git([
-    "-C",
+  // git compares the path it recorded, so it has to be given that spelling —
+  // the resolved one is a path it has never heard of.
+  const listed = (await worktreeList(info.repo)).find((e) => e.path === dir);
+  await removeCheckout(
+    { gitPath: listed?.gitPath ?? dir, locked: listed?.locked === true },
     info.repo,
-    "worktree",
-    "remove",
-    dir,
-    ...(opts.force ? ["--force"] : []),
-  ]);
+    opts.force === true,
+    opts.release,
+  );
   // Empty parents under our own worktrees root go with it; anywhere else is
   // not ours to clean.
-  const root = canonical(join(opts.stateDir, "worktrees")) + sep;
-  if (dir.startsWith(root)) {
+  if (underOwnRoot(dir, opts.stateDir)) {
     for (const parent of [dirname(dir), dirname(dirname(dir))]) {
       try {
         rmdirSync(parent);
@@ -219,6 +247,81 @@ export async function worktreeRemove(opts: {
       }
     }
   }
+}
+
+/** Is this directory one the service created, under its own worktrees root? */
+function underOwnRoot(dir: string, stateDir: string): boolean {
+  return dir.startsWith(canonical(join(stateDir, "worktrees")) + sep);
+}
+
+/** How many times to try a directory something is still holding, and how long
+ *  to wait between tries. A handle is often released in a moment — a scanner
+ *  finished, an editor closed the file — and the next try succeeds. */
+const REMOVE_ATTEMPTS = 4;
+const REMOVE_RETRY_MS = 250;
+
+/**
+ * Take the checkout off the disk.
+ *
+ * The folder goes first, git's bookkeeping second, and the order is the whole
+ * point.
+ *
+ * git drops a worktree's registration *before* it tries to delete the folder,
+ * so a removal that fails leaves the folder behind with nothing left naming
+ * it: the checkout is stranded — invisible in the sidebar, and no git command
+ * will take it. Deleting the folder ourselves keeps that from happening.
+ * While the folder is still there, git still knows the checkout, so a reader
+ * who closes whatever is holding it can simply try again, and the worktree
+ * stays visible until they do.
+ */
+async function removeCheckout(
+  target: { gitPath: string; locked: boolean },
+  repo: string,
+  force: boolean,
+  release?: () => Promise<void>,
+): Promise<void> {
+  if (target.locked) {
+    // A locked checkout is refused until the lock is lifted, and one
+    // `--force` is not enough — git wants "-f -f". The reader's second click
+    // is what says "remove it anyway", so the lock goes by name.
+    if (!force) throw new WorktreeError("worktree locked", 409);
+    await git(["-C", repo, "worktree", "unlock", target.gitPath]).catch(() => {});
+  }
+  await removeDirectory(target.gitPath, release);
+  try {
+    // git cleans up after a checkout whose folder is gone, and keeps the
+    // branch — the commits the session made stay on it.
+    await git(["-C", repo, "worktree", "remove", ...(force ? ["--force"] : []), target.gitPath]);
+  } catch {
+    // The folder is gone either way; git's bookkeeping for it is not worth
+    // failing over. A prune clears what is left.
+    await git(["-C", repo, "worktree", "prune"]).catch(() => {});
+  }
+}
+
+/**
+ * Empty a directory the filesystem is still holding.
+ *
+ * `release` is asked once, after the first refusal: the app's own programs
+ * inside the folder may be what is holding it, and they are the only holder
+ * the app can let go of.
+ *
+ * When it still cannot be emptied, the reader is told what is holding it
+ * instead of git's own sentence — and git still knows the checkout, because
+ * nothing has been unregistered yet.
+ */
+async function removeDirectory(dir: string, release?: () => Promise<void>): Promise<void> {
+  for (let attempt = 0; attempt < REMOVE_ATTEMPTS; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, REMOVE_RETRY_MS * attempt));
+    try {
+      rmSync(dir, { recursive: true, force: true });
+      return;
+    } catch {
+      // still held
+    }
+    if (attempt === 0 && release) await release();
+  }
+  throw new WorktreeError("worktree in use", 423);
 }
 
 export interface WorkspaceDir {
@@ -322,6 +425,19 @@ export async function withWorktrees(dirs: WorkspaceDir[], stateDir: string): Pro
   for (const path of ours) {
     if (!byPath.has(path)) byPath.set(path, { directory: path });
   }
+  // The checkouts under our own root that git has given up on. git drops a
+  // worktree's registration before it deletes the folder, so a removal that
+  // failed leaves a directory with nothing left naming it — still the app's,
+  // still on disk, and the only way it goes is through the remove action.
+  const known = new Set(marks.keys());
+  for (const path of ownCheckouts(stateDir)) {
+    if (known.has(path)) continue;
+    const existing = byPath.get(path);
+    if (existing?.worktree) continue;
+    const repo = repoOfCheckout(path);
+    if (!repo) continue;
+    byPath.set(path, { ...(existing ?? { directory: path }), worktree: { repo } });
+  }
   return [...byPath.values()].map((w) => {
     const wt = marks.get(canonical(w.directory));
     const repo = wt?.repo ?? tops.get(w.directory);
@@ -331,4 +447,54 @@ export async function withWorktrees(dirs: WorkspaceDir[], stateDir: string): Pro
       ...(repo ? { repo } : {}),
     };
   });
+}
+
+/**
+ * The checkouts under the service's own root, whatever git still knows
+ * about them.
+ *
+ * One level of repository key, one of checkout: the shape `worktreeAdd`
+ * creates them in.
+ */
+function ownCheckouts(stateDir: string): string[] {
+  const root = join(stateDir, "worktrees");
+  const out: string[] = [];
+  let repos: Dirent[];
+  try {
+    repos = readdirSync(root, { withFileTypes: true });
+  } catch {
+    return out;
+  }
+  for (const repo of repos) {
+    if (!repo.isDirectory()) continue;
+    const parent = join(root, repo.name);
+    let names: Dirent[];
+    try {
+      names = readdirSync(parent, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      if (!name.isDirectory()) continue;
+      out.push(canonical(join(parent, name.name)));
+    }
+  }
+  return out;
+}
+
+/**
+ * The repository a checkout was made from, read from the `.git` file it
+ * kept. The repository no longer lists the checkout, but the file still
+ * names where it came from — which is what the reader needs to know.
+ */
+function repoOfCheckout(dir: string): string | undefined {
+  try {
+    const text = readFileSync(join(dir, ".git"), "utf8");
+    const match = text.match(/^gitdir:\s*(.+)$/m);
+    if (!match) return undefined;
+    // <repo>/.git/worktrees/<name>
+    return canonical(dirname(dirname(dirname(match[1]!.trim()))));
+  } catch {
+    return undefined;
+  }
 }

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { chooseWindowsShell, createDevManager, looksLongRunning, commandName, resolveWorkdir } from "../src/dev-process";
+import { chooseWindowsShell, createDevManager, looksLongRunning, commandName, resolveWorkdir, stopInside } from "../src/dev-process";
 
 function workspace(): string {
   return mkdtempSync(join(tmpdir(), "strata-dev-"));
@@ -775,6 +775,26 @@ describe("the registry outlives the service", () => {
     expect(gone).toBe(true);
     await first.stopAll();
     cleanup(dir);
+  }, 30_000);
+});
+
+describe("stopping what runs inside a folder", () => {
+  test("the processes in a directory stop, and the ones elsewhere do not", async () => {
+    const inside = workspace();
+    const outside = workspace();
+    const dev = createDevManager();
+    const hold = 'node -e "setTimeout(()=>{}, 30000)"';
+    try {
+      const a = await dev.start({ session_id: "casf:test:in", command: hold, cwd: inside });
+      const b = await dev.start({ session_id: "casf:test:out", command: hold, cwd: outside });
+      expect(await stopInside(dev, inside)).toBe(1);
+      expect(dev.get(a.id)?.state).toBe("stopped");
+      expect(dev.get(b.id)?.state).not.toBe("stopped");
+    } finally {
+      await dev.stopAll();
+      cleanup(inside);
+      cleanup(outside);
+    }
   }, 30_000);
 });
 

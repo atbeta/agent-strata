@@ -263,7 +263,11 @@ export function Sidebar(props: {
     try {
       if (removeArmed() === dir) {
         setRemoveArmed(undefined);
-        await removeWorktree(dir, true);
+        const forced = await removeWorktree(dir, true);
+        if (forced === "busy") {
+          list().setActionErr(t("worktree.inUse"));
+          return;
+        }
         props.ws.refetchWs();
         props.list.refetch();
         return;
@@ -273,6 +277,17 @@ export function Sidebar(props: {
         setRemoveArmed(dir);
         list().setActionErr(t("worktree.dirty"));
         setTimeout(() => setRemoveArmed((cur) => (cur === dir ? undefined : cur)), 4000);
+        return;
+      }
+      if (res === "locked") {
+        // Git was told to keep this checkout. The second click insists.
+        setRemoveArmed(dir);
+        list().setActionErr(t("worktree.locked"));
+        setTimeout(() => setRemoveArmed((cur) => (cur === dir ? undefined : cur)), 4000);
+        return;
+      }
+      if (res === "busy") {
+        list().setActionErr(t("worktree.inUse"));
         return;
       }
       props.ws.refetchWs();

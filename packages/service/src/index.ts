@@ -48,7 +48,7 @@ import { refused, shellCors } from "./shell-origin";
 import { queryTokenOk, readApiToken, tokenOk } from "./api-token";
 import { writeSecureJson } from "./secure-write";
 import { terminalClose, terminalMessage, terminalOpen, terminalRoute, terminalUpgrade } from "./terminal";
-import { createDevManager, resolveWorkdir, type DevEvent } from "./dev-process";
+import { createDevManager, resolveWorkdir, stopInside, type DevEvent } from "./dev-process";
 import { WorktreeError, worktreeAdd, worktreeRemove, withWorktrees } from "./worktree";
 import { SessionClaims } from "./identity";
 import { promptRoute, type PendingAsk, type PendingQuestion } from "./prompt-routes";
@@ -1827,6 +1827,14 @@ export function startService(opts: ServiceOpts = {}): RunningService {
           dir: body.directory,
           force: body.force === true,
           stateDir: desktopDir,
+          // A program the app started inside the worktree keeps the folder
+          // locked — on Windows that is a hard "Permission denied". These
+          // processes are the app's own, so it stops them and tries again.
+          // Asked for only when the folder will not empty, so nothing dies
+          // for a removal that was only asking for a second click.
+          release: async () => {
+            await stopInside(dev, body.directory!);
+          },
         });
         return json({ ok: true });
       } catch (e) {

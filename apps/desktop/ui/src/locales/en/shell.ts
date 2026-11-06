@@ -98,6 +98,8 @@ export default {
   "action.removeWorktree": "Remove worktree",
   "worktree.title": "worktree of {repo} · {branch}",
   "worktree.dirty": "Uncommitted changes — click again to remove the worktree anyway.",
+  "worktree.locked": "This worktree is locked — click again to remove it anyway.",
+  "worktree.inUse": "This worktree folder could not be removed — close whatever is running in it, and check its permissions.",
   "worktree.removeConfirm": "Remove with uncommitted changes?",
   "worktree.noDir": "Open a project directory first.",
   "worktree.section": "Worktrees",

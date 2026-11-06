@@ -1,6 +1,15 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -129,6 +138,92 @@ describe("worktreeRemove", () => {
     await expect(
       worktreeRemove({ dir: repo, stateDir: tempDir() }),
     ).rejects.toThrow("not a worktree");
+  });
+
+  test("a locked worktree asks for the second click, then goes", async () => {
+    const repo = makeRepo();
+    const state = tempDir();
+    const wt = await worktreeAdd({ dir: repo, stateDir: state });
+    git(repo, "worktree", "lock", wt.directory);
+    // One --force refuses a locked checkout outright, so the reader could
+    // never remove one; the error asks for the click that forces it.
+    await expect(worktreeRemove({ dir: wt.directory, stateDir: state })).rejects.toThrow(
+      "worktree locked",
+    );
+    await worktreeRemove({ dir: wt.directory, force: true, stateDir: state });
+    expect(existsSync(wt.directory)).toBe(false);
+  });
+
+  test("a folder something still holds says so, not git's own sentence", async () => {
+    // A directory nobody can write into cannot be emptied — the same shape as
+    // a file a dev server or an editor still has open on Windows.
+    if (process.platform === "win32") return;
+    const repo = makeRepo();
+    const state = tempDir();
+    const wt = await worktreeAdd({ dir: repo, stateDir: state });
+    writeFileSync(join(wt.directory, "locked"), "x");
+    chmodSync(wt.directory, 0o500);
+    try {
+      await expect(
+        worktreeRemove({ dir: wt.directory, force: true, stateDir: state }),
+      ).rejects.toThrow("worktree in use");
+      expect(existsSync(wt.directory)).toBe(true);
+      // The checkout is not stranded by the failure: git still knows it, so
+      // it stays in the sidebar and the reader can try again once whatever
+      // held the folder lets go.
+      expect(git(repo, "worktree", "list", "--porcelain").stdout).toContain(wt.directory);
+    } finally {
+      chmodSync(wt.directory, 0o700);
+    }
+  });
+
+  test("the folder is released only when it is the thing that will not empty", async () => {
+    const repo = makeRepo();
+    const state = tempDir();
+    const wt = await worktreeAdd({ dir: repo, stateDir: state });
+    let released = 0;
+    const release = async () => {
+      released += 1;
+    };
+    // A dirty checkout only asks for a second click — nothing should die for it.
+    writeFileSync(join(wt.directory, "dirty"), "x");
+    await expect(
+      worktreeRemove({ dir: wt.directory, stateDir: state, release }),
+    ).rejects.toThrow("uncommitted changes");
+    expect(released).toBe(0);
+    // When the folder itself will not empty, it is asked for.
+    rmSync(join(wt.directory, "dirty"));
+    if (process.platform !== "win32") {
+      chmodSync(wt.directory, 0o500);
+      try {
+        await expect(
+          worktreeRemove({ dir: wt.directory, force: true, stateDir: state, release }),
+        ).rejects.toThrow("worktree in use");
+        expect(released).toBe(1);
+      } finally {
+        chmodSync(wt.directory, 0o700);
+      }
+    }
+  });
+
+  test("a checkout git gave up on is still ours to remove", async () => {
+    // What an older removal left behind: git dropped the registration, so
+    // nothing in git names the checkout — only the folder is left.
+    const repo = makeRepo();
+    const state = tempDir();
+    const wt = await worktreeAdd({ dir: repo, stateDir: state });
+    const admin = join(repo, ".git", "worktrees");
+    for (const name of readdirSync(admin)) {
+      rmSync(join(admin, name), { recursive: true, force: true });
+    }
+    expect(git(repo, "worktree", "list", "--porcelain").stdout).not.toContain(wt.directory);
+    // It is still listed, so the remove action can reach it…
+    const listed = await withWorktrees([], state);
+    const orphan = listed.find((w) => w.directory === wt.directory);
+    expect(orphan?.worktree).toBeTruthy();
+    // …and removing it works, even though git has forgotten it.
+    await worktreeRemove({ dir: wt.directory, force: true, stateDir: state });
+    expect(existsSync(wt.directory)).toBe(false);
   });
 });
 

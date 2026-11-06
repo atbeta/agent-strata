@@ -13,7 +13,7 @@
 // what holds the handle.
 
 import { spawn as bunSpawn, type Subprocess } from "bun";
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { basename, isAbsolute, relative, resolve, sep } from "node:path";
 import { jobPlan } from "./dev-process-job";
@@ -776,6 +776,37 @@ export function resolveWorkdir(workspace: string, workdir?: string): string {
     throw new Error(`workdir must stay inside the session workspace (${root})`);
   }
   return target;
+}
+
+/**
+ * Stop every process running inside a directory.
+ *
+ * A program with its working directory inside a folder keeps that folder
+ * locked on Windows, and `git worktree remove` answers "Permission denied" and
+ * leaves the worktree exactly where it was. The app owns these processes, so
+ * it can stop them itself — and it should: the folder is on its way out, and
+ * a server left running in a deleted directory is only holding a port.
+ *
+ * Returns how many were stopped.
+ */
+export async function stopInside(dev: DevManager, dir: string): Promise<number> {
+  const root = realish(dir);
+  let stopped = 0;
+  for (const proc of dev.list()) {
+    if (!insideWorkspace(root, realish(proc.cwd))) continue;
+    const result = await dev.stop(proc.id);
+    if (result.stopped) stopped++;
+  }
+  return stopped;
+}
+
+/** The path with its symlinks resolved, so two spellings of one folder match. */
+function realish(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
 }
 
 function insideWorkspace(root: string, target: string): boolean {
