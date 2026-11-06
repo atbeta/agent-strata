@@ -1,4 +1,12 @@
-import { createEffect, createRenderEffect, createSignal, onCleanup, Show, type JSX } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createRenderEffect,
+  createSignal,
+  onCleanup,
+  Show,
+  type JSX,
+} from "solid-js";
 import { Portal } from "solid-js/web";
 
 const PAD = 8;
@@ -40,6 +48,8 @@ export function Tip(props: {
   children: JSX.Element;
 }) {
   const [anchor, setAnchor] = createSignal<DOMRect | null>(null);
+  /** Whether a hover is open, separate from where its trigger currently is. */
+  const open = createMemo(() => anchor() !== null);
   const [pos, setPos] = createSignal<{ x: number; y: number; below: boolean } | null>(null);
   // A signal, not a plain ref: the effect below can only measure a bubble that
   // already exists, so it has to re-run once `Show` has mounted it.
@@ -113,9 +123,45 @@ export function Tip(props: {
    * the listener on the way out of both.
    */
   createEffect(() => {
-    if (!anchor()) return;
+    if (!open()) return;
     document.addEventListener("pointermove", watch, true);
-    onCleanup(() => document.removeEventListener("pointermove", watch, true));
+    // The trigger can move while the label is open: the plan strip above the
+    // composer grows while a session streams, and the goal strip — and its
+    // tooltip anchor — ride up with it. Measured once, the bubble stayed on a
+    // rect that no longer existed, and the next pointer move over the moved
+    // strip hid it: a tooltip that blinked whenever the plan changed. Follow
+    // the wrapper while the hover lasts; the loop dies with the same cleanup
+    // as the listener.
+    let frame = 0;
+    const follow = () => {
+      if (!wrap || !wrap.isConnected) {
+        // The trigger was unmounted under a stationary pointer; leaving the
+        // last rect behind would pin a label to nothing.
+        if (wrap) hide();
+        return;
+      }
+      const rect = wrap.getBoundingClientRect();
+      const box = rect.width || rect.height
+        ? rect
+        : (wrap.firstElementChild?.getBoundingClientRect() ?? rect);
+      if (box.width || box.height) {
+        setAnchor((prev) =>
+          prev &&
+          prev.x === box.x &&
+          prev.y === box.y &&
+          prev.width === box.width &&
+          prev.height === box.height
+            ? prev
+            : box,
+        );
+      }
+      frame = requestAnimationFrame(follow);
+    };
+    frame = requestAnimationFrame(follow);
+    onCleanup(() => {
+      document.removeEventListener("pointermove", watch, true);
+      cancelAnimationFrame(frame);
+    });
   });
 
   function watch(e: PointerEvent) {

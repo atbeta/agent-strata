@@ -37,10 +37,13 @@ describe("a tooltip's pointer listener", () => {
 
   test("hide() ends the hover, so the effect can drop the listener", () => {
     expect(src).toContain("const hide = () => setAnchor(null)");
-    // The listener lives in an effect keyed on the anchor: it is installed while
-    // a bubble is showing and removed by the cleanup of the same effect.
-    const effect = src.slice(src.indexOf("if (!anchor()) return;"));
+    // The listener lives in an effect keyed on whether a bubble is showing,
+    // not on its rect: following a moving trigger updates the anchor every
+    // frame, and keying on the rect would tear down and reinstall the
+    // listener on each one. The follow frame is cleaned up with it.
+    const effect = src.slice(src.indexOf("if (!open()) return;"));
     expect(effect).toContain("addEventListener");
-    expect(effect).toContain("onCleanup(() => document.removeEventListener");
+    expect(effect).toContain("document.removeEventListener");
+    expect(effect).toContain("cancelAnimationFrame");
   });
 });
