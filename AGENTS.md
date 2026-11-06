@@ -19,4 +19,6 @@ Replays a reader's journeys (cold open, scroll up, wheel, outline jump, session 
 - Real store: `--db ~/.agent-strata/events.db --long <id> --heavy <id> --small <id>,<id>,<id>` (copied with `VACUUM INTO`, read-only).
 - Exit code 1 means a correctness check failed (wrong landing, stale/blank frames, page errors). Everything else is a quality metric to read against a baseline.
 - WebKit is what ships (Tauri/WKWebView on macOS); judge performance changes there first. Measure before and after every transcript performance change, one variable at a time.
+- Chromium dies on the long session's cold open — the 1,600-turn view is ~13MB of JSON that lands as one ~800k-pixel tree, and the renderer goes with it (`Target page, context or browser has been closed`). It happens on an unmodified checkout too, and it hits the first Chromium flow of a run, so a Chromium failure is a machine, not a change: judge in WebKit and say so rather than chasing it.
+- A cold open that never gets its full view leaves the tail preview standing, and the outline rail never appears — the jump step then waits 30s for a locator that will not come. That is what an aborted Chromium flow looks like from the outside.
 - Results and caches are gitignored: `bench/results/`, `bench/.cache/`.
