@@ -65,6 +65,9 @@ jobs:
         working-directory: apps/desktop/ui
         run: bun test
 
+      - name: Dependency audit
+        run: bun run audit
+
   # A release calls this workflow with only_check, because a failure here
   # used to skip the installer entirely. Push and pull request still run it.
   rust:

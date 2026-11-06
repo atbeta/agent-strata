@@ -3,6 +3,7 @@
 ## Checks
 - `bun run typecheck` (root): every package, the desktop UI, and `apps/desktop/ui/bench`.
 - `bun run lint` (root): oxlint over the same trees and `scripts`. Warnings fail the run.
+- `bun run audit` (root): `bun audit` for the workspace and the desktop UI; critical/high advisories fail unless a dated exception with a reason is listed in `scripts/audit.ts`.
 - `bun test packages`: all package tests.
 - `bun run test:ui`: desktop UI unit tests (includes `apps/desktop/ui/bench/metrics.test.ts`).
 - `cargo test --locked` in `apps/desktop/src-tauri`: Tauri shell tests. Push and pull request run these; a release runs the check job only, so a shell-test failure does not skip the installers.

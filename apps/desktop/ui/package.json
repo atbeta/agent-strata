@@ -20,19 +20,20 @@
     "@xterm/xterm": "5.5.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "dompurify": "^3",
+    "dompurify": "^3.4.17",
     "marked": "^16",
     "mermaid": "^12.2.0",
     "solid-js": "^1.9.0",
-    "zod": "3.23.8",
     "tailwind-merge": "^3.7.0",
     "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
-    "@types/dompurify": "^3.2.0",
     "playwright": "1.64.1",
     "typescript": "5.5.4",
     "vite": "^7.0.0",
     "vite-plugin-solid": "^2.11.0"
+  },
+  "overrides": {
+    "dompurify": "3.4.17"
   }
 }
