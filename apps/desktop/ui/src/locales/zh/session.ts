@@ -124,7 +124,7 @@ export default {
   "goal.edit_tip": "修改目标",
   "goal.clear": "停止目标",
   "goal.clear_aria": "停止目标",
-  "goal.hint": "空闲后会自动按这个目标继续，暂停或中止后需要你再发消息才会恢复。",
+  "goal.hint": "空闲后自动继续，暂停或中止后发消息恢复。",
   "goal.pause": "暂停",
   "goal.resume": "继续",
   "goal.paused": "已暂停",

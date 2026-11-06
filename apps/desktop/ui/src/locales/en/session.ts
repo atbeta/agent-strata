@@ -124,7 +124,7 @@ export default {
   "goal.edit_tip": "Edit goal",
   "goal.clear": "Stop goal",
   "goal.clear_aria": "Stop goal",
-  "goal.hint": "It continues toward this goal whenever the session goes idle; after a pause or abort, send a message to resume.",
+  "goal.hint": "Continues automatically when idle; after a pause or abort, send a message to resume.",
   "goal.pause": "Pause",
   "goal.resume": "Resume",
   "goal.paused": "Paused",
