@@ -9,9 +9,9 @@ import type { Name } from "./icons";
  * the first block, and the address is left as it is.
  */
 export const SETTINGS_SECTIONS = [
-  { id: "interface", label: "settings.section.interface", icon: "sliders" },
-  { id: "backends", label: "settings.section.backends", icon: "link" },
-  { id: "opencode", label: "settings.section.opencode", icon: "spark" },
+  { id: "interface", label: "settings.section.interface", icon: "monitor" },
+  { id: "backends", label: "settings.section.backends", icon: "server" },
+  { id: "opencode", label: "settings.section.opencode", icon: "opencode" },
   { id: "permission", label: "settings.section.permission", icon: "shield" },
   { id: "maintenance", label: "settings.section.maintenance", icon: "wrench" },
   { id: "about", label: "settings.section.about", icon: "info" },

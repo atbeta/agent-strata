@@ -57,6 +57,9 @@ export type Name =
   | "activity"
   | "maximize"
   | "minimize"
+  | "monitor"
+  | "server"
+  | "opencode"
   | "pin"
   | "unpin"
   | "export"
@@ -583,6 +586,36 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
     return (
       <Glyph class={cls}>
         <path d="M2.5 8h2l1.4-4.6 2.4 9.2 1.6-4.6h3.6" />
+      </Glyph>
+    );
+  // The window's own look — theme, language, type. A display with its stand:
+  // Lucide's monitor geometry, re-fitted to this grid and weight.
+  if (name === "monitor")
+    return (
+      <Glyph class={cls}>
+        <rect x="2.5" y="3.5" width="11" height="8" rx="1.2" />
+        <path d="M8 11.5v2.5" />
+        <path d="M5.5 14h5" />
+      </Glyph>
+    );
+  // A stacked pair of machines: the places a session can run.
+  if (name === "server")
+    return (
+      <Glyph class={cls}>
+        <rect x="2.5" y="2.5" width="11" height="4.5" rx="1.2" />
+        <rect x="2.5" y="9" width="11" height="4.5" rx="1.2" />
+        <circle cx="5.5" cy="4.75" r="0.7" fill="currentColor" stroke="none" />
+        <circle cx="5.5" cy="11.25" r="0.7" fill="currentColor" stroke="none" />
+      </Glyph>
+    );
+  // OpenCode's own mark — the square ring with the inset block — adapted from
+  // the favicon at opencode.ai rather than redrawn to taste: this row names
+  // that product, so the mark is theirs.
+  if (name === "opencode")
+    return (
+      <Glyph class={cls}>
+        <rect x="3" y="2" width="10" height="12" rx="1" />
+        <rect x="5.5" y="6.5" width="5" height="5" rx="0.5" fill="currentColor" stroke="none" opacity="0.45" />
       </Glyph>
     );
   if (name === "maximize")
