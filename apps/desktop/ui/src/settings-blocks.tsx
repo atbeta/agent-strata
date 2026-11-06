@@ -9,6 +9,10 @@ import { handleRovingKey } from "@/roving-key";
  * one place and another size in the next reads as two apps in one window.
  */
 
+/** The trigger for a picker dropdown: a quiet field that shows the choice. */
+export const pickerTrigger =
+  "h-8 w-full justify-between gap-3 border border-border px-2.5 text-sm hover:bg-secondary/60";
+
 /** The name of a group of settings, quieter than any row inside it. */
 export function Group(props: {
   label: string;

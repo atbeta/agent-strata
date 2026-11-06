@@ -1,11 +1,25 @@
-import { For, Show } from "solid-js";
-import { backendLabel } from "./api";
+import { createResource, createSignal, For, Show } from "solid-js";
+import { backendLabel, listTerminals } from "./api";
 import { settled } from "./resource";
+import { readMru } from "./session-switch";
+import {
+  isShellAvailable,
+  readTerminalShell,
+  shellChoices,
+  writeTerminalShell,
+} from "./terminal-shell";
 import { t } from "./i18n";
 import { Icon } from "./icons";
 import { Button } from "@/components/ui/button";
 import { TextFieldInput } from "@/components/ui/text-field";
-import { Card, Group, Segmented } from "./settings-blocks";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Card, Group, Row, Segmented, pickerTrigger } from "./settings-blocks";
 import { endpointShort, type ConnectionsCtl } from "./use-connections";
 import type { ConnectionAttempt, ConnectionPlacement } from "./api";
 
@@ -19,6 +33,63 @@ function attemptLine(attempt: ConnectionAttempt): string {
   const place = placementWord(attempt.placement);
   const host = endpointShort(attempt.endpoint);
   return place ? `${host} · ${place}` : host;
+}
+
+/**
+ * Which shell a new terminal opens with.
+ *
+ * The choices are the backend's, not PATH's: it is the backend that decides
+ * what it will broker, and a binary it found but will not run is worse than one
+ * it never mentioned. The list is read through the session you were last in,
+ * because that is the only place a directory to ask about comes from — which is
+ * also why the control is honest about having nothing to show before the first
+ * session exists.
+ *
+ * A shell the backend has dropped is still shown, in its own name and in red.
+ * Silently swapping it would report a preference the reader never chose.
+ */
+function TerminalShellPicker(props: { label: string; value: string; onChange: (name: string) => void }) {
+  const [shells] = createResource(
+    () => readMru()[0],
+    async (sessionId) => (sessionId ? ((await listTerminals(sessionId)).shells ?? []) : []),
+  );
+
+  const available = () => shellChoices(shells() ?? []);
+  const chosen = () => (props.value === "" ? t("terminal.shellBackend") : props.value);
+  const missing = () => props.value !== "" && shells() !== undefined && !isShellAvailable(props.value, shells()!);
+
+  return (
+    <div class="w-full">
+      <DropdownMenu>
+        <DropdownMenuTrigger class={pickerTrigger} aria-label={props.label}>
+          <span class={`truncate ${props.value ? "font-mono text-xs" : ""} ${missing() ? "text-destructive" : ""}`}>
+            {chosen()}
+          </span>
+          <Icon name="chevron" class="size-3 shrink-0 text-muted-foreground" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent>
+          <DropdownMenuItem onSelect={() => props.onChange("")}>
+            {t("terminal.shellBackend")}
+          </DropdownMenuItem>
+          <Show when={available().length > 0}>
+            <DropdownMenuSeparator />
+            <For each={available()}>
+              {(shell) => (
+                <DropdownMenuItem class="font-mono text-xs" onSelect={() => props.onChange(shell.name)}>
+                  {shell.name}
+                </DropdownMenuItem>
+              )}
+            </For>
+          </Show>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <Show when={missing()}>
+        <p class="mt-1.5 text-2xs leading-4 text-destructive">
+          {t("settings.shell.missing", { name: props.value })}
+        </p>
+      </Show>
+    </div>
+  );
 }
 
 const fieldLabel = "block text-2xs text-muted-foreground mb-1";
@@ -35,6 +106,7 @@ export function BackendSettings(props: { conns: ConnectionsCtl }) {
   const live = () => settled(c().conns)?.connections ?? [];
   const pending = () =>
     c().attempts().filter((attempt) => !live().some((conn) => conn.baseUrl === attempt.endpoint));
+  const [shellDefault, setShellDefault] = createSignal(readTerminalShell());
 
   return (
     <>
@@ -256,6 +328,24 @@ export function BackendSettings(props: { conns: ConnectionsCtl }) {
               </Button>
             </div>
           </div>
+        </Card>
+      </Group>
+
+      {/* The terminal a session opens runs through the backend, and its shell
+          list is the backend's own — the reason this lives with the connections
+          instead of with appearance. */}
+      <Group label={t("settings.shell.group")}>
+        <Card>
+          <Row label={t("settings.shell.title")} hint={t("settings.shell.hint")}>
+            <TerminalShellPicker
+              label={t("settings.shell.title")}
+              value={shellDefault()}
+              onChange={(name) => {
+                setShellDefault(name);
+                writeTerminalShell(name);
+              }}
+            />
+          </Row>
         </Card>
       </Group>
     </>

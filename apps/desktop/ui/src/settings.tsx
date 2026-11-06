@@ -1,7 +1,6 @@
 import { createEffect, createMemo, createResource, createSignal, For, Show } from "solid-js";
 import { APP_NAME, SOURCE_HINT, SOURCE_LABEL, SOURCE_TITLE, SOURCE_URL } from "./app-name";
 import {
-  listTerminals,
   readOpencodeLaunch,
   saveOpencodeMode,
   type OpencodeLaunchMode,
@@ -17,13 +16,6 @@ import {
 } from "./opencode-runtime";
 import { copyText } from "./clipboard";
 import { inDesktopShell } from "./shell";
-import { readMru } from "./session-switch";
-import {
-  isShellAvailable,
-  readTerminalShell,
-  shellChoices,
-  writeTerminalShell,
-} from "./terminal-shell";
 import { LOCALES, LOCALE_LABEL, locale, setLocale, stamp, t, type Locale } from "./i18n";
 import { fadeSignal } from "./errors";
 import { Icon } from "./icons";
@@ -56,7 +48,7 @@ import { Button } from "@/components/ui/button";
 import { RowButton } from "@/components/ui/row-button";
 import { Switch } from "@/components/ui/switch";
 import { TextFieldInput } from "@/components/ui/text-field";
-import { Card, Group, PillGroup, Row, Segmented } from "./settings-blocks";
+import { Card, Group, PillGroup, Row, Segmented, pickerTrigger } from "./settings-blocks";
 import { runtimeErrorText } from "./runtime-error";
 import { BackendSettings } from "./backend-settings";
 import type { ConnectionsCtl } from "./use-connections";
@@ -101,8 +93,6 @@ function width(ch: string) {
 
 // The source link comes from the brand, so a white-label build points wherever
 // its own build points rather than at the upstream repository.
-
-const pickerTrigger = "h-8 w-full justify-between gap-3 border border-border px-2.5 text-sm hover:bg-secondary/60";
 
 /**
  * A font picker that shows what is chosen. The dropdown carries the families
@@ -169,66 +159,6 @@ function FontPicker(props: {
   );
 }
 
-/**
- * Which shell a new terminal opens with.
- *
- * The choices are the backend's, not PATH's: it is the backend that decides
- * what it will broker, and a binary it found but will not run is worse than one
- * it never mentioned. The list is read through the session you were last in,
- * because that is the only place a directory to ask about comes from — which is
- * also why the control is honest about having nothing to show before the first
- * session exists.
- *
- * A shell the backend has dropped is still shown, in its own name and in red.
- * Silently swapping it would report a preference the reader never chose.
- */
-function TerminalShellPicker(props: { label: string; value: string; onChange: (name: string) => void }) {
-  const [shells] = createResource(
-    () => readMru()[0],
-    async (sessionId) => (sessionId ? ((await listTerminals(sessionId)).shells ?? []) : []),
-  );
-
-  const available = () => shellChoices(shells() ?? []);
-  const chosen = () => (props.value === "" ? t("terminal.shellBackend") : props.value);
-  const missing = () => props.value !== "" && shells() !== undefined && !isShellAvailable(props.value, shells()!);
-
-  return (
-    <div class="w-full">
-      <DropdownMenu>
-        <DropdownMenuTrigger
-          class={pickerTrigger}
-          aria-label={props.label}
-        >
-          <span class={`truncate ${props.value ? "font-mono text-xs" : ""} ${missing() ? "text-destructive" : ""}`}>
-            {chosen()}
-          </span>
-          <Icon name="chevron" class="size-3 shrink-0 text-muted-foreground" />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent>
-          <DropdownMenuItem onSelect={() => props.onChange("")}>
-            {t("terminal.shellBackend")}
-          </DropdownMenuItem>
-          <Show when={available().length > 0}>
-            <DropdownMenuSeparator />
-            <For each={available()}>
-              {(shell) => (
-                <DropdownMenuItem class="font-mono text-xs" onSelect={() => props.onChange(shell.name)}>
-                  {shell.name}
-                </DropdownMenuItem>
-              )}
-            </For>
-          </Show>
-        </DropdownMenuContent>
-      </DropdownMenu>
-      <Show when={missing()}>
-        <p class="mt-1.5 text-2xs leading-4 text-destructive">
-          {t("settings.shell.missing", { name: props.value })}
-        </p>
-      </Show>
-    </div>
-  );
-}
-
 const CHOICES = (): { id: ThemeChoice; label: string }[] => [
   { id: "dark", label: t("settings.theme.dark") },
   { id: "light", label: t("settings.theme.light") },
@@ -255,7 +185,6 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
   const [notifyDone, setNotifyDone] = createSignal(readNotify("done"));
   const [notifyQuestion, setNotifyQuestion] = createSignal(readNotify("question"));
   const [notifyErr, setNotifyErr] = fadeSignal<{ kind: NotifyKind; text: string } | undefined>(undefined);
-  const [shellDefault, setShellDefault] = createSignal(readTerminalShell());
   const [loginUser, setLoginUser] = createSignal("");
   const [loginPass, setLoginPass] = createSignal("");
   const [loginBusy, setLoginBusy] = createSignal(false);
@@ -666,6 +595,17 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
               options={CHOICES()}
             />
           </Row>
+
+          <Row label={t("settings.language")} hint={t("settings.language.hint")}>
+            {/* Each language in its own name. "English" is not a translation of
+                "英文" to someone who cannot read the one they are looking at. */}
+            <Segmented
+              label={t("settings.language")}
+              value={locale()}
+              onChange={(id) => setLocale(id as Locale)}
+              options={LOCALES.map((id) => ({ id, label: LOCALE_LABEL[id] }))}
+            />
+          </Row>
           {/* Both families have to appear here. A preview that only shows the code
               font leaves the interface-font row looking like it did nothing, which
               is the same doubt the picker itself has to answer. It pins while the
@@ -753,22 +693,10 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
         </Card>
       </Group>
 
-      {/* Language and notification are preferences, not a category each: they
-          share one list so the page reads as a page instead of a stack of
-          equally loud blocks. */}
-      <Group label={t("settings.general")}>
+      {/* Thinking and notifications are session behaviour, not appearance:
+          how a session talks to you while it runs and when it stops. */}
+      <Group label={t("settings.session.group")}>
       <Card>
-        <Row label={t("settings.language")} hint={t("settings.language.hint")}>
-          {/* Each language in its own name. "English" is not a translation of
-              "英文" to someone who cannot read the one they are looking at. */}
-          <Segmented
-            label={t("settings.language")}
-            value={locale()}
-            onChange={(id) => setLocale(id as Locale)}
-            options={LOCALES.map((id) => ({ id, label: LOCALE_LABEL[id] }))}
-          />
-        </Row>
-
         <Row label={t("settings.thinking.title")} hint={t("settings.thinking.hint")}>
           <Switch
             checked={thinkingOpen()}
@@ -791,7 +719,7 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
       </Show>
 
       <Show when={section() === "opencode"}>
-      <Group label={t("settings.opencode.title")} hint={t("settings.opencode.runtimeHint")}>
+      <Group label={t("settings.opencode.runtime")} hint={t("settings.opencode.runtimeHint")}>
       <Card>
         <Row
           label={t("settings.opencode.mode")}
@@ -1093,27 +1021,13 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
           </Row>
         </Show>
       </Card>
-
-      {/* Terminals are an opencode capability — the ACP adapter reports
-          `terminal: false` — so this sits with the rest of what only that backend
-          offers rather than pretending every session can open one. */}
-      <Group label={t("settings.shell.group")}>
-        <Card>
-          <Row label={t("settings.shell.title")} hint={t("settings.shell.hint")}>
-            <TerminalShellPicker
-              label={t("settings.shell.title")}
-              value={shellDefault()}
-              onChange={(name) => {
-                setShellDefault(name);
-                writeTerminalShell(name);
-              }}
-            />
-          </Row>
-        </Card>
       </Group>
+      </Show>
 
-      </Group>
-
+      <Show when={section() === "models"}>
+      {/* Filling a key is a first-run task, not runtime surgery: it gets its
+          own section instead of the bottom of the process manager. The keys
+          themselves are written to OpenCode either way. */}
       <ProviderSettings />
       </Show>
 
