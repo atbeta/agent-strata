@@ -4,6 +4,8 @@ import DOMPurify from "dompurify";
 import { stripAnsi } from "./ansi";
 import { grammarFor, guessGrammar, tokenize, tokenizeDiff } from "./highlight";
 import { splitBlocks } from "./md-blocks";
+import { isSourceBlock } from "./md-source";
+import { revealDroppedTags, sanitizerKeepsTag, sourceBlock } from "./md-tags";
 import { reconcileList } from "./md-reconcile";
 import { stableKeys } from "./keyed";
 import { splitLinkTail } from "./link-tail";
@@ -172,8 +174,14 @@ function parsed(markdown: string, finished: boolean): DocumentFragment {
   const tpl = document.createElement("template");
   const cached = finished ? htmlCache.get(markdown) : undefined;
   if (cached === undefined) {
-    tpl.innerHTML = DOMPurify.sanitize(marked.parse(markdown, { async: false }) as string);
-    fixAutolinkTails(tpl.content);
+    if (isSourceBlock(markdown, (tag) => !sanitizerKeepsTag(tag))) {
+      tpl.content.append(sourceBlock(markdown));
+    } else {
+      tpl.innerHTML = marked.parse(markdown, { async: false }) as string;
+      revealDroppedTags(tpl.content);
+      tpl.innerHTML = DOMPurify.sanitize(tpl.innerHTML);
+      fixAutolinkTails(tpl.content);
+    }
     highlightCode(tpl.content);
     if (finished) htmlCache.set(markdown, tpl.innerHTML);
   } else {
