@@ -1,4 +1,5 @@
 import { createEffect, createMemo, For, onCleanup, Show, createSignal } from "solid-js";
+import { Portal } from "solid-js/web";
 import {
   archiveSession,
   backendLabel,
@@ -267,7 +268,11 @@ export function Sidebar(props: {
    * checkout must not lose commits.
    */
   const [removeArmed, setRemoveArmed] = createSignal<string | undefined>();
+  /** The folder a removal is working on, so the press is answered at once. */
+  const [removing, setRemoving] = createSignal<string | undefined>();
   const dropWorktree = async (dir: string) => {
+    if (removing()) return;
+    setRemoving(dir);
     try {
       if (removeArmed() === dir) {
         setRemoveArmed(undefined);
@@ -302,6 +307,8 @@ export function Sidebar(props: {
       props.list.refetch();
     } catch (e) {
       list().setActionErr(explain(e));
+    } finally {
+      setRemoving(undefined);
     }
   };
 
@@ -565,9 +572,10 @@ export function Sidebar(props: {
           </p>
         )}
       </Show>
-      <Show when={list().actionErr()}>
-        <p class="truncate px-3 pb-1.5 font-mono text-2xs text-destructive" title={list().actionErr()}>
-          {list().actionErr()}
+      <Show when={removing()}>
+        <p role="status" class="flex items-center gap-1.5 px-3 pb-1.5 text-2xs text-muted-foreground">
+          <Icon name="activity" class="size-3 shrink-0 animate-pulse text-syntax-function" />
+          {t("worktree.removing")}
         </p>
       </Show>
       <div class="min-h-0 flex-1 overflow-y-auto px-1.5 pb-4 pt-1 [mask-image:linear-gradient(to_bottom,black_calc(100%-16px),transparent)]">
@@ -824,6 +832,32 @@ export function Sidebar(props: {
         compareReady={props.compareSel.length === 2}
         onCompareOpen={props.onOpenCompare}
       />
+      {/* An action's failure belongs where the action happened, not in a
+          caption under the filters where it reads as part of the list and
+          is clipped to one line. A toast is seen wherever the reader is
+          looking, can be read in full, and can be put away. */}
+      <Show when={list().actionErr()}>
+        <Portal>
+          <div class="fixed inset-x-0 bottom-6 z-50 flex justify-center px-4">
+            <div
+              role="alert"
+              class="flex max-w-[min(30rem,100%)] items-start gap-2 rounded-lg border border-border bg-card px-3 py-2 shadow-lg"
+            >
+              <Icon name="alert" class="mt-0.5 size-3.5 shrink-0 text-destructive" />
+              <p class="min-w-0 flex-1 text-xs leading-5 text-foreground">{list().actionErr()}</p>
+              <Button
+                variant="quiet"
+                size="icon-2xs"
+                class="shrink-0 text-muted-foreground"
+                aria-label={t("action.dismiss")}
+                onClick={() => list().setActionErr("")}
+              >
+                <Icon name="x" class="size-3" />
+              </Button>
+            </div>
+          </div>
+        </Portal>
+      </Show>
     </aside>
   );
 }
