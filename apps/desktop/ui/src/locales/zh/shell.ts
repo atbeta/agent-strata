@@ -22,6 +22,7 @@ export default {
   "sidebar.recent.empty": "没有匹配的会话。",
   "sidebar.project.none": "无项目",
   "sidebar.project.openDirectory": "打开目录",
+  "sidebar.project.removeFromList": "从列表移除（不删除磁盘文件）",
   "sidebar.project.collapseAll": "收起全部文件夹",
   "sidebar.project.expandAll": "展开全部文件夹",
   "sidebar.project.filter": "筛选项目",

@@ -96,6 +96,25 @@ export function useWorkspace() {
     return true;
   };
 
+  /** Whether a place is on the list only because someone opened it by hand —
+      a session does not point there. Only then is "remove from list" honest:
+      it takes away a bookmark, not a project. */
+  const isBookmark = (dir: string) => addedDirs().includes(dir);
+
+  /**
+   * Takes a hand-opened place off the list. Local bookkeeping only — nothing
+   * on disk and nothing on a backend is touched, because nothing there knows
+   * this entry exists. A session arriving for the directory later brings the
+   * group back on its own, which is the correct way for the list to say the
+   * place is real again.
+   */
+  const removeDir = (dir: string) => {
+    if (!isBookmark(dir)) return;
+    const next = addedDirs().filter((d) => d !== dir);
+    setAddedDirs(next);
+    localStorage.setItem(ADDED_DIRS_KEY, JSON.stringify(next));
+  };
+
   /** The desktop shell's directory chooser. Browsers can't reach the native
       dialog, so the sidebar keeps the typed-path popover as its fallback.
       Returns the directory when one was actually chosen: a cancelled picker
@@ -122,6 +141,8 @@ export function useWorkspace() {
     dirDraft,
     setDirDraft,
     addDir,
+    isBookmark,
+    removeDir,
     pickDir,
   };
 }

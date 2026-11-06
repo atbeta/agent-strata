@@ -48,6 +48,10 @@ export type SidebarGroup = {
   hint?: string;
   title?: string;
   rows: SessionRow[];
+  /** Every session the group holds, before the lens hides any: the sidebar
+      reads it to tell a place with nothing in it from one whose rows are just
+      filtered out. */
+  total: number;
   /** A real project directory — only project groups carry one. It is what a
       group-level "+" aims a new session at, and what marks the group as
       worth showing even while it holds no rows. */
@@ -293,7 +297,7 @@ export function useSessionList(opts: {
 
     const out: SidebarGroup[] = [];
     if (pinned.length > 0) {
-      out.push({ key: "__pinned__", label: t("sidebar.group.pinned"), rows: pinned });
+      out.push({ key: "__pinned__", label: t("sidebar.group.pinned"), rows: pinned, total: pinned.length });
     }
 
     /**
@@ -381,8 +385,7 @@ export function useSessionList(opts: {
           opts.keepDir?.(),
           opts.isWorktree?.(group.title),
         ),
-      )
-      .map(({ total: _total, ...group }) => group);
+      );
   };
 
   /** The same sessions, cut up by the day they last ran. */
@@ -414,8 +417,7 @@ export function useSessionList(opts: {
     return groups
       .filter((group) =>
         groupVisible(lensNow, { rows: group.rows.length, total: group.total, path: "" }),
-      )
-      .map(({ total: _total, ...group }) => group);
+      );
   };
 
   /**

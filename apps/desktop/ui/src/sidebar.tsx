@@ -416,6 +416,29 @@ export function Sidebar(props: {
                     </Button>
                   </Tip>
                 </Show>
+                {/* A hand-opened place with no sessions is a bookmark, not a
+                    project: taking it off the list touches nothing on disk, and
+                    a session turning up there later brings the group back. */}
+                <Show
+                  when={
+                    !wt() &&
+                    group().total === 0 &&
+                    group().dir !== undefined &&
+                    props.ws.isBookmark(group().dir!)
+                  }
+                >
+                  <Tip label={t("sidebar.project.removeFromList")}>
+                    <Button
+                      variant="quiet"
+                      size="icon-2xs"
+                      class={ghost()}
+                      aria-label={t("sidebar.project.removeFromList")}
+                      onClick={() => props.ws.removeDir(group().dir!)}
+                    >
+                      <Icon name="x" class="size-2.5" />
+                    </Button>
+                  </Tip>
+                </Show>
                 {/* A worktree forks a repository — the button has no business
                     on a directory git does not claim, where it could only fail. */}
                 <Show when={!wt() && props.ws.repoOf(group().dir) !== undefined}>
