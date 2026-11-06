@@ -20,7 +20,12 @@ export interface SessionContext {
   percent: number | null;
   /** the model's published window, null when it reports none */
   limit: number | null;
-  /** what the last model call spent, as the backend reported it */
+  /**
+   * What the last model call spent, as the backend reported it.
+   *
+   * `input` here is the non-cached prompt; `total` below is the retained
+   * context, not this object's sum.
+   */
   usage: {
     input: number;
     cache_read: number;
@@ -34,10 +39,14 @@ export interface SessionContext {
  * The last request's size, exactly as the backend reported it.
  *
  * OpenCode usage is per model call and cache-exclusive — `input` counts only
- * the tokens that missed the cache — so the five fields sum to a real
- * per-request total the UI can split without estimating. ACP reports usage
- * aggregated across the session with cache inclusion unspecified, so a
- * non-OpenCode backend gets no context figure rather than a made-up one.
+ * the tokens that missed the cache. The context this session carries into the
+ * next turn is the prompt, not the reply: output and reasoning are generated,
+ * reasoning is never carried forward, so counting them would report a window
+ * fuller than it is. OpenCode's own desktop computes the same way.
+ *
+ * ACP reports usage aggregated across the session with cache inclusion
+ * unspecified, so a non-OpenCode backend gets no context figure rather than a
+ * made-up one.
  */
 export function sessionContext(
   turns: ContextTurn[],
@@ -50,8 +59,9 @@ export function sessionContext(
     for (let j = assistant.length - 1; j >= 0; j--) {
       const usage = assistant[j]?.usage;
       if (!usage) continue;
-      const total =
-        usage.input + usage.output + (usage.reasoning ?? 0) + (usage.cache_read ?? 0) + (usage.cache_write ?? 0);
+      // Retained context, not the call's whole bill: the reply is generated and
+      // the next turn's window does not hold it.
+      const total = usage.input + (usage.cache_read ?? 0) + (usage.cache_write ?? 0);
       if (total <= 0) continue;
       const percent = limit && limit > 0 ? Math.round((total / limit) * 100) : null;
       return {

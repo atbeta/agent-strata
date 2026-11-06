@@ -833,6 +833,7 @@ export function useSessionComposer(args: {
               id={args.sessionId()}
               totals={v().totals}
               context={context()}
+              turns={v().turns}
               model={shownModel()}
               modelId={modelSel()}
               backend={v().backend}

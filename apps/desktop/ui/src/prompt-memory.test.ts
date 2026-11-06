@@ -23,8 +23,8 @@ describe("sessionContext", () => {
       "opencode",
     );
     expect(ctx).toEqual({
-      total: 850,
-      percent: 85,
+      total: 810,
+      percent: 81,
       limit: 1_000,
       usage: { input: 800, cache_read: 10, cache_write: 0, output: 40, reasoning: 0 },
     });
@@ -34,11 +34,23 @@ describe("sessionContext", () => {
     expect(
       sessionContext([{ assistant: [{ usage: usage(10, { output: 5 }) }] }], undefined, "opencode"),
     ).toEqual({
-      total: 15,
+      total: 10,
       percent: null,
       limit: null,
       usage: { input: 10, cache_read: 0, cache_write: 0, output: 5, reasoning: 0 },
     });
+  });
+
+  test("the reply is not part of the context it leaves behind", () => {
+    // Output and reasoning are generated; the next turn's window does not hold
+    // them. Counting them reported a window fuller than it was.
+    const ctx = sessionContext(
+      [{ assistant: [{ usage: usage(100, { output: 900, reasoning: 500 }) }] }],
+      1_000,
+      "opencode",
+    );
+    expect(ctx?.total).toBe(100);
+    expect(ctx?.percent).toBe(10);
   });
 
   test("a non-OpenCode backend's aggregate usage is not a request", () => {

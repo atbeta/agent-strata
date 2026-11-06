@@ -6,7 +6,8 @@ import { copyText } from "./clipboard";
 import { sessionStatus, showsMark, type SessionStatus } from "./session-status";
 import { pieSectorPath } from "./context-pie";
 import type { SessionContext } from "./prompt-memory";
-import { requestParts, type RequestPart, type RequestPartKey } from "./request-usage";
+import { contextBreakdown, type ContextPart, type ContextPartKey } from "./context-breakdown";
+import type { Turn } from "./api";
 import { Tip } from "./tip";
 import { Button } from "@/components/ui/button";
 
@@ -43,15 +44,11 @@ export function ContextRing(props: { percent: number | null }) {
 /**
  * A filled bar reads faster than the ring once the number is spelled out.
  *
- * The filled part is split into the request's composition, so the gauge answers
- * both "how full" and "of what" at once. The caller supplies the detail behind
- * a hover; the bar itself stays one line tall.
+ * One fill, one meaning: the share of the model's window this session holds.
+ * What the input is made of is a different denominator — a share of the last
+ * prompt, not of the window — and it has its own bar behind the hover card.
  */
-function ContextBar(props: {
-  percent: number | null;
-  segments?: RequestPart[];
-  label?: string;
-}) {
+function ContextBar(props: { percent: number | null; label?: string }) {
   const width = () => `${Math.max(0, Math.min(100, props.percent ?? 0))}%`;
   const tone = () =>
     props.percent == null
@@ -61,7 +58,6 @@ function ContextBar(props: {
         : props.percent >= 75
           ? "bg-status-cancelled"
           : "bg-foreground";
-  const split = () => (props.segments?.length ?? 0) > 0;
   return (
     <div
       class="h-1.5 w-full overflow-hidden rounded-full bg-border outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -69,21 +65,10 @@ function ContextBar(props: {
       aria-label={props.label}
       tabIndex={props.label ? 0 : undefined}
     >
-      <div class="flex h-full overflow-hidden rounded-full transition-[width]" style={{ width: width() }}>
-        <Show
-          when={split()}
-          fallback={<div class={`h-full w-full rounded-full ${tone()}`} />}
-        >
-          <For each={props.segments}>
-            {(segment) => (
-              <span
-                class={`h-full shrink-0 ${PART_FILL[segment.key]}`}
-                style={{ width: `${segment.width}%` }}
-              />
-            )}
-          </For>
-        </Show>
-      </div>
+      <div
+        class={`h-full rounded-full transition-[width] ${tone()}`}
+        style={{ width: width() }}
+      />
     </div>
   );
 }
@@ -92,59 +77,63 @@ function ContextBar(props: {
  * The request's parts take the chart palette — the split is categorical, not
  * a status, so no colour is allowed to read as a warning or a grade.
  */
-const PART_FILL: Record<RequestPartKey, string> = {
-  cache_read: "bg-chart-1",
-  cache_write: "bg-chart-4",
-  input: "bg-chart-2",
-  output: "bg-chart-3",
-  reasoning: "bg-chart-5",
+const PART_FILL: Record<ContextPartKey, string> = {
+  system: "bg-chart-4",
+  user: "bg-chart-2",
+  assistant: "bg-chart-5",
+  tool: "bg-chart-3",
+  other: "bg-chart-1",
 };
 
-function requestLabel(key: RequestPartKey): string {
-  return t(`info.request.${key}`);
+function contextLabel(key: ContextPartKey): string {
+  return t(`info.context.${key}`);
 }
 
 /**
- * The request's composition as spoken text: the aria label and the plain
- * fallback say the same rows the hover card draws. Every number here is one
- * the backend reported — the card's note says nothing is estimated, so the
- * label must not invent a figure either.
+ * The breakdown as spoken text: the aria label and the plain fallback say the
+ * same rows the card draws. These numbers are estimates and the label says so;
+ * only the total beside them is the backend's own count.
  */
-function requestTip(parts: RequestPart[], total: number): string {
+function contextTip(parts: ContextPart[], input: number): string {
   if (parts.length === 0) return "";
   const rows = parts.map((part) => {
     const percent = part.percent < 0.1 ? "<0.1" : part.percent;
-    return `${requestLabel(part.key)} ${percent}% · ${num(part.tokens)}`;
+    return `${contextLabel(part.key)} ${percent}% · ${num(part.tokens)}`;
   });
-  return [`${t("info.request")} · ${num(total)}`, ...rows, t("info.request.note")].join("\n");
+  return [`${t("info.context.breakdown")} · ${num(input)}`, ...rows, t("info.context.note")].join("\n");
 }
 
 /**
- * The request's composition behind the bar's hover, laid out as a small
- * table instead of stacked text. Percentages are of `total` — the reported
- * size of the last model call — and the note states that nothing here is
- * estimated.
+ * What the last request's input was made of, behind the bar's hover.
+ *
+ * Its own stacked bar, not the context gauge: the shares are of the prompt the
+ * backend reported, while the gauge is the whole retained window. One bar for
+ * both denominators would put two meanings on one width.
  */
-function RequestCard(props: { parts: RequestPart[]; total: number }) {
+function ContextCard(props: { parts: ContextPart[]; input: number }) {
   return (
     <div class="w-64">
       <div class="flex items-baseline justify-between gap-3">
-        <span class="text-xs font-medium text-foreground">{t("info.request")}</span>
-        <span class="font-mono text-2xs tabular-nums text-muted-foreground">{num(props.total)}</span>
+        <span class="text-xs font-medium text-foreground">{t("info.context.breakdown")}</span>
+        <span class="font-mono text-2xs tabular-nums text-muted-foreground">{num(props.input)}</span>
       </div>
-      <div class="mt-2 grid grid-cols-[minmax(0,1fr)_3rem_2.75rem_4rem] items-center gap-x-2 gap-y-1.5">
+      <div class="mt-2 flex h-2 w-full overflow-hidden rounded-full bg-border">
+        <For each={props.parts}>
+          {(part) => (
+            <span
+              class={`h-full shrink-0 ${PART_FILL[part.key]}`}
+              style={{ width: `${part.width}%` }}
+            />
+          )}
+        </For>
+      </div>
+      <div class="mt-2 grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-3 gap-y-1.5">
         <For each={props.parts}>
           {(part) => (
             <>
               <span class="inline-flex min-w-0 items-center gap-1.5">
-                <span class={`size-2 shrink-0 rounded-full ${PART_FILL[part.key]}`} />
-                <span class="truncate text-xs text-foreground">{requestLabel(part.key)}</span>
-              </span>
-              <span class="h-1 w-full overflow-hidden rounded-full bg-border">
-                <span
-                  class={`block h-full rounded-full ${PART_FILL[part.key]}`}
-                  style={{ width: `max(2px, ${part.width}%)` }}
-                />
+                <span class={`size-2 shrink-0 rounded-sm ${PART_FILL[part.key]}`} />
+                <span class="truncate text-xs text-foreground">{contextLabel(part.key)}</span>
               </span>
               <span class="text-right text-xs tabular-nums text-foreground">
                 {part.percent < 0.1 ? "<0.1" : part.percent}%
@@ -157,7 +146,7 @@ function RequestCard(props: { parts: RequestPart[]; total: number }) {
         </For>
       </div>
       <p class="mt-2.5 border-t border-border pt-2 text-2xs leading-4 text-muted-foreground">
-        {t("info.request.note")}
+        {t("info.context.note")}
       </p>
     </div>
   );
@@ -241,6 +230,8 @@ export function SessionInfo(props: {
   /** The last request's reported usage; undefined when the backend does not
    *  publish one. */
   context: SessionContext | undefined;
+  /** The transcript, for the input breakdown's estimate. */
+  turns?: readonly Turn[];
   model: string;
   /** The id behind `model`, named on hover when the two differ. */
   modelId?: string;
@@ -265,8 +256,9 @@ export function SessionInfo(props: {
       compacting: props.compacting,
       session_error: props.sessionError,
     });
-  const parts = () => (props.context ? requestParts(props.context.usage, props.context.total) : []);
-  const contextTip = () => requestTip(parts(), props.context?.total ?? 0);
+  const parts = () =>
+    props.context ? contextBreakdown(props.turns ?? [], props.context.usage.input) : [];
+  const tip = () => contextTip(parts(), props.context?.usage.input ?? 0);
   const [idCopied, setIdCopied] = createSignal(false);
   const copyId = async () => {
     const mine = ++copyIdToken;
@@ -321,19 +313,15 @@ export function SessionInfo(props: {
         <Show when={props.context?.percent != null}>
           <div class="mt-2">
             <Tip
-              label={contextTip()}
+              label={tip()}
               content={
                 parts().length > 0
-                  ? () => <RequestCard parts={parts()} total={props.context?.total ?? 0} />
+                  ? () => <ContextCard parts={parts()} input={props.context?.usage.input ?? 0} />
                   : undefined
               }
               class="w-full"
             >
-              <ContextBar
-                percent={props.context!.percent}
-                segments={parts()}
-                label={contextTip()}
-              />
+              <ContextBar percent={props.context!.percent} label={tip()} />
             </Tip>
           </div>
           <div class="mt-1.5 flex items-baseline justify-between gap-3 text-2xs text-muted-foreground">
