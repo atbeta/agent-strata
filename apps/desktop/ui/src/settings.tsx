@@ -941,7 +941,7 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
                       href="https://opencode.ai"
                       target="_blank"
                       rel="noreferrer"
-                      class="underline decoration-border underline-offset-2 hover:text-foreground"
+                      class="underline decoration-border underline-offset-2 transition-colors hover:text-foreground"
                     >
                       {t("settings.opencode.install")}
                     </a>
@@ -1142,7 +1142,7 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
                 href={SOURCE_URL}
                 target="_blank"
                 rel="noreferrer"
-                class="inline-flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+                class="inline-flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
               >
                 <Icon name="globe" class="size-3.5 shrink-0" />
                 <span class="truncate">{SOURCE_LABEL || SOURCE_URL}</span>

@@ -402,7 +402,7 @@ export function SessionRail(props: {
                           {(edit) => (
                             <section class="mb-3 last:mb-0">
                               <div class="sticky left-0 mb-1 flex w-max items-center gap-2 bg-background">
-                                <span class="rounded bg-secondary px-1.5 py-0.5 text-2xs text-muted-foreground">
+                                <span class="rounded-sm bg-secondary px-1.5 py-0.5 text-2xs text-muted-foreground">
                                   {edit.whole_file ? t("file.whole") : t("file.region")}
                                 </span>
                                 <span class="font-mono text-2xs">
@@ -414,7 +414,7 @@ export function SessionRail(props: {
                                     type="button"
                                     variant="icon"
                                     size="xs"
-                                    class="ml-auto shrink-0 rounded px-1.5"
+                                    class="ml-auto shrink-0 rounded-sm px-1.5"
                                     onClick={() => props.onJumpToTurn(edit.turn_index)}
                                   >
                                     {t("file.jump")}

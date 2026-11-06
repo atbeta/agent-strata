@@ -131,7 +131,7 @@ export function ProjectLensMenu(props: { list: SessionListCtl }) {
       <Tip label={on() ? t("sidebar.project.filter.on") : t("sidebar.project.filter")}>
         <DropdownMenuTrigger
           class={cn(
-            "grid h-5 place-items-center rounded text-faint-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+            "grid h-5 place-items-center rounded-sm text-faint-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
             // A search, a status, a period or a backend takes sessions off
             // the list, and the button has to keep saying so after the menu
             // closes. Hiding empty projects and the way the list is grouped

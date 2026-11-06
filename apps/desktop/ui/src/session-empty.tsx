@@ -95,7 +95,7 @@ export function SessionEmpty(props: {
 function Hint(props: { keys: string; children: JSX.Element }) {
   return (
     <span class="inline-flex items-center gap-1.5">
-      <kbd class="inline-flex h-5 min-w-5 items-center justify-center rounded border border-border bg-secondary/50 px-1.5 font-mono text-2xs text-foreground/80">
+      <kbd class="inline-flex h-5 min-w-5 items-center justify-center rounded-sm border border-border bg-secondary/50 px-1.5 font-mono text-2xs text-foreground/80">
         {props.keys}
       </kbd>
       <span>{props.children}</span>

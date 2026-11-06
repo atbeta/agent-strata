@@ -29,7 +29,7 @@ function TurnPairRow(props: { pair: TurnPair; i: number }) {
       <div class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <span class="font-mono">{t("compare.turn", { n: props.i + 1 })}</span>
         <Show when={props.pair.same_prompt}>
-          <span class="rounded bg-secondary px-1.5 py-0.5 text-2xs text-muted-foreground">
+          <span class="rounded-sm bg-secondary px-1.5 py-0.5 text-2xs text-muted-foreground">
             {t("compare.samePrompt")}
           </span>
         </Show>
@@ -46,19 +46,19 @@ function TurnPairRow(props: { pair: TurnPair; i: number }) {
       <div class="mt-2 flex flex-wrap gap-1.5 font-mono text-2xs">
         <For each={props.pair.tools.only_a}>
           {(t) => (
-            <span class="max-w-full break-words rounded bg-event-user/15 px-1.5 py-0.5 text-event-user">A: {t}</span>
+            <span class="max-w-full break-words rounded-sm bg-event-user/15 px-1.5 py-0.5 text-event-user">A: {t}</span>
           )}
         </For>
         <For each={props.pair.tools.only_b}>
           {(t) => (
-            <span class="max-w-full break-words rounded bg-event-assistant/15 px-1.5 py-0.5 text-event-assistant">
+            <span class="max-w-full break-words rounded-sm bg-event-assistant/15 px-1.5 py-0.5 text-event-assistant">
               B: {t}
             </span>
           )}
         </For>
         <For each={props.pair.tools.shared}>
           {(t) => (
-            <span class="max-w-full break-words rounded bg-muted px-1.5 py-0.5 text-muted-foreground">{t}</span>
+            <span class="max-w-full break-words rounded-sm bg-muted px-1.5 py-0.5 text-muted-foreground">{t}</span>
           )}
         </For>
       </div>

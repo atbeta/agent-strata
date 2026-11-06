@@ -42,7 +42,7 @@ function Node(props: {
   const summary = () => summaryOf(kind(), entries().map(([k]) => k));
 
   return (
-    <div class="flex items-start gap-1 rounded-sm px-1 hover:bg-secondary/40">
+    <div class="flex items-start gap-1 rounded-sm px-1 transition-colors hover:bg-secondary/40">
       <Show
         when={expandable()}
         fallback={<span class="mt-px h-3.5 w-3.5 shrink-0" />}

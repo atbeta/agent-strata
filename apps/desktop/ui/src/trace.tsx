@@ -663,7 +663,7 @@ function TraceStrip(props: {
               <button
                 type="button"
                 data-trace-nav
-                class="absolute top-1/2 left-0 z-10 grid h-5 w-4 -translate-y-1/2 place-items-center rounded text-faint-foreground hover:bg-secondary hover:text-foreground"
+                class="absolute top-1/2 left-0 z-10 grid h-5 w-4 -translate-y-1/2 place-items-center rounded-sm text-faint-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label={t("trace.earlier")}
                 onClick={() => nudge(-1)}
               >
@@ -674,7 +674,7 @@ function TraceStrip(props: {
               <button
                 type="button"
                 data-trace-nav
-                class="absolute top-1/2 right-0 z-10 grid h-5 w-4 -translate-y-1/2 place-items-center rounded text-faint-foreground hover:bg-secondary hover:text-foreground"
+                class="absolute top-1/2 right-0 z-10 grid h-5 w-4 -translate-y-1/2 place-items-center rounded-sm text-faint-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label={t("trace.later")}
                 onClick={() => nudge(1)}
               >
@@ -813,7 +813,7 @@ function TraceList(props: {
                     type="button"
                     role="option"
                     aria-selected={on()}
-                    class={`absolute left-0 flex w-full items-center gap-2 px-2 text-left text-xs ${
+                    class={`absolute left-0 flex w-full items-center gap-2 px-2 text-left text-xs transition-colors ${
                       on() ? "bg-secondary" : "hover:bg-secondary/70"
                     }`}
                     style={{
@@ -827,7 +827,7 @@ function TraceList(props: {
                   >
                     <span class={`h-1.5 w-1.5 shrink-0 rounded-full ${block.tone}`} />
                     <span
-                      class={`shrink-0 rounded px-1 py-px text-2xs leading-none ${badge().cls}`}
+                      class={`shrink-0 rounded-sm px-1 py-px text-2xs leading-none ${badge().cls}`}
                     >
                       {t(badge().label as Parameters<typeof t>[0])}
                     </span>
@@ -1089,7 +1089,7 @@ function EventSections(props: { block: TraceBlock }) {
                 <li class="py-1.5">
                   <div class="flex items-baseline justify-between gap-3">
                     <span class="min-w-0 truncate font-mono text-xs">{f.path}</span>
-                    <span class="shrink-0 font-mono text-2xs text-muted-foreground">
+                    <span class="shrink-0 font-mono text-2xs text-muted-foreground tabular-nums">
                       {f.change}
                     </span>
                   </div>
@@ -1181,7 +1181,7 @@ export function TraceDrawer(props: {
           </Show>
         </div>
         <span
-          class={`shrink-0 rounded px-1.5 py-px text-2xs ${STATUS_PILL[props.block.status]}`}
+          class={`shrink-0 rounded-sm px-1.5 py-px text-2xs ${STATUS_PILL[props.block.status]}`}
         >
           {statusText(props.block)}
         </span>
@@ -1289,9 +1289,9 @@ export function TraceDrawer(props: {
                   {(f) => (
                     <li class="flex items-baseline justify-between gap-3 py-1.5">
                       <span class="min-w-0 truncate font-mono text-xs">{f.path}</span>
-                      <span class="shrink-0 font-mono text-2xs text-muted-foreground">
-                        {f.change}
-                      </span>
+                        <span class="shrink-0 font-mono text-2xs text-muted-foreground tabular-nums">
+                          {f.change}
+                        </span>
                     </li>
                   )}
                 </For>
@@ -1335,7 +1335,7 @@ export function TraceDrawer(props: {
                   {(step, i) => (
                     <li class="flex items-baseline justify-between gap-3 py-1.5">
                       <span class="min-w-0 truncate text-xs">
-                        <span class="font-mono text-2xs text-muted-foreground">{i() + 1}</span>
+                        <span class="font-mono text-2xs text-muted-foreground tabular-nums">{i() + 1}</span>
                         {" · "}
                         {step.reason}
                       </span>

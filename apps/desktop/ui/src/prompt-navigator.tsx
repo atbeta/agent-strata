@@ -535,11 +535,11 @@ export function PromptNavigator(props: {
               }}
             >
               <div class="flex items-center gap-1.5">
-                <span class="rounded bg-muted px-1.5 py-px text-2xs font-medium text-muted-foreground">
+                <span class="rounded-sm bg-muted px-1.5 py-px text-2xs font-medium text-muted-foreground">
                   {t("nav.turn", { n: en().number })}
                 </span>
                 <Show when={en().reverted}>
-                  <span class="rounded bg-muted px-1 py-px text-2xs text-muted-foreground">
+                  <span class="rounded-sm bg-muted px-1 py-px text-2xs text-muted-foreground">
                     {t("nav.reverted")}
                   </span>
                 </Show>

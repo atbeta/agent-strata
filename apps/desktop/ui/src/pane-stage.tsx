@@ -258,7 +258,7 @@ function PaneHeader(props: {
         </Show>
         <DropdownMenu placement="bottom-start">
           <DropdownMenuTrigger
-            class={`flex min-w-0 max-w-full items-center gap-1 rounded px-1 py-0.5 text-left text-xs hover:bg-secondary ${
+            class={`flex min-w-0 max-w-full items-center gap-1 rounded-sm px-1 py-0.5 text-left text-xs hover:bg-secondary ${
               // Weight, not colour: the one focus channel that survives both
               // themes and greyscale, and the one that survives a reader who
               // cannot separate 6.5% from 13% at a glance.

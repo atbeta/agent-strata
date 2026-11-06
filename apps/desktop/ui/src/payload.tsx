@@ -22,7 +22,7 @@ function CopyButton(props: { text: string }) {
       size="xs"
       // Hidden until the block is hovered or the button itself is focused —
       // a keyboard user tabbing in must be able to see where they landed.
-      class="rounded px-1.5 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+      class="rounded-sm px-1.5 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
       onClick={async () => {
         if (await copyText(props.text)) {
           setDone(true);

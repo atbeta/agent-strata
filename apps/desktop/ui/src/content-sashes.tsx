@@ -14,8 +14,8 @@ export function LoadingTranscript() {
   return (
     <div class="mx-auto w-full space-y-4 px-5 py-8" style={{ "max-width": `calc(${contentW()}px + 2.5rem)` }}>
       <div class="ml-auto h-10 w-2/3 motion-safe:animate-pulse rounded-xl bg-secondary/80" />
-      <div class="h-4 w-5/6 motion-safe:animate-pulse rounded bg-secondary/50" />
-      <div class="h-4 w-2/3 motion-safe:animate-pulse rounded bg-secondary/40" />
+      <div class="h-4 w-5/6 motion-safe:animate-pulse rounded-sm bg-secondary/50" />
+      <div class="h-4 w-2/3 motion-safe:animate-pulse rounded-sm bg-secondary/40" />
     </div>
   );
 }

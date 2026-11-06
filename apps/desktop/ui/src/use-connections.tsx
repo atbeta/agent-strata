@@ -403,7 +403,7 @@ export function ConnectionEmpty(props: { conns: ConnectionsCtl }) {
             href="https://opencode.ai"
             target="_blank"
             rel="noreferrer"
-            class="text-xs text-muted-foreground hover:text-foreground"
+            class="text-xs text-muted-foreground transition-colors hover:text-foreground"
           >
             {t("settings.opencode.install")}
           </a>

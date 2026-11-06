@@ -54,7 +54,7 @@ export function BackendSettings(props: { conns: ConnectionsCtl }) {
                     <span class="text-sm font-medium">{backendLabel(conn.backend)}</span>
                     <Show when={placementWord(conn.placement)}>
                       {(word) => (
-                        <span class="rounded bg-secondary/60 px-1.5 py-0.5 text-2xs text-muted-foreground">
+                        <span class="rounded-sm bg-secondary/60 px-1.5 py-0.5 text-2xs text-muted-foreground">
                           {word()}
                         </span>
                       )}

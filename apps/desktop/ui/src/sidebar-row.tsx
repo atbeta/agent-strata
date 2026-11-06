@@ -135,7 +135,7 @@ export function SessionListItem(props: {
               by design so the row's own hover label is the one that shows. */}
           <Show when={props.instance && !editing()}>
             <span
-              class="shrink-0 rounded bg-secondary/70 px-1 font-mono text-2xs leading-none text-muted-foreground"
+              class="shrink-0 rounded-sm bg-secondary/70 px-1 font-mono text-2xs leading-none text-muted-foreground"
               title={props.instance!.tip}
             >
               {props.instance!.short}
@@ -153,7 +153,7 @@ export function SessionListItem(props: {
                 el.focus();
                 el.select();
               }}
-              class="min-w-0 flex-1 rounded bg-background px-1 py-0.5 text-sm leading-none focus:outline-none"
+              class="min-w-0 flex-1 rounded-sm bg-background px-1 py-0.5 text-sm leading-none focus:outline-none"
               value={draft()}
               onClick={(e) => e.stopPropagation()}
               onInput={(e) => setDraft(e.currentTarget.value)}

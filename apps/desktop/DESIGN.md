@@ -112,7 +112,9 @@ The session header is its own container. Below 720px, terminal, trace, MCP and e
 Fleet follows the actual `main` container width rather than the window for its period strip, trend/metrics split and recent/rank columns. Status groups show five rows before offering native expand/collapse controls. Usage and background-process reads distinguish failure from an empty result: a first failure has an inline error state and retry, while a failed refresh preserves the last successful data and says that it is stale. The project/model rank switch is a named radio group because it selects a dataset, not a tab panel.
 
 ### Type and radius
-System sans for UI, mono for paths, ids, commands, and money. Radius follows the OpenCode desktop scale — `sm` 4px, `md` 6px on rows/fields/buttons, `lg` 8px on cards and menus, `xl` 10px on dialogs and the message bubble, `2xl` 12px reserved for the composer dock — so `rounded-full` is for pills, dots and switches only, never for buttons.
+System sans for UI, mono for paths, ids, commands, and money. Radius follows the OpenCode desktop scale — `sm` 4px, `md` 6px on rows/fields/buttons, `lg` 8px on cards and menus, `xl` 10px on dialogs and the message bubble, `2xl` 12px reserved for the composer dock — so `rounded-full` is for pills, dots and switches only, never for buttons. Name the step every time: bare `rounded` is the same 4px as `rounded-sm` today, but only the named one survives a change to the scale.
+
+Spacing runs on two owned gaps: the row primitives default to `gap-2` between a mark and its label, and `gap-1.5` is reserved for deliberately denser surfaces — file trees, chips, compact headers. Anything between the two is a value nobody owns. Numbers render with `tabular-nums` wherever a value changes or aligns down a column — durations, counts, shares, indices — so a ticking figure never wobbles its neighbours.
 
 The type scale is declared once in `theme.css` and tuned to this app rather than to Tailwind's defaults, so `text-sm` — not `text-base` — is the UI size:
 

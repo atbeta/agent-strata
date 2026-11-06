@@ -23,7 +23,7 @@ function DropdownMenuTrigger(props: TriggerProps) {
   return (
     <DropdownMenuPrimitive.Trigger
       class={cn(
-        "inline-flex items-center justify-center rounded-md text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40",
+        "inline-flex items-center justify-center rounded-md text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40",
         local.class,
       )}
       {...rest}

@@ -661,7 +661,7 @@ export function Sidebar(props: {
                   placement="bottom-end"
                 >
                   <Tip label={t("sidebar.project.openDirectory")}>
-                    <DropdownMenuTrigger class="grid size-5 place-items-center rounded text-faint-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+                    <DropdownMenuTrigger class="grid size-5 place-items-center rounded-sm text-faint-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
                       <Icon name="folder-plus" class="size-3.5" />
                     </DropdownMenuTrigger>
                   </Tip>

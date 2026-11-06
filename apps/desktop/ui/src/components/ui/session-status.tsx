@@ -92,7 +92,7 @@ export function SessionStatusMark(props: { status: SessionStatus; class?: string
       </Show>
       <Show when={s().badge}>
         <span
-          class={cn("rounded px-1 text-2xs font-medium leading-none", s().tone.chip, s().tone.text)}
+          class={cn("rounded-sm px-1 text-2xs font-medium leading-none", s().tone.chip, s().tone.text)}
         >
           {t(s().label)}
         </span>

@@ -52,7 +52,7 @@ export function ComposerMenu(props: {
                   id={`${props.id}-${i()}`}
                   role="option"
                   aria-selected={i() === props.active}
-                  class={`flex cursor-default items-baseline gap-2 rounded-md px-2 py-1.5 text-sm ${i() === props.active ? "bg-accent text-accent-foreground" : "hover:bg-secondary"}`}
+                  class={`flex cursor-default items-baseline gap-2 rounded-md px-2 py-1.5 text-sm transition-colors ${i() === props.active ? "bg-accent text-accent-foreground" : "hover:bg-secondary"}`}
                   onMouseDown={() => props.onPick(i())}
                   onMouseMove={() => props.onHover(i())}
                 >
@@ -68,7 +68,7 @@ export function ComposerMenu(props: {
                     </span>
                   </Show>
                   <Show when={item.badge}>
-                    <span class="ml-auto shrink-0 rounded bg-secondary px-1.5 text-2xs text-muted-foreground">{item.badge}</span>
+                    <span class="ml-auto shrink-0 rounded-sm bg-secondary px-1.5 text-2xs text-muted-foreground">{item.badge}</span>
                   </Show>
                 </li>
               );
