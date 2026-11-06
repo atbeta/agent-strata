@@ -113,6 +113,13 @@ export function useWorkspace() {
     const next = addedDirs().filter((d) => d !== dir);
     setAddedDirs(next);
     localStorage.setItem(ADDED_DIRS_KEY, JSON.stringify(next));
+    // The bare "+" must not keep aiming at a place the reader just took off
+    // the list; falling back to the active session's project is the honest
+    // answer once the bookmark is gone.
+    if (lastDir() === dir) {
+      setLastDir(null);
+      localStorage.removeItem(LAST_DIR_KEY);
+    }
   };
 
   /** The desktop shell's directory chooser. Browsers can't reach the native

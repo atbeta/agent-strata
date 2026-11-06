@@ -55,7 +55,7 @@ export function SectionHeader(props: {
             and the end is what a narrow rail used to cut off. The bdi keeps
             the string's own direction — without it the rtl box reorders the
             neutral ~ and / to the wrong end. */}
-        <span dir="rtl" class="min-w-0 flex-1 truncate text-left font-mono text-2xs text-faint-foreground">
+        <span dir="rtl" class="min-w-0 flex-1 truncate text-right font-mono text-2xs text-faint-foreground">
           <bdi dir="ltr">{props.hint}</bdi>
         </span>
       </Show>
