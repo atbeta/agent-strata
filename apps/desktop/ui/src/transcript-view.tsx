@@ -14,7 +14,7 @@
  * What does survive is the remembered reading for that pair, and the row
  * heights already measured there.
  */
-import { createEffect, createMemo, createSignal, Show, untrack, type JSX } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup, Show, untrack, type JSX } from "solid-js";
 import type { ContentBlock, Turn } from "./api";
 import { Virtual } from "./virtual";
 import { warmMarkdown } from "./md";
@@ -32,6 +32,7 @@ import {
   writeRowHeight,
 } from "./transcript-layout";
 import { scrollCoalescer } from "./scroll-frame";
+import { createWheelSmoother } from "./smooth-wheel";
 import { DisclosureContext } from "./disclosure";
 import { ContentSashes, LoadingTranscript } from "./content-sashes";
 import { PromptNavigator } from "./prompt-navigator";
@@ -242,6 +243,10 @@ export function TranscriptView(props: {
           };
           let scroller: HTMLDivElement | undefined;
           let host: HTMLDivElement | undefined;
+          // A notch of a discrete mouse wheel lands eased instead of in one
+          // hard jump; trackpad pans, jumps and drags never reach it (see the
+          // module). One per scroller, so peer panes each ease their own.
+          let disposeWheel: (() => void) | undefined;
           const owner = createScrollOwner({
             scroller: () => scroller,
             host: () => host,
@@ -250,6 +255,7 @@ export function TranscriptView(props: {
             remember: (reading) => rememberReading(key, reading),
           });
           const onScroll = scrollCoalescer(owner.onScroll);
+          onCleanup(() => disposeWheel?.());
           createEffect(() => {
             const g = owner.gesturing();
             // The path actions live above the transcript and ask whether the
@@ -292,7 +298,11 @@ export function TranscriptView(props: {
               <PathActions.Provider value={pathApi}>
               <ContentSashes />
               <div
-                ref={(el) => (scroller = el)}
+                ref={(el) => {
+                  scroller = el;
+                  disposeWheel?.();
+                  disposeWheel = createWheelSmoother(el);
+                }}
                 // overflow-anchor: Chromium's scroll anchoring is a second
                 // owner — it moves scrollTop on its own when the content's
                 // height changes, and the owner would absorb that as a reader
