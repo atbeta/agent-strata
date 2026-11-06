@@ -237,8 +237,6 @@ const CHOICES = (): { id: ThemeChoice; label: string }[] => [
 
 export function SettingsPage(props: { section?: string; conns: ConnectionsCtl }) {
   const section = () => settingsSection(props.section);
-  const sectionMeta = () =>
-    SETTINGS_SECTIONS.find((item) => item.id === section()) ?? SETTINGS_SECTIONS[0];
   const [choice, setChoice] = createSignal<ThemeChoice>(readTheme());
   const [launch, { refetch: refetchLaunch }] = createResource(readOpencodeLaunch);
   const [mode, setMode] = createSignal<OpencodeLaunchMode>("embed");
@@ -651,12 +649,7 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
             document outline intact without a second one on screen. */}
         <h1 class="sr-only">{t("settings.title")}</h1>
 
-      <div role="tabpanel" id="settings-panel" aria-labelledby={`settings-tab-${section()}`} class="[&>section:first-of-type]:mt-5">
-        {/* The rail item is small; this is where the section says its name out
-            loud. The sr-only h1 keeps the document outline on 设置 itself. */}
-        <div class="mb-1">
-          <h2 class="text-lg font-semibold text-foreground">{t(sectionMeta().label)}</h2>
-        </div>
+      <div role="tabpanel" id="settings-panel" aria-labelledby={`settings-tab-${section()}`} class="[&>section:first-child]:mt-0">
       <Show when={section() === "interface"}>
       {/* One card for everything the eye sees — the theme, then the two
           families and their sizes. A group per concern left 主题 alone in a
