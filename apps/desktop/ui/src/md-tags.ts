@@ -14,12 +14,38 @@ const tagAnswers = new Map<string, boolean>();
 export function sanitizerKeepsTag(name: string): boolean {
   let answer = tagAnswers.get(name);
   if (answer === undefined) {
+    // `<thead>`, `<tr>` and `<td>` are only valid inside a table; asked on
+    // their own, the parser discards them, and the probe would report a real
+    // table part as one the sanitiser drops. Ask it where it is legal, so a
+    // table reply is rendered as a table rather than shown as source.
+    const inTable = TABLE_PARTS.has(name);
     const probe = document.createElement("template");
-    probe.innerHTML = DOMPurify.sanitize(`<${name}></${name}>`);
-    answer = probe.content.firstElementChild?.tagName.toLowerCase() === name;
+    probe.innerHTML = DOMPurify.sanitize(
+      inTable ? tableProbe(name) : `<${name}></${name}>`,
+    );
+    answer = inTable
+      ? Boolean(probe.content.querySelector(`table ${name}`))
+      : probe.content.firstElementChild?.tagName.toLowerCase() === name;
     tagAnswers.set(name, answer);
   }
   return answer;
+}
+
+/** Tags the HTML parser only keeps inside `<table>`. */
+const TABLE_PARTS = new Set(["caption", "colgroup", "thead", "tbody", "tfoot", "tr", "td", "th"]);
+
+/**
+ * A table part in the smallest ancestors the parser requires.
+ *
+ * The parser does not just drop a part with no table: a `<tr>` gets an
+ * implicit `<tbody>`, and a `<td>` needs a row. Probing them as bare children
+ * of `<table>` reports valid parts as discarded, which is how a table reply
+ * lost its rows and kept only empty sections.
+ */
+function tableProbe(name: string): string {
+  if (name === "td" || name === "th") return `<table><tbody><tr><${name}></${name}></tr></tbody></table>`;
+  if (name === "tr") return "<table><tbody><tr></tr></tbody></table>";
+  return `<table><${name}></${name}></table>`;
 }
 
 /**

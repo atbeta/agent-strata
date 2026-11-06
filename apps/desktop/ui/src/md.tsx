@@ -4,7 +4,7 @@ import DOMPurify from "dompurify";
 import { stripAnsi } from "./ansi";
 import { grammarFor, guessGrammar, tokenize, tokenizeDiff } from "./highlight";
 import { splitBlocks } from "./md-blocks";
-import { isSourceBlock } from "./md-source";
+import { isSourceBlock, tableWrapped } from "./md-source";
 import { revealDroppedTags, sanitizerKeepsTag, sourceBlock } from "./md-tags";
 import { reconcileList } from "./md-reconcile";
 import { stableKeys } from "./keyed";
@@ -177,7 +177,7 @@ function parsed(markdown: string, finished: boolean): DocumentFragment {
     if (isSourceBlock(markdown, (tag) => !sanitizerKeepsTag(tag))) {
       tpl.content.append(sourceBlock(markdown));
     } else {
-      tpl.innerHTML = marked.parse(markdown, { async: false }) as string;
+      tpl.innerHTML = marked.parse(tableWrapped(markdown), { async: false }) as string;
       revealDroppedTags(tpl.content);
       tpl.innerHTML = DOMPurify.sanitize(tpl.innerHTML);
       fixAutolinkTails(tpl.content);

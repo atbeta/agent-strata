@@ -25,3 +25,17 @@ export function isSourceBlock(source: string, dropped: (tag: string) => boolean)
   const tag = leadingTag(source);
   return tag !== undefined && dropped(tag);
 }
+
+/**
+ * The source, with orphan table parts put inside the table they belong to.
+ *
+ * The HTML parser drops `<thead>`, `<tr>` and `<td>` when they appear outside
+ * a `<table>`, so a reply that starts a block with one loses the very markup
+ * that says it is a table. Wrapping the block keeps the rows; a complete
+ * `<table>` is left exactly as written.
+ */
+export function tableWrapped(source: string): string {
+  return /^\s*<(thead|tbody|tfoot|tr|td|th|caption|colgroup)\b/i.test(source)
+    ? `<table>${source}</table>`
+    : source;
+}

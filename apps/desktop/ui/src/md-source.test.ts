@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isSourceBlock, leadingTag } from "./md-source";
+import { isSourceBlock, leadingTag, tableWrapped } from "./md-source";
 
 describe("a block that opens with a tag", () => {
   test("names the tag it opens with", () => {
@@ -21,5 +21,22 @@ describe("a block that opens with a tag", () => {
     expect(isSourceBlock("<script>alert(1)</script>", isDropped)).toBe(true);
     expect(isSourceBlock("<details><summary>more</summary></details>", isDropped)).toBe(false);
     expect(isSourceBlock("use <x-option> here", isDropped)).toBe(false);
+  });
+});
+
+describe("a block of table parts", () => {
+  test("is wrapped in the table it belongs to", () => {
+    expect(tableWrapped("<thead><tr><th>a</th></tr></thead>")).toBe(
+      "<table><thead><tr><th>a</th></tr></thead></table>",
+    );
+    expect(tableWrapped("\n  <tr><td>a</td></tr>")).toBe("<table>\n  <tr><td>a</td></tr></table>");
+  });
+
+  test("leaves a complete table and ordinary prose alone", () => {
+    expect(tableWrapped("<table><tr><td>a</td></tr></table>")).toBe(
+      "<table><tr><td>a</td></tr></table>",
+    );
+    expect(tableWrapped("本轮又推进 5 个组件")).toBe("本轮又推进 5 个组件");
+    expect(tableWrapped("use <thead> in a sentence")).toBe("use <thead> in a sentence");
   });
 });
