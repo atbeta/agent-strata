@@ -12,10 +12,9 @@ import { sourceOf, isControlTag } from "./md-source";
  * a column the reader is scrolling. These are shown as source instead (see
  * `revealDroppedTags`).
  */
-export const SANITIZE_CONFIG: { FORBID_TAGS: string[] } = {
+export const SANITIZE_CONFIG: { FORBID_TAGS: string[]; FORBID_ATTR: string[] } = {
   FORBID_TAGS: [
     "button",
-    "input",
     "textarea",
     "select",
     "option",
@@ -30,6 +29,10 @@ export const SANITIZE_CONFIG: { FORBID_TAGS: string[] } = {
     "source",
     "track",
   ],
+  // A reply is content, not a stylesheet. A single `style="position:fixed;
+  // inset:0;z-index:999"` covered the whole window; the app's own Tailwind
+  // classes are global too, so `class` is stripped after the sanitise pass.
+  FORBID_ATTR: ["style"],
 };
 
 /**
@@ -98,6 +101,41 @@ function openingTag(html: string): string {
 }
 
 /**
+ * A reply may describe a control; it may not draw one.
+ *
+ * GFM task lists are the exception: their checkbox is disabled and generated
+ * by the parser. Anything else (`<input type="text">`, a live button) becomes
+ * its own source, so a fake field cannot swallow a click.
+ */
+function shapeInputs(host: ParentNode) {
+  for (const el of [...host.querySelectorAll("input")]) {
+    const checkbox = el.getAttribute("type") === "checkbox" && el.hasAttribute("disabled");
+    if (checkbox) continue;
+    el.replaceWith(document.createTextNode(sourceOf(el.outerHTML)));
+  }
+}
+
+/**
+ * Strip every style hook a reply could have brought with it.
+ *
+ * `class` is kept only on a fenced block's `code`, where `language-*` is how
+ * the highlighter knows what it is reading. Everything else loses its class
+ * and its `data-*` attributes: the app's own utilities are global, so a reply
+ * that says `class="fixed inset-0"` would cover the window, and `data-path`
+ * would make its text look like a path the app itself linked.
+ */
+export function stripStyleHooks(host: ParentNode) {
+  for (const el of host.querySelectorAll("[class], [data-path]")) {
+    const lang = el.tagName === "CODE" ? el.getAttribute("class") : null;
+    const keep = lang !== null && /(^|\s)language-/.test(lang);
+    if (!keep) el.removeAttribute("class");
+    for (const attr of [...el.attributes]) {
+      if (attr.name.startsWith("data-")) el.removeAttribute(attr.name);
+    }
+  }
+}
+
+/**
  * Show a dropped tag that sits inside a sentence.
  *
  * A block that opens with one is source, and is handled before parsing — it
@@ -106,6 +144,7 @@ function openingTag(html: string): string {
  * it is still markdown.
  */
 export function revealDroppedTags(host: DocumentFragment, source = "") {
+  shapeInputs(host);
   const dropped = new Set<string>();
   for (const el of host.querySelectorAll("*")) {
     const name = el.tagName.toLowerCase();

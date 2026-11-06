@@ -5,7 +5,13 @@ import { stripAnsi } from "./ansi";
 import { grammarFor, guessGrammar, tokenize, tokenizeDiff } from "./highlight";
 import { splitBlocks } from "./md-blocks";
 import { isSourceBlock, tableWrapped } from "./md-source";
-import { revealDroppedTags, sanitizerKeepsTag, sourceBlock, SANITIZE_CONFIG } from "./md-tags";
+import {
+  revealDroppedTags,
+  sanitizerKeepsTag,
+  sourceBlock,
+  stripStyleHooks,
+  SANITIZE_CONFIG,
+} from "./md-tags";
 import { reconcileList } from "./md-reconcile";
 import { stableKeys } from "./keyed";
 import { splitLinkTail } from "./link-tail";
@@ -180,6 +186,7 @@ function parsed(markdown: string, finished: boolean): DocumentFragment {
       tpl.innerHTML = marked.parse(tableWrapped(markdown), { async: false }) as string;
       revealDroppedTags(tpl.content, markdown);
       tpl.innerHTML = DOMPurify.sanitize(tpl.innerHTML, SANITIZE_CONFIG);
+      stripStyleHooks(tpl.content);
       fixAutolinkTails(tpl.content);
     }
     highlightCode(tpl.content);
