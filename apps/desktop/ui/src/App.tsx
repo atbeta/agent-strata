@@ -53,6 +53,7 @@ export function App() {
   const list = useSessionList({
     extraDirs: () => ws.projectDirs(),
     keepDir: () => ws.lastDir() ?? undefined,
+    isWorktree: (dir) => ws.worktreeOf(dir) !== undefined,
     clock,
     activeId,
   });

@@ -176,18 +176,25 @@ export function sessionVisible(
  *
  * A status, a period, or a backend is a search for sessions. A project that
  * never held one cannot answer it, so it leaves with the rest.
+ *
+ * A managed group is the exception: its header is a thing of its own — a
+ * linked checkout, with the button that removes it — and not a session. A
+ * search for sessions cannot answer for it, so it stays and only its rows go.
+ * The query is the reader's own words about a place, and it still applies.
  */
 export function groupVisible(
   lens: ProjectLens,
   group: { rows: number; total: number; path: string },
   keep?: string,
+  managed?: boolean,
 ): boolean {
   if (group.rows > 0) return true;
+  const q = lens.query.trim().toLowerCase();
+  if (managed === true) return !q || group.path.toLowerCase().includes(q);
   if (group.total > 0) return false;
   if (keep && group.path === keep) return true;
   if (lens.hideEmpty) return false;
   if (lens.status !== "all" || lens.period !== "all" || lens.type !== "") return false;
-  const q = lens.query.trim().toLowerCase();
   if (!q) return true;
   return group.path.toLowerCase().includes(q);
 }

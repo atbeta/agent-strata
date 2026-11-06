@@ -77,6 +77,12 @@ export function useSessionList(opts: {
   extraDirs: () => string[];
   /** The project the reader is standing in — a lens never takes it away. */
   keepDir?: () => string | undefined;
+  /**
+   * A linked checkout. Its header carries the button that removes it, so it
+   * is a thing of its own and not a session — a filter that searches for
+   * sessions leaves it alone.
+   */
+  isWorktree?: (dir: string | undefined) => boolean;
   clock: () => number;
   activeId: () => string | undefined;
 }) {
@@ -338,6 +344,7 @@ export function useSessionList(opts: {
           lensNow,
           { rows: group.rows.length, total: group.total, path: group.title ?? "" },
           opts.keepDir?.(),
+          opts.isWorktree?.(group.title),
         ),
       )
       .map(({ total: _total, ...group }) => group);

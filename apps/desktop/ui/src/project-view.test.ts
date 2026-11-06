@@ -117,6 +117,25 @@ describe("the project lens", () => {
     expect(groupVisible({ ...NO_LENS, status: "waiting" }, empty, empty.path)).toBe(true);
   });
 
+  test("a managed group stays whatever the filter searched for", () => {
+    // A linked checkout: its header carries the button that removes it, so it
+    // is a thing of its own and not a session. A search for sessions cannot
+    // answer for it, and taking it away takes the button with it.
+    const checkout = { rows: 0, total: 2, path: "C:\\state\\worktrees\\repo-1a2b3c\\ember-otter" };
+    expect(groupVisible({ ...NO_LENS, status: "busy" }, checkout, undefined, true)).toBe(true);
+    expect(groupVisible({ ...NO_LENS, status: "waiting" }, checkout, undefined, true)).toBe(true);
+    expect(groupVisible({ ...NO_LENS, period: "week" }, checkout, undefined, true)).toBe(true);
+    expect(groupVisible({ ...NO_LENS, type: "opencode" }, checkout, undefined, true)).toBe(true);
+    // A checkout with no sessions at all is still a checkout.
+    const bare = { rows: 0, total: 0, path: checkout.path };
+    expect(groupVisible({ ...NO_LENS, status: "busy" }, bare, undefined, true)).toBe(true);
+    // The reader's own words about a place still apply.
+    expect(groupVisible({ ...NO_LENS, query: "ember" }, checkout, undefined, true)).toBe(true);
+    expect(groupVisible({ ...NO_LENS, query: "willow" }, checkout, undefined, true)).toBe(false);
+    // An ordinary project is not managed, and the search still takes it away.
+    expect(groupVisible({ ...NO_LENS, status: "busy" }, checkout)).toBe(false);
+  });
+
   test("a name search keeps an empty project only when the path matches", () => {
     const empty = { rows: 0, total: 0, path: "D:\\Code\\deer-flow" };
     expect(groupVisible({ ...NO_LENS, query: "deer" }, empty)).toBe(true);
