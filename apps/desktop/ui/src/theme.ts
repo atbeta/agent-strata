@@ -19,9 +19,15 @@ export function resolvedTheme(choice: ThemeChoice): "light" | "dark" {
   return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
 }
 
-const WINDOW: Record<"light" | "dark", string> = {
-  light: "#f7f7f8",
-  dark: "#101013",
+/**
+ * Native window backdrop. It has to match `--background` in theme.css pixel
+ * for pixel: it is what shows through while the webview resizes or has not
+ * painted yet. The inline script in index.html and the Tauri config carry the
+ * same pair, and theme.test.ts keeps all three honest.
+ */
+export const WINDOW_COLORS: Record<"light" | "dark", string> = {
+  light: "#fcfcfd",
+  dark: "#101012",
 };
 
 export function applyTheme(choice: ThemeChoice) {
@@ -30,7 +36,7 @@ export function applyTheme(choice: ThemeChoice) {
   document.documentElement.style.colorScheme = mode;
   if (!inDesktopShell()) return;
   void import("@tauri-apps/api/window").then(({ getCurrentWindow }) =>
-    getCurrentWindow().setBackgroundColor(WINDOW[mode]),
+    getCurrentWindow().setBackgroundColor(WINDOW_COLORS[mode]),
   );
 }
 

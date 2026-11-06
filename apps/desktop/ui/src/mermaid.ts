@@ -56,65 +56,58 @@ type MermaidApi = {
 
 let loading: Promise<MermaidApi> | null = null;
 let apiInstance: MermaidApi | null = null;
-let initedTheme: "light" | "dark" | null = null;
+let initedTheme: string | null = null;
 
-const themeMode = (): "light" | "dark" =>
-  document.documentElement.dataset.theme === "light" ? "light" : "dark";
+const currentTheme = (): string => document.documentElement.dataset.theme || "dark";
 
 /**
  * mermaid's base theme draws on white. A diagram pasted into a transcript on
  * panels the opposite way is a rectangle of glare — or of ink — so the
- * surface and the text are set to the app's own, per mode, and the node
+ * surface and the text are set to the app's own, per theme, and the node
  * fills follow.
+ *
+ * Mermaid bakes those colours into each SVG, so a copy of the palette here
+ * would drift from theme.css the moment a token moved. The values are read
+ * back from the custom properties at render time instead; `background` stays
+ * transparent because the diagram sits inside the transcript, not on a
+ * surface of its own.
  */
-function themeVariables(mode: "light" | "dark"): Record<string, string> {
-  if (mode === "light") {
-    return {
-      background: "transparent",
-      primaryColor: "hsl(240 8% 92%)",
-      primaryTextColor: "hsl(240 10% 12%)",
-      primaryBorderColor: "hsl(240 6% 76%)",
-      lineColor: "hsl(240 4% 42%)",
-      secondaryColor: "hsl(240 8% 88%)",
-      tertiaryColor: "hsl(240 8% 90%)",
-      textColor: "hsl(240 10% 12%)",
-      mainBkg: "hsl(240 8% 92%)",
-      nodeBorder: "hsl(240 6% 76%)",
-      clusterBkg: "hsl(240 8% 96%)",
-      clusterBorder: "hsl(240 6% 82%)",
-      edgeLabelBackground: "hsl(0 0% 100%)",
-      actorBkg: "hsl(240 8% 92%)",
-      actorBorder: "hsl(240 6% 76%)",
-      actorTextColor: "hsl(240 10% 12%)",
-      noteBkgColor: "hsl(45 70% 92%)",
-      noteTextColor: "hsl(45 30% 20%)",
-      noteBorderColor: "hsl(45 50% 72%)",
-    };
+const DIAGRAM_TOKENS = {
+  primaryColor: "--diagram-node",
+  primaryTextColor: "--diagram-node-text",
+  primaryBorderColor: "--diagram-node-border",
+  lineColor: "--diagram-line",
+  secondaryColor: "--diagram-secondary",
+  tertiaryColor: "--diagram-tertiary",
+  textColor: "--diagram-node-text",
+  mainBkg: "--diagram-node",
+  nodeBorder: "--diagram-node-border",
+  clusterBkg: "--diagram-cluster",
+  clusterBorder: "--diagram-cluster-border",
+  edgeLabelBackground: "--diagram-label-bg",
+  actorBkg: "--diagram-node",
+  actorBorder: "--diagram-node-border",
+  actorTextColor: "--diagram-node-text",
+  noteBkgColor: "--diagram-note-bg",
+  noteTextColor: "--diagram-note-text",
+  noteBorderColor: "--diagram-note-border",
+} as const;
+
+function themeVariables(): Record<string, string> {
+  const style = getComputedStyle(document.documentElement);
+  const variables: Record<string, string> = { background: "transparent" };
+  for (const [role, token] of Object.entries(DIAGRAM_TOKENS)) {
+    const value = style.getPropertyValue(token).trim();
+    // A theme that omits a diagram token is a broken palette, not a diagram
+    // to draw in black: fail where drawDiagram can report the reason and
+    // leave the source block in place.
+    if (!value) throw new Error(`theme is missing ${token}`);
+    variables[role] = value;
   }
-  return {
-    background: "transparent",
-    primaryColor: "hsl(240 6% 18%)",
-    primaryTextColor: "hsl(240 12% 88%)",
-    primaryBorderColor: "hsl(240 6% 32%)",
-    lineColor: "hsl(240 8% 55%)",
-    secondaryColor: "hsl(240 6% 22%)",
-    tertiaryColor: "hsl(240 6% 20%)",
-    textColor: "hsl(240 12% 88%)",
-    mainBkg: "hsl(240 6% 18%)",
-    nodeBorder: "hsl(240 6% 32%)",
-    clusterBkg: "hsl(240 6% 15%)",
-    clusterBorder: "hsl(240 6% 30%)",
-    edgeLabelBackground: "hsl(240 8% 12%)",
-    actorBkg: "hsl(240 6% 18%)",
-    actorBorder: "hsl(240 6% 32%)",
-    actorTextColor: "hsl(240 12% 88%)",
-    noteBkgColor: "hsl(45 40% 20%)",
-    noteTextColor: "hsl(45 60% 88%)",
-    noteBorderColor: "hsl(45 40% 40%)",
-  };
+  return variables;
 }
 
-function config(mode: "light" | "dark"): Record<string, unknown> {
+function config(): Record<string, unknown> {
   return {
     // The transcript is untrusted text: a message can be anything an agent
     // wrote, or anything a prompt asked for. `strict` keeps mermaid from
@@ -136,7 +129,7 @@ function config(mode: "light" | "dark"): Record<string, unknown> {
     // A transcript is a document, not a slideshow. No transition, and no
     // forced theme — the surrounding UI owns both.
     theme: "base",
-    themeVariables: themeVariables(mode),
+    themeVariables: themeVariables(),
     flowchart: { htmlLabels: false, useMaxWidth: true },
     // Diagrams are read, often printed, and often exported. A font that
     // does not exist falls back to something with a different baseline and
@@ -158,17 +151,17 @@ function engine(): Promise<MermaidApi> {
     .then((mod) => {
       const api = (mod.default ?? mod) as unknown as MermaidApi;
       apiInstance = api;
-      initedTheme = themeMode();
-      api.initialize(config(initedTheme));
+      initedTheme = currentTheme();
+      api.initialize(config());
       // The palette is baked into each SVG at render, so a theme switch has
       // to re-render every block already drawn, not just the next one. The
       // observer lives with the engine: no diagram ever drawn, nothing to
       // retint.
       new MutationObserver(() => {
-        const mode = themeMode();
-        if (!apiInstance || initedTheme === mode) return;
-        initedTheme = mode;
-        apiInstance.initialize(config(mode));
+        const theme = currentTheme();
+        if (!apiInstance || initedTheme === theme) return;
+        initedTheme = theme;
+        apiInstance.initialize(config());
         for (const block of document.querySelectorAll<HTMLElement>("pre[data-diagram]")) {
           delete block.dataset.diagram;
           void drawDiagram(block);
@@ -225,9 +218,10 @@ export async function drawDiagram(block: HTMLElement): Promise<{ ok: boolean; re
     const api = await engine();
     // The observer retints what is already drawn; a block that arrives in
     // the gap between a flip and its repaint still needs current colours.
-    if (initedTheme !== themeMode()) {
-      initedTheme = themeMode();
-      api.initialize(config(initedTheme));
+    const theme = currentTheme();
+    if (initedTheme !== theme) {
+      initedTheme = theme;
+      api.initialize(config());
     }
     const { svg } = await api.render(id, source);
     if (!svg) return { ok: false, reason: "empty" };

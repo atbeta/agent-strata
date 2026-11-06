@@ -1,6 +1,6 @@
 # Agent Strata design system v0.3
 
-The shell is a dark, quiet desktop app. Visual references are Linear (one neutral surface, hairline borders, compact UI type, accent used sparingly) and OpenCode Desktop (session sidebar, conversation, composer, custom window chrome). Tokens live in `ui/src/theme.css`. Interactive controls come from a small Solid component set in `ui/src/components/ui`, styled with those tokens. Light is available via `theme.ts`; dark stays the default.
+The shell is a dark, quiet desktop app. Visual references are Linear (one neutral surface, hairline borders, compact UI type, accent used sparingly) and OpenCode Desktop (session sidebar, conversation, composer, custom window chrome). Tokens live in `ui/src/theme.css`. Interactive controls come from a small Solid component set in `ui/src/components/ui`, styled with those tokens. Light is available via `theme.ts`; dark stays the default. The native window backdrop is the same colour as `--background`; `theme.test.ts` keeps `theme.ts`, `index.html` and `tauri.conf.json` in step with it.
 
 ## Components
 
@@ -98,6 +98,7 @@ macOS already overlays the traffic lights in that strip (`pl-[76px]`). Windows i
 | `cost-up` / `cost-down` / `cost-flat` | compare deltas |
 | `syntax-comment` / `string` / `number` / `keyword` / `function` / `property` / `type` / `punctuation` | code and structured values; never session state |
 | `code-surface` / `code-header` | code blocks, terminal commands and output |
+| `diagram-*` | mermaid's baked SVG palette; `mermaid.ts` reads it from the theme at render time |
 
 ### Elevation, motion and responsive layout
 

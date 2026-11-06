@@ -77,6 +77,22 @@
   --syntax-property: hsl(190 72% 65%);
   --syntax-type: hsl(174 62% 64%);
   --syntax-punctuation: hsl(240 10% 66%);
+  /* Mermaid bakes colours into each SVG and cannot consume Tailwind
+     utilities, so its palette lives here with the rest of the theme.
+     mermaid.ts resolves these with getComputedStyle at render time; do not
+     restate the values in JS. */
+  --diagram-node: hsl(240 6% 18%);
+  --diagram-node-text: hsl(240 12% 88%);
+  --diagram-node-border: hsl(240 6% 32%);
+  --diagram-line: hsl(240 8% 55%);
+  --diagram-secondary: hsl(240 6% 22%);
+  --diagram-tertiary: hsl(240 6% 20%);
+  --diagram-cluster: hsl(240 6% 15%);
+  --diagram-cluster-border: hsl(240 6% 30%);
+  --diagram-label-bg: hsl(240 8% 12%);
+  --diagram-note-bg: hsl(45 40% 20%);
+  --diagram-note-text: hsl(45 60% 88%);
+  --diagram-note-border: hsl(45 40% 40%);
   --scrollbar: hsl(0 0% 100% / 0.12);
   /* Elevation follows the opencode recipe: the edge of a floating surface is
      a 0.5px ring inside the shadow, not a CSS border, so on retina it reads
@@ -155,6 +171,18 @@ html[data-theme="light"] {
   --syntax-property: hsl(190 75% 32%);
   --syntax-type: hsl(174 70% 28%);
   --syntax-punctuation: hsl(240 6% 45%);
+  --diagram-node: hsl(240 8% 92%);
+  --diagram-node-text: hsl(240 10% 12%);
+  --diagram-node-border: hsl(240 6% 76%);
+  --diagram-line: hsl(240 4% 42%);
+  --diagram-secondary: hsl(240 8% 88%);
+  --diagram-tertiary: hsl(240 8% 90%);
+  --diagram-cluster: hsl(240 8% 96%);
+  --diagram-cluster-border: hsl(240 6% 82%);
+  --diagram-label-bg: hsl(0 0% 100%);
+  --diagram-note-bg: hsl(45 70% 92%);
+  --diagram-note-text: hsl(45 30% 20%);
+  --diagram-note-border: hsl(45 50% 72%);
   --scrollbar: hsl(240 6% 12% / 0.12);
   --popover-shadow:
     0 8px 16px hsl(240 10% 20% / 0.04), 0 4px 8px hsl(240 10% 20% / 0.08),
