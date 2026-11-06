@@ -414,6 +414,12 @@ export function startService(opts: ServiceOpts = {}): RunningService {
    * they are standing in, and neither is the reader's to close by hand. The
    * session is stopped rather than killed — the agent gets to finish what it
    * was doing and leave — and a backend that cannot be asked is left alone.
+   *
+   * The app's terminal shells are holders too, and a closed panel is not a
+   * closed shell: the PTY keeps its working directory until something ends
+   * it, so a reader who has closed everything they can see still has the
+   * folder open. The app started these shells, so it ends them here rather
+   * than asking the reader to find a panel that is no longer on screen.
    */
   const releaseInside = async (dir: string): Promise<void> => {
     await stopInside(dev, dir);
@@ -422,11 +428,20 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       if (!ws || ws === "unknown" || ws === "no workspace") continue;
       if (!pathInside(dir, ws)) continue;
       const conn = driverFor(s.session_id);
-      if (!conn?.capabilities.abort) continue;
+      if (!conn) continue;
+      const terminal = conn.extension?.terminal;
+      if (terminal) {
+        const shells = await terminal.list(ws).catch(() => []);
+        for (const shell of shells) await terminal.remove(ws, shell.id).catch(() => {});
+      }
+      if (!conn.capabilities.abort) continue;
       const native = conn.nativeId(s.session_id);
       if (!native) continue;
       await conn.abort(native, ws).catch(() => {});
     }
+    // A turn that was just aborted can still be writing for a moment. The
+    // caller retries at once; a brief pause lets the handles go first.
+    await new Promise((resolve) => setTimeout(resolve, 300));
   };
 
   const parentOf = (casfId: string): string | undefined => {
