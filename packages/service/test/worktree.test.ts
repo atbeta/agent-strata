@@ -206,6 +206,29 @@ describe("worktreeRemove", () => {
     }
   });
 
+  test("a checkout whose folder was emptied is still removable", async () => {
+    // What a removal that emptied the folder and could not remove it leaves
+    // behind: the checkout is gone from the disk, git still lists it by path,
+    // and the empty folder cannot say which repository it belongs to.
+    const repo = makeRepo();
+    const state = tempDir();
+    const wt = await worktreeAdd({ dir: repo, stateDir: state });
+    for (const name of readdirSync(wt.directory)) {
+      rmSync(join(wt.directory, name), { recursive: true, force: true });
+    }
+    // An emptied folder answers nothing…
+    expect(await worktreeInfo(wt.directory)).toBeUndefined();
+    // …but git still lists the checkout by path.
+    expect(git(repo, "worktree", "list", "--porcelain").stdout).toContain(wt.directory);
+
+    // Asked of the repositories the app knows about, the checkout is found
+    // again and goes away.
+    await worktreeRemove({ dir: wt.directory, force: true, stateDir: state, repos: [repo] });
+    expect(existsSync(wt.directory)).toBe(false);
+    // The branch is not what was asked for.
+    expect(git(repo, "branch", "--list", wt.branch).stdout).toContain(wt.branch);
+  });
+
   test("a checkout git gave up on is still ours to remove", async () => {
     // What an older removal left behind: git dropped the registration, so
     // nothing in git names the checkout — only the folder is left.

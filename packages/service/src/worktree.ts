@@ -6,7 +6,7 @@
 
 import { spawn } from "bun";
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, rmdirSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, rmdirSync } from "node:fs";
 import type { Dirent } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 
@@ -158,6 +158,59 @@ export interface WorktreeAdded {
 }
 
 /**
+ * Which repository holds this checkout, asked of git rather than of the folder.
+ *
+ * A folder that has been emptied cannot answer git — the `.git` file went with
+ * everything else — but git still lists the checkout by path, because nothing
+ * unregistered it. That is the answer a removal needs after it emptied a
+ * folder it could not remove: the first attempt leaves an empty directory
+ * behind, and a second attempt that asks the directory who it is finds
+ * nothing, and the checkout is never removable again.
+ */
+export async function worktreeOwner(
+  path: string,
+  repos: readonly string[],
+): Promise<{ repo: string; gitPath: string; locked: boolean; branch?: string } | undefined> {
+  const want = canonical(path);
+  for (const repo of repos) {
+    let entries: WorktreeEntry[];
+    try {
+      entries = await worktreeList(repo);
+    } catch {
+      continue;
+    }
+    const main = entries.find((e) => e.main)?.path ?? repo;
+    for (const entry of entries) {
+      if (entry.main) continue;
+      if (entry.path !== want) continue;
+      return {
+        repo: main,
+        gitPath: entry.gitPath,
+        locked: entry.locked,
+        ...(entry.branch ? { branch: entry.branch } : {}),
+      };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The repositories a set of directories points at.
+ *
+ * A removal has to be able to ask git which repository holds a checkout even
+ * after the checkout's own folder can no longer answer, and the answer has to
+ * come from somewhere the app still knows: the workspaces of stored sessions.
+ */
+export async function reposOf(dirs: readonly { directory: string }[]): Promise<string[]> {
+  const out = new Set<string>();
+  await mapLimit(dirs, async (w) => {
+    const top = await toplevel(w.directory);
+    if (top) out.add(top);
+  });
+  return [...out];
+}
+
+/**
  * A new checkout beside the repo's own, on a new `strata/<name>` branch off
  * the repo's HEAD. Worktrees live under the service's state dir — inside the
  * repo they would be files the agent's own tools can see. A taken name steps
@@ -206,6 +259,11 @@ export async function worktreeRemove(opts: {
   force?: boolean;
   stateDir: string;
   /**
+   * The repositories the app knows about — asked when the checkout's own
+   * folder can no longer answer for itself.
+   */
+  repos?: readonly string[];
+  /**
    * Called when the folder will not empty — the app's own programs inside it
    * may be what is holding it. It is not called before that: a dirty
    * checkout only asks for a second click, and nothing should die for it.
@@ -215,7 +273,14 @@ export async function worktreeRemove(opts: {
   const dir = canonical(opts.dir);
   if (!existsSync(dir)) throw new WorktreeError("worktree not found", 404);
   const info = await worktreeInfo(dir);
-  if (!info) {
+  // An emptied folder cannot answer git — the `.git` file went with everything
+  // else. git still lists the checkout by path, so the repositories the app
+  // knows about are asked instead. Without this a removal that emptied the
+  // folder and could not remove it leaves a checkout that nothing can ever
+  // remove again.
+  const owner = info ? undefined : await worktreeOwner(dir, opts.repos ?? []);
+  const repo = info?.repo ?? owner?.repo;
+  if (!repo) {
     // git has already given this checkout up: it drops the registration
     // before it deletes the folder, so a removal that failed leaves a
     // directory with nothing left naming it. Under our own root that is ours
@@ -224,15 +289,20 @@ export async function worktreeRemove(opts: {
     await removeDirectory(dir, opts.release);
     return;
   }
-  if (!opts.force && (await git(["-C", dir, "status", "--porcelain"]))) {
+  // An emptied checkout has nothing left to lose, so the question of
+  // uncommitted changes cannot be asked of it.
+  if (!opts.force && info && (await git(["-C", dir, "status", "--porcelain"]))) {
     throw new WorktreeError("worktree has uncommitted changes", 409);
   }
   // git compares the path it recorded, so it has to be given that spelling —
   // the resolved one is a path it has never heard of.
-  const listed = (await worktreeList(info.repo)).find((e) => e.path === dir);
+  const listed = info ? (await worktreeList(info.repo)).find((e) => e.path === dir) : undefined;
   await removeCheckout(
-    { gitPath: listed?.gitPath ?? dir, locked: listed?.locked === true },
-    info.repo,
+    {
+      gitPath: listed?.gitPath ?? owner?.gitPath ?? dir,
+      locked: listed?.locked ?? owner?.locked ?? false,
+    },
+    repo,
     opts.force === true,
     opts.release,
   );
@@ -256,9 +326,11 @@ function underOwnRoot(dir: string, stateDir: string): boolean {
 
 /** How many times to try a directory something is still holding, and how long
  *  to wait between tries. A handle is often released in a moment — a scanner
- *  finished, an editor closed the file — and the next try succeeds. */
-const REMOVE_ATTEMPTS = 4;
-const REMOVE_RETRY_MS = 250;
+ *  finished, an editor closed the file — and the next try succeeds. The whole
+ *  wait is about two seconds: the reader is watching a button, and a refusal
+ *  they have to sit through is a refusal they will not try again. */
+const REMOVE_ATTEMPTS = 5;
+const REMOVE_RETRY_MS = 200;
 
 /**
  * Take the checkout off the disk.
@@ -320,6 +392,18 @@ async function removeDirectory(dir: string, release?: () => Promise<void>): Prom
       // still held
     }
     if (attempt === 0 && release) await release();
+    // A directory marked read-only cannot be removed, although everything
+    // inside it can — which is what a removal that emptied the folder and then
+    // failed looks like from the outside. The attribute is the reader's to
+    // clear. Only Windows has one: on Unix the mode is a permission somebody
+    // set deliberately, and a removal does not get to undo that.
+    if (process.platform === "win32" && attempt >= 2) {
+      try {
+        chmodSync(dir, 0o700);
+      } catch {
+        // not ours to change
+      }
+    }
   }
   throw new WorktreeError("worktree in use", 423);
 }

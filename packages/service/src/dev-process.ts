@@ -809,7 +809,9 @@ function realish(path: string): string {
   }
 }
 
-function insideWorkspace(root: string, target: string): boolean {
+/** Is this path inside that one? The answer has to hold for spellings that
+ *  differ only in case or in a symbolic link. */
+export function insideWorkspace(root: string, target: string): boolean {
   const rel = relative(root, target);
   if (rel === "") return true;
   if (rel.startsWith("..") || isAbsolute(rel)) return false;
@@ -818,6 +820,17 @@ function insideWorkspace(root: string, target: string): boolean {
   const child = fold(target);
   const prefix = base.endsWith(sep) ? base : base + sep;
   return child === base || child.startsWith(prefix);
+}
+
+/**
+ * Is this path inside that one, however either was spelled?
+ *
+ * Two spellings of one folder — a symbolic link on one side, a different case
+ * on the other — have to answer the same way, or a program standing in a
+ * checkout is invisible to the thing that wants to let go of it.
+ */
+export function pathInside(root: string, target: string): boolean {
+  return insideWorkspace(realish(root), realish(target));
 }
 
 function parseLost(value: unknown): DevLost | undefined {

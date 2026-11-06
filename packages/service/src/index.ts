@@ -48,8 +48,8 @@ import { refused, shellCors } from "./shell-origin";
 import { queryTokenOk, readApiToken, tokenOk } from "./api-token";
 import { writeSecureJson } from "./secure-write";
 import { terminalClose, terminalMessage, terminalOpen, terminalRoute, terminalUpgrade } from "./terminal";
-import { createDevManager, resolveWorkdir, stopInside, type DevEvent } from "./dev-process";
-import { WorktreeError, worktreeAdd, worktreeRemove, withWorktrees } from "./worktree";
+import { createDevManager, pathInside, resolveWorkdir, stopInside, type DevEvent } from "./dev-process";
+import { WorktreeError, reposOf, worktreeAdd, worktreeRemove, withWorktrees } from "./worktree";
 import { SessionClaims } from "./identity";
 import { promptRoute, type PendingAsk, type PendingQuestion } from "./prompt-routes";
 
@@ -403,6 +403,29 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     const backend = casfId.split(":")[0];
     const matches = [...conns.values()].filter((c) => c.backend === backend);
     return matches.length === 1 ? matches[0] : undefined;
+  };
+
+  /**
+   * Let go of the app's own programs standing in a folder that will not go.
+   *
+   * A dev server started in there is one of them, and so is the agent the app
+   * started for a session in that checkout: on Windows both hold the folder
+   * they are standing in, and neither is the reader's to close by hand. The
+   * session is stopped rather than killed — the agent gets to finish what it
+   * was doing and leave — and a backend that cannot be asked is left alone.
+   */
+  const releaseInside = async (dir: string): Promise<void> => {
+    await stopInside(dev, dir);
+    for (const s of store.listSessions({ limit: 500 })) {
+      const ws = s.workspace;
+      if (!ws || ws === "unknown" || ws === "no workspace") continue;
+      if (!pathInside(dir, ws)) continue;
+      const conn = driverFor(s.session_id);
+      if (!conn?.capabilities.abort) continue;
+      const native = conn.nativeId(s.session_id);
+      if (!native) continue;
+      await conn.abort(native, ws).catch(() => {});
+    }
   };
 
   const parentOf = (casfId: string): string | undefined => {
@@ -1823,17 +1846,25 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       };
       if (!body.directory) return json({ error: "directory required" }, 400);
       try {
+        // The checkout's folder may already have been emptied by a removal
+        // that could not finish, and an emptied folder cannot say which
+        // repository it belongs to. The repositories the app knows about still
+        // can, so the removal finds its subject by the path git recorded
+        // rather than by what is left on disk.
+        const dirs = await knownDirs();
+        const repos = await reposOf([...dirs.values()]);
         await worktreeRemove({
           dir: body.directory,
           force: body.force === true,
           stateDir: desktopDir,
+          repos,
           // A program the app started inside the worktree keeps the folder
           // locked — on Windows that is a hard "Permission denied". These
           // processes are the app's own, so it stops them and tries again.
           // Asked for only when the folder will not empty, so nothing dies
           // for a removal that was only asking for a second click.
           release: async () => {
-            await stopInside(dev, body.directory!);
+            await releaseInside(body.directory!);
           },
         });
         return json({ ok: true });
