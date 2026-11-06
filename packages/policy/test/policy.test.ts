@@ -215,6 +215,15 @@ describe("policy evaluate (table-driven)", () => {
       if (want.rule_id) expect(d.rule_id).toBe(want.rule_id);
     });
   }
+
+  test("an arrow inside a double-quoted one-liner is not a redirect", () => {
+    const node = P([{ id: "node", effect: "allow", tool: "bash", when: { command: { matches: "^node\\b" } } }]);
+    expect(evaluate(node, bash(`node -e "console.log('one'); setTimeout(() => {}, 30000)"`)).decision).toBe("allow");
+    // Escaped quotes are still one quoted run.
+    expect(evaluate(node, bash(`node -e "console.log(\\"a > b\\")"`)).decision).toBe("allow");
+    // The real thing still asks.
+    expect(evaluate(P([], "allow"), bash("echo hi > /tmp/x")).decision).toBe("ask");
+  });
 });
 
 describe("policy helpers", () => {

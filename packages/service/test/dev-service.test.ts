@@ -32,7 +32,12 @@ describe("dev commands over the service", () => {
   beforeAll(() => {
     desktop = mkdtempSync(join(tmpdir(), "strata-devsvc-"));
     work = mkdtempSync(join(tmpdir(), "strata-devsvc-work-"));
-    svc = startService({ db: ":memory:", port: 0, desktopDir: desktop });
+    // These cases are about process management, not permissions. Give the
+    // service an explicit allow policy so no card is waiting for an answer;
+    // the policy cases below start their own services.
+    const policyFile = join(desktop, "policy.json");
+    writeFileSync(policyFile, JSON.stringify({ version: 1, default: "allow", rules: [] }));
+    svc = startService({ db: ":memory:", port: 0, desktopDir: desktop, policyFile });
     base = `http://127.0.0.1:${svc.port}`;
     // The command runs in the session's workspace, so the session needs one.
     svc.store.append([
@@ -242,5 +247,97 @@ describe("dev commands over the service", () => {
     };
     expect(listed.processes.filter((row) => row.id === info.id)).toHaveLength(1);
     await post(`/dev/${info.id}/stop`, {});
+  }, 30_000);
+});
+
+describe("dev command policy", () => {
+  let desktop = "";
+  let work = "";
+
+  const policyService = (policy: unknown) => {
+    const file = join(desktop, `policy-${crypto.randomUUID()}.json`);
+    writeFileSync(file, JSON.stringify(policy));
+    const service = startService({ db: ":memory:", port: 0, desktopDir: desktop, policyFile: file });
+    service.store.append([
+      makeEvent({
+        session_id: "opencode:ses_policy",
+        type: "session.started",
+        ts: "2026-01-01T00:00:00Z",
+        source: { backend: "opencode" },
+        data: { title: "policy", workspace: work },
+      } as EventInput),
+    ]);
+    return service;
+  };
+
+  const start = (base: string, command: string) =>
+    fetch(`${base}/dev`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ session_id: "opencode:ses_policy", command }),
+    });
+
+  beforeAll(() => {
+    desktop = mkdtempSync(join(tmpdir(), "strata-devpolicy-"));
+    work = mkdtempSync(join(tmpdir(), "strata-devpolicy-work-"));
+  }, 30_000);
+
+  afterAll(() => {
+    rmSync(desktop, { recursive: true, force: true });
+    rmSync(work, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+  }, 30_000);
+
+  test("a bash deny rule stops the command before it spawns", async () => {
+    const service = policyService({
+      version: 1,
+      default: "allow",
+      rules: [{ id: "no-sleep", effect: "deny", tool: "bash", when: { command: { matches: "^sleep" } } }],
+    });
+    const base = `http://127.0.0.1:${service.port}`;
+    try {
+      const denied = await start(base, "sleep 30");
+      expect(denied.status).toBe(403);
+      const listed = (await (await fetch(`${base}/dev?session=opencode%3Ases_policy`)).json()) as {
+        processes: unknown[];
+      };
+      expect(listed.processes).toHaveLength(0);
+    } finally {
+      service.stop();
+    }
+  }, 30_000);
+
+  test("an ask waits for the permission card before the command starts", async () => {
+    const service = policyService({ version: 1, default: "ask", rules: [] });
+    const base = `http://127.0.0.1:${service.port}`;
+    try {
+      const starting = start(base, "sleep 30");
+      let ask: { request_id: string; tool: string; input: { command?: string } } | undefined;
+      for (let i = 0; i < 100 && !ask; i++) {
+        const pending = (await (await fetch(`${base}/permissions`)).json()) as {
+          pending: { request_id: string; tool: string; input: { command?: string } }[];
+        };
+        ask = pending.pending.find((p) => p.tool === "dev_start" && p.input.command === "sleep 30");
+        if (!ask) await Bun.sleep(50);
+      }
+      expect(ask).toBeDefined();
+
+      const answer = await fetch(`${base}/permissions/${encodeURIComponent(ask!.request_id)}/respond`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ decision: "allow" }),
+      });
+      expect(answer.status).toBe(200);
+
+      const started = await starting;
+      expect(started.status).toBe(200);
+      const info = (await started.json()) as { id: string };
+      await fetch(`${base}/dev/${info.id}/stop`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      });
+    } finally {
+      service.stop();
+    }
   }, 30_000);
 });

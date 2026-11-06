@@ -3,6 +3,7 @@ import type { PromptPart } from "./driver";
 
 export const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 export const MAX_ATTACHMENTS = 10;
+export const MAX_PARTS = 1_000;
 
 /**
  * A mime type as a browser or a client library would write it.
@@ -52,6 +53,7 @@ export function readPromptParts(body: { parts?: unknown; text?: unknown } | null
   if (body?.parts !== undefined && !Array.isArray(body.parts)) return { error: "parts must be an array" };
   const raw: unknown[] =
     Array.isArray(body?.parts) ? body.parts : typeof body?.text === "string" ? [{ type: "text", text: body.text }] : [];
+  if (raw.length > MAX_PARTS) return { error: `at most ${MAX_PARTS} parts per prompt` };
   const parts: PromptPart[] = [];
   for (const [i, p] of raw.entries()) {
     const r = readPart(p);

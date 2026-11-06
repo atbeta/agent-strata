@@ -51,7 +51,7 @@
       "name": "@agent-strata/api",
       "version": "0.0.0",
       "dependencies": {
-        "zod": "3.23.8",
+        "zod": "3.25.76",
       },
     },
     "packages/core": {
@@ -69,7 +69,7 @@
       "dependencies": {
         "@agent-strata/schema": "workspace:*",
         "ulid": "2.3.0",
-        "zod": "3.23.8",
+        "zod": "3.25.76",
       },
     },
     "packages/projector": {
@@ -78,7 +78,7 @@
       "dependencies": {
         "@agent-strata/schema": "workspace:*",
         "ulid": "2.3.0",
-        "zod": "3.23.8",
+        "zod": "3.25.76",
       },
     },
     "packages/schema": {
@@ -86,7 +86,7 @@
       "version": "0.0.0",
       "dependencies": {
         "ulid": "2.3.0",
-        "zod": "3.23.8",
+        "zod": "3.25.76",
       },
     },
     "packages/service": {
@@ -109,7 +109,7 @@
       "dependencies": {
         "@agent-strata/schema": "workspace:*",
         "ulid": "2.3.0",
-        "zod": "3.23.8",
+        "zod": "3.25.76",
       },
     },
   },
@@ -259,15 +259,5 @@
     "which": ["which@2.0.2", "", { "dependencies": { "isexe": "^2.0.0" }, "bin": { "node-which": "./bin/node-which" } }, "sha512-BLI3Tl1TW3Pvl70l3yq3Y64i+awpwXqsGBYWkkqMtnbXgrMD+yj7rhW0kuEDxzJaYXGjEW5ogapKNMEKNMjibA=="],
 
     "zod": ["zod@3.25.76", "", {}, "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="],
-
-    "@agent-strata/api/zod": ["zod@3.23.8", "", {}, "sha512-XBx9AXhXktjUqnepgTiE5flcKIYWi/rme0Eaj+5Y0lftuGBq+jyRu/md4WnuxqgP1ubdpNCsYEYPxrzVHD8d6g=="],
-
-    "@agent-strata/policy/zod": ["zod@3.23.8", "", {}, "sha512-XBx9AXhXktjUqnepgTiE5flcKIYWi/rme0Eaj+5Y0lftuGBq+jyRu/md4WnuxqgP1ubdpNCsYEYPxrzVHD8d6g=="],
-
-    "@agent-strata/projector/zod": ["zod@3.23.8", "", {}, "sha512-XBx9AXhXktjUqnepgTiE5flcKIYWi/rme0Eaj+5Y0lftuGBq+jyRu/md4WnuxqgP1ubdpNCsYEYPxrzVHD8d6g=="],
-
-    "@agent-strata/schema/zod": ["zod@3.23.8", "", {}, "sha512-XBx9AXhXktjUqnepgTiE5flcKIYWi/rme0Eaj+5Y0lftuGBq+jyRu/md4WnuxqgP1ubdpNCsYEYPxrzVHD8d6g=="],
-
-    "@agent-strata/store/zod": ["zod@3.23.8", "", {}, "sha512-XBx9AXhXktjUqnepgTiE5flcKIYWi/rme0Eaj+5Y0lftuGBq+jyRu/md4WnuxqgP1ubdpNCsYEYPxrzVHD8d6g=="],
   }
 }

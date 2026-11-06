@@ -164,6 +164,17 @@ describe("schema", () => {
     expect(safeParseEvent({ ...base, type: "nope", data: {} }).success).toBe(false);
   });
 
+  test("collections that arrive over the wire are bounded", () => {
+    const block = { type: "text", text: "x" };
+    expect(() =>
+      parseEvent({
+        ...base,
+        type: "turn.user",
+        data: { turn_id: "t", content: Array.from({ length: 10_001 }, () => block) },
+      }),
+    ).toThrow();
+  });
+
   test("tool.call keeps its declaration order and tolerates its absence", () => {
     // zod strips keys the schema does not declare, so this field only exists
     // because it was added to the schema. The round trip is the whole contract.

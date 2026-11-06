@@ -56,6 +56,14 @@ import { promptRoute, type PendingAsk, type PendingQuestion } from "./prompt-rou
 
 /** A log read is bounded by what a person can read, not by what the process wrote. */
 const MAX_DEV_LOG_TAIL = 5000;
+/**
+ * The most one request may carry.
+ *
+ * It leaves room for ten 5 MiB attachments written as base64 (the composer's
+ * own limit) with JSON overhead, and stops a malformed or hostile body before
+ * the parser allocates without bound.
+ */
+const MAX_REQUEST_BODY_BYTES = 80 * 1024 * 1024;
 
 export interface ServiceOpts {
   db?: string;
@@ -522,6 +530,30 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       return undefined;
     }
   };
+  /**
+   * Whether this session was left on auto — or any session it descends from.
+   *
+   * A subagent is part of the conversation that opened it: the reader put
+   * *that* session on auto, and the work it delegated is the work they meant.
+   * Reading the stance from the child alone made the switch stop at the
+   * subagent, whose ask then waited in a session the sidebar hides — the run
+   * went nowhere and there was nothing on screen to answer.
+   */
+  const autoStance = (sessionID: string): boolean => {
+    let id: string | undefined = sessionID;
+    for (let hops = 0; id && hops < 8; hops++) {
+      if (autoSessions.has(id)) return true;
+      id = parentOf(id);
+    }
+    return false;
+  };
+  /** The live shared policy, softened for a session whose reader chose auto. */
+  const policyForSession = (sessionID: string): Policy | undefined => {
+    if (!autoStance(sessionID)) return currentPolicy;
+    // No shared document means there is nothing to soften, not nothing to do
+    // — the stance still answers "do not ask me here".
+    return autoAccept(currentPolicy ?? { version: 1, default: "ask", rules: [] });
+  };
 
   const settledAsks = new Map<string, "allow" | "deny">();
   const rememberAsk = (id: string, decision: "allow" | "deny") => {
@@ -533,7 +565,10 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       if (--extra <= 0) break;
     }
   };
-  const onAsk = (req: Extract<EventInput, { type: "permission.requested" }>) => {
+  const onAsk = (
+    req: Extract<EventInput, { type: "permission.requested" }>,
+    local = false,
+  ) => {
     store.append([req]);
     const data = req.data;
     const known = settledAsks.get(data.request_id);
@@ -550,6 +585,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         input: data.input,
         call_id: data.call_id,
         asked_at: req.ts,
+        local,
         resolve,
       }),
     );
@@ -560,6 +596,59 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     if (!ask) return;
     pendingAsks.delete(requestId);
     ask.resolve({ decision, external: true });
+  };
+  /**
+   * Put a decision the policy did not make in front of the reader.
+   *
+   * Plugin tools are not part of OpenCode's permission events, so a background
+   * command has no card of its own. This is the same card a tool ask gets: the
+   * request goes through the store, the UI's permission deck answers it, and
+   * the call blocks until that answer arrives. A reader who never answers must
+   * not leave the tool call open forever, so it times out as a deny.
+   */
+  const askPermission = async (
+    sessionId: string,
+    tool: string,
+    input: Record<string, unknown>,
+  ): Promise<"allow" | "deny"> => {
+    const requestId = `desktop:${tool}:${crypto.randomUUID()}`;
+    const req = makeEvent({
+      session_id: sessionId,
+      source: { backend: "desktop" },
+      type: "permission.requested",
+      data: { request_id: requestId, tool, input },
+    }) as Extract<EventInput, { type: "permission.requested" }>;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timed = new Promise<"timeout">((resolve) => {
+      timer = setTimeout(() => resolve("timeout"), 5 * 60_000);
+    });
+    const answer = await Promise.race([onAsk(req, true), timed]);
+    if (timer) clearTimeout(timer);
+    if (answer === "timeout") {
+      pendingAsks.delete(requestId);
+      store.append([
+        makeEvent({
+          id: `desktop:${requestId}:permission.resolved`,
+          session_id: sessionId,
+          source: { backend: "desktop" },
+          type: "permission.resolved",
+          data: { request_id: requestId, decision: "deny", by: "auto", reason: "timeout" },
+        }) as EventInput,
+      ]);
+      return "deny";
+    }
+    // The local ask has no backend event that would close it in the log; the
+    // answer has to be written here or the session keeps saying it is waiting.
+    store.append([
+      makeEvent({
+        id: `desktop:${requestId}:permission.resolved`,
+        session_id: sessionId,
+        source: { backend: "desktop" },
+        type: "permission.resolved",
+        data: { request_id: requestId, decision: answer.decision, by: "user" },
+      }) as EventInput,
+    ]);
+    return answer.decision;
   };
   const onQuestion = (req: Extract<EventInput, { type: "question.asked" }>) => {
     store.append([req]);
@@ -738,32 +827,11 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     }
     const explicit: Policy | undefined = body.policy ? loadPolicy(body.policy) : undefined;
     // Per-connect policy wins; otherwise follow the live shared policy — unless
-    // this session was left on auto, which softens the shared fallback rather
-    // than replacing the document, so the reader's own rules still apply.
-    const shared = explicit ? () => explicit : () => currentPolicy;
-    /**
-     * Whether this session was left on auto — or any session it descends from.
-     *
-     * A subagent is part of the conversation that opened it: the reader put
-     * *that* session on auto, and the work it delegated is the work they meant.
-     * Reading the stance from the child alone made the switch stop at the
-     * subagent, whose ask then waited in a session the sidebar hides — the run
-     * went nowhere and there was nothing on screen to answer.
-     */
-    const autoStance = (sessionID: string): boolean => {
-      let id: string | undefined = sessionID;
-      for (let hops = 0; id && hops < 8; hops++) {
-        if (autoSessions.has(id)) return true;
-        id = parentOf(id);
-      }
-      return false;
-    };
+    // this session was left on auto, which softens the fallback rather than
+    // replacing the document, so the reader's own rules still apply.
     const policy = (sessionID: string): Policy | undefined => {
-      const base = shared();
-      if (!autoStance(sessionID)) return base;
-      // No shared document means there is nothing to soften, not nothing to
-      // do — the stance still answers "do not ask me here".
-      return autoAccept(base ?? { version: 1, default: "ask", rules: [] });
+      if (!explicit) return policyForSession(sessionID);
+      return autoStance(sessionID) ? autoAccept(explicit) : explicit;
     };
     let driver: BackendDriver;
     if (backend === "opencode") {
@@ -2405,6 +2473,20 @@ export function startService(opts: ServiceOpts = {}): RunningService {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
         }
       }
+      // The tool is a shell in disguise. Judge its command as bash so the
+      // rules the reader wrote for the shell apply here too, and never let an
+      // explicit deny (or a default deny) turn into a background process.
+      const live = policyForSession(sessionID);
+      const verdict = live
+        ? evaluate(live, { tool: "bash", input: { command: body.command } })
+        : { decision: "ask" as const, reason: "no policy" };
+      if (verdict.decision === "deny") {
+        return json({ error: verdict.reason ? `denied: ${verdict.reason}` : "denied by policy" }, 403);
+      }
+      if (verdict.decision === "ask") {
+        const decision = await askPermission(sessionID, "dev_start", { command: body.command });
+        if (decision === "deny") return json({ error: "permission denied" }, 403);
+      }
       try {
         const started = await dev.start({
           session_id: sessionID,
@@ -2579,6 +2661,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     port: opts.port ?? 0,
     // projecting every session can outlast Bun's 10s default
     idleTimeout: 0,
+    maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
     websocket: {
       open: terminalOpen,
       message: terminalMessage,
@@ -2614,6 +2697,9 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       const health = req.method === "GET" && url.pathname === "/health";
       if (!health && !authorized)
         return Response.json({ error: "unauthorized" }, { status: 401, headers: allow });
+      const declared = Number(req.headers.get("content-length") ?? "");
+      if (Number.isFinite(declared) && declared > MAX_REQUEST_BODY_BYTES)
+        return Response.json({ error: "request body too large" }, { status: 413, headers: allow });
       const upgraded = terminalUpgrade(req, url, server, ownedTerminal);
       if (upgraded === "upgraded") return undefined;
       let res: Response;

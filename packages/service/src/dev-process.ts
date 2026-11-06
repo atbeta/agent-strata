@@ -782,7 +782,9 @@ export function resolveWorkdir(workspace: string, workdir?: string): string {
   const raw = workdir?.trim() ?? "";
   if (raw.length === 0) return root;
   const target = resolve(root, raw);
-  if (!insideWorkspace(root, target)) {
+  // Compare real paths, not spellings: a symlink inside the workspace can
+  // point outside it, and a lexical prefix check would call that a child.
+  if (!pathInside(root, target)) {
     throw new Error(`workdir must stay inside the session workspace (${root})`);
   }
   return target;

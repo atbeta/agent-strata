@@ -23,7 +23,7 @@ export const PolicySchema = z.object({
 export type Policy = z.infer<typeof PolicySchema>;
 type Rule = Policy["rules"][number];
 
-export const SHELL_TOOLS = ["bash", "shell", "execute", "terminal"];
+export const SHELL_TOOLS = ["bash", "shell", "execute", "terminal", "dev_start"];
 
 export interface Decision {
   decision: "allow" | "deny" | "ask";
@@ -243,20 +243,27 @@ function hasUnanalyzableConstruct(command: string): boolean {
   let quote: "'" | '"' | null = null;
   for (let i = 0; i < command.length; i++) {
     const c = command[i]!;
+    // Only the quote that opened the string can close it. A `'` inside a
+    // double-quoted JS one-liner is a literal, not a new quote state.
     if (quote === "'") {
       if (c === "'") quote = null;
       continue;
     }
-    if (c === "'") {
-      quote = "'";
-      continue;
-    }
-    if (c === '"') {
-      quote = quote === '"' ? null : '"';
-      continue;
-    }
     if (c === "\\") {
       i++;
+      continue;
+    }
+    if (quote === '"') {
+      if (c === '"') {
+        quote = null;
+        continue;
+      }
+      // `$(...)` and backticks still expand inside double quotes.
+    } else if (c === "'") {
+      quote = "'";
+      continue;
+    } else if (c === '"') {
+      quote = '"';
       continue;
     }
     if (c === "`") return true;
@@ -281,23 +288,25 @@ function hasOutputRedirection(segment: string): boolean {
   };
   for (let i = 0; i < segment.length; i++) {
     const c = segment[i]!;
+    // Only the quote that opened the string can close it. A `'` inside a
+    // double-quoted JS one-liner is a literal, not a new quote state; treating
+    // it as one made `() =>` look like an output redirect.
     if (quote === "'") {
       if (c === "'") quote = null;
-      continue;
-    }
-    if (c === "'") {
-      quote = "'";
-      continue;
-    }
-    if (c === '"') {
-      quote = quote === '"' ? null : '"';
       continue;
     }
     if (c === "\\") {
       i++;
       continue;
     }
-    if (quote) continue;
+    if (quote === '"') {
+      if (c === '"') quote = null;
+      continue;
+    }
+    if (c === "'" || c === '"') {
+      quote = c;
+      continue;
+    }
     if (c === "&" && segment[i + 1] === ">") {
       const t = targetAfter(i + 1);
       if (t !== "/dev/null") return true;

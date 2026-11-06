@@ -54,6 +54,33 @@ describe("prompt response routes", () => {
     expect(replies).toBe(0);
   });
 
+  test("a local ask is resolved without a backend reply", async () => {
+    const pendingAsks = new Map([["perm1", { ...ask(), local: true }]]);
+    let replies = 0;
+    const resolved: string[] = [];
+    const driver = {
+      replyPermission: async () => {
+        replies++;
+      },
+    };
+    const ctx = {
+      pendingAsks,
+      pendingQuestions: new Map(),
+      driverFor: () => driver,
+      directoryOf: () => "/repo",
+      rememberAsk: () => {},
+      resolvePermissionLocally: (_session: string, request: string) => resolved.push(request),
+      sessionIdOfPendingQuestion: () => undefined,
+      replyQuestion: async () => {},
+      resolveQuestionLocally: () => {},
+    };
+    const res = await promptRoute(post("/permissions/perm1/respond", { decision: "allow" }), "/permissions/perm1/respond", ctx);
+    expect(res!.status).toBe(200);
+    expect(replies).toBe(0);
+    expect(pendingAsks.has("perm1")).toBe(false);
+    expect(resolved).toEqual([]);
+  });
+
   test("a failed permission reply can be retried and only success resolves locally", async () => {
     const pendingAsks = new Map([["perm1", ask()]]);
     let attempts = 0;

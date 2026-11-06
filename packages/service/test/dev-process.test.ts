@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1043,6 +1043,18 @@ describe("workdir", () => {
     expect(() => resolveWorkdir(dir, "..")).toThrow(/inside the session workspace/);
     expect(() => resolveWorkdir(dir, join(dir, "..", "elsewhere"))).toThrow(/inside the session workspace/);
     cleanup(dir);
+  });
+
+  test.skipIf(process.platform === "win32")("a symlink out of the workspace is not a workdir", () => {
+    const dir = workspace();
+    const outside = workspace();
+    symlinkSync(outside, join(dir, "out"));
+    try {
+      expect(() => resolveWorkdir(dir, "out")).toThrow(/inside the session workspace/);
+    } finally {
+      cleanup(dir);
+      cleanup(outside);
+    }
   });
 });
 

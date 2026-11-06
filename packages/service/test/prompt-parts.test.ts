@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readPromptParts, MAX_ATTACHMENT_BYTES } from "../src/prompt-parts";
+import { readPromptParts, MAX_ATTACHMENT_BYTES, MAX_PARTS } from "../src/prompt-parts";
 
 const png = "data:image/png;base64,iVBORw0KGgo=";
 
@@ -44,6 +44,11 @@ describe("a prompt's parts", () => {
       { type: "text", text: "@src/a.ts look" },
       { type: "file_ref", path: "src/a.ts", mention: { start: 0, end: 9 } },
     ]);
+  });
+
+  test("a prompt has a part ceiling", () => {
+    const parts = Array.from({ length: MAX_PARTS + 1 }, () => ({ type: "text", text: "x" }));
+    expect((readPromptParts({ parts }) as { error: string }).error).toMatch(/at most 1000 parts/);
   });
 
   test("an attachment of exactly the limit passes, one byte more does not", () => {

@@ -11,6 +11,8 @@ export interface PendingAsk {
   asked_at: string;
   call_id?: string;
   submitting?: boolean;
+  /** The service raised this ask itself; there is no backend request to reply to. */
+  local?: boolean;
   resolve: (ans: { decision: "allow" | "deny"; scope?: "once" | "always"; external?: boolean }) => void;
 }
 
@@ -61,7 +63,7 @@ export function promptRoute(
 ): Promise<Response> | Response | undefined {
   if (path === "/permissions" && req.method === "GET") {
     return Response.json({
-      pending: [...ctx.pendingAsks.values()].map(({ resolve: _r, submitting: _s, ...p }) => p),
+      pending: [...ctx.pendingAsks.values()].map(({ resolve: _r, submitting: _s, local: _l, ...p }) => p),
     });
   }
 
@@ -75,7 +77,10 @@ export function promptRoute(
       if (ask.submitting) return Response.json({ error: "permission response is already being submitted" }, { status: 409 });
       const { decision, scope } = parsed.data;
       const conn = ctx.driverFor(ask.session_id);
-      if (conn?.replyPermission) {
+      // A local ask (the service's own policy check, not a backend permission
+      // event) has no request at the backend to answer; replying would get a
+      // 502 and leave the card stuck.
+      if (conn?.replyPermission && !ask.local) {
         ask.submitting = true;
         try {
           const reply = decision === "deny" ? "reject" : scope === "always" ? "always" : "once";

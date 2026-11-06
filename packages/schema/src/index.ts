@@ -178,13 +178,15 @@ const data = {
     /** set when the trigger was a context-overflow error, not a size threshold */
     overflow: z.boolean().optional(),
   }),
+  // Collections that arrive over the wire have a ceiling: an unbounded
+  // array turns a malformed event into an out-of-memory before a handler runs.
   "turn.user": z.object({
     turn_id: z.string(),
-    content: z.array(ContentBlock),
+    content: z.array(ContentBlock).max(10_000),
   }),
   "turn.assistant": z.object({
     turn_id: z.string(),
-    content: z.array(ContentBlock),
+    content: z.array(ContentBlock).max(10_000),
     // backend message id — lets a later snapshot replace an earlier partial
     // one for the same message instead of appending a duplicate
     msg_id: z.string().optional(),
@@ -203,7 +205,7 @@ const data = {
     /** this message IS the compaction summary, not a reply — label it, don't hide it */
     summary: z.boolean().optional(),
     /** each model call the message ran, in order — diagnostics, not extra turns */
-    steps: z.array(AssistantStep).optional(),
+    steps: z.array(AssistantStep).max(10_000).optional(),
     /** the answer in the schema the caller asked for, when the format was json_schema */
     structured: z.unknown().optional(),
   }),
@@ -236,7 +238,7 @@ const data = {
     status: z.enum(["ok", "error", "interrupted"]),
     output: z.string().optional(),
     /** what the tool produced besides text — screenshots, generated files, web finds */
-    attachments: z.array(ContentBlock).optional(),
+    attachments: z.array(ContentBlock).max(1_000).optional(),
     latency_ms: z.number().int().min(0).optional(),
     child_session_id: z.string().min(1).optional(),
   }),
@@ -245,7 +247,7 @@ const data = {
     call_id: z.string().optional(),
     tool: z.string(),
     input: z.record(z.unknown()),
-    options: z.array(z.string()).optional(),
+    options: z.array(z.string()).max(1_000).optional(),
   }),
   "permission.resolved": z.object({
     request_id: z.string(),
@@ -270,7 +272,7 @@ const data = {
         content: z.string(),
         status: z.enum(["pending", "in_progress", "completed"]),
       }),
-    ),
+    ).max(10_000),
   }),
   "question.asked": z.object({
     request_id: z.string(),
@@ -278,16 +280,16 @@ const data = {
       z.object({
         question: z.string(),
         header: z.string(),
-        options: z.array(z.object({ label: z.string(), description: z.string() })),
+        options: z.array(z.object({ label: z.string(), description: z.string() })).max(1_000),
         multiple: z.boolean().optional(),
         custom: z.boolean().optional(),
       }),
-    ),
+    ).max(1_000),
   }),
   "question.resolved": z.object({
     request_id: z.string(),
     decision: z.enum(["reply", "reject"]),
-    answers: z.array(z.array(z.string())).optional(),
+    answers: z.array(z.array(z.string()).max(1_000)).max(1_000).optional(),
   }),
 } as const;
 
