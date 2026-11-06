@@ -52,9 +52,11 @@ export function SectionHeader(props: {
       </Show>
       <Show when={props.hint}>
         {/* Truncates from the start: a path's distinguishing end is its tail,
-            and the end is what a narrow rail used to cut off. */}
+            and the end is what a narrow rail used to cut off. The bdi keeps
+            the string's own direction — without it the rtl box reorders the
+            neutral ~ and / to the wrong end. */}
         <span dir="rtl" class="min-w-0 flex-1 truncate text-left font-mono text-2xs text-faint-foreground">
-          {props.hint}
+          <bdi dir="ltr">{props.hint}</bdi>
         </span>
       </Show>
     </>
