@@ -427,6 +427,12 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       const ws = s.workspace;
       if (!ws || ws === "unknown" || ws === "no workspace") continue;
       if (!pathInside(dir, ws)) continue;
+      // A goal continues the session whenever it goes idle. Aborting it to
+      // remove the folder would therefore start the next turn in a folder
+      // that is being taken apart — the removal then races a live writer and
+      // never empties. The user's own abort pauses the goal; this abort has to
+      // do the same, because the folder is going away either way.
+      goalPaused.add(s.session_id);
       const conn = driverFor(s.session_id);
       if (!conn) continue;
       const terminal = conn.extension?.terminal;
