@@ -50,13 +50,13 @@ describe("the two fold buttons are one pair", () => {
   });
 
   test("they are drawn at the same size", () => {
-    // The header row draws its toggles at 18px; the corner has to match, or
+    // The header row draws its toggles at 16px; the corner has to match, or
     // the same button weighs two different amounts across one window.
-    expect(chrome).toContain('<Icon name="panel-left" class="size-4.5" />');
+    expect(chrome).toContain('<Icon name="panel-left" class="size-4" />');
     expect(detail).toContain('<Icon name="panel-right" />');
     // The magnifier beside the corner's switch follows it, so the corner keeps
     // one weight of its own.
-    expect(chrome).toContain('<Icon name="search" class="size-4.5" />');
+    expect(chrome).toContain('<Icon name="search" class="size-4" />');
   });
 
   test("only the optional side lights up", () => {

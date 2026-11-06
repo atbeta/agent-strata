@@ -1554,7 +1554,7 @@ const turns = () => shown().turns;
                           )
                         }
                       >
-                        <Icon name="export" class="size-4 text-muted-foreground" />
+                        <Icon name="export" />
                       </Button>
                     </Tip>
                   </span>

@@ -46,6 +46,9 @@ describe("a glyph's pen is scaled with its grid", () => {
 
   test("every header icon sits in the same fixed flex box", () => {
     const toggle = readFileSync(join(import.meta.dir, "header-toggle.tsx"), "utf8");
-    expect(toggle).toContain("inline-flex size-4.5 items-center justify-center");
+    // 16px, the size the button primitive gives every icon in the app. The
+    // header row drew its own toggles at 18px for a while, which made them the
+    // only icons in the product heavier than the buttons they sat in.
+    expect(toggle).toContain("inline-flex size-4 items-center justify-center");
   });
 });

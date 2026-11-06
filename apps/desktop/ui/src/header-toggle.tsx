@@ -14,12 +14,19 @@ import type { JSX } from "solid-js";
  * read at all, which is neither on nor off and must not be drawn as either. The
  * ring still comes from `on`, so that state reads as an unlit button in alarm
  * colour — visible, and not claiming to be enabled.
+ *
+ * The box is 16px, the size the button primitive gives every icon in the app.
+ * The header row used to draw its own toggles at 18px, which made them the
+ * only icons in the product heavier than the buttons they sat in — and beside
+ * 12px metadata they read as a second, louder row rather than as controls of
+ * the session. One weight for the whole app is worth more than the extra two
+ * pixels, so the row now sits on the size everything else already uses.
  */
 export function ToggleIcon(props: { on: boolean; tone?: string; children: JSX.Element }) {
   return (
     // A fixed flex box keeps plain SVGs and the MCP icon's attention-mark wrapper
     // on the same baseline inside the 28px button.
-    <span class={`inline-flex size-4.5 items-center justify-center [&_svg]:size-4.5 transition-colors ${props.tone ?? (props.on ? "text-foreground" : "text-muted-foreground")}`}>
+    <span class={`inline-flex size-4 items-center justify-center [&_svg]:size-4 transition-colors ${props.tone ?? (props.on ? "text-foreground" : "text-muted-foreground")}`}>
       {props.children}
     </span>
   );

@@ -214,11 +214,11 @@ export function TopLeftControls(props: {
           aria-pressed={props.sidebarOpen}
           onClick={props.onToggleSidebar}
         >
-          {/* 18px, the size the session header's own fold button draws at: the
+          {/* 16px, the size the session header's own fold button draws at: the
               two buttons that fold the window's two sides are one pair, and a
               pair drawn at two sizes is not a pair. The magnifier beside it
               follows, so the corner keeps one weight of its own. */}
-          <Icon name="panel-left" class="size-4.5" />
+          <Icon name="panel-left" class="size-4" />
         </Button>
       </Tip>
       <Tip label={paletteLabel()}>
@@ -229,7 +229,7 @@ export function TopLeftControls(props: {
           aria-label={t("palette.title")}
           onClick={props.onOpenPalette}
         >
-          <Icon name="search" class="size-4.5" />
+          <Icon name="search" class="size-4" />
         </Button>
       </Tip>
     </div>
