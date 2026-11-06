@@ -351,10 +351,8 @@ export function Sidebar(props: {
     /** the hover-revealed buttons share one look: quiet until the section is hovered */
     const ghost = (extra?: string) =>
       cn(
-        "size-4 shrink-0 transition-opacity hover:text-foreground focus-visible:opacity-100",
-        group().rows.length === 0
-          ? "text-faint-foreground group-hover/section:text-muted-foreground"
-          : "text-faint-foreground opacity-0 group-hover/section:opacity-100",
+        "size-4 shrink-0 text-faint-foreground opacity-0 transition-opacity",
+        "group-hover/section:opacity-100 focus-visible:opacity-100 hover:text-foreground",
         extra,
       );
     return (
@@ -390,10 +388,11 @@ export function Sidebar(props: {
           action={
             group().dir !== undefined ? (
               <div class="flex items-center">
-                {/* Revealed on section hover — always-on buttons would be a
-                    rail of glyphs down the rail. An empty project keeps them
-                    visible, one step quieter, since a run of empty projects
-                    would otherwise be that rail again. */}
+                {/* Revealed on section hover, the same for every project. A
+                    rail of always-on glyphs was noise, and empty projects kept
+                    theirs visible anyway — two behaviours in one list. The
+                    sidebar's own new-chat entry keeps the empty case
+                    discoverable. */}
                 <Show when={wt()}>
                   <Tip
                     label={
@@ -407,7 +406,7 @@ export function Sidebar(props: {
                       size="icon-2xs"
                       class={ghost(
                         removeArmed() === group().dir
-                          ? "text-destructive opacity-100 hover:text-destructive"
+                          ? "text-destructive hover:text-destructive"
                           : undefined,
                       )}
                       aria-label={t("action.removeWorktree")}

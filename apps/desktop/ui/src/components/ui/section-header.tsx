@@ -51,7 +51,9 @@ export function SectionHeader(props: {
         </span>
       </Show>
       <Show when={props.hint}>
-        <span class="min-w-0 flex-1 truncate text-right font-mono text-2xs text-faint-foreground">
+        {/* Truncates from the start: a path's distinguishing end is its tail,
+            and the end is what a narrow rail used to cut off. */}
+        <span dir="rtl" class="min-w-0 flex-1 truncate text-left font-mono text-2xs text-faint-foreground">
           {props.hint}
         </span>
       </Show>

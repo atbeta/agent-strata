@@ -55,15 +55,46 @@ export type SidebarGroup = {
 };
 
 /**
- * The parent directory, abbreviated to `~` when it sits under a user home.
- * Shown only to disambiguate two projects that share a basename — for a
- * unique label it would repeat what the row already says.
+ * Hints for projects that share a basename: the shortest path tail that tells
+ * them apart, not the parent path wholesale.
+ *
+ * Two relay-core checkouts under ~/Projects/relaycraft and ~/relaycraft have
+ * parents named the same thing, so "the parent" disambiguated nothing, and a
+ * narrow rail then truncated the one part that did. Each duplicate walks up
+ * its own path until its tail is unique among its rivals; the home directory
+ * reads as `~`. Shown only for duplicates — a unique label would repeat what
+ * the row already says.
  */
-function dirHint(path: string): string {
-  const sep = path.includes("\\") ? "\\" : "/";
-  const at = path.replace(/[/\\]+$/, "").lastIndexOf(sep);
-  const parent = at <= 0 ? sep : path.slice(0, at);
-  return parent.replace(/^\/Users\/[^/]+/, "~");
+export function uniqueSuffixes(paths: readonly string[]): Map<string, string> {
+  const parentSegs = (path: string): string[] => {
+    const segs = path
+      .replace(/[/\\]+$/, "")
+      .split(/[/\\]+/)
+      .filter(Boolean);
+    // The project's own basename stays off the hint: the row carries it, the
+    // hint says where that row lives.
+    segs.pop();
+    return segs[0] === "Users" && segs.length >= 2 ? ["~", ...segs.slice(2)] : segs;
+  };
+
+  const parts = paths.map(parentSegs);
+  const longest = Math.max(0, ...parts.map((segs) => segs.length));
+  const suffix = (segs: string[], k: number) =>
+    k === 0 ? "" : segs.slice(Math.max(0, segs.length - k)).join("/");
+
+  // One k for the whole family, so hints of siblings read at the same depth.
+  let k = 0;
+  while (k < longest) {
+    k += 1;
+    const tails = parts.map((segs) => suffix(segs, k));
+    if (new Set(tails).size === tails.length) break;
+  }
+
+  const hints = new Map<string, string>();
+  paths.forEach((path, i) => {
+    hints.set(path, suffix(parts[i], k) || "/");
+  });
+  return hints;
 }
 
 /**
@@ -324,6 +355,10 @@ export function useSessionList(opts: {
       const label = ws ? projectName(ws) : "";
       if (label) labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1);
     }
+    const dupePaths = sorted
+      .map(([ws]) => ws)
+      .filter((ws): ws is string => Boolean(ws) && (labelCounts.get(projectName(ws)) ?? 0) > 1);
+    const dupeHints = uniqueSuffixes(dupePaths);
     const groups = sorted.map(([ws, list]) => {
       const label = ws ? projectName(ws) : t("sidebar.project.none");
       const project = { label, path: ws };
@@ -331,7 +366,7 @@ export function useSessionList(opts: {
       return {
         key: ws || "none",
         label,
-        hint: ws && (labelCounts.get(projectName(ws)) ?? 0) > 1 ? dirHint(ws) : undefined,
+        hint: ws ? dupeHints.get(ws) : undefined,
         title: ws || undefined,
         rows,
         dir: ws || undefined,
