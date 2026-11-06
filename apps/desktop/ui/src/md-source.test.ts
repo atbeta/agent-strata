@@ -23,6 +23,13 @@ describe("a block that opens with a tag", () => {
     expect(isSourceBlock("use <x-option> here", isDropped)).toBe(false);
   });
 
+  test("a component followed by prose is prose, not source", () => {
+    const everything = () => true;
+    expect(isSourceBlock("<x-option>a</x-option> 然后我们继续写别的东西。", everything)).toBe(false);
+    expect(isSourceBlock("<x-icon name=\"star\"/> 放在句首", everything)).toBe(false);
+    expect(isSourceBlock("<x-icon name=\"star\"/>", everything)).toBe(true);
+  });
+
   test("a control tag is an instruction, not a code block", () => {
     // Old conversations carry these wrappers; they read as a sentence, not as
     // the source of a component, so they must not become an html block.

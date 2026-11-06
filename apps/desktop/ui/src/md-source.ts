@@ -36,7 +36,20 @@ export function isControlTag(name: string): boolean {
 export function isSourceBlock(source: string, dropped: (tag: string) => boolean): boolean {
   const tag = leadingTag(source);
   if (tag === undefined || CONTROL_TAGS.has(tag)) return false;
-  return dropped(tag);
+  if (!dropped(tag)) return false;
+  // Opening with a component name is not the same as being that component:
+  // `<x-option> 是我们自己的组件` is a sentence. A component's source ends where
+  // its markup ends — prose after the closing tag belongs to the prose, and is
+  // not swallowed into a code block.
+  const opening = /^\s*<[^>]*>/.exec(source);
+  if (!opening) return false;
+  const afterOpening = source.slice(opening[0].length);
+  if (opening[0].endsWith("/>")) return afterOpening.trim() === "";
+  const close = new RegExp(`</${tag}\\s*>`, "gi");
+  let last: RegExpExecArray | null;
+  let end = -1;
+  while ((last = close.exec(source))) end = last.index + last[0].length;
+  return end >= 0 && source.slice(end).trim() === "";
 }
 
 /**
