@@ -48,6 +48,7 @@ export default {
   "permission.pending": "Waiting for permission",
   "permission.denied": "Denied",
   "permission.allowed": "Allowed",
+  "permission.reason.default": "default policy",
   "permission.by": "{verb} by {actor}",
   "permission.with_reason": "{verb} — {reason}",
   "permission.actor.you": "you",

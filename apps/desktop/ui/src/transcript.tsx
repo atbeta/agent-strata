@@ -42,6 +42,8 @@ import {
   messageText,
   silentEmptyReply,
   permissionLabel,
+  permissionReason,
+  permissionVerdict,
   toolStatusLabel,
   thinkingPreview,
   todoItems,
@@ -701,6 +703,13 @@ function ToolCallCard(props: {
     props.call.permission?.decision || props.call.status === "pending"
       ? permissionLabel(props.call.permission)
       : undefined;
+  const permission = () => props.call.permission;
+  const permissionTone = () => {
+    const p = permission();
+    if (p?.decision === "deny") return "text-destructive";
+    if (p && !p.decision) return "text-event-permission";
+    return "text-muted-foreground";
+  };
   /* One quiet line, not a card: a transcript can hold a dozen of these in a
      row, and giving each one a border and a fill turned the conversation into
      a stack of chrome. The hanging indent under the icon carries the expanded
@@ -814,26 +823,6 @@ function ToolCallCard(props: {
         {/* Expanded content aligns under the row's text, past the icon and its
             gap — a box carries the boundary now, so no rail is needed. */}
         <div class="expand-in ml-[22px] space-y-2 pb-2">
-          <Show when={permLabel()}>
-            {(label) => (
-              <p
-                class={cn(
-                  "flex items-center gap-1.5 text-2xs",
-                  props.call.permission?.decision === "deny"
-                    ? "text-destructive"
-                    : props.call.permission && !props.call.permission.decision
-                      ? "text-event-permission"
-                      : "text-muted-foreground",
-                )}
-              >
-                <Icon
-                  name={props.call.permission?.decision === "allow" ? "shield-check" : "shield"}
-                  class="size-3 shrink-0"
-                />
-                {label()}
-              </p>
-            )}
-          </Show>
           <Show when={headline().kind === "todo" && todos().length > 0}>
             <ul class="space-y-1">
               <For each={todos()}>
@@ -882,6 +871,31 @@ function ToolCallCard(props: {
                 scope={`${props.call.call_id}:att`}
               />
             </div>
+          </Show>
+          {/* The provenance is a footer, not a subtitle: what the tool did is
+              the content, and who allowed it is what a reader checks after
+              reading the result. No rule line of its own — the well above
+              already draws a border, and a second one a few pixels below it
+              reads as chrome. The reason stays a separate quiet token rather
+              than being dashed onto the sentence: `default` is the policy's
+              fallback, not a rule named default. */}
+          <Show when={permissionVerdict(permission())}>
+            {(verdict) => (
+              <div class={cn("flex min-w-0 items-center gap-1.5 text-2xs", permissionTone())}>
+                <Icon
+                  name={permission()?.decision === "allow" ? "shield-check" : "shield"}
+                  class="size-3 shrink-0"
+                />
+                <span class="shrink-0">{verdict()}</span>
+                <Show when={permissionReason(permission())}>
+                  {(reason) => (
+                    <span class="min-w-0 truncate text-faint-foreground" title={reason()}>
+                      · {reason()}
+                    </span>
+                  )}
+                </Show>
+              </div>
+            )}
           </Show>
         </div>
       </Show>

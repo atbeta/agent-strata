@@ -497,16 +497,15 @@ export function toolStatusLabel(
 }
 
 /**
- * The permission sentence, assembled from parts rather than concatenated.
+ * The permission decision, assembled from parts rather than concatenated.
  *
  * English says `Denied by you` — verb, space, actor, preposition. Chinese has
  * no slot to fill and says `你已拒绝` — actor first, verb tight against it. One
  * template cannot serve both word orders, so `permission.by` is a two-slot
  * frame that each language fills its own way and the actor and verb are looked
- * up separately before they meet. The reason behind the decision comes from
- * the backend and is passed through untouched; only the frame is translated.
+ * up separately before they meet.
  */
-export function permissionLabel(permission: ToolCallView["permission"]): string | undefined {
+export function permissionVerdict(permission: ToolCallView["permission"]): string | undefined {
   if (!permission) return undefined;
   if (!permission.decision) return t("permission.pending");
   const actor =
@@ -518,10 +517,30 @@ export function permissionLabel(permission: ToolCallView["permission"]): string 
           ? t("permission.actor.session")
           : undefined;
   const verb = t(permission.decision === "deny" ? "permission.denied" : "permission.allowed");
-  const sentence = actor ? t("permission.by", { verb, actor }) : verb;
-  return permission.reason
-    ? t("permission.with_reason", { verb: sentence, reason: permission.reason })
-    : sentence;
+  return actor ? t("permission.by", { verb, actor }) : verb;
+}
+
+/**
+ * The rule or reason behind a decision, kept apart from the verdict.
+ *
+ * The backend's `default` means "no rule matched, the policy's default
+ * applied"; pasted after a dash it read like a rule called default. The policy
+ * editor's own words are used for that one. A named rule is the most precise
+ * answer and wins over the prose beside it; anything else is passed through.
+ */
+export function permissionReason(permission: ToolCallView["permission"]): string | undefined {
+  if (!permission || !permission.decision) return undefined;
+  if (permission.rule_id) return permission.rule_id;
+  if (permission.reason === "default") return t("permission.reason.default");
+  return permission.reason;
+}
+
+/** The verdict and its reason as one sentence, for a tooltip or a status line. */
+export function permissionLabel(permission: ToolCallView["permission"]): string | undefined {
+  const verdict = permissionVerdict(permission);
+  if (!verdict) return undefined;
+  const reason = permissionReason(permission);
+  return reason ? t("permission.with_reason", { verb: verdict, reason }) : verdict;
 }
 
 export interface TodoItem {

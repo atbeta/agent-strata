@@ -27,6 +27,8 @@ const {
   isLengthStop,
   messageText,
   permissionLabel,
+  permissionReason,
+  permissionVerdict,
   replyInterrupted,
   waitingOnChild,
   silentEmptyReply,
@@ -406,6 +408,27 @@ describe("diff and labels", () => {
     });
     withLocale("zh", () => {
       expect(permissionLabel({ request_id: "r", decision: "deny" })).toBe("已拒绝");
+    });
+  });
+
+  test("the verdict and its rule stay separate pieces", () => {
+    // `default` is the policy's fallback, not a rule called default: pasted
+    // after a dash it read like an identifier the reader was supposed to know.
+    withLocale("en", () => {
+      const policy = { request_id: "r", decision: "allow" as const, by: "policy" as const, reason: "default" };
+      expect(permissionVerdict(policy)).toBe("Allowed by policy");
+      expect(permissionReason(policy)).toBe("default policy");
+      expect(permissionLabel(policy)).toBe("Allowed by policy — default policy");
+      expect(
+        permissionReason({ ...policy, rule_id: "safe-git", reason: "matched rule safe-git" }),
+      ).toBe("safe-git");
+      expect(permissionReason({ request_id: "r" })).toBeUndefined();
+    });
+    withLocale("zh", () => {
+      const policy = { request_id: "r", decision: "allow" as const, by: "policy" as const, reason: "default" };
+      expect(permissionVerdict(policy)).toBe("策略已允许");
+      expect(permissionReason(policy)).toBe("默认策略");
+      expect(permissionLabel(policy)).toBe("策略已允许 — 默认策略");
     });
   });
 });

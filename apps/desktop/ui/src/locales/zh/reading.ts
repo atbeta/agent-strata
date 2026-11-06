@@ -47,6 +47,7 @@ export default {
   "permission.pending": "等待授权",
   "permission.denied": "已拒绝",
   "permission.allowed": "已允许",
+  "permission.reason.default": "默认策略",
   "permission.by": "{actor}{verb}",
   "permission.with_reason": "{verb} — {reason}",
   "permission.actor.you": "你",
