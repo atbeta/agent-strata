@@ -436,11 +436,45 @@ export function startService(opts: ServiceOpts = {}): RunningService {
 
   const releaseInside = async (dir: string): Promise<void> => {
     const disposed = new Set<string>();
+    const terminalsClosed = new Set<string>();
     await stopInside(dev, dir);
-    for (const s of store.listSessions({ limit: 500 })) {
-      const ws = s.workspace;
-      if (!ws || ws === "unknown" || ws === "no workspace") continue;
-      if (!pathInside(dir, ws)) continue;
+    // A parent waiting on a child is one task. Aborting only the parent cuts
+    // its reply short while the child keeps writing — into a folder that is
+    // being deleted — and the transcript says the reply was cut off while the
+    // child, opened on its own, is still producing. Take the whole tree: the
+    // sessions standing in the folder, and everything they started, wherever
+    // a child's own workspace happens to be.
+    const sessions = store.listSessions({ limit: 500 });
+    const parents = new Map<string, string | undefined>();
+    for (const s of sessions) {
+      try {
+        parents.set(s.session_id, sessionView(s.session_id).parent_session_id);
+      } catch {
+        // a session with no events yet has no parent to read
+      }
+    }
+    const doomed = new Set(
+      sessions.filter((s) => s.workspace && pathInside(dir, s.workspace)).map((s) => s.session_id),
+    );
+    let grew = doomed.size > 0;
+    while (grew) {
+      grew = false;
+      for (const s of sessions) {
+        const parent = parents.get(s.session_id);
+        if (parent && doomed.has(parent) && !doomed.has(s.session_id)) {
+          doomed.add(s.session_id);
+          grew = true;
+        }
+      }
+    }
+    for (const s of sessions) {
+      if (!doomed.has(s.session_id)) continue;
+      const ws =
+        s.workspace && s.workspace !== "unknown" && s.workspace !== "no workspace"
+          ? s.workspace
+          : undefined;
+      const inFolder = ws !== undefined && pathInside(dir, ws);
+      const where = ws ?? directoryOf(s.session_id);
       // A goal continues the session whenever it goes idle. Aborting it to
       // remove the folder would therefore start the next turn in a folder
       // that is being taken apart — the removal then races a live writer and
@@ -450,14 +484,15 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       const conn = driverFor(s.session_id);
       if (!conn) continue;
       const terminal = conn.extension?.terminal;
-      if (terminal) {
+      if (terminal && ws && inFolder && !terminalsClosed.has(ws)) {
+        terminalsClosed.add(ws);
         const shells = await terminal.list(ws).catch(() => []);
         for (const shell of shells) await terminal.remove(ws, shell.id).catch(() => {});
       }
       if (!conn.capabilities.abort) continue;
       const native = conn.nativeId(s.session_id);
       if (!native) continue;
-      await conn.abort(native, ws).catch(() => {});
+      await conn.abort(native, where).catch(() => {});
       // abort asks the backend to stop; it does not wait for the turn to
       // unwind. A tool still finishing in the folder — a build, a watcher, a
       // child process — would keep recreating what the removal just deleted,
@@ -469,7 +504,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       // servers, open handles. It is not tied to a turn, so aborting never
       // released it, and a worktree only became removable after the app (and
       // with it the backend) restarted. Ask for it to be disposed now.
-      if (!disposed.has(ws)) {
+      if (inFolder && ws && !disposed.has(ws)) {
         disposed.add(ws);
         await conn.extension?.dispose?.(ws).catch(() => {});
       }
