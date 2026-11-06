@@ -34,6 +34,17 @@ export function isSourceBlock(source: string, dropped: (tag: string) => boolean)
  * that says it is a table. Wrapping the block keeps the rows; a complete
  * `<table>` is left exactly as written.
  */
+/**
+ * The source a rendered fragment came from.
+ *
+ * `marked` writes a source newline as <br>, and a fragment shown as source
+ * must give the newline back rather than print the tag the renderer made.
+ * The rest of the markup is the source the reader wrote.
+ */
+export function sourceOf(html: string): string {
+  return html.replace(/<br\s*\/?>/gi, "\n");
+}
+
 export function tableWrapped(source: string): string {
   return /^\s*<(thead|tbody|tfoot|tr|td|th|caption|colgroup)\b/i.test(source)
     ? `<table>${source}</table>`

@@ -429,7 +429,14 @@ function ImageBlock(props: { block: Extract<ContentBlock, { type: "image" }> }) 
   );
 }
 
-function TranscriptBlock(props: { block: ContentBlock; tight?: boolean; live?: boolean; scope?: string }) {
+function TranscriptBlock(props: {
+  block: ContentBlock;
+  tight?: boolean;
+  live?: boolean;
+  scope?: string;
+  /** Render text exactly as written — no markdown, no HTML parsing. */
+  plain?: boolean;
+}) {
   return (
     <Switch>
       <Match when={props.block.type === "thinking" ? props.block : undefined}>
@@ -457,7 +464,13 @@ function TranscriptBlock(props: { block: ContentBlock; tight?: boolean; live?: b
         {(block) => <ImageBlock block={block()} />}
       </Match>
       <Match when={props.block.type === "text" ? props.block : undefined}>
-        {(block) => <Md class={props.tight ? "md-bubble" : ""} text={block().text} live={props.live} />}
+        {(block) =>
+          props.plain ? (
+            <div class="whitespace-pre-wrap break-words">{block().text}</div>
+          ) : (
+            <Md class={props.tight ? "md-bubble" : ""} text={block().text} live={props.live} />
+          )
+        }
       </Match>
       <Match when={props.block.type === "subtask" ? props.block : undefined}>
         {(block) => <SubtaskBlock block={block()} />}
@@ -482,13 +495,21 @@ function SubtaskBlock(props: { block: Extract<ContentBlock, { type: "subtask" }>
   );
 }
 
-export function BlockText(props: { blocks: ContentBlock[]; tight?: boolean; live?: boolean; scope?: string }) {
+export function BlockText(props: {
+  blocks: ContentBlock[];
+  tight?: boolean;
+  live?: boolean;
+  scope?: string;
+  /** What the reader typed is shown as typed, never parsed as markdown. */
+  plain?: boolean;
+}) {
   return (
     <Index each={props.blocks}>
       {(block, index) => (
         <TranscriptBlock
           block={block()}
           tight={props.tight}
+          plain={props.plain}
           live={props.live === true && index === props.blocks.length - 1}
           scope={props.scope === undefined ? undefined : `${props.scope}:${index}`}
         />
@@ -1225,7 +1246,7 @@ export function TurnBlock(props: {
               <p class="text-2xs text-muted-foreground">{t("message.reverted")}</p>
             </Show>
             <div class="max-w-[min(85%,36rem)] rounded-xl bg-secondary px-3.5 py-2 text-secondary-foreground">
-              <BlockText blocks={blocks()} tight />
+              <BlockText blocks={blocks()} tight plain />
             </div>
             <Show
               when={

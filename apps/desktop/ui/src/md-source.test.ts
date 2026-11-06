@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isSourceBlock, leadingTag, tableWrapped } from "./md-source";
+import { isSourceBlock, leadingTag, sourceOf, tableWrapped } from "./md-source";
 
 describe("a block that opens with a tag", () => {
   test("names the tag it opens with", () => {
@@ -21,6 +21,15 @@ describe("a block that opens with a tag", () => {
     expect(isSourceBlock("<script>alert(1)</script>", isDropped)).toBe(true);
     expect(isSourceBlock("<details><summary>more</summary></details>", isDropped)).toBe(false);
     expect(isSourceBlock("use <x-option> here", isDropped)).toBe(false);
+  });
+});
+
+describe("a fragment shown as source", () => {
+  test("gives a newline back where the renderer wrote a br", () => {
+    expect(sourceOf("<x-a>a<br>b</x-a>")).toBe("<x-a>a\nb</x-a>");
+    expect(sourceOf("a<BR />b")).toBe("a\nb");
+    expect(sourceOf("a<br/>b")).toBe("a\nb");
+    expect(sourceOf("<x-a>plain</x-a>")).toBe("<x-a>plain</x-a>");
   });
 });
 

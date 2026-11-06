@@ -1,4 +1,5 @@
 import DOMPurify from "dompurify";
+import { sourceOf } from "./md-source";
 
 /**
  * Whether the sanitiser keeps a tag.
@@ -71,7 +72,7 @@ export function revealDroppedTags(host: DocumentFragment) {
     for (const node of [...parent.childNodes]) {
       if (!(node instanceof Element)) continue;
       if (!sanitizerKeepsTag(node.tagName.toLowerCase())) {
-        node.replaceWith(document.createTextNode(node.outerHTML));
+        node.replaceWith(document.createTextNode(sourceOf(node.outerHTML)));
         continue;
       }
       walk(node);
