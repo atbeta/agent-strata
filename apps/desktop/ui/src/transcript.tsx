@@ -242,7 +242,7 @@ function ThinkingBlock(props: {
         <Show when={!open() && thinkingPreview(props.text)}>
           {/* rtl puts the overflow on the left, so a narrow row keeps the
               newest words. The inner bdi draws those words left to right. */}
-          <span dir="rtl" class="min-w-0 flex-1 truncate text-left text-xs text-muted-foreground/70">
+          <span dir="rtl" class="min-w-0 flex-1 truncate text-left text-xs text-muted-foreground">
             <bdi dir="ltr">{thinkingPreview(props.text)}</bdi>
           </span>
         </Show>
@@ -251,7 +251,7 @@ function ThinkingBlock(props: {
         <span class="ml-auto flex shrink-0 items-center gap-2">
           <Show when={duration()}>
             {(d) => (
-              <span class="shrink-0 font-mono text-2xs tabular-nums text-muted-foreground">
+              <span class="shrink-0 font-mono text-2xs tabular-nums text-faint-foreground">
                 {d()}
               </span>
             )}
@@ -359,7 +359,7 @@ function FileChip(props: {
       {/* An attachment: its own block, with room for the name to be read. */}
       <span
         class={`my-1.5 flex w-fit max-w-full items-center gap-2.5 rounded-lg border border-border bg-background/60 px-2.5 py-2 ${
-          previewable() ? "cursor-pointer hover:bg-secondary/60" : ""
+          previewable() ? "cursor-pointer hover:bg-secondary/70" : ""
         }`}
         title={`${props.path}\n${props.mime}`}
         role={previewable() ? "button" : undefined}
@@ -385,10 +385,10 @@ function FileChip(props: {
               {extension()}
             </Show>
             <Show when={kind()}>
-              <span class="text-muted-foreground/70"> · {kind()}</span>
+              <span class="text-faint-foreground"> · {kind()}</span>
             </Show>
             <Show when={previewable()}>
-              <span class="text-muted-foreground/70"> · {t("transcript.image.view")}</span>
+              <span class="text-faint-foreground"> · {t("transcript.image.view")}</span>
             </Show>
           </span>
         </span>
@@ -599,14 +599,14 @@ function diffLineClass(line: string): string {
  * stacked down the card. Normal wrapping plus `break-words` breaks only where
  * the line actually overflows, and only at the last chance to do so.
  */
-function OutputWell(props: { text: string; kind: ToolKind }) {
+function OutputWell(props: { text: string; kind: ToolKind; danger?: boolean }) {
   const clean = () => stripAnsi(props.text);
   const diff = () => props.kind === "edit" && isDiff(clean());
   return (
     <div class="group relative">
       <Show
         when={diff()}
-        fallback={<Code source={clean()} maxHeight="max-h-72" class="pr-16" />}
+        fallback={<Code source={clean()} maxHeight="max-h-72" class="pr-16" danger={props.danger} />}
       >
         <pre class="max-h-72 overflow-auto rounded-md border border-border bg-code-surface px-3 py-2 pr-16 font-mono text-xs leading-5">
         <For each={clean().split("\n")}>
@@ -709,7 +709,7 @@ function ToolCallCard(props: {
     <div class="-ml-2">
       <Tip label={open() ? t("tool.output.hide") : t("tool.output.show")} class="w-full">
         <ListRow
-          class="h-auto py-1.5 text-xs hover:bg-secondary/60 focus-visible:ring-inset"
+          class="h-auto py-1.5 text-xs hover:bg-secondary/70 focus-visible:ring-inset"
           expanded={open()}
           onOpen={() => {
             const next = !open();
@@ -780,7 +780,7 @@ function ToolCallCard(props: {
           {/* Interactive tools wait on the reader, so their latency is a
               person's pause, not a runtime — there is nothing to report. */}
           <Show when={!status() && !isInteractiveTool(props.call.tool) && fmtLatency(props.call.latency_ms)}>
-            <span class="shrink-0 font-mono text-2xs text-muted-foreground tabular-nums">
+            <span class="shrink-0 font-mono text-2xs text-faint-foreground tabular-nums">
               {fmtLatency(props.call.latency_ms)}
             </span>
           </Show>
@@ -867,7 +867,7 @@ function ToolCallCard(props: {
                   </Show>
                 }
               >
-                <OutputWell text={props.call.output!} kind={headline().kind} />
+                <OutputWell text={props.call.output!} kind={headline().kind} danger={denied()} />
               </Show>
             }
           >
@@ -1042,7 +1042,7 @@ function AssistantMessage(props: {
             {(n) => (
               <p
                 role="alert"
-                class="mt-1 flex items-start gap-1.5 whitespace-pre-wrap break-words rounded-md bg-destructive/6 px-3 py-2 text-xs text-destructive"
+                class="mt-1 flex items-start gap-1.5 whitespace-pre-wrap break-words rounded-md border border-destructive/25 bg-destructive/6 px-3 py-2 text-xs text-destructive"
               >
                 <span class="flex h-[1lh] shrink-0 items-center">
                   <Icon name="alert" class="size-3" />

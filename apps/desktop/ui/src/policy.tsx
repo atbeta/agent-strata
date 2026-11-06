@@ -186,7 +186,7 @@ function RuleCard(props: { index: number; draft: Draft; setDraft: (fn: (d: Draft
         <div class="flex items-baseline justify-between gap-3">
           <span class="text-2xs text-muted-foreground">
             {t("policy.conditions.title")}
-            <span class="ml-2 text-muted-foreground/70">{t("policy.conditions.hint")}</span>
+            <span class="ml-2 text-faint-foreground">{t("policy.conditions.hint")}</span>
           </span>
           <Button
             type="button"

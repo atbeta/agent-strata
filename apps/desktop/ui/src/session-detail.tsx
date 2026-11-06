@@ -1422,7 +1422,7 @@ const turns = () => shown().turns;
                               read as one run-on name. */}
                           <Icon
                             name="chevron-right"
-                            class="size-3 shrink-0 self-center text-muted-foreground/60"
+                            class="size-3 shrink-0 self-center text-faint-foreground"
                           />
                         </>
                       );

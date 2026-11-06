@@ -83,8 +83,9 @@ macOS already overlays the traffic lights in that strip (`pl-[76px]`). Windows i
 | `card` | lifted blocks inside the window (tool calls, composer well) |
 | `popover` | menus |
 | `primary` | the one main action (send, connect) |
-| `secondary` | quiet fills (hover, fields, chips) |
-| `muted` / `muted-foreground` | metadata |
+| `secondary` | quiet fills (fields, chips); every clickable row hovers at `secondary/70` |
+| `muted` / `muted-foreground` | named text: row labels, previews, secondary copy |
+| `faint-foreground` | pure metadata — durations, dates, counts; glanced, never studied |
 | `accent` | selected row |
 | `destructive` | deny, delete confirm |
 | `border` / `input` / `ring` | hairline, fields, focus |

@@ -23,7 +23,14 @@
   --secondary: hsl(240 4% 13%);
   --secondary-foreground: hsl(240 10% 93%);
   --muted: hsl(240 4% 12%);
-  --muted-foreground: hsl(240 4% 58%);
+  /* The text ladder is three steps, not one gray plus ad-hoc opacity: prose
+     reads at `foreground`, anything with a name (row labels, previews,
+     secondary copy) at `muted-foreground`, and anything only glanced at
+     (durations, dates, counts) at `faint-foreground`. 66/52 keeps a real gap
+     between the lower two — ~8:1 vs ~5:1 on this background — so a label
+     never sits at the same weight as the metadata beside it. */
+  --muted-foreground: hsl(240 5% 66%);
+  --faint-foreground: hsl(240 4% 52%);
   --accent: hsl(240 4% 15%);
   --accent-foreground: hsl(240 10% 93%);
   --destructive: hsl(0 72% 58%);
@@ -105,6 +112,7 @@ html[data-theme="light"] {
   --secondary-foreground: hsl(240 10% 12%);
   --muted: hsl(240 8% 95%);
   --muted-foreground: hsl(240 4% 40%);
+  --faint-foreground: hsl(240 4% 46%);
   --accent: hsl(240 8% 92%);
   --accent-foreground: hsl(240 10% 12%);
   --destructive: hsl(0 72% 46%);
@@ -176,6 +184,7 @@ html[data-theme="light"] {
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
+  --color-faint-foreground: var(--faint-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
@@ -470,17 +479,22 @@ textarea {
   }
   .md > :first-child { margin-top: 0; }
   .md > :last-child { margin-bottom: 0; }
-  .md p { @apply my-2.5; }
+  /* One block rhythm: siblings — paragraph, list, quote, table, code — share
+     a single 12px step, and only a heading escapes it (20px above to open the
+     section, half a step below to bind to its own text). Per-block margins
+     were how adjacent paragraphs, lists and code ended up breathing
+     differently for no reason a reader could see. */
+  .md p { @apply my-3; }
   .md-bubble p + p { @apply mt-2.5; }
   .md h1, .md h2, .md h3, .md h4 {
-    @apply mb-2 mt-4 font-semibold text-foreground;
+    @apply mb-2.5 mt-5 font-semibold text-foreground;
   }
   /* A ladder that never collides with the 14px body. */
   .md h1 { @apply text-2xl; }
   .md h2 { @apply text-xl; }
   .md h3 { @apply text-lg; }
   .md h4 { @apply text-base; }
-  .md ul, .md ol { @apply my-2.5 pl-5; }
+  .md ul, .md ol { @apply my-3 pl-5; }
   .md ul { list-style: disc; }
   .md ol { list-style: decimal; }
   .md li { @apply my-1; }
@@ -545,7 +559,7 @@ textarea {
     @apply mt-1 text-2xs text-destructive/90;
   }
   .md blockquote {
-    @apply my-2.5 border-l-2 border-border pl-3 text-muted-foreground;
+    @apply my-3 border-l-2 border-border pl-3 text-muted-foreground;
   }
   .md a { @apply text-event-user underline underline-offset-2; }
   .md hr { @apply my-4 border-border; }

@@ -146,7 +146,7 @@ export function BackgroundPanel(props: {
         fallback={
           <div class="px-3 py-4">
             <p class="text-xs text-muted-foreground">{t("dev.empty")}</p>
-            <p class="mt-1 text-2xs text-muted-foreground/80">{t("dev.empty.hint")}</p>
+            <p class="mt-1 text-2xs text-muted-foreground">{t("dev.empty.hint")}</p>
           </div>
         }
       >

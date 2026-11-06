@@ -55,7 +55,7 @@ function LensRow(props: {
       <DropdownMenuSubTrigger class="gap-2">
         <span class="flex-1 truncate">{props.label}</span>
         <span class="truncate text-2xs text-muted-foreground">{props.value}</span>
-        <Icon name="chevron-right" class="size-3 shrink-0 text-muted-foreground/50" />
+        <Icon name="chevron-right" class="size-3 shrink-0 text-faint-foreground" />
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent class="w-[172px]">
         <For each={props.options}>
@@ -131,7 +131,7 @@ export function ProjectLensMenu(props: { list: SessionListCtl }) {
       <Tip label={on() ? t("sidebar.project.filter.on") : t("sidebar.project.filter")}>
         <DropdownMenuTrigger
           class={cn(
-            "grid h-5 place-items-center rounded text-muted-foreground/60 hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+            "grid h-5 place-items-center rounded text-faint-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
             // A search, a status, a period or a backend takes sessions off
             // the list, and the button has to keep saying so after the menu
             // closes. Hiding empty projects and the way the list is grouped

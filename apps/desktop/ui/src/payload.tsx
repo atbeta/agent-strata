@@ -54,11 +54,22 @@ export function CodeTokens(props: { source: string; label?: string }) {
   );
 }
 
-function Code(props: { source: string; label?: string; maxHeight?: string; class?: string }) {
+function Code(props: {
+  source: string;
+  label?: string;
+  maxHeight?: string;
+  class?: string;
+  /** A failed call's output. The frame takes the destructive tint so the
+      well reads as the error it is before a word of it is parsed. */
+  danger?: boolean;
+}) {
   return (
     <pre
       class={cn(
-        "group overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-code-surface p-2.5 font-mono text-2xs leading-5 text-foreground/85",
+        "group overflow-auto whitespace-pre-wrap break-words rounded-md p-2.5 font-mono text-2xs leading-5 text-foreground/85",
+        props.danger
+          ? "border border-destructive/25 bg-destructive/6"
+          : "border border-border bg-code-surface",
         props.class,
         props.maxHeight ?? "max-h-96",
       )}
@@ -80,6 +91,7 @@ export function Payload(props: {
   label?: string;
   maxHeight?: string;
   empty?: string;
+  danger?: boolean;
 }) {
   const structured = createMemo(() => looksStructured(props.value));
   const parsed = createMemo(() => (structured() ? asStructure(props.value) : undefined));
@@ -96,6 +108,7 @@ export function Payload(props: {
             source={String(props.value)}
             label={props.label}
             maxHeight={props.maxHeight}
+            danger={props.danger}
           />
         }
       >

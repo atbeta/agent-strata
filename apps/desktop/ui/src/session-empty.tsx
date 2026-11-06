@@ -48,7 +48,7 @@ export function SessionEmpty(props: {
               {ws()}
             </span>
             <Show when={props.branch}>
-              <span class="shrink-0 text-muted-foreground/50">·</span>
+              <span class="shrink-0 text-faint-foreground">·</span>
               <Icon name="branch" class="size-3 shrink-0" />
               <span class="max-w-40 truncate">{props.branch}</span>
             </Show>

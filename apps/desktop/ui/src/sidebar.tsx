@@ -85,7 +85,7 @@ function StatusRow(props: {
     >
       <Icon name={props.icon} class="size-3.5 shrink-0" />
       <span class="truncate">{props.label}</span>
-      <span class="ml-auto shrink-0 font-mono text-2xs tabular-nums text-muted-foreground/70">
+      <span class="ml-auto shrink-0 font-mono text-2xs tabular-nums text-faint-foreground">
         {props.count}
       </span>
     </RowButton>
@@ -353,8 +353,8 @@ export function Sidebar(props: {
       cn(
         "size-4 shrink-0 transition-opacity hover:text-foreground focus-visible:opacity-100",
         group().rows.length === 0
-          ? "text-muted-foreground/35 group-hover/section:text-muted-foreground"
-          : "text-muted-foreground/60 opacity-0 group-hover/section:opacity-100",
+          ? "text-faint-foreground group-hover/section:text-muted-foreground"
+          : "text-faint-foreground opacity-0 group-hover/section:opacity-100",
         extra,
       );
     return (
@@ -478,10 +478,10 @@ export function Sidebar(props: {
           </For>
           <Show when={!expanded().has(key) && group().rows.length > PAGE}>
             <RowButton
-              class="h-7 items-center px-2 text-2xs text-muted-foreground hover:bg-accent/70"
+              class="h-7 items-center px-2 text-2xs text-muted-foreground"
               onClick={() => setExpanded((s) => flip(s, key))}
             >
-              <Icon name="chevron" class="size-2.5 rotate-90 text-muted-foreground/60" />
+              <Icon name="chevron" class="size-2.5 rotate-90 text-muted-foreground" />
               {t("sidebar.group.more", { n: group().rows.length - PAGE })}
             </RowButton>
           </Show>
@@ -632,7 +632,7 @@ export function Sidebar(props: {
                 <Button
                   variant="icon"
                   size="icon-2xs"
-                  class="text-muted-foreground/60"
+                  class="text-faint-foreground"
                   aria-label={
                     allFolded()
                       ? t("sidebar.project.expandAll")
@@ -661,7 +661,7 @@ export function Sidebar(props: {
                   placement="bottom-end"
                 >
                   <Tip label={t("sidebar.project.openDirectory")}>
-                    <DropdownMenuTrigger class="grid size-5 place-items-center rounded text-muted-foreground/60 hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+                    <DropdownMenuTrigger class="grid size-5 place-items-center rounded text-faint-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
                       <Icon name="folder-plus" class="size-3.5" />
                     </DropdownMenuTrigger>
                   </Tip>
@@ -699,7 +699,7 @@ export function Sidebar(props: {
                 <Button
                   variant="icon"
                   size="icon-2xs"
-                  class="text-muted-foreground/60"
+                  class="text-faint-foreground"
                   onClick={() => {
                     void props.ws.pickDir().then((dir) => {
                       // A cancelled picker resolves with nothing; switching the

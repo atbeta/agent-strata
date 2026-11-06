@@ -89,15 +89,15 @@ export function ArchivedSection(props: {
   return (
     <div class="shrink-0 border-t border-border px-2 py-1">
       <RowButton
-        class="h-6 items-center gap-1.5 px-1 text-2xs text-muted-foreground/55 hover:bg-accent/50 hover:text-muted-foreground"
+        class="h-6 items-center gap-1.5 px-1 text-2xs text-faint-foreground hover:text-muted-foreground"
         aria-expanded={open()}
         onClick={() => setOpen((on) => !on)}
       >
-        <Icon name="archive" class="size-3 shrink-0 text-muted-foreground/45" />
+        <Icon name="archive" class="size-3 shrink-0 text-faint-foreground" />
         <span class="truncate">{t("sidebar.archived", { n: rows().length })}</span>
         <Icon
           name="chevron"
-          class={`ml-auto size-3 shrink-0 text-muted-foreground/60 transition-transform ${
+          class={`ml-auto size-3 shrink-0 text-faint-foreground transition-transform ${
             open() ? "" : "-rotate-90"
           }`}
         />
@@ -124,7 +124,7 @@ export function ArchivedSection(props: {
                     >
                       <span class="min-w-0 flex-1 truncate">{title()}</span>
                       <span
-                        class={`shrink-0 font-mono text-2xs text-muted-foreground/70 tabular-nums group-hover/arch:invisible group-focus-within/arch:invisible ${
+                        class={`shrink-0 font-mono text-2xs text-faint-foreground tabular-nums group-hover/arch:invisible group-focus-within/arch:invisible ${
                           held() ? "invisible" : ""
                         }`}
                       >

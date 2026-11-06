@@ -37,7 +37,7 @@ export function ChoiceCard(raw: {
       class={cn(
         "flex w-full items-start gap-2 rounded-md border px-2.5 py-1.5 text-left transition-colors",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        local.selected ? "border-ring bg-secondary" : "border-border hover:bg-secondary/50",
+        local.selected ? "border-ring bg-secondary" : "border-border hover:bg-secondary/70",
         local.class,
       )}
       onClick={local.onSelect}

@@ -613,7 +613,7 @@ function ProviderList(props: { connectionId: string }) {
       <div class="mt-4">
         <div class="mb-1 flex items-baseline gap-2 text-2xs text-muted-foreground">
           <span>{label}</span>
-          <span class="tabular-nums text-muted-foreground/60">{list.length}</span>
+          <span class="tabular-nums text-faint-foreground">{list.length}</span>
         </div>
         <Card class="px-0">
           <ul class="divide-y divide-border">

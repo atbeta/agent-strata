@@ -417,7 +417,7 @@ export function SessionInfo(props: {
                 class={`size-3 shrink-0 ${
                   idCopied()
                     ? "text-status-active"
-                    : "text-muted-foreground/70 group-hover:text-foreground"
+                    : "text-muted-foreground group-hover:text-foreground"
                 }`}
               />
             </span>

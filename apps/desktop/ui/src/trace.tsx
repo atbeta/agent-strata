@@ -478,7 +478,7 @@ function TraceStrip(props: {
                   {(mark) => (
                     <Show when={mark.showLabel}>
                       <span
-                        class="absolute top-0 font-mono text-2xs whitespace-nowrap text-muted-foreground/70 tabular-nums"
+                        class="absolute top-0 font-mono text-2xs whitespace-nowrap text-faint-foreground tabular-nums"
                         style={{ left: `${mark.x + 4}px` }}
                       >
                         {t("trace.turn", { turn: mark.turn })}
@@ -650,7 +650,7 @@ function TraceStrip(props: {
                         style={{ left: `${r.x}px` }}
                       >
                         <span class="h-1.5 w-px bg-border" />
-                        <span class="font-mono text-2xs whitespace-nowrap text-muted-foreground/60 tabular-nums">
+                        <span class="font-mono text-2xs whitespace-nowrap text-faint-foreground tabular-nums">
                           {fmtRuler(r.ms)}
                         </span>
                       </div>
@@ -663,7 +663,7 @@ function TraceStrip(props: {
               <button
                 type="button"
                 data-trace-nav
-                class="absolute top-1/2 left-0 z-10 grid h-5 w-4 -translate-y-1/2 place-items-center rounded text-muted-foreground/50 hover:bg-secondary hover:text-foreground"
+                class="absolute top-1/2 left-0 z-10 grid h-5 w-4 -translate-y-1/2 place-items-center rounded text-faint-foreground hover:bg-secondary hover:text-foreground"
                 aria-label={t("trace.earlier")}
                 onClick={() => nudge(-1)}
               >
@@ -674,7 +674,7 @@ function TraceStrip(props: {
               <button
                 type="button"
                 data-trace-nav
-                class="absolute top-1/2 right-0 z-10 grid h-5 w-4 -translate-y-1/2 place-items-center rounded text-muted-foreground/50 hover:bg-secondary hover:text-foreground"
+                class="absolute top-1/2 right-0 z-10 grid h-5 w-4 -translate-y-1/2 place-items-center rounded text-faint-foreground hover:bg-secondary hover:text-foreground"
                 aria-label={t("trace.later")}
                 onClick={() => nudge(1)}
               >
@@ -703,7 +703,7 @@ function TraceBlockTooltip(props: { block: TraceBlock }) {
         </div>
       </Show>
       <Show when={info().durationMs !== undefined}>
-        <div class="font-mono text-2xs text-muted-foreground tabular-nums">
+        <div class="font-mono text-2xs text-faint-foreground tabular-nums">
           {t("trace.field.elapsed")}: {fmtDuration(info().durationMs!)}
         </div>
       </Show>
@@ -814,7 +814,7 @@ function TraceList(props: {
                     role="option"
                     aria-selected={on()}
                     class={`absolute left-0 flex w-full items-center gap-2 px-2 text-left text-xs ${
-                      on() ? "bg-secondary" : "hover:bg-secondary/50"
+                      on() ? "bg-secondary" : "hover:bg-secondary/70"
                     }`}
                     style={{
                       top: `${i() * ROW_PX}px`,
@@ -851,10 +851,10 @@ function TraceList(props: {
                         </span>
                       </Show>
                       <Show when={result()}>
-                        <span class="text-muted-foreground/70"> → {result()}</span>
+                        <span class="text-muted-foreground"> → {result()}</span>
                       </Show>
                     </span>
-                    <span class="shrink-0 font-mono text-2xs tabular-nums text-muted-foreground">
+                    <span class="shrink-0 font-mono text-2xs tabular-nums text-faint-foreground">
                       {dur() > 0 ? fmtDuration(dur()) : ""}
                     </span>
                   </button>

@@ -114,7 +114,7 @@ export function SessionListItem(props: {
           disabled={editing()}
           onMouseEnter={() => setHot(true)}
           onMouseLeave={() => setHot(false)}
-          class="group hover:bg-accent/70"
+          class="group"
         >
           {/* The one place a row says what state it is in. It used to be a
               six-pixel dot that only appeared while busy — no word, no name for a
@@ -142,7 +142,7 @@ export function SessionListItem(props: {
             </span>
           </Show>
           <Show when={props.pinned && !editing()}>
-            <Icon name="pin" class="size-3 shrink-0 text-muted-foreground/70" />
+            <Icon name="pin" class="size-3 shrink-0 text-muted-foreground" />
           </Show>
           <Show
             when={editing()}
@@ -169,7 +169,7 @@ export function SessionListItem(props: {
             {/* No title here: the span is pointer-events-none, so a native tooltip
                 could never surface. The row's own hover covers it. */}
             <span
-              class={`pointer-events-none absolute right-2 top-1/2 w-[4.5rem] -translate-y-1/2 text-right text-2xs text-muted-foreground tabular-nums ${
+              class={`pointer-events-none absolute right-2 top-1/2 w-[4.5rem] -translate-y-1/2 text-right text-2xs text-faint-foreground tabular-nums ${
                 reveal() ? "invisible" : ""
               } ${props.actions ? "group-focus-within:invisible" : ""}`}
             >

@@ -125,7 +125,7 @@ export function ChildBoard(props: { parentId: string; sessions: readonly BoardSe
         >
           <Icon
             name="chevron"
-            class={`size-3 shrink-0 text-muted-foreground/60 transition-transform ${open() ? "" : "-rotate-90"}`}
+            class={`size-3 shrink-0 text-faint-foreground transition-transform ${open() ? "" : "-rotate-90"}`}
           />
           <span class="shrink-0">{t("children.label", { n: rows().length })}</span>
           <Show when={!open() && fold().waiting > 0}>

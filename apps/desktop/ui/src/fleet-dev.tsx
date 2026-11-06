@@ -91,7 +91,7 @@ export function FleetDevSection(props: {
         <h2 class="text-xs font-medium text-muted-foreground">
           {t("fleet.dev")}
           <Show when={live().length > 0}>
-            <span class="ml-1.5 tabular-nums text-muted-foreground/60">{live().length}</span>
+            <span class="ml-1.5 tabular-nums text-faint-foreground">{live().length}</span>
           </Show>
         </h2>
         <Show when={err()}>

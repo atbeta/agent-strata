@@ -92,9 +92,7 @@ function PaletteItem(props: {
 }) {
   return (
     <RowButton
-      class={`gap-3 hover:bg-accent/60 ${
-        props.selected ? "bg-accent text-foreground" : "text-foreground/90"
-      }`}
+      class={`gap-3 ${props.selected ? "bg-accent text-foreground" : "text-foreground/90"}`}
       active={props.selected}
       onMouseEnter={props.onSelect}
       onClick={props.onChoose}

@@ -68,12 +68,12 @@ function Branch(props: {
     >
       <li data-fpath={mine()}>
         <RowButton
-          class="gap-1.5 px-1 py-0.5 hover:bg-secondary"
+          class="gap-1.5 px-1 py-0.5"
           style={{ "padding-left": `${props.depth * 12}px` }}
           aria-expanded={open()}
           onClick={() => setOpen((v) => !v)}
         >
-          <span aria-hidden="true" class="inline-flex size-4 shrink-0 items-center justify-center text-muted-foreground/65">
+          <span aria-hidden="true" class="inline-flex size-4 shrink-0 items-center justify-center text-faint-foreground">
             <Icon name={open() ? "chevron" : "chevron-right"} class="size-3.5" />
           </span>
           <span class="truncate">{props.path.split(/[/\\]/).filter(Boolean).at(-1)}</span>
@@ -128,7 +128,7 @@ function NodeList(props: {
               fallback={
                 <li data-fpath={node.path.replace(/\\/g, "/")}>
                   <RowButton
-                    class={`gap-1.5 px-1 py-0.5 hover:bg-secondary ${
+                    class={`gap-1.5 px-1 py-0.5 ${
                       props.selected() === node.path ? "bg-secondary" : ""
                     }`}
                     style={{ "padding-left": `${(props.depth + 1) * 12 + 22}px` }}

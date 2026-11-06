@@ -331,7 +331,7 @@ export function SessionRail(props: {
                               aria-expanded={openFile() === f.path}
                               onClick={() => toggleFile(f.path)}
                               title={f.path}
-                              class={`items-baseline gap-2 px-1 py-1 hover:bg-secondary ${
+                              class={`items-baseline gap-2 px-1 py-1 ${
                                 openFile() === f.path ? "bg-secondary" : ""
                               }`}
                             >

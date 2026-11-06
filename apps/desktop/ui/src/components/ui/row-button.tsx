@@ -46,7 +46,7 @@ export function RowButton(raw: RowButtonProps) {
       data-at={local.active ? "true" : "false"}
       class={cn(
         "flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
-        "text-foreground/80 transition-colors hover:bg-secondary/60 hover:text-foreground",
+        "text-foreground/80 transition-colors hover:bg-secondary/70 hover:text-foreground",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         local.class,
       )}

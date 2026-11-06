@@ -232,7 +232,7 @@ export function FleetView(props: {
                                   <span class="mt-0.5 block truncate text-2xs text-muted-foreground">
                                     {projectLabel(s)}
                                     <Show when={modelId()}>
-                                      <span class="text-muted-foreground/50">{" · "}</span>
+                                      <span class="text-faint-foreground">{" · "}</span>
                                       <span class="font-mono">{modelId()}</span>
                                     </Show>
                                   </span>
@@ -359,7 +359,7 @@ function SectionHead(props: { label: string; count?: number }) {
     <h2 class="text-xs font-medium text-muted-foreground">
       {props.label}
       <Show when={props.count !== undefined}>
-        <span class="ml-1.5 tabular-nums text-muted-foreground/60">{props.count}</span>
+        <span class="ml-1.5 tabular-nums text-faint-foreground">{props.count}</span>
       </Show>
     </h2>
   );
@@ -423,7 +423,7 @@ function StatusGroup(props: {
           )}
         >
           {props.label}
-          <span class="ml-1.5 tabular-nums text-muted-foreground/60">{props.rows.length}</span>
+          <span class="ml-1.5 tabular-nums text-faint-foreground">{props.rows.length}</span>
         </div>
         <ul>
           <For each={shown()}>
@@ -651,7 +651,7 @@ function MixTip(props: { parts: { key: TokenKey; tokens: number }[]; whole: numb
                 {t(TOKEN_LABEL[p.key])}
               </span>
               <span class="text-2xs tabular-nums text-foreground">{num(p.tokens)}</span>
-              <span class="w-10 shrink-0 text-right text-2xs tabular-nums text-muted-foreground/60">
+              <span class="w-10 shrink-0 text-right text-2xs tabular-nums text-faint-foreground">
                 {fmtShare(shareOf(p.tokens, props.whole))}
               </span>
             </div>
@@ -848,7 +848,7 @@ function ProjectBody(props: {
         <span class="min-w-0 flex-1 truncate font-mono text-2xs text-muted-foreground">
           {props.project.workspace ?? ""}
         </span>
-        <span class="shrink-0 text-2xs text-muted-foreground/70">
+        <span class="shrink-0 text-2xs text-faint-foreground">
           {tn("sidebar.sessionCount", props.project.sessions)}
         </span>
       </span>
@@ -882,7 +882,7 @@ function ModelBody(props: {
         <span class="min-w-0 flex-1 truncate text-2xs text-muted-foreground">
           {providerIdPart(props.model.model) ?? ""}
         </span>
-        <span class="shrink-0 text-2xs text-muted-foreground/70">
+        <span class="shrink-0 text-2xs text-faint-foreground">
           {tn("sidebar.sessionCount", props.model.sessions)}
         </span>
       </span>

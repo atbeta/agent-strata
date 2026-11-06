@@ -94,7 +94,7 @@ export function ReviewPane(props: {
           {(f) => (
             <li>
               <RowButton
-                class={`items-baseline gap-2 px-1 py-1 hover:bg-secondary ${
+                class={`items-baseline gap-2 px-1 py-1 ${
                   selected() === f.file ? "bg-secondary" : ""
                 }`}
                 onClick={() => setSelected(f.file!)}

@@ -28,9 +28,7 @@ export function SessionSwitcher(props: {
             <For each={props.rows}>
               {(row, i) => (
                 <RowButton
-                  class={`gap-3 hover:bg-accent/60 ${
-                    i() === props.at ? "bg-accent text-foreground" : "text-foreground/90"
-                  }`}
+                  class={`gap-3 ${i() === props.at ? "bg-accent text-foreground" : "text-foreground/90"}`}
                   active={i() === props.at}
                   onClick={() => props.onChoose(row.id)}
                 >
