@@ -64,6 +64,7 @@ import { PolicyEditor } from "./policy";
 import { ProviderSettings } from "./providers";
 import { MaintenanceSettings } from "./maintenance";
 import { SETTINGS_SECTIONS, settingsSection } from "./settings-sections";
+import { Tip } from "./tip";
 import { handleRovingKey } from "./roving-key";
 
 /** A function, not a const: the labels are translated, so they have to be read
@@ -236,6 +237,8 @@ const CHOICES = (): { id: ThemeChoice; label: string }[] => [
 
 export function SettingsPage(props: { section?: string; conns: ConnectionsCtl }) {
   const section = () => settingsSection(props.section);
+  const sectionMeta = () =>
+    SETTINGS_SECTIONS.find((item) => item.id === section()) ?? SETTINGS_SECTIONS[0];
   const [choice, setChoice] = createSignal<ThemeChoice>(readTheme());
   const [launch, { refetch: refetchLaunch }] = createResource(readOpencodeLaunch);
   const [mode, setMode] = createSignal<OpencodeLaunchMode>("embed");
@@ -626,15 +629,16 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
                 aria-selected={section() === item.id}
                 aria-controls="settings-panel"
                 tabIndex={section() === item.id ? 0 : -1}
-                class={`block w-auto shrink-0 whitespace-nowrap px-2.5 py-1.5 hover:bg-secondary/60 @min-[880px]/main:w-full ${
-                  section() === item.id ? "bg-secondary text-foreground" : ""
-                } ${section() === item.id ? "font-medium" : ""}`}
+                class={`block w-auto shrink-0 whitespace-nowrap px-2.5 py-1.5 @min-[880px]/main:w-full ${
+                  section() === item.id ? "bg-accent text-foreground hover:bg-accent font-medium" : ""
+                }`}
                 active={section() === item.id}
                 onClick={() => selectSection(item.id)}
                 onKeyDown={(event) =>
                   handleRovingKey(event, index(), SETTINGS_SECTIONS, selectSection, sectionItems)
                 }
               >
+                <Icon name={item.icon} class="size-3.5 shrink-0" />
                 {t(item.label)}
               </RowButton>
             )}
@@ -647,7 +651,12 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
             document outline intact without a second one on screen. */}
         <h1 class="sr-only">{t("settings.title")}</h1>
 
-      <div role="tabpanel" id="settings-panel" aria-labelledby={`settings-tab-${section()}`} class="[&>section:first-child]:mt-0">
+      <div role="tabpanel" id="settings-panel" aria-labelledby={`settings-tab-${section()}`} class="[&>section:first-of-type]:mt-5">
+        {/* The rail item is small; this is where the section says its name out
+            loud. The sr-only h1 keeps the document outline on 设置 itself. */}
+        <div class="mb-1">
+          <h2 class="text-lg font-semibold text-foreground">{t(sectionMeta().label)}</h2>
+        </div>
       <Show when={section() === "interface"}>
       <Group label={t("settings.appearance")}>
         <Card>
@@ -655,7 +664,7 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
               control sat under the group heading on the left while every other
               control on the page right-aligned against one edge — the ragged
               edge that Row exists to prevent. */}
-          <Row label={t("settings.theme")} controlClass="w-88">
+          <Row label={t("settings.theme")}>
             <Segmented
               label={t("settings.theme")}
               value={choice()}
@@ -683,18 +692,13 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
         </Row>
 
         <Row label={t("settings.thinking.title")} hint={t("settings.thinking.hint")}>
-          <Segmented
-            label={t("settings.thinking.title")}
-            value={thinkingOpen() ? "open" : "closed"}
-            onChange={(id) => {
-              const open = id === "open";
-              setThinkingOpen(open);
-              saveThinkingOpen(open);
+          <Switch
+            checked={thinkingOpen()}
+            aria-label={t("settings.thinking.title")}
+            onChange={(next) => {
+              setThinkingOpen(next);
+              saveThinkingOpen(next);
             }}
-            options={[
-              { id: "closed", label: t("settings.thinking.closed") },
-              { id: "open", label: t("settings.thinking.open") },
-            ]}
           />
         </Row>
 
@@ -751,7 +755,7 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
             />
           </Row>
 
-          <Row label={t("settings.font.size")} hint={t("settings.font.size.hint")} controlClass="w-72">
+          <Row label={t("settings.font.size")} hint={t("settings.font.size.hint")}>
             <PillGroup
               label={t("settings.font.size")}
               value={fonts().size}
@@ -763,7 +767,7 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
             />
           </Row>
 
-          <Row label={t("settings.font.leading")} controlClass="w-72">
+          <Row label={t("settings.font.leading")}>
             <PillGroup
               label={t("settings.font.leading")}
               value={fonts().leading}
@@ -783,14 +787,10 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
           </Row>
 
           <Row label={t("settings.font.ligatures")}>
-            <PillGroup
-              label={t("settings.font.ligatures")}
-              value={fonts().ligatures ? "on" : "off"}
-              options={[
-                { id: "on", label: t("settings.font.ligatures.on") },
-                { id: "off", label: t("settings.font.ligatures.off") },
-              ]}
-              onChange={(v) => patchFonts({ ligatures: v === "on" })}
+            <Switch
+              checked={fonts().ligatures}
+              aria-label={t("settings.font.ligatures")}
+              onChange={(next) => patchFonts({ ligatures: next })}
             />
           </Row>
         </Card>
@@ -813,7 +813,7 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
             ),
             apply: t("settings.opencode.apply"),
           })}
-          controlClass="w-auto"
+
           note={
             <Show when={saveErr()}>
               <p class="mt-1.5 flex items-center gap-1.5 text-2xs text-destructive">
@@ -838,26 +838,42 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
             keeps an external setup from flashing the rows on open. */}
         <Show when={hydrated() && mode() !== "external"}>
           {/* Doctor's verdict sits next to the binary it belongs to — this is
-              the "is my setup okay" line, not a status page. */}
+              the "is my setup okay" line, not a status page. The facts the old
+              hint jammed into one dotted string step down the note instead:
+              the path as a copyable-feeling chip, then one quiet line with the
+              version and when it was last verified. */}
           <Row
             label={t("settings.opencode.bin")}
-            hint={`${t("settings.opencode.source")}: ${runtimeSource()} · ${t("settings.opencode.version")}: ${runtime()?.version ?? "—"} · ${t("settings.opencode.checkedAt", { at: runtime()?.checked_at ? stamp(runtime()!.checked_at! * 1000) : "—" })}`}
-            controlClass="w-auto"
+            hint={`${t("settings.opencode.source")}: ${runtimeSource()}`}
             note={
               <>
                 <Show
                   when={runtime()?.source === "external"}
                   fallback={
-                    <p
-                      class="mt-1.5 max-w-full truncate font-mono text-2xs text-muted-foreground"
-                      title={runtime()?.bin ?? ""}
-                    >
-                      {runtime()?.bin ?? (runtime() ? t("settings.opencode.binMissing") : "—")}
+                    <p class="mt-1.5 max-w-full">
+                      <code
+                        class="block max-w-full truncate rounded-sm bg-secondary/70 px-1.5 py-0.5 font-mono text-2xs text-foreground"
+                        title={runtime()?.bin ?? ""}
+                      >
+                        {runtime()?.bin ?? (runtime() ? t("settings.opencode.binMissing") : "—")}
+                      </code>
                     </p>
                   }
                 >
                   <p class="mt-1.5 text-2xs text-muted-foreground">
                     {t("settings.opencode.externalPath")}
+                  </p>
+                </Show>
+                <Show when={runtime()}>
+                  <p class="mt-1.5 text-2xs text-muted-foreground">
+                    {t("settings.opencode.version")}{" "}
+                    <span class="font-mono">{runtime()?.version ?? "—"}</span>
+                    <Show when={runtime()?.checked_at}>
+                      {" · "}
+                      {t("settings.opencode.checkedAt", {
+                        at: stamp(runtime()!.checked_at! * 1000),
+                      })}
+                    </Show>
                   </p>
                 </Show>
                 <Show when={!inDesktopShell()}>
@@ -885,42 +901,50 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
               </>
             }
           >
-            <div class="flex flex-wrap justify-end gap-2">
+            {/* The row's one decision is choosing a binary; it carries the
+                weight. Checking again and clearing the override are upkeep, and
+                upkeep is an icon with its name in a tooltip, not a second
+                sentence of button text competing with the first. */}
+            <div class="flex flex-wrap items-center justify-end gap-2">
               <Button
                 type="button"
                 size="sm"
-                variant="outline"
                 disabled={runtimeBusy() || !inDesktopShell()}
                 onClick={() => void pickRuntime()}
               >
                 {t("settings.opencode.chooseBin")}
               </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={runtimeBusy() || !inDesktopShell()}
-                onClick={() => void checkRuntime()}
-              >
-                {t("settings.opencode.check")}
-              </Button>
-              <Show when={runtime()?.source === "setting"}>
+              <Tip label={t("settings.opencode.check")}>
                 <Button
                   type="button"
-                  size="sm"
+                  size="icon-sm"
                   variant="outline"
+                  aria-label={t("settings.opencode.check")}
                   disabled={runtimeBusy() || !inDesktopShell()}
-                  onClick={() => void clearRuntime()}
+                  onClick={() => void checkRuntime()}
                 >
-                  {t("settings.opencode.clearBin")}
+                  <Icon name="replay" class="size-3.5" />
                 </Button>
+              </Tip>
+              <Show when={runtime()?.source === "setting"}>
+                <Tip label={t("settings.opencode.clearBin")}>
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="outline"
+                    aria-label={t("settings.opencode.clearBin")}
+                    disabled={runtimeBusy() || !inDesktopShell()}
+                    onClick={() => void clearRuntime()}
+                  >
+                    <Icon name="x" class="size-3.5" />
+                  </Button>
+                </Tip>
               </Show>
             </div>
           </Row>
 
           <Row
             label={t("settings.opencode.state")}
-            controlClass="w-auto"
             note={
               <>
                 <p class="mt-1.5 flex items-center gap-1.5 text-2xs text-muted-foreground">
@@ -963,10 +987,16 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
                 launchData()?.state !== "authFailed"
               }
             >
+              {/* Armed reads as danger: the next press interrupts a running
+                  session, and a colour change says so louder than a word. */}
               <Button
                 type="button"
                 size="sm"
-                variant="outline"
+                variant={
+                  launchData()?.state === "running" && restartArmed()
+                    ? "destructive"
+                    : "outline"
+                }
                 disabled={runtimeBusy() || !inDesktopShell()}
                 title={
                   launchData()?.state === "running" && !restartArmed()
@@ -999,7 +1029,6 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
             <Row
               label={t("settings.opencode.login")}
               hint={t("settings.opencode.loginHint")}
-              controlClass="w-auto"
               note={
                 <Show when={launchData()?.state === "authFailed"}>
                   <p class="mt-1.5 flex items-center gap-1.5 text-2xs text-destructive">
@@ -1009,7 +1038,7 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
                 </Show>
               }
             >
-              <div class="flex w-56 flex-col items-stretch gap-2">
+              <div class="flex w-full flex-col items-stretch gap-2">
                 <TextFieldInput
                   size="sm"
                   value={loginUser()}
@@ -1128,14 +1157,13 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
         <Card class="mt-5">
           {/* Sans tabular — a number read as a number; the link next row is
               the one that truncates. */}
-          <Row label={t("settings.about.version")} controlClass="w-40">
+          <Row label={t("settings.about.version")}>
             <span class="text-sm tabular-nums text-foreground">v{__APP_VERSION__}</span>
           </Row>
 
           <Row
             label={SOURCE_TITLE || t("settings.about.source")}
             hint={SOURCE_HINT || t("settings.about.sourceHint")}
-            controlClass={SOURCE_URL ? "w-40" : "w-0"}
           >
             <Show when={SOURCE_URL}>
               <a
@@ -1162,7 +1190,6 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
           <Row
             label={t("settings.about.log")}
             hint={t("settings.about.logHint")}
-            controlClass="w-auto"
             note={diagLine("log")}
           >
             <Button
@@ -1177,7 +1204,6 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
           </Row>
           <Row
             label={t("settings.about.report")}
-            controlClass="w-auto"
             note={diagLine("report")}
           >
             <Button
@@ -1194,7 +1220,6 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
           <Row
             label={t("settings.about.notifications")}
             hint={import.meta.env.DEV ? t("settings.about.notifyHint") : undefined}
-            controlClass="w-auto"
             note={diagLine("notify")}
           >
             <div class="flex justify-end gap-2">

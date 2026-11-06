@@ -61,7 +61,10 @@ describe("visual details", () => {
 
   test("theme choices use a plain segmented control without decorative color chips", () => {
     const source = read("settings.tsx");
-    const theme = source.slice(source.indexOf('controlClass="w-88"'), source.indexOf('label={t("settings.language")}'));
+    const theme = source.slice(
+      source.indexOf('<Row label={t("settings.theme")}>'),
+      source.indexOf('label={t("settings.language")}'),
+    );
     expect(theme).toContain("options={CHOICES()}");
     expect(theme).not.toContain("swatch");
     expect(theme).not.toContain("linear-gradient");

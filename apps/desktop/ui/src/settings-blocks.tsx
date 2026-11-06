@@ -53,6 +53,10 @@ export function Card(props: { children: JSX.Element; class?: string }) {
 /**
  * One setting and its control. Wide rows put the control in a fixed column so
  * every row ends at the same x; narrow rows stack instead of crushing the label.
+ * The column is `w-72` everywhere — wide enough for the widest chip set on the
+ * page, so `controlClass` exists for the rare row that must exceed it, not for
+ * rows that would rather hug their control: a page of right-aligned controls
+ * stops at one shared edge or the alignment was decoration.
  */
 export function Row(props: {
   label: string;
@@ -86,7 +90,7 @@ export function Row(props: {
         </Show>
         {props.note}
       </div>
-      <div class={cn("flex max-w-full shrink-0 justify-end", single() ? undefined : "pt-1", props.controlClass ?? "w-60", "@max-[560px]/main:w-full @max-[560px]/main:justify-start")}>
+      <div class={cn("flex max-w-full shrink-0 justify-end", single() ? undefined : "pt-1", props.controlClass ?? "w-72", "@max-[560px]/main:w-full @max-[560px]/main:justify-start")}>
         {props.children}
       </div>
     </div>

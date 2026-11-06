@@ -266,7 +266,6 @@ export function MaintenanceSettings() {
                 <Row
                   label={t("maintenance.check")}
                   hint={t("maintenance.check.hint")}
-                  controlClass="w-auto"
                   note={
                     <>
                       <Show when={check()}>
@@ -309,7 +308,6 @@ export function MaintenanceSettings() {
                 <Row
                   label={t("maintenance.reconcile")}
                   hint={t("maintenance.reconcile.hint")}
-                  controlClass="w-auto"
                   note={note("reconcile")}
                 >
                   <Button
@@ -327,7 +325,6 @@ export function MaintenanceSettings() {
                 <Row
                   label={t("maintenance.optimize")}
                   hint={t("maintenance.optimize.hint")}
-                  controlClass="w-auto"
                   note={note("optimize")}
                 >
                   <Button
@@ -345,7 +342,6 @@ export function MaintenanceSettings() {
                 <Row
                   label={t("maintenance.vacuum")}
                   hint={t("maintenance.vacuum.hint")}
-                  controlClass="w-auto"
                   note={note("vacuum")}
                 >
                   <Button
@@ -370,7 +366,6 @@ export function MaintenanceSettings() {
                 <Row
                   label={t("maintenance.backup")}
                   hint={t("maintenance.backup.hint")}
-                  controlClass="w-auto"
                   note={note("backup")}
                 >
                   <Button

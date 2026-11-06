@@ -139,7 +139,12 @@ describe("what else in the app still spends the hover background on a state", ()
     expect(at).toBeGreaterThan(-1);
     expect(pane.slice(Math.max(0, at - 200), at)).toContain("props.focused");
     expect(pane.slice(at + selected.length)).not.toContain(selected);
-    expect(read("settings.tsx")).toContain('"bg-secondary text-foreground"');
+    // List selections now speak the app-wide language — accent, as the token
+    // table says — so the settings nav is no longer a secondary exception.
+    // What still spends `bg-secondary text-foreground` is a selected *control*
+    // (segmented rows, mini-tabs), which is a different thing from a row.
+    expect(read("settings.tsx")).toContain("bg-accent text-foreground hover:bg-accent");
+    expect(read("settings.tsx")).not.toContain('"bg-secondary text-foreground"');
     expect(read("components/ui/mini-tabs.tsx")).toContain('"bg-secondary text-foreground"');
   });
 });

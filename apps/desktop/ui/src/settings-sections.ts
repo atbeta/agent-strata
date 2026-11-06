@@ -1,4 +1,5 @@
 import type { MessageKey } from "./locales/zh";
+import type { Name } from "./icons";
 
 /**
  * Settings blocks, in the order the page shows them.
@@ -8,13 +9,13 @@ import type { MessageKey } from "./locales/zh";
  * the first block, and the address is left as it is.
  */
 export const SETTINGS_SECTIONS = [
-  { id: "interface", label: "settings.section.interface" },
-  { id: "backends", label: "settings.section.backends" },
-  { id: "opencode", label: "settings.section.opencode" },
-  { id: "permission", label: "settings.section.permission" },
-  { id: "maintenance", label: "settings.section.maintenance" },
-  { id: "about", label: "settings.section.about" },
-] as const satisfies readonly { id: string; label: MessageKey }[];
+  { id: "interface", label: "settings.section.interface", icon: "sliders" },
+  { id: "backends", label: "settings.section.backends", icon: "plug" },
+  { id: "opencode", label: "settings.section.opencode", icon: "spark" },
+  { id: "permission", label: "settings.section.permission", icon: "shield" },
+  { id: "maintenance", label: "settings.section.maintenance", icon: "wrench" },
+  { id: "about", label: "settings.section.about", icon: "info" },
+] as const satisfies readonly { id: string; label: MessageKey; icon: Name }[];
 
 export type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number]["id"];
 
