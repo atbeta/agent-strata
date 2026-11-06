@@ -64,16 +64,29 @@ export function Row(props: {
   controlClass?: string;
   children: JSX.Element;
 }) {
+  /**
+   * A label with nothing under it is one line beside a control that is usually
+   * taller — a segmented control is border, padding and a button. Top-aligning
+   * the two left the label riding high, which is what a single word like
+   * "主题" made obvious. A hint or a note is a block of text of its own, and
+   * those still start at the top so the control lines up with the first line.
+   */
+  const single = () => props.hint === undefined && props.note === undefined;
   return (
-    <div class="flex flex-col gap-3 py-3 @min-[560px]/main:flex-row @min-[560px]/main:items-start @min-[560px]/main:justify-between @min-[560px]/main:gap-6">
-      <div class="min-w-0 pt-1">
+    <div
+      class={cn(
+        "flex flex-col gap-3 py-3 @min-[560px]/main:flex-row @min-[560px]/main:justify-between @min-[560px]/main:gap-6",
+        single() ? "@min-[560px]/main:items-center" : "@min-[560px]/main:items-start",
+      )}
+    >
+      <div class={cn("min-w-0", single() ? undefined : "pt-1")}>
         <div class="text-sm font-medium text-foreground">{props.label}</div>
         <Show when={props.hint}>
           <div class="mt-0.5 text-2xs leading-4 text-muted-foreground">{props.hint}</div>
         </Show>
         {props.note}
       </div>
-      <div class={cn("flex max-w-full shrink-0 justify-end pt-1", props.controlClass ?? "w-60", "@max-[560px]/main:w-full @max-[560px]/main:justify-start")}>
+      <div class={cn("flex max-w-full shrink-0 justify-end", single() ? undefined : "pt-1", props.controlClass ?? "w-60", "@max-[560px]/main:w-full @max-[560px]/main:justify-start")}>
         {props.children}
       </div>
     </div>
