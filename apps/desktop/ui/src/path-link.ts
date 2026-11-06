@@ -30,8 +30,16 @@ const PATHISH = new RegExp(
     // ./ and ../ relatives
     String.raw`\.{1,2}\/${GAP}*`,
     // Bare relatives: starts on a word-ish character, contains a separator —
-    // / on one platform, \ on the other
-    String.raw`[\w@+.,%=\-]${GAP}*[\\/]${GAP}*`,
+    // / on one platform, \ on the other.
+    //
+    // The lookbehind keeps the arm from starting mid-token. `GAP` includes
+    // the separators, so the prefix would otherwise swallow a whole token
+    // and then backtrack one character at a time looking for a separator it
+    // never finds — quadratic over a long unbroken run (a base64 blob, a
+    // minified bundle). A token without a separator matches nowhere, so
+    // refusing to start inside one changes no match: the engine would have
+    // matched earlier, at the start of the run.
+    String.raw`(?<![\w@+.,%=\-])[\w@+.,%=\-]${GAP}*[\\/]${GAP}*`,
   ].join("|"),
   "g",
 );

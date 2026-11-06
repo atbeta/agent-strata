@@ -52,6 +52,19 @@ describe("finding local paths in prose", () => {
     expect(raws("error at `/var/log/x.log`")).toEqual(["/var/log/x.log"]);
     expect(raws("**src/main.rs** broke")).toEqual(["src/main.rs"]);
   });
+
+  test("a long unbroken token is scanned in linear time", () => {
+    // A base64 blob in a code fence: one token, no separator. The bare
+    // relative arm used to backtrack through it from every start position —
+    // quadratic. 100k characters took seconds and froze the transcript while
+    // a reply streamed in, because the tail re-scans on every frame.
+    const blob = "A".repeat(100_000);
+    const started = performance.now();
+    expect(raws(blob)).toEqual([]);
+    // A real path after the blob is still found.
+    expect(raws(`${blob} and src/a.ts`)).toEqual(["src/a.ts"]);
+    expect(performance.now() - started).toBeLessThan(2000);
+  });
 });
 
 describe("resolving a path against the session workspace", () => {
