@@ -67,8 +67,33 @@ not preserve it. The caption bar uses the full-colour window icon instead.
 - `icon-source.svg` — the artwork itself, viewBox 1024×1024.
 - `icon-source.png` — a 1024px rasterisation of the same, regenerated alongside
   the bundled sizes.
+- `icon-source-windows.svg` — the artwork scaled to bleed, for Windows. It is
+  generated, not drawn; see [Windows](#windows).
+
+## Windows
+
+Windows draws an `.ico` tile edge to edge — it adds no padding of its own — so
+an icon that keeps a margin inside its canvas reads smaller than every other
+app in the same taskbar. The plate here is inset 64 on every side, and that
+inset is the Apple icon grid: it belongs to the macOS `.icns` and nowhere else.
+Measured on the `.ico` that shipped, the plate covered 87.5% of the tile at 16px,
+32px, 48px and 256px; Lector's, LM Studio's and MiniMax Code's all cover 100%.
+That missing 12.5% is the whole of "the icon looks a bit small".
+
+Windows therefore gets the same artwork scaled by `1024/896` about the canvas
+centre, so the plate bleeds to the edge while the composition inside it stays
+exactly as designed — the frames keep their size relative to the plate, and
+every measurement in "Why these numbers" still holds, because a uniform scale
+leaves the sheen, the rim and the shadow at the same ratio to the tile. The
+corner radius lands at 23.2% of the side, next to Lector's 22.5%.
+
+`icon-source-windows.svg` is that scaled artwork. It is **generated, not
+drawn** — edit `icon-source.svg` and re-run the script rather than editing it,
+or the two will drift apart silently.
 
 ## Regenerating
+
+### Everything except the Windows icon
 
 The bundled icons were produced with the cross-platform Tauri CLI, which works
 from a clean checkout on any OS:
@@ -78,12 +103,33 @@ bunx @tauri-apps/cli icon apps/desktop/src-tauri/icons/icon-source.svg -v
 ```
 
 That writes `icon-source.png`, `32x32.png`, `128x128.png`, `128x128@2x.png`,
-`icon.icns`, `icon.ico`, and the platform logo set. After it, copy the source to
-the UI and re-rasterise the favicon:
+`icon.icns`, and the platform logo set. After it, copy the source to the UI
+and re-rasterise the favicon:
 
 ```sh
 cp apps/desktop/src-tauri/icons/icon-source.svg apps/desktop/ui/public/favicon.svg
 ```
+
+It also writes an `icon.ico`, which the next step replaces: the CLI renders one
+artwork for every platform, and the Windows one has to bleed.
+
+### The Windows icon
+
+```sh
+bun run icons:windows
+```
+
+That renders `icon-source-windows.svg` from `icon-source.svg` and writes
+`icon.ico` with the sizes Windows asks for — 16, 20, 24, 32, 40, 48, 64, 96,
+128 and 256. 20, 40, 96 and 128 are the ones a 125%, 150% or 200% display asks
+for that the Tauri CLI's set does not carry. Every size is rendered straight
+from the vector, so nothing is resampled, and the entries are PNG-compressed:
+the same form the Tauri CLI writes, so nothing downstream learns a new shape.
+
+The script also **measures** what it produced — it reports how much of each
+tile the artwork covers, and fails if the plate stops reaching the edge. "The
+icon looks small" is exactly the kind of complaint that a wrong assumption
+survives, so the one thing this script assumes is checked rather than trusted.
 
 `scripts/generate-icons.sh` does the same job from local `rsvg-convert`, `magick`
 and `iconutil` only — macOS and Linux, no network. It is not runnable on

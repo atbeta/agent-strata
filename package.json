@@ -12,10 +12,12 @@
     "sidecar": "bun run scripts/build-sidecar.ts",
     "sidecar:force": "bun run scripts/build-sidecar.ts --force",
     "icons:providers": "bun run scripts/provider-icons.ts",
+    "icons:windows": "bun run scripts/generate-windows-icon.ts",
     "lint": "oxlint --deny-warnings",
     "typecheck": "rc=0; for p in packages/api packages/schema packages/store packages/projector packages/policy packages/adapter-acp packages/adapter-opencode packages/core packages/service apps/desktop/ui apps/desktop/ui/bench; do tsc --noEmit -p \"$p\" || rc=1; done; exit $rc"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "@tauri-apps/cli": "2.12.4",
     "@types/bun": "^1.2.0",
     "oxlint": "^1.90.0",

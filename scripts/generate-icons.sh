@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Regenerate every bundled icon from the source SVG:
-#   apps/desktop/src-tauri/icons/icon-source.svg  (Jade icon)
-# Requires local tools only: rsvg-convert, magick, iconutil. No network.
+#   apps/desktop/src-tauri/icons/icon-source.svg  (Overlap — Slate Metal)
+# Requires local tools only: rsvg-convert, iconutil. No network.
 # macOS/Linux only — on Windows use `bunx @tauri-apps/cli icon`, see BRANDING.md.
 set -euo pipefail
 
@@ -9,7 +9,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ICONS="$ROOT/apps/desktop/src-tauri/icons"
 PUBLIC="$ROOT/apps/desktop/ui/public"
 
-for tool in rsvg-convert magick iconutil; do
+for tool in rsvg-convert iconutil; do
   command -v "$tool" >/dev/null 2>&1 || {
     echo "generate-icons: missing required tool: $tool" >&2
     exit 1
@@ -46,9 +46,10 @@ render 512  "$ICONSET/icon_512x512.png"
 render 1024 "$ICONSET/icon_512x512@2x.png"
 iconutil -c icns "$ICONSET" -o "$ICONS/icon.icns"
 
-# ICO, multi-size.
-render 256 "$SCRATCH/icon-256.png"
-magick "$SCRATCH/icon-256.png" -define icon:auto-resize=16,24,32,48,64,128,256 "$ICONS/icon.ico"
+# The Windows icon has its own source and its own generator: Windows draws an
+# .ico edge to edge, so the plate has to bleed to the edge, and the artwork
+# above is the macOS one with the Apple grid inset it should keep there.
+bun run "$ROOT/scripts/generate-windows-icon.ts"
 
 # Public UI assets.
 cp "$ICONS/icon-source.svg" "$PUBLIC/favicon.svg"
