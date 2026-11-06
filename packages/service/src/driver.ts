@@ -114,6 +114,12 @@ export interface BackendExtension {
   providers?: ProviderApi;
   /** a shell in the session workspace; absent when this backend has no terminal */
   terminal?: TerminalApi;
+  /**
+   * Let go of the backend's in-memory instance for a directory — its file
+   * watchers, language servers, and whatever else it keeps open. A backend
+   * with no instances has nothing to say here.
+   */
+  dispose?(directory: string): Promise<void>;
 }
 
 export interface SyncGuard {

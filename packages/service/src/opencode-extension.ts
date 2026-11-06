@@ -74,6 +74,15 @@ export function opencodeExtension(opts: {
   return {
     kind: "opencode",
     paths: OPENCODE_EXTENSION_PATHS,
+    // The server keeps one instance per directory: watchers, language servers,
+    // and the file handles behind them. On Windows those handles keep a folder
+    // from emptying, and only the server's own lifetime used to release them —
+    // which is why a deleted worktree went away after the app was restarted.
+    // Disposing the directory's instance is what the restart was doing, done
+    // at the moment the folder is actually going away.
+    dispose: async (directory) => {
+      await read(await send("POST", "/instance/dispose", directory));
+    },
     terminal: {
       shells: async (directory) => ptyShells(await read(await send("GET", "/pty/shells", directory))),
       list: async (directory) => {

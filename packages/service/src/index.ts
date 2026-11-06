@@ -435,6 +435,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   };
 
   const releaseInside = async (dir: string): Promise<void> => {
+    const disposed = new Set<string>();
     await stopInside(dev, dir);
     for (const s of store.listSessions({ limit: 500 })) {
       const ws = s.workspace;
@@ -464,6 +465,14 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       // for the session to report idle, with a bound so a stuck turn cannot
       // hold the button forever.
       await settle(s.session_id);
+      // The backend keeps a per-directory instance alive — watchers, language
+      // servers, open handles. It is not tied to a turn, so aborting never
+      // released it, and a worktree only became removable after the app (and
+      // with it the backend) restarted. Ask for it to be disposed now.
+      if (!disposed.has(ws)) {
+        disposed.add(ws);
+        await conn.extension?.dispose?.(ws).catch(() => {});
+      }
     }
     // A turn that was just aborted can still be writing for a moment. The
     // caller retries at once; a brief pause lets the handles go first.
