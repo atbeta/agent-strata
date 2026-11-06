@@ -22,6 +22,14 @@ describe("a block that opens with a tag", () => {
     expect(isSourceBlock("<details><summary>more</summary></details>", isDropped)).toBe(false);
     expect(isSourceBlock("use <x-option> here", isDropped)).toBe(false);
   });
+
+  test("a control tag is an instruction, not a code block", () => {
+    // Old conversations carry these wrappers; they read as a sentence, not as
+    // the source of a component, so they must not become an html block.
+    const everything = () => true;
+    expect(isSourceBlock("<system-reminder>请继续操作。</system-reminder>", everything)).toBe(false);
+    expect(isSourceBlock("<instructions>do this</instructions>", everything)).toBe(false);
+  });
 });
 
 describe("a fragment shown as source", () => {

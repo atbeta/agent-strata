@@ -1,5 +1,5 @@
 import DOMPurify from "dompurify";
-import { sourceOf } from "./md-source";
+import { sourceOf, isControlTag } from "./md-source";
 
 /**
  * Whether the sanitiser keeps a tag.
@@ -72,6 +72,12 @@ export function revealDroppedTags(host: DocumentFragment) {
     for (const node of [...parent.childNodes]) {
       if (!(node instanceof Element)) continue;
       if (!sanitizerKeepsTag(node.tagName.toLowerCase())) {
+        // An instruction wrapper is not source: its tag is scaffolding around
+        // a sentence the reader needs, so drop the tag and keep the words.
+        if (isControlTag(node.tagName.toLowerCase())) {
+          node.replaceWith(...node.childNodes);
+          continue;
+        }
         node.replaceWith(document.createTextNode(sourceOf(node.outerHTML)));
         continue;
       }

@@ -13,6 +13,18 @@ export function leadingTag(source: string): string | undefined {
 }
 
 /**
+ * Tags that carry instructions rather than markup. They are not code and must
+ * not be shown as a code block; the reader wants the sentence inside, not a
+ * “html” label over a system note.
+ */
+const CONTROL_TAGS = new Set(["system-reminder", "system", "instructions"]);
+
+/** A tag that carries an instruction rather than markup. */
+export function isControlTag(name: string): boolean {
+  return CONTROL_TAGS.has(name);
+}
+
+/**
  * Whether a block is source rather than prose.
  *
  * `dropped` answers whether the renderer's sanitiser would delete that tag.
@@ -23,7 +35,8 @@ export function leadingTag(source: string): string | undefined {
  */
 export function isSourceBlock(source: string, dropped: (tag: string) => boolean): boolean {
   const tag = leadingTag(source);
-  return tag !== undefined && dropped(tag);
+  if (tag === undefined || CONTROL_TAGS.has(tag)) return false;
+  return dropped(tag);
 }
 
 /**
