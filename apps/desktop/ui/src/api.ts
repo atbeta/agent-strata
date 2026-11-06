@@ -20,6 +20,7 @@ export type {
 } from "../../../../packages/api/src/index";
 import { inDesktopShell } from "./shell";
 import { t } from "./i18n";
+import { ServiceError } from "./errors";
 import type { MessageKey } from "./locales/zh";
 import type {
   FileChangeView,
@@ -557,6 +558,29 @@ export async function revealPath(path: string): Promise<void> {
   await throwOnError(res);
 }
 
+/** What the service says about one path. */
+export type PathProbe = { path: string; ok: boolean; code?: string };
+
+/**
+ * Ask which of these paths are real local paths inside the folders this
+ * reader may open.
+ *
+ * The service owns HOME and the list of allowed folders, so it is the only
+ * side that can answer. The paths arrive already absolute — the caller
+ * resolves them against the session workspace first.
+ */
+export async function probePaths(paths: readonly string[]): Promise<PathProbe[]> {
+  if (!paths.length) return [];
+  const res = await apiFetch("/desktop/paths", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ paths }),
+  });
+  await throwOnError(res);
+  const body = (await res.json().catch(() => ({}))) as { paths?: PathProbe[] };
+  return body.paths ?? [];
+}
+
 export function readCapabilities(sessionId: string): Promise<SessionCapabilities> {
   return getJson<SessionCapabilities>(`/sessions/${encodeURIComponent(sessionId)}/capabilities`);
 }
@@ -985,8 +1009,10 @@ export async function clearGoal(sessionId: string): Promise<void> {
 
 async function throwOnError(res: Response): Promise<void> {
   if (res.ok) return;
-  const body = (await res.json().catch(() => ({}))) as { error?: string };
-  throw new Error(body.error ?? t("api.err.service", { status: res.status }));
+  const body = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
+  // The code travels with the sentence: the reader gets a translated line
+  // chosen by the code, and the sentence stays for the log.
+  throw new ServiceError(body.error ?? t("api.err.service", { status: res.status }), body.code);
 }
 
 export function listProviders(connectionId: string): Promise<{ providers: ApiProvider[] }> {

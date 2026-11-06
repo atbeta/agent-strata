@@ -266,6 +266,7 @@ export function FileBrowser(props: {
     reveal: (raw) => {
       void revealResolved(raw, props.workspace?.()).catch((e) => setOpenErr(explain(e)));
     },
+    workspace: () => props.workspace?.(),
   };
 
   return (

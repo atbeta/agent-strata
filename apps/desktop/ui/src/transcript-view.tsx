@@ -14,7 +14,7 @@
  * What does survive is the remembered reading for that pair, and the row
  * heights already measured there.
  */
-import { createEffect, createMemo, Show, untrack, type JSX } from "solid-js";
+import { createEffect, createMemo, createSignal, Show, untrack, type JSX } from "solid-js";
 import type { ContentBlock, Turn } from "./api";
 import { Virtual } from "./virtual";
 import { warmMarkdown } from "./md";
@@ -52,6 +52,24 @@ export interface TranscriptApi {
   toLatest: () => void;
 }
 
+/**
+ * A path that could not be opened, and where to say so.
+ *
+ * The position is measured from the column, not the window, so the notice
+ * follows the transcript it belongs to. `centered` is the fallback for a
+ * failure with no anchor to point at.
+ */
+type PathNotice = { text: string; x: number; y: number; centered: boolean };
+
+/**
+ * How long a failed path stays on screen.
+ *
+ * Shorter than the general action line: the notice answers one click, and
+ * the reader is still looking at the path they clicked. Long enough to read a
+ * sentence, short enough that it is not there when they look again.
+ */
+const NOTICE_MS = 4_000;
+
 export function TranscriptView(props: {
   paneId: string;
   sessionId: string;
@@ -86,30 +104,82 @@ export function TranscriptView(props: {
    * onOpenPath — a peer pane gets no rail — so there is no context at all and
    * the paths stay text rather than dead links.
    */
-  const [pathErr, setPathErr] = fadeSignal("");
+  const [pathErr, setPathErr] = fadeSignal<PathNotice | undefined>(undefined, NOTICE_MS);
+  let column: HTMLDivElement | undefined;
+
+  /**
+   * Whether the reader is scrolling right now.
+   *
+   * The scroll owner knows — it is the thing that times the gesture — but it
+   * lives inside the transcript, and the path actions sit above it. This
+   * mirrors it, so "not while the reader scrolls" is one question with one
+   * answer.
+   */
+  const [gesturing, setGesturing] = createSignal(false);
+  /**
+   * Work that waits for the reader to stop scrolling.
+   *
+   * The listeners stay on the list: every gesture that ends sends them
+   * through again, because a path that was off screen a moment ago may be on
+   * screen now.
+   */
+  const waiting: (() => void)[] = [];
+
+  /**
+   * Where a failed path lands.
+   *
+   * The notice follows the click: a reader who clicked a path wants to know
+   * about *that* path, and a line at the bottom of a column they have
+   * scrolled away from answers a question they are no longer looking at.
+   */
+  const notice = (text: string, anchor?: HTMLElement) => {
+    const base = column?.getBoundingClientRect();
+    const at = anchor?.getBoundingClientRect();
+    if (!base || !at) {
+      setPathErr({ text, x: 0, y: 0, centered: true });
+      return;
+    }
+    // Kept inside the column: a notice that hangs off the edge is a notice
+    // the reader cannot read.
+    const x = Math.min(
+      Math.max(at.left + at.width / 2 - base.left, 90),
+      Math.max(base.width - 90, 90),
+    );
+    const y = Math.max(at.top - base.top, 24);
+    setPathErr({ text, x, y, centered: false });
+  };
+
   const pathApi: PathApi | undefined = props.onOpenPath
     ? {
-        open: (raw) => {
+        open: (raw, anchor) => {
           const target = resolveTarget(raw, props.workspace?.());
           if (target.rel !== undefined) {
             props.onOpenPath!(target.rel);
             return;
           }
           if (target.abs !== undefined) {
-            void revealResolved(raw, props.workspace?.()).catch((e) => setPathErr(explain(e)));
+            void revealResolved(raw, props.workspace?.()).catch((e) => notice(explain(e), anchor));
             return;
           }
-          setPathErr(t("path.missing"));
+          notice(t("path.missing"), anchor);
         },
         revealable: (raw) => resolveTarget(raw, props.workspace?.()).abs !== undefined,
         reveal: (raw) => {
-          void revealResolved(raw, props.workspace?.()).catch((e) => setPathErr(explain(e)));
+          void revealResolved(raw, props.workspace?.()).catch((e) => notice(explain(e)));
+        },
+        workspace: () => props.workspace?.(),
+        // A path is only asked about when the reader is not moving the
+        // column: a row that mounts mid-scroll is not worth a round-trip, and
+        // the answer would land while the row is off screen.
+        blocked: () => gesturing(),
+        onReady: (fn) => {
+          waiting.push(fn);
         },
       }
     : undefined;
 
   return (
-    <div class={`relative flex flex-1 flex-col ${props.class ?? ""}`}>
+    <div class={`relative flex flex-1 flex-col ${props.class ?? ""}`} ref={(el) => (column = el)}>
       <Show when={layoutKey(props.paneId, props.sessionId)} keyed>
         {(key) => {
           const entries = createMemo<PromptEntry[]>((prev) => promptEntries(props.turns, prev));
@@ -181,10 +251,21 @@ export function TranscriptView(props: {
           });
           const onScroll = scrollCoalescer(owner.onScroll);
           createEffect(() => {
+            const g = owner.gesturing();
+            // The path actions live above the transcript and ask whether the
+            // reader is moving the column; the owner is the only thing that
+            // knows.
+            setGesturing(g);
             props.onScrollGate?.({
-              gesturing: owner.gesturing(),
+              gesturing: g,
               following: owner.following(),
             });
+            // The gesture ended: whatever was waiting for the reader to stop
+            // can run now — and whatever was waiting for the reader to reach
+            // a path can look again.
+            if (!g) {
+              for (const fn of waiting) fn();
+            }
           });
           // Memoized so the rail's ticks compare a stable id: computing it
           // per read ran the outline lookup once per tick per frame. With the
@@ -306,11 +387,22 @@ export function TranscriptView(props: {
               </Show>
 
               {/* A path that resolved to nothing reachable gets a fading word
-                  where the click happened, high enough to clear the nav. */}
+                  where the click happened, not at the foot of a column the
+                  reader may have scrolled away from. */}
               <Show when={pathErr()}>
-                <p class="surface-popover absolute bottom-16 left-1/2 z-30 -translate-x-1/2 rounded-md px-3 py-1.5 text-xs text-destructive">
-                  {pathErr()}
-                </p>
+                {(e) => (
+                  <p
+                    class="surface-popover absolute z-30 -translate-x-1/2 rounded-md px-3 py-1.5 text-xs text-destructive"
+                    classList={{ "-translate-y-full": !e().centered }}
+                    style={{
+                      left: e().centered ? "50%" : `${e().x}px`,
+                      top: e().centered ? "auto" : `${e().y}px`,
+                      bottom: e().centered ? "4rem" : "auto",
+                    }}
+                  >
+                    {e().text}
+                  </p>
+                )}
               </Show>
               </PathActions.Provider>
             </DisclosureContext.Provider>

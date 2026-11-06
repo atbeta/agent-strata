@@ -420,6 +420,13 @@ export default {
   "path.copy": "复制路径",
   "path.missing": "找不到这个路径。",
 
+  // 服务端用代码回答路径为什么打不开，这里按代码选一句给读者看。
+  "path.err.missing": "这个路径不存在。",
+  "path.err.outside": "这个路径不在允许打开的文件夹里。",
+  "path.err.notAbsolute": "这个路径不是绝对路径。",
+  "path.err.notAString": "这个路径的格式不对。",
+  "path.err.notLocal": "这个路径不在本机上。",
+
   // The prompt outline on the transcript's left edge.
   "nav.outline": "提问导航，共 {n} 条",
   "nav.previous": "上一条提问",

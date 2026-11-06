@@ -1,6 +1,5 @@
-import { homedir } from "node:os";
-import { dirname, isAbsolute, resolve, sep } from "node:path";
-import { realpathSync, statSync } from "node:fs";
+import { dirname } from "node:path";
+import { checkPath, type PathErrorCode } from "./paths";
 
 /**
  * The file-manager command a "reveal this path" request maps to.
@@ -14,33 +13,17 @@ import { realpathSync, statSync } from "node:fs";
  * already works in. The path can come from rendered text, which the model
  * wrote, so "somebody asked" is not a reason to open anything: the target is
  * resolved for real (symlinks included) and refused when it falls outside.
+ *
+ * The failure carries a code next to its sentence: the reader is shown a
+ * translated line chosen by the code, and the sentence stays for the logs.
  */
 export function revealTarget(
   raw: unknown,
   roots: readonly string[],
-): { cmd: string[] } | { error: string } {
-  if (typeof raw !== "string" || raw.includes("\0")) return { error: "path must be a string" };
-  const path = raw === "~" ? homedir() : raw.startsWith("~/") ? homedir() + raw.slice(1) : raw;
-  if (!isAbsolute(path)) return { error: "path must be absolute" };
-  // The real path, not the spelled one: a symlink inside an allowed folder
-  // must not be a way out of it.
-  let real: string;
-  let dir: boolean;
-  try {
-    real = realpathSync(path);
-    dir = statSync(real).isDirectory();
-  } catch {
-    return { error: "path does not exist" };
-  }
-  const allowed = roots.map((r) => {
-    try {
-      return realpathSync(r);
-    } catch {
-      return resolve(r);
-    }
-  });
-  if (!allowed.some((r) => contains(r, real)))
-    return { error: "path is outside the allowed folders" };
+): { cmd: string[] } | { error: string; code: PathErrorCode } {
+  const check = checkPath(raw, roots);
+  if (!check.ok) return { error: check.detail, code: check.code };
+  const { path, real, dir } = check;
   switch (process.platform) {
     case "darwin":
       // `open` on an application bundle launches it. A folder opens in
@@ -53,11 +36,4 @@ export function revealTarget(
     default:
       return { cmd: ["xdg-open", dir ? path : dirname(real)] };
   }
-}
-
-/** Is `path` the root itself or inside it? Both sides are real paths. */
-function contains(root: string, path: string): boolean {
-  if (path === root) return true;
-  const prefix = root.endsWith(sep) ? root : `${root}${sep}`;
-  return path.startsWith(prefix);
 }

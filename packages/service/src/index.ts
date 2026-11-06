@@ -43,6 +43,7 @@ import {
 } from "./maintenance";
 import { editorLaunch } from "./editor";
 import { revealTarget } from "./reveal";
+import { checkPaths } from "./paths";
 import { forkBefore, forkTitle } from "./fork";
 import { refused, shellCors } from "./shell-origin";
 import { queryTokenOk, readApiToken, tokenOk } from "./api-token";
@@ -2206,7 +2207,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       const dirs = await knownDirs();
       const roots = [homedir(), ...[...dirs.values()].map((d) => d.directory)];
       const target = revealTarget(body?.path, roots);
-      if ("error" in target) return json({ error: target.error }, 400);
+      if ("error" in target) return json({ error: target.error, code: target.code }, 400);
       const bin = Bun.which(target.cmd[0]!);
       if (!bin) return json({ error: "file manager is not available" }, 400);
       try {
@@ -2215,6 +2216,26 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         return json({ error: String(e) }, 500);
       }
       return json({ ok: true });
+    }
+
+    if (path === "/desktop/paths" && req.method === "POST") {
+      // Which of these paths are real local paths inside the folders this
+      // reader may open. The UI asks before it turns a path-shaped token into
+      // a link: a link that cannot be opened is worse than no link, and the
+      // model writes plenty of paths that do not exist on this machine.
+      const body = (await req.json().catch(() => null)) as { paths?: unknown } | null;
+      const list = Array.isArray(body?.paths) ? body.paths.slice(0, 256) : [];
+      const dirs = await knownDirs();
+      const roots = [homedir(), ...[...dirs.values()].map((d) => d.directory)];
+      const checks = checkPaths(list, roots);
+      return json({
+        paths: list.map((raw, i) => {
+          const check = checks[i]!;
+          return check.ok
+            ? { path: String(raw), ok: true }
+            : { path: String(raw), ok: false, code: check.code };
+        }),
+      });
     }
 
     if (path === "/desktop/opencode" && req.method === "GET") {

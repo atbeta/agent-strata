@@ -11,8 +11,7 @@ import { drawDiagram, isDiagramBlock } from "./mermaid";
 import { t } from "./i18n";
 import { MarkdownHtmlCache } from "./md-cache";
 import { openImage } from "./image-viewer";
-import { linkifyPaths, pathActions } from "./path-link";
-
+import { markPathCandidates, pathActions, queueConfirm } from "./path-link";
 marked.setOptions({ gfm: true, breaks: true });
 
 const htmlCache = new MarkdownHtmlCache();
@@ -77,6 +76,12 @@ export function Md(props: { text: string; class?: string; live?: boolean }) {
    * Path linkification is a per-instance pass, not part of `parsed()`: the
    * cached HTML stays shared, and a view with no PathActions context — the
    * trace drawer — keeps its paths as plain text instead of dead links.
+   *
+   * Only a finished block is asked about. A block still being written is
+   * parsed again on every token, and asking the service about a path that
+   * may still change would be asking twice for the same answer. When the
+   * block settles it is parsed and marked like any other, and the paths
+   * appear then.
    */
   const paths = pathActions();
   const paint = (source: string, finished: boolean): Node[] => {
@@ -84,7 +89,9 @@ export function Md(props: { text: string; class?: string; live?: boolean }) {
     if (!paths) return nodes;
     const frag = document.createDocumentFragment();
     frag.append(...nodes);
-    linkifyPaths(frag);
+    if (!finished) return [...frag.childNodes];
+    const candidates = markPathCandidates(frag);
+    if (candidates.length) queueConfirm(paths, candidates);
     return [...frag.childNodes];
   };
 
@@ -106,7 +113,10 @@ export function Md(props: { text: string; class?: string; live?: boolean }) {
         const pathEl = target?.closest("[data-path]");
         if (pathEl instanceof HTMLElement && pathEl.dataset.path) {
           e.preventDefault();
-          paths?.open(pathEl.dataset.path);
+          // The anchor travels with the click: a failure is shown where the
+          // reader clicked, not at the bottom of a column they may have
+          // scrolled away from.
+          paths?.open(pathEl.dataset.path, pathEl);
           return;
         }
         const img = target instanceof HTMLImageElement ? target : undefined;

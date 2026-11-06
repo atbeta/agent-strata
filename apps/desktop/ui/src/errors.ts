@@ -1,10 +1,45 @@
 import { createSignal } from "solid-js";
-import { t } from "./i18n";
+import { t, type MessageKey } from "./i18n";
+
+/**
+ * A failure the service described with a stable code.
+ *
+ * The code is the part a reader can be shown a translated sentence for; the
+ * message is the English note the service wrote for the log. A wire that
+ * carried prose alone would force the other side to match on English to
+ * localise anything, and a reworded sentence would break that match.
+ */
+export class ServiceError extends Error {
+  readonly code: string | undefined;
+  constructor(message: string, code?: string) {
+    super(message);
+    this.name = "ServiceError";
+    this.code = code;
+  }
+}
+
+/**
+ * The translated sentence for a service error code, when there is one.
+ *
+ * The codes are the ones the service's path checks answer with. A code that
+ * is not in this table falls through to its English message — an unknown
+ * failure is better shown as the server wrote it than swallowed.
+ */
+const CODE_TEXT: Record<string, MessageKey> = {
+  missing: "path.err.missing",
+  outside: "path.err.outside",
+  "not-absolute": "path.err.notAbsolute",
+  "not-a-string": "path.err.notAString",
+  "not-local": "path.err.notLocal",
+};
 
 /** The browser's fetch failure is "Load failed" — say what is actually unreachable. */
 export function explain(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
   if (msg === "Load failed" || msg === "Failed to fetch") return t("error.serviceUnreachable");
+  const code = err instanceof ServiceError ? err.code : undefined;
+  const key = code ? CODE_TEXT[code] : undefined;
+  if (key) return t(key);
   return msg;
 }
 

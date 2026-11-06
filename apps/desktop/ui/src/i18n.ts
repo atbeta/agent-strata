@@ -2,6 +2,9 @@ import { createSignal } from "solid-js";
 import { en } from "./locales/en";
 import { zh, type MessageKey, type PluralKey } from "./locales/zh";
 
+/** The key set both dictionaries are typed against. */
+export type { MessageKey };
+
 /**
  * Two languages, one shell.
  *

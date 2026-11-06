@@ -1,5 +1,6 @@
 import { createContext, useContext } from "solid-js";
-import { revealPath } from "./api";
+import { probePaths, revealPath, type PathProbe } from "./api";
+import { ServiceError } from "./errors";
 
 /**
  * Local paths in rendered text, recognised and made clickable.
@@ -14,6 +15,16 @@ import { revealPath } from "./api";
 
 /** One path-shaped token inside a text node. */
 export type PathMatch = { start: number; end: number; raw: string; dir: boolean };
+
+/**
+ * A path-shaped token that has not been confirmed as a real local path.
+ *
+ * The element is kept by reference: it stays valid when the node is moved
+ * into the document, and it is how the confirmed ones are found again. `abs`
+ * is the path it resolved to, once the session's workspace has anchored it —
+ * and `null` when it is not a path on this machine at all.
+ */
+export type PathCandidate = { el: HTMLElement; raw: string; abs?: string | null };
 
 /** Anything that cannot sit inside a path token — whitespace, markup, pairing brackets. */
 const GAP = String.raw`[^\s<>"'\`|()\[\]{}]`;
@@ -182,14 +193,24 @@ export function resolveTarget(raw: string, workspace: string | undefined): Resol
 }
 
 /**
- * Wrap path-shaped text nodes under `host` in buttons carrying the raw path.
+ * Mark path-shaped text nodes under `host` as candidates.
+ *
+ * A candidate is not a link yet. It is a token that looks like a path and
+ * waits for the service — which owns HOME and the list of folders this
+ * reader may open — to say whether it is one. A path the model invented, or
+ * one that has since been deleted, stays plain text: a link that cannot be
+ * opened is worse than no link.
+ *
  * Anchors are left alone — a markdown link's text belongs to its href.
  */
-export function linkifyPaths(host: ParentNode) {
+export function markPathCandidates(host: ParentNode): PathCandidate[] {
+  const candidates: PathCandidate[] = [];
   const texts: Text[] = [];
   const walk = document.createTreeWalker(host, NodeFilter.SHOW_TEXT, {
     acceptNode: (n) =>
-      n.parentElement?.closest("a,[data-path]") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
+      n.parentElement?.closest("a,[data-path],[data-path-candidate]")
+        ? NodeFilter.FILTER_REJECT
+        : NodeFilter.FILTER_ACCEPT,
   });
   for (let n = walk.nextNode(); n; n = walk.nextNode()) texts.push(n as Text);
   for (const node of texts) {
@@ -199,29 +220,246 @@ export function linkifyPaths(host: ParentNode) {
     let at = 0;
     for (const f of found) {
       frag.append(document.createTextNode(node.data.slice(at, f.start)));
-      const b = document.createElement("button");
-      b.type = "button";
-      b.className = "path-link";
-      b.dataset.path = f.raw;
-      b.title = f.raw;
-      b.textContent = f.raw;
-      frag.append(b);
+      const span = document.createElement("span");
+      span.className = "path-candidate";
+      span.dataset.pathCandidate = f.raw;
+      span.textContent = f.raw;
+      frag.append(span);
+      candidates.push({ el: span, raw: f.raw });
       at = f.end;
     }
     frag.append(document.createTextNode(node.data.slice(at)));
     node.replaceWith(frag);
+  }
+  return candidates;
+}
+
+/** Turn a confirmed candidate into the button a reader can click. */
+export function upgradePathCandidate(candidate: PathCandidate): void {
+  const el = candidate.el;
+  // The element is still in a tree — a candidate whose row was already
+  // upgraded has no parent left. `isConnected` is not the test: the whole
+  // transcript may not be in the document yet when the answer arrives, and
+  // the button still belongs where the text is.
+  if (!el.parentNode) return;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "path-link";
+  button.dataset.path = candidate.raw;
+  button.title = candidate.raw;
+  button.textContent = candidate.raw;
+  el.replaceWith(button);
+}
+
+/**
+ * What the service said about a path, and when it said it.
+ *
+ * A path that exists stays a path — that verdict never expires. A path that
+ * did not exist may exist tomorrow, so its verdict is only trusted for a
+ * while: a file the reader just created becomes a link again without a
+ * reload.
+ */
+type Verdict = { ok: boolean; expires: number };
+
+/** How long a "this path is not there" answer is trusted. */
+const MISSING_TTL_MS = 30_000;
+/** How long an unreachable service is trusted to have answered. */
+const UNREACHABLE_TTL_MS = 5_000;
+/** How many paths one probe asks about. The service reads a batch, not a stream. */
+const PROBE_BATCH = 256;
+
+const verdicts = new Map<string, Verdict>();
+
+function verdictOf(abs: string): boolean | undefined {
+  const v = verdicts.get(abs);
+  if (!v) return undefined;
+  if (v.expires !== Infinity && v.expires <= Date.now()) {
+    verdicts.delete(abs);
+    return undefined;
+  }
+  return v.ok;
+}
+
+/**
+ * One provider's undecided candidates.
+ *
+ * A candidate stays here until it is either a link or plain text for good.
+ * The list is the one place that holds a path token strongly, so the rows
+ * that scrolled away are dropped from it on every pass.
+ */
+type Pending = {
+  candidates: PathCandidate[];
+  /** Whether a pass is already queued for this tick. */
+  scheduled: boolean;
+};
+
+const pendings = new WeakMap<PathApi, Pending>();
+
+/**
+ * Is the element on the reader's screen?
+ *
+ * The window is the frame of reference, and so is the scroller the element
+ * sits in: a row the reader has scrolled past is clipped by the transcript,
+ * and a path in it is not in front of them even though the window still
+ * covers the place where it would be.
+ *
+ * The scroller's rectangle is read once per pass — the reads that follow it
+ * are cached, because nothing is written between them.
+ */
+type Bounds = { top: number; bottom: number; left: number; right: number };
+
+function onScreen(el: HTMLElement, scrollers: Map<Element, Bounds>): boolean {
+  const r = el.getBoundingClientRect();
+  if (r.width === 0 && r.height === 0) return false;
+  if (r.bottom <= 0 || r.top >= window.innerHeight) return false;
+  if (r.right <= 0 || r.left >= window.innerWidth) return false;
+  const scroller = el.closest("[data-transcript-scroller]");
+  if (!scroller) return true;
+  let s = scrollers.get(scroller);
+  if (!s) {
+    const box = scroller.getBoundingClientRect();
+    s = { top: box.top, bottom: box.bottom, left: box.left, right: box.right };
+    scrollers.set(scroller, s);
+  }
+  return r.bottom > s.top && r.top < s.bottom;
+}
+
+/**
+ * Ask the service about a batch of candidates.
+ *
+ * The candidates are collected first and asked about in one call: a
+ * transcript can mount a dozen blocks in one frame, and a dozen calls would
+ * be a dozen round-trips for one answer.
+ */
+export function queueConfirm(api: PathApi, candidates: readonly PathCandidate[]): void {
+  if (!candidates.length) return;
+  let p = pendings.get(api);
+  if (!p) {
+    p = { candidates: [], scheduled: false };
+    pendings.set(api, p);
+    // The gate opens when the reader stops scrolling, and that is the moment
+    // the paths on the page are worth looking at. Registered once: every
+    // gesture that ends sends us back through here.
+    api.onReady?.(() => void flushPending(api, p!));
+  }
+  p.candidates.push(...candidates);
+  if (p.scheduled) return;
+  p.scheduled = true;
+  // A microtask, not a frame: the nodes are in the tree by the time it runs,
+  // and a candidate that is nowhere near the document cannot be upgraded.
+  queueMicrotask(() => {
+    p!.scheduled = false;
+    void flushPending(api, p!);
+  });
+}
+
+async function flushPending(api: PathApi, p: Pending): Promise<void> {
+  // The rows that scrolled away are released before anything else: this list
+  // is what holds them.
+  p.candidates = p.candidates.filter((c) => c.el.parentNode !== null);
+  if (api.blocked?.()) {
+    // The reader is scrolling. The gesture has to end before anything is
+    // asked or done: a row that mounts mid-scroll is not a question worth a
+    // round-trip, and the answer would land while the row is off screen.
+    return;
+  }
+  if (!p.candidates.length) return;
+  const ws = api.workspace?.();
+  // Only the paths on the reader's screen are worth asking about. A long
+  // session holds thousands of path-shaped tokens, and the service has no
+  // business answering questions about a page the reader is not looking at —
+  // and no budget to answer them while it is busy with something else.
+  const scrollers = new Map<Element, Bounds>();
+  const shown: PathCandidate[] = [];
+  for (const c of p.candidates) {
+    if (c.abs === undefined) {
+      const abs = resolveTarget(c.raw, ws).abs;
+      // A path that is not on this machine at all never becomes a link.
+      c.abs = abs ?? null;
+    }
+    if (c.abs === null) continue;
+    if (!onScreen(c.el, scrollers)) continue;
+    shown.push(c);
+  }
+  if (!shown.length) return;
+  const paths = [...new Set(shown.map((c) => c.abs!))];
+  const confirmed = await confirmPaths(paths, probePaths);
+  // A path the reader is looking at becomes a link; the ones off screen stay
+  // text until they are looked at, and by then the verdict is in the cache.
+  for (const c of shown) {
+    if (confirmed.has(c.abs!)) upgradePathCandidate(c);
+  }
+}
+
+/**
+ * Which of these paths the service confirms.
+ *
+ * The answer is remembered: a path that exists stays a path — that verdict
+ * never expires — and a path that does not is only believed for a while, so
+ * a file the reader just created becomes a link again without a reload.
+ *
+ * The probe is asked once for the whole batch. A paragraph of prose holds
+ * dozens of path-shaped tokens, and a dozen round-trips for one answer is a
+ * dozen round-trips too many.
+ */
+export async function confirmPaths(
+  paths: readonly string[],
+  probe: (paths: string[]) => Promise<PathProbe[]>,
+): Promise<Set<string>> {
+  const unknown = paths.filter((p) => verdictOf(p) === undefined);
+  for (let i = 0; i < unknown.length; i += PROBE_BATCH) {
+    await probeBatch(unknown.slice(i, i + PROBE_BATCH), probe);
+  }
+  const confirmed = new Set<string>();
+  for (const p of paths) if (verdictOf(p) === true) confirmed.add(p);
+  return confirmed;
+}
+
+async function probeBatch(
+  paths: string[],
+  probe: (paths: string[]) => Promise<PathProbe[]>,
+): Promise<void> {
+  if (!paths.length) return;
+  const now = Date.now();
+  try {
+    const answers = await probe(paths);
+    for (const a of answers) {
+      verdicts.set(a.path, { ok: a.ok, expires: a.ok ? Infinity : now + MISSING_TTL_MS });
+    }
+    // A path the service did not answer for is not a path we can open.
+    for (const abs of paths) {
+      if (!verdicts.has(abs)) verdicts.set(abs, { ok: false, expires: now + MISSING_TTL_MS });
+    }
+  } catch {
+    // The service could not be reached: nothing is confirmed, so nothing
+    // becomes a link. The verdict is short-lived — the service may be back
+    // in a moment, and a path that is real should not stay text for long.
+    const until = now + UNREACHABLE_TTL_MS;
+    for (const abs of paths) verdicts.set(abs, { ok: false, expires: until });
   }
 }
 
 /** What the transcript and the file preview offer around a recognised path. */
 export type PathApi = {
   /** Left click: open in the right rail when it lands in the workspace, else
-   *  hand it to the file manager. Failures go to the provider's error slot. */
-  open: (raw: string) => void;
+   *  hand it to the file manager. Failures go to the provider's error slot.
+   *  The anchor is where the click happened — the failure is shown there. */
+  open: (raw: string, anchor?: HTMLElement) => void;
   /** Whether "open the enclosing folder" can run — no absolute, no menu item. */
   revealable: (raw: string) => boolean;
   /** The context menu's file-manager action. */
   reveal: (raw: string) => void;
+  /** The workspace a relative path is anchored to. */
+  workspace?: () => string | undefined;
+  /**
+   * True while path work should wait. The transcript says yes while the
+   * reader is scrolling: a row that mounts mid-gesture must not ask the
+   * service anything.
+   */
+  blocked?: () => boolean;
+  /** Ask to be called again once the gate opens. The provider owns the gate,
+   *  so it owns the moment it opens. */
+  onReady?: (fn: () => void) => void;
 };
 
 /** Present where rendered text may offer path actions; absent everywhere else. */
@@ -234,5 +472,7 @@ export function pathActions(): PathApi | undefined {
 /** Shared resolve-then-reveal so each provider only owns its error surface. */
 export function revealResolved(raw: string, workspace: string | undefined): Promise<void> {
   const abs = resolveTarget(raw, workspace).abs;
-  return abs === undefined ? Promise.reject(new Error("path is not local")) : revealPath(abs);
+  return abs === undefined
+    ? Promise.reject(new ServiceError("path is not local", "not-local"))
+    : revealPath(abs);
 }

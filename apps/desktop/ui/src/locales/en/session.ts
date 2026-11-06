@@ -420,6 +420,14 @@ export default {
   "path.copy": "Copy path",
   "path.missing": "This path could not be found.",
 
+  // The service answers why a path cannot be opened with a code; the reader
+  // gets the sentence that code stands for.
+  "path.err.missing": "This path does not exist.",
+  "path.err.outside": "This path is outside the folders that can be opened here.",
+  "path.err.notAbsolute": "This path is not an absolute path.",
+  "path.err.notAString": "This path is malformed.",
+  "path.err.notLocal": "This path is not on this machine.",
+
   // The prompt outline on the transcript's left edge.
   "nav.outline": "Prompt outline, {n} prompts",
   "nav.previous": "Previous prompt",
