@@ -59,15 +59,23 @@ describe("visual details", () => {
     expect(source).toContain("break-words");
   });
 
-  test("theme choices use a plain segmented control without decorative color chips", () => {
+  test("the color scheme stays a plain segmented control, separate from the theme", () => {
     const source = read("settings.tsx");
+    const scheme = source.slice(
+      source.indexOf('<Row label={t("settings.scheme")}>'),
+      source.indexOf('<Row label={t("settings.theme")}'),
+    );
+    expect(scheme).toContain("options={SCHEMES()}");
+    expect(scheme).not.toContain("swatch");
+    expect(scheme).not.toContain("linear-gradient");
+
     const theme = source.slice(
-      source.indexOf('<Row label={t("settings.theme")}>'),
+      source.indexOf('<Row label={t("settings.theme")}'),
       source.indexOf('label={t("settings.language")}'),
     );
-    expect(theme).toContain("options={CHOICES()}");
-    expect(theme).not.toContain("swatch");
-    expect(theme).not.toContain("linear-gradient");
+    expect(theme).toContain("<ThemePicker");
+    expect(theme).toContain("scheme={resolvedScheme(scheme())}");
+
     const segmented = read("settings-blocks.tsx");
     expect(segmented).not.toContain("option.swatch");
   });

@@ -8,15 +8,39 @@
     <link rel="alternate icon" type="image/png" href="/favicon.png" />
     <script>
       (function () {
-        var stored = "dark";
+        // Page backgrounds, one per theme and scheme. They match --background
+        // in theme.css and are checked by theme.test.ts; this runs before the
+        // stylesheet so the window never flashes another theme's colour.
+        var themes = {
+          "default": { "dark": "#101012", "light": "#fcfcfd" },
+          "catppuccin": { "dark": "#1e1e2e", "light": "#eff1f5" },
+          "dracula": { "dark": "#282a36", "light": "#fffbeb" },
+          "gruvbox": { "dark": "#282828", "light": "#fbf1c7" },
+          "one": { "dark": "#282c34", "light": "#fafafa" },
+          "solarized": { "dark": "#002b36", "light": "#fdf6e3" }
+        };
+        var theme = "default";
+        var scheme = "dark";
         try {
-          stored = localStorage.getItem("strata.theme") || "dark";
+          var storedTheme = localStorage.getItem("strata.palette");
+          if (Object.prototype.hasOwnProperty.call(themes, storedTheme)) theme = storedTheme;
+          // strata.theme is the old name for the scheme; keep it readable so
+          // an upgrade does not throw away the reader's answer.
+          scheme =
+            localStorage.getItem("strata.scheme") ||
+            localStorage.getItem("strata.theme") ||
+            "dark";
         } catch (e) {}
+        if (scheme !== "dark" && scheme !== "light" && scheme !== "system") scheme = "dark";
         var light =
-          stored === "light" ||
-          (stored === "system" && matchMedia("(prefers-color-scheme: light)").matches);
-        document.documentElement.dataset.theme = light ? "light" : "dark";
-        document.documentElement.style.backgroundColor = light ? "#fcfcfd" : "#101012";
+          scheme === "light" ||
+          (scheme === "system" && matchMedia("(prefers-color-scheme: light)").matches);
+        var mode = light ? "light" : "dark";
+        var root = document.documentElement;
+        root.dataset.theme = theme;
+        root.dataset.scheme = mode;
+        root.style.colorScheme = mode;
+        root.style.backgroundColor = themes[theme][mode];
         try {
           var fonts = JSON.parse(localStorage.getItem("strata.fonts") || "null");
           if (!fonts) return;
@@ -26,7 +50,6 @@
             if (!v || v.length > 80 || !/^[\p{L}\p{N} ._-]+$/u.test(v)) return "";
             return v;
           }
-          var root = document.documentElement;
           var sans = family(fonts.ui);
           var mono = family(fonts.code);
           var sansFallback = 'ui-sans-serif, system-ui, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif';

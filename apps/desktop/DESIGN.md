@@ -1,6 +1,6 @@
 # Agent Strata design system v0.3
 
-The shell is a dark, quiet desktop app. Visual references are Linear (one neutral surface, hairline borders, compact UI type, accent used sparingly) and OpenCode Desktop (session sidebar, conversation, composer, custom window chrome). Tokens live in `ui/src/theme.css`. Interactive controls come from a small Solid component set in `ui/src/components/ui`, styled with those tokens. Light is available via `theme.ts`; dark stays the default. The native window backdrop is the same colour as `--background`; `theme.test.ts` keeps `theme.ts`, `index.html` and `tauri.conf.json` in step with it.
+The shell is a dark, quiet desktop app. Visual references are Linear (one neutral surface, hairline borders, compact UI type, accent used sparingly) and OpenCode Desktop (session sidebar, conversation, composer, custom window chrome). Tokens live in `ui/src/theme.css`. Interactive controls come from a small Solid component set in `ui/src/components/ui`, styled with those tokens. Appearance is two independent choices: a **color scheme** (dark, light, or the OS's answer) and a **theme** (the palette: Strata, Catppuccin, Dracula, Gruvbox, One, Solarized). Every theme has a rendering for both schemes, so changing one never throws the other away. The native window backdrop is the theme's `--background`; `theme.test.ts` keeps the registry, `index.html` and `tauri.conf.json` in step with it.
 
 ## Components
 
@@ -130,6 +130,22 @@ The type scale is declared once in `theme.css` and tuned to this app rather than
 The ladder started at Linear's 11/13 and moved up a pixel: most of the copy is Chinese, and a CJK label at 11px closes up where a Latin one does not.
 
 Use the named steps. `text-[14px]` is the same size as `text-sm` today, but only one of them survives a change to the scale. `.md` lives in the components layer so a caller can size rendered markdown with a utility; that is why the drawer passes `text-xs` and gets it. The inline script in `index.html` pre-applies the saved font family, content size, leading and ligatures with the same names and CJK fallbacks as `font.ts`; changing one side without the other brings back a first-frame font jump.
+
+### Schemes and themes
+
+`theme.ts` owns the model. A color scheme is `dark`, `light`, or `system`; `system` resolves once against `prefers-color-scheme`. A theme is an entry in `THEMES` with an id, a product name, and a swatch (page, surface, accent) per scheme. The same swatch supplies the picker's three marks and the native window backdrop, so the preview, the page, and the window cannot disagree.
+
+The document carries both attributes: `data-scheme` selects the amount of light and `data-theme` names the palette. `theme.css` is therefore layered:
+
+- `:root` — the default theme's dark rendering, plus the shared dark chrome (hairlines, input, scrollbar, elevation).
+- `html[data-scheme="light"]` — the default theme's light rendering, plus the shared light chrome.
+- `html[data-theme="<id>"][data-scheme="<scheme>"]` — a named theme's palette only. It never restates chrome; theme.test.ts fails if a block is missing a palette token or carries a chrome one.
+
+Storage is `strata.scheme` and `strata.palette`. `strata.theme` was the old name for the scheme and is still read when the new key is absent, so an upgrade keeps the reader's answer. `index.html` resolves both keys before the stylesheet loads and carries a `theme → scheme → background` map; that map is the one unavoidable duplicate of the palette's page colour, and the test checks every entry against the CSS.
+
+The first set is Strata (the app's own), Catppuccin (Latte/Mocha), Dracula (Alucard/Dracula), Gruvbox (light/dark), One (light/dark), and Solarized (light/dark). Palette fidelity does not outrank reading: every text-bearing token — prose, metadata, status, event, cost, destructive and syntax — stays at or above 4.5:1 against both `--background` and `--card`, and `theme.test.ts` computes that for every theme and scheme. Accent hues are darkened or lightened just enough to clear it.
+
+Adding a theme means a full palette block per scheme, an entry in `THEMES`, an entry in the boot map, and a run of `theme.test.ts`; `mermaid.ts` and the terminal pick the colours up from the CSS variables without changes.
 
 ### Payload rendering
 Tool `input` and `result` arrive as raw event data and are rendered by `Payload` in `payload.tsx`, which decides the shape rather than guessing at draw time:

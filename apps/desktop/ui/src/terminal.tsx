@@ -207,10 +207,18 @@ export function TerminalPane(props: { sessionId: string; onEmpty?: () => void })
       term.options.fontSize = contentSize();
       if (fitted) applySize();
     };
+    // The terminal palette is read from the document's tokens, and xterm keeps
+    // its colours in the renderer rather than in CSS. A scheme or theme change
+    // therefore has to hand it a new palette.
+    const onAppearance = () => {
+      term.options.theme = termTheme();
+    };
     window.addEventListener("strata-fonts", onFonts);
+    window.addEventListener("strata-appearance", onAppearance);
     onCleanup(() => {
       sockets.invalidate();
       window.removeEventListener("strata-fonts", onFonts);
+      window.removeEventListener("strata-appearance", onAppearance);
       observer.disconnect();
       wsClosed = true;
       if (ws) {

@@ -13,7 +13,7 @@ import { FleetView } from "./fleet-view";
 import { SessionDetail } from "./session-detail";
 import { CompareView } from "./compare";
 import { SettingsPage } from "./settings";
-import { applyTheme, readTheme } from "./theme";
+import { applyAppearance, readAppearance, readScheme } from "./theme";
 import { applyFonts, readFonts } from "./font";
 import { commandForChord, registerCommand } from "./commands";
 import { CommandPalette } from "./palette";
@@ -166,11 +166,12 @@ export function App() {
     // one that empties the window.
     const removeLinkHandler = installExternalLinkHandler();
     void installNotifyActions();
-    applyTheme(readTheme());
+    applyAppearance(readAppearance());
     applyFonts(readFonts());
     const scheme = window.matchMedia("(prefers-color-scheme: light)");
     const onScheme = () => {
-      if (readTheme() === "system") applyTheme("system");
+      if (readScheme() !== "system") return;
+      applyAppearance(readAppearance());
     };
     scheme.addEventListener("change", onScheme);
     const clockTimer = setInterval(() => setClock(Date.now()), 30_000);

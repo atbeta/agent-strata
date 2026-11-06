@@ -58,7 +58,10 @@ let loading: Promise<MermaidApi> | null = null;
 let apiInstance: MermaidApi | null = null;
 let initedTheme: string | null = null;
 
-const currentTheme = (): string => document.documentElement.dataset.theme || "dark";
+const currentTheme = (): string => {
+  const root = document.documentElement;
+  return `${root.dataset.theme || "default"}/${root.dataset.scheme || "dark"}`;
+};
 
 /**
  * mermaid's base theme draws on white. A diagram pasted into a transcript on
@@ -168,7 +171,7 @@ function engine(): Promise<MermaidApi> {
         }
       }).observe(document.documentElement, {
         attributes: true,
-        attributeFilter: ["data-theme"],
+        attributeFilter: ["data-theme", "data-scheme"],
       });
       return api;
     })

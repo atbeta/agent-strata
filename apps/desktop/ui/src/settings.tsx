@@ -19,7 +19,18 @@ import { inDesktopShell } from "./shell";
 import { LOCALES, LOCALE_LABEL, locale, setLocale, stamp, t, type Locale } from "./i18n";
 import { fadeSignal } from "./errors";
 import { Icon } from "./icons";
-import { readTheme, saveTheme, type ThemeChoice } from "./theme";
+import {
+  readScheme,
+  readTheme,
+  resolvedScheme,
+  saveAppearance,
+  THEMES,
+  themeMeta,
+  type ColorScheme,
+  type ResolvedScheme,
+  type Theme,
+  type ThemeId,
+} from "./theme";
 import {
   disableNotify,
   enableNotify,
@@ -159,15 +170,77 @@ function FontPicker(props: {
   );
 }
 
-const CHOICES = (): { id: ThemeChoice; label: string }[] => [
-  { id: "dark", label: t("settings.theme.dark") },
-  { id: "light", label: t("settings.theme.light") },
-  { id: "system", label: t("settings.theme.system") },
+/** Three marks from the palette: the page, a surface on it, and the accent. */
+function ThemeSwatch(props: { theme: Theme; scheme: ResolvedScheme }) {
+  const colors = () => props.theme.swatch[props.scheme];
+  return (
+    <span class="flex shrink-0 items-center -space-x-1" aria-hidden="true">
+      <span
+        class="size-3 rounded-full ring-1 ring-inset ring-foreground/15"
+        style={{ background: colors().background }}
+      />
+      <span
+        class="size-3 rounded-full ring-1 ring-inset ring-foreground/15"
+        style={{ background: colors().surface }}
+      />
+      <span
+        class="size-3 rounded-full ring-1 ring-inset ring-foreground/15"
+        style={{ background: colors().accent }}
+      />
+    </span>
+  );
+}
+
+/**
+ * A palette is chosen by name, with its own colours in front of it. The swatch
+ * follows the current scheme, so the picker previews the rendering the reader
+ * would actually get rather than always showing the dark one.
+ */
+function ThemePicker(props: {
+  label: string;
+  value: ThemeId;
+  scheme: ResolvedScheme;
+  onChange: (id: ThemeId) => void;
+}) {
+  const current = () => themeMeta(props.value);
+  return (
+    <div class="w-full">
+      <DropdownMenu>
+        <DropdownMenuTrigger class={pickerTrigger} aria-label={props.label}>
+          <span class="flex min-w-0 items-center gap-2">
+            <ThemeSwatch theme={current()} scheme={props.scheme} />
+            <span class="truncate">{current().name}</span>
+          </span>
+          <Icon name="chevron" class="size-3 shrink-0 text-muted-foreground" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent class="max-h-80 overflow-y-auto">
+          <For each={THEMES}>
+            {(theme) => (
+              <DropdownMenuItem onSelect={() => props.onChange(theme.id)}>
+                <ThemeSwatch theme={theme} scheme={props.scheme} />
+                <span class="min-w-0 flex-1 truncate">{theme.name}</span>
+                <Show when={theme.id === props.value}>
+                  <Icon name="check" class="ml-auto size-3 shrink-0" />
+                </Show>
+              </DropdownMenuItem>
+            )}
+          </For>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
+
+const SCHEMES = (): { id: ColorScheme; label: string }[] => [
+  { id: "dark", label: t("settings.scheme.dark") },
+  { id: "light", label: t("settings.scheme.light") },
+  { id: "system", label: t("settings.scheme.system") },
 ];
 
 export function SettingsPage(props: { section?: string; conns: ConnectionsCtl }) {
   const section = () => settingsSection(props.section);
-  const [choice, setChoice] = createSignal<ThemeChoice>(readTheme());
+  const [scheme, setScheme] = createSignal<ColorScheme>(readScheme());
+  const [theme, setTheme] = createSignal<ThemeId>(readTheme());
   const [launch, { refetch: refetchLaunch }] = createResource(readOpencodeLaunch);
   const [mode, setMode] = createSignal<OpencodeLaunchMode>("embed");
   const [runtime, setRuntime] = createSignal<OpencodeRuntime>();
@@ -474,9 +547,14 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
     }
   });
 
-  const pick = (next: ThemeChoice) => {
-    setChoice(next);
-    saveTheme(next);
+  const pickScheme = (next: ColorScheme) => {
+    setScheme(next);
+    saveAppearance({ theme: theme(), scheme: next });
+  };
+
+  const pickTheme = (next: ThemeId) => {
+    setTheme(next);
+    saveAppearance({ theme: next, scheme: scheme() });
   };
 
   const sectionItems: HTMLButtonElement[] = [];
@@ -587,12 +665,21 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
         <Card>
           {/* Right-aligned like every other row on the page — a bare Segmented
               under the group heading was the ragged edge that Row prevents. */}
-          <Row label={t("settings.theme")}>
+          <Row label={t("settings.scheme")}>
             <Segmented
+              label={t("settings.scheme")}
+              value={scheme()}
+              onChange={(id) => pickScheme(id as ColorScheme)}
+              options={SCHEMES()}
+            />
+          </Row>
+
+          <Row label={t("settings.theme")} hint={t("settings.theme.hint")}>
+            <ThemePicker
               label={t("settings.theme")}
-              value={choice()}
-              onChange={(id) => pick(id as ThemeChoice)}
-              options={CHOICES()}
+              value={theme()}
+              scheme={resolvedScheme(scheme())}
+              onChange={pickTheme}
             />
           </Row>
 
