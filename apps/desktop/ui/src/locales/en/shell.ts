@@ -149,6 +149,7 @@ export default {
 
   // Routes
   "nav.backToFleet": "← fleet",
+  "nav.backToSession": "← back to session",
   "nav.compare": "Compare",
 
   // Fleet page

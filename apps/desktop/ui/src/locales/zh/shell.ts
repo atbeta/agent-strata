@@ -150,6 +150,7 @@ export default {
 
   // Routes
   "nav.backToFleet": "← 会话列表",
+  "nav.backToSession": "← 返回会话",
   "nav.compare": "对比",
 
   // Fleet page

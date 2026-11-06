@@ -1,4 +1,4 @@
-import { createEffect, createResource, createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createResource, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import {
   apiFetch,
   createWorktree,
@@ -24,7 +24,7 @@ import { readSidebarOpen, writeSidebarOpen } from "./sidebar-visibility";
 import { t } from "./i18n";
 import { displayTitle } from "./session-title";
 import { isStreamingSnapshotMessage } from "./live";
-import { parseHash, type Route } from "./routes";
+import { parseHash, sessionBackHref, type Route } from "./routes";
 import { explain } from "./errors";
 import { useSessionList } from "./use-session-list";
 import { ConnectionEmpty, useConnections } from "./use-connections";
@@ -44,6 +44,20 @@ import { createDebouncer } from "./debounce";
 export function App() {
   const [route, setRoute] = createSignal<Route>(parseHash());
   const [clock, setClock] = createSignal(Date.now());
+  /**
+   * The route settings was entered from. Settings has no session of its own,
+   * so a way back has to name one — and it is the route the reader actually
+   * left, not the last session they ever looked at. Entering settings from the
+   * fleet page therefore offers no session link: there is no session they were
+   * just reading to return to.
+   */
+  const [settingsFrom, setSettingsFrom] = createSignal<Route | undefined>();
+  createEffect(
+    on(route, (next, prev) => {
+      if (next.name === "settings" && prev?.name !== "settings") setSettingsFrom(prev);
+      else if (next.name !== "settings") setSettingsFrom(undefined);
+    }),
+  );
   const activeId = () => {
     const r = route();
     return r.name === "session" ? r.id : undefined;
@@ -671,7 +685,19 @@ export function App() {
           </PageShell>
         </Show>
         <Show when={route().name === "settings"}>
-          <PageShell title={t("settings.title")}>
+          <PageShell
+            title={t("settings.title")}
+            back={(() => {
+              // Only a session the reader just left is a way back; a deleted
+              // one leaves the link out rather than opening an empty transcript.
+              const from = settingsFrom();
+              if (from?.name !== "session") return undefined;
+              const href = sessionBackHref(from.id, (id) =>
+                list.library().some((s) => s.summary.session_id === id),
+              );
+              return href ? { href, label: t("nav.backToSession") } : undefined;
+            })()}
+          >
             <SettingsPage section={(route() as { section?: string }).section} conns={conns} />
           </PageShell>
         </Show>
