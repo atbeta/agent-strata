@@ -132,7 +132,7 @@ export function BackendSettings(props: { conns: ConnectionsCtl }) {
         </Group>
       </Show>
 
-      <Group label={t("settings.backends.add")}>
+      <Group label={t("settings.backends.add")} hint={t("settings.backends.add.hint")}>
         <Card>
           <div class="py-3">
             <Segmented

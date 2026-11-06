@@ -239,12 +239,11 @@ export function MaintenanceSettings() {
                 <div class="pb-1">
                   {(
                     [
-                      { swatch: "bg-chart-1", name: t("maintenance.rebuildable"), hint: t("maintenance.rebuildable.hint"), row: stats()!.rebuildable },
-                      { swatch: "bg-chart-3", name: t("maintenance.local"), hint: t("maintenance.local.hint"), row: stats()!.local },
+                      { name: t("maintenance.rebuildable"), hint: t("maintenance.rebuildable.hint"), row: stats()!.rebuildable },
+                      { name: t("maintenance.local"), hint: t("maintenance.local.hint"), row: stats()!.local },
                     ] as const
                   ).map((cls) => (
                     <div class="flex items-start gap-3 py-2">
-                      <span class={`mt-1.5 size-2 shrink-0 rounded-full ${cls.swatch}`} />
                       <div class="min-w-0 flex-1">
                         <p class="text-sm text-foreground">{cls.name}</p>
                         <p class="mt-0.5 text-2xs text-muted-foreground">{cls.hint}</p>

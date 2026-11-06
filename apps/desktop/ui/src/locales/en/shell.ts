@@ -125,7 +125,10 @@ export default {
   "settings.backends.connected": "Connected",
   "settings.backends.pending": "Not connected",
   "settings.backends.none": "No backend is connected.",
-  "settings.backends.history": "Sessions already recorded stay in the list after a disconnect. Continuing one needs that backend connected again.",
+  "settings.backends.history":
+    "Sessions already recorded stay in the list after a disconnect; reconnect that backend to continue one.",
+  "settings.backends.add.hint":
+    "OpenCode connects to a running server by address; ACP launches a local adapter from a command.",
   "settings.backends.forget": "Don't reconnect",
   "settings.backends.useForNew": "Use for new sessions",
   "settings.backends.add": "Add a backend",
@@ -280,6 +283,8 @@ export default {
   "settings.section.permission": "Permissions",
   "settings.section.about": "About",
   "settings.appearance": "Appearance",
+  "settings.appearance.hint":
+    "Theme and font changes apply immediately. Code, commands, and diffs use the code font; the terminal can use its own.",
   "settings.general": "General",
   "settings.language": "Language",
   "settings.language.hint": "The interface language. Takes effect immediately, no restart.",
@@ -290,9 +295,11 @@ export default {
   "settings.notify.done.title": "Notify on finish",
   "settings.notify.done.hint": "A chime and a system notification when a session's turn ends while this window is in the background.",
   "settings.notify.question.title": "Notify when waiting",
-  "settings.notify.question.hint": "A chime and a system notification when a session stops for your approval or answer. Desktop builds do not show a separate permission prompt; if no banner appears, allow this app in the system notification settings.",
+  "settings.notify.question.hint":
+    "A chime and a system notification when a session stops for your approval or answer while the window is in the background.",
   "notify.needsInput": "Waiting for you",
-  "settings.notify.blocked": "Notifications are blocked.",
+  "settings.notify.blocked":
+    "Notifications are blocked. Desktop builds show no separate permission prompt; if no banner appears, allow this app in the system notification settings.",
   "settings.thinking.title": "Thinking",
   "settings.thinking.hint": "Whether a thought starts open. Each one can still be collapsed.",
   "settings.thinking.open": "Expanded",
@@ -319,7 +326,7 @@ export default {
   "settings.font.ligatures.off": "Off",
   "settings.opencode.title": "OpenCode",
   "settings.opencode.mode": "How it runs",
-  "settings.opencode.modeHint": "{desc}. {apply}",
+  "settings.opencode.modeHint": "{desc}.",
   "settings.opencode.embed": "Built in",
   "settings.opencode.embedHint": "Start opencode when the app opens",
   "settings.opencode.external": "External",
@@ -327,7 +334,8 @@ export default {
   "settings.opencode.apply": "Takes effect the next time the app starts.",
   "settings.opencode.missing": "opencode was not found. Install it, then open the app again.",
   "settings.opencode.install": "Install instructions",
-  "settings.opencode.runtimeHint": "The app does not bundle opencode; it discovers it, checks it, and can restart the embedded server.",
+  "settings.opencode.runtimeHint":
+    "The app does not bundle opencode: it finds and checks the local one, and restarts the embedded server when needed.",
   "settings.opencode.externalPath": "Using an external server; no local binary.",
   "settings.opencode.binMissing": "opencode was not found",
   "settings.opencode.sourceShort.setting": "Settings",

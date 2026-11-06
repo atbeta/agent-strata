@@ -658,12 +658,13 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
           <h2 class="text-lg font-semibold text-foreground">{t(sectionMeta().label)}</h2>
         </div>
       <Show when={section() === "interface"}>
-      <Group label={t("settings.appearance")}>
+      {/* One card for everything the eye sees — the theme, then the two
+          families and their sizes. A group per concern left 主题 alone in a
+          bordered box: ceremony without content. */}
+      <Group label={t("settings.appearance")} hint={t("settings.appearance.hint")}>
         <Card>
-          {/* This one was a bare Segmented straight inside the group, so its
-              control sat under the group heading on the left while every other
-              control on the page right-aligned against one edge — the ragged
-              edge that Row exists to prevent. */}
+          {/* Right-aligned like every other row on the page — a bare Segmented
+              under the group heading was the ragged edge that Row prevents. */}
           <Row label={t("settings.theme")}>
             <Segmented
               label={t("settings.theme")}
@@ -672,48 +673,11 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
               options={CHOICES()}
             />
           </Row>
-        </Card>
-      </Group>
-
-      {/* Language and notification are preferences, not a category each: they
-          share one list so the page reads as a page instead of a stack of
-          equally loud blocks. */}
-      <Group label={t("settings.general")}>
-      <Card>
-        <Row label={t("settings.language")} hint={t("settings.language.hint")}>
-          {/* Each language in its own name. "English" is not a translation of
-              "英文" to someone who cannot read the one they are looking at. */}
-          <Segmented
-            label={t("settings.language")}
-            value={locale()}
-            onChange={(id) => setLocale(id as Locale)}
-            options={LOCALES.map((id) => ({ id, label: LOCALE_LABEL[id] }))}
-          />
-        </Row>
-
-        <Row label={t("settings.thinking.title")} hint={t("settings.thinking.hint")}>
-          <Switch
-            checked={thinkingOpen()}
-            aria-label={t("settings.thinking.title")}
-            onChange={(next) => {
-              setThinkingOpen(next);
-              saveThinkingOpen(next);
-            }}
-          />
-        </Row>
-
-        {notifyRow("done", notifyDone)}
-        {notifyRow("question", notifyQuestion)}
-      </Card>
-      </Group>
-
-      <Group label={t("settings.font.title")} hint={t("settings.font.hint")}>
-        <Card>
           {/* Both families have to appear here. A preview that only shows the code
               font leaves the interface-font row looking like it did nothing, which
               is the same doubt the picker itself has to answer. It pins while the
               rows beneath scroll past, on the card's own surface. */}
-          <div class="sticky top-0 z-10 rounded-t-lg bg-card py-3">
+          <div class="sticky top-0 z-10 border-b border-border bg-card py-3">
             <div class="flex items-baseline gap-3">
               <span class="w-14 shrink-0 text-2xs text-muted-foreground">
                 {t("settings.font.ui")}
@@ -795,6 +759,38 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
           </Row>
         </Card>
       </Group>
+
+      {/* Language and notification are preferences, not a category each: they
+          share one list so the page reads as a page instead of a stack of
+          equally loud blocks. */}
+      <Group label={t("settings.general")}>
+      <Card>
+        <Row label={t("settings.language")} hint={t("settings.language.hint")}>
+          {/* Each language in its own name. "English" is not a translation of
+              "英文" to someone who cannot read the one they are looking at. */}
+          <Segmented
+            label={t("settings.language")}
+            value={locale()}
+            onChange={(id) => setLocale(id as Locale)}
+            options={LOCALES.map((id) => ({ id, label: LOCALE_LABEL[id] }))}
+          />
+        </Row>
+
+        <Row label={t("settings.thinking.title")} hint={t("settings.thinking.hint")}>
+          <Switch
+            checked={thinkingOpen()}
+            aria-label={t("settings.thinking.title")}
+            onChange={(next) => {
+              setThinkingOpen(next);
+              saveThinkingOpen(next);
+            }}
+          />
+        </Row>
+
+        {notifyRow("done", notifyDone)}
+        {notifyRow("question", notifyQuestion)}
+      </Card>
+      </Group>
       </Show>
 
       <Show when={section() === "backends"}>
@@ -811,16 +807,22 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
               /[.。]\s*$/,
               "",
             ),
-            apply: t("settings.opencode.apply"),
           })}
 
           note={
-            <Show when={saveErr()}>
-              <p class="mt-1.5 flex items-center gap-1.5 text-2xs text-destructive">
-                <Icon name="alert" class="size-3 shrink-0" />
-                {saveErr()}
+            <>
+              {/* The timing belongs to the switch itself, not to one option's
+                  description — it reads the same for either choice. */}
+              <p class="mt-1.5 text-2xs leading-4 text-muted-foreground">
+                {t("settings.opencode.apply")}
               </p>
-            </Show>
+              <Show when={saveErr()}>
+                <p class="mt-1.5 flex items-center gap-1.5 text-2xs text-destructive">
+                  <Icon name="alert" class="size-3 shrink-0" />
+                  {saveErr()}
+                </p>
+              </Show>
+            </>
           }
         >
           <Segmented
