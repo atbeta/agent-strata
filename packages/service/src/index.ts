@@ -1851,13 +1851,13 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         // repository it belongs to. The repositories the app knows about still
         // can, so the removal finds its subject by the path git recorded
         // rather than by what is left on disk.
-        const dirs = await knownDirs();
-        const repos = await reposOf([...dirs.values()]);
         await worktreeRemove({
           dir: body.directory,
           force: body.force === true,
           stateDir: desktopDir,
-          repos,
+          // Asked only when the folder can no longer say which repository it
+          // belongs to, because working them out costs a git process each.
+          repos: async () => reposOf([...(await knownDirs()).values()]),
           // A program the app started inside the worktree keeps the folder
           // locked — on Windows that is a hard "Permission denied". These
           // processes are the app's own, so it stops them and tries again.

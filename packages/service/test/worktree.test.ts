@@ -223,10 +223,31 @@ describe("worktreeRemove", () => {
 
     // Asked of the repositories the app knows about, the checkout is found
     // again and goes away.
-    await worktreeRemove({ dir: wt.directory, force: true, stateDir: state, repos: [repo] });
+    await worktreeRemove({ dir: wt.directory, force: true, stateDir: state, repos: async () => [repo] });
     expect(existsSync(wt.directory)).toBe(false);
     // The branch is not what was asked for.
     expect(git(repo, "branch", "--list", wt.branch).stdout).toContain(wt.branch);
+  });
+
+  test("a checkout whose folder was emptied is found through a sibling", async () => {
+    // The app keeps one folder of checkouts per repository, and every checkout
+    // in it points back at the same repository. A sibling that still has its
+    // `.git` file therefore says which repository the folder belongs to — the
+    // answer for a checkout whose own file went when the folder was emptied,
+    // and the one the app would have if no session is in that repository any
+    // more.
+    const repo = makeRepo();
+    const state = tempDir();
+    const first = await worktreeAdd({ dir: repo, stateDir: state });
+    const second = await worktreeAdd({ dir: repo, stateDir: state });
+    for (const name of readdirSync(second.directory)) {
+      rmSync(join(second.directory, name), { recursive: true, force: true });
+    }
+    // No repository is offered, and none is needed.
+    await worktreeRemove({ dir: second.directory, force: true, stateDir: state });
+    expect(existsSync(second.directory)).toBe(false);
+    // The sibling is a checkout of its own, and it is not touched.
+    expect(existsSync(first.directory)).toBe(true);
   });
 
   test("a checkout git gave up on is still ours to remove", async () => {

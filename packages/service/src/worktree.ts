@@ -259,10 +259,11 @@ export async function worktreeRemove(opts: {
   force?: boolean;
   stateDir: string;
   /**
-   * The repositories the app knows about — asked when the checkout's own
-   * folder can no longer answer for itself.
+   * The repositories the app knows about — asked only when the checkout's own
+   * folder can no longer answer for itself, because working them out costs a
+   * git process each.
    */
-  repos?: readonly string[];
+  repos?: () => Promise<readonly string[]>;
   /**
    * Called when the folder will not empty — the app's own programs inside it
    * may be what is holding it. It is not called before that: a dirty
@@ -278,7 +279,13 @@ export async function worktreeRemove(opts: {
   // knows about are asked instead. Without this a removal that emptied the
   // folder and could not remove it leaves a checkout that nothing can ever
   // remove again.
-  const owner = info ? undefined : await worktreeOwner(dir, opts.repos ?? []);
+  let owner = info ? undefined : await worktreeOwner(dir, (await opts.repos?.()) ?? []);
+  // A repository the app no longer has a session in is still the one this
+  // checkout came from, and a sibling under the same folder says which.
+  if (!info && !owner) {
+    const sibling = repoOfSibling(dir);
+    if (sibling) owner = await worktreeOwner(dir, [sibling]);
+  }
   const repo = info?.repo ?? owner?.repo;
   if (!repo) {
     // git has already given this checkout up: it drops the registration
@@ -581,4 +588,28 @@ function repoOfCheckout(dir: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * The repository a folder of checkouts came from, read from a sibling.
+ *
+ * The app keeps one folder per repository, named after it, and every checkout
+ * in it points back at the same repository. A sibling that still has its
+ * `.git` file therefore says which repository the folder belongs to — which is
+ * the answer for a checkout whose own file went when the folder was emptied.
+ */
+function repoOfSibling(dir: string): string | undefined {
+  let names: string[];
+  try {
+    names = readdirSync(dirname(dir));
+  } catch {
+    return undefined;
+  }
+  for (const name of names) {
+    const sibling = join(dirname(dir), name);
+    if (sibling === dir) continue;
+    const repo = repoOfCheckout(sibling);
+    if (repo) return repo;
+  }
+  return undefined;
 }
