@@ -30,6 +30,7 @@ export type Name =
   | "terminal"
   | "globe"
   | "list"
+  | "overview"
   | "wrench"
   | "branch"
   | "fork"
@@ -42,6 +43,7 @@ export type Name =
   | "brain"
   | "stop"
   | "alert"
+  | "attention"
   | "info"
   | "target"
   | "plus"
@@ -386,6 +388,19 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
         <circle cx="3.4" cy="13.5" r="0.7" fill="currentColor" stroke="none" />
       </Glyph>
     );
+  // Four panes on one board: the fleet page, where every project and session
+  // is in frame at once. Square on purpose — the two status marks under it
+  // hold the same box, and the three-bars-with-dots list this replaces read
+  // as scattered specks at row size.
+  if (name === "overview")
+    return (
+      <Glyph class={cls}>
+        <rect x="2.5" y="2.5" width="5" height="5" rx="1.3" />
+        <rect x="8.5" y="2.5" width="5" height="5" rx="1.3" />
+        <rect x="2.5" y="8.5" width="5" height="5" rx="1.3" />
+        <rect x="8.5" y="8.5" width="5" height="5" rx="1.3" />
+      </Glyph>
+    );
   if (name === "wrench")
     return (
       <Glyph class={cls}>
@@ -561,11 +576,13 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
    * A heartbeat line: work happening right now. Drawn here rather than
    * borrowed because every other mark on this grid is hand-drawn, and a
    * borrowed one would have to be re-fitted to sit at the same weight.
+   * The peaks reach the same optical box the nav's square marks hold — a
+   * flatter line left the row reading as a dash with air above and below.
    */
   if (name === "activity")
     return (
       <Glyph class={cls}>
-        <path d="M2 8h2.4l1.3-3.4 2.1 6.6 1.7-3.2H14" />
+        <path d="M2.5 8h2l1.4-4.6 2.4 9.2 1.6-4.6h3.6" />
       </Glyph>
     );
   if (name === "maximize")
@@ -578,6 +595,17 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
     return (
       <Glyph class={cls}>
         <path d="M13 6.2H9.8V3M3 9.8h3.2V13M9.8 6.2 13.5 2.5M6.2 9.8 2.5 13.5" />
+      </Glyph>
+    );
+  // A rounded square holding an exclamation: something is waiting on a
+  // person. The box keeps the sidebar nav's three marks one square family;
+  // the circle `alert` stays for notices set inside prose.
+  if (name === "attention")
+    return (
+      <Glyph class={cls}>
+        <rect x="2.5" y="2.5" width="11" height="11" rx="2.8" />
+        <path d="M8 5.2v3.4" />
+        <circle cx="8" cy="10.9" r="0.7" fill="currentColor" stroke="none" />
       </Glyph>
     );
   if (name === "alert")

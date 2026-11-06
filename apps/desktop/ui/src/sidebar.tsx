@@ -531,7 +531,7 @@ export function Sidebar(props: {
             aria-current={props.fleetActive ? "page" : undefined}
             onClick={() => props.onOpenFleet()}
           >
-            <Icon name="list" class="size-3.5 shrink-0" />
+            <Icon name="overview" class="size-3.5 shrink-0" />
             <span class="truncate">{t("fleet.nav")}</span>
           </RowButton>
           {/* A new session belongs to wherever the reader is standing, and the
@@ -552,7 +552,7 @@ export function Sidebar(props: {
         <StatusRow
           label={t("sidebar.status.waiting")}
           count={waitingCount()}
-          icon="alert"
+          icon="attention"
           active={list().lens().status === "waiting"}
           onClick={toggleStatus("waiting")}
         />
