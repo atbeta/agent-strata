@@ -6,6 +6,7 @@
  *   bun run bench --engines webkit --reps 5
  *   bun run bench --compare bench/results/<file>.json
  *   bun run bench --dev                   against the Vite dev server instead of a production build
+ *   bun run bench --native-wheel          wheel steps only: the browser's native path (the smoother stands aside)
  *   bun run bench --db ~/.agent-strata/events.db --long <id> --heavy <id> --small <id>,<id>,<id>
  *   bun run bench --flows E --giant <id> --giant-turns <turnId>,<turnId>   giant-turn ids flow E jumps between
  *   bun run bench --flows F             entrance: a turn arrives live and grows past a segment
@@ -51,6 +52,7 @@ function args() {
     giant: get("giant"),
     giantTurns: get("giant-turns"),
     verbose: a.includes("--verbose"),
+    nativeWheel: a.includes("--native-wheel"),
     build: (a.includes("--dev") ? "dev" : "prod") as "dev" | "prod",
   };
 }
@@ -212,7 +214,15 @@ async function main() {
             });
             await context.addInitScript(installProbe);
             const page = await context.newPage();
-            const ctx: FlowContext = { page, uiUrl: env.uiUrl, dbPath: env.dbPath, orders, errors: [], emit: env.emit };
+            const ctx: FlowContext = {
+              page,
+              uiUrl: env.uiUrl,
+              dbPath: env.dbPath,
+              orders,
+              errors: [],
+              emit: env.emit,
+              nativeWheel: opt.nativeWheel,
+            };
             // WebKit hands some errors over with an empty name and stack; the message is what is left.
             page.on("pageerror", (e) => ctx.errors.push([e.message, e.stack].filter(Boolean).join("\n") || String(e)));
             const record: RunRecord = { engine, rep, flow, steps: [] };
@@ -260,6 +270,7 @@ async function main() {
       reps: opt.reps,
       flows: opt.flows,
       headed: opt.headed,
+      nativeWheel: opt.nativeWheel,
       viewport: "1440x900@2x",
       bun: Bun.version,
     },

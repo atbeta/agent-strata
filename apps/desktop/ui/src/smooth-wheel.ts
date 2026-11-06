@@ -11,12 +11,26 @@
  * It stays out of the way everywhere else. Trackpad deltas (small, continuous)
  * fall under the chunk threshold and scroll natively; pinch-zoom, shift-wheel
  * and horizontal intent pass through untouched; line- and page-mode deltas
- * scale natively; reduced motion disables the whole thing. Anything else that
- * moves the scroller — the scroll owner's jumps, a scrollbar drag, a touch —
- * is detected as a position we did not write and cancels the animation, so
- * this is never a second owner fighting the first.
+ * scale natively; reduced motion disables the whole thing. A scrollbar drag, a
+ * touch, or any other writer that moves the scroller is detected as a position
+ * we did not write and cancels the animation. The scroll owner is the one
+ * exception: while a notch is easing it stands aside, so its layout corrections
+ * do not read as a foreign scroll and take the gesture's remaining distance
+ * with them. It takes the position back from onScroll as the ease moves.
+ *
+ * The listener has to be non-passive: easing a notch means calling
+ * preventDefault, and the browser cannot know whether this event will be one
+ * until the handler runs. That is the price of the effect; a trackpad pan still
+ * scrolls natively, but its event queues behind this one.
  */
 export const WHEEL_CHUNK_PX = 32;
+/**
+ * A large delta this soon after another wheel event is a trackpad still
+ * accelerating, not a new notch. WebKit exposes no phase or momentumPhase to
+ * JS, and a fast flick's first delta can still look like a notch; once the
+ * stream turns small, the next event takes the gesture back.
+ */
+export const WHEEL_STREAM_MS = 100;
 export const SMOOTH_TAU_MS = 100;
 export const SMOOTH_EPSILON_PX = 0.5;
 
@@ -54,14 +68,24 @@ export function approach(current: number, target: number, dtMs: number, tau = SM
   return Math.abs(target - next) < SMOOTH_EPSILON_PX ? target : next;
 }
 
-export function createWheelSmoother(el: HTMLElement): () => void {
+export interface WheelSmoother {
+  /** True while a notch's distance is still being spent. */
+  active: () => boolean;
+  /** Stop easing and drop whatever distance is left. */
+  cancel: () => void;
+  dispose: () => void;
+}
+
+export function createWheelSmoother(el: HTMLElement): WheelSmoother {
   const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
   let target: number | null = null;
   let written = 0;
   let prev = 0;
   let frame = 0;
+  let lastWheelAt = -Infinity;
 
   const running = () => frame !== 0;
+  const limit = () => Math.max(0, el.scrollHeight - el.clientHeight);
   const cancel = () => {
     if (frame) cancelAnimationFrame(frame);
     frame = 0;
@@ -96,14 +120,28 @@ export function createWheelSmoother(el: HTMLElement): () => void {
   };
 
   const onWheel = (e: WheelEvent) => {
-    if (reduced.matches || !isSmoothingCandidate(e)) return;
+    const now = performance.now();
+    const since = now - lastWheelAt;
+    lastWheelAt = now;
+    if (reduced.matches || !isSmoothingCandidate(e)) {
+      // A small delta behind a notch means this is a trackpad after all (or a
+      // pinch/shift/horizontal gesture): hand the rest of the gesture back.
+      if (target !== null) cancel();
+      return;
+    }
     const at = el.scrollTop;
-    const max = el.scrollHeight - el.clientHeight;
+    const max = limit();
     // Nowhere to go: hand the event to the native handler rather than eating
     // a notch the reader aimed past the edge.
     if ((e.deltaY < 0 && at <= 0) || (e.deltaY > 0 && at >= max)) return;
+    // A big delta right behind another wheel event is a trackpad accelerating,
+    // not a fresh notch. Let the platform own that gesture.
+    if (target === null && since < WHEEL_STREAM_MS) return;
     e.preventDefault();
     target = nextTarget(at, target, e.deltaY, max);
+    // A fresh gesture starts from where the scroller is; otherwise the first
+    // tick's scroll event would compare against a position from before it.
+    if (!running()) written = at;
     start();
   };
   const onScroll = () => {
@@ -118,11 +156,15 @@ export function createWheelSmoother(el: HTMLElement): () => void {
   el.addEventListener("scroll", onScroll, { passive: true });
   el.addEventListener("pointerdown", onPointerDown, { passive: true });
   reduced.addEventListener("change", onReduced);
-  return () => {
-    cancel();
-    el.removeEventListener("wheel", onWheel);
-    el.removeEventListener("scroll", onScroll);
-    el.removeEventListener("pointerdown", onPointerDown);
-    reduced.removeEventListener("change", onReduced);
+  return {
+    active: () => target !== null,
+    cancel,
+    dispose: () => {
+      cancel();
+      el.removeEventListener("wheel", onWheel);
+      el.removeEventListener("scroll", onScroll);
+      el.removeEventListener("pointerdown", onPointerDown);
+      reduced.removeEventListener("change", onReduced);
+    },
   };
 }

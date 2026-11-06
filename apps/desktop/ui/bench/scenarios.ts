@@ -39,6 +39,8 @@ export interface FlowContext {
   /** Page errors raised since the current step began; drained by each step. */
   errors: string[];
   emit: (event: unknown) => void;
+  /** Run wheel steps on the browser's native path by asking for reduced motion. */
+  nativeWheel?: boolean;
 }
 
 type Settled = { settled: boolean; at: number };
@@ -173,17 +175,33 @@ export async function stepUp(ctx: FlowContext, name: string, total: number, step
   );
 }
 
-/** Scroll up with real wheel input, through the browser's own scrolling path. */
+/**
+ * Wheel input for a whole gesture. On the shipped path the transcript's wheel
+ * smoother owns each notch, so this measures the eased journey; with
+ * `--native-wheel` reduced motion turns the smoother off around just this
+ * step, and the same gesture measures the browser's native path. A baseline
+ * taken on one is not a baseline for the other.
+ */
+async function wheelLoop(ctx: FlowContext, total: number, step: number): Promise<void> {
+  const native = ctx.nativeWheel === true;
+  if (native) await ctx.page.emulateMedia({ reducedMotion: "reduce" });
+  try {
+    for (let done = 0; done < total; done += step) {
+      await ctx.page.mouse.wheel(0, -step);
+      await ctx.page.waitForTimeout(16);
+    }
+  } finally {
+    if (native) await ctx.page.emulateMedia({ reducedMotion: "no-preference" });
+  }
+}
+
 export async function wheelUp(ctx: FlowContext, name: string, total: number, step: number): Promise<StepResult> {
   const b = bench(ctx.page);
   const box = await b.box();
   if (!box) throw new Error("no transcript scroller");
   await ctx.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   const t0 = await b.now();
-  for (let done = 0; done < total; done += step) {
-    await ctx.page.mouse.wheel(0, -step);
-    await ctx.page.waitForTimeout(16);
-  }
+  await wheelLoop(ctx, total, step);
   const t1 = await b.now();
   const r = await b.settle(t1, 500, 8_000);
   const rec = await b.take(t0);
@@ -289,10 +307,7 @@ export async function runningWheelUp(
   const stop = streamLatestTurn(ctx, id);
   const t0 = await b.now();
   try {
-    for (let done = 0; done < total; done += step) {
-      await ctx.page.mouse.wheel(0, -step);
-      await ctx.page.waitForTimeout(16);
-    }
+    await wheelLoop(ctx, total, step);
   } catch (e) {
     stop();
     throw e;

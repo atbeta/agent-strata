@@ -150,6 +150,14 @@ export function createScrollOwner(opts: {
   layout: RowLayout;
   initial: Reading;
   remember: (r: Reading) => void;
+  /**
+   * True while a wheel ease owns the position. The apply effect then leaves
+   * the scroller alone: its write would be a correction under a reader who is
+   * already moving, and the wheel would read it as a foreign scroll and stop.
+   * The reading catches up through onScroll, and the next effect after the
+   * ease resumes the usual corrections.
+   */
+  suspended?: () => boolean;
 }): ScrollOwner {
   const [reading, setReading] = createSignal<Reading>(opts.initial);
   const [top, setTop] = createSignal(0);
@@ -279,7 +287,7 @@ export function createScrollOwner(opts: {
       scrollHeight: p.sh,
       clientHeight: p.ch,
     });
-    if (target !== undefined && Math.abs(target - p.st) >= 1) {
+    if (target !== undefined && Math.abs(target - p.st) >= 1 && !opts.suspended?.()) {
       el.scrollTop = target;
       // Read back post-clamp: the browser may not have the extent the layout
       // claims yet, and lastWritten tracks what is actually on screen.

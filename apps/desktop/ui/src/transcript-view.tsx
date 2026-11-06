@@ -32,7 +32,7 @@ import {
   writeRowHeight,
 } from "./transcript-layout";
 import { scrollCoalescer } from "./scroll-frame";
-import { createWheelSmoother } from "./smooth-wheel";
+import { createWheelSmoother, type WheelSmoother } from "./smooth-wheel";
 import { DisclosureContext } from "./disclosure";
 import { ContentSashes, LoadingTranscript } from "./content-sashes";
 import { PromptNavigator } from "./prompt-navigator";
@@ -246,16 +246,19 @@ export function TranscriptView(props: {
           // A notch of a discrete mouse wheel lands eased instead of in one
           // hard jump; trackpad pans, jumps and drags never reach it (see the
           // module). One per scroller, so peer panes each ease their own.
-          let disposeWheel: (() => void) | undefined;
+          let wheel: WheelSmoother | undefined;
           const owner = createScrollOwner({
             scroller: () => scroller,
             host: () => host,
             layout,
             initial: recallReading(key) ?? { pinned: true },
             remember: (reading) => rememberReading(key, reading),
+            // An owner write during an ease is a correction under the reader,
+            // not input: stand aside until the notch has been spent.
+            suspended: () => wheel?.active() ?? false,
           });
           const onScroll = scrollCoalescer(owner.onScroll);
-          onCleanup(() => disposeWheel?.());
+          onCleanup(() => wheel?.dispose());
           createEffect(() => {
             const g = owner.gesturing();
             // The path actions live above the transcript and ask whether the
@@ -285,12 +288,21 @@ export function TranscriptView(props: {
           });
 
           props.api?.({
-            jumpTo: owner.jumpTo,
+            jumpTo: (turnId, align) => {
+              wheel?.cancel();
+              owner.jumpTo(turnId, align);
+            },
             jumpToIndex: (index, align) => {
               const id = props.turns[Math.round(index)]?.turn_id;
-              if (id) owner.jumpTo(id, align);
+              if (id) {
+                wheel?.cancel();
+                owner.jumpTo(id, align);
+              }
             },
-            toLatest: owner.toLatest,
+            toLatest: () => {
+              wheel?.cancel();
+              owner.toLatest();
+            },
           });
 
           return (
@@ -300,8 +312,8 @@ export function TranscriptView(props: {
               <div
                 ref={(el) => {
                   scroller = el;
-                  disposeWheel?.();
-                  disposeWheel = createWheelSmoother(el);
+                  wheel?.dispose();
+                  wheel = createWheelSmoother(el);
                 }}
                 // overflow-anchor: Chromium's scroll anchoring is a second
                 // owner — it moves scrollTop on its own when the content's
@@ -370,7 +382,10 @@ export function TranscriptView(props: {
                 <PromptNavigator
                   entries={entries()}
                   activeId={activeId()}
-                  onSelect={(turnId) => owner.jumpTo(turnId, "start")}
+                  onSelect={(turnId) => {
+                    wheel?.cancel();
+                    owner.jumpTo(turnId, "start");
+                  }}
                 />
               </Show>
 
@@ -389,7 +404,10 @@ export function TranscriptView(props: {
                     size="icon"
                     aria-label={t("nav.latest")}
                     class="surface-popover absolute bottom-4 left-1/2 z-20 -translate-x-1/2"
-                    onClick={() => owner.toLatest()}
+                    onClick={() => {
+                      wheel?.cancel();
+                      owner.toLatest();
+                    }}
                   >
                     <Icon name="arrow-down" class="size-4" />
                   </Button>
