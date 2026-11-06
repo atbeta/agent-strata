@@ -25,6 +25,32 @@ export function isControlTag(name: string): boolean {
 }
 
 /**
+ * Tags that must not become a code block even though they carry markup.
+ *
+ * A control tag is scaffolding around a sentence (see `isControlTag`), and a
+ * form control is an interaction the transcript cannot honour — both belong to
+ * the prose. The first is unwrapped; the second is shown as its source by
+ * `revealDroppedTags`, which is also what keeps a fake button from looking
+ * pressable.
+ */
+const PROSE_TAGS = new Set([
+  "system-reminder",
+  "system",
+  "instructions",
+  "button",
+  "input",
+  "textarea",
+  "select",
+  "option",
+  "optgroup",
+  "form",
+  "fieldset",
+  "iframe",
+  "object",
+  "embed",
+]);
+
+/**
  * Whether a block is source rather than prose.
  *
  * `dropped` answers whether the renderer's sanitiser would delete that tag.
@@ -35,7 +61,7 @@ export function isControlTag(name: string): boolean {
  */
 export function isSourceBlock(source: string, dropped: (tag: string) => boolean): boolean {
   const tag = leadingTag(source);
-  if (tag === undefined || CONTROL_TAGS.has(tag)) return false;
+  if (tag === undefined || CONTROL_TAGS.has(tag) || PROSE_TAGS.has(tag)) return false;
   if (!dropped(tag)) return false;
   // Opening with a component name is not the same as being that component:
   // `<x-option> 是我们自己的组件` is a sentence. A component's source ends where

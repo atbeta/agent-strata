@@ -2,6 +2,37 @@ import DOMPurify from "dompurify";
 import { sourceOf, isControlTag } from "./md-source";
 
 /**
+ * What a message may not carry.
+ *
+ * A transcript is content, not an application surface. DOMPurify keeps form
+ * controls and embedded documents by default, so a reply containing
+ * `<button>` or `<input>` drew a live control that looked like the app's own —
+ * a fake button a reader could press, or a text field that swallowed a click.
+ * Media is the same shape: an `<video autoplay>` starts playing on its own in
+ * a column the reader is scrolling. These are shown as source instead (see
+ * `revealDroppedTags`).
+ */
+export const SANITIZE_CONFIG: { FORBID_TAGS: string[] } = {
+  FORBID_TAGS: [
+    "button",
+    "input",
+    "textarea",
+    "select",
+    "option",
+    "optgroup",
+    "form",
+    "fieldset",
+    "iframe",
+    "object",
+    "embed",
+    "video",
+    "audio",
+    "source",
+    "track",
+  ],
+};
+
+/**
  * Whether the sanitiser keeps a tag.
  *
  * DOMPurify does not say what it removed. An unknown element is dropped and
@@ -23,6 +54,7 @@ export function sanitizerKeepsTag(name: string): boolean {
     const probe = document.createElement("template");
     probe.innerHTML = DOMPurify.sanitize(
       inTable ? tableProbe(name) : `<${name}></${name}>`,
+      SANITIZE_CONFIG,
     );
     answer = inTable
       ? Boolean(probe.content.querySelector(`table ${name}`))
@@ -49,6 +81,22 @@ function tableProbe(name: string): string {
   return `<table><${name}></${name}></table>`;
 }
 
+/** The opening tag of an element's serialized markup, quotes respected. */
+function openingTag(html: string): string {
+  let quote = "";
+  for (let i = 0; i < html.length; i += 1) {
+    const ch = html[i];
+    if (quote) {
+      if (ch === quote) quote = "";
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+    } else if (ch === ">") {
+      return html.slice(0, i + 1);
+    }
+  }
+  return html;
+}
+
 /**
  * Show a dropped tag that sits inside a sentence.
  *
@@ -57,7 +105,7 @@ function tableProbe(name: string): string {
  * component named in prose. The tag becomes its own text, the sentence around
  * it is still markdown.
  */
-export function revealDroppedTags(host: DocumentFragment) {
+export function revealDroppedTags(host: DocumentFragment, source = "") {
   const dropped = new Set<string>();
   for (const el of host.querySelectorAll("*")) {
     const name = el.tagName.toLowerCase();
@@ -71,11 +119,20 @@ export function revealDroppedTags(host: DocumentFragment) {
   const walk = (parent: ParentNode) => {
     for (const node of [...parent.childNodes]) {
       if (!(node instanceof Element)) continue;
-      if (!sanitizerKeepsTag(node.tagName.toLowerCase())) {
+      const name = node.tagName.toLowerCase();
+      if (!sanitizerKeepsTag(name)) {
         // An instruction wrapper is not source: its tag is scaffolding around
         // a sentence the reader needs, so drop the tag and keep the words.
-        if (isControlTag(node.tagName.toLowerCase())) {
+        if (isControlTag(name)) {
           node.replaceWith(...node.childNodes);
+          continue;
+        }
+        // A tag the author never closed is auto-closed by the parser, and its
+        // outerHTML would invent a closing tag the message does not contain.
+        // Put the opening tag back as text and leave the children where the
+        // author wrote them; only a real closing tag is shown.
+        if (source !== "" && !new RegExp(`</${name}\\s*>`, "i").test(source)) {
+          node.replaceWith(document.createTextNode(sourceOf(openingTag(node.outerHTML))), ...node.childNodes);
           continue;
         }
         node.replaceWith(document.createTextNode(sourceOf(node.outerHTML)));
