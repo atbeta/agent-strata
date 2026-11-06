@@ -206,6 +206,8 @@ export default {
   "dev.exited": "已退出（{code}）",
   "dev.stop": "停止",
   "dev.stopping": "正在停止",
+  "dev.forget": "删除记录",
+  "dev.forget.failed": "删除失败：{reason}",
   "dev.logs": "日志",
   "dev.logs.hide": "收起日志",
   "dev.logs.empty": "还没有输出。",
@@ -316,6 +318,8 @@ export default {
   "composer.shell.noAttachments": "shell 命令不能带附件，请先移除",
   "composer.attachments.one": "1 个附件",
   "composer.attachments.other": "{n} 个附件",
+  "composer.background.one": "1 个后台进程",
+  "composer.background.other": "{n} 个后台进程",
 
   // Slash commands this app runs itself — the backend only lists its own.
   "cmd.compact": "压缩会话上下文",

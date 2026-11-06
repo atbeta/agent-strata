@@ -23,6 +23,7 @@ export type Name =
   | "arrow-down"
   | "pencil"
   | "archive"
+  | "trash"
 
   | "spark"
   | "gear"
@@ -529,6 +530,15 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
     return (
       <Glyph class={cls}>
         <path d="M4.2 4.2 11.8 11.8M11.8 4.2 4.2 11.8" />
+      </Glyph>
+    );
+  if (name === "trash")
+    return (
+      <Glyph class={cls}>
+        <path d="M2.8 4.3h10.4" />
+        <path d="M6.3 4.3V2.8h3.4v1.5" />
+        <path d="m4.3 4.3.55 8.1a1 1 0 0 0 1 .94h4.3a1 1 0 0 0 1-.94l.55-8.1" />
+        <path d="M6.6 6.8v4.1M9.4 6.8v4.1" />
       </Glyph>
     );
   if (name === "single-pane")

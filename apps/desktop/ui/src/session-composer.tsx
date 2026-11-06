@@ -1246,6 +1246,13 @@ export function useSessionComposer(args: {
 
 export type SessionComposerCtl = ReturnType<typeof useSessionComposer>;
 
+type BackgroundSummary = {
+  count: () => number;
+  commands: () => string[];
+  open: () => void;
+  active?: () => boolean;
+};
+
 export function SessionComposer(props: {
   c: SessionComposerCtl;
   sessionId: () => string;
@@ -1269,6 +1276,8 @@ export function SessionComposer(props: {
   /** Set when the session cannot take input — the reason replaces the
    *  placeholder and the box goes read-only. */
   readOnly?: () => string | undefined;
+  /** Running background commands: the way into the rail's background tab. */
+  background?: BackgroundSummary;
 }) {
   const c = () => props.c;
   const g = useGoal(props.sessionId, () => props.goal, () => props.goalMet, () => props.goalPaused);
@@ -1295,6 +1304,34 @@ export function SessionComposer(props: {
             onPick={c().chooseRow}
             onHover={c().setMenuActive}
           />
+        </Show>
+        {/* The rail hides the running commands behind one tab. A pill above
+            the composer is where a reader already looks, and it opens that tab
+            rather than duplicating the log well here. It appears only while
+            something is actually running; stopped rows keep their record in
+            the rail, not on the composer. */}
+        <Show
+          when={props.background && props.background.count() > 0 ? props.background : undefined}
+        >
+          {(background) => (
+            <div class="mb-2 flex">
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                class={`h-6 gap-1.5 rounded-full px-2.5 text-2xs font-normal ${
+                  background().active?.()
+                    ? "border-input bg-secondary text-foreground"
+                    : "border-border bg-secondary/60 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                }`}
+                title={background().commands().join("\n") || undefined}
+                onClick={() => background().open()}
+              >
+                <Icon name="terminal" />
+                {tn("composer.background", background().count())}
+              </Button>
+            </div>
+          )}
         </Show>
         <GoalStrip g={g} />
         <Show when={planVisible(props.plan, c().generating())}>

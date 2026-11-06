@@ -2,6 +2,7 @@ import { createEffect, createSignal, For, onCleanup, Show, type JSX } from "soli
 import { readDevLogs, type DevLogLine, type DevProcess } from "./api";
 import { devLogLineClass, dotClass, devRunning, stableDevRows, stateClass, stateLabel } from "./dev-state";
 import { t } from "./i18n";
+import { Icon } from "./icons";
 import { fadeSignal } from "./errors";
 import { fmtLatency } from "./transcript-format";
 import { Button } from "@/components/ui/button";
@@ -25,6 +26,8 @@ export function DevRow(props: {
   onToggle: () => void;
   busy: boolean;
   onStop: () => void;
+  /** Only finished records can be dropped; a running row has no such action. */
+  onDelete?: () => void;
   /** An action that rides beside Stop — the fleet row's session link. */
   extra?: JSX.Element;
 }) {
@@ -55,16 +58,36 @@ export function DevRow(props: {
         </Show>
       </RowButton>
       {props.extra}
-      <Show when={devRunning(p())}>
+      <Show
+        when={devRunning(p())}
+        fallback={
+          <Show when={props.onDelete}>
+            <Button
+              type="button"
+              variant="icon"
+              size="icon-2xs"
+              class="shrink-0"
+              aria-label={t("dev.forget")}
+              title={t("dev.forget")}
+              disabled={props.busy}
+              onClick={props.onDelete}
+            >
+              <Icon name="trash" class="size-3" />
+            </Button>
+          </Show>
+        }
+      >
         <Button
           type="button"
           variant="icon"
-          size="xs"
-          class="shrink-0 px-1.5"
+          size="icon-2xs"
+          class="shrink-0"
+          aria-label={props.busy ? t("dev.stopping") : t("dev.stop")}
+          title={props.busy ? t("dev.stopping") : t("dev.stop")}
           disabled={props.busy}
           onClick={props.onStop}
         >
-          {props.busy ? t("dev.stopping") : t("dev.stop")}
+          <Icon name="stop" class="size-3" />
         </Button>
       </Show>
     </div>
@@ -112,6 +135,7 @@ export function DevRowDetail(props: { process: DevProcess }) {
 export function BackgroundPanel(props: {
   processes: () => DevProcess[];
   onStop: (id: string) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
 }) {
   const [now, setNow] = createSignal(Date.now());
   const [openId, setOpenId] = createSignal<string | null>(null);
@@ -131,6 +155,18 @@ export function BackgroundPanel(props: {
       await props.onStop(id);
     } catch (e) {
       setErr(t("dev.stop.failed", { reason: e instanceof Error ? e.message : String(e) }));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const remove = async (id: string) => {
+    setErr("");
+    setBusy(id);
+    try {
+      await props.onDelete(id);
+    } catch (e) {
+      setErr(t("dev.forget.failed", { reason: e instanceof Error ? e.message : String(e) }));
     } finally {
       setBusy(null);
     }
@@ -161,6 +197,7 @@ export function BackgroundPanel(props: {
                   onToggle={() => setOpenId(openId() === row.id ? null : row.id)}
                   busy={busy() === row.id}
                   onStop={() => void stop(row.id)}
+                  onDelete={() => void remove(row.id)}
                 />
                 <Show when={openId() === row.id}>
                   <DevRowDetail process={row.process()} />

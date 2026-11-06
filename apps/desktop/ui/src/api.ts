@@ -1320,6 +1320,12 @@ export async function readDevLogs(
   });
 }
 
+/** Drop a finished process record; the service refuses one that is still running. */
+export async function deleteDevProcess(processId: string): Promise<void> {
+  const res = await apiFetch(`/dev/${encodeURIComponent(processId)}`, { method: "DELETE" });
+  if (!res.ok) await throwOnError(res);
+}
+
 export async function stopDevProcess(processId: string): Promise<DevStopResult> {
   const res = await apiFetch(`/dev/${encodeURIComponent(processId)}/stop`, { method: "POST" });
   if (!res.ok) await throwOnError(res);

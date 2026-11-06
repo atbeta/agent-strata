@@ -679,6 +679,36 @@ describe("the registry outlives the service", () => {
     cleanup(dir);
   }, 30_000);
 
+  test("a finished record can be forgotten; a running one cannot", async () => {
+    const dir = workspace();
+    const pidFile = join(dir, "dev-processes.json");
+    const dev = createDevManager({ pidFile });
+    const seen: string[] = [];
+    const off = dev.subscribe((event) => seen.push(event.type));
+    try {
+      const started = await dev.start({ session_id: "casf:forget:1", command: "sleep 30", cwd: dir });
+      // The entry is the handle that can stop it; dropping it while the
+      // process is alive would leave a server on a port nobody can name.
+      expect(() => dev.forget(started.id)).toThrow();
+      await dev.stop(started.id);
+
+      expect(dev.forget(started.id)).toBe(true);
+      expect(dev.list().find((entry) => entry.id === started.id)).toBeUndefined();
+      expect(seen).toContain("dev.removed");
+      expect(dev.forget(started.id)).toBe(false);
+
+      // Persisting the table is part of forgetting: the next run must not
+      // bring the deleted record back.
+      const second = createDevManager({ pidFile });
+      await second.reapStale();
+      expect(second.list().find((entry) => entry.id === started.id)).toBeUndefined();
+    } finally {
+      off();
+      await dev.stopAll();
+      cleanup(dir);
+    }
+  }, 30_000);
+
   test("a command that vanished on its own is lost, not running", async () => {
     const dir = workspace();
     const pidFile = join(dir, "dev-processes.json");

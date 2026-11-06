@@ -204,6 +204,8 @@ export default {
   "dev.exited": "exited ({code})",
   "dev.stop": "Stop",
   "dev.stopping": "Stopping",
+  "dev.forget": "Delete record",
+  "dev.forget.failed": "Could not delete: {reason}",
   "dev.logs": "Logs",
   "dev.logs.hide": "Hide logs",
   "dev.logs.empty": "No output yet.",
@@ -315,6 +317,8 @@ export default {
   "composer.shell.noAttachments": "A shell command cannot carry attachments; remove them first",
   "composer.attachments.one": "1 attachment",
   "composer.attachments.other": "{n} attachments",
+  "composer.background.one": "1 background process",
+  "composer.background.other": "{n} background processes",
 
   // Slash commands this app runs itself — the backend only lists its own.
   "cmd.compact": "Compact session context",

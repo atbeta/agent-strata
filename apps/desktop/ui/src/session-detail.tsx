@@ -106,6 +106,7 @@ import { useMcpTools, McpAttentionMark, McpToolsPanel } from "./session-tools";
 import { skillDraft } from "./mcp-panel";
 import { useSessionComposer, SessionComposer } from "./session-composer";
 import { SessionRail } from "./session-rail";
+import { useDevProcesses } from "./dev-processes";
 import { createEntranceLedger } from "./entrance";
 import { Button } from "@/components/ui/button";
 import {
@@ -442,6 +443,9 @@ export function SessionDetail(props: {
     (id) => readCapabilities(id).catch(() => undefined),
   );
   const opencode = () => caps()?.extension === "opencode";
+  // The rail's background tab and the composer's pill read the same list; the
+  // pill must keep working while the rail is closed.
+  const dev = useDevProcesses(() => props.id, opencode);
   const [lspServers] = createResource(
     () => (opencode() ? props.id : undefined),
     (id) => readLsp(id).catch(() => undefined),
@@ -1867,6 +1871,17 @@ const turns = () => shown().turns;
                       readOnly={() =>
                         v().parent_session_id ? t("composer.childReadonly") : undefined
                       }
+                      background={
+                        opencode()
+                          ? {
+                              count: dev.count,
+                              commands: dev.commands,
+                              open: () => openPanel("background"),
+                              active: () =>
+                                panelOpen() && !traceBlock() && panelTab() === "background",
+                            }
+                          : undefined
+                      }
                     />
                   </div>
                 </div>
@@ -1908,6 +1923,7 @@ const turns = () => shown().turns;
               if (i >= 0) list?.jumpToIndex(i);
             }}
             onCite={composer.citeLine}
+            dev={dev}
           />
         )}
       </Show>

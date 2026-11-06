@@ -135,6 +135,35 @@ describe("dev commands over the service", () => {
     expect(stopped.status).toBe(404);
   }, 30_000);
 
+  test("a finished record can be deleted, a running one cannot", async () => {
+    const finished = await post("/dev", {
+      session_id: "opencode:ses_x",
+      command: "node -e \"setTimeout(() => {}, 500)\"",
+    });
+    const info = (await finished.json()) as { id: string };
+    await post(`/dev/${info.id}/stop`, {});
+    const removed = await fetch(`${base}/dev/${info.id}`, { method: "DELETE" });
+    expect(removed.status).toBe(200);
+    expect(await removed.json()).toEqual({ removed: true });
+    // The id is gone; a second delete cannot pretend otherwise.
+    expect((await fetch(`${base}/dev/${info.id}`, { method: "DELETE" })).status).toBe(404);
+
+    const running = await post("/dev", {
+      session_id: "opencode:ses_x",
+      command: "node -e \"setTimeout(() => {}, 30000)\"",
+    });
+    const live = (await running.json()) as { id: string };
+    try {
+      const refused = await fetch(`${base}/dev/${live.id}`, { method: "DELETE" });
+      expect(refused.status).toBe(400);
+      // The record is the only handle that can stop the process; dropping it
+      // while the process is alive would leave a server on a port with no name.
+      expect(((await refused.json()) as { error: string }).error).toMatch(/still running/);
+    } finally {
+      await post(`/dev/${live.id}/stop`, {});
+    }
+  }, 30_000);
+
   test("the workspace is the session's, whatever the caller says", async () => {
     // A caller that could name a directory would be a caller that could
     // leave the project. The path in the body is ignored: the session's

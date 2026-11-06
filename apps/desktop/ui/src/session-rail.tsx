@@ -1,18 +1,15 @@
-import { createEffect, createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
+import { createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
 import {
-  listDevProcesses,
   readSessionDiff,
   readVcs,
   readVcsDiff,
   realWorkspace,
-  stopDevProcess,
-  type DevProcess,
   type SessionView,
   type VcsInfo,
 } from "./api";
 import { settled } from "./resource";
 import { BackgroundPanel } from "./background-panel";
-import { devRunning } from "./dev-state";
+import type { DevProcesses } from "./dev-processes";
 import { num, t, tn } from "./i18n";
 import { DiffBlock } from "./diff";
 import { FileBrowser } from "./files";
@@ -52,6 +49,8 @@ export function SessionRail(props: {
   onCite: (note: string) => void;
   /** a transcript path the reader clicked — focus it in the files tab */
   pathFocus?: () => { path: string; n: number } | undefined;
+  /** the session's background commands, shared with the composer's pill */
+  dev: DevProcesses;
 }) {
   /** which file the reader opened in the rail, null for the plain list */
   const [openFile, setOpenFile] = createSignal<string | null>(null);
@@ -125,44 +124,6 @@ export function SessionRail(props: {
   // The file browser only exists for the OpenCode backend.
   const effectiveTab = (): SidePanelTab => (props.opencode() ? props.tab() : "changes");
 
-  /**
-   * The commands this session left running.
-   *
-   * Read here rather than inside the panel so the tab can carry the count: the
-   * reader should know a dev server is up without opening anything. A backend
-   * that cannot answer is not an error the rail should shout about — it just
-   * has nothing running.
-   */
-  const [devProcesses, { refetch: refetchDev }] = createResource(
-    () => props.sessionId(),
-    (id) => listDevProcesses(id).then((r) => r.processes).catch(() => [] as DevProcess[]),
-  );
-  const devCount = () => (devProcesses() ?? []).filter(devRunning).length;
-  const stopDev = async (id: string) => {
-    await stopDevProcess(id);
-    void refetchDev();
-  };
-  // The agent can start or stop one of these mid-turn; the tab count must not
-  // go stale while the panel is closed.
-  createEffect(() => {
-    const onStream = (ev: Event) => {
-      const evt = (ev as CustomEvent<{ session_id?: string; type?: string }>).detail;
-      if (!evt?.type?.startsWith("dev.")) return;
-      if (evt.session_id !== undefined && evt.session_id !== props.sessionId()) return;
-      void refetchDev();
-    };
-    window.addEventListener("strata-stream-event", onStream);
-    // A restart can reap a process without an event reaching this session;
-    // only while something claims to be running does the truth need re-asking.
-    const tick = setInterval(() => {
-      if (devCount() > 0) void refetchDev();
-    }, 15_000);
-    onCleanup(() => {
-      window.removeEventListener("strata-stream-event", onStream);
-      clearInterval(tick);
-    });
-  });
-
   /** How many files the changes view actually found. */
   const changeCount = () =>
     props.opencode()
@@ -231,7 +192,7 @@ export function SessionRail(props: {
               options={[
                 { id: "changes", label: t("panel.changes"), count: changeCount() },
                 { id: "files", label: t("panel.files") },
-                { id: "background", label: t("panel.background"), count: devCount() },
+                { id: "background", label: t("panel.background"), count: props.dev.count() },
               ]}
               class="min-w-0 flex-1"
             />
@@ -260,7 +221,11 @@ export function SessionRail(props: {
           />
         </Show>
         <Show when={effectiveTab() === "background"}>
-          <BackgroundPanel processes={() => devProcesses() ?? []} onStop={stopDev} />
+          <BackgroundPanel
+            processes={() => props.dev.processes() ?? []}
+            onStop={props.dev.stop}
+            onDelete={props.dev.forget}
+          />
         </Show>
         <Show when={effectiveTab() === "changes"}>
           <div class="flex min-h-0 flex-1 flex-col">

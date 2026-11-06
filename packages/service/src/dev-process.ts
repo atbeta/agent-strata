@@ -378,7 +378,8 @@ interface PersistedProcess {
 export type DevEvent =
   | { type: "dev.started"; session_id: string; process: DevProcess }
   | { type: "dev.output"; session_id: string; process_id: string; line: DevLogLine }
-  | { type: "dev.exited"; session_id: string; process: DevProcess };
+  | { type: "dev.exited"; session_id: string; process: DevProcess }
+  | { type: "dev.removed"; session_id: string; process_id: string };
 
 export interface DevManager {
   start(input: DevStartInput): Promise<DevProcess>;
@@ -389,6 +390,15 @@ export interface DevManager {
   readLogs(id: string, query?: { tail?: number; since?: number; offset?: number }): DevLogPage;
   /** Stop a command, and say what is left of it. */
   stop(id: string): Promise<DevStopResult>;
+  /**
+   * Drop a finished record.
+   *
+   * Only a record with no live process can go: a running command's entry is
+   * the handle that can stop it, and forgetting that handle would leave the
+   * process holding a port with nothing able to name it. Returns false when
+   * the id is already gone.
+   */
+  forget(id: string): boolean;
   /**
    * Stop a command and start the same one again, under the same id.
    *
@@ -1483,6 +1493,18 @@ export function createDevManager(options: DevManagerOptions = {}): DevManager {
       const entry = entries.get(id);
       if (!entry) return { stopped: false, clean: false, residual: [] };
       return stopEntry(entry);
+    },
+
+    forget(id) {
+      const entry = entries.get(id);
+      if (!entry) return false;
+      if (entry.info.exit_code === null) {
+        throw new Error(`process ${id} is still running — stop it before removing the record`);
+      }
+      entries.delete(id);
+      persist();
+      emit({ type: "dev.removed", session_id: entry.info.session_id, process_id: id });
+      return true;
     },
 
     async stopSession(sessionID) {

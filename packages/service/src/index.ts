@@ -2427,6 +2427,13 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       const info = dev.get(id);
       if (!info) return json({ error: "not found" }, 404);
       if (!action && req.method === "GET") return json(info);
+      if (!action && req.method === "DELETE") {
+        try {
+          return json({ removed: dev.forget(id) });
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+      }
       if (action === "logs" && req.method === "GET") {
         const numberParam = (name: string) => {
           const raw = url.searchParams.get(name);
