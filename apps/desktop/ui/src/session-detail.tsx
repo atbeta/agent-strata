@@ -115,7 +115,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { EmptyState } from "@/components/ui/empty-state";
-import { DragBar } from "./chrome";
 import { clearPaneBusy, publishPaneBusy } from "./pane-activity";
 
 /** Ctrl on a PC, ⌘ on a Mac. The tooltip used to say "Ctrl+F" on every platform. */
@@ -1356,12 +1355,18 @@ const turns = () => shown().turns;
           when={displayed()}
           fallback={
             <div class="flex h-full min-h-0 flex-col">
-              <DragBar />
               <Show
                 when={view.error}
                 fallback={
                   <>
-                    <div class="flex h-9 shrink-0 items-center border-b border-border px-4">
+                    {/* One row, the same 36px the loaded header occupies. This
+                        used to stack an empty DragBar under a second title row,
+                        so opening a cold session pushed everything below down
+                        by a header height and snapped it back on arrival. */}
+                    <div
+                      class="flex h-9 shrink-0 items-center border-b border-border px-4 select-none"
+                      data-tauri-drag-region={inDesktopShell() ? "" : undefined}
+                    >
                       <h1 class="min-w-0 flex-1 truncate text-sm font-medium">{listedTitle()}</h1>
                     </div>
                     <LoadingTranscript />
