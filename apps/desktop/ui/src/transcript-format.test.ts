@@ -28,6 +28,7 @@ const {
   messageText,
   permissionLabel,
   replyInterrupted,
+  waitingOnChild,
   silentEmptyReply,
   statusLabel,
   toolStatusLabel,
@@ -756,5 +757,14 @@ describe("silentEmptyReply", () => {
     expect(silentEmptyReply(msg({ content: [{ type: "text", text: "hi" }] }))).toBe(false);
     expect(silentEmptyReply(msg({ content: [{ type: "thinking", text: "hmm" }] }))).toBe(false);
     expect(silentEmptyReply(msg({ content: [{ type: "file_ref", path: "a.ts" }] }))).toBe(false);
+  });
+});
+
+describe("waitingOnChild", () => {
+  test("is a task call the child has not answered yet", () => {
+    expect(waitingOnChild([{ tool: "task", status: "pending" }])).toBe(true);
+    expect(waitingOnChild([{ tool: "task", status: "ok" }])).toBe(false);
+    expect(waitingOnChild([{ tool: "bash", status: "pending" }])).toBe(false);
+    expect(waitingOnChild([])).toBe(false);
   });
 });

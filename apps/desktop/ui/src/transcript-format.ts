@@ -94,6 +94,19 @@ export function replyInterrupted(message: { partial?: boolean; stop_reason?: str
 }
 
 /**
+ * Whether a turn is parked on a child session rather than finished.
+ *
+ * A task call stays pending until the child returns. While it does, the
+ * parent's stream can close provisionally — the adapter writes a soft
+ * interrupted final that a real completion replaces later — but calling that
+ * reply "cut off" while the child is still writing is a warning the reader
+ * did not earn, and it vanishes the moment the child's message lands.
+ */
+export function waitingOnChild(calls: readonly { tool: string; status: string }[]): boolean {
+  return calls.some((call) => call.tool === "task" && call.status === "pending");
+}
+
+/**
  * A finished reply that came back with nothing to show and nothing to say
  * why. `tool-calls` is exempt — that message's content is its calls, which
  * render in their own rows — and an interrupted reply has its own marker.

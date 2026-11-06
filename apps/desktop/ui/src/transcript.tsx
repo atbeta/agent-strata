@@ -38,6 +38,7 @@ import {
   isLengthStop,
   isStoppedStop,
   replyInterrupted,
+  waitingOnChild,
   messageText,
   silentEmptyReply,
   permissionLabel,
@@ -908,6 +909,8 @@ function AssistantMessage(props: {
    *  The actions stay reachable through the right-click menu regardless. */
   footer?: boolean;
   live?: () => boolean;
+  /** The turn is parked on a child session; its provisional close is not an end. */
+  waiting?: () => boolean;
   onFork?: (messageId: string) => void;
 }) {
   const met = () => goalMetReply(props.message.content);
@@ -922,7 +925,11 @@ function AssistantMessage(props: {
   const [cutOff, setCutOff] = createSignal(false);
   const confirmInterruption = createDebouncer(1500);
   createEffect(() => {
-    if ((!replyInterrupted(props.message) && !stopped()) || props.live?.() === true) {
+    // A cut-off mark waits for the child when the turn is parked on one: the
+    // adapter's interrupted final is provisional there, and the real
+    // completion replaces it the moment the child reports back.
+    const paused = replyInterrupted(props.message) && props.waiting?.() === true;
+    if ((!replyInterrupted(props.message) && !stopped()) || props.live?.() === true || paused) {
       confirmInterruption.cancel();
       setCutOff(false);
       return;
@@ -1190,6 +1197,8 @@ export function TurnBlock(props: {
     if (loose.length && lastPart()) rows.push({ kind: "tools", id: runKey(loose), calls: loose });
     return rows;
   });
+  /** Parked on a child session: the reply is paused, not cut off. */
+  const waitingChild = () => waitingOnChild(props.turn.tool_calls);
   const flowIds = createMemo<readonly string[]>((prev) => stableKeys(prev, flow().map((row) => row.id)));
   const byId = createMemo(() => new Map(flow().map((row) => [row.id, row] as const)));
 
@@ -1255,6 +1264,7 @@ export function TurnBlock(props: {
                 message={message().message}
                 footer={lastPart() && id === flowIds().at(-1)}
                 live={props.live}
+                waiting={waitingChild}
                 onFork={props.onFork}
               />
             );
