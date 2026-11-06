@@ -36,6 +36,7 @@ export type Name =
   | "fork"
   | "attach"
   | "copy"
+  | "cube"
   | "check"
   | "undo"
   | "plug"
@@ -444,6 +445,16 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
       <Glyph class={cls}>
         <rect x="6" y="6" width="6.6" height="6.6" rx="1.2" />
         <path d="M4.2 10.2V4.2c0-.6.5-1.1 1.1-1.1H10" />
+      </Glyph>
+    );
+  // A box: the model as something you hold and configure, rather than the
+  // eight-point spark that reads as "generate". Lucide's box, re-fitted.
+  if (name === "cube")
+    return (
+      <Glyph class={cls}>
+        <path d="M2.5 5.2 8 2.2l5.5 3v5.6L8 13.8l-5.5-3Z" />
+        <path d="M2.5 5.2 8 8.2l5.5-3" />
+        <path d="M8 8.2v5.6" />
       </Glyph>
     );
   if (name === "check")
