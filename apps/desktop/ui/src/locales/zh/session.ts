@@ -124,7 +124,7 @@ export default {
   "goal.edit_tip": "修改目标",
   "goal.clear": "停止目标",
   "goal.clear_aria": "停止目标",
-  "goal.hint": "空闲后会按这个目标继续，并先做计划里还没完成的那一步。暂停后不再自动继续，按继续才会再跑。模型单独回复 GOAL MET 后记为已完成。你中止一轮后，要等你自己再发一句才会继续。",
+  "goal.hint": "空闲后会自动按这个目标继续，暂停或中止后需要你再发消息才会恢复。",
   "goal.pause": "暂停",
   "goal.resume": "继续",
   "goal.paused": "已暂停",

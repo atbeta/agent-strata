@@ -124,7 +124,7 @@ export default {
   "goal.edit_tip": "Edit goal",
   "goal.clear": "Stop goal",
   "goal.clear_aria": "Stop goal",
-  "goal.hint": "When the session goes idle it keeps going toward this goal, starting with the plan item that is not done yet. Pausing stops that until you resume. A reply that is just GOAL MET marks the goal done. Aborting a turn waits until you send a message yourself.",
+  "goal.hint": "It continues toward this goal whenever the session goes idle; after a pause or abort, send a message to resume.",
   "goal.pause": "Pause",
   "goal.resume": "Resume",
   "goal.paused": "Paused",
