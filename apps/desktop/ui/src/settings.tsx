@@ -629,7 +629,7 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
                 aria-selected={section() === item.id}
                 aria-controls="settings-panel"
                 tabIndex={section() === item.id ? 0 : -1}
-                class={`block w-auto shrink-0 whitespace-nowrap px-2.5 py-1.5 @min-[880px]/main:w-full ${
+                class={`w-auto shrink-0 whitespace-nowrap px-2.5 py-1.5 @min-[880px]/main:w-full ${
                   section() === item.id ? "bg-accent text-foreground hover:bg-accent font-medium" : ""
                 }`}
                 active={section() === item.id}

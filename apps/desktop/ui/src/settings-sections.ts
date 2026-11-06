@@ -10,7 +10,7 @@ import type { Name } from "./icons";
  */
 export const SETTINGS_SECTIONS = [
   { id: "interface", label: "settings.section.interface", icon: "sliders" },
-  { id: "backends", label: "settings.section.backends", icon: "plug" },
+  { id: "backends", label: "settings.section.backends", icon: "link" },
   { id: "opencode", label: "settings.section.opencode", icon: "spark" },
   { id: "permission", label: "settings.section.permission", icon: "shield" },
   { id: "maintenance", label: "settings.section.maintenance", icon: "wrench" },
