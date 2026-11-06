@@ -28,6 +28,23 @@ export function PlanStrip(props: {
   stacked?: boolean;
 }) {
   const progress = () => planProgress(props.plan);
+  const percent = () => {
+    const p = progress();
+    return p.total > 0 ? Math.round((p.done / p.total) * 100) : 0;
+  };
+  /** The colour alone must not be the status: the words go to a screen reader. */
+  const statusLabel = (status: PlanItem["status"]) =>
+    status === "completed"
+      ? t("plan.status.completed")
+      : status === "in_progress"
+        ? t("plan.status.in_progress")
+        : t("plan.status.pending");
+  const statusTone = (status: PlanItem["status"]) =>
+    status === "completed"
+      ? "text-faint-foreground"
+      : status === "in_progress"
+        ? "text-foreground font-medium"
+        : "text-muted-foreground";
   const [choice, setChoice] = createSignal<boolean | undefined>(readPlanChoice(props.sessionId));
   /** No choice yet means the plan gets to decide, and only a toggle outranks it. */
   const open = () => choice() ?? planOpensOnEntry(props.plan, props.generating);
@@ -62,30 +79,38 @@ export function PlanStrip(props: {
         />
       </Button>
       <Show when={open()}>
-        <ul class="expand-in mt-1.5 max-h-[40vh] space-y-1 overflow-y-auto text-sm">
+        {/* The bar belongs to the open list. Closed, it sits directly on the
+            composer's top edge and reads as a second border under a strip
+            that already says 0/7 in words; the list needs it more than the
+            header does. The active step has no segment of its own: it is in
+            the list, and two indicators for one thing would read as two
+            different progress values. */}
+        <div class="mt-1.5 h-0.5 overflow-hidden rounded-full bg-foreground/10" aria-hidden="true">
+          <div
+            class="h-full rounded-full bg-status-completed transition-[width] duration-300"
+            style={{ width: `${percent()}%` }}
+          />
+        </div>
+        <ul class="expand-in mt-2 max-h-[40vh] space-y-1 overflow-y-auto text-xs leading-5">
           <For each={props.plan}>
             {(item) => (
-              <li class="flex gap-2 px-1">
-                <span
-                  class={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
-                    item.status === "completed"
-                      ? "bg-status-completed"
-                      : item.status === "in_progress"
-                        ? "bg-status-active"
-                        : "bg-status-pending"
-                  }`}
-                />
-                <span
-                  class={
-                    item.status === "completed"
-                      ? "text-muted-foreground line-through"
-                      : item.status === "in_progress"
-                        ? "text-foreground"
-                        : ""
-                  }
-                >
-                  {item.content}
+              <li
+                class="flex gap-2 px-1"
+                aria-current={item.status === "in_progress" ? "step" : undefined}
+              >
+                <span class="mt-1 grid size-3.5 shrink-0 place-items-center" aria-hidden="true">
+                  <Show when={item.status === "completed"}>
+                    <Icon name="check" class="size-3 text-status-completed" />
+                  </Show>
+                  <Show when={item.status === "in_progress"}>
+                    <span class="size-1.5 rounded-full bg-status-active motion-safe:animate-pulse" />
+                  </Show>
+                  <Show when={item.status === "pending"}>
+                    <span class="size-1.5 rounded-full border border-muted-foreground/40" />
+                  </Show>
                 </span>
+                <span class="sr-only">{statusLabel(item.status)}</span>
+                <span class={`min-w-0 ${statusTone(item.status)}`}>{item.content}</span>
               </li>
             )}
           </For>
