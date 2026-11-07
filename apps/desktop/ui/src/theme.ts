@@ -21,7 +21,11 @@ export type ThemeId =
   | "dracula"
   | "gruvbox"
   | "one"
-  | "solarized";
+  | "solarized"
+  | "tokyonight"
+  | "nord"
+  | "rosepine"
+  | "everforest";
 
 /** Three marks that identify a palette in a picker: page, surface, accent. */
 export type ThemeSwatch = {
@@ -64,7 +68,7 @@ export const THEMES: readonly Theme[] = [
     name: "Dracula",
     swatch: {
       dark: { background: "#282a36", surface: "#21222c", accent: "#bd93f9" },
-      light: { background: "#fffbeb", surface: "#ffffff", accent: "#644ac9" },
+      light: { background: "#f5f6fa", surface: "#ffffff", accent: "#644ac9" },
     },
   },
   {
@@ -89,6 +93,38 @@ export const THEMES: readonly Theme[] = [
     swatch: {
       dark: { background: "#002b36", surface: "#073642", accent: "#48a0de" },
       light: { background: "#fdf6e3", surface: "#eee8d5", accent: "#1b6c9e" },
+    },
+  },
+  {
+    id: "tokyonight",
+    name: "Tokyo Night",
+    swatch: {
+      dark: { background: "#1a1b26", surface: "#1f2033", accent: "#7aa2f7" },
+      light: { background: "#e1e2e7", surface: "#ffffff", accent: "#2e7de9" },
+    },
+  },
+  {
+    id: "nord",
+    name: "Nord",
+    swatch: {
+      dark: { background: "#2e3440", surface: "#353c4a", accent: "#88c0d0" },
+      light: { background: "#eceff4", surface: "#ffffff", accent: "#5e81ac" },
+    },
+  },
+  {
+    id: "rosepine",
+    name: "Rosé Pine",
+    swatch: {
+      dark: { background: "#191724", surface: "#1f1d2e", accent: "#ebbcba" },
+      light: { background: "#faf4ed", surface: "#fffaf3", accent: "#d7827e" },
+    },
+  },
+  {
+    id: "everforest",
+    name: "Everforest",
+    swatch: {
+      dark: { background: "#2d353b", surface: "#343f44", accent: "#a7c080" },
+      light: { background: "#fdf6e3", surface: "#fffaf0", accent: "#8da101" },
     },
   },
 ];
