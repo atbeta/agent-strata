@@ -8,6 +8,7 @@ import {
   openStats,
   placeError,
   placeOf,
+  selfMove,
   switchStats,
   type Place,
   type Recording,
@@ -160,6 +161,7 @@ export async function stepUp(ctx: FlowContext, name: string, total: number, step
   const r = await b.settle(t1, 500, 8_000);
   const rec = await b.take(t0);
   const d = drift(rec.samples, t0, r.at);
+  const m = selfMove(rec.samples, t0, r.at);
   return finish(
     ctx,
     name,
@@ -170,6 +172,9 @@ export async function stepUp(ctx: FlowContext, name: string, total: number, step
       driftMax: d.maxAbs,
       driftSum: d.sumAbs,
       driftOver2: d.over2,
+      selfMoveFrames: m.frames,
+      selfMoveMax: m.maxAbs,
+      selfMoveOver2: m.over2,
     },
     [],
   );
@@ -207,10 +212,21 @@ export async function wheelUp(ctx: FlowContext, name: string, total: number, ste
   const rec = await b.take(t0);
   const first = rec.samples[0];
   const last = rec.samples.at(-1);
+  // The wheel path cannot use `drift`: how far a gesture actually travels is
+  // the browser's answer, not the driver's. `selfMove` asks the question that
+  // does not need it — did the page move on its own under the reader?
+  const m = selfMove(rec.samples, t0, r.at);
   return finish(
     ctx,
     name,
-    { ...common(rec, t0, r.at, r), gestureMs: t1 - t0, scrolledPx: first && last ? first.st - last.st : null },
+    {
+      ...common(rec, t0, r.at, r),
+      gestureMs: t1 - t0,
+      scrolledPx: first && last ? first.st - last.st : null,
+      selfMoveFrames: m.frames,
+      selfMoveMax: m.maxAbs,
+      selfMoveOver2: m.over2,
+    },
     [],
   );
 }

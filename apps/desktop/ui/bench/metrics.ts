@@ -113,6 +113,27 @@ export interface DriftStats {
 }
 
 /**
+ * The row both samples show, nearest the middle of the viewport.
+ *
+ * A row whose own height changes does not move its own top edge, so the
+ * topmost row would miss exactly the shift readers see.
+ */
+function sharedMiddle(a: Sample, b: Sample): number {
+  const mid = b.ch / 2;
+  let best = -1;
+  let bestDist = Infinity;
+  for (let j = 0; j < b.ids.length; j++) {
+    if (!a.ids.includes(b.ids[j]!)) continue;
+    const dist = Math.abs(b.tops[j]! - mid);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = j;
+    }
+  }
+  return best;
+}
+
+/**
  * Content moving under a reader who is scrolling.
  *
  * Between two samples the driver scrolled up by `b.drive` px, so every row
@@ -122,8 +143,7 @@ export interface DriftStats {
  * the compensating does not matter — what counts is what the reader saw.
  *
  * The row measured is the shared one nearest the middle of the viewport,
- * where a reader's eye is. A row whose own height changes does not move its
- * own top edge, so the topmost row would miss exactly the shift readers see.
+ * where a reader's eye is (see `sharedMiddle`).
  */
 export function drift(samples: readonly Sample[], from: number, to: number): DriftStats {
   const s = within(samples, from, to);
@@ -131,20 +151,52 @@ export function drift(samples: readonly Sample[], from: number, to: number): Dri
   for (let i = 1; i < s.length; i++) {
     const a = s[i - 1]!;
     const b = s[i]!;
-    const mid = b.ch / 2;
-    let best = -1;
-    let bestDist = Infinity;
-    for (let j = 0; j < b.ids.length; j++) {
-      if (!a.ids.includes(b.ids[j]!)) continue;
-      const dist = Math.abs(b.tops[j]! - mid);
-      if (dist < bestDist) {
-        bestDist = dist;
-        best = j;
-      }
-    }
+    const best = sharedMiddle(a, b);
     if (best < 0) continue;
     const before = a.tops[a.ids.indexOf(b.ids[best]!)]!;
     const d = Math.abs(b.tops[best]! - before - b.drive);
+    out.frames += 1;
+    out.sumAbs += d;
+    if (d > out.maxAbs) out.maxAbs = d;
+    if (d > 2) out.over2 += 1;
+  }
+  return out;
+}
+
+/**
+ * The page moving on its own, without asking how far the reader meant to go.
+ *
+ * `drift` compares the rows against the distance the driver asked for, and the
+ * wheel path cannot answer that half: the browser decides how far a gesture
+ * travels — the smoother spends it over frames, the native path takes what it
+ * takes — so the asked-for distance is not a number this side knows.
+ *
+ * What both paths share is the scroller's own movement. The content follows
+ * the scroller, so in a frame where the content moved further than the
+ * scroller did, the content moved on its own: a row above changed height and
+ * nothing compensated. That is the jump a reader sees.
+ *
+ * The other direction is not a jump. A frame where the scroller moved further
+ * than the content is the scroller compensating — it moved to keep the row the
+ * reader is looking at where it was, and the content did not move. That is the
+ * fix working, and it is why this metric compares distances rather than
+ * differences: a compensation is a large scroller movement and no content
+ * movement at all.
+ */
+export function selfMove(samples: readonly Sample[], from: number, to: number): DriftStats {
+  const s = within(samples, from, to);
+  const out: DriftStats = { frames: 0, maxAbs: 0, sumAbs: 0, over2: 0 };
+  for (let i = 1; i < s.length; i++) {
+    const a = s[i - 1]!;
+    const b = s[i]!;
+    const best = sharedMiddle(a, b);
+    if (best < 0) continue;
+    const before = a.tops[a.ids.indexOf(b.ids[best]!)];
+    const content = Math.abs(b.tops[best]! - before);
+    const scroller = Math.abs(b.st - a.st);
+    // Only the excess counts: content that moved further than the scroller
+    // did. The rest is the content following the scroller.
+    const d = Math.max(0, content - scroller);
     out.frames += 1;
     out.sumAbs += d;
     if (d > out.maxAbs) out.maxAbs = d;

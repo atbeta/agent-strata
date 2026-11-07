@@ -102,6 +102,8 @@ const SHOWN = [
   "partials",
   "driftMax",
   "driftOver2",
+  "selfMoveMax",
+  "selfMoveOver2",
   "staleMs",
   "blankBefore",
   "blankAfter",

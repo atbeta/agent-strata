@@ -9,6 +9,7 @@ import {
   openStats,
   placeError,
   placeOf,
+  selfMove,
   switchStats,
   turnOf,
   type Sample,
@@ -98,6 +99,60 @@ describe("drift", () => {
   test("frames with no row in common are skipped rather than guessed", () => {
     const s = [sample(0, { ids: ["a"], tops: [0] }), sample(16, { ids: ["z"], tops: [0] })];
     expect(drift(s, 0, 100).frames).toBe(0);
+  });
+});
+
+describe("selfMove", () => {
+  test("content that follows the scroller is not the page moving on its own", () => {
+    // The scroller moved up 100px and the row moved with it: the page did not
+    // move on its own.
+    const s = [
+      sample(0, { ids: ["a", "b"], tops: [0, 250], st: 1000 }),
+      sample(16, { ids: ["a", "b"], tops: [100, 350], st: 900 }),
+    ];
+    expect(selfMove(s, 0, 100)).toEqual({ frames: 1, maxAbs: 0, sumAbs: 0, over2: 0 });
+  });
+
+  test("a row above growing without compensation moves what the reader is looking at", () => {
+    // Nothing scrolled, but the row in the middle of the viewport moved 300px.
+    const s = [
+      sample(0, { ids: ["a", "b"], tops: [-200, 240], st: 1000 }),
+      sample(16, { ids: ["a", "b"], tops: [-200, 540], st: 1000 }),
+    ];
+    const m = selfMove(s, 0, 100);
+    expect(m.maxAbs).toBe(300);
+    expect(m.over2).toBe(1);
+  });
+
+  test("a wheel gesture that shifts the content under the scroller is caught", () => {
+    // The scroller moved up 60px, the row moved down 140px: the page itself
+    // moved 80px while the reader was scrolling.
+    const s = [
+      sample(0, { ids: ["a", "b"], tops: [0, 250], st: 1000 }),
+      sample(16, { ids: ["a", "b"], tops: [140, 390], st: 940 }),
+    ];
+    expect(selfMove(s, 0, 100).maxAbs).toBe(80);
+  });
+
+  test("a scroller that moved further than the content is a correction, not a jump", () => {
+    // The scroller moved 1500px to keep the reader's row where it was, and the
+    // content did not move at all. That is the compensation working: the
+    // reader is looking at the same row as before.
+    const s = [
+      sample(0, { ids: ["a", "b"], tops: [0, 250], st: 1000 }),
+      sample(16, { ids: ["a", "b"], tops: [0, 250], st: 8500 }),
+    ];
+    expect(selfMove(s, 0, 100)).toEqual({ frames: 1, maxAbs: 0, sumAbs: 0, over2: 0 });
+  });
+
+  test("on the scripted path a jump is the number drift reports", () => {
+    // There the driver is the only thing that moves the scroller, so the
+    // distance it asked for is the distance it moved.
+    const s = [
+      sample(0, { ids: ["a", "b"], tops: [0, 250], st: 1000 }),
+      sample(16, { ids: ["a", "b"], tops: [100, 350], st: 900, drive: 100 }),
+    ];
+    expect(selfMove(s, 0, 100).maxAbs).toBe(drift(s, 0, 100).maxAbs);
   });
 });
 
