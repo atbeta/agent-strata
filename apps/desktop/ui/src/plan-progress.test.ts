@@ -3,7 +3,9 @@ import {
   planKey,
   planOpensOnEntry,
   planProgress,
+  planSegments,
   planVisible,
+  PLAN_SEGMENTS_MAX,
   readPlanChoice,
   writePlanChoice,
   type PlanItem,
@@ -38,6 +40,28 @@ describe("planProgress", () => {
     const p = planProgress([item("a", "completed"), item("b", "completed")]);
     expect(p.current).toBeUndefined();
     expect(p.allDone).toBe(true);
+  });
+});
+
+describe("planSegments", () => {
+  test("one segment per step, in order", () => {
+    const segments = planSegments([
+      item("a", "completed"),
+      item("b", "in_progress"),
+      item("c", "pending"),
+    ]);
+    expect(segments?.map((s) => s.status)).toEqual(["completed", "in_progress", "pending"]);
+  });
+
+  test("a list too long to read as segments falls back", () => {
+    const many = Array.from({ length: PLAN_SEGMENTS_MAX + 1 }, (_, i) => item(`s${i}`, "pending"));
+    expect(planSegments(many)).toBeUndefined();
+    // The boundary itself still segments: each step is above two percent.
+    expect(planSegments(many.slice(0, PLAN_SEGMENTS_MAX))).toHaveLength(PLAN_SEGMENTS_MAX);
+  });
+
+  test("an empty plan has nothing to segment", () => {
+    expect(planSegments([])).toBeUndefined();
   });
 });
 

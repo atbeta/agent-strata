@@ -4,6 +4,7 @@ import { t } from "./i18n";
 import {
   planOpensOnEntry,
   planProgress,
+  planSegments,
   readPlanChoice,
   writePlanChoice,
   type PlanItem,
@@ -28,6 +29,7 @@ export function PlanStrip(props: {
   stacked?: boolean;
 }) {
   const progress = () => planProgress(props.plan);
+  const segments = () => planSegments(props.plan);
   const percent = () => {
     const p = progress();
     return p.total > 0 ? Math.round((p.done / p.total) * 100) : 0;
@@ -79,23 +81,50 @@ export function PlanStrip(props: {
         />
       </Button>
       <Show when={open()}>
-        {/* The bar belongs to the open list. Closed, it sits directly on the
-            composer's top edge and reads as a second border under a strip
-            that already says 0/7 in words; the list needs it more than the
-            header does. The active step has no segment of its own: it is in
-            the list, and two indicators for one thing would read as two
-            different progress values. */}
+        {/* A segment per step while the list is short enough for each to be
+            seen: the same total width as a ratio fill, but every mark sits
+            opposite the row it describes, so the strip says where in the plan
+            the run is rather than only how much of it is done. A list too long
+            to segment falls back to the ratio fill — a sliver no reader can
+            connect to a row is noise. */}
         <div class="mt-1.5 h-0.5 overflow-hidden rounded-full bg-foreground/10" aria-hidden="true">
-          <div
-            class="h-full rounded-full bg-status-completed transition-[width] duration-300"
-            style={{ width: `${percent()}%` }}
-          />
+          <Show
+            when={segments()}
+            fallback={
+              <div
+                class="h-full rounded-full bg-status-completed transition-[width] duration-300"
+                style={{ width: `${percent()}%` }}
+              />
+            }
+          >
+            {(parts) => (
+              <div class="flex h-full gap-px">
+                <For each={parts()}>
+                  {(part) => (
+                    <span
+                      class={`h-full flex-1 rounded-[1px] transition-colors ${
+                        part.status === "completed"
+                          ? "bg-status-completed"
+                          : part.status === "in_progress"
+                            ? "bg-status-active motion-safe:animate-pulse"
+                            : "bg-foreground/10"
+                      }`}
+                    />
+                  )}
+                </For>
+              </div>
+            )}
+          </Show>
         </div>
         <ul class="expand-in mt-2 max-h-[40vh] space-y-1 overflow-y-auto text-xs leading-5">
           <For each={props.plan}>
             {(item) => (
               <li
-                class="flex gap-2 px-1"
+                class={`flex gap-2 rounded-sm px-1 ${
+                  item.status === "in_progress"
+                    ? "bg-status-active/10 shadow-[inset_2px_0_0_var(--status-active)]"
+                    : ""
+                }`}
                 aria-current={item.status === "in_progress" ? "step" : undefined}
               >
                 <span class="mt-1 grid size-3.5 shrink-0 place-items-center" aria-hidden="true">

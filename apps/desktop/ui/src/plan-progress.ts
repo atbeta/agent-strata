@@ -10,6 +10,33 @@ export type PlanProgress = {
   allDone: boolean;
 };
 
+/**
+ * The most steps the strip draws as their own segment.
+ *
+ * Past this a segment is under two percent of the bar: a sliver that reads as
+ * noise rather than as a step, and one the reader cannot connect to a row.
+ */
+export const PLAN_SEGMENTS_MAX = 12;
+
+export type PlanSegment = { status: PlanItem["status"] };
+
+/**
+ * One segment per step, while the list is short enough for each to be seen.
+ *
+ * A single ratio fill says "75% done" and nothing about which step that is.
+ * A segment per step is the same total width, but each mark sits opposite the
+ * row it describes, so the strip says where in the plan the run actually is.
+ * `undefined` means the list is too long to segment — the caller falls back to
+ * the ratio fill rather than drawing slivers.
+ */
+export function planSegments(
+  plan: readonly PlanItem[],
+  max = PLAN_SEGMENTS_MAX,
+): PlanSegment[] | undefined {
+  if (plan.length === 0 || plan.length > max) return undefined;
+  return plan.map((item) => ({ status: item.status }));
+}
+
 export function planProgress(plan: readonly PlanItem[] | undefined): PlanProgress {
   const items = plan ?? [];
   const done = items.filter((i) => i.status === "completed").length;
