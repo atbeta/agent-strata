@@ -339,8 +339,28 @@ export function TranscriptView(props: {
                   <Show when={props.ready} fallback={<LoadingTranscript />}>
                     <Show when={props.turns.length > 0} fallback={props.empty}>
                       {/* The wrapper marks where the list starts inside the
-                          scroller's content — the owner's `origin`. */}
-                      <div ref={(el) => (host = el)}>
+                          scroller's content — the owner's `origin`.
+
+                          While the reader is moving the column, the rows stop
+                          answering the pointer. Content that slides under a
+                          stationary pointer is a queue of hover changes: the
+                          browser re-tests the pointer after every frame of the
+                          scroll and re-draws the cursor for each new element it
+                          lands on. On a long transcript that queue is hundreds
+                          of entries deep by the time the scroll ends, and the
+                          cursor keeps re-drawing the shapes of elements the
+                          reader has already scrolled past — the arrow that
+                          should have become a hand arrives seconds late, and
+                          flickers on the way.
+
+                          The rail is outside this element, so a tick under the
+                          pointer stays clickable throughout; only the column
+                          the reader is scrolling through goes quiet, which is
+                          where the churn was. */}
+                      <div
+                        ref={(el) => (host = el)}
+                        style={{ "pointer-events": owner.gesturing() ? "none" : undefined }}
+                      >
                         <Virtual
                           items={segments()}
                           id={(seg) => seg.id}
