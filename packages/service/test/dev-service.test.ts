@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { makeEvent, type EventInput } from "@agent-strata/schema";
 import { startService } from "../src/index";
 
@@ -301,6 +302,58 @@ describe("dev command policy", () => {
         processes: unknown[];
       };
       expect(listed.processes).toHaveLength(0);
+    } finally {
+      service.stop();
+    }
+  }, 30_000);
+
+  test("a rule written for dev_start stops the command too", async () => {
+    const service = policyService({
+      version: 1,
+      default: "allow",
+      rules: [{ id: "no-sleep", effect: "deny", tool: "dev_start", when: { command: { matches: "^sleep" } } }],
+    });
+    const base = `http://127.0.0.1:${service.port}`;
+    try {
+      const denied = await start(base, "sleep 30");
+      expect(denied.status).toBe(403);
+    } finally {
+      service.stop();
+    }
+  }, 30_000);
+
+  test("the connection's own policy is what a background command meets", async () => {
+    // A connection can carry a policy of its own, and that policy wins over
+    // the shared one. The shared document here allows everything; the
+    // connection denies it all. The command has to meet the connection's
+    // rules, or a reader who locked a connection down could still have a
+    // background command run under it.
+    const MOCK = fileURLToPath(new URL("../../adapter-acp/test/fixtures/mock-agent.ts", import.meta.url));
+    const file = join(desktop, `policy-shared-${crypto.randomUUID()}.json`);
+    writeFileSync(file, JSON.stringify({ version: 1, default: "allow", rules: [] }));
+    const service = startService({ db: ":memory:", port: 0, desktopDir: desktop, policyFile: file });
+    const base = `http://127.0.0.1:${service.port}`;
+    const post = (path: string, body: unknown) =>
+      fetch(`${base}${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    try {
+      const connected = (await post("/connect", {
+        backend: "acp",
+        command: process.execPath,
+        args: [MOCK],
+        agentName: "mock",
+        cwd: work,
+        directory: work,
+        policy: { version: 1, default: "deny", rules: [] },
+      }).then((r) => r.json())) as { id: string };
+      const created = (await post("/sessions", { connection_id: connected.id, directory: work }).then((r) =>
+        r.json(),
+      )) as { id: string };
+      const denied = await post("/dev", { session_id: created.id, command: "sleep 30" });
+      expect(denied.status).toBe(403);
     } finally {
       service.stop();
     }

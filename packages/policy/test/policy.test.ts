@@ -226,6 +226,42 @@ describe("policy evaluate (table-driven)", () => {
   });
 });
 
+describe("a background command answers to two names", () => {
+  const background = (command: string) => ({ tool: "dev_start", input: { command } });
+
+  test("a rule written for dev_start reaches the background command", () => {
+    const p = P([{ id: "no-build", effect: "deny", tool: "dev_start", when: { command: { matches: "^npm run build" } } }]);
+    const d = evaluate(p, background("npm run build"));
+    expect(d.decision).toBe("deny");
+    expect(d.rule_id).toBe("no-build");
+  });
+
+  test("a rule written for the shell reaches it too", () => {
+    const p = P([{ id: "no-sleep", effect: "deny", tool: "bash", when: { command: { matches: "^sleep" } } }]);
+    const d = evaluate(p, background("sleep 30"));
+    expect(d.decision).toBe("deny");
+    expect(d.rule_id).toBe("no-sleep");
+  });
+
+  test("where both speak, the stricter one wins", () => {
+    const p = P([
+      { id: "shell-ok", effect: "allow", tool: "bash", when: { command: { matches: "^npm" } } },
+      { id: "dev-no", effect: "deny", tool: "dev_start", when: { command: { matches: "^npm" } } },
+    ]);
+    expect(evaluate(p, background("npm run dev")).decision).toBe("deny");
+  });
+
+  test("a rule written for dev_start does not reach a foreground command", () => {
+    const p = P([{ id: "no-build", effect: "deny", tool: "dev_start", when: { command: { matches: "^npm" } } }]);
+    expect(evaluate(p, bash("npm run build")).decision).toBe("ask");
+  });
+
+  test("a rule written for dev_start does not reach another shell's name", () => {
+    const p = P([{ id: "no-build", effect: "deny", tool: "dev_start", when: { command: { matches: "^npm" } } }]);
+    expect(evaluate(p, { tool: "terminal", input: { command: "npm run build" } }).decision).toBe("ask");
+  });
+});
+
 describe("policy helpers", () => {
   test("quoted separators are one segment", () => {
     expect(splitShell('echo "a && b"')).toEqual(['echo "a && b"']);

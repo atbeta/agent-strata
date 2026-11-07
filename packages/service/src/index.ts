@@ -127,6 +127,15 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   const conns = new Map<string, BackendDriver>();
   // casf session id -> driver id, filled as sessions are indexed or created
   const owners = new Map<string, string>();
+  /**
+   * driver id -> the rules that connection is judged by.
+   *
+   * A connection can carry a policy of its own, and that policy wins over the
+   * shared one. The judgement belongs to the connection, not to the route
+   * that happens to ask: a command started in a session has to meet the same
+   * rules the session's own tool calls meet, wherever the check happens.
+   */
+  const connPolicy = new Map<string, (sessionID: string) => Policy | undefined>();
   /** The directory a session was created in, kept until its first event
       lands — the view's `workspace` cannot come from events that do not
       exist yet. */
@@ -412,6 +421,19 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     const backend = casfId.split(":")[0];
     const matches = [...conns.values()].filter((c) => c.backend === backend);
     return matches.length === 1 ? matches[0] : undefined;
+  };
+
+  /**
+   * The rules in force for this session's connection, if it has its own.
+   *
+   * The connection is found the same way the session's driver is found, so a
+   * command started in a session is judged by the same document the session's
+   * own tool calls are judged by — a policy the reader handed that connection
+   * included.
+   */
+  const policySourceFor = (casfId: string): ((sessionID: string) => Policy | undefined) | undefined => {
+    const driver = driverFor(casfId);
+    return driver ? connPolicy.get(driver.id) : undefined;
   };
 
   /**
@@ -871,6 +893,10 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     }
     conns.set(driver.id, driver);
     connPassword.set(driver.id, body.password);
+    // The connection's own judgement, kept where the routes that need it can
+    // find it: a command started in one of its sessions has to meet the same
+    // rules the session's tool calls meet.
+    connPolicy.set(driver.id, policy);
     let indexed: string[] = [];
     try {
       indexed = await driver.indexSessions();
@@ -984,6 +1010,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       if (connPassword.get(live.id) === status.password) return;
       live.stop();
       conns.delete(live.id);
+      connPolicy.delete(live.id);
       claims.release(live.id);
       connPassword.delete(live.id);
     }
@@ -2473,12 +2500,18 @@ export function startService(opts: ServiceOpts = {}): RunningService {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
         }
       }
-      // The tool is a shell in disguise. Judge its command as bash so the
-      // rules the reader wrote for the shell apply here too, and never let an
+      // The tool is a shell in disguise. Judge its command as dev_start, so
+      // the rules the reader wrote for the shell reach it and the rules they
+      // wrote for background commands are read as well, and never let an
       // explicit deny (or a default deny) turn into a background process.
-      const live = policyForSession(sessionID);
+      //
+      // The rules are the ones this session's own connection answers to: a
+      // policy handed to that connection wins over the shared one, and the
+      // session's stance softens it.
+      const source = policySourceFor(sessionID);
+      const live = source ? source(sessionID) : policyForSession(sessionID);
       const verdict = live
-        ? evaluate(live, { tool: "bash", input: { command: body.command } })
+        ? evaluate(live, { tool: "dev_start", input: { command: body.command } })
         : { decision: "ask" as const, reason: "no policy" };
       if (verdict.decision === "deny") {
         return json({ error: verdict.reason ? `denied: ${verdict.reason}` : "denied by policy" }, 403);
@@ -2591,6 +2624,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       }
       conn.stop();
       conns.delete(conn.id);
+      connPolicy.delete(conn.id);
       // Its sessions go back to the layer, so another channel may import them.
       claims.release(conn.id);
       connPassword.delete(conn.id);

@@ -136,15 +136,22 @@ function whenMatches(rule: Rule, input: Record<string, unknown>): boolean {
   return true;
 }
 
-function toolMatches(rule: Rule, tool: string): boolean {
-  return globToRe(rule.tool).test(tool);
+/**
+ * Does this rule speak about the tool under any of these names?
+ *
+ * A command can answer to more than one: `dev_start` is a shell in disguise,
+ * so the rules a reader wrote for the shell have to reach it — while the
+ * rules they wrote for `dev_start` stay about background commands.
+ */
+function toolMatches(rule: Rule, tools: string[]): boolean {
+  return tools.some((tool) => globToRe(rule.tool).test(tool));
 }
 
 const EFFECT_RANK = { deny: 3, ask: 2, allow: 1 } as const;
 
-function pickRule(policy: Policy, tool: string, input: Record<string, unknown>): Rule | undefined {
+function pickRule(policy: Policy, tools: string[], input: Record<string, unknown>): Rule | undefined {
   const matching = policy.rules.filter(
-    (r) => toolMatches(r, tool) && whenMatches(r, input),
+    (r) => toolMatches(r, tools) && whenMatches(r, input),
   );
   matching.sort((a, b) => EFFECT_RANK[b.effect] - EFFECT_RANK[a.effect]);
   return matching[0];
@@ -152,10 +159,10 @@ function pickRule(policy: Policy, tool: string, input: Record<string, unknown>):
 
 function evalSingle(
   policy: Policy,
-  tool: string,
+  tools: string[],
   input: Record<string, unknown>,
 ): Decision {
-  const rule = pickRule(policy, tool, input);
+  const rule = pickRule(policy, tools, input);
   if (!rule) {
     return { decision: policy.default, reason: "default" };
   }
@@ -338,10 +345,18 @@ export function evaluate(
   req: { tool: string; input: Record<string, unknown> },
 ): Decision {
   const { tool, input } = req;
-  if (!SHELL_TOOLS.includes(tool)) return evalSingle(policy, tool, input);
+  if (!SHELL_TOOLS.includes(tool)) return evalSingle(policy, [tool], input);
 
   const raw = input.command ?? input.cmd;
-  if (typeof raw !== "string") return evalSingle(policy, tool, input);
+  if (typeof raw !== "string") return evalSingle(policy, [tool], input);
+
+  // The names a rule about this command may be written under. A background
+  // command answers to two: the rules for the shell reach it, and the rules
+  // for `dev_start` are about background commands — where both have something
+  // to say, the stricter wins, the same way two rules about one tool are
+  // resolved. A rule written for `dev_start` does not reach a foreground
+  // command, and a rule written for another shell's name does not either.
+  const tools = tool === "dev_start" ? ["dev_start", "bash"] : [tool];
 
   const split = splitShell(raw);
   const segments = split.length ? split : [raw.trim()];
@@ -351,7 +366,7 @@ export function evaluate(
   let firstDecision: Decision | undefined;
   let askDecision: Decision | undefined;
   for (const seg of segments) {
-    const d = evalSingle(policy, tool, { ...input, command: seg });
+    const d = evalSingle(policy, tools, { ...input, command: seg });
     firstDecision ??= d;
     if (d.decision === "deny") return { decision: "deny", rule_id: d.rule_id, reason: d.reason };
     if (d.decision === "ask") askDecision ??= d;
