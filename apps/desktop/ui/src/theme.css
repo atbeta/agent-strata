@@ -1332,7 +1332,9 @@ textarea {
 
 /* Prompt outline rail: one quiet line per user prompt, always clickable.
    The rail is its own scrollbox so long sessions keep every line reachable;
-   touch pointers get taller hit rows instead of a different control. */
+   touch pointers get taller hit rows instead of a different control — the row
+   height is decided by the component, which knows whether this machine has a
+   touch screen at all, and published here as --nav-row-size. */
 .prompt-nav {
   --nav-row-size: 8px;
   --nav-tick-w: 28px;
@@ -1382,11 +1384,6 @@ textarea {
 .prompt-nav .nav-end:focus-visible .nav-dot {
   width: 5px;
   height: 5px;
-}
-@media (hover: none) {
-  .prompt-nav {
-    --nav-row-size: 28px;
-  }
 }
 @media (prefers-reduced-motion: no-preference) {
   .prompt-nav .nav-line {

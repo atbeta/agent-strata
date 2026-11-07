@@ -49,8 +49,26 @@ export function PromptNavigator(props: {
    * stale answer, because the answer is recomputed from the count in hand.
    */
   const [navRoom, setNavRoom] = createSignal(0);
-  /** Resolved --nav-row-size in px; 8 is the stylesheet's default until measured. */
-  const [rowPx, setRowPx] = createSignal(8);
+  /**
+   * The rail's row height in px.
+   *
+   * A finger needs taller hit rows than a mouse; the stylesheet used to answer
+   * that with `@media (hover: none)`, and the webview answers "no hover" until
+   * a mouse has been seen in it — so the rail started at the touch height and
+   * changed under the reader's pointer as soon as the pointer arrived. The
+   * ticks are placed by index times this number, so a change moves every one
+   * of them, and a pointer resting on a tick suddenly rests on a different
+   * tick, or on the gap between two. The device's touch count is a fact about
+   * the machine rather than a guess about the pointer, so it cannot change
+   * while the app is open.
+   */
+  const ROW_PX = 8;
+  const TOUCH_ROW_PX = 28;
+  const [rowPx] = createSignal(
+    navigator.maxTouchPoints > 0 && !window.matchMedia("(hover: hover)").matches
+      ? TOUCH_ROW_PX
+      : ROW_PX,
+  );
   const chrome = createMemo(() => {
     const room = navRoom();
     // 0 is "not measured yet". Claiming chrome before there is a height to
@@ -190,8 +208,6 @@ export function PromptNavigator(props: {
       // entry count, so a switch to another session cannot inherit the last
       // one's answer.
       setNavRoom(host.clientHeight - 24);
-      const px = parseFloat(getComputedStyle(el).getPropertyValue("--nav-row-size"));
-      if (Number.isFinite(px) && px > 0) setRowPx(px);
     };
     const ro = new ResizeObserver(measure);
     ro.observe(host);
@@ -396,6 +412,7 @@ export function PromptNavigator(props: {
       class="prompt-nav group absolute left-2 top-1/2 z-10 flex -translate-y-1/2 flex-col items-center"
       style={{
         "--nav-count": props.entries.length,
+        "--nav-row-size": `${rowPx()}px`,
         height: chrome()
           ? "min(360px, calc(100% - 24px))"
           : "min(calc(var(--nav-count) * var(--nav-row-size)), 360px, calc(100% - 24px))",
