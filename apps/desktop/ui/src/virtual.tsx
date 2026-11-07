@@ -49,15 +49,6 @@ export function Virtual<T>(props: {
    */
   warm?: (item: T) => void;
   /**
-   * When true, nothing new is warmed.
-   *
-   * Parsing markdown is the most expensive thing the main thread does here. A
-   * gesture already spends every frame on layout, and a queue of parses behind
-   * it is what a reader feels as lag *after* the scrolling stops — while they
-   * are typing in the composer. Warming resumes when the gesture does.
-   */
-  paused?: () => boolean;
-  /**
    * Called once per row, when the row is created, and never again.
    *
    * `item` is an accessor rather than the value because the two have to be
@@ -164,12 +155,16 @@ export function Virtual<T>(props: {
   // Rows ahead of the view are warmed nearest first, a budget per frame, and
   // mount as each one finishes. A row that left the window before its turn is
   // dropped from the queue, so a fling does not leave a trail of parses.
+  //
+  // Warming does not stop while the reader is moving: a row that is not ready
+  // when the reader reaches it parses on the frame it appears, and its height
+  // moves the content under the reader. The queue is what keeps the
+  // preparation ahead of the view, and it throttles itself instead.
   createEffect(() => {
     const warm = props.warm;
     const r = ranges();
-    const paused = props.paused?.() === true;
     const want = new Set<string>();
-    if (warm && r && !paused) {
+    if (warm && r) {
       for (const i of aheadOrder(r.visible, r.ahead)) {
         const id = props.id(props.items[i]!);
         if (warmed.has(id)) continue;

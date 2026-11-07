@@ -14,18 +14,32 @@ export function createPaintQueue(
   now: () => number,
   budgetMs: number,
   /**
-   * When true, no job runs this frame.
+   * Whether the reader is busy — a keystroke.
    *
-   * The queue exists to spread parsing across frames, but a reader who is
-   * typing or scrolling is already spending the frame. Markdown that is not
-   * needed until the next scroll can wait for them to stop: the pointer's
-   * shape and the keystroke's echo come first.
+   * A gesture is not a reason to hold the queue back: the rows ahead of the
+   * view have to be ready before the reader reaches them.
    */
-  quiet?: () => boolean,
+  busy?: () => boolean,
+  /**
+   * The budget while the reader is busy.
+   *
+   * Parsing yields to the reader: the keystroke's echo comes first. It does
+   * not *stop*, though — and that is the whole difference.
+   *
+   * The rows ahead of the view have to be ready before the reader reaches
+   * them. A queue that pauses hands the reader rows that arrive unprepared:
+   * the row parses on the frame it appears, in the middle of the gesture,
+   * and its height moves the content under the reader — a jump nobody asked
+   * for. Worse, the backlog lands in one burst when the pause ends, which is
+   * the window that stops answering input.
+   *
+   * So the queue keeps going on a smaller budget: the preparation stays ahead
+   * of the reader, and the frame stays mostly the reader's.
+   */
+  busyBudgetMs = 4,
 ) {
   const queue: Array<() => void> = [];
   let scheduled = false;
-  let retry: ReturnType<typeof setTimeout> | undefined;
 
   function schedule() {
     // One pending wake-up, ever. This used to check `scheduled` only, so every
@@ -34,23 +48,15 @@ export function createPaintQueue(
     // the old timer stayed alive. A long scroll grew that set without bound:
     // hundreds of timers each waking a frame that scheduled another, and the
     // main thread never got back to input. Freezing the window, not a stall.
-    if (scheduled || retry !== undefined) return;
+    if (scheduled) return;
     scheduled = true;
     requestFrame(() => {
       scheduled = false;
-      if (queue.length > 0 && quiet?.()) {
-        // Sleeping beats re-arming every frame: a reader can hold a key for a
-        // long time, and each wake-up is a style recalc waiting to happen.
-        retry = setTimeout(() => {
-          retry = undefined;
-          schedule();
-        }, 120);
-        return;
-      }
       const start = now();
+      const budget = busy?.() ? busyBudgetMs : budgetMs;
       while (queue.length > 0) {
         queue.shift()?.();
-        if (now() - start >= budgetMs) break;
+        if (now() - start >= budget) break;
       }
       if (queue.length > 0) schedule();
     });
@@ -64,10 +70,6 @@ export function createPaintQueue(
       return () => {
         const index = queue.indexOf(job);
         if (index >= 0) queue.splice(index, 1);
-        if (queue.length === 0 && retry !== undefined) {
-          clearTimeout(retry);
-          retry = undefined;
-        }
       };
     },
   };
@@ -83,8 +85,10 @@ const paintQueue = createPaintQueue(
   frames,
   () => performance.now(),
   12,
-  // The reader's own work — a gesture, a keystroke — outranks a row that is
-  // only being prepared for later.
+  // The reader's own work — a keystroke — outranks a row that is only being
+  // prepared for later. It does not stop the queue: a row that arrives
+  // unprepared parses on the frame it appears and moves the content under the
+  // reader.
   parsingShouldWait,
 );
 
