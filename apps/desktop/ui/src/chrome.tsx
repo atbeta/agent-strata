@@ -3,7 +3,7 @@ import { cn } from "./lib/utils";
 import { Button } from "./components/ui/button";
 import { formatChord } from "./commands";
 import { Icon } from "./icons";
-import { inDesktopShell, usesCustomCaption } from "./shell";
+import { canCollapseSidebar, inDesktopShell, usesCustomCaption } from "./shell";
 import { t } from "./i18n";
 import { Tip } from "./tip";
 
@@ -186,6 +186,10 @@ export function WindowCaptionBar(props: {
  * thing it folds. Everything here is a way into the window, and the window
  * is what stays on screen when the sidebar does not.
  *
+ * macOS draws its traffic lights over this corner, and nothing here may fold
+ * away the surface that keeps them off the content — so there the fold switch
+ * does not exist, and the corner carries the palette alone.
+ *
  * The palette used to be opened from a row in the sidebar, one row below this
  * corner. It is a window-level thing — it lists commands, sessions and the
  * lines inside them — and the row was the only place that said so, with the
@@ -205,7 +209,8 @@ export function TopLeftControls(props: {
 
   return (
     <div class={cn("flex items-center gap-0.5", props.class)}>
-      <Tip label={sidebarLabel()}>
+      <Show when={canCollapseSidebar()}>
+        <Tip label={sidebarLabel()}>
         <Button
           type="button"
           variant="icon"
@@ -221,6 +226,7 @@ export function TopLeftControls(props: {
           <Icon name="panel-left" class="size-4" />
         </Button>
       </Tip>
+      </Show>
       <Tip label={paletteLabel()}>
         <Button
           type="button"
