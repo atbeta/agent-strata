@@ -360,6 +360,7 @@ export function TranscriptView(props: {
                           }}
                           viewport={owner.viewport}
                           warm={warmSegment}
+                          paused={gesturing}
                         >
                           {(seg) => (
                             <div data-turn-id={seg().turn.turn_id} data-row-id={seg().id}>
