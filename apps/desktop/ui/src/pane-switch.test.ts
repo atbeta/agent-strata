@@ -21,7 +21,7 @@ const code = (f: string) =>
  *
  * Two separate faults, one per clock.
  *
- * **The workspace.** `handleFocusPane` moves focus synchronously and navigates
+ * **The workspace.** The pane action `focus` moves focus synchronously and navigates
  * afterwards, because the route is a `location.hash` and lands a frame later.
  * The effect that puts the route session into the focused pane read the pane
  * signal — `updatePaneWorkspace` reads it to get the state it is updating — so
@@ -38,11 +38,11 @@ const code = (f: string) =>
  */
 describe("switching panes never paints another pane's conversation", () => {
   test("the route session is assigned on route changes only, not on focus changes", () => {
-    const detail = code("session-detail.tsx");
-    expect(detail).toContain("on(() => props.id,");
+    const actions = code("pane-actions.ts");
+    expect(actions).toContain("on(() => props.id,");
     // A bare effect here is the bug: updatePaneWorkspace reads paneWorkspace()
     // inside the updater, so it would re-fire on every focus change.
-    expect(detail).not.toContain(
+    expect(actions).not.toContain(
       "createEffect(() => {\n    const id = props.id;\n    updatePaneWorkspace",
     );
     // And the reason it over-subscribes is worth pinning, since it is a
