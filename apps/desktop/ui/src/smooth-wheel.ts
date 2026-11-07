@@ -127,9 +127,48 @@ export function stalled(before: number, after: number, target: number): boolean 
  */
 export const STALL_FRAMES = 3;
 
+/**
+ * Where a correction lands, and what is left of the notch afterwards.
+ *
+ * The scroll owner keeps the reader's place when a row above the viewport is
+ * measured: the content moves, and the position has to move with it or the
+ * reader watches the page move under them. It cannot write the position itself
+ * while an ease is running — the wheel reads the write as a foreign scroll and
+ * stops — so it hands the distance over, and the ease spends it like any other
+ * part of the notch.
+ *
+ * The target moves by what the position actually moved, not by what was asked
+ * for: the range can clip the correction, and a notch that keeps its distance
+ * from a position that went somewhere else is not the same notch.
+ */
+export function correction(input: {
+  /** Where the scroller is now. */
+  at: number;
+  /** How far the position has to move. */
+  delta: number;
+  /** Where the notch is heading, or null when no notch is running. */
+  target: number | null;
+  /** The scrollable range. */
+  max: number;
+}): { at: number; target: number | null } {
+  const at = Math.min(input.max, Math.max(0, input.at + input.delta));
+  const moved = at - input.at;
+  if (input.target === null) return { at, target: null };
+  return { at, target: Math.min(input.max, Math.max(0, input.target + moved)) };
+}
+
 export interface WheelSmoother {
   /** True while a notch's distance is still being spent. */
   active: () => boolean;
+  /**
+   * Move the position by a distance, without ending the notch.
+   *
+   * The scroll owner uses this to keep the reader's place when a row above the
+   * viewport is measured. The write is the smoother's own, so the watcher below
+   * does not read it as a foreign scroll, and the notch keeps the distance it
+   * had left.
+   */
+  nudge: (delta: number) => void;
   /** Stop easing and drop whatever distance is left. */
   cancel: () => void;
   dispose: () => void;
@@ -234,6 +273,22 @@ export function createWheelSmoother(el: HTMLElement): WheelSmoother {
   const onScroll = () => {
     if (target !== null && Math.abs(el.scrollTop - written) > 1) cancel();
   };
+  /**
+   * Move the position, and take the rest of the notch with it.
+   *
+   * The write is the smoother's own, so `written` moves with it and the watcher
+   * above does not cancel the ease over it. This is how the scroll owner's
+   * correction reaches the scroller without the owner touching the position
+   * itself.
+   */
+  const nudge = (delta: number) => {
+    if (target === null) return;
+    const next = correction({ at: el.scrollTop, delta, target, max: limit() });
+    if (next.at === el.scrollTop) return;
+    el.scrollTop = next.at;
+    written = el.scrollTop;
+    target = next.target;
+  };
   const onPointerDown = () => cancel();
   const onReduced = () => {
     if (reduced.matches) cancel();
@@ -245,6 +300,7 @@ export function createWheelSmoother(el: HTMLElement): WheelSmoother {
   reduced.addEventListener("change", onReduced);
   return {
     active: () => target !== null,
+    nudge,
     cancel,
     dispose: () => {
       cancel();

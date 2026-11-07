@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isClamp, readingAt, readingNotifies, targetScrollTop } from "./scroll-owner";
+import { correctionFor, isClamp, readingAt, readingNotifies, targetScrollTop } from "./scroll-owner";
 import { JUMP_GAP, TAIL_TOLERANCE } from "./virtual-tail";
 
 // A three-row list under a padded column: origin 40, rows of 200, 300, 400
@@ -134,6 +134,27 @@ describe("readingNotifies", () => {
     expect(
       readingNotifies({ pinned: false, turnId: "t2", offset: 80 }, { pinned: true }),
     ).toBe(true);
+  });
+});
+
+describe("correctionFor", () => {
+  test("a position the owner wants is written when the owner owns the scroller", () => {
+    expect(correctionFor({ target: 1200, at: 1000, suspended: false })).toEqual({ kind: "write", to: 1200 });
+  });
+
+  test("a position within a pixel of where the scroller is needs nothing", () => {
+    expect(correctionFor({ target: 1000.4, at: 1000, suspended: false })).toEqual({ kind: "none" });
+  });
+
+  test("while an ease owns the position the distance is handed over, not written", () => {
+    // A write of the owner's own would read as a foreign scroll and stop the
+    // ease; the distance is what the ease needs to keep the reader's row
+    // where it is.
+    expect(correctionFor({ target: 1200, at: 1000, suspended: true })).toEqual({ kind: "hand", delta: 200 });
+  });
+
+  test("a correction that goes the other way is handed over as it is", () => {
+    expect(correctionFor({ target: 800, at: 1000, suspended: true })).toEqual({ kind: "hand", delta: -200 });
   });
 });
 

@@ -125,6 +125,29 @@ export function isClamp(i: {
   );
 }
 
+/**
+ * What the owner does with a position it wants the scroller at.
+ *
+ * The owner is the only writer, with one exception. While a wheel ease owns
+ * the position, a write of the owner's own would be read as a foreign scroll
+ * and stop the ease — so the distance is handed over instead, and the ease
+ * spends it like any other part of the notch. Writing nothing would leave the
+ * content moving under the reader until the notch was spent, which is the jump
+ * a row above the viewport being measured makes.
+ */
+export function correctionFor(input: {
+  /** Where the owner wants the scroller to be. */
+  target: number;
+  /** Where the scroller is. */
+  at: number;
+  /** True while something else owns the position. */
+  suspended: boolean;
+}): { kind: "write"; to: number } | { kind: "hand"; delta: number } | { kind: "none" } {
+  const delta = input.target - input.at;
+  if (Math.abs(delta) < 1) return { kind: "none" };
+  return input.suspended ? { kind: "hand", delta } : { kind: "write", to: input.target };
+}
+
 export interface ScrollOwner {
   reading: () => Reading;
   following: () => boolean; // reading().pinned
@@ -169,6 +192,16 @@ export function createScrollOwner(opts: {
    * ease resumes the usual corrections.
    */
   suspended?: () => boolean;
+  /**
+   * Move the position by a distance, while something else owns it.
+   *
+   * The owner cannot write the position itself while an ease is running, so
+   * the correction that keeps the reader's row where it is has nowhere to go —
+   * and the content moves under the reader instead, which is the jump a row
+   * above the viewport being measured makes. The distance is handed over
+   * instead, and the ease spends it like any other part of the notch.
+   */
+  correct?: (delta: number) => void;
 }): ScrollOwner {
   const [reading, setReading] = createSignal<Reading>(opts.initial);
   const [top, setTop] = createSignal(0);
@@ -326,11 +359,25 @@ export function createScrollOwner(opts: {
       scrollHeight: p.sh,
       clientHeight: p.ch,
     });
-    if (target !== undefined && Math.abs(target - p.st) >= 1 && !opts.suspended?.()) {
-      el.scrollTop = target;
-      // Read back post-clamp: the browser may not have the extent the layout
-      // claims yet, and lastWritten tracks what is actually on screen.
-      p.st = el.scrollTop;
+    if (target !== undefined) {
+      const move = correctionFor({
+        target,
+        at: p.st,
+        suspended: opts.suspended?.() ?? false,
+      });
+      if (move.kind === "write") {
+        el.scrollTop = move.to;
+        // Read back post-clamp: the browser may not have the extent the layout
+        // claims yet, and lastWritten tracks what is actually on screen.
+        p.st = el.scrollTop;
+      } else if (move.kind === "hand") {
+        // The ease owns the position: hand the distance over rather than
+        // writing. A write of the owner's own would read as a foreign scroll
+        // and stop the ease, and until the notch was spent the content would
+        // move under the reader instead of staying where they left it.
+        opts.correct?.(move.delta);
+        p.st = el.scrollTop;
+      }
     }
     lastWritten = p.st;
     setTop(p.st);

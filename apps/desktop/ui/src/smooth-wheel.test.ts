@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   approach,
+  correction,
   frameDelta,
   isSmoothingCandidate,
   nextTarget,
@@ -174,6 +175,34 @@ describe("stalled", () => {
     }
     expect(frames).toBeLessThanOrEqual(STALL_FRAMES);
     expect(at).toBe(800599);
+  });
+});
+
+describe("correction", () => {
+  test("the position moves by the correction and the notch keeps its distance", () => {
+    // The owner wants the scroller 200px further down because a row above grew.
+    const c = correction({ at: 1000, delta: 200, target: 700, max: 4000 });
+    expect(c.at).toBe(1200);
+    // The notch was 300px away and still is.
+    expect(c.target).toBe(900);
+  });
+
+  test("the notch's target moves by what the position actually moved", () => {
+    // The correction was clipped by the range: the target follows what
+    // happened, not what was asked for.
+    const c = correction({ at: 100, delta: -500, target: 0, max: 4000 });
+    expect(c.at).toBe(0);
+    expect(c.target).toBe(0);
+  });
+
+  test("a correction that would leave the range stops at its edge", () => {
+    const c = correction({ at: 3900, delta: 500, target: 3000, max: 4000 });
+    expect(c.at).toBe(4000);
+    expect(c.target).toBe(3100);
+  });
+
+  test("no notch running leaves the target alone", () => {
+    expect(correction({ at: 1000, delta: 50, target: null, max: 4000 })).toEqual({ at: 1050, target: null });
   });
 });
 

@@ -256,6 +256,11 @@ export function TranscriptView(props: {
             // An owner write during an ease is a correction under the reader,
             // not input: stand aside until the notch has been spent.
             suspended: () => wheel?.active() ?? false,
+            // The correction that keeps the reader's row where it is goes
+            // through the ease: a write of the owner's own would be read as a
+            // foreign scroll and stop the notch, and the content would move
+            // under the reader until it was spent.
+            correct: (delta) => wheel?.nudge(delta),
           });
           const onScroll = scrollCoalescer(owner.onScroll);
           onCleanup(() => wheel?.dispose());
