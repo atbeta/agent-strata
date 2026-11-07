@@ -28,7 +28,7 @@ import { num, t, tn } from "./i18n";
 import { fadeSignal } from "./errors";
 import { displayTitle } from "./session-title";
 import { Tip } from "./tip";
-import { BusyGrid } from "@/components/ui/session-status";
+import { DevRunningMark } from "./dev-mark";
 import { planVisible } from "./plan-progress";
 import { PlanStrip } from "./plan-strip";
 import { GoalButton, GoalStrip, useGoal } from "./goal-bar";
@@ -1342,7 +1342,7 @@ export function SessionComposer(props: {
                   aria-label={tn("composer.background", background().count())}
                   onClick={() => background().open()}
                 >
-                  <BusyGrid class="size-3.5 text-status-active" />
+                  <DevRunningMark class="size-3.5" />
                   {tn("composer.background", background().count())}
                 </Button>
               </Tip>

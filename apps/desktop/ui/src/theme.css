@@ -1173,6 +1173,34 @@ textarea {
   }
 }
 
+/* The mark for a running background command.
+   Not the session spinner: a process alive in a shell is a different fact, and
+   the same breathing cluster made the composer pill read as "the session is
+   busy" a second time. A terminal chevron and a blinking caret is the shape
+   that says "a command is running", and a step blink reads as a cursor rather
+   than as a pulse. Reduced motion keeps the caret solid. */
+.dev-running {
+  color: var(--status-active);
+}
+.dev-running .dev-running-caret {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .dev-running .dev-running-caret {
+    animation: dev-caret-blink 1.1s steps(1, end) infinite;
+  }
+}
+@keyframes dev-caret-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0.15;
+  }
+}
+
 /* Rendered markdown (chat messages, tool summaries) — hand-rolled,
    shadcn-token-colored. These rules live in the components layer on purpose: an
    unlayered `.md` outranks the utility layer, so a caller passing `text-sm` would
