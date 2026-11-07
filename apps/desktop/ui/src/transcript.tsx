@@ -715,8 +715,11 @@ function ToolCallCard(props: {
      output the way a file tree carries its children. */
   return (
     <div class="-ml-2">
-      <Tip label={open() ? t("tool.output.hide") : t("tool.output.show")} class="w-full">
-        <ListRow
+      {/* The row is a disclosure and says so: a chevron, and `aria-expanded`.
+          It used to carry a `显示输出` / `隐藏输出` tooltip as well, and a
+          transcript holds dozens of these rows — every hover told the reader
+          something the chevron already had. */}
+      <ListRow
           class="h-auto py-1.5 text-xs hover:bg-secondary/70 focus-visible:ring-inset"
           expanded={open()}
           onOpen={() => {
@@ -817,7 +820,6 @@ function ToolCallCard(props: {
             <Icon name="chevron" class="size-3" />
           </span>
         </ListRow>
-      </Tip>
       <Show when={open()}>
         {/* Expanded content aligns under the row's text, past the icon and its
             gap — a box carries the boundary now, so no rail is needed. */}
