@@ -32,11 +32,11 @@ const BUSY_CELLS: { x: number; y: number; dim: boolean; delay: number; duration:
   { x: 8, y: 12, dim: true, delay: 0.3, duration: 1.8 },
 ];
 
-function BusyGrid() {
+export function BusyGrid(props: { class?: string }) {
   return (
     <svg
       viewBox="0 0 15 15"
-      class="status-busy size-3 shrink-0"
+      class={`status-busy shrink-0 ${props.class ?? "size-3"}`}
       fill="currentColor"
       aria-hidden="true"
     >

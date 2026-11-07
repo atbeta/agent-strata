@@ -28,6 +28,7 @@ import { num, t, tn } from "./i18n";
 import { fadeSignal } from "./errors";
 import { displayTitle } from "./session-title";
 import { Tip } from "./tip";
+import { BusyGrid } from "@/components/ui/session-status";
 import { planVisible } from "./plan-progress";
 import { PlanStrip } from "./plan-strip";
 import { GoalButton, GoalStrip, useGoal } from "./goal-bar";
@@ -1322,21 +1323,29 @@ export function SessionComposer(props: {
         >
           {(background) => (
             <div class="mb-2 flex">
-              <Button
-                type="button"
-                variant="outline"
-                size="xs"
-                class={`h-6 gap-1.5 rounded-full px-2.5 text-2xs font-normal ${
-                  background().active?.()
-                    ? "border-input bg-secondary text-foreground"
-                    : "border-border bg-secondary/60 text-muted-foreground hover:bg-secondary hover:text-foreground"
-                }`}
-                title={background().commands().join("\n") || undefined}
-                onClick={() => background().open()}
+              {/* A background process is running, so the mark moves: the same
+                  breathing grid the sidebar uses for a busy session, which is
+                  what says "this is live" without a line of changing text.
+                  A static glyph read as a terminal button. */}
+              <Tip
+                label={background().commands().join("\n") || tn("composer.background", background().count())}
               >
-                <Icon name="terminal" />
-                {tn("composer.background", background().count())}
-              </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  class={`h-6 gap-1.5 rounded-full px-2.5 text-2xs font-normal ${
+                    background().active?.()
+                      ? "border-input bg-secondary text-foreground"
+                      : "border-border bg-secondary/60 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                  }`}
+                  aria-label={tn("composer.background", background().count())}
+                  onClick={() => background().open()}
+                >
+                  <BusyGrid class="size-3.5 text-status-active" />
+                  {tn("composer.background", background().count())}
+                </Button>
+              </Tip>
             </div>
           )}
         </Show>
