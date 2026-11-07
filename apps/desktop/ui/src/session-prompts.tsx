@@ -35,14 +35,37 @@ export function AskCard(props: {
     const view = detail();
     if (view.kind === "command") {
       return (
-        <pre class="max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-code-surface px-3 py-2 font-mono text-xs leading-5">
+        <pre class="max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-md bg-code-surface px-3 py-2 font-mono text-xs leading-5">
           <CodeTokens source={view.command} label="sh" />
         </pre>
       );
     }
+    if (view.kind === "paths") {
+      // The folders are the ask; the command beside them is context, not the
+      // decision. A single dump of both said neither.
+      return (
+        <div class="space-y-1.5">
+          <ul class="max-h-32 space-y-0.5 overflow-auto">
+            <For each={view.paths}>
+              {(path) => (
+                <li class="flex items-start gap-1.5 font-mono text-xs leading-5 text-foreground/90">
+                  <Icon name="folder" class="mt-0.5 size-3 shrink-0 text-muted-foreground" />
+                  <span class="min-w-0 break-all">{path}</span>
+                </li>
+              )}
+            </For>
+          </ul>
+          <Show when={view.command}>
+            <pre class="max-h-24 overflow-auto whitespace-pre-wrap break-words rounded-md bg-code-surface px-2.5 py-1.5 font-mono text-2xs leading-5 text-muted-foreground">
+              {view.command}
+            </pre>
+          </Show>
+        </div>
+      );
+    }
     if (view.kind === "diff") {
       return (
-        <div class="overflow-hidden rounded-md border border-border">
+        <div class="overflow-hidden rounded-md bg-code-surface">
           <Show when={view.path}>
             <p class="truncate border-b border-border px-2.5 py-1 font-mono text-2xs text-muted-foreground">{view.path}</p>
           </Show>
@@ -63,7 +86,7 @@ export function AskCard(props: {
   };
   return (
     <div class="overflow-hidden rounded-lg border border-event-permission/40 bg-card">
-      <div class="flex items-center gap-2 bg-event-permission/8 px-3 py-2">
+      <div class="flex items-center gap-2 border-b border-event-permission/15 bg-event-permission/8 px-3 py-2">
         <Icon name={askIcon(detail(), props.ask.tool, props.ask.input)} class="size-3.5 shrink-0 text-event-permission" />
         <span class="text-xs font-medium">{props.ask.tool}</span>
         <span class="text-2xs text-muted-foreground">{t("permission.wants_to_run")}</span>

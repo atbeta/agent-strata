@@ -38,6 +38,31 @@ describe("permission card body", () => {
     });
   });
 
+  test("a tool that carries a command shows the command, not its document", () => {
+    // `dev_start` is not in the shell set, and it used to fall through to the
+    // JSON dump: braces, quotes and the field name between the reader and the
+    // one line they are being asked to approve.
+    expect(permissionView({ tool: "dev_start", input: { command: "npm run dev" } })).toEqual({
+      kind: "command",
+      command: "npm run dev",
+    });
+  });
+
+  test("an ask about folders shows the folders, and any command as context", () => {
+    expect(
+      permissionView({
+        tool: "external_directory",
+        input: { directories: ["D:/work/a", "D:/work/b"], patterns: ["*"] },
+      }),
+    ).toEqual({ kind: "paths", paths: ["D:/work/a", "D:/work/b"] });
+    expect(
+      permissionView({
+        tool: "external_directory",
+        input: { directories: ["D:/work"], command: "echo probe" },
+      }),
+    ).toEqual({ kind: "paths", paths: ["D:/work"], command: "echo probe" });
+  });
+
   test("anything else stays raw json", () => {
     expect(permissionView({ tool: "edit", input: { filepath: "a.ts" } })).toEqual({ kind: "json" });
     expect(permissionView({ tool: "task", input: { description: "look" } })).toEqual({ kind: "json" });
