@@ -51,10 +51,21 @@ export function readingAt(i: {
   offsets: Float64Array;
   ids: readonly string[];
   tolerance?: number;
+  /**
+   * Whether reaching the end may re-pin the reader.
+   *
+   * False while they are moving up. Row heights are learned: as a row above the
+   * viewport is measured, the content gets shorter, and the same pixel offset
+   * ends up at the bottom of a smaller extent. Read against that new extent,
+   * an upward scroll looked exactly like arriving at the tail — the owner wrote
+   * the tail position and the reader was thrown back down mid-gesture. A reader
+   * who is scrolling up is not asking to follow.
+   */
+  allowTail?: boolean;
 }): Reading {
   const tolerance = i.tolerance ?? TAIL_TOLERANCE;
   const count = i.ids.length;
-  if (count <= 0 || i.scrollTop + i.clientHeight >= i.scrollHeight - tolerance) {
+  if ((i.allowTail ?? true) && (count <= 0 || i.scrollTop + i.clientHeight >= i.scrollHeight - tolerance)) {
     return { pinned: true };
   }
   const y = Math.max(0, i.scrollTop - i.origin);
@@ -184,6 +195,15 @@ export function createScrollOwner(opts: {
     return lastOrigin;
   };
 
+  /**
+   * The direction of the reader's own last move, in pixels.
+   *
+   * Only a downward move may end at the tail. See `readingAt`: learning a row's
+   * height shortens the content, so an upward scroll can coincide with the
+   * bottom of the new extent and be mistaken for "follow the tail".
+   */
+  let movingUp = false;
+
   const readPosition = (
     p: { st: number; sh: number; ch: number; orig: number },
     s: { offsets: Float64Array; ids: readonly string[] },
@@ -195,6 +215,9 @@ export function createScrollOwner(opts: {
       origin: p.orig,
       offsets: s.offsets,
       ids: s.ids,
+      // Already at the tail: staying there is not a misread. Otherwise only a
+      // downward move may arrive at it.
+      allowTail: !movingUp || live.pinned,
     });
   };
 
@@ -271,6 +294,10 @@ export function createScrollOwner(opts: {
         clientHeight: p.ch,
         lastWritten,
       })) {
+        // The direction the reader moved, taken against the position this
+        // owner last put on screen. A height commit that shrinks the column
+        // must not let an upward gesture read as the tail.
+        movingUp = p.st < lastWritten;
         const s = seen ?? { offsets, ids };
         place(readPosition(p, s));
       }
@@ -378,6 +405,11 @@ export function createScrollOwner(opts: {
         clientHeight: p.ch,
         lastWritten,
       })) return;
+      // Which way the reader moved. `lastWritten` is the position this owner
+      // last put on screen, so the difference is their own movement. The
+      // direction matters only for the tail: an upward gesture must never be
+      // re-read as "follow the tail" because the content shrank under it.
+      if (lastWritten !== undefined) movingUp = st < lastWritten;
       p.orig = measureOrigin(p.st);
       const offsets = opts.layout.offsets();
       const ids = opts.layout.ids();

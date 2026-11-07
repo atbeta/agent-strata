@@ -44,6 +44,23 @@ describe("readingAt", () => {
     });
     expect(r).toEqual({ pinned: false, turnId: "t0", offset: -30 });
   });
+
+  test("an upward move is never re-read as the tail, even at the bottom", () => {
+    // Row heights are learned as the reader scrolls: measuring a tall estimate
+    // shorter shrinks the content under a still position, so the same scrollTop
+    // lands at the bottom of a smaller extent. Read as the tail, the owner wrote
+    // the bottom back and the reader was thrown down mid-gesture.
+    const base = { clientHeight: 400, origin: 40, offsets, ids };
+    expect(readingAt({ ...base, scrollTop: 1000, scrollHeight: 1400 })).toEqual({ pinned: true });
+    const up = readingAt({
+      ...base,
+      scrollTop: 1000,
+      scrollHeight: 1400,
+      allowTail: false,
+    });
+    expect(up.pinned).toBe(false);
+    if (!up.pinned) expect(up.turnId).toBe("t2");
+  });
 });
 
 describe("targetScrollTop", () => {
