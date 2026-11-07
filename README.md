@@ -84,7 +84,7 @@ bun run typecheck # tsc --noEmit per package and the desktop UI
 STRATA_DB=~/.agent-strata/events.db STRATA_PORT=7700 bun run packages/service/src/index.ts
 
 # desktop UI dev (proxies /api -> service) — in its own terminal
-bun --cwd apps/desktop/ui run dev
+bun run --cwd apps/desktop/ui dev
 ```
 
 On Windows, `STRATA_DB=~/.agent-strata/events.db` is POSIX syntax and `cmd.exe`
@@ -112,7 +112,7 @@ Then run the shell from the repo root:
 
 ```sh
 bun run sidecar
-bun --cwd apps/desktop/ui run dev     # optional: only for UI-only iteration in a browser
+bun run --cwd apps/desktop/ui dev     # optional: only for UI-only iteration in a browser
 bun x tauri dev --config apps/desktop/src-tauri/tauri.conf.json
 ```
 
