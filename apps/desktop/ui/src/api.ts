@@ -838,7 +838,15 @@ export async function searchSession(
 }
 
 export async function importSession(id: string): Promise<void> {
-  const res = await apiFetch(`/sessions/${encodeURIComponent(id)}/import`, { method: "POST" });
+  // A cold open waits on this before the transcript appears, so it cannot be
+  // allowed to hang: a backend that has stopped answering would leave the pane
+  // on its loading state for as long as the socket stayed open, with nothing on
+  // screen saying why. Ten seconds is well past a real import of a long session
+  // and short enough to read as a pause rather than a freeze.
+  const res = await apiFetch(`/sessions/${encodeURIComponent(id)}/import`, {
+    method: "POST",
+    signal: AbortSignal.timeout(10_000),
+  });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(body.error ?? t("api.err.service", { status: res.status }));

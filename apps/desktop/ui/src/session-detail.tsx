@@ -1034,16 +1034,25 @@ const turns = () => shown().turns;
     // Re-import in the background and only pay for a second full view when it
     // actually moved the session — the head probe is index-only, so this stays
     // cheap even when the import found nothing new.
+    //
+    // The transcript waits on `importing` only while the session has no turns,
+    // so a hung import is a pane that never finishes loading. `importSession`
+    // carries its own deadline, and this clears the flag even if the whole
+    // probe throws: the local record is already on screen and is the better
+    // thing to show than a spinner with no reason.
     void (async () => {
-      const before = await readHead(props.id).catch(() => undefined);
-      await importSession(props.id).catch(() => {});
-      const after = await readHead(props.id).catch(() => undefined);
-      setImporting(false);
-      if (after !== before) {
-        setTraceEpoch((e) => e + 1);
-        void refreshView(true);
+      try {
+        const before = await readHead(props.id).catch(() => undefined);
+        await importSession(props.id).catch(() => {});
+        const after = await readHead(props.id).catch(() => undefined);
+        if (after !== before) {
+          setTraceEpoch((e) => e + 1);
+          void refreshView(true);
+        }
+        void refetchSeq();
+      } finally {
+        setImporting(false);
       }
-      void refetchSeq();
     })();
     const onConns = () => {
       refetchOptions();
