@@ -16,6 +16,42 @@ const TOP_GAP = 46;
 const MAX_W = 448;
 
 /**
+ * Open bubbles, so a scroll can put every one of them away.
+ *
+ * A tooltip is opened by a pointer entering its trigger. Scrolling under a
+ * stationary pointer mounts new rows under the cursor, and each one fires a
+ * `mouseenter` it never earned — so one wheel notch could leave a column of
+ * labels behind, one per row that arrived under the mouse. Nothing removed
+ * them either: the capture listener only runs on a real pointer move, and the
+ * pointer had not moved.
+ *
+ * Two halves fix it. A scroll dismisses whatever is open, and a bubble will not
+ * open in the moment after a scroll, which is when those arrivals land.
+ */
+const openTips = new Set<() => void>();
+let lastScrollAt = -Infinity;
+/** How long after a scroll a hover is treated as the scroll's own doing. */
+const SCROLL_QUIET_MS = 200;
+
+/** Put away every open label. */
+export function dismissTips(): void {
+  for (const hide of [...openTips]) hide();
+}
+
+if (typeof window !== "undefined") {
+  // Capture, so a scroll inside any container reaches this before the
+  // transcript's own handler. Passive: this only reads a clock.
+  window.addEventListener(
+    "scroll",
+    () => {
+      lastScrollAt = performance.now();
+      dismissTips();
+    },
+    { capture: true, passive: true },
+  );
+}
+
+/**
  * Instant hover label. Fixed so a scrolling sidebar does not clip it.
  *
  * Position is measured, not estimated: the tooltip renders at a provisional
@@ -103,6 +139,9 @@ export function Tip(props: {
     // (a hint that only applies while something is running) would otherwise
     // keep a follow loop measuring layout for a bubble that never renders.
     if (!props.content && !props.label) return;
+    // A row that scrolled in under a still pointer did not earn a label. The
+    // pointer never entered it; the list moved. See `openTips` above.
+    if (performance.now() - lastScrollAt < SCROLL_QUIET_MS) return;
     // Prefer the wrapper's own box, but fall through to the child when the
     // wrapper has collapsed — an absolutely positioned trigger inside `Tip` has
     // no flow box of its own, and its centre is the only anchor that is right.
@@ -161,6 +200,7 @@ export function Tip(props: {
    */
   createEffect(() => {
     if (!open()) return;
+    openTips.add(hide);
     document.addEventListener("pointermove", watch, true);
     // The trigger can move while the label is open: the plan strip above the
     // composer grows while a session streams, and the goal strip — and its
@@ -212,6 +252,7 @@ export function Tip(props: {
       document.removeEventListener("pointermove", watch, true);
       cancelAnimationFrame(frame);
       cancelHide();
+      openTips.delete(hide);
     });
   });
 
