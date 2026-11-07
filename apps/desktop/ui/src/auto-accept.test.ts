@@ -12,7 +12,7 @@ const read = (f: string) => readFileSync(join(import.meta.dir, f), "utf8");
  */
 describe("the per-session auto-accept switch", () => {
   test("the read is keyed on the session, not shared across the window", () => {
-    const src = read("session-detail.tsx");
+    const src = read("session-asks.tsx");
     // A global signal would carry one session's answer into the next one the
     // reader opened, which is the disagreement this switch exists to remove.
     const decl = src.slice(src.indexOf("const [autoAccept"), src.indexOf("const toggleAutoAccept"));
@@ -24,7 +24,7 @@ describe("the per-session auto-accept switch", () => {
     // The first thing a reader meets: a permission card is up when they reach
     // for the button. Leaving it there would put the header and the card into
     // exactly the disagreement this is meant to end.
-    const src = read("session-detail.tsx");
+    const src = read("session-asks.tsx");
     const start = src.indexOf("const toggleAutoAccept");
     const body = src.slice(start, src.indexOf("\n  const ", start + 1));
     expect(body).toContain('next === "auto" ? (asks() ?? [])');
@@ -34,7 +34,7 @@ describe("the per-session auto-accept switch", () => {
   });
 
   test("the reader's own read moves before the request, not after", () => {
-    const src = read("session-detail.tsx");
+    const src = read("session-asks.tsx");
     const start = src.indexOf("const toggleAutoAccept");
     const body = src.slice(start, src.indexOf("\n  const ", start + 1));
     expect(body.indexOf("refetchAutoAccept(next)")).toBeLessThan(body.indexOf("await setSessionPolicy"));
@@ -73,14 +73,14 @@ describe("the per-session auto-accept switch", () => {
     // switch — so a stale sidecar was indistinguishable from a working one.
     // Pressing it then wrote to a route that did not exist, the catch undid
     // the flip, and the only symptom was a button that did nothing.
-    const src = read("session-detail.tsx");
+    const src = read("session-asks.tsx");
     expect(src).toContain('readSessionPolicy(id).catch(() => "unknown"');
     expect(src).toContain('autoAccept() === "unknown"');
     expect(src).not.toContain('readSessionPolicy(id).catch(() => "inherit"');
   });
 
   test("a write that failed says so instead of quietly putting the switch back", () => {
-    const src = read("session-detail.tsx");
+    const src = read("session-asks.tsx");
     const start = src.indexOf("const toggleAutoAccept");
     const body = src.slice(start, src.indexOf("\n  const ", start + 1));
     expect(body).toContain("setAutoAcceptErr(");
@@ -90,7 +90,7 @@ describe("the per-session auto-accept switch", () => {
   });
 
   test("an unreadable switch and a failed write both mark the button", () => {
-    const src = read("session-detail.tsx");
+    const src = read("session-asks.tsx");
     expect(src).toContain("text-destructive");
     expect(src).toContain("header.autoAccept.broken");
   });

@@ -54,7 +54,7 @@ describe("the header row", () => {
     // the colour the permission cards already use and cannot be read as
     // "something is showing". Red is its third state: a switch that cannot be
     // read is neither on nor off, and must not be drawn as either.
-    const src = detail();
+    const src = read("session-asks.tsx");
     const at = src.indexOf('label={t("header.autoAccept")}');
     expect(at).toBeGreaterThan(-1);
     const tone = src.slice(at, src.indexOf("onClick", at));
@@ -64,8 +64,7 @@ describe("the header row", () => {
     // default would be the same muted grey a panel toggle uses and this row
     // needs the amber to be the thing that stands out.
     expect(tone).toContain("text-muted-foreground");
-    // Named rather than `on`, which would shadow the Solid primitive the file
-    // imports for the pane-routing effect.
+    // Named rather than `on`, which would shadow Solid's own `on`.
     expect(tone).toContain("autoAcceptOn()");
     expect(tone).not.toMatch(/(^|[^a-zA-Z])on\(\)/);
   });
@@ -92,7 +91,9 @@ describe("the header row", () => {
     expect(toolbar.indexOf("composer.attach")).toBeLessThan(toolbar.indexOf("props.permission"));
 
     // And gone from the header, so there is one place that answers the question.
-    const header = detail.slice(detail.indexOf("<header"), detail.indexOf("</header>"));
+    const headerSrc = read("session-header.tsx");
+    const header = headerSrc.slice(headerSrc.indexOf("<header"), headerSrc.indexOf("</header>"));
+    expect(header).toContain("<header");
     expect(header).not.toContain('<Icon name="shield"');
   });
 
