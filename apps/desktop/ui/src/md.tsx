@@ -16,7 +16,8 @@ import { reconcileList } from "./md-reconcile";
 import { stableKeys } from "./keyed";
 import { splitLinkTail } from "./link-tail";
 import { drawDiagram, isDiagramBlock } from "./mermaid";
-import { t } from "./i18n";
+import { copyText } from "./clipboard";
+import { locale, t } from "./i18n";
 import { MarkdownHtmlCache } from "./md-cache";
 import { openImage } from "./image-viewer";
 import { markPathCandidates, pathActions, queueConfirm } from "./path-link";
@@ -113,11 +114,43 @@ export function Md(props: { text: string; class?: string; live?: boolean }) {
     if (frame) cancelAnimationFrame(frame);
   });
 
+  /** The root, for the one sweep a language switch needs. */
+  let root: HTMLDivElement | undefined;
+  /**
+   * Code chips are the only chrome this component draws, and a message is not
+   * re-rendered when the language changes: `t()` is read while the nodes are
+   * built, not from the JSX. So the labels are refreshed in place. Without
+   * this, a transcript painted in Chinese keeps saying 复制 after a switch to
+   * English — a half-translated screen in the one pair of strings this file
+   * owns.
+   */
+  createEffect(
+    on(
+      locale,
+      () => {
+        for (const chip of root?.querySelectorAll<HTMLElement>("[data-code-copy]") ?? []) {
+          paintCopyChip(chip, chip.hasAttribute("data-copied"));
+        }
+      },
+      { defer: true },
+    ),
+  );
+
   return (
     <div
+      ref={(el) => (root = el)}
       class={`md ${props.class ?? ""}`}
       onClick={(e) => {
         const target = e.target instanceof Element ? e.target : undefined;
+        // The code chip is decoration over injected HTML — there is no
+        // component behind it to receive a click — so the message root routes
+        // it, the same way it routes a path link.
+        const chip = target?.closest<HTMLElement>("[data-code-copy]");
+        if (chip) {
+          e.preventDefault();
+          copyCode(chip);
+          return;
+        }
         const pathEl = target?.closest("[data-path]");
         if (pathEl instanceof HTMLElement && pathEl.dataset.path) {
           e.preventDefault();
@@ -245,6 +278,7 @@ function fixAutolinkTails(host: ParentNode) {
  */
 function nodesFrom(markdown: string, finished: boolean): DocumentFragment {
   const content = parsed(markdown, finished);
+  decorateCodeBlocks(content);
   if (finished) drawDiagrams(content);
   return content;
 }
@@ -352,4 +386,134 @@ function highlightCode(host: ParentNode) {
     const label = lang ?? guessGrammar(src);
     if (label) block.dataset.lang = label;
   }
+}
+
+/** How long the chip says 已复制. The tool wells settled on the same beat. */
+const COPIED_MS = 1200;
+
+/** A reset per chip, so a second click restarts the confirmation rather than
+ *  letting the first one's timer clear it early. */
+const copiedTimers = new WeakMap<HTMLElement, ReturnType<typeof setTimeout>>();
+
+/**
+ * Make every fenced block takeable: one chip, at the far end of the block's
+ * own header strip, shown when the pointer or the keyboard arrives.
+ *
+ * It hangs on a wrapper rather than on the `pre` itself. The `pre` is the
+ * horizontal scroller, so a control inside it would ride out of the corner
+ * with the first long line; the tool wells keep theirs on a relative frame for
+ * exactly that reason.
+ *
+ * Every code block gets that strip, including the one whose language the
+ * highlighter could not name: the label is drawn by `pre[data-lang]::before`,
+ * so an empty `data-lang` is what gives an anonymous fence the same header the
+ * labelled ones have. Without it the chip would sit over the first line of
+ * code, and a long first line would be covered by the button meant to copy it.
+ *
+ * This runs on the nodes a paint produced, never inside `parsed()`. The HTML
+ * cache would otherwise freeze the label into it: the chip's text is chrome,
+ * so a cached one would still say 复制 after the language switched, and a
+ * replayed button would carry a copy state that belongs to no click.
+ *
+ * A diagram fence is left alone. Its `pre` is hidden and replaced by the
+ * drawing, and a copy affordance floating over a picture is not a copy of
+ * anything the reader can see.
+ */
+function decorateCodeBlocks(host: ParentNode) {
+  for (const node of host.querySelectorAll("pre")) {
+    // Untyped on purpose: `isDiagramBlock` asserts `HTMLElement`, and narrowing
+    // an already-`HTMLPreElement` argument would collapse the rest of the loop
+    // to `never`.
+    const pre: Element = node;
+    if (isDiagramBlock(pre)) continue;
+    // Only a fence, or a source block: a bare `<pre>` written by hand has no
+    // code element, and the strip's geometry assumes one.
+    const code = pre.firstElementChild;
+    if (!(code instanceof HTMLElement) || code.tagName !== "CODE") continue;
+    // An empty fence has nothing to take away.
+    if ((code.textContent ?? "").trim() === "") continue;
+    if (!pre.hasAttribute("data-lang")) pre.setAttribute("data-lang", "");
+    const block = document.createElement("div");
+    block.className = "code-block";
+    pre.replaceWith(block);
+    block.append(pre, copyChip());
+  }
+}
+
+function copyChip(): HTMLButtonElement {
+  const chip = document.createElement("button");
+  chip.type = "button";
+  // Built as a DOM node because a message arrives as HTML: a Solid `Button`
+  // cannot mount inside the nodes this pass produces.
+  chip.className = "code-copy";
+  chip.dataset.codeCopy = "";
+  paintCopyChip(chip, false);
+  return chip;
+}
+
+/** The chip's two states, as one place that knows both of them. */
+function paintCopyChip(chip: HTMLElement, copied: boolean) {
+  const label = copied ? t("code.copied") : t("code.copy");
+  const text = document.createElement("span");
+  text.textContent = label;
+  chip.replaceChildren(chipGlyph(copied ? "check" : "copy"), text);
+  chip.setAttribute("aria-label", label);
+  if (copied) chip.dataset.copied = "";
+  else delete chip.dataset.copied;
+}
+
+/**
+ * The same two glyphs as `icons.tsx` ("copy" and "check"), drawn here because
+ * this block lives inside injected HTML, where `<Icon>` cannot mount.
+ */
+function chipGlyph(name: "copy" | "check"): SVGSVGElement {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  for (const [attr, value] of Object.entries({
+    viewBox: "0 0 16 16",
+    class: "size-3",
+    fill: "none",
+    stroke: "currentColor",
+    "stroke-width": "1.5",
+    "stroke-linecap": "round",
+    "stroke-linejoin": "round",
+    "aria-hidden": "true",
+  })) {
+    svg.setAttribute(attr, value);
+  }
+  const shape = (tag: string, attrs: Record<string, string>) => {
+    const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (const [attr, value] of Object.entries(attrs)) el.setAttribute(attr, value);
+    svg.append(el);
+  };
+  if (name === "check") shape("path", { d: "M3.4 8.3 6.5 11.4 12.6 4.8" });
+  else {
+    shape("rect", { x: "6", y: "6", width: "6.6", height: "6.6", rx: "1.2" });
+    shape("path", { d: "M4.2 10.2V4.2c0-.6.5-1.1 1.1-1.1H10" });
+  }
+  return svg;
+}
+
+/**
+ * Copy what the block shows.
+ *
+ * The source is the `code` node's text, not the block's: the chip lives
+ * outside the `pre`, so its own label can never leak into the clipboard, and
+ * the highlighter has already replaced the escapes with plain text.
+ */
+function copyCode(chip: HTMLElement) {
+  const pre = chip.closest(".code-block")?.querySelector("pre");
+  if (!pre) return;
+  const source = (pre.querySelector("code") ?? pre).textContent ?? "";
+  void copyText(source).then((ok) => {
+    if (!ok || !chip.isConnected) return;
+    paintCopyChip(chip, true);
+    clearTimeout(copiedTimers.get(chip));
+    copiedTimers.set(
+      chip,
+      setTimeout(() => {
+        copiedTimers.delete(chip);
+        if (chip.isConnected) paintCopyChip(chip, false);
+      }, COPIED_MS),
+    );
+  });
 }

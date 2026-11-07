@@ -69,6 +69,12 @@ export default {
   "payload.copied": "Copied",
   "payload.empty": "None",
 
+  // The chip on a fenced block in a message. Its own two words rather than the
+  // payload's: that one names a tool's input or output, this one names the code
+  // the model wrote, and the two should be free to read differently.
+  "code.copy": "Copy",
+  "code.copied": "Copied",
+
   "json.tree.collapse": "Collapse",
   "json.tree.expand": "Expand",
 

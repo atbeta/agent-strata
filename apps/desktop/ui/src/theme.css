@@ -1787,6 +1787,32 @@ textarea {
   }
   .md pre[data-lang] code { @apply p-3; }
 
+  /* A fenced block is takeable: one chip, pinned to the block's corner, shown
+     when the pointer or the keyboard reaches it. The wrapper is what it is
+     pinned to — the `pre` is the horizontal scroller, so a chip inside it
+     would ride out of the corner with the first long line, which is also why
+     the tool wells hang theirs on a relative frame. On a labelled block the
+     chip lands in the language bar above the code, where a reader looks. */
+  .md .code-block { @apply relative my-3; }
+  .md .code-block > pre { @apply my-0; }
+  .md .code-copy {
+    @apply absolute right-2 top-1.5 inline-flex items-center gap-1 rounded-md border border-border bg-card/95 px-1.5 py-0.5 text-2xs text-muted-foreground shadow-sm select-none;
+    opacity: 0;
+    transition: opacity 0.12s ease;
+  }
+  /* Visible while it is confirming, even after the pointer has moved on: the
+     confirmation is the whole reason the click was worth making. */
+  .md .code-block:hover .code-copy,
+  .md .code-copy:focus-visible,
+  .md .code-copy[data-copied] {
+    opacity: 1;
+  }
+  .md .code-copy[data-copied] { @apply text-status-active; }
+  .md .code-copy:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 1px;
+  }
+
   /* A recognised local path — an underline that promises it opens, quiet
      enough to live inside prose and code without reading as a link. */
   .md .path-link {

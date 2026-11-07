@@ -68,6 +68,11 @@ export default {
   "payload.copied": "已复制",
   "payload.empty": "无",
 
+  // 消息里代码块上的那个小按钮。它有自己的两个词，不复用 payload 的：那组词
+  // 说的是工具的输入输出，这组说的是模型写下的代码，两边将来要改也能分开改。
+  "code.copy": "复制",
+  "code.copied": "已复制",
+
   "json.tree.collapse": "折叠",
   "json.tree.expand": "展开",
 
