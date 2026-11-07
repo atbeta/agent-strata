@@ -35,8 +35,9 @@ describe("opening a session does not keep the previous one on screen", () => {
   });
 
   test("a stale view does not end the skeleton", () => {
-    const src = code("session-detail.tsx");
-    expect(src).not.toContain("settled(view))) setBooting(false)");
-    expect(src).toContain("displayed()?.session_id === id");
+    for (const file of ["session-detail.tsx", "session-view.ts"]) {
+      expect(code(file)).not.toContain("settled(view))) setBooting(false)");
+    }
+    expect(code("session-view.ts")).toContain("displayed()?.session_id === id");
   });
 });

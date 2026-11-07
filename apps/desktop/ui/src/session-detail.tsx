@@ -17,13 +17,11 @@ import {
   readVcs,
   realWorkspace,
   readHead,
-  readViewTail,
   revertSession,
   unrevertSession,
   streamUrl,
   type Connection,
   type OptionsResponse,
-  type SessionView,
 } from "./api";
 import { messageText } from "./transcript-format";
 import { isDevEvent } from "./sync-events";
@@ -38,12 +36,11 @@ import { useTraceReplay } from "./trace-replay";
 import { TerminalPane } from "./terminal";
 import { TurnBlock } from "./transcript";
 import { TranscriptView, type TranscriptApi } from "./transcript-view";
-import { applyStreamingSnapshot, type StreamingSnapshot } from "./live";
+import type { StreamingSnapshot } from "./live";
 import { createScrollDeferral, deferTranscriptWrite } from "./scroll-defer";
 import { ECHO_TURN_ID } from "./prompt-echo";
 import { ChildBoard } from "./child-board";
-import { createSessionViewLoader } from "./session-view-loader";
-import { outlineIsPartial, peekView, rememberView, TAIL_TURNS } from "./view-cache";
+import { outlineIsPartial } from "./view-cache";
 import { registerCommand } from "./commands";
 import { PaneStage, type SessionRowSummary } from "./pane-stage";
 import { usePaneActions } from "./pane-actions";
@@ -58,6 +55,7 @@ import { skillDraft } from "./mcp-panel";
 import { useSessionComposer, SessionComposer } from "./session-composer";
 import { useSessionAsks } from "./session-asks";
 import { useSlashCommands } from "./slash-commands";
+import { useSessionView } from "./session-view";
 import { SessionRail } from "./session-rail";
 import { useDevProcesses } from "./dev-processes";
 import { createEntranceLedger } from "./entrance";
@@ -92,64 +90,17 @@ export function SessionDetail(props: {
   } = useTraceReplay(props, maxSeq);
   const [terminalOn, setTerminalOn] = createSignal(false);
   const toggleTerminal = () => setTerminalOn((on) => !on);
-  const opening = peekView(props.id);
-  /** the background re-import that lands after the stored view is already up */
-  const [importing, setImporting] = createSignal(true);
-  // The files list key travels with the cached view so a warm open can leave
-  // an unchanged list off the wire. forceFull skips the cache for one fetch.
-  let filesKey: string | undefined = opening?.filesKey;
-  let forceFull = false;
-  let viewAlive = true;
-  const viewLoader = createSessionViewLoader({
-    readFull: (id, replayPos) => getJson<SessionView>(
-      `/sessions/${encodeURIComponent(id)}/view${replayPos != null ? `?until_seq=${replayPos}` : ""}`,
-    ),
-    readTail: (id, key) => readViewTail(id, TAIL_TURNS, key),
-    currentSessionId: () => props.id,
-  });
-  /** Consecutive automatic reload attempts after a failed one. */
-  let retries = 0;
-  onCleanup(() => {
-    viewAlive = false;
-    viewLoader.invalidate();
-  });
-  const [view, { refetch, mutate }] = createResource(
-    () => ({ id: props.id, pos: replayPos() }),
-    async (key: { id: string; pos: number | null }) => {
-      viewLoader.invalidate();
-      // Consume the flag even when this fetch is a replay, so leaving the
-      // replay does not turn the next live open into a full download.
-      const fullNow = forceFull;
-      forceFull = false;
-      if (key.pos !== null) {
-        const replay = await viewLoader.loadFull(key.id, key.pos, () => {});
-        return replay ?? peekView(props.id)?.view;
-      }
-      if (fullNow) {
-        const full = await viewLoader.loadFull(key.id, null, (loaded, keyOf) => {
-          filesKey = keyOf;
-          rememberView(key.id, loaded, keyOf);
-        });
-        return full ?? peekView(props.id)?.view;
-      }
-      const hit = peekView(key.id);
-      if (hit) {
-        filesKey = hit.filesKey;
-        return hit.view;
-      }
-      // Paint the tail, then replace it with the settled view. The preview is
-      // not cached: storing it would make the next open a transcript with no history.
-      const loaded = await viewLoader.loadCold(key.id, (preview, keyOf) => {
-        filesKey = keyOf;
-        mutate(preview);
-      }, (full, keyOf) => {
-        filesKey = keyOf;
-        rememberView(key.id, full, keyOf);
-      });
-      return loaded ?? peekView(props.id)?.view;
-    },
-    opening ? { initialValue: opening.view } : undefined,
-  );
+  const {
+    view,
+    displayed,
+    viewReady,
+    importing,
+    endImport,
+    refreshView,
+    paintSnapshot,
+    retryView,
+    resetView,
+  } = useSessionView(props, { replayPos, generating: () => composer.generating() });
 
   // The focused pane vouches for its own session too, for the same reason the
   // peers do: the header reads the freshest evidence available, and this view
@@ -244,84 +195,6 @@ export function SessionDetail(props: {
     setPathFocus({ path: rel, n: Date.now() });
   };
 
-  // A durable event during a reply only moves the last turns, and the whole
-  // view of a long session is megabytes. A rebuild, a replay, or a tail that no
-  // longer lines up goes back to the full view. Every view load goes through
-  // here one at a time, and waits out a fetch already in flight: mutate() does
-  // not cancel that fetch, so a tail laid down first would be replaced by the
-  // older full view and leave the files list behind the key the server holds.
-  let running: Promise<void> | undefined;
-  let nextRefresh: "tail" | "full" | undefined;
-  const waitWhileLoading = () =>
-    new Promise<void>((resolve) => {
-      const tick = () => {
-        if (!viewAlive || !view.loading) resolve();
-        else setTimeout(tick, 16);
-      };
-      tick();
-    });
-  /** settles once the view reflects this request, queued behind a running one or not */
-  const refreshView = (full = false): Promise<void> => {
-    if (replayPos() !== null) return Promise.resolve();
-    if (running) {
-      if (full || !nextRefresh) nextRefresh = full ? "full" : "tail";
-      return running;
-    }
-    running = loadView(full);
-    return running;
-  };
-  const loadView = async (full: boolean): Promise<void> => {
-    let wantFull = full;
-    try {
-      for (;;) {
-        if (!viewAlive || replayPos() !== null) return;
-        if (view.loading) {
-          if (wantFull) nextRefresh = "full";
-          else if (!nextRefresh) nextRefresh = "tail";
-          await waitWhileLoading();
-          if (!viewAlive) return;
-          if (!nextRefresh) break;
-          wantFull = nextRefresh === "full";
-          nextRefresh = undefined;
-          continue;
-        }
-        const current = settled(view);
-        if (wantFull || !current) {
-          if (replayPos() !== null) return;
-          filesKey = undefined;
-          forceFull = true;
-          await refetch();
-          if (!viewAlive || replayPos() !== null) return;
-        } else {
-          const id = props.id;
-          const outcome = await viewLoader.refreshTail(id, filesKey, () => settled(view) ?? current, (next, keyOf, changed) => {
-            filesKey = keyOf;
-            if (changed) mutate(next);
-            rememberView(id, next, keyOf);
-          });
-          if (!viewAlive || replayPos() !== null || outcome === "stale") return;
-          if (outcome === "full") {
-            filesKey = undefined;
-            wantFull = true;
-            continue;
-          }
-        }
-        if (!nextRefresh) break;
-        wantFull = nextRefresh === "full";
-        nextRefresh = undefined;
-      }
-    } catch {
-      // the next event or the head poll asks again
-    } finally {
-      running = undefined;
-      if (nextRefresh) {
-        const again = nextRefresh === "full";
-        nextRefresh = undefined;
-        queueMicrotask(() => void refreshView(again));
-      }
-    }
-  };
-
   const { slashCommands, runBuiltin } = useSlashCommands(props, {
     view,
     caps,
@@ -329,16 +202,6 @@ export function SessionDetail(props: {
     opencode,
     composer: () => composer,
     toggleTerminal,
-  });
-
-  const displayed = createMemo(() => {
-    const v = settled(view);
-    if (v?.session_id === props.id) return v;
-    return peekView(props.id)?.view;
-  });
-  const viewReady = createMemo(() => {
-    const id = props.id;
-    return displayed()?.session_id === id;
   });
 
   const composer = useSessionComposer({
@@ -443,12 +306,9 @@ export function SessionDetail(props: {
    */
   const entrance = createEntranceLedger();
   /**
-   * The view on screen. The resource keeps the previous session until the next
-   * fetch resolves, and the route changes before that fetch does. A list painted
-   * from the stale view is the wrong conversation at the wrong heights. The
-   * cache already has the session the pane was showing, so use that until the
-   * resource catches up. `displayed` itself is created above, before the
-   * composer, so the composer can read it while it is setting up.
+   * The view on screen, as the composer decorates it. `displayed` comes from
+   * the view hook, created before the composer so the composer can read it
+   * while it is setting up.
    */
   const shown = createMemo(() => {
     const v = displayed();
@@ -482,12 +342,7 @@ export function SessionDetail(props: {
      */
     try {
       scrollDeferral.take();
-      const hit = peekView(id);
-      filesKey = hit?.filesKey;
-      forceFull = false;
-      retries = 0;
-      setImporting(!hit);
-      if (hit) mutate(hit.view);
+      resetView(id);
       resetTrace();
       resetAsks();
       composer.resetFor(id);
@@ -506,7 +361,7 @@ export function SessionDetail(props: {
       await importSession(id).catch(() => {});
       if (props.id !== id) return;
       const after = await readHead(id).catch(() => undefined);
-      setImporting(false);
+      endImport();
       if (after !== before) {
         resequenceTrace();
         void refreshView(true);
@@ -515,61 +370,9 @@ export function SessionDetail(props: {
     })();
   });
 
-  /**
-   * A failed load used to be permanent.
-   *
-   * The view resource only refetches when its source changes, so one request
-   * that failed — the window opening before the service was listening, a proxy
-   * restarting, a laptop waking — left the reader on that message for the rest
-   * of the session with no way out but leaving. Try a few times on our own,
-   * backing off so a service that is genuinely down is not hammered, then stop
-   * and leave the button for them.
-   */
-  createEffect(() => {
-    if (!view.error) {
-      retries = 0;
-      return;
-    }
-    if (retries >= 4) return;
-    const wait = 500 * 2 ** retries++;
-    const timer = setTimeout(() => {
-      if (viewAlive) void refetch();
-    }, wait);
-    onCleanup(() => clearTimeout(timer));
-  });
-
-  // A warm open paints the cached view from the resource, then checks the
-  // tail. Head equality is not enough while a reply is still streaming.
-  createEffect(() => {
-    const id = props.id;
-    if (replayPos() !== null) return;
-    if (!peekView(id)) return;
-    queueMicrotask(() => {
-      if (viewAlive && replayPos() === null) void refreshView(false);
-    });
-  });
-
   let scrollGate = { gesturing: false, following: true };
   const scrollDeferral = createScrollDeferral();
   const holdingWrites = () => deferTranscriptWrite(scrollGate.gesturing, scrollGate.following);
-  const paintSnapshot = (snap: StreamingSnapshot) => {
-    if (replayPos() !== null) return;
-    if (settled(view)?.busy !== true && !composer.generating()) return;
-    mutate((v) => {
-      if (!v) return v;
-      const next = applyStreamingSnapshot(v, snap);
-      const held = peekView(props.id);
-      if (
-        next !== v &&
-        held &&
-        next.turns.length >= held.view.turns.length &&
-        next.turns[0]?.turn_id === held.view.turns[0]?.turn_id
-      ) {
-        rememberView(props.id, next);
-      }
-      return next;
-    });
-  };
   const flushScrollDeferral = () => {
     if (holdingWrites() || !scrollDeferral.pending()) return;
     const held = scrollDeferral.take();
@@ -605,7 +408,7 @@ export function SessionDetail(props: {
         }
         void refetchSeq();
       } finally {
-        setImporting(false);
+        endImport();
       }
     })();
     const onConns = () => {
@@ -859,10 +662,7 @@ export function SessionDetail(props: {
                     action={
                       <Button
                         size="sm"
-                        onClick={() => {
-                          retries = 0;
-                          void refetch();
-                        }}
+                        onClick={retryView}
                       >
                         {t("session.retry")}
                       </Button>
