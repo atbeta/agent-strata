@@ -183,7 +183,10 @@ describe("connection memory", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  test("the file of remembered addresses is read only by its owner", () => {
+  // Windows has no permission bits: `chmod` there cannot narrow a file to its
+  // owner, the mode reads back as 0o666 whatever was written, and the rule is
+  // kept there by an ACL instead — which this cannot see.
+  test.skipIf(process.platform === "win32")("the file of remembered addresses is read only by its owner", () => {
     const dir = tempDir("embed-mode");
     const memory = connectionMemory(join(dir, "events.db"));
 

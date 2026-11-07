@@ -218,8 +218,11 @@ describe("worktreeRemove", () => {
     }
     // An emptied folder answers nothing…
     expect(await worktreeInfo(wt.directory)).toBeUndefined();
-    // …but git still lists the checkout by path.
-    expect(git(repo, "worktree", "list", "--porcelain").stdout).toContain(wt.directory);
+    // …but git still lists the checkout by path. Git spells a Windows path
+    // with forward slashes and a path built here is spelled with backslashes,
+    // so the two are compared in one spelling.
+    const listed = git(repo, "worktree", "list", "--porcelain").stdout.replace(/\\/g, "/");
+    expect(listed).toContain(wt.directory.replace(/\\/g, "/"));
 
     // Asked of the repositories the app knows about, the checkout is found
     // again and goes away.
