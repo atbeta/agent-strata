@@ -192,6 +192,23 @@ describe("projector", () => {
     expect(v.totals.permissions_denied).toBe(1);
   });
 
+  test("an answered ask leaves the pending list", () => {
+    // An ask with no call id has no tool call to hang on, so it waits in the
+    // pending list — and when it is answered it has to leave it. A card the
+    // reader already answered still counted, and the pane kept asking for an
+    // answer that was not needed.
+    const asked = projectSession([
+      mk("s", "permission.requested", { request_id: "r1", tool: "dev_start", input: {} }),
+    ]);
+    expect(asked.pending_permissions.length).toBe(1);
+
+    const answered = projectSession([
+      mk("s", "permission.requested", { request_id: "r1", tool: "dev_start", input: {} }),
+      mk("s", "permission.resolved", { request_id: "r1", decision: "allow", by: "user" }),
+    ]);
+    expect(answered.pending_permissions.length).toBe(0);
+  });
+
   test("permission.requested before its tool.call still attaches", () => {
     const v = projectSession([
       mk("s", "permission.requested", { request_id: "r1", call_id: "c1", tool: "bash", input: {} }),

@@ -517,6 +517,15 @@ export function projectSession(events: Event[]): SessionView {
 
   view.pending_questions = [...questions.values()];
 
+  // A permission that has been answered is no longer pending, and the list
+  // says so: it holds the asks that are still waiting for an answer. The
+  // resolution set the decision on the entry, but the entry itself stayed —
+  // so a consumer asking "is anything waiting?" read a card the reader had
+  // already answered, and the reader's pane kept claiming it needed them.
+  // An ask that arrives with a call id is attached to that call instead and
+  // never reaches this list.
+  view.pending_permissions = view.pending_permissions.filter((p) => p.decision === undefined);
+
   // Events arrive in the order the calls actually started, which for parallel
   // calls is not the order the assistant declared them. When the backend
   // stamped a declaration ordinal, restore that order so a reader sees the
