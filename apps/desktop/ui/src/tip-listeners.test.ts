@@ -22,19 +22,10 @@ const read = (f: string) => readFileSync(join(import.meta.dir, f), "utf8");
 const src = read("tip.tsx");
 
 describe("a tooltip's pointer listener", () => {
-  test("every per-tip install has a matching removal", () => {
-    // One listener is app-lifetime on purpose: the module-level `scroll`
-    // listener that dismisses every open label. One instance is added when the
-    // module loads and it is never removed, because there is exactly one app
-    // and it dies with the page. Counting it as a leak would be counting the
-    // fix as the bug, so the assertion is scoped to the per-tip effect.
-    const perTip = src.slice(src.indexOf("if (!open()) return;"));
-    const adds = perTip.match(/addEventListener\(/g) ?? [];
-    const removes = perTip.match(/removeEventListener\(/g) ?? [];
+  test("every install has a matching removal", () => {
+    const adds = src.match(/addEventListener\(/g) ?? [];
+    const removes = src.match(/removeEventListener\(/g) ?? [];
     expect(adds.length).toBe(removes.length);
-    expect(adds.length).toBe(1);
-    // The one global install, and it is outside the per-tip effect.
-    expect((src.match(/window\.addEventListener\(/g) ?? []).length).toBe(1);
   });
 
   test("the listener is not installed by a hover handler", () => {

@@ -259,13 +259,6 @@ export function TranscriptView(props: {
           });
           const onScroll = scrollCoalescer(owner.onScroll);
           onCleanup(() => wheel?.dispose());
-          // Background parsing is the most expensive thing that is never
-          // urgent, and a keystroke's echo is the one thing that must not
-          // wait. A gesture is not a reason to hold the queue back: the rows
-          // ahead of the reader have to be ready before the reader reaches
-          // them, and a row that arrives unprepared parses on the frame it
-          // appears — its height moves the content under the reader, and the
-          // backlog lands in one burst when the gesture ends.
           createEffect(() => {
             const g = owner.gesturing();
             // The path actions live above the transcript and ask whether the

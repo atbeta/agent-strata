@@ -155,11 +155,6 @@ export function Virtual<T>(props: {
   // Rows ahead of the view are warmed nearest first, a budget per frame, and
   // mount as each one finishes. A row that left the window before its turn is
   // dropped from the queue, so a fling does not leave a trail of parses.
-  //
-  // Warming does not stop while the reader is moving: a row that is not ready
-  // when the reader reaches it parses on the frame it appears, and its height
-  // moves the content under the reader. The queue is what keeps the
-  // preparation ahead of the view, and it throttles itself instead.
   createEffect(() => {
     const warm = props.warm;
     const r = ranges();

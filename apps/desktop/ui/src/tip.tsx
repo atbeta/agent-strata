@@ -16,42 +16,6 @@ const TOP_GAP = 46;
 const MAX_W = 448;
 
 /**
- * Open bubbles, so a scroll can put every one of them away.
- *
- * A tooltip is opened by a pointer entering its trigger. Scrolling under a
- * stationary pointer mounts new rows under the cursor, and each one fires a
- * `mouseenter` it never earned — so one wheel notch could leave a column of
- * labels behind, one per row that arrived under the mouse. Nothing removed
- * them either: the capture listener only runs on a real pointer move, and the
- * pointer had not moved.
- *
- * Two halves fix it. A scroll dismisses whatever is open, and a bubble will not
- * open in the moment after a scroll, which is when those arrivals land.
- */
-const openTips = new Set<() => void>();
-let lastScrollAt = -Infinity;
-/** How long after a scroll a hover is treated as the scroll's own doing. */
-const SCROLL_QUIET_MS = 200;
-
-/** Put away every open label. */
-export function dismissTips(): void {
-  for (const hide of [...openTips]) hide();
-}
-
-if (typeof window !== "undefined") {
-  // Capture, so a scroll inside any container reaches this before the
-  // transcript's own handler. Passive: this only reads a clock.
-  window.addEventListener(
-    "scroll",
-    () => {
-      lastScrollAt = performance.now();
-      dismissTips();
-    },
-    { capture: true, passive: true },
-  );
-}
-
-/**
  * Instant hover label. Fixed so a scrolling sidebar does not clip it.
  *
  * Position is measured, not estimated: the tooltip renders at a provisional
@@ -91,39 +55,6 @@ export function Tip(props: {
   // already exists, so it has to re-run once `Show` has mounted it.
   const [bubble, setBubble] = createSignal<HTMLSpanElement>();
   let wrap: HTMLSpanElement | undefined;
-  /**
-   * A pending hide, so one frame outside the trigger does not end the hover.
-   *
-   * The composer moves while a reply streams — the plan strip above it changes
-   * height and carries the toolbar with it — so the trigger can slide out from
-   * under a pointer that never moved, and back again a frame later. Hiding on
-   * the first `pointermove` that lands outside made the label blink once per
-   * layout change. A short grace period absorbs that, and a real exit still
-   * ends the hover a moment later.
-   */
-  let hideTimer: ReturnType<typeof setTimeout> | undefined;
-  /**
-   * Where the pointer was when the last event said something about position.
-   *
-   * A layout change under a still pointer makes the webview re-dispatch a
-   * pointer event at the same coordinates. While a reply streams, the composer
-   * moves by a few pixels and this trigger slides out from under the cursor and
-   * back, so the capture listener saw "left the trigger" once per frame and the
-   * label blinked. A move with no movement in it is not the reader leaving.
-   */
-  let lastPoint: { x: number; y: number } | undefined;
-  const cancelHide = () => {
-    if (hideTimer === undefined) return;
-    clearTimeout(hideTimer);
-    hideTimer = undefined;
-  };
-  const hideSoon = () => {
-    if (hideTimer !== undefined) return;
-    hideTimer = setTimeout(() => {
-      hideTimer = undefined;
-      hide();
-    }, 150);
-  };
 
   const hide = () => setAnchor(null);
 
@@ -135,13 +66,6 @@ export function Tip(props: {
   });
 
   const place = (el: HTMLElement) => {
-    // Nothing to say is not an anchor: a `Tip` whose label is empty for now
-    // (a hint that only applies while something is running) would otherwise
-    // keep a follow loop measuring layout for a bubble that never renders.
-    if (!props.content && !props.label) return;
-    // A row that scrolled in under a still pointer did not earn a label. The
-    // pointer never entered it; the list moved. See `openTips` above.
-    if (performance.now() - lastScrollAt < SCROLL_QUIET_MS) return;
     // Prefer the wrapper's own box, but fall through to the child when the
     // wrapper has collapsed — an absolutely positioned trigger inside `Tip` has
     // no flow box of its own, and its centre is the only anchor that is right.
@@ -200,7 +124,6 @@ export function Tip(props: {
    */
   createEffect(() => {
     if (!open()) return;
-    openTips.add(hide);
     document.addEventListener("pointermove", watch, true);
     // The trigger can move while the label is open: the plan strip above the
     // composer grows while a session streams, and the goal strip — and its
@@ -210,17 +133,6 @@ export function Tip(props: {
     // the wrapper while the hover lasts; the loop dies with the same cleanup
     // as the listener.
     let frame = 0;
-    /**
-     * Only every fourth frame is measured.
-     *
-     * Reading the trigger's box is a forced layout, and this loop runs for as
-     * long as a tooltip is open. While a reply streams the column is rewritten
-     * every frame, so measuring each one made the label a second reason to
-     * flush layout — on the same thread as the pointer's shape and the
-     * keystroke's echo. A label follows a layout shift at reading speed; four
-     * frames (≈15Hz) is well inside that, and costs a quarter of the reads.
-     */
-    let tick = 0;
     const follow = () => {
       if (!wrap || !wrap.isConnected) {
         // The trigger was unmounted under a stationary pointer; leaving the
@@ -228,22 +140,20 @@ export function Tip(props: {
         if (wrap) hide();
         return;
       }
-      if (tick++ % 4 === 0) {
-        const rect = wrap.getBoundingClientRect();
-        const box = rect.width || rect.height
-          ? rect
-          : (wrap.firstElementChild?.getBoundingClientRect() ?? rect);
-        if (box.width || box.height) {
-          setAnchor((prev) =>
-            prev &&
-            prev.x === box.x &&
-            prev.y === box.y &&
-            prev.width === box.width &&
-            prev.height === box.height
-              ? prev
-              : box,
-          );
-        }
+      const rect = wrap.getBoundingClientRect();
+      const box = rect.width || rect.height
+        ? rect
+        : (wrap.firstElementChild?.getBoundingClientRect() ?? rect);
+      if (box.width || box.height) {
+        setAnchor((prev) =>
+          prev &&
+          prev.x === box.x &&
+          prev.y === box.y &&
+          prev.width === box.width &&
+          prev.height === box.height
+            ? prev
+            : box,
+        );
       }
       frame = requestAnimationFrame(follow);
     };
@@ -251,26 +161,14 @@ export function Tip(props: {
     onCleanup(() => {
       document.removeEventListener("pointermove", watch, true);
       cancelAnimationFrame(frame);
-      cancelHide();
-      openTips.delete(hide);
     });
   });
 
   function watch(e: PointerEvent) {
-    const moved =
-      lastPoint === undefined ||
-      Math.abs(e.clientX - lastPoint.x) > 0.5 ||
-      Math.abs(e.clientY - lastPoint.y) > 0.5;
-    lastPoint = { x: e.clientX, y: e.clientY };
-    if (!moved) return;
     const t = e.target as Node | null;
     // The bubble is pointer-events-none, so containment against the wrapper is
     // enough to decide whether the pointer is still on the trigger.
-    if (t && wrap?.contains(t)) {
-      cancelHide();
-      return;
-    }
-    hideSoon();
+    if (!t || !wrap?.contains(t)) hide();
   }
 
   return (
@@ -279,19 +177,13 @@ export function Tip(props: {
       class={`inline-flex ${props.class ?? ""}`}
       onMouseEnter={(e) => {
         if (props.disabled) return;
-        lastPoint = { x: e.clientX, y: e.clientY };
-        cancelHide();
         place(e.currentTarget);
       }}
       onFocusIn={(e) => {
         if (props.disabled) return;
-        cancelHide();
         place(e.currentTarget);
       }}
-      onFocusOut={() => {
-        cancelHide();
-        hide();
-      }}
+      onFocusOut={hide}
     >
       {props.children}
       <Show when={anchor() && (props.content || props.label)}>
