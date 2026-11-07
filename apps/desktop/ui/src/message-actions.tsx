@@ -67,103 +67,108 @@ export function MessageActions(props: {
       data-copied={copied() || undefined}
     >
       <Show when={!props.disabled}>
-        <Show when={props.text.trim()}>
-          <Tip label={copied() ? t("message.copied") : t("message.copy")}>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              class={btn}
-              aria-label={copied() ? t("message.copied") : t("message.copy")}
-              onClick={copy}
-            >
-              <Icon
-                name={copied() ? "check" : "copy"}
-                class={`size-3.5 ${copied() ? "text-status-active" : ""}`}
-              />
-            </Button>
-          </Tip>
-        </Show>
-        <Show when={details().length > 0}>
-          <Tip
-            label={t("message.details")}
-            content={() => (
-              <div class="w-72">
-                <div class="mb-2 text-xs font-medium text-foreground">{t("message.details")}</div>
-                <div class="grid grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)] gap-x-4 gap-y-1.5">
-                  <For each={details()}>
-                    {(row) => (
-                      <>
-                        <span class="text-2xs text-muted-foreground">{row.label}</span>
-                        <span class="min-w-0 break-words text-right font-mono text-2xs tabular-nums" title={row.value}>
-                          {row.value}
-                        </span>
-                      </>
-                    )}
-                  </For>
+        {/* One chip, not stray glyphs: the card surface, hairline border and a
+            soft shadow group the actions into a single control that reads as
+            floating over the message, the way the popover and composer do. */}
+        <div class="flex h-7 items-center gap-0.5 rounded-lg border border-border bg-card/95 px-1 shadow-sm">
+          <Show when={props.text.trim()}>
+            <Tip label={copied() ? t("message.copied") : t("message.copy")}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                class={btn}
+                aria-label={copied() ? t("message.copied") : t("message.copy")}
+                onClick={copy}
+              >
+                <Icon
+                  name={copied() ? "check" : "copy"}
+                  class={`size-3.5 ${copied() ? "text-status-active" : ""}`}
+                />
+              </Button>
+            </Tip>
+          </Show>
+          <Show when={details().length > 0}>
+            <Tip
+              label={t("message.details")}
+              content={() => (
+                <div class="w-72">
+                  <div class="mb-2 text-xs font-medium text-foreground">{t("message.details")}</div>
+                  <div class="grid grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)] gap-x-4 gap-y-1.5">
+                    <For each={details()}>
+                      {(row) => (
+                        <>
+                          <span class="text-2xs text-muted-foreground">{row.label}</span>
+                          <span class="min-w-0 break-words text-right font-mono text-2xs tabular-nums" title={row.value}>
+                            {row.value}
+                          </span>
+                        </>
+                      )}
+                    </For>
+                  </div>
                 </div>
-              </div>
-            )}
-          >
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              class={btn}
-              aria-label={t("message.details")}
+              )}
             >
-              <Icon name="info" class="size-3.5" />
-            </Button>
-          </Tip>
-        </Show>
-        <Show when={props.onEdit}>
-          {(edit) => (
-            <Tip label={t("message.edit")}>
               <Button
                 type="button"
                 variant="ghost"
                 size="icon-sm"
                 class={btn}
-                aria-label={t("message.edit")}
-                onClick={() => edit()()}
+                aria-label={t("message.details")}
               >
-                <Icon name="pencil" class="size-3.5" />
+                <Icon name="info" class="size-3.5" />
               </Button>
             </Tip>
-          )}
-        </Show>
-        <Show when={props.onRevert}>
-          {(revert) => (
-            <Tip label={t("message.revert")}>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                class={btn}
-                aria-label={t("message.revert")}
-                onClick={() => revert()()}
-              >
-                <Icon name="undo" class="size-3.5" />
-              </Button>
-            </Tip>
-          )}
-        </Show>
-        <Show when={props.onFork}>
-          {(fork) => (
-            <Tip label={t("message.fork")}>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                class={btn}
-                aria-label={t("message.fork")}
-                onClick={() => fork()()}
-              >
-                <Icon name="fork" class="size-3.5" />
-              </Button>
-            </Tip>
-          )}
-        </Show>
+          </Show>
+          <Show when={props.onEdit}>
+            {(edit) => (
+              <Tip label={t("message.edit")}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  class={btn}
+                  aria-label={t("message.edit")}
+                  onClick={() => edit()()}
+                >
+                  <Icon name="pencil" class="size-3.5" />
+                </Button>
+              </Tip>
+            )}
+          </Show>
+          <Show when={props.onRevert}>
+            {(revert) => (
+              <Tip label={t("message.revert")}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  class={btn}
+                  aria-label={t("message.revert")}
+                  onClick={() => revert()()}
+                >
+                  <Icon name="undo" class="size-3.5" />
+                </Button>
+              </Tip>
+            )}
+          </Show>
+          <Show when={props.onFork}>
+            {(fork) => (
+              <Tip label={t("message.fork")}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  class={btn}
+                  aria-label={t("message.fork")}
+                  onClick={() => fork()()}
+                >
+                  <Icon name="fork" class="size-3.5" />
+                </Button>
+              </Tip>
+            )}
+          </Show>
+        </div>
       </Show>
     </div>
   );
