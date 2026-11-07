@@ -44,8 +44,11 @@ for (const target of targets) {
   });
   const text = result.stdout.toString().trim();
   if (!text) {
+    // No report at all. The audit did not answer, and a gate that cannot
+    // answer must not pass: it fails on the exit code, whether or not the
+    // tool said why.
     const error = result.stderr.toString().trim();
-    if (result.exitCode !== 0 && error) {
+    if (result.exitCode !== 0) {
       console.error(`${target.label}: audit could not run\n${error}`);
       failed = true;
     }
