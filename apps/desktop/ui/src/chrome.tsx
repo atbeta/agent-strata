@@ -310,10 +310,11 @@ export function PageShell(props: {
             type="button"
             variant="quiet"
             size="sm"
-            class="h-auto shrink-0 px-0 py-0 text-sm"
+            class="h-auto shrink-0 gap-1.5 px-0 py-0 text-sm"
             onClick={() => (location.hash = props.back!.href)}
           >
-            {props.back!.label}
+            <Icon name="arrow-left" class="size-3.5 shrink-0" />
+            <span>{props.back!.label}</span>
           </Button>
         </Show>
         <span class="min-w-0 truncate text-sm font-medium text-foreground">{props.title}</span>

@@ -151,8 +151,8 @@ export default {
   "sidebar.sync.progress": "正在同步会话 {done}/{total}",
 
   // Routes
-  "nav.backToFleet": "← 会话列表",
-  "nav.backToSession": "← 返回会话",
+  "nav.backToFleet": "会话列表",
+  "nav.backToSession": "返回会话",
   "nav.compare": "对比",
 
   // Fleet page

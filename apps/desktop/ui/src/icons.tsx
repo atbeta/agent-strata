@@ -21,6 +21,7 @@ export type Name =
   | "chevron"
   | "chevron-right"
   | "arrow-down"
+  | "arrow-left"
   | "pencil"
   | "archive"
   | "trash"
@@ -297,6 +298,16 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
         <path d="M4.6 5.4 8 2.6l3.4 2.8" />
         <path d="M2.4 8h11.2" />
         <path d="M4.6 10.6 8 13.4l3.4-2.8" />
+      </Glyph>
+    );
+  if (name === "arrow-left")
+    return (
+      <Glyph class={cls}>
+        {/* A back arrow drawn, not typed. The text glyph `←` came out as a
+            thin, high mark on Windows: the fallback font there draws it at a
+            different weight and baseline than the app's face does on macOS. */}
+        <path d="M13 8H3.6" />
+        <path d="M7.4 3.8 3.2 8l4.2 4.2" />
       </Glyph>
     );
   if (name === "arrow-down")

@@ -152,8 +152,8 @@ export default {
   "sidebar.sync.progress": "Syncing sessions {done}/{total}",
 
   // Routes
-  "nav.backToFleet": "← fleet",
-  "nav.backToSession": "← back to session",
+  "nav.backToFleet": "fleet",
+  "nav.backToSession": "back to session",
   "nav.compare": "Compare",
 
   // Fleet page
