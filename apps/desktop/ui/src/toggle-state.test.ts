@@ -128,7 +128,7 @@ describe("what else in the app still spends the hover background on a state", ()
     // is the primary signal and a hovered row reads as a different visual from a
     // selected one. They are left alone on purpose, so this says what is
     // deliberately still there rather than sweeping the string out.
-    for (const f of ["session-detail.tsx", "sidebar.tsx"]) {
+    for (const f of ["session-detail.tsx", "session-header.tsx", "sidebar.tsx"]) {
       expect(read(f)).not.toContain('"bg-secondary text-foreground"');
     }
     // The focused pane header is a selected surface too, with a softer fill

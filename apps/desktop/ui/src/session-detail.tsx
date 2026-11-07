@@ -3,18 +3,15 @@ import {
   createMemo,
   createResource,
   createSignal,
-  For,
   on,
   onCleanup,
   onMount,
   Show,
-  type JSX,
 } from "solid-js";
 import {
   abortSession,
   backendLabel,
   downloadExport,
-  fmtUsd,
   getJson,
   handoffSession,
   importSession,
@@ -23,7 +20,6 @@ import {
   readSessionPolicy,
   readLsp,
   readVcs,
-  folderLabel,
   realWorkspace,
   renameSession,
   respondPermission,
@@ -54,11 +50,9 @@ import { fadeSignal } from "./errors";
 import { SessionEmpty } from "./session-empty";
 import { displayTitle } from "./session-title";
 import { settled } from "./resource";
-import { inDesktopShell, shellPlatform } from "./shell";
+import { inDesktopShell } from "./shell";
 import { Tip } from "./tip";
 import { useDismiss } from "./dismiss";
-import { ToggleIcon } from "./header-toggle";
-import { toggleClasses } from "./toggle-state";
 import { TraceDrawer, TracePanel } from "./trace";
 import { createTraceData } from "./trace-data";
 import { TerminalPane } from "./terminal";
@@ -72,7 +66,7 @@ import { ChildBoard } from "./child-board";
 import { createSessionViewLoader } from "./session-view-loader";
 import { outlineIsPartial, peekView, rememberView, TAIL_TURNS } from "./view-cache";
 import { registerCommand } from "./commands";
-import { LayoutSwitcher, PaneStage, type SessionRowSummary } from "./pane-stage";
+import { PaneStage, type SessionRowSummary } from "./pane-stage";
 import {
   applyLayoutPreset,
   assignSessionToWorkspace,
@@ -88,7 +82,6 @@ import {
   type SplitDir,
 } from "./pane-tree";
 import {
-  contentW,
   paneWorkspace,
   panelOpen,
   panelTab,
@@ -99,74 +92,19 @@ import {
 import { writePanelOpen, writePanelTab, type SidePanelTab } from "./right-pane";
 import { PeerSessionTranscript } from "./peer-transcript";
 import { LoadingTranscript } from "./content-sashes";
-import { AskCard, QuestionCard } from "./session-prompts";
 import { useSessionSearch, SearchPanel } from "./session-search";
 import { clearSearchTarget, searchTarget } from "./search-target";
-import { useMcpTools, McpAttentionMark, McpToolsPanel } from "./session-tools";
+import { useMcpTools, McpToolsPanel } from "./session-tools";
 import { skillDraft } from "./mcp-panel";
 import { useSessionComposer, SessionComposer } from "./session-composer";
 import { SessionRail } from "./session-rail";
 import { useDevProcesses } from "./dev-processes";
 import { createEntranceLedger } from "./entrance";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { EmptyState } from "@/components/ui/empty-state";
 import { clearPaneBusy, publishPaneBusy } from "./pane-activity";
-
-/** Ctrl on a PC, ⌘ on a Mac. The tooltip used to say "Ctrl+F" on every platform. */
-function findKey(): string {
-  return shellPlatform() === "macos" ? "⌘F" : "Ctrl+F";
-}
-
-/**
- * A header panel toggle: icon button, quiet at rest, filled while its panel is
- * open.
- *
- * Five of these sit in one row — search, terminal, files, replay, tools — and
- * each had the same class string written out again with the selected state
- * interpolated, so adding a sixth meant copying a ternary. None of them drew a
- * focus ring either, which left tabbing across the header moving an invisible
- * cursor past five controls.
- *
- * `expanded` and `pressed` are separate because the search button answers
- * `aria-expanded` (it reveals a field) while the rest answer `aria-pressed`
- * (they toggle a surface that stays in the layout).
- */
-function PanelToggle(props: {
-  label: string;
-  on: boolean;
-  expanded?: boolean;
-  pressed?: boolean;
-  /** the colour an open toggle's icon takes, when open means more than "a panel is showing" */
-  tone?: string;
-  /** the trigger counts as inside its own panel, so dismissing must name it */
-  bindRef?: (el: HTMLButtonElement | undefined) => void;
-  onClick: () => void;
-  children: JSX.Element;
-}) {
-  return (
-    <Button
-      ref={props.bindRef}
-      type="button"
-      size="icon-sm"
-      variant="icon"
-      class={toggleClasses(props.on)}
-      aria-label={props.label}
-      aria-expanded={props.expanded}
-      aria-pressed={props.pressed}
-      onClick={props.onClick}
-    >
-      <ToggleIcon on={props.on} tone={props.tone}>
-        {props.children}
-      </ToggleIcon>
-    </Button>
-  );
-}
+import { SessionHeader } from "./session-header";
+import { SessionDock } from "./session-dock";
 
 export function SessionDetail(props: {
   id: string;
@@ -261,6 +199,7 @@ export function SessionDetail(props: {
    *  the trace reloads fully instead of appending duplicates */
   const [traceEpoch, setTraceEpoch] = createSignal(0);
   const [terminalOn, setTerminalOn] = createSignal(false);
+  const toggleTerminal = () => setTerminalOn((on) => !on);
   const opening = peekView(props.id);
   /** the background re-import that lands after the stored view is already up */
   const [importing, setImporting] = createSignal(true);
@@ -769,7 +708,7 @@ export function SessionDetail(props: {
         await downloadExport(props.id);
         return;
       case "terminal":
-        setTerminalOn((on) => !on);
+        toggleTerminal();
         return;
       case "new":
         props.onNewSession();
@@ -853,15 +792,17 @@ export function SessionDetail(props: {
   useDismiss(search.searchOpen, search.closeSearch, () => searchPanelEl, () => searchTriggerEl);
   useDismiss(tools.toolsOpen, tools.closeTools, () => toolsPanelEl, visibleToolsTrigger);
 
-  // `displayed` is already created. `turns` is not: this memo runs at once,
-  // and calling `turns()` here threw before the binding existed, which aborted
-  // the render and left every later click, including settings, with nowhere to go.
   /**
    * The prompt has been handed over but the agent has not produced a thing
    * yet. That gap is a round trip through the backend, and until it closes the
    * transcript is a column of nothing below the question just asked — which
    * reads as a hang rather than as work. The turn itself may not exist yet
    * either, so the answer is "is the newest turn still silent", not a fixed row.
+   *
+   * It reads the view, not `turns()`: this memo runs at once, and `turns` is
+   * created below it. Calling it here threw before the binding existed, which
+   * aborted the render and left every later click, including settings, with
+   * nowhere to go.
    */
   const lastSilentTurn = createMemo(() => {
     if (!composer.generating()) return undefined;
@@ -872,34 +813,34 @@ export function SessionDetail(props: {
   });
 
   /**
- * The column the reader is looking at, and which of its turns may move in.
- *
- * Both come from one memo on purpose. The ledger advances as this runs, so
- * putting it in an effect would let the rows be built before the reader was told
- * which of them were new — and nothing would ever animate. Asking inside a memo
- * that has already settled on what to render is what makes the column agree
- * with itself.
- *
- * The ledger is keyed on the session the *view* says it is, not on `props.id`.
- * The id changes a beat before the data does, so a ledger that reset on the id
- * would take the conversation being left as the baseline for the one being
- * opened, and announce all of it as newly arrived.
- */
-const entrance = createEntranceLedger();
-/**
- * The view on screen. The resource keeps the previous session until the next
- * fetch resolves, and the route changes before that fetch does. A list painted
- * from the stale view is the wrong conversation at the wrong heights. The
- * cache already has the session the pane was showing, so use that until the
- * resource catches up. `displayed` itself is created above, before the
- * composer, so the composer can read it while it is setting up.
- */
-const shown = createMemo(() => {
-  const v = displayed();
-  const t = composer.decorateTurns(v?.turns ?? []);
-  return { turns: t, arriving: entrance.arriving(v?.session_id ?? "", t.map((x) => x.turn_id)) };
-});
-const turns = () => shown().turns;
+   * The column the reader is looking at, and which of its turns may move in.
+   *
+   * Both come from one memo on purpose. The ledger advances as this runs, so
+   * putting it in an effect would let the rows be built before the reader was told
+   * which of them were new — and nothing would ever animate. Asking inside a memo
+   * that has already settled on what to render is what makes the column agree
+   * with itself.
+   *
+   * The ledger is keyed on the session the *view* says it is, not on `props.id`.
+   * The id changes a beat before the data does, so a ledger that reset on the id
+   * would take the conversation being left as the baseline for the one being
+   * opened, and announce all of it as newly arrived.
+   */
+  const entrance = createEntranceLedger();
+  /**
+   * The view on screen. The resource keeps the previous session until the next
+   * fetch resolves, and the route changes before that fetch does. A list painted
+   * from the stale view is the wrong conversation at the wrong heights. The
+   * cache already has the session the pane was showing, so use that until the
+   * resource catches up. `displayed` itself is created above, before the
+   * composer, so the composer can read it while it is setting up.
+   */
+  const shown = createMemo(() => {
+    const v = displayed();
+    const t = composer.decorateTurns(v?.turns ?? []);
+    return { turns: t, arriving: entrance.arriving(v?.session_id ?? "", t.map((x) => x.turn_id)) };
+  });
+  const turns = () => shown().turns;
 
   // When focus switches between panes (or sidebar sessions) without unmounting
   // `SessionDetail`, swap per-session transient state and paint any cached view
@@ -1256,8 +1197,8 @@ const turns = () => shown().turns;
 
   // Ctrl+F stays "find in what I am reading". Windowing the transcript took the
   // browser's own find away, so the shortcut goes to the session index.
-  onCleanup(
-    registerCommand({
+  for (const command of [
+    {
       id: "session.find",
       title: () => t("session.search.label"),
       chord: { key: "f" },
@@ -1265,52 +1206,42 @@ const turns = () => shown().turns;
         if (search.searchOpen()) search.focusInput();
         else search.openSearch();
       },
-    }),
-  );
-  onCleanup(
-    registerCommand({
+    },
+    {
       id: "session.terminal",
       title: () => (terminalOn() ? t("terminal.hide") : t("terminal.show")),
       chord: { key: "`" },
       enabled: () => opencode(),
-      run: () => setTerminalOn((on) => !on),
-    }),
-  );
-  onCleanup(
-    registerCommand({
+      run: toggleTerminal,
+    },
+    {
       id: "session.panel",
       title: () => (panelOpen() ? t("panel.hide") : t("panel.show")),
       run: () => togglePanel(),
-    }),
-  );
-  onCleanup(
-    registerCommand({
+    },
+    {
       id: "pane.splitRight",
       title: () => t("pane.split.right"),
       run: () => handleSplitPane(paneWorkspace().focusedPaneId, "row"),
-    }),
-  );
-  onCleanup(
-    registerCommand({
+    },
+    {
       id: "pane.splitDown",
       title: () => t("pane.split.down"),
       run: () => handleSplitPane(paneWorkspace().focusedPaneId, "col"),
-    }),
-  );
-  onCleanup(
-    registerCommand({
+    },
+    {
       id: "pane.grid4",
       title: () => t("pane.mode.grid4"),
       run: () => handleSelectPreset("grid-4"),
-    }),
-  );
-  onCleanup(
-    registerCommand({
+    },
+    {
       id: "pane.single",
       title: () => t("pane.mode.single"),
       run: () => handleSelectPreset("single"),
-    }),
-  );
+    },
+  ]) {
+    onCleanup(registerCommand(command));
+  }
 
   /**
    * The auto-accept switch.
@@ -1411,223 +1342,29 @@ const turns = () => shown().turns;
         >
           {(v) => (
             <>
-              <header
-                class="@container flex h-9 shrink-0 items-center gap-2 border-b border-border px-4 select-none"
-                data-tauri-drag-region={inDesktopShell() ? "" : undefined}
-              >
-                <div class="flex min-w-0 flex-1 items-baseline gap-2">
-                  <Show when={v().parent_session_id}>
-                    {(parentId) => {
-                      const parent = () => props.sessions.find((s) => s.summary.session_id === parentId());
-                      return (
-                        <>
-                          <Button
-                            type="button"
-                            variant="quiet"
-                            size="sm"
-                            class="h-auto max-w-48 shrink-0 px-0 py-0 text-sm"
-                            onClick={() => {
-                              location.hash = `/session/${encodeURIComponent(parentId())}`;
-                            }}
-                          >
-                            {/* The ellipsis belongs on the label: the button
-                                centres what it holds, so a long parent name
-                                was cut at both ends rather than at the end. */}
-                            <span class="min-w-0 truncate">{parent()?.title || t("session.child.back")}</span>
-                          </Button>
-                          {/* The parent is a link back and the h1 is where we
-                              are — without a mark between them the two titles
-                              read as one run-on name. */}
-                          <Icon
-                            name="chevron-right"
-                            class="size-3 shrink-0 self-center text-faint-foreground"
-                          />
-                        </>
-                      );
-                    }}
-                  </Show>
-                  {/* Identity first. `flex-1` on a zero basis takes the free space, and the
-                      min-width floor means the title gives up its width last.
-                      The chips beside it stop being offered any width at all
-                      below 440px — a truncated chip renders one glyph and then
-                      reads as corruption, and both are on screen elsewhere (the
-                      branch in the session-details popover, the workspace in
-                      the sidebar). Before this the title reached 0px at the
-                      window's 960px minimum and the session you were reading
-                      had no name on screen. */}
-                  <h1
-                    class="min-w-24 flex-1 truncate text-sm font-medium"
-                    title={displayTitle(v().title) ?? t("session.untitled")}
-                  >
-                    {displayTitle(v().title) ?? t("session.untitled")}
-                  </h1>
-                  <Show when={realWorkspace(v().workspace)}>
-                    {(ws) => (
-                      <span
-                        class="max-w-40 shrink-0 truncate font-mono text-2xs text-muted-foreground @max-[440px]:hidden"
-                        title={ws()}
-                      >
-                        {folderLabel(ws())}
-                      </span>
-                    )}
-                  </Show>
-                  <Show when={settled(vcs)?.branch}>
-                    {(branch) => (
-                      <Tip
-                        label={t("header.branch.tip", { branch: branch() })}
-                        class="@max-[440px]:hidden"
-                      >
-                        <span class="flex max-w-32 shrink-0 items-baseline gap-1 font-mono text-2xs text-muted-foreground">
-                          <Icon name="branch" class="h-3 w-3 shrink-0 self-center" />
-                          <span class="truncate">{branch()}</span>
-                        </span>
-                      </Tip>
-                    )}
-                  </Show>
-                  <Show when={v().totals.cost_usd > 0}>
-                    <Tip
-                      label={t("header.cost.tip", { amount: fmtUsd(v().totals.cost_usd) })}
-                      class="@max-[440px]:hidden"
-                    >
-                      <span class="shrink-0 font-mono text-2xs text-muted-foreground tabular-nums">
-                        {fmtUsd(v().totals.cost_usd)}
-                      </span>
-                    </Tip>
-                  </Show>
-                </div>
-                <span class="flex shrink-0 items-center gap-0.5">
-                  <Tip label={t("session.search.tip", { shortcut: findKey() })}>
-                    <PanelToggle
-                      label={t("session.search.label")}
-                      on={search.searchOpen()}
-                      expanded={search.searchOpen()}
-                      onClick={() => (search.searchOpen() ? search.closeSearch() : search.openSearch())}
-                      bindRef={(el) => (searchTriggerEl = el)}
-                    >
-                      <Icon name="search" />
-                    </PanelToggle>
-                  </Tip>
-                  <span class="flex items-center gap-0.5 @max-[719px]:hidden">
-                    <Show when={opencode()}>
-                      <Tip label={terminalOn() ? t("terminal.hide") : t("terminal.show")}>
-                        <PanelToggle
-                          label={terminalOn() ? t("terminal.hide") : t("terminal.show")}
-                          on={terminalOn()}
-                          pressed={terminalOn()}
-                          onClick={() => setTerminalOn((on) => !on)}
-                        >
-                          <Icon name="terminal" />
-                        </PanelToggle>
-                      </Tip>
-                    </Show>
-                    <Tip label={traceOn() ? t("trace.live") : t("trace.replay")}>
-                      <PanelToggle
-                        label={traceOn() ? t("trace.live") : t("trace.replay")}
-                        on={traceOn()}
-                        pressed={traceOn()}
-                        onClick={toggleTrace}
-                      >
-                        <Icon name="replay" />
-                      </PanelToggle>
-                    </Tip>
-                    <Show when={opencode()}>
-                      <Tip label={t("header.tools")}>
-                        <PanelToggle
-                          label={t("header.tools")}
-                          on={tools.toolsOpen()}
-                          pressed={tools.toolsOpen()}
-                          onClick={tools.toggleTools}
-                          bindRef={(el) => (toolsTriggerEl = el)}
-                        >
-                          <span class="relative inline-flex">
-                            <Icon name="plug" />
-                            <McpAttentionMark tone={tools.attention()} />
-                          </span>
-                        </PanelToggle>
-                      </Tip>
-                    </Show>
-                    <span class="mx-1 h-4 w-px shrink-0 bg-border" aria-hidden="true" />
-                  </span>
-                  <LayoutSwitcher
-                    workspace={paneWorkspace()}
-                    onPreset={handleSelectPreset}
-                    onSplit={(dir) => handleSplitPane(paneWorkspace().focusedPaneId, dir)}
-                    onToggleZoom={() => handleToggleZoom(paneWorkspace().focusedPaneId)}
-                  />
-                  <span class="@max-[719px]:hidden">
-                    <Tip label={t("header.export")}>
-                      <Button
-                        type="button"
-                        variant="icon"
-                        size="icon-sm"
-                        aria-label={t("header.export")}
-                        onClick={() =>
-                          void downloadExport(v().session_id).catch((err) =>
-                            composer.setSendErr(err instanceof Error ? err.message : t("err.network")),
-                          )
-                        }
-                      >
-                        <Icon name="export" />
-                      </Button>
-                    </Tip>
-                  </span>
-                  <DropdownMenu placement="bottom-end">
-                    <DropdownMenuTrigger
-                      ref={(el) => (moreTriggerEl = el)}
-                      class={`relative h-7 w-7 rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground @min-[720px]:hidden ${toggleClasses(terminalOn() || traceOn() || tools.toolsOpen())}`}
-                      aria-label={t("header.more")}
-                    >
-                      <Icon name="more" class="size-4" />
-                      <McpAttentionMark tone={tools.attention()} />
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent class="min-w-48">
-                      <Show when={opencode()}>
-                        <DropdownMenuItem onSelect={() => setTerminalOn((on) => !on)}>
-                          <Icon name="terminal" class="size-3.5 text-muted-foreground" />
-                          <span class="flex-1">{terminalOn() ? t("terminal.hide") : t("terminal.show")}</span>
-                          <Show when={terminalOn()}><Icon name="check" class="size-3.5" /></Show>
-                        </DropdownMenuItem>
-                      </Show>
-                      <DropdownMenuItem onSelect={toggleTrace}>
-                        <Icon name="replay" class="size-3.5 text-muted-foreground" />
-                        <span class="flex-1">{traceOn() ? t("trace.live") : t("trace.replay")}</span>
-                        <Show when={traceOn()}><Icon name="check" class="size-3.5" /></Show>
-                      </DropdownMenuItem>
-                      <Show when={opencode()}>
-                        <DropdownMenuItem onSelect={tools.toggleTools}>
-                          <span class="relative inline-flex">
-                            <Icon name="plug" class="size-3.5 text-muted-foreground" />
-                            <McpAttentionMark tone={tools.attention()} />
-                          </span>
-                          <span class="flex-1">{t("header.tools")}</span>
-                          <Show when={tools.toolsOpen()}><Icon name="check" class="size-3.5" /></Show>
-                        </DropdownMenuItem>
-                      </Show>
-                      <DropdownMenuItem
-                        onSelect={() =>
-                          void downloadExport(v().session_id).catch((err) =>
-                            composer.setSendErr(err instanceof Error ? err.message : t("err.network")),
-                          )
-                        }
-                      >
-                        <Icon name="export" class="size-3.5 text-muted-foreground" />
-                        <span class="flex-1">{t("header.export")}</span>
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                  <Tip label={t(panelVisible() ? "panel.hide" : "panel.show")}>
-                    <PanelToggle
-                      label={t(panelVisible() ? "panel.hide" : "panel.show")}
-                      on={panelVisible()}
-                      pressed={panelVisible()}
-                      bindRef={(el) => (panelTriggerEl = el)}
-                      onClick={togglePanel}
-                    >
-                      <Icon name="panel-right" />
-                    </PanelToggle>
-                  </Tip>
-                </span>
-              </header>
+              <SessionHeader
+                view={v()}
+                sessions={props.sessions}
+                branch={settled(vcs)?.branch ?? undefined}
+                opencode={opencode()}
+                search={search}
+                tools={tools}
+                terminalOn={terminalOn()}
+                onToggleTerminal={toggleTerminal}
+                traceOn={traceOn()}
+                onToggleTrace={toggleTrace}
+                panelVisible={panelVisible()}
+                onTogglePanel={togglePanel}
+                workspace={paneWorkspace()}
+                onPreset={handleSelectPreset}
+                onSplit={(dir) => handleSplitPane(paneWorkspace().focusedPaneId, dir)}
+                onToggleZoom={() => handleToggleZoom(paneWorkspace().focusedPaneId)}
+                onError={composer.setSendErr}
+                bindSearchTrigger={(el) => (searchTriggerEl = el)}
+                bindToolsTrigger={(el) => (toolsTriggerEl = el)}
+                bindMoreTrigger={(el) => (moreTriggerEl = el)}
+                bindPanelTrigger={(el) => (panelTriggerEl = el)}
+              />
 
               <ChildBoard parentId={props.id} sessions={props.sessions} />
 
@@ -1697,205 +1434,119 @@ const turns = () => shown().turns;
                   />
                 )}
                 renderFocusedTranscript={() => (
-              <TranscriptView
-                paneId={paneWorkspace().focusedPaneId}
-                sessionId={displayed()?.session_id ?? props.id}
-                turns={turns()}
-                onScrollGate={onScrollGate}
-                workspace={() => realWorkspace(displayed()?.workspace)}
-                onOpenPath={openPathInRail}
-                ready={viewReady() && !(importing() && turns().length === 0)}
-                nav={viewReady() && replayPos() === null && !outlineIsPartial(displayed())}
-                latest={replayPos() === null}
-                class={paneWorkspace().mode === "multiplex" ? "min-h-0" : "min-h-[30vh]"}
-                empty={
-                  <Show
-                    when={!lastSilentTurn()}
-                    fallback={
-                      <div class="flex justify-center">
-                        <EmptyState
-                          icon="brain"
-                          title={t("transcript.thinking")}
-                          class="py-10"
-                        />
-                      </div>
+                  <TranscriptView
+                    paneId={paneWorkspace().focusedPaneId}
+                    sessionId={displayed()?.session_id ?? props.id}
+                    turns={turns()}
+                    onScrollGate={onScrollGate}
+                    workspace={() => realWorkspace(displayed()?.workspace)}
+                    onOpenPath={openPathInRail}
+                    ready={viewReady() && !(importing() && turns().length === 0)}
+                    nav={viewReady() && replayPos() === null && !outlineIsPartial(displayed())}
+                    latest={replayPos() === null}
+                    class={paneWorkspace().mode === "multiplex" ? "min-h-0" : "min-h-[30vh]"}
+                    empty={
+                      <Show
+                        when={!lastSilentTurn()}
+                        fallback={
+                          <div class="flex justify-center">
+                            <EmptyState
+                              icon="brain"
+                              title={t("transcript.thinking")}
+                              class="py-10"
+                            />
+                          </div>
+                        }
+                      >
+                        {/* Centres optically rather than dead-centre: the
+                            composer sits at the bottom, so the middle of what is
+                            left reads higher than the middle of the column. */}
+                        <div class="flex flex-1 items-center justify-center pb-[10vh]">
+                          <SessionEmpty
+                            workspace={v().workspace}
+                            branch={settled(vcs)?.branch}
+                            hints={{
+                              mention: opencode(),
+                              command: Array.isArray(slashCommands()),
+                            }}
+                            onPick={(text) => {
+                              composer.setDraft(text);
+                              composer.focusDraft();
+                            }}
+                          />
+                        </div>
+                      </Show>
                     }
-                  >
-                    {/* Centres optically rather than dead-centre: the
-                        composer sits at the bottom, so the middle of what is
-                        left reads higher than the middle of the column. */}
-                    <div class="flex flex-1 items-center justify-center pb-[10vh]">
-                      <SessionEmpty
-                        workspace={v().workspace}
-                        branch={settled(vcs)?.branch}
-                        hints={{
-                          mention: opencode(),
-                          command: Array.isArray(slashCommands()),
-                        }}
-                        onPick={(text) => {
-                          composer.setDraft(text);
-                          composer.focusDraft();
-                        }}
+                    renderTurn={(turn, part) => (
+                      <TurnBlock
+                        turn={turn()}
+                        part={part()}
+                        entering={() => shown().arriving.has(turn().turn_id)}
+                        live={() => composer.generating() && turns().at(-1)?.turn_id === turn().turn_id}
+                        tailTurn={() => turn().turn_id === turns().at(-1)?.turn_id}
+                        ended={() => displayed()?.status !== "active"}
+                        awaiting={() => turn().turn_id === ECHO_TURN_ID || lastSilentTurn() === turn()}
+                        childOf={childOf}
+                        onOpenChild={openChild}
+                        onEdit={composer.editTurn}
+                        onRevert={caps()?.revert ? revertTurn : undefined}
                       />
-                    </div>
-                  </Show>
-                }
-                renderTurn={(turn, part) => (
-                  <TurnBlock
-                    turn={turn()}
-                    part={part()}
-                    entering={() => shown().arriving.has(turn().turn_id)}
-                    live={() => composer.generating() && turns().at(-1)?.turn_id === turn().turn_id}
-                    tailTurn={() => turn().turn_id === turns().at(-1)?.turn_id}
-                    ended={() => displayed()?.status !== "active"}
-                    awaiting={() => turn().turn_id === ECHO_TURN_ID || lastSilentTurn() === turn()}
-                    childOf={childOf}
-                    onOpenChild={openChild}
-                    onEdit={composer.editTurn}
-                    onRevert={caps()?.revert ? revertTurn : undefined}
+                    )}
+                    api={(a) => {
+                      list = a;
+                    }}
                   />
                 )}
-                api={(a) => {
-                  list = a;
-                }}
-              />
-            )}
               />
 
               <Show when={replayPos() === null}>
-                {/*
-                  The dock is `shrink-0`, so whatever it takes, the transcript
-                  does not get. That made the cap on the card stack a fiction:
-                  `max-h-[45vh]` bounded the cards, but the dock's own `pt-6 pb-4`
-                  and the composer below it were outside it, and the measured
-                  total was 548px against a 900px window — 405 of cards plus 40 of
-                  padding plus a 103px composer. The transcript was left 232px,
-                  and since it arrives at full height and is then squeezed, the
-                  reader watches their conversation compress on entry.
-
-                  The cap therefore belongs to the dock, not to the cards inside
-                  it, and it has to leave the composer room: the composer is
-                  where a pending question is answered, so a cap that buried it
-                  would answer the reader's problem by taking away the only way
-                  out of it. `max-h-[55vh]` on the scrollable region keeps both,
-                  and the composer stays outside it, pinned where it is.
-                */}
-                <div class="shrink-0 bg-gradient-to-t from-background from-70% px-5 pb-5 pt-6">
-                  <div class="mx-auto w-full space-y-2" style={{ "max-width": `${contentW()}px` }}>
-                    {/* Pending asks and questions share the dock with the
-                        composer, and the dock is `shrink-0` — four stacked
-                        prompts measured 1024px against a 900px window, which
-                        took every pixel the transcript had and left that column
-                        at zero height, so the "back to latest" control, anchored
-                        to it, landed in the title bar. The stack now takes at
-                        most half the window and scrolls; the composer stays
-                        where it is. */}
-                    <div class="max-h-[40vh] overflow-y-auto">
-                      <div class="space-y-2">
-                    {/* A prompt that fails to load is the worst thing that can
-                        happen here: the agent is waiting for an answer the user
-                        cannot see, and the session looks stuck rather than
-                        broken. Say so, and let them ask again. */}
-                    <Show when={questions.error || asks.error}>
-                      <div class="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2.5">
-                        <span class="flex h-[1lh] shrink-0 items-center text-destructive">
-                          <Icon name="alert" class="size-3.5" />
-                        </span>
-                        <div class="min-w-0 flex-1">
-                          <div class="text-sm text-destructive">
-                            {t("prompt.load_failed")}
-                          </div>
-                          <div class="mt-0.5 text-2xs leading-4 text-muted-foreground">
-                            {t("prompt.load_failed_hint")}
-                          </div>
-                        </div>
-                        <Button
-                          type="button"
-                          size="xs"
-                          variant="outline"
-                          class="shrink-0"
-                          onClick={() => {
-                            void refetchQuestions();
-                            void refetchAsks();
-                          }}
-                        >
-                          {t("session.retry")}
-                        </Button>
-                      </div>
-                    </Show>
-                    <For each={openAsks()}>
-                      {(p) => (
-                        <AskCard
-                          ask={p}
-                          from={asksFrom(p.session_id)}
-                          onRespond={(id, decision, scope) => void respond(id, decision, scope)}
-                        />
-                      )}
-                    </For>
-                    <For each={openQuestions()}>
-                      {(q) => (
-                        <QuestionCard
-                          q={q}
-                          from={asksFrom(q.session_id ?? props.id)}
-                          onDone={() => {
-                            refetchQuestions();
-                            void refreshView();
-                          }}
-                        />
-                      )}
-                    </For>
-                      </div>
-                    </div>
-                    <Show when={v().revert_turn_id}>
-                      <div class="flex items-center justify-between gap-2 px-1">
-                        <span class="text-2xs text-muted-foreground">{t("message.reverted")}</span>
-                        <Button
-                          type="button"
-                          variant="quiet"
-                          size="xs"
-                          class="h-auto px-0 py-0"
-                          onClick={() =>
-                            void unrevertSession(props.id).catch((err) =>
-                              composer.setSendErr(err instanceof Error ? err.message : t("err.network")),
-                            )
+                <SessionDock
+                  promptsFailed={Boolean(questions.error || asks.error)}
+                  onRetryPrompts={() => {
+                    void refetchQuestions();
+                    void refetchAsks();
+                  }}
+                  asks={openAsks()}
+                  questions={openQuestions()}
+                  from={asksFrom}
+                  onRespond={(id, decision, scope) => void respond(id, decision, scope)}
+                  onQuestionDone={() => {
+                    refetchQuestions();
+                    void refreshView();
+                  }}
+                  reverted={Boolean(v().revert_turn_id)}
+                  onRestore={() =>
+                    void unrevertSession(props.id).catch((err) =>
+                      composer.setSendErr(err instanceof Error ? err.message : t("err.network")),
+                    )
+                  }
+                  disconnected={caps()?.connected === false}
+                >
+                  <SessionComposer
+                    c={composer}
+                    sessionId={() => props.id}
+                    plan={v().plan}
+                    title={v().title}
+                    permission={autoAcceptToggle}
+                    goal={v().goal}
+                    goalMet={v().goal_met}
+                    goalPaused={v().goal_paused}
+                    readOnly={() =>
+                      v().parent_session_id ? t("composer.childReadonly") : undefined
+                    }
+                    background={
+                      opencode()
+                        ? {
+                            count: dev.count,
+                            commands: dev.commands,
+                            open: () => openPanel("background"),
+                            active: () =>
+                              panelOpen() && !traceBlock() && panelTab() === "background",
                           }
-                        >
-                          {t("message.restore")}
-                        </Button>
-                      </div>
-                    </Show>
-                    <Show when={caps()?.connected === false}>
-                      <p class="mb-1.5 flex items-center gap-1.5 px-1 text-2xs text-status-cancelled">
-                        <Icon name="plug" class="size-3 shrink-0" />
-                        {t("composer.disconnected")}
-                      </p>
-                    </Show>
-                    <SessionComposer
-                      c={composer}
-                      sessionId={() => props.id}
-                      plan={v().plan}
-                      title={v().title}
-                      permission={autoAcceptToggle}
-                      goal={v().goal}
-                      goalMet={v().goal_met}
-                      goalPaused={v().goal_paused}
-                      readOnly={() =>
-                        v().parent_session_id ? t("composer.childReadonly") : undefined
-                      }
-                      background={
-                        opencode()
-                          ? {
-                              count: dev.count,
-                              commands: dev.commands,
-                              open: () => openPanel("background"),
-                              active: () =>
-                                panelOpen() && !traceBlock() && panelTab() === "background",
-                            }
-                          : undefined
-                      }
-                    />
-                  </div>
-                </div>
+                        : undefined
+                    }
+                  />
+                </SessionDock>
               </Show>
             </>
           )}

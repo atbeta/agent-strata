@@ -127,7 +127,7 @@ describe("the panel copy stays on the row", () => {
   });
 
   test("the header icon carries the attention mark", () => {
-    const src = readFileSync(join(import.meta.dir, "session-detail.tsx"), "utf8");
+    const src = readFileSync(join(import.meta.dir, "session-header.tsx"), "utf8");
     expect(src.includes("tools.attention()")).toBe(true);
   });
 

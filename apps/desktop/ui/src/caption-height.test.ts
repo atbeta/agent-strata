@@ -20,7 +20,8 @@ describe("the top row is one height", () => {
   const ROWS: { file: string; label: string }[] = [
     { file: "chrome.tsx", label: "the window caption bar" },
     { file: "chrome.tsx", label: "the drag bar" },
-    { file: "session-detail.tsx", label: "the session header" },
+    { file: "session-header.tsx", label: "the session header" },
+    { file: "session-detail.tsx", label: "the session header while it loads" },
     { file: "session-rail.tsx", label: "the changes panel header" },
     { file: "trace.tsx", label: "the trace drawer header" },
   ];
@@ -41,7 +42,7 @@ describe("the top row is one height", () => {
       }
       found.push(label);
     }
-    expect(found).toHaveLength(5);
+    expect(found).toHaveLength(ROWS.length);
   });
 
   test("the panel's input is not a row in this column", () => {

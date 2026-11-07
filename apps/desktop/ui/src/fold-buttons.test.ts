@@ -28,7 +28,7 @@ function branch(src: string, name: string): string {
 describe("the two fold buttons are one pair", () => {
   const icons = read("icons.tsx");
   const chrome = read("chrome.tsx");
-  const detail = read("session-detail.tsx");
+  const header = read("session-header.tsx");
 
   test("both are outlines with one divider, and neither is filled", () => {
     const left = branch(icons, "panel-left");
@@ -53,7 +53,7 @@ describe("the two fold buttons are one pair", () => {
     // The header row draws its toggles at 16px; the corner has to match, or
     // the same button weighs two different amounts across one window.
     expect(chrome).toContain('<Icon name="panel-left" class="size-4" />');
-    expect(detail).toContain('<Icon name="panel-right" />');
+    expect(header).toContain('<Icon name="panel-right" />');
     // The magnifier beside the corner's switch follows it, so the corner keeps
     // one weight of its own.
     expect(chrome).toContain('<Icon name="search" class="size-4" />');
@@ -62,7 +62,7 @@ describe("the two fold buttons are one pair", () => {
   test("only the optional side lights up", () => {
     // The drawer is worth announcing; the session list is open by default, so
     // a ring around its switch would be lit from morning to night.
-    expect(detail).toContain("toggleClasses(props.on)");
+    expect(header).toContain("toggleClasses(props.on)");
     expect(chrome).not.toContain("toggleClasses");
   });
 });

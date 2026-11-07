@@ -19,6 +19,7 @@ const read = (file: string) => readFileSync(join(import.meta.dir, file), "utf8")
  */
 describe("the side panel is opened from the header, not from a strip on the edge", () => {
   const detail = read("session-detail.tsx");
+  const headerFile = read("session-header.tsx");
   const rail = read("session-rail.tsx");
 
   test("there is no collapsed strip left to find", () => {
@@ -35,22 +36,27 @@ describe("the side panel is opened from the header, not from a strip on the edge
   test("the header row carries the switch, last, next to the other session controls", () => {
     // In the row, so it reads as one of the session's own controls and sits
     // where the reader's eye already is.
-    expect(detail).toContain("onClick={togglePanel}");
-    const at = detail.indexOf("onClick={togglePanel}");
+    expect(detail).toContain("onTogglePanel={togglePanel}");
+    const at = headerFile.indexOf("onClick={props.onTogglePanel}");
     expect(at).toBeGreaterThan(-1);
+    // It is the row's last control.
+    expect(headerFile.slice(at)).not.toContain("<PanelToggle");
     // Lit state and aria follow actual visibility: trace can borrow the edge
     // without leaving a pressed button that claims the rail is still visible.
-    expect(detail.slice(at - 400, at)).toContain("pressed={panelVisible()}");
-    expect(detail).toContain('on={panelVisible()}');
+    expect(headerFile.slice(at - 400, at)).toContain("pressed={props.panelVisible}");
+    expect(headerFile).toContain("on={props.panelVisible}");
+    expect(detail).toContain("panelVisible={panelVisible()}");
     expect(detail).toContain("const panelVisible = () => panelOpen() && !traceBlock();");
     // The mark says which side of the window this is: the fold button on the
     // other side draws the same way.
-    expect(detail).toContain('<Icon name="panel-right" />');
+    expect(headerFile).toContain('<Icon name="panel-right" />');
   });
 
   test("only a narrow header moves secondary actions into overflow", () => {
-    const header = detail.slice(detail.indexOf("<header"), detail.indexOf("</header>"));
-    expect(header).toContain("downloadExport(");
+    const header = headerFile.slice(headerFile.indexOf("<header"), headerFile.indexOf("</header>"));
+    expect(headerFile).toContain("downloadExport(");
+    expect(header).toContain("onClick={exportSession}");
+    expect(header).toContain("onSelect={exportSession}");
     expect(header).toContain('aria-label={t("header.export")}');
     expect(header).toContain("@max-[719px]:hidden");
     expect(header).toContain("@min-[720px]:hidden");

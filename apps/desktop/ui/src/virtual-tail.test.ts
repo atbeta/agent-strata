@@ -91,7 +91,7 @@ describe("dock ratchet", () => {
   });
 
   test("the pending stack scrolls rather than growing without bound", () => {
-    const src = read("session-detail.tsx");
+    const src = read("session-dock.tsx");
     expect(src).toMatch(/max-h-\[\d+vh\] overflow-y-auto/);
   });
 });

@@ -38,7 +38,8 @@ describe("the session rail's responsive and keyboard behavior", () => {
   test("closing returns focus and trace does not leave a false pressed state", () => {
     const detail = read("session-detail.tsx");
     expect(detail).toContain("panelTriggerEl?.focus()");
-    expect(detail).toContain("bindRef={(el) => (panelTriggerEl = el)}");
+    expect(detail).toContain("bindPanelTrigger={(el) => (panelTriggerEl = el)}");
+    expect(read("session-header.tsx")).toContain("bindRef={props.bindPanelTrigger}");
     expect(detail).toContain("const panelVisible = () => panelOpen() && !traceBlock();");
   });
 
