@@ -52,15 +52,3 @@ export function aheadOrder(visible: Range, ahead: Range): number[] {
   }
   return out;
 }
-
-/**
- * How many rows may be warming at once.
- *
- * A fling adds every row the window crosses to the warm queue. Each heavy row
- * costs more than one frame's budget, so a long gesture could leave dozens of
- * parses behind it: the queue drained for seconds after the scrolling stopped,
- * and typing in the composer competed with markdown that was no longer needed.
- * Keeping a small number in flight bounds that tail; rows beyond it are warmed
- * when the reader scrolls nearer to them.
- */
-export const WARM_AHEAD = 6;

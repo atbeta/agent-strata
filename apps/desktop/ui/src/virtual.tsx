@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, untrack, type JSX } from "solid-js";
 import { enqueueWarm } from "./paint-queue";
 import { stableKeys } from "./keyed";
-import { aheadOrder, mountedRange, WARM_AHEAD, type Range } from "./virtual-window";
+import { aheadOrder, mountedRange, type Range } from "./virtual-window";
 import type { RowLayout } from "./row-layout";
 
 /**
@@ -165,21 +165,12 @@ export function Virtual<T>(props: {
   // mount as each one finishes. A row that left the window before its turn is
   // dropped from the queue, so a fling does not leave a trail of parses.
   createEffect(() => {
-    // Re-runs when a warm finishes, so the next nearest row takes the slot the
-    // finished one freed. Reading it is what keeps a cap from becoming a stall.
-    warmth();
     const warm = props.warm;
     const r = ranges();
     const paused = props.paused?.() === true;
     const want = new Set<string>();
     if (warm && r && !paused) {
       for (const i of aheadOrder(r.visible, r.ahead)) {
-        // Only a few rows are parsed ahead at once. A fling crosses more rows
-        // than a reader will ever look at, and leaving all of them queued means
-        // the queue drains for seconds after the wheel stops — while the
-        // reader is typing in the composer, competing with markdown for the
-        // same thread. Rows beyond the cap are warmed when the view nears them.
-        if (queued.size >= WARM_AHEAD) break;
         const id = props.id(props.items[i]!);
         if (warmed.has(id)) continue;
         want.add(id);
