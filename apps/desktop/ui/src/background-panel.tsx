@@ -7,6 +7,7 @@ import { fadeSignal } from "./errors";
 import { fmtLatency } from "./transcript-format";
 import { Button } from "@/components/ui/button";
 import { RowButton } from "@/components/ui/row-button";
+import { Tip } from "./tip";
 
 /** How often the running time and the open log refresh. */
 const TICK_MS = 1_000;
@@ -62,33 +63,35 @@ export function DevRow(props: {
         when={devRunning(p())}
         fallback={
           <Show when={props.onDelete}>
-            <Button
-              type="button"
-              variant="icon"
-              size="icon-2xs"
-              class="shrink-0"
-              aria-label={t("dev.forget")}
-              title={t("dev.forget")}
-              disabled={props.busy}
-              onClick={props.onDelete}
-            >
-              <Icon name="trash" class="size-3" />
-            </Button>
+            <Tip label={t("dev.forget")}>
+              <Button
+                type="button"
+                variant="icon"
+                size="icon-2xs"
+                class="shrink-0"
+                aria-label={t("dev.forget")}
+                disabled={props.busy}
+                onClick={props.onDelete}
+              >
+                <Icon name="trash" class="size-3" />
+              </Button>
+            </Tip>
           </Show>
         }
       >
-        <Button
-          type="button"
-          variant="icon"
-          size="icon-2xs"
-          class="shrink-0"
-          aria-label={props.busy ? t("dev.stopping") : t("dev.stop")}
-          title={props.busy ? t("dev.stopping") : t("dev.stop")}
-          disabled={props.busy}
-          onClick={props.onStop}
-        >
-          <Icon name="stop" class="size-3" />
-        </Button>
+        <Tip label={props.busy ? t("dev.stopping") : t("dev.stop")}>
+          <Button
+            type="button"
+            variant="icon"
+            size="icon-2xs"
+            class="shrink-0"
+            aria-label={props.busy ? t("dev.stopping") : t("dev.stop")}
+            disabled={props.busy}
+            onClick={props.onStop}
+          >
+            <Icon name="stop" class="size-3" />
+          </Button>
+        </Tip>
       </Show>
     </div>
   );

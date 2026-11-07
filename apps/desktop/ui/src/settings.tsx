@@ -999,30 +999,33 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
             >
               {/* Armed reads as danger: the next press interrupts a running
                   session, and a colour change says so louder than a word. */}
-              <Button
-                type="button"
-                size="sm"
-                variant={
-                  launchData()?.state === "running" && restartArmed()
-                    ? "destructive"
-                    : "outline"
-                }
-                disabled={runtimeBusy() || !inDesktopShell()}
-                title={
+              <Tip
+                label={
                   launchData()?.state === "running" && !restartArmed()
                     ? t("settings.opencode.restartHint")
-                    : undefined
-                }
-                onClick={() =>
-                  launchData()?.state === "running" ? armRestart() : void restartRuntime()
+                    : ""
                 }
               >
-                {launchData()?.state === "running"
-                  ? restartArmed()
-                    ? t("settings.opencode.restartConfirm")
-                    : t("settings.opencode.restart")
-                  : t("settings.opencode.start")}
-              </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={
+                    launchData()?.state === "running" && restartArmed()
+                      ? "destructive"
+                      : "outline"
+                  }
+                  disabled={runtimeBusy() || !inDesktopShell()}
+                  onClick={() =>
+                    launchData()?.state === "running" ? armRestart() : void restartRuntime()
+                  }
+                >
+                  {launchData()?.state === "running"
+                    ? restartArmed()
+                      ? t("settings.opencode.restartConfirm")
+                      : t("settings.opencode.restart")
+                    : t("settings.opencode.start")}
+                </Button>
+              </Tip>
             </Show>
           </Row>
 

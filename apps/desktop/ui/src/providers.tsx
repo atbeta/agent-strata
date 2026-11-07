@@ -17,6 +17,7 @@ import { fadeKeyed } from "./errors";
 import { Icon } from "./icons";
 import { Card, Group } from "./settings-blocks";
 import { Button } from "@/components/ui/button";
+import { Tip } from "./tip";
 import { Picker } from "@/components/ui/picker";
 import {
   DropdownMenu,
@@ -373,21 +374,24 @@ function ProviderRow(props: {
         {/* A display choice, not a credential action: the eye is outside the
             row button because a button cannot nest in one, and the action has
             to stay reachable for an unconnected provider too. */}
-        <Button
-          type="button"
-          size="icon-2xs"
-          variant="icon"
-          class="shrink-0 text-muted-foreground"
-          aria-label={t(
+        <Tip
+          label={t(
             props.hidden ? "settings.provider.showInPicker" : "settings.provider.hideInPicker",
           )}
-          title={t(
-            props.hidden ? "settings.provider.showInPicker" : "settings.provider.hideInPicker",
-          )}
-          onClick={props.onToggleVisible}
         >
-          <Icon name={props.hidden ? "eye-off" : "eye"} class="size-3.5" />
-        </Button>
+          <Button
+            type="button"
+            size="icon-2xs"
+            variant="icon"
+            class="shrink-0 text-muted-foreground"
+            aria-label={t(
+              props.hidden ? "settings.provider.showInPicker" : "settings.provider.hideInPicker",
+            )}
+            onClick={props.onToggleVisible}
+          >
+            <Icon name={props.hidden ? "eye-off" : "eye"} class="size-3.5" />
+          </Button>
+        </Tip>
 
         {/* Disconnecting is destructive and rare, so it waits to be asked for
             instead of sitting on every connected row all day.

@@ -5,6 +5,7 @@ import { fadeSignal } from "./errors";
 import { displayTitle } from "./session-title";
 import { DevRow, DevRowDetail } from "./background-panel";
 import { devLogLineClass, devRunning, stableDevRows } from "./dev-state";
+import { Tip } from "./tip";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 
@@ -140,21 +141,25 @@ export function FleetDevSection(props: {
                       /* Outside the row, not inside it: a button nested in a
                           button is invalid markup and swallows the outer row's
                           click. */
-                      <Button
-                        type="button"
-                        variant="quiet"
-                        size="xs"
-                        class="max-w-[9rem] shrink-0 px-1.5 text-2xs underline decoration-dotted underline-offset-2"
-                        title={titleOf(row.process().session_id)}
-                        onClick={() => props.onOpenSession(row.process().session_id)}
+                      <Tip
+                        label={titleOf(row.process().session_id)}
+                        class="max-w-[9rem] shrink-0"
                       >
-                        {/* The name ends in an ellipsis, it does not lose both of
-                            its ends. A button is an inline-flex box with its
-                            label centred in it, so a name too long for the box
-                            was cut on the left as well as the right; the ellipsis
-                            belongs on the label, not on the button. */}
-                        <span class="min-w-0 truncate">{titleOf(row.process().session_id)}</span>
-                      </Button>
+                        <Button
+                          type="button"
+                          variant="quiet"
+                          size="xs"
+                          class="max-w-full px-1.5 text-2xs underline decoration-dotted underline-offset-2"
+                          onClick={() => props.onOpenSession(row.process().session_id)}
+                        >
+                          {/* The name ends in an ellipsis, it does not lose both of
+                              its ends. A button is an inline-flex box with its
+                              label centred in it, so a name too long for the box
+                              was cut on the left as well as the right; the ellipsis
+                              belongs on the label, not on the button. */}
+                          <span class="min-w-0 truncate">{titleOf(row.process().session_id)}</span>
+                        </Button>
+                      </Tip>
                     }
                   />
                   <Show when={openId() === row.id}>
