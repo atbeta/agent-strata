@@ -31,6 +31,7 @@ const {
   permissionVerdict,
   replyInterrupted,
   waitingOnChild,
+  interruptionNotice,
   silentEmptyReply,
   statusLabel,
   toolStatusLabel,
@@ -736,8 +737,6 @@ describe("replyInterrupted", () => {
     expect(transcript).toContain("createDebouncer(1500)");
     expect(transcript).toContain("confirmInterruption.cancel()");
     expect(transcript).toContain("confirmInterruption.schedule(() => setCutOff(true))");
-    // …and a mark is never announced while the session is still running.
-    expect(transcript).toContain("props.live?.() === true");
   });
 
   test("a finished reply is never interrupted", () => {
@@ -789,5 +788,40 @@ describe("waitingOnChild", () => {
     expect(waitingOnChild([{ tool: "task", status: "ok" }])).toBe(false);
     expect(waitingOnChild([{ tool: "bash", status: "pending" }])).toBe(false);
     expect(waitingOnChild([])).toBe(false);
+  });
+});
+
+describe("interruptionNotice", () => {
+  const cut = { stop_reason: "interrupted" };
+  const alive = { live: false, waiting: false, ended: false, tail: true };
+
+  test("never marks the reply a live session is still writing", () => {
+    // The adapter's interrupted final is provisional here: the same message may
+    // still be completed. Flashing a warning and taking it back is the bug.
+    expect(interruptionNotice(cut, { ...alive, live: true })).toBe("none");
+    expect(interruptionNotice(cut, alive)).toBe("none");
+  });
+
+  test("stays quiet while the turn waits on a child", () => {
+    expect(interruptionNotice(cut, { ...alive, waiting: true })).toBe("none");
+  });
+
+  test("marks a reply the session has already left behind", () => {
+    expect(interruptionNotice(cut, { ...alive, tail: false })).toBe("interrupted");
+  });
+
+  test("marks the tail once the session has ended", () => {
+    expect(interruptionNotice(cut, { ...alive, ended: true })).toBe("interrupted");
+  });
+
+  test("a stop the reader asked for is a fact, not a suspicion", () => {
+    expect(interruptionNotice({ stop_reason: "stopped" }, alive)).toBe("stopped");
+    expect(interruptionNotice({ stop_reason: "stopped" }, { ...alive, live: true })).toBe("none");
+  });
+
+  test("an ordinary reply is never marked", () => {
+    expect(interruptionNotice({}, alive)).toBe("none");
+    expect(interruptionNotice({ stop_reason: "stop" }, alive)).toBe("none");
+    expect(interruptionNotice({ partial: true }, alive)).toBe("none");
   });
 });

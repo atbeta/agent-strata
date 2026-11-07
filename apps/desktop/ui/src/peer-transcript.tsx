@@ -325,6 +325,8 @@ const turns = () => shown().turns;
           part={part()}
           entering={() => shown().arriving.has(turn().turn_id)}
           live={() => peerGenerating() && turns().at(-1)?.turn_id === turn().turn_id}
+          tailTurn={() => turn().turn_id === turns().at(-1)?.turn_id}
+          ended={() => displayed()?.status !== "active"}
           awaiting={() => false}
           childOf={childOf}
           onOpenChild={props.onOpenChild}

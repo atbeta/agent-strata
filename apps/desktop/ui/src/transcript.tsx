@@ -36,8 +36,7 @@ import {
   isDiff,
   isInteractiveTool,
   isLengthStop,
-  isStoppedStop,
-  replyInterrupted,
+  interruptionNotice,
   waitingOnChild,
   messageText,
   silentEmptyReply,
@@ -946,25 +945,41 @@ function AssistantMessage(props: {
   live?: () => boolean;
   /** The turn is parked on a child session; its provisional close is not an end. */
   waiting?: () => boolean;
+  /** This message is the last one the session has written so far. */
+  tail?: () => boolean;
+  /** The session itself has ended, so a cut reply is final. */
+  ended?: () => boolean;
   onFork?: (messageId: string) => void;
 }) {
   const met = () => goalMetReply(props.message.content);
   const text = () => (met() ? t("goal.met_reply") : messageText(props.message.content));
   const notice = () => assistantNotice(props.message.error);
   const truncated = () => isLengthStop(props.message.stop_reason);
-  const stopped = () => isStoppedStop(props.message.stop_reason);
   // A cut-off mark is provisional until two things have passed: the session
   // being live (the real completed final may still be in flight), and a beat
   // after idle for that final to replace the provisional close. Showing it
   // before then is a warning that appears and vanishes.
   const [cutOff, setCutOff] = createSignal(false);
   const confirmInterruption = createDebouncer(1500);
+  /**
+   * A cut-off mark needs evidence, not suspicion.
+   *
+   * The adapter's interrupted final is provisional while the turn is still the
+   * last thing written: the same message may be completed a moment later and
+   * replace it. The notice used to appear on that suspicion alone and vanish
+   * when the work continued — a warning about an end that never happened. Only
+   * an ended session, or a message something else has already followed, makes
+   * the cut final.
+   */
+  const noticeKind = () =>
+    interruptionNotice(props.message, {
+      live: props.live?.() === true,
+      waiting: props.waiting?.() === true,
+      ended: props.ended?.() === true,
+      tail: props.tail?.() === true,
+    });
   createEffect(() => {
-    // A cut-off mark waits for the child when the turn is parked on one: the
-    // adapter's interrupted final is provisional there, and the real
-    // completion replaces it the moment the child reports back.
-    const paused = replyInterrupted(props.message) && props.waiting?.() === true;
-    if ((!replyInterrupted(props.message) && !stopped()) || props.live?.() === true || paused) {
+    if (noticeKind() === "none") {
       confirmInterruption.cancel();
       setCutOff(false);
       return;
@@ -1034,7 +1049,7 @@ function AssistantMessage(props: {
               <span class="flex h-[1lh] shrink-0 items-center">
                 <Icon name="alert" class="size-3" />
               </span>
-              <span>{stopped() ? t("message.stopped") : t("message.interrupted")}</span>
+              <span>{noticeKind() === "stopped" ? t("message.stopped") : t("message.interrupted")}</span>
             </p>
           </Show>
           <Show when={empty()}>
@@ -1198,6 +1213,10 @@ export function TurnBlock(props: {
   /** The session is running and this is its working turn, so `pending` calls
    *  in it are live work rather than orphans of a dead run. */
   live?: () => boolean;
+  /** This turn is the last one the session has written. */
+  tailTurn?: () => boolean;
+  /** The session has ended, so its last reply will not continue. */
+  ended?: () => boolean;
   childOf?: (id: string) => ChildSession | undefined;
   onOpenChild?: (id: string) => void;
   onEdit?: (turnId: string, text: string) => void;
@@ -1300,6 +1319,8 @@ export function TurnBlock(props: {
                 footer={lastPart() && id === flowIds().at(-1)}
                 live={props.live}
                 waiting={waitingChild}
+                tail={() => props.tailTurn?.() === true && lastPart() && message().index === props.turn.assistant.length - 1}
+                ended={props.ended}
                 onFork={props.onFork}
               />
             );

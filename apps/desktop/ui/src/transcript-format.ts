@@ -106,6 +106,37 @@ export function waitingOnChild(calls: readonly { tool: string; status: string }[
   return calls.some((call) => call.tool === "task" && call.status === "pending");
 }
 
+export type InterruptionNotice = "none" | "interrupted" | "stopped";
+
+/**
+ * Whether a reply should carry a cut-off mark.
+ *
+ * The adapter writes an interrupted final whenever an open message looks quiet.
+ * That mark is provisional: the same message id may still be completed and
+ * replace it. A reader watching a live session saw the notice flash and then
+ * vanish while the work carried on, which is worse than saying nothing.
+ *
+ * So a mark needs evidence that the reply is not going to continue:
+ *  - the session ended, or
+ *  - something came after this message, so it is no longer the one still being
+ *    written.
+ * A tail message in a live session is never evidence — it is the candidate
+ * itself.
+ *
+ * A stop the reader asked for is different: it is a fact the moment it lands,
+ * and it names their action, so it does not wait for the session to end.
+ */
+export function interruptionNotice(
+  message: { partial?: boolean; stop_reason?: string },
+  state: { live: boolean; waiting: boolean; ended: boolean; tail: boolean },
+): InterruptionNotice {
+  if (isStoppedStop(message.stop_reason)) return state.live ? "none" : "stopped";
+  if (!isInterruptedStop(message.stop_reason)) return "none";
+  if (state.live || state.waiting) return "none";
+  if (!state.ended && state.tail) return "none";
+  return "interrupted";
+}
+
 /**
  * A finished reply that came back with nothing to show and nothing to say
  * why. `tool-calls` is exempt — that message's content is its calls, which
