@@ -215,9 +215,21 @@ export function createScrollOwner(opts: {
       origin: p.orig,
       offsets: s.offsets,
       ids: s.ids,
-      // Already at the tail: staying there is not a misread. Otherwise only a
-      // downward move may arrive at it.
-      allowTail: !movingUp || live.pinned,
+      // Only a downward move may arrive at the tail.
+      //
+      // This used to read `!movingUp || live.pinned`, and the second term made
+      // the direction test worthless: a reader at the tail is pinned, so the
+      // gate reopened for exactly the move it was meant to close. One notch up
+      // travels ~47px, still inside TAIL_TOLERANCE's 96px, so the reader was
+      // re-read as "following the tail" and the apply effect wrote the bottom
+      // back under them — every notch, forever, which reads as the view
+      // refusing to move up and then dropping.
+      //
+      // Nothing calls this without movement: every call site only reaches here
+      // after establishing that scrollTop differs from the last write by at
+      // least a pixel, so there is no "did not move, should stay pinned" case
+      // left for the old fallback to serve.
+      allowTail: !movingUp,
     });
   };
 
