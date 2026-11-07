@@ -46,8 +46,16 @@ function pathList(input: Record<string, unknown>): string[] {
     if (!Array.isArray(value)) continue;
     for (const item of value) add(item);
   }
-  add(input.parentDir);
-  add(input.parent_dir);
+  // The folder is worth a row of its own only when the file above it does not
+  // already say where it is. `external_directory` sends both, and printing
+  // `…/conf/config` under `…/conf/config/application.yml` repeats the path the
+  // reader just read.
+  const parent = typeof input.parentDir === "string" ? input.parentDir : input.parent_dir;
+  if (typeof parent === "string" && parent) {
+    const norm = (p: string) => p.replace(/[\\/]+/g, "/").replace(/\/+$/, "").toLowerCase();
+    const holds = out.some((p) => norm(p).startsWith(`${norm(parent)}/`));
+    if (!holds) add(parent);
+  }
   return out;
 }
 

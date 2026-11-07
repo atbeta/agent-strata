@@ -78,11 +78,15 @@ describe("permission card body", () => {
       }),
     ).toEqual({
       kind: "paths",
-      paths: [
-        "D:/Codehub/SEIS/workflow-service/conf/config/application.yml",
-        "D:/Codehub/SEIS/workflow-service/conf/config",
-      ],
+      paths: ["D:/Codehub/SEIS/workflow-service/conf/config/application.yml"],
     });
+    // A folder the file does not sit in is still worth naming.
+    expect(
+      permissionView({
+        tool: "external_directory",
+        input: { filepath: "D:/a/one.yml", parentDir: "D:/b" },
+      }),
+    ).toEqual({ kind: "paths", paths: ["D:/a/one.yml", "D:/b"] });
   });
 
   test("an edit with no diff still names the file rather than dumping it", () => {
