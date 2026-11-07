@@ -1006,9 +1006,16 @@ html[data-theme="solarized"][data-scheme="light"] {
   }
   /* Top strips are the window chrome. Do not set app-region on html/body:
      WebKit then ignores drag on every descendant, so the window cannot move.
-     Interactive controls opt out everywhere, so a drag region cannot swallow
-     clicks. macOS keeps overlay traffic lights. Windows is frameless and
+     Controls opt out where a drag region could swallow their clicks: inside a
+     strip, and in the portaled layers (menus, popovers, dialogs) that can float
+     over one. macOS keeps overlay traffic lights. Windows is frameless and
      draws its own caption buttons.
+
+     The opt-out stays scoped. WebView2 tracks every element that names an
+     app-region, no-drag included, and rebuilds a native window per region on
+     the shell's UI thread whenever one moves. A control in scrolling content
+     moves on every frame of a scroll, and that rebuild queue is what held the
+     pointer's cursor for seconds after a long wheel over the transcript.
 
      The cursor rule is scoped away from controls on purpose. An attribute
      selector outranks a type selector, so an unscoped `cursor: default` here
@@ -1023,7 +1030,8 @@ html[data-theme="solarized"][data-scheme="light"] {
     user-select: none;
     -webkit-user-select: none;
   }
-  :is(button, a, input, textarea, select, label, [role="button"]) {
+  [data-tauri-drag-region] :is(button, a, input, textarea, select, label, [role="button"]),
+  body > :not(#root) :is(button, a, input, textarea, select, label, [role="button"]) {
     -webkit-app-region: no-drag;
     app-region: no-drag;
   }
