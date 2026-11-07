@@ -55,6 +55,39 @@ export function Tip(props: {
   // already exists, so it has to re-run once `Show` has mounted it.
   const [bubble, setBubble] = createSignal<HTMLSpanElement>();
   let wrap: HTMLSpanElement | undefined;
+  /**
+   * A pending hide, so one frame outside the trigger does not end the hover.
+   *
+   * The composer moves while a reply streams — the plan strip above it changes
+   * height and carries the toolbar with it — so the trigger can slide out from
+   * under a pointer that never moved, and back again a frame later. Hiding on
+   * the first `pointermove` that lands outside made the label blink once per
+   * layout change. A short grace period absorbs that, and a real exit still
+   * ends the hover a moment later.
+   */
+  let hideTimer: ReturnType<typeof setTimeout> | undefined;
+  /**
+   * Where the pointer was when the last event said something about position.
+   *
+   * A layout change under a still pointer makes the webview re-dispatch a
+   * pointer event at the same coordinates. While a reply streams, the composer
+   * moves by a few pixels and this trigger slides out from under the cursor and
+   * back, so the capture listener saw "left the trigger" once per frame and the
+   * label blinked. A move with no movement in it is not the reader leaving.
+   */
+  let lastPoint: { x: number; y: number } | undefined;
+  const cancelHide = () => {
+    if (hideTimer === undefined) return;
+    clearTimeout(hideTimer);
+    hideTimer = undefined;
+  };
+  const hideSoon = () => {
+    if (hideTimer !== undefined) return;
+    hideTimer = setTimeout(() => {
+      hideTimer = undefined;
+      hide();
+    }, 150);
+  };
 
   const hide = () => setAnchor(null);
 
@@ -161,14 +194,25 @@ export function Tip(props: {
     onCleanup(() => {
       document.removeEventListener("pointermove", watch, true);
       cancelAnimationFrame(frame);
+      cancelHide();
     });
   });
 
   function watch(e: PointerEvent) {
+    const moved =
+      lastPoint === undefined ||
+      Math.abs(e.clientX - lastPoint.x) > 0.5 ||
+      Math.abs(e.clientY - lastPoint.y) > 0.5;
+    lastPoint = { x: e.clientX, y: e.clientY };
+    if (!moved) return;
     const t = e.target as Node | null;
     // The bubble is pointer-events-none, so containment against the wrapper is
     // enough to decide whether the pointer is still on the trigger.
-    if (!t || !wrap?.contains(t)) hide();
+    if (t && wrap?.contains(t)) {
+      cancelHide();
+      return;
+    }
+    hideSoon();
   }
 
   return (
@@ -177,13 +221,19 @@ export function Tip(props: {
       class={`inline-flex ${props.class ?? ""}`}
       onMouseEnter={(e) => {
         if (props.disabled) return;
+        lastPoint = { x: e.clientX, y: e.clientY };
+        cancelHide();
         place(e.currentTarget);
       }}
       onFocusIn={(e) => {
         if (props.disabled) return;
+        cancelHide();
         place(e.currentTarget);
       }}
-      onFocusOut={hide}
+      onFocusOut={() => {
+        cancelHide();
+        hide();
+      }}
     >
       {props.children}
       <Show when={anchor() && (props.content || props.label)}>
