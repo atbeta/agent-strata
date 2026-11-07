@@ -67,6 +67,7 @@ const TOKEN_ORDER: TokenKey[] = ["input", "cacheRead", "cacheWrite", "output", "
 const TREND_DAYS = 14;
 const STATUS_SHOWN = 5;
 const RECENT_SHOWN = 10;
+const RANK_SHOWN = 8;
 
 /**
  * The landing pane.
@@ -95,6 +96,7 @@ export function FleetView(props: {
   const [period, setPeriod] = createSignal<Period>("total");
   const [rank, setRank] = createSignal<"projects" | "models">("projects");
   const [allRecent, setAllRecent] = createSignal(false);
+  const [allRank, setAllRank] = createSignal(false);
   const [lastBuckets, setLastBuckets] = createSignal<DailyUsageRow[]>();
   // The service buckets by the caller's zone, so the UI's day keys agree
   // with the service's day keys by construction.
@@ -124,6 +126,10 @@ export function FleetView(props: {
   const trend = () => fleetTrend(props.sessions, buckets() ?? [], props.now, TREND_DAYS);
 
   const shownRecent = () => (allRecent() ? recent() : recent().slice(0, RECENT_SHOWN));
+  /** Both breakdown tabs share one cap: a ranking past the head stops ranking. */
+  const shownProjects = () => (allRank() ? projects() : projects().slice(0, RANK_SHOWN));
+  const shownModels = () => (allRank() ? models() : models().slice(0, RANK_SHOWN));
+  const rankCount = () => (rank() === "projects" ? projects().length : models().length);
 
   // The share bar divides one measure against itself, so it has to be the same
   // measure the row shows: tokens, not the dollar figure that now sits below it.
@@ -260,13 +266,16 @@ export function FleetView(props: {
                     </ul>
                   </Show>
                 </div>
-                <Show when={!allRecent() && recent().length > RECENT_SHOWN}>
+                <Show when={recent().length > RECENT_SHOWN}>
                   <Button
                     variant="quiet"
                     class="mt-1 w-full"
-                    onClick={() => setAllRecent(true)}
+                    aria-expanded={allRecent()}
+                    onClick={() => setAllRecent((value) => !value)}
                   >
-                    {t("fleet.recent.all", { n: num(recent().length) })}
+                    {allRecent()
+                      ? t("fleet.recent.less")
+                      : t("fleet.recent.all", { n: num(recent().length) })}
                   </Button>
                 </Show>
               </section>
@@ -294,7 +303,7 @@ export function FleetView(props: {
                         fallback={<p class="px-4 py-6 text-2xs text-muted-foreground">{t("fleet.overview.emptyPeriod")}</p>}
                       >
                         <ul class="divide-y divide-border">
-                          <For each={models()}>
+                          <For each={shownModels()}>
                             {(m) => (
                               <li class="px-4 py-3">
                                 <ModelBody model={m} whole={modelWhole()} />
@@ -310,7 +319,7 @@ export function FleetView(props: {
                       fallback={<p class="px-4 py-6 text-2xs text-muted-foreground">{t("fleet.overview.emptyPeriod")}</p>}
                     >
                       <ul class="divide-y divide-border">
-                        <For each={projects()}>
+                        <For each={shownProjects()}>
                           {(p) => (
                             <li>
                               <ProjectRow
@@ -326,6 +335,18 @@ export function FleetView(props: {
                     </Show>
                   </Show>
                 </div>
+                <Show when={rankCount() > RANK_SHOWN}>
+                  <Button
+                    variant="quiet"
+                    class="mt-1 w-full"
+                    aria-expanded={allRank()}
+                    onClick={() => setAllRank((value) => !value)}
+                  >
+                    {allRank()
+                      ? t("fleet.rank.less")
+                      : t("fleet.rank.all", { n: num(rankCount()) })}
+                  </Button>
+                </Show>
               </section>
             </div>
           </Show>
