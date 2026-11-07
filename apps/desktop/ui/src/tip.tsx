@@ -99,6 +99,10 @@ export function Tip(props: {
   });
 
   const place = (el: HTMLElement) => {
+    // Nothing to say is not an anchor: a `Tip` whose label is empty for now
+    // (a hint that only applies while something is running) would otherwise
+    // keep a follow loop measuring layout for a bubble that never renders.
+    if (!props.content && !props.label) return;
     // Prefer the wrapper's own box, but fall through to the child when the
     // wrapper has collapsed — an absolutely positioned trigger inside `Tip` has
     // no flow box of its own, and its centre is the only anchor that is right.
