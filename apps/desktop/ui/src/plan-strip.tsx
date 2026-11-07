@@ -92,7 +92,7 @@ export function PlanStrip(props: {
             when={segments()}
             fallback={
               <div
-                class="h-full rounded-full bg-status-completed transition-[width] duration-300"
+                class={`h-full rounded-full bg-status-completed/45 transition-[width] duration-300`}
                 style={{ width: `${percent()}%` }}
               />
             }
@@ -104,9 +104,9 @@ export function PlanStrip(props: {
                     <span
                       class={`h-full flex-1 rounded-[1px] transition-colors ${
                         part.status === "completed"
-                          ? "bg-status-completed"
+                          ? "bg-status-completed/45"
                           : part.status === "in_progress"
-                            ? "bg-status-active motion-safe:animate-pulse"
+                            ? "bg-status-active/45 motion-safe:animate-pulse"
                             : "bg-foreground/10"
                       }`}
                     />
@@ -120,11 +120,7 @@ export function PlanStrip(props: {
           <For each={props.plan}>
             {(item) => (
               <li
-                class={`flex gap-2 rounded-sm px-1 ${
-                  item.status === "in_progress"
-                    ? "bg-status-active/10 shadow-[inset_2px_0_0_var(--status-active)]"
-                    : ""
-                }`}
+                class="flex gap-2 px-1"
                 aria-current={item.status === "in_progress" ? "step" : undefined}
               >
                 <span class="mt-1 grid size-3.5 shrink-0 place-items-center" aria-hidden="true">
