@@ -53,7 +53,7 @@ import { inDesktopShell } from "./shell";
 import { Tip } from "./tip";
 import { useDismiss } from "./dismiss";
 import { TraceDrawer, TracePanel } from "./trace";
-import { createTraceData } from "./trace-data";
+import { useTraceReplay } from "./trace-replay";
 import { TerminalPane } from "./terminal";
 import { TurnBlock } from "./transcript";
 import { TranscriptView, type TranscriptApi } from "./transcript-view";
@@ -92,17 +92,22 @@ export function SessionDetail(props: {
   connections?: Connection[];
 }) {
   const panes = usePaneActions(props);
-  const [replayPos, setReplayPos] = createSignal<number | null>(null);
-  const [traceOn, setTraceOn] = createSignal(false);
-  /**
-   * Selection is a key, not the block: the trace keeps loading while a session
-   * runs, and a stored object would show yesterday's data. `traceBlock`
-   * resolves the key against the freshest load every read.
-   */
-  const [traceKey, setTraceKey] = createSignal<string | null>(null);
-  /** bumped when events may have been re-sequenced (rebuild, re-import) —
-   *  the trace reloads fully instead of appending duplicates */
-  const [traceEpoch, setTraceEpoch] = createSignal(0);
+  const [maxSeq, { refetch: refetchSeq }] = createResource(() => props.id, readHead);
+  const {
+    replayPos,
+    traceOn,
+    traceKey,
+    traceBlocks,
+    traceLoading,
+    traceBlock,
+    traceParent,
+    traceGap,
+    toggleTrace,
+    selectTrace,
+    deselectTrace,
+    resetTrace,
+    resequenceTrace,
+  } = useTraceReplay(props, maxSeq);
   const [terminalOn, setTerminalOn] = createSignal(false);
   const toggleTerminal = () => setTerminalOn((on) => !on);
   const opening = peekView(props.id);
@@ -163,62 +168,6 @@ export function SessionDetail(props: {
     },
     opening ? { initialValue: opening.view } : undefined,
   );
-  const [maxSeq, { refetch: refetchSeq }] = createResource(() => props.id, readHead);
-
-  /**
-   * The trace's event store: paged on open, appended to as the head advances,
-   * thrown away when the epoch bumps. Fetches nothing while the trace is off.
-   */
-  const trace = createTraceData({
-    sessionId: () => props.id,
-    head: () => maxSeq(),
-    epoch: traceEpoch,
-    enabled: traceOn,
-  });
-  /** the block behind the drawer — resolved by key so live data flows in */
-  const traceBlock = createMemo(() => {
-    const key = traceKey();
-    if (!key) return null;
-    return trace.blocks().find((b) => b.key === key) ?? null;
-  });
-  const traceParent = createMemo(() => {
-    const b = traceBlock();
-    return b?.parentKey ? trace.blocks().find((x) => x.key === b.parentKey) : undefined;
-  });
-  /** idle time between the previous block's end and the selected one's start */
-  const traceGap = createMemo(() => {
-    const b = traceBlock();
-    if (!b) return undefined;
-    const all = trace.blocks();
-    const i = all.indexOf(b);
-    if (i <= 0) return undefined;
-    return Math.max(0, b.startTs - all[i - 1]!.endTs);
-  });
-
-  // Keyboard selection moves fast; the replay view fetch must not fire per
-  // keypress. The key is stored at once, the fetch is debounced.
-  let replayTimer: ReturnType<typeof setTimeout> | undefined;
-  const requestReplay = (seq: number, debounce: boolean) => {
-    clearTimeout(replayTimer);
-    replayTimer = undefined;
-    if (debounce) replayTimer = setTimeout(() => setReplayPos(seq), 120);
-    else setReplayPos(seq);
-  };
-  const clearReplay = () => {
-    clearTimeout(replayTimer);
-    replayTimer = undefined;
-    setReplayPos(null);
-  };
-  const toggleTrace = () => {
-    if (traceOn()) {
-      setTraceOn(false);
-      setTraceKey(null);
-      clearReplay();
-    } else {
-      setTraceOn(true);
-    }
-  };
-  onCleanup(() => clearTimeout(replayTimer));
 
   // The focused pane vouches for its own session too, for the same reason the
   // peers do: the header reads the freshest evidence available, and this view
@@ -359,8 +308,7 @@ export function SessionDetail(props: {
    * out of the way while it is open, and the choice persists across sessions.
    */
   const openPanel = (tab?: SidePanelTab) => {
-    setTraceKey(null);
-    clearReplay();
+    deselectTrace();
     if (tab) {
       setPanelTab(tab);
       writePanelTab(tab);
@@ -778,9 +726,7 @@ export function SessionDetail(props: {
       retries = 0;
       setImporting(!hit);
       if (hit) mutate(hit.view);
-      clearReplay();
-      setTraceOn(false);
-      setTraceKey(null);
+      resetTrace();
       setHiddenAsks(new Set<string>());
       composer.resetFor(id);
       search.closeSearch();
@@ -800,7 +746,7 @@ export function SessionDetail(props: {
       const after = await readHead(id).catch(() => undefined);
       setImporting(false);
       if (after !== before) {
-        setTraceEpoch((e) => e + 1);
+        resequenceTrace();
         void refreshView(true);
       }
       void refetchSeq();
@@ -892,7 +838,7 @@ export function SessionDetail(props: {
         await importSession(props.id).catch(() => {});
         const after = await readHead(props.id).catch(() => undefined);
         if (after !== before) {
-          setTraceEpoch((e) => e + 1);
+          resequenceTrace();
           void refreshView(true);
         }
         void refetchSeq();
@@ -977,7 +923,7 @@ export function SessionDetail(props: {
             const ask = evt.type === "permission.requested" || evt.type === "question.asked";
             if (evt.session_id === props.id && evt.type === "session.rebuilt") {
               rebuilt = true;
-              setTraceEpoch((e) => e + 1);
+              resequenceTrace();
             }
             // A scroll through history keeps the column still. Asks still
             // surface — those are decisions, not transcript layout.
@@ -1292,22 +1238,11 @@ export function SessionDetail(props: {
 
               <Show when={traceOn()}>
                 <TracePanel
-                  blocks={trace.blocks()}
-                  loading={trace.loading()}
+                  blocks={traceBlocks()}
+                  loading={traceLoading()}
                   selected={traceKey()}
-                  onSelect={(block, opts) => {
-                    if (traceKey() === block.key) {
-                      setTraceKey(null);
-                      clearReplay();
-                      return;
-                    }
-                    setTraceKey(block.key);
-                    requestReplay(block.seq, opts?.debounce === true);
-                  }}
-                  onClearSelection={() => {
-                    setTraceKey(null);
-                    clearReplay();
-                  }}
+                  onSelect={selectTrace}
+                  onClearSelection={deselectTrace}
                 />
               </Show>
 
@@ -1468,10 +1403,7 @@ export function SessionDetail(props: {
             parent={traceParent()}
             gapMs={traceGap()}
             onOpenChild={openChild}
-            onClose={() => {
-              setTraceKey(null);
-              clearReplay();
-            }}
+            onClose={deselectTrace}
           />
         )}
       </Show>
