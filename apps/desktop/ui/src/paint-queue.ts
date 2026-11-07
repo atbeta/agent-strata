@@ -28,14 +28,23 @@ export function createPaintQueue(
   let retry: ReturnType<typeof setTimeout> | undefined;
 
   function schedule() {
-    if (scheduled) return;
+    // One pending wake-up, ever. This used to check `scheduled` only, so every
+    // `enqueue` during a pause queued another frame, and each frame queued
+    // another timer in the quiet branch — overwriting the timer variable while
+    // the old timer stayed alive. A long scroll grew that set without bound:
+    // hundreds of timers each waking a frame that scheduled another, and the
+    // main thread never got back to input. Freezing the window, not a stall.
+    if (scheduled || retry !== undefined) return;
     scheduled = true;
     requestFrame(() => {
       scheduled = false;
       if (queue.length > 0 && quiet?.()) {
         // Sleeping beats re-arming every frame: a reader can hold a key for a
         // long time, and each wake-up is a style recalc waiting to happen.
-        retry = setTimeout(schedule, 120);
+        retry = setTimeout(() => {
+          retry = undefined;
+          schedule();
+        }, 120);
         return;
       }
       const start = now();
