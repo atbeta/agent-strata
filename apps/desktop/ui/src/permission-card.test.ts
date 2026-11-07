@@ -63,8 +63,36 @@ describe("permission card body", () => {
     ).toEqual({ kind: "paths", paths: ["D:/work"], command: "echo probe" });
   });
 
+  test("an ask about one file shows the file and its folder", () => {
+    // `external_directory` sends the file, its parent and a probe command. It
+    // used to reach the JSON dump, so the card put braces between the reader
+    // and the path they were deciding about.
+    expect(
+      permissionView({
+        tool: "external_directory",
+        input: {
+          filepath: "D:/Codehub/SEIS/workflow-service/conf/config/application.yml",
+          parentDir: "D:/Codehub/SEIS/workflow-service/conf/config",
+          patterns: [1],
+        },
+      }),
+    ).toEqual({
+      kind: "paths",
+      paths: [
+        "D:/Codehub/SEIS/workflow-service/conf/config/application.yml",
+        "D:/Codehub/SEIS/workflow-service/conf/config",
+      ],
+    });
+  });
+
+  test("an edit with no diff still names the file rather than dumping it", () => {
+    expect(permissionView({ tool: "edit", input: { filepath: "a.ts" } })).toEqual({
+      kind: "paths",
+      paths: ["a.ts"],
+    });
+  });
+
   test("anything else stays raw json", () => {
-    expect(permissionView({ tool: "edit", input: { filepath: "a.ts" } })).toEqual({ kind: "json" });
     expect(permissionView({ tool: "task", input: { description: "look" } })).toEqual({ kind: "json" });
   });
 });
