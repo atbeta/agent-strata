@@ -213,7 +213,7 @@ function ThemePicker(props: {
           </span>
           <Icon name="chevron" class="size-3 shrink-0 text-muted-foreground" />
         </DropdownMenuTrigger>
-        <DropdownMenuContent class="max-h-80 overflow-y-auto">
+        <DropdownMenuContent class="max-h-80 w-[var(--kb-popper-anchor-width)] min-w-0 overflow-y-auto">
           <For each={THEMES}>
             {(theme) => (
               <DropdownMenuItem onSelect={() => props.onChange(theme.id)}>
@@ -674,7 +674,7 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
             />
           </Row>
 
-          <Row label={t("settings.theme")} hint={t("settings.theme.hint")}>
+          <Row label={t("settings.theme")} hint={t("settings.theme.hint")} controlClass="w-48">
             <ThemePicker
               label={t("settings.theme")}
               value={theme()}
