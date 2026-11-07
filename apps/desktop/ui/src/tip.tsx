@@ -166,6 +166,17 @@ export function Tip(props: {
     // the wrapper while the hover lasts; the loop dies with the same cleanup
     // as the listener.
     let frame = 0;
+    /**
+     * Only every fourth frame is measured.
+     *
+     * Reading the trigger's box is a forced layout, and this loop runs for as
+     * long as a tooltip is open. While a reply streams the column is rewritten
+     * every frame, so measuring each one made the label a second reason to
+     * flush layout — on the same thread as the pointer's shape and the
+     * keystroke's echo. A label follows a layout shift at reading speed; four
+     * frames (≈15Hz) is well inside that, and costs a quarter of the reads.
+     */
+    let tick = 0;
     const follow = () => {
       if (!wrap || !wrap.isConnected) {
         // The trigger was unmounted under a stationary pointer; leaving the
@@ -173,20 +184,22 @@ export function Tip(props: {
         if (wrap) hide();
         return;
       }
-      const rect = wrap.getBoundingClientRect();
-      const box = rect.width || rect.height
-        ? rect
-        : (wrap.firstElementChild?.getBoundingClientRect() ?? rect);
-      if (box.width || box.height) {
-        setAnchor((prev) =>
-          prev &&
-          prev.x === box.x &&
-          prev.y === box.y &&
-          prev.width === box.width &&
-          prev.height === box.height
-            ? prev
-            : box,
-        );
+      if (tick++ % 4 === 0) {
+        const rect = wrap.getBoundingClientRect();
+        const box = rect.width || rect.height
+          ? rect
+          : (wrap.firstElementChild?.getBoundingClientRect() ?? rect);
+        if (box.width || box.height) {
+          setAnchor((prev) =>
+            prev &&
+            prev.x === box.x &&
+            prev.y === box.y &&
+            prev.width === box.width &&
+            prev.height === box.height
+              ? prev
+              : box,
+          );
+        }
       }
       frame = requestAnimationFrame(follow);
     };

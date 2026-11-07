@@ -33,6 +33,7 @@ import {
 } from "./transcript-layout";
 import { scrollCoalescer } from "./scroll-frame";
 import { createWheelSmoother, type WheelSmoother } from "./smooth-wheel";
+import { holdParsingWhile } from "./busy-now";
 import { DisclosureContext } from "./disclosure";
 import { ContentSashes, LoadingTranscript } from "./content-sashes";
 import { PromptNavigator } from "./prompt-navigator";
@@ -259,6 +260,10 @@ export function TranscriptView(props: {
           });
           const onScroll = scrollCoalescer(owner.onScroll);
           onCleanup(() => wheel?.dispose());
+          // Background parsing is the most expensive thing that is never
+          // urgent. While the column is being moved, the frame belongs to the
+          // move; rows still queued can be parsed after the gesture ends.
+          onCleanup(holdParsingWhile(() => owner.gesturing()));
           createEffect(() => {
             const g = owner.gesturing();
             // The path actions live above the transcript and ask whether the

@@ -32,6 +32,7 @@ import { planVisible } from "./plan-progress";
 import { PlanStrip } from "./plan-strip";
 import { GoalButton, GoalStrip, useGoal } from "./goal-bar";
 import { runInProgress, SEND_GRACE_MS } from "./live";
+import { noteTyping } from "./busy-now";
 import { createSessionStop } from "./session-stop";
 import { ComposerToolbar } from "./composer-toolbar";
 import { createComposerDelivery } from "./composer-delivery";
@@ -1132,6 +1133,10 @@ export function useSessionComposer(args: {
     // A composition owns the field until compositionend. An input event that
     // forgets isComposing must not hand the field back early.
     if (e.isComposing) composing = true;
+    // Background markdown parsing yields to a keystroke. A row that is only
+    // being prepared for a scroll that may never come must not sit between
+    // this key and the character it produces.
+    noteTyping();
     setDraft(e.currentTarget.value);
     setHistIndex(-1);
     autogrow();
@@ -1147,6 +1152,8 @@ export function useSessionComposer(args: {
     // follows the text that was actually committed.
     const el = draftEl;
     if (el && el.value !== draft()) setDraft(el.value);
+    // The IME's committed text is a keystroke too.
+    noteTyping();
     track();
     finishComposition();
   };
