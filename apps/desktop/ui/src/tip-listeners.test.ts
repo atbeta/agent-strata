@@ -36,7 +36,11 @@ describe("a tooltip's pointer listener", () => {
   });
 
   test("hide() ends the hover, so the effect can drop the listener", () => {
-    expect(src).toContain("const hide = () => setAnchor(null)");
+    // `hide` grew a line — it also gives up the open label — but the thing
+    // this test guards is that it ends the hover: the anchor goes. Asserting
+    // the shape of the arrow body would break on any wording of that.
+    const hide = src.slice(src.indexOf("const hide"), src.indexOf("const place"));
+    expect(hide).toContain("setAnchor(null)");
     // The listener lives in an effect keyed on whether a bubble is showing,
     // not on its rect: following a moving trigger updates the anchor every
     // frame, and keying on the rect would tear down and reinstall the

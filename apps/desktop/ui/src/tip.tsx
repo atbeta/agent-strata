@@ -8,12 +8,29 @@ import {
   type JSX,
 } from "solid-js";
 import { Portal } from "solid-js/web";
+import { createOpenLabel } from "./tip-open";
 
 const PAD = 8;
 /** Keep this far from the top so a tooltip never lands under the caption row. */
 const TOP_GAP = 46;
 /** Longest tooltip we will render before wrapping. */
 const MAX_W = 448;
+
+/**
+ * The label that is open, if any.
+ *
+ * Two at once is a thing that happens when content moves under a stationary
+ * pointer: the browser re-runs its hit test after a scroll and fires another
+ * `mouseenter`, and nothing closes the label that was open, because the
+ * pointer never moved and the watcher only hears pointer moves. The open label
+ * follows its trigger in a frame loop, so every row the pointer passed over
+ * leaves one behind — and the main thread, which is what the pointer's shape
+ * is drawn from, stops keeping up with the reader.
+ *
+ * One label at a time is what a label is — it describes the thing under the
+ * pointer — and it bounds the loops to one however far the reader scrolls.
+ */
+const openLabel = createOpenLabel();
 
 /**
  * Instant hover label. Fixed so a scrolling sidebar does not clip it.
@@ -56,7 +73,10 @@ export function Tip(props: {
   const [bubble, setBubble] = createSignal<HTMLSpanElement>();
   let wrap: HTMLSpanElement | undefined;
 
-  const hide = () => setAnchor(null);
+  const hide = () => {
+    setAnchor(null);
+    openLabel.release(hide);
+  };
 
   // A panel that opens over the trigger does not want the hover label sitting
   // on top of it. Hiding on the flag is also what lets a disabled tip stay
@@ -66,12 +86,18 @@ export function Tip(props: {
   });
 
   const place = (el: HTMLElement) => {
+    // Whatever was open describes something else now. See `openLabel`.
+    openLabel.claim(hide);
     // Prefer the wrapper's own box, but fall through to the child when the
     // wrapper has collapsed — an absolutely positioned trigger inside `Tip` has
     // no flow box of its own, and its centre is the only anchor that is right.
     const r = el.getBoundingClientRect();
     setAnchor(r.width || r.height ? r : (el.firstElementChild?.getBoundingClientRect() ?? r));
   };
+
+  // A trigger that leaves the page takes its label with it: nothing else
+  // would close it, and the next one to open would find the slot taken.
+  onCleanup(() => openLabel.release(hide));
 
   const put = (r: DOMRect, el: HTMLSpanElement) => {
     // Read the bubble's own box, not the trigger's: the two differ exactly where
