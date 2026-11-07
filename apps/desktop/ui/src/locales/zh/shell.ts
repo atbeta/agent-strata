@@ -485,7 +485,7 @@ export default {
   "settings.about.openLog": "打开日志",
   "settings.about.copyDiagnostics": "复制诊断信息",
   "settings.about.desktopOnly": "打开日志和通知相关操作只在桌面应用里可用。",
-  "settings.about.logHint": "service.log 同时包含 shell、service 和内嵌 OpenCode 的输出，每行带本地时间。",
+  "settings.about.logHint": "含 shell、service 与内嵌 OpenCode 的输出，每行带本地时间。",
   "settings.about.logOpened": "已打开 {path}",
   "settings.about.noLog": "还没有日志文件。",
   "settings.about.diagnosticsCopied": "诊断信息已复制。",

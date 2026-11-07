@@ -499,7 +499,7 @@ export default {
   "settings.about.openLog": "Open log",
   "settings.about.copyDiagnostics": "Copy diagnostics",
   "settings.about.desktopOnly": "Opening the log and the notification actions are available in the desktop app.",
-  "settings.about.logHint": "service.log contains shell, service and embedded OpenCode output; every line carries a local time.",
+  "settings.about.logHint": "Shell, service and embedded OpenCode output, every line timestamped.",
   "settings.about.logOpened": "Opened {path}",
   "settings.about.noLog": "No log file yet.",
   "settings.about.diagnosticsCopied": "Diagnostics copied.",
