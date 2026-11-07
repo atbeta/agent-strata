@@ -46,7 +46,7 @@ export type Name =
   | "brain"
   | "stop"
   | "alert"
-  | "attention"
+  | "bell"
   | "info"
   | "target"
   | "plus"
@@ -608,16 +608,15 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
       </Glyph>
     );
   /**
-   * A heartbeat line: work happening right now. Drawn here rather than
-   * borrowed because every other mark on this grid is hand-drawn, and a
-   * borrowed one would have to be re-fitted to sit at the same weight.
-   * The peaks reach the same optical box the nav's square marks hold — a
-   * flatter line left the row reading as a dash with air above and below.
+   * An open ring: work in progress. The gap is what makes it read as motion
+   * rather than a plain circle, and the ring fills the same optical box the
+   * nav's other marks hold — the heartbeat line it replaced read as a squiggle
+   * at 14px.
    */
   if (name === "activity")
     return (
       <Glyph class={cls}>
-        <path d="M2.5 8h2l1.4-4.6 2.4 9.2 1.6-4.6h3.6" />
+        <path d="M13.2 8A5.2 5.2 0 1 1 8 2.8" />
       </Glyph>
     );
   // The window's own look — theme, language, type. A display with its stand:
@@ -662,15 +661,17 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
         <path d="M13 6.2H9.8V3M3 9.8h3.2V13M9.8 6.2 13.5 2.5M6.2 9.8 2.5 13.5" />
       </Glyph>
     );
-  // A rounded square holding an exclamation: something is waiting on a
-  // person. The box keeps the sidebar nav's three marks one square family;
-  // the circle `alert` stays for notices set inside prose.
-  if (name === "attention")
+  /**
+   * A bell: something is waiting on a person. Dome, rim and clapper, three
+   * strokes on the nav's grid; the clapper is an arc rather than a dot so the
+   * mark keeps its weight next to the ring and the window marks at 14px.
+   */
+  if (name === "bell")
     return (
       <Glyph class={cls}>
-        <rect x="2.5" y="2.5" width="11" height="11" rx="2.8" />
-        <path d="M8 5.2v3.4" />
-        <circle cx="8" cy="10.9" r="0.7" fill="currentColor" stroke="none" />
+        <path d="M5.2 11V6.9a2.8 2.8 0 0 1 5.6 0V11" />
+        <path d="M3.7 11h8.6" />
+        <path d="M6.7 13.2a1.4 1.4 0 0 0 2.6 0" />
       </Glyph>
     );
   if (name === "alert")

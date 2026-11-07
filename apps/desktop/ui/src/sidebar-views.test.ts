@@ -31,12 +31,16 @@ describe("the views at the top of the rail", () => {
     expect(sidebar).toContain("fleetStatus(list().sessions())");
   });
 
-  test("a row with nothing behind it stays on screen", () => {
-    // The count is printed, not tested for existence: a count that comes and
-    // goes is not a place, a count that says zero is an answer.
-    expect(sidebar).not.toContain("when={waitingCount() > 0}");
-    expect(sidebar).not.toContain("when={runningCount() > 0}");
-    expect(sidebar).toContain("props.count === 0 && !props.active");
+  test("a row with nothing behind it stays on screen and goes quiet", () => {
+    // The row stays — it is the filter, and a place. But the zero is not
+    // printed: a faint 0 on every quiet row was noise, so the count only
+    // appears once there is something to count, in the status tone.
+    expect(sidebar).toContain("const live = () => props.count > 0;");
+    expect(sidebar).toContain("!live() && !props.active");
+    expect(sidebar).toContain("<Show when={live()}>");
+    expect(sidebar.slice(sidebar.indexOf("function StatusRow"), sidebar.indexOf("export function Sidebar"))).not.toContain(
+      "text-faint-foreground",
+    );
   });
 
   test("the rows are the filter, and pressing one again lets it go", () => {

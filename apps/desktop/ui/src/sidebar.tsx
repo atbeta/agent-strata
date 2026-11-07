@@ -61,16 +61,21 @@ export type SidebarSearch = {
  * anything waiting for me" read as zero. The row is that filter — it cuts the
  * list by status, and pressing it again lets the list go back to everything.
  *
- * A row with nothing behind it stays on screen and goes quiet. A count that
- * comes and goes is not a place; a count that says zero is an answer.
+ * A row with nothing behind it stays on screen and goes quiet: no number, the
+ * mark in the plain grey. Once something arrives the count and the mark take
+ * the status tone the fleet page uses for the same state, so "3 waiting" is
+ * something seen out of the corner of an eye, not read.
  */
 function StatusRow(props: {
   label: string;
   count: number;
   icon: IconName;
+  /** The status colour this row speaks in when it has something to say. */
+  tone: string;
   active: boolean;
   onClick: () => void;
 }) {
+  const live = () => props.count > 0;
   return (
     <RowButton
       class={cn(
@@ -78,16 +83,26 @@ function StatusRow(props: {
         props.active
           ? "bg-accent text-foreground hover:bg-accent"
           : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
-        props.count === 0 && !props.active ? "opacity-60" : "",
+        !live() && !props.active ? "opacity-60" : "",
       )}
       aria-pressed={props.active}
       onClick={props.onClick}
     >
-      <Icon name={props.icon} class="size-3.5 shrink-0" />
+      <Icon
+        name={props.icon}
+        class={cn("size-3.5 shrink-0", live() && !props.active && props.tone)}
+      />
       <span class="truncate">{props.label}</span>
-      <span class="ml-auto shrink-0 font-mono text-2xs tabular-nums text-faint-foreground">
-        {props.count}
-      </span>
+      <Show when={live()}>
+        <span
+          class={cn(
+            "ml-auto shrink-0 font-mono text-2xs tabular-nums",
+            props.active ? "text-foreground" : props.tone,
+          )}
+        >
+          {props.count}
+        </span>
+      </Show>
     </RowButton>
   );
 }
@@ -574,7 +589,8 @@ export function Sidebar(props: {
         <StatusRow
           label={t("sidebar.status.waiting")}
           count={waitingCount()}
-          icon="attention"
+          icon="bell"
+          tone="text-event-permission"
           active={list().lens().status === "waiting"}
           onClick={toggleStatus("waiting")}
         />
@@ -582,6 +598,7 @@ export function Sidebar(props: {
           label={t("sidebar.status.running")}
           count={runningCount()}
           icon="activity"
+          tone="text-status-active"
           active={list().lens().status === "busy"}
           onClick={toggleStatus("busy")}
         />
