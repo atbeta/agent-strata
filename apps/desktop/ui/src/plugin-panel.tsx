@@ -97,6 +97,8 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
   /** The last cursor probe, so a hover costs one round trip every ~120ms. */
   let lastProbe = 0;
   let hoverCursor = "";
+  /** One probe at a time: a page that is not answering must not build a queue. */
+  let probing = false;
   /** The size last sent to the service, so a re-layout does not re-send it. */
   let sent: { width: number; height: number; scale: number } | undefined;
 
@@ -438,8 +440,9 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
                   // what it would show here. Throttled: a hover is not worth a
                   // round trip per pixel, and the answer changes rarely.
                   const now = Date.now();
-                  if (now - lastProbe > 120) {
+                  if (now - lastProbe > 120 && !probing) {
                     lastProbe = now;
+                    probing = true;
                     const at = atPoint(e);
                     if (at) {
                       void post("/panel/input", { session: props.sessionId(), kind: "cursor", ...at })
@@ -449,9 +452,19 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
                           const next = body.cursor ?? "";
                           if (next === hoverCursor) return;
                           hoverCursor = next;
-                          if (frameBox) frameBox.style.cursor = next || "default";
+                          // The field is what the pointer lands on, so it is
+                          // what has to wear the cursor; the box is the
+                          // fallback when the field is not mounted.
+                          const cursor = next || "default";
+                          if (frameBox) frameBox.style.cursor = cursor;
+                          if (field) field.style.cursor = cursor;
                         })
-                        .catch(() => {});
+                        .catch(() => {})
+                        .finally(() => {
+                          probing = false;
+                        });
+                    } else {
+                      probing = false;
                     }
                   }
                   return;
@@ -518,7 +531,7 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
                 autocomplete="off"
                 autocapitalize="off"
                 spellcheck={false}
-                class="absolute inset-0 h-full w-full cursor-default resize-none bg-transparent text-transparent caret-transparent outline-none"
+                class="absolute inset-0 h-full w-full resize-none bg-transparent text-transparent caret-transparent outline-none"
                 onInput={(e) => {
                   if (composing) return;
                   const value = e.currentTarget.value;

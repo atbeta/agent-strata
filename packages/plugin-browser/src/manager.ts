@@ -74,7 +74,7 @@ export interface BrowserSnapshot {
 
 export interface ConsoleLine {
   at: number;
-  kind: "console" | "pageerror" | "requestfailed";
+  kind: "console" | "pageerror" | "requestfailed" | "dialog";
   text: string;
 }
 
@@ -354,6 +354,15 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
       const params = event.params as { exceptionDetails?: { exception?: { description?: string }; text?: string } };
       const text = params.exceptionDetails?.exception?.description ?? params.exceptionDetails?.text ?? "page error";
       pushLine(key, "pageerror", text);
+    });
+    // A dialog nobody answers freezes its page, and a frozen page stops the
+    // screencast: the rail then looks dead without anything having failed.
+    connection.on("Page.javascriptDialogOpening", (event) => {
+      if (event.sessionId !== session) return;
+      const params = event.params as { type?: string; message?: string };
+      const type = params.type ?? "alert";
+      pushLine(key, "dialog", `${type}: ${params.message ?? ""}`);
+      void tab.page.dismissDialog(type === "beforeunload");
     });
     // The page is not where it was just because the agent navigated it: a
     // link, a form post, a redirect or a client-side route all move it, and

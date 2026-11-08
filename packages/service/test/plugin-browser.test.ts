@@ -737,3 +737,87 @@ describe("the wheel reaches the page", () => {
     }
   }, 120_000);
 });
+
+describe("a page that opens a dialog", () => {
+  test("does not freeze, and the dialog is reported rather than waited on", async () => {
+    // `alert()` blocks the page's renderer until something answers it. Nothing
+    // in a headless panel can answer it, so the screencast stopped and every
+    // later call queued behind it — the rail looked wedged.
+    const desktop = mkdtempSync(join(tmpdir(), "strata-dialog-"));
+    const work = mkdtempSync(join(tmpdir(), "strata-dialog-work-"));
+    const page = Bun.serve({
+      port: 0,
+      fetch: () =>
+        new Response(
+          `<!doctype html><title>Dialog</title>
+           <style>html,body{margin:0;height:100%}button{position:fixed;inset:0;width:100%;height:100%}</style>
+           <button id=b onclick="alert('hello')">alert</button>`,
+          { headers: { "content-type": "text/html" } },
+        ),
+    });
+    const policyFile = join(desktop, "policy.json");
+    writeFileSync(
+      policyFile,
+      JSON.stringify({
+        version: 1,
+        default: "allow",
+        rules: [{ id: "eval", effect: "allow", tool: "browser_eval" }],
+      }),
+    );
+    const svc = startService({ db: ":memory:", port: 0, desktopDir: desktop, policyFile });
+    const base = `http://127.0.0.1:${svc.port}`;
+    const post = (path: string, body: unknown) =>
+      fetch(`${base}${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    try {
+      svc.store.append([
+        makeEvent({
+          session_id: "opencode:ses_dlg",
+          type: "session.started",
+          ts: "2026-01-01T00:00:00Z",
+          source: { backend: "opencode" },
+          data: { title: "dialog", workspace: work },
+        } as EventInput),
+      ]);
+      for (let i = 0; i < 300; i++) {
+        const listing = (await (await fetch(`${base}/plugins`)).json()) as { plugins: { id: string; state: string }[] };
+        if (listing.plugins.find((p) => p.id === "browser")?.state === "running") break;
+        await Bun.sleep(50);
+      }
+      await post("/plugins/browser/tools/navigate", {
+        session_id: "opencode:ses_dlg",
+        input: { url: `http://127.0.0.1:${page.port}` },
+      });
+      // Click the button that opens the dialog.
+      await post("/plugins/browser/panel/input", { session: "opencode:ses_dlg", kind: "click", x: 0.5, y: 0.4 });
+
+      // The page must still answer: a page waiting on a dialog cannot run a
+      // script, so this is the assertion that it was dismissed.
+      let answered = "";
+      for (let i = 0; i < 40 && answered !== "alive"; i++) {
+        await Bun.sleep(100);
+        const read = (await (await post("/plugins/browser/tools/eval", {
+          session_id: "opencode:ses_dlg",
+          input: { source: "String(1 + 1) === '2' ? 'alive' : 'no'" },
+        })).json()) as { output: string };
+        answered = read.output.trim();
+      }
+      expect(answered).toBe("alive");
+
+      const log = (await (await post("/plugins/browser/tools/console", {
+        session_id: "opencode:ses_dlg",
+        input: {},
+      })).json()) as { output: string };
+      // Reported once, as a dismissed dialog — and the page kept working.
+      expect(log.output).toContain("alert: hello");
+    } finally {
+      svc.stop();
+      page.stop(true);
+      rmSync(desktop, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+      rmSync(work, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    }
+  }, 120_000);
+});

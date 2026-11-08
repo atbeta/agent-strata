@@ -440,6 +440,19 @@ export class CdpPage {
    * the cursor it inherits. Only ever called while the pointer is moving
    * inside the panel, and throttled by the caller.
    */
+  /**
+   * Answer a `alert`/`confirm`/`prompt` the page opened.
+   *
+   * A JavaScript dialog blocks the page's renderer until someone answers it.
+   * In a panel there is nobody to answer: the screencast stops, every later
+   * CDP call queues behind the dialog, and the rail looks wedged. A
+   * `beforeunload` is accepted — the reader asked to go there — and the rest
+   * are dismissed, which is the choice that changes nothing on the page.
+   */
+  async dismissDialog(accept: boolean): Promise<void> {
+    await this.send("Page.handleJavaScriptDialog", { accept }).catch(() => {});
+  }
+
   async cursorAt(x: number, y: number): Promise<string | undefined> {
     const result = await this.evaluate<string | null>(
       `(() => {
