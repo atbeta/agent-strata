@@ -63,13 +63,6 @@
         "@agent-strata/store": "workspace:*",
       },
     },
-    "packages/plugin-browser": {
-      "name": "@agent-strata/plugin-browser",
-      "version": "0.0.0",
-      "dependencies": {
-        "@agent-strata/plugin-sdk": "workspace:*",
-      },
-    },
     "packages/plugin-dev-process": {
       "name": "@agent-strata/plugin-dev-process",
       "version": "0.0.0",
@@ -126,7 +119,6 @@
         "@agent-strata/adapter-opencode": "workspace:*",
         "@agent-strata/api": "workspace:*",
         "@agent-strata/core": "workspace:*",
-        "@agent-strata/plugin-browser": "workspace:*",
         "@agent-strata/plugin-dev-process": "workspace:*",
         "@agent-strata/plugin-sdk": "workspace:*",
         "@agent-strata/policy": "workspace:*",
@@ -156,8 +148,6 @@
     "@agent-strata/api": ["@agent-strata/api@workspace:packages/api"],
 
     "@agent-strata/core": ["@agent-strata/core@workspace:packages/core"],
-
-    "@agent-strata/plugin-browser": ["@agent-strata/plugin-browser@workspace:packages/plugin-browser"],
 
     "@agent-strata/plugin-dev-process": ["@agent-strata/plugin-dev-process@workspace:packages/plugin-dev-process"],
 

@@ -10,6 +10,11 @@
 // Third-party plugins (M4) are the case a directory scan is for, and the
 // manifest format they will be read with is the same one these use.
 //
+// The browser plugin is deliberately *not* here. It is a real capability built
+// on this seam, but it is not ready to ship: the panel's frame path can wedge
+// a rail, and a capability nobody can switch off from a menu should not be in
+// the box. It lives on `local/browser-plugin` until that is settled.
+//
 // The `echo` reference plugin is deliberately *not* here. It exists to prove
 // that a capability is a package and a line of registration, and a proof that
 // ships is a tool every user sees: its three tools would appear in the tool
@@ -19,7 +24,6 @@
 
 import type { RegisteredPlugin } from "./host";
 import { manifest as devManifest, createDevPlugin } from "@agent-strata/plugin-dev-process";
-import { manifest as browserManifest, createBrowserPlugin } from "@agent-strata/plugin-browser";
 
 export interface BuiltinOptions {
   /** The service data directory; plugin state and per-plugin data live under it. */
@@ -35,13 +39,6 @@ export function builtinPlugins(options: BuiltinOptions): RegisteredPlugin[] {
       // dev servers are the app's own long-lived processes, so the pid table
       // sits where the old service-level manager kept it
       create: () => createDevPlugin({ pidFile: `${options.dataDir}/dev-processes.json`, workspaceOf: options.workspaceOf }),
-    },
-    {
-      manifest: browserManifest,
-      // Chrome, its profile, screenshots and the adoption file live under the
-      // plugin's own data directory, so disabling the plugin and deleting that
-      // directory is the whole uninstall.
-      create: () => createBrowserPlugin({ dataDir: `${options.dataDir}/plugins/browser` }),
     },
   ];
 }

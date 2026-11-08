@@ -46,7 +46,7 @@ import { PaneStage, type SessionRowSummary } from "./pane-stage";
 import { usePaneActions } from "./pane-actions";
 import { paneWorkspace, panelOpen, panelTab, setPanelOpen, setPanelTab } from "./session-chrome";
 import { writePanelOpen, writePanelTab, type SidePanelTab } from "./right-pane";
-import { panelContributions, refreshPlugins } from "./plugin-registry";
+import { refreshPlugins } from "./plugin-registry";
 import { PeerSessionTranscript } from "./peer-transcript";
 import { LoadingTranscript } from "./content-sashes";
 import { useSessionSearch, SearchPanel } from "./session-search";
@@ -480,16 +480,6 @@ export function SessionDetail(props: {
           // panel tabs this window draws all come from that set.
           void refreshPlugins();
           return;
-        }
-        if (evt.session_id === props.id && evt.type === "tool.call") {
-          // The agent opened a page. The rail is where it can be seen, and a
-          // page nobody opened a panel for is a tool result that says
-          // "navigated" — so the panel opens itself, once, and only when the
-          // rail is shut: a reader who is reading files keeps their tab.
-          const tool = (evt.data as { tool?: unknown } | undefined)?.tool;
-          if (tool === "browser_navigate" && !panelVisible()) {
-            if (panelContributions().some((p) => p.plugin === "browser")) openPanel("plugin:browser");
-          }
         }
         if (evt.type === "tool.progress") {
           // Progress is live-only and belongs to a tool row, not to the

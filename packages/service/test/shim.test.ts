@@ -140,7 +140,7 @@ describe("the shim with a service", () => {
       const listing = (await (await fetch(`${base}/plugins`)).json()) as {
         plugins: { id: string; state: string }[];
       };
-      if (listing.plugins.filter((p) => p.state === "running").length >= 3) break;
+      if (listing.plugins.filter((p) => p.state === "running").length >= 2) break;
       await Bun.sleep(50);
     }
     withService(base);
@@ -148,7 +148,6 @@ describe("the shim with a service", () => {
     const names = Object.keys(plugin.tool);
     expect(names).toContain("dev_start");
     expect(names).toContain("echo_say");
-    expect(names).toContain("browser_navigate");
     // Every registered tool carries a description OpenCode can show and an
     // args object it can validate against.
     for (const name of names) {

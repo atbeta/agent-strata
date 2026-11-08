@@ -5,7 +5,9 @@
 
 ## 一句话
 
-M0–M3 全部落地并通过检查（typecheck / lint / 包测试 / UI 测试 / cargo 测试）。侧车已实测能编译、启动、并在编译产物里跑通三个插件的工具。
+M0–M3 全部落地并通过检查（typecheck / lint / 包测试 / UI 测试 / cargo 测试）。侧车已实测能编译、启动、并在编译产物里跑通插件的工具。
+
+**浏览器插件不在主干。** 它是这套底座上的第二个真插件，也是 M1/M2 的验收对象，但它还没到能开的程度：右栏的帧路径会卡死（多因叠加，见下文"已知问题"），而一个没法从菜单里关掉的能力不该跟着出厂。它的完整实现、测试和这段期间的修复都在本地分支 `local/browser-plugin` 上，验证成熟后再合回来。主干保留插件底座、dev 插件、以及面板契约本身（`kind: "screencast"` 是平台能力，只是当前没有内置插件用它）。
 
 方案里 M0–M3 的**验收条目**逐条都有对应用例，不只是"功能跑通了"：
 
@@ -135,10 +137,23 @@ curl -s localhost:7791/plugins | jq -r '.plugins[] | "\(.id) \(.state)"'
 - **拖拽。** 指针按下/移动/抬起分成三条消息，移动时带 `buttons`，页面才知道手势还在进行——否则每次拖拽都读成"悬停后取消"。
 - **地址栏只读。** 右上角显示页面地址（只读字段，可选中复制），**不能改**：导航归 agent，读者自己跳转会让 agent 在看的页面和读者看的不是同一个。旁边的按钮是重连帧流，不是刷新页面。
 
+## 浏览器插件（本地分支 `local/browser-plugin`）
+
+主干不含这个包。分支上它是完整的：15 个工具、CDP 客户端、面板（`kind: "screencast"`）、以及一整套服务和 UI 用例。
+
+分支上尚未解决的问题，按发现顺序：
+
+1. **帧率与解码**（已修）：`<img src="data:…">` 在主线程解 JPEG，流的速率超过解码速率就堆积。改成 `createImageBitmap`（线程外解码）+ 只允许一个解码在飞（新帧替换待解码帧）+ 转发帧率 20→12。
+2. **画布尺寸**（已修）：画布原来按图片尺寸重建 backing store，流帧（CSS 尺寸）和静止帧（DPR 尺寸）交替时每秒重分配二十次。
+3. **页面对话框**（已修）：`alert/confirm/prompt` 会冻住页面渲染器，没人回答就永久停帧。现在订阅 `Page.javascriptDialogOpening` 并回答。
+4. **右栏整体失去响应**（部分修）：指针捕获悬挂、面板抛错带倒同一批响应式更新、断流无法与"页面没重绘"区分 —— 三条都已处理（window 拖拽、`ErrorBoundary`、4 秒断流重连）。**但没有拿到可重复的现场**，所以只能算"堵住了已知路径"，不能算"证明已修"。
+
+下一步要做的：在分支上把这四条各自做出可重复的用例（尤其是第 4 条需要一个能复现"只卡右栏"的页面），再谈合并。
+
 ## 没做的
 
 - **M4**：`entry.kind: "process"`、`~/.agent-strata/plugins/` 扫描、scoped token、安装授权 UI、`iframe` panel kind。契约里的位置都留着（`entry` 是 discriminated union，`McpServer` 的传输面已具备）。
 - **OpenCode v2 shim 分支**：方案 §4.5 的"v2 变体（预留）"没有写。v2 的插件 API 未发布，写一个猜的适配层只会变成要维护的猜测。`strata-shim.ts` 里留了探测点。
 - **`tool.progress` 的最后一跳**：插件 emit → 宿主 → `/stream` → UI 的 store → 行内文本，前四段都有自动化用例（`progress-stream.test.ts` + `plugin-progress.test.ts`）；缺的是"行内真的渲染出百分比"那一段 DOM 断言，因为 `test:ui` 没有挂载整套 transcript 的 harness。
-- **面板的进一步交互**：现在有 click / wheel / 键，没有文本输入法（IME）、拖拽、右键菜单。中文输入要走 `Input.insertText`，但面板目前只发 `key`。
+- **面板的进一步交互**：主干的面板契约只有数据面板在用；帧面板的输入（点击、滚轮、键盘、输入法、拖拽、光标）随浏览器插件一起放在 `local/browser-plugin`。
 - **`component` / `logs` panel kind**：`logs` 有 `DataPanel` 实现但 browser 用不到；`component` 只留了类型，没有编译期注册表。

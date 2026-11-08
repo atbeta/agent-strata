@@ -623,7 +623,7 @@ describe("what a fresh install ships", () => {
         listing = (await (await fetch(`http://127.0.0.1:${svc.port}/plugins`)).json()) as typeof listing;
         if (!listing.plugins.some((p) => p.id === "dev")) await Bun.sleep(50);
       }
-      expect(listing.plugins.map((p) => p.id).sort()).toEqual(["browser", "dev"]);
+      expect(listing.plugins.map((p) => p.id).sort()).toEqual(["dev"]);
       const table = (await (await fetch(`http://127.0.0.1:${svc.port}/plugins/tools`)).json()) as {
         tools: { name: string }[];
       };
