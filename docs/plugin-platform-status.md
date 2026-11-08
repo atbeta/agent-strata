@@ -128,6 +128,13 @@ curl -s localhost:7791/plugins | jq -r '.plugins[] | "\(.id) \(.state)"'
 | 4a | `toolTable()` 每次 dispatch 全量重建，且一个插件抛异常拖垮全表 | 属实 | 按插件缓存（生命周期变化时失效）+ per-plugin try/catch；用例 `plugins.test.ts`「one broken plugin does not take the table with it」 |
 | 4b | events 的 session 过滤语义（未声明 session = 全局） | 属实的语义说明 | 在过滤处写明，不改行为 |
 
+### 右栏真的能用了（第五轮）
+
+- **键盘。** 面板的帧区可获得焦点，按键走 `Input.dispatchKeyEvent`，带修饰键位（alt 1 / ctrl 2 / meta 4 / shift 8），所以 ctrl+a、ctrl+click 这类是它们本来该是的样子。
+- **文本与输入法。** 帧上叠一个透明 `<textarea>`：canvas 收不到文本也收不到 IME，真输入框可以。每次插入整段转发（`Input.insertText`），中文一次组合完成是一整串，不是那串按键。
+- **拖拽。** 指针按下/移动/抬起分成三条消息，移动时带 `buttons`，页面才知道手势还在进行——否则每次拖拽都读成"悬停后取消"。
+- **地址栏。** 右上角那行 URL 变成可编辑的输入框，回车导航，旁边按钮在已打开页面时是刷新而不是重连。读者自己导航走插件私有路由（和点击同性质），不经过 agent 的工具，所以不受 policy 约束；URL 校验仍然共用 `parseHttpUrl`。
+
 ## 没做的
 
 - **M4**：`entry.kind: "process"`、`~/.agent-strata/plugins/` 扫描、scoped token、安装授权 UI、`iframe` panel kind。契约里的位置都留着（`entry` 是 discriminated union，`McpServer` 的传输面已具备）。

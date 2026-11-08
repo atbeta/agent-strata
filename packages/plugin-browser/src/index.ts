@@ -350,6 +350,28 @@ export function createBrowserPlugin(options: BrowserPluginOptions): StrataPlugin
         });
         return Response.json(state);
       }
+      // A reader navigating is the reader's own action, like a click: it goes
+      // through the plugin's private route, not the agent's tool, so it is not
+      // a policy decision. The agent's `browser_navigate` keeps its own entry
+      // point and its own guard.
+      if (subpath === "/panel/navigate" && req.method === "POST") {
+        const body = (await req.json().catch(() => null)) as { session?: unknown; url?: unknown } | null;
+        if (typeof body?.session !== "string") return Response.json({ error: "session required" }, { status: 400 });
+        const target = browserUrl(body.url);
+        if (!target) return Response.json({ error: "not a URL this panel may open" }, { status: 400 });
+        const page = m().pageOf(resolveSession(body.session));
+        if (!page) return Response.json({ error: "no page" }, { status: 404 });
+        await page.navigate(target).catch(() => {});
+        return Response.json({ ok: true, url: target });
+      }
+      if (subpath === "/panel/reload" && req.method === "POST") {
+        const body = (await req.json().catch(() => null)) as { session?: unknown } | null;
+        if (typeof body?.session !== "string") return Response.json({ error: "session required" }, { status: 400 });
+        const page = m().pageOf(resolveSession(body.session));
+        if (!page) return Response.json({ error: "no page" }, { status: 404 });
+        await page.reload().catch(() => {});
+        return Response.json({ ok: true });
+      }
       if (subpath === "/panel/stop" && req.method === "POST") {
         const body = (await req.json().catch(() => null)) as { session?: unknown } | null;
         if (typeof body?.session === "string") m().stopScreencast(resolveSession(body.session));
@@ -364,6 +386,12 @@ export function createBrowserPlugin(options: BrowserPluginOptions): StrataPlugin
           key?: unknown;
           text?: unknown;
           delta?: unknown;
+          /** alt 1, ctrl 2, meta 4, shift 8 — the protocol's own bitmask. */
+          modifiers?: unknown;
+          /** "left" | "right" | "middle", for the mouse kinds. */
+          button?: unknown;
+          /** A move that belongs to a drag, so the page sees a button held. */
+          dragging?: unknown;
         } | null;
         if (typeof body?.session !== "string") return Response.json({ error: "session required" }, { status: 400 });
         const page = m().pageOf(resolveSession(body.session));
@@ -373,13 +401,27 @@ export function createBrowserPlugin(options: BrowserPluginOptions): StrataPlugin
         const size = await page.viewport();
         const x = Math.round(fx * size.width);
         const y = Math.round(fy * size.height);
+        const button: "left" | "right" | "middle" =
+          body.button === "right" || body.button === "middle" ? body.button : "left";
+        const modifiers =
+          typeof body.modifiers === "number" && Number.isFinite(body.modifiers)
+            ? body.modifiers & 0b1111
+            : 0;
         try {
-          if (body.kind === "click") await page.click(x, y);
-          else if (body.kind === "move") await page.move(x, y);
+          if (body.kind === "click") await page.click(x, y, button);
+          // A drag is down, moves, up — three messages rather than one, because
+          // the page decides what a gesture means as it happens.
+          else if (body.kind === "down") await page.mouseDown(x, y, button);
+          else if (body.kind === "up") await page.mouseUp(x, y, button);
+          else if (body.kind === "move") await page.move(x, y, body.dragging === true ? 1 : 0);
           else if (body.kind === "wheel") await page.wheel(x, y, typeof body.delta === "number" ? body.delta : 200);
-          else if (body.kind === "key" && typeof body.key === "string") await page.key(body.key);
-          else if (body.kind === "text" && typeof body.text === "string") await page.typeText(body.text);
-          else return Response.json({ error: `unknown input ${String(body.kind)}` }, { status: 400 });
+          else if (body.kind === "key" && typeof body.key === "string") {
+            await page.key(body.key, modifiers);
+          } else if (body.kind === "text" && typeof body.text === "string") {
+            // One call for the whole insert: an IME hands over composed text at
+            // once, and per-character insertion would break the composition.
+            await page.insertText(body.text);
+          } else return Response.json({ error: `unknown input ${String(body.kind)}` }, { status: 400 });
         } catch (e) {
           return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
         }

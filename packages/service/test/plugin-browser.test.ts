@@ -393,3 +393,201 @@ describe("a session that said stop asking", () => {
     }
   }, 120_000);
 });
+
+describe("the panel can be typed in", () => {
+  test("text, a key and a drag reach the page as themselves", async () => {
+    // The rail is supposed to be a browser, not a picture of one. These are
+    // the three input classes the panel forwards: inserted text (including
+    // what an IME composes), a key event, and a drag — which is a move the
+    // page sees with the button still held.
+    const desktop = mkdtempSync(join(tmpdir(), "strata-input-"));
+    const work = mkdtempSync(join(tmpdir(), "strata-input-work-"));
+    const page = Bun.serve({
+      port: 0,
+      fetch: () =>
+        new Response(
+          `<!doctype html><title>Input</title>
+           <input id=q autofocus />
+           <div id=pad style="width:300px;height:200px;background:#ddd"></div>
+           <script>
+             window.__log = { keys: [], drags: [], text: "" };
+             document.getElementById('q').addEventListener('input', (e) => { window.__log.text = e.target.value; });
+             document.getElementById('q').addEventListener('keydown', (e) => { window.__log.keys.push(e.key); });
+             // Document-level: the panel's coordinates are fractions of the
+             // whole frame, so the gesture is not tied to one element's box.
+             let down = false;
+             document.addEventListener('mousedown', () => { down = true; window.__log.drags.push('down'); });
+             document.addEventListener('mousemove', () => { if (down) window.__log.drags.push('move'); });
+             document.addEventListener('mouseup', () => { down = false; window.__log.drags.push('up'); });
+           </script>`,
+          { headers: { "content-type": "text/html" } },
+        ),
+    });
+    const policyFile = join(desktop, "policy.json");
+    writeFileSync(
+      policyFile,
+      JSON.stringify({ version: 1, default: "allow", rules: [{ id: "browse", effect: "allow", tool: "browser_*" }] }),
+    );
+    const svc = startService({ db: ":memory:", port: 0, desktopDir: desktop, policyFile });
+    const base = `http://127.0.0.1:${svc.port}`;
+    const post = (path: string, body: unknown) =>
+      fetch(`${base}${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    const tool = async (name: string, input: Record<string, unknown> = {}) =>
+      (await (await post(`/plugins/browser/tools/${name}`, { session_id: "opencode:ses_in", input })).json()) as {
+        output: string;
+        is_error: boolean;
+      };
+    const panelInput = (body: Record<string, unknown>) =>
+      post("/plugins/browser/panel/input", { session: "opencode:ses_in", ...body });
+    /** The page's own record of what it received. */
+    const logOf = async () =>
+      JSON.parse((await tool("eval", { source: "JSON.stringify(window.__log)" })).output) as {
+        text: string;
+        keys: string[];
+        drags: string[];
+      };
+
+    try {
+      svc.store.append([
+        makeEvent({
+          session_id: "opencode:ses_in",
+          type: "session.started",
+          ts: "2026-01-01T00:00:00Z",
+          source: { backend: "opencode" },
+          data: { title: "input", workspace: work },
+        } as EventInput),
+      ]);
+      for (let i = 0; i < 300; i++) {
+        const listing = (await (await fetch(`${base}/plugins`)).json()) as {
+          plugins: { id: string; state: string }[];
+        };
+        if (listing.plugins.find((p) => p.id === "browser")?.state === "running") break;
+        await Bun.sleep(50);
+      }
+      await tool("navigate", { url: `http://127.0.0.1:${page.port}` });
+
+      // 1) Text: what the hidden field forwards, including a composed word.
+      expect((await panelInput({ kind: "text", text: "你好" })).status).toBe(200);
+      let typed = "";
+      for (let i = 0; i < 40 && !typed.includes("你好"); i++) {
+        typed = (await logOf()).text;
+        if (!typed.includes("你好")) await Bun.sleep(50);
+      }
+      expect(typed).toBe("你好");
+
+      // 2) A key the page has to see as a key, not as text.
+      expect((await panelInput({ kind: "key", key: "Enter" })).status).toBe(200);
+      let keys: string[] = [];
+      for (let i = 0; i < 40 && keys.length === 0; i++) {
+        keys = (await logOf()).keys;
+        if (keys.length === 0) await Bun.sleep(50);
+      }
+      expect(keys).toContain("Enter");
+
+      // 3) A drag: down on the pad, a move with the button held, then up.
+      const spot = { x: 0.25, y: 0.5 };
+      expect((await panelInput({ kind: "down", ...spot })).status).toBe(200);
+      expect((await panelInput({ kind: "move", x: 0.5, y: 0.5, dragging: true })).status).toBe(200);
+      expect((await panelInput({ kind: "up", ...spot })).status).toBe(200);
+      let drags: string[] = [];
+      for (let i = 0; i < 40 && drags.filter((d) => d === "up").length === 0; i++) {
+        drags = (await logOf()).drags;
+        if (drags.filter((d) => d === "up").length === 0) await Bun.sleep(50);
+      }
+      expect(drags[0]).toBe("down");
+      expect(drags).toContain("move");
+      expect(drags.at(-1)).toBe("up");
+    } finally {
+      svc.stop();
+      page.stop(true);
+      rmSync(desktop, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+      rmSync(work, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    }
+  }, 120_000);
+});
+
+describe("the reader's own navigation", () => {
+  test("typing a URL in the panel moves the page, and a bad one is refused", async () => {
+    // A reader navigating is their own act, like a click: it goes through the
+    // plugin's private route, not the agent's tool, so policy is not the gate
+    // — the URL check is.
+    const desktop = mkdtempSync(join(tmpdir(), "strata-nav-"));
+    const work = mkdtempSync(join(tmpdir(), "strata-nav-work-"));
+    const first = Bun.serve({ port: 0, fetch: () => new Response("<title>One</title>", { headers: { "content-type": "text/html" } }) });
+    const second = Bun.serve({ port: 0, fetch: () => new Response("<title>Two</title>", { headers: { "content-type": "text/html" } }) });
+    const policyFile = join(desktop, "policy.json");
+    writeFileSync(
+      policyFile,
+      JSON.stringify({ version: 1, default: "allow", rules: [{ id: "browse", effect: "allow", tool: "browser_*" }] }),
+    );
+    const svc = startService({ db: ":memory:", port: 0, desktopDir: desktop, policyFile });
+    const base = `http://127.0.0.1:${svc.port}`;
+    const post = (path: string, body: unknown) =>
+      fetch(`${base}${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    try {
+      svc.store.append([
+        makeEvent({
+          session_id: "opencode:ses_nav",
+          type: "session.started",
+          ts: "2026-01-01T00:00:00Z",
+          source: { backend: "opencode" },
+          data: { title: "nav", workspace: work },
+        } as EventInput),
+      ]);
+      for (let i = 0; i < 300; i++) {
+        const listing = (await (await fetch(`${base}/plugins`)).json()) as {
+          plugins: { id: string; state: string }[];
+        };
+        if (listing.plugins.find((p) => p.id === "browser")?.state === "running") break;
+        await Bun.sleep(50);
+      }
+      await post("/plugins/browser/tools/navigate", {
+        session_id: "opencode:ses_nav",
+        input: { url: `http://127.0.0.1:${first.port}` },
+      });
+
+      // A bare host:port, the form a person types.
+      const moved = await post("/plugins/browser/panel/navigate", {
+        session: "opencode:ses_nav",
+        url: `127.0.0.1:${second.port}`,
+      });
+      expect(moved.status).toBe(200);
+      expect(((await moved.json()) as { url: string }).url).toBe(`http://127.0.0.1:${second.port}/`);
+
+      let title = "";
+      for (let i = 0; i < 40 && title !== "Two"; i++) {
+        await Bun.sleep(100);
+        const read = (await (await post("/plugins/browser/tools/eval", {
+          session_id: "opencode:ses_nav",
+          input: { source: "document.title" },
+        })).json()) as { output: string };
+        title = read.output.trim();
+      }
+      expect(title).toBe("Two");
+
+      // The same refusal the agent's route applies: not a page to open.
+      const refused = await post("/plugins/browser/panel/navigate", {
+        session: "opencode:ses_nav",
+        url: "file:///etc/passwd",
+      });
+      expect(refused.status).toBe(400);
+
+      // And reload keeps the page where it is.
+      expect((await post("/plugins/browser/panel/reload", { session: "opencode:ses_nav" })).status).toBe(200);
+    } finally {
+      svc.stop();
+      first.stop(true);
+      second.stop(true);
+      rmSync(desktop, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+      rmSync(work, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    }
+  }, 120_000);
+});

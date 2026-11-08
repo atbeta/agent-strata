@@ -193,6 +193,8 @@ export default {
   "panel.files": "文件",
   "panel.background": "后台",
   "panel.plugin.waiting": "等待插件画面…",
+  "panel.plugin.address": "地址栏",
+  "panel.plugin.input": "浏览器页面",
   "panel.plugin.noPage": "还没有页面。让 agent 打开一个网址后，这里会显示画面。",
   "panel.plugin.refresh": "重连",
 "dev.empty": "这个会话还没有后台进程。",

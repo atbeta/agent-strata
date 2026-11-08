@@ -293,6 +293,10 @@ export class CdpPage {
     await loaded;
   }
 
+  async reload(): Promise<void> {
+    await this.send("Page.reload", { ignoreCache: false });
+  }
+
   async screenshot(format: "png" | "jpeg" = "png", quality?: number): Promise<Uint8Array> {
     const answer = await this.send<{ data: string }>("Page.captureScreenshot", {
       format,
@@ -366,28 +370,78 @@ export class CdpPage {
    * for pages that gate on `isTrusted` or use pointer capture: a synthetic
    * DOM click is not the same thing to the page.
    */
-  async click(x: number, y: number): Promise<void> {
-    const base = { x, y, button: "left", clickCount: 1 };
-    await this.send("Input.dispatchMouseEvent", { ...base, type: "mouseMoved", button: "none" });
-    await this.send("Input.dispatchMouseEvent", { ...base, type: "mousePressed" });
-    await this.send("Input.dispatchMouseEvent", { ...base, type: "mouseReleased" });
+  async click(x: number, y: number, button: "left" | "right" | "middle" = "left"): Promise<void> {
+    await this.mouseDown(x, y, button);
+    await this.mouseUp(x, y, button);
   }
 
-  async move(x: number, y: number): Promise<void> {
-    await this.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y, button: "none" });
+  /** Press, without releasing: the first half of a drag or a long press. */
+  async mouseDown(x: number, y: number, button: "left" | "right" | "middle" = "left"): Promise<void> {
+    await this.send("Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      x,
+      y,
+      button: "none",
+    });
+    await this.send("Input.dispatchMouseEvent", {
+      type: "mousePressed",
+      x,
+      y,
+      button,
+      clickCount: 1,
+      buttons: BUTTONS[button],
+    });
+  }
+
+  async mouseUp(x: number, y: number, button: "left" | "right" | "middle" = "left"): Promise<void> {
+    await this.send("Input.dispatchMouseEvent", {
+      type: "mouseReleased",
+      x,
+      y,
+      button,
+      clickCount: 1,
+      buttons: 0,
+    });
+  }
+
+  async move(x: number, y: number, buttons = 0): Promise<void> {
+    // `buttons` is what tells the page a drag is in progress: without it a
+    // move is just a hover and every drag gesture reads as a cancelled click.
+    await this.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y, button: "none", buttons });
   }
 
   async wheel(x: number, y: number, deltaY: number): Promise<void> {
     await this.send("Input.dispatchMouseEvent", { type: "mouseWheel", x, y, deltaX: 0, deltaY });
   }
 
-  async key(key: string): Promise<void> {
-    await this.send("Input.dispatchKeyEvent", { type: "keyDown", key, ...keyIdentity(key) });
-    await this.send("Input.dispatchKeyEvent", { type: "keyUp", key, ...keyIdentity(key) });
+  /**
+   * A key press, with the modifiers a person held.
+   *
+   * `text` is what makes Enter submit and what makes a printable key reach the
+   * page as input rather than as a bare keydown; `modifiers` is the protocol's
+   * bitmask (alt 1, ctrl 2, meta 4, shift 8), which is how ctrl-click and
+   * ctrl+a reach the page as themselves.
+   */
+  async key(key: string, modifiers = 0, text?: string): Promise<void> {
+    const identity = keyIdentity(key);
+    const body = {
+      key,
+      modifiers,
+      ...identity,
+      ...(text ?? identity.text ? { text: text ?? identity.text } : {}),
+    };
+    await this.send("Input.dispatchKeyEvent", { type: "keyDown", ...body });
+    await this.send("Input.dispatchKeyEvent", { type: "keyUp", key, modifiers, code: identity.code, windowsVirtualKeyCode: identity.windowsVirtualKeyCode });
+  }
+
+  /** Text as a person typed it, including IME output. One call, not per char. */
+  async insertText(text: string): Promise<void> {
+    if (!text) return;
+    await this.send("Input.insertText", { text });
   }
 
   async typeText(text: string): Promise<void> {
-    for (const char of text) await this.send("Input.insertText", { text: char });
+    await this.insertText(text);
   }
 }
 
@@ -399,6 +453,8 @@ export class CdpPage {
  * the few keys a browser agent actually presses; anything else goes through
  * with `key` alone and the page's own handler decides.
  */
+const BUTTONS = { left: 1, right: 2, middle: 4 } as const;
+
 function keyIdentity(key: string): { code?: string; windowsVirtualKeyCode?: number; text?: string } {
   const table: Record<string, { code: string; vk: number; text?: string }> = {
     Enter: { code: "Enter", vk: 13, text: "\r" },

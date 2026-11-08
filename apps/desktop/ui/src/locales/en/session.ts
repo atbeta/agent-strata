@@ -191,6 +191,8 @@ export default {
   "panel.files": "Files",
   "panel.background": "Running",
   "panel.plugin.waiting": "Waiting for the plugin…",
+  "panel.plugin.address": "Address bar",
+  "panel.plugin.input": "Browser page",
   "panel.plugin.noPage": "No page yet. Once the agent opens a URL, its frames appear here.",
   "panel.plugin.refresh": "Reconnect",
 "dev.empty": "No background processes in this session.",

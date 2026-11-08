@@ -1,6 +1,8 @@
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiFetch, streamUrlFor } from "./api";
 import { Button } from "@/components/ui/button";
+import { TextFieldInput } from "@/components/ui/text-field";
+import { explain } from "./errors";
 import { panelContributions, type PanelContribution } from "./plugin-registry";
 import { pluginDisplayName } from "./plugin-display";
 import { t } from "./i18n";
@@ -81,11 +83,20 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
   const [frame, setFrame] = createSignal<Frame>();
   const [state, setState] = createSignal<"connecting" | "live" | "idle" | "error">("connecting");
   const [error, setError] = createSignal<string>();
+  /** What the address bar holds while the reader is editing it. */
+  const [address, setAddress] = createSignal<string>();
   let canvas: HTMLCanvasElement | undefined;
   let socket: EventSource | undefined;
   /** The surface the frame is drawn into; its size is the page's size. */
   let surface: HTMLElement | undefined;
   let observer: ResizeObserver | undefined;
+  /** The element the frame is drawn in; input is measured against it. */
+  let frameBox: HTMLElement | undefined;
+  /** The focus target for keys and IME: a real field, kept invisible. */
+  let field: HTMLTextAreaElement | undefined;
+  let pointerDown = false;
+  let composing = false;
+  let lastMove = 0;
   /** The size last sent to the service, so a re-layout does not re-send it. */
   let sent: { width: number; height: number; scale: number } | undefined;
 
@@ -214,12 +225,18 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
     ctx?.drawImage(image, 0, 0);
   };
 
-  const input = (kind: string, event: MouseEvent | WheelEvent, extra: Record<string, unknown> = {}) => {
-    const target = event.currentTarget as HTMLElement;
-    const rect = target.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return;
-    const x = (event.clientX - rect.left) / rect.width;
-    const y = (event.clientY - rect.top) / rect.height;
+  /**
+   * One input event, as fractions of the frame.
+   *
+   * Fractions rather than pixels because the rail is resizable and the page is
+   * laid out at whatever size it last reported; the service turns them back
+   * into page coordinates with the viewport it is driving.
+   */
+  const input = (kind: string, extra: Record<string, unknown> = {}) => {
+    const rect = frameBox?.getBoundingClientRect();
+    if (!rect || rect.width === 0 || rect.height === 0) return;
+    const x = typeof extra.x === "number" ? extra.x : 0.5;
+    const y = typeof extra.y === "number" ? extra.y : 0.5;
     void post("/panel/input", {
       session: props.sessionId(),
       kind,
@@ -229,12 +246,76 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
     }).catch(() => {});
   };
 
+  const atPoint = (event: MouseEvent | PointerEvent) => {
+    const rect = frameBox?.getBoundingClientRect();
+    if (!rect || rect.width === 0 || rect.height === 0) return undefined;
+    return {
+      x: (event.clientX - rect.left) / rect.width,
+      y: (event.clientY - rect.top) / rect.height,
+    };
+  };
+
+  const buttonOf = (event: PointerEvent): "left" | "right" | "middle" =>
+    event.button === 2 ? "right" : event.button === 1 ? "middle" : "left";
+
+  const modifiersOf = (event: KeyboardEvent | MouseEvent) =>
+    (event.altKey ? 1 : 0) | (event.ctrlKey ? 2 : 0) | (event.metaKey ? 4 : 0) | (event.shiftKey ? 8 : 0);
+
   return (
     <div class="flex min-h-0 flex-1 flex-col">
-      <div class="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5 text-2xs text-muted-foreground">
-        <span class="h-1.5 w-1.5 rounded-full" classList={{ "bg-emerald-500": state() === "live", "bg-amber-500": state() === "connecting", "bg-muted-foreground/40": state() === "idle" }} />
-        <span class="min-w-0 flex-1 truncate">{frame()?.url ?? error() ?? t("panel.plugin.waiting")}</span>
-        <Button type="button" variant="quiet" size="sm" class="shrink-0" onClick={() => void start()}>
+      <div class="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1 text-2xs text-muted-foreground">
+        <span
+          class="h-1.5 w-1.5 shrink-0 rounded-full"
+          classList={{
+            "bg-emerald-500": state() === "live",
+            "bg-amber-500": state() === "connecting",
+            "bg-muted-foreground/40": state() === "idle",
+          }}
+        />
+        {/*
+          An address bar, not a caption. The page in the rail is the reader's
+          to drive — typing a URL here is the same act as clicking a link, and
+          it goes through the plugin's private route rather than the agent's
+          tool, so it is not a policy decision.
+        */}
+        <TextFieldInput
+          bare
+          mono
+          size="sm"
+          type="url"
+          class="min-w-0 flex-1 truncate px-1 py-0.5 text-2xs text-muted-foreground focus:bg-secondary/60 focus:text-foreground"
+          value={address() ?? frame()?.url ?? error() ?? t("panel.plugin.waiting")}
+          spellcheck={false}
+          autocomplete="off"
+          aria-label={t("panel.plugin.address")}
+          onInput={(e) => setAddress(e.currentTarget.value)}
+          onKeyDown={(e) => {
+            if (e.key !== "Enter") return;
+            e.preventDefault();
+            const target = address();
+            if (!target) return;
+            void post("/panel/navigate", { session: props.sessionId(), url: target })
+              .then((res) => {
+                if (!res.ok) throw new Error(t("api.err.service", { status: res.status }));
+                setAddress(undefined);
+              })
+              .catch((err: unknown) => {
+                setState("error");
+                setError(explain(err));
+              });
+          }}
+          onBlur={() => setAddress(undefined)}
+        />
+        <Button
+          type="button"
+          variant="quiet"
+          size="sm"
+          class="shrink-0"
+          onClick={() => {
+            if (!frame()) return void start();
+            void post("/panel/reload", { session: props.sessionId() }).catch(() => {});
+          }}
+        >
           {t("panel.plugin.refresh")}
         </Button>
       </div>
@@ -262,16 +343,62 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
             <div
               // Fills the surface: the page was laid out at this size, so the
               // frame is 1:1 rather than a picture scaled to fit a box.
-              class="relative h-full w-full overflow-hidden bg-background"
+              ref={(el) => {
+                frameBox = el;
+              }}
+              class="relative h-full w-full overflow-hidden bg-background outline-none"
+              tabindex={0}
               onPointerDown={(e) => {
                 e.preventDefault();
-                input("click", e);
+                frameBox?.focus?.();
+                field?.focus({ preventScroll: true });
+                pointerDown = true;
+                const at = atPoint(e);
+                if (!at) return;
+                (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+                input("down", { ...at, button: buttonOf(e), modifiers: modifiersOf(e) });
+              }}
+              onPointerMove={(e) => {
+                if (!pointerDown) return;
+                // A drag is a move the page sees with a button held; without
+                // the flag every drag reads as a hover.
+                const now = Date.now();
+                if (now - lastMove < 16) return;
+                lastMove = now;
+                const at = atPoint(e);
+                if (at) input("move", { ...at, dragging: true, modifiers: modifiersOf(e) });
+              }}
+              onPointerUp={(e) => {
+                if (!pointerDown) return;
+                pointerDown = false;
+                (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+                const at = atPoint(e);
+                if (at) input("up", { ...at, button: buttonOf(e), modifiers: modifiersOf(e) });
+              }}
+              onPointerCancel={() => {
+                pointerDown = false;
               }}
               onWheel={(e) => {
                 e.preventDefault();
-                input("wheel", e, { delta: e.deltaY });
+                const at = atPoint(e);
+                if (at) input("wheel", { ...at, delta: e.deltaY });
               }}
-              onContextMenu={(e) => e.preventDefault()}
+              onKeyDown={(e) => {
+                if (composing) return;
+                // A printable key goes through the field below, so it arrives
+                // as inserted text and an IME can compose it. Everything else
+                // — Enter, Tab, arrows, shortcuts — is a key event the page
+                // has to see as itself.
+                const printable = e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+                if (printable) return;
+                e.preventDefault();
+                input("key", { key: e.key, modifiers: modifiersOf(e) });
+              }}
+              onContextMenu={(e) => {
+                // The page's own menu cannot be drawn here; the click is still
+                // the page's to handle.
+                e.preventDefault();
+              }}
             >
               <canvas
                 ref={(el) => {
@@ -280,6 +407,44 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
                 class="block h-full w-full select-none"
                 style={{ "object-fit": "contain" }}
                 data-frame
+              />
+              {/*
+                The focus target, invisible on purpose: a canvas cannot receive
+                text or IME composition, and a real textarea can. It sits over
+                the frame so clicking focuses it, and every insertion is
+                forwarded whole — a composed Chinese word arrives as one string,
+                not as the keystrokes that made it.
+              */}
+              <textarea
+                ref={(el) => {
+                  field = el;
+                }}
+                aria-label={t("panel.plugin.input")}
+                autocomplete="off"
+                autocapitalize="off"
+                spellcheck={false}
+                class="absolute inset-0 h-full w-full cursor-default resize-none bg-transparent text-transparent caret-transparent outline-none"
+                onInput={(e) => {
+                  if (composing) return;
+                  const value = e.currentTarget.value;
+                  if (!value) return;
+                  input("text", { text: value });
+                  e.currentTarget.value = "";
+                }}
+                onCompositionStart={() => {
+                  composing = true;
+                }}
+                onCompositionEnd={(e) => {
+                  composing = false;
+                  const value = e.data;
+                  if (value) input("text", { text: value });
+                  if (field) field.value = "";
+                }}
+                onPaste={(e) => {
+                  e.preventDefault();
+                  const value = e.clipboardData?.getData("text") ?? "";
+                  if (value) input("text", { text: value });
+                }}
               />
               <img
                 src={`data:${f().mime};base64,${f().data}`}
