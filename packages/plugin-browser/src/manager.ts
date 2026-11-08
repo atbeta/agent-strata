@@ -100,7 +100,7 @@ export interface BrowserManager {
    */
   screencast(
     sessionID: string,
-    opts?: { fps?: number; width?: number; height?: number },
+    opts?: { fps?: number; width?: number; height?: number; scale?: number },
   ): Promise<BrowserState>;
   stopScreencast(sessionID: string): void;
   /** Give up whatever this session holds; called when it ends or the plugin stops. */
@@ -468,7 +468,7 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
     const id = await track(session, connection, created.targetId, "chrome", sessionId);
     const tab = session.pages.get(id)!;
     const size = panelSize.get(sessionId);
-    if (size) await tab.page.setViewport(size.width, size.height).catch(() => {});
+    if (size) await tab.page.setViewport(size.width, size.height, size.scale).catch(() => {});
     return tab;
   };
 
@@ -541,8 +541,14 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
     casts.delete(sessionID);
   };
 
-  /** The size each session's panel asked for, applied to its page. */
-  const panelSize = new Map<string, { width: number; height: number }>();
+  /**
+   * The size each session's panel asked for, applied to its page.
+   *
+   * `scale` is the panel's `devicePixelRatio`: the layout stays in CSS pixels
+   * and the capture comes back at the display's own resolution, which is the
+   * difference between a readable frame and a soft one on a retina screen.
+   */
+  const panelSize = new Map<string, { width: number; height: number; scale: number }>();
 
   const shoot = async (sessionID: string) => {
     const session = sessions.get(sessionID);
@@ -558,7 +564,9 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
     // session, because nothing ever started the loop again.
     if (!tab) return;
     try {
-      const jpeg = await tab.page.screenshot("jpeg", 55);
+      // 75 rather than 55: this frame is read, not glanced at. The size is
+      // bounded by the panel's own pixels, so the cost stays predictable.
+      const jpeg = await tab.page.screenshot("jpeg", 75);
       opts.onFrame?.({
         session_id: sessionID,
         tab: id ?? "",
@@ -755,10 +763,11 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
       // frame is the page, not a shrunk desktop. Applied before the first
       // frame, so the panel never shows the old shape.
       if (options.width && options.height) {
-        panelSize.set(sessionID, { width: options.width, height: options.height });
+        const scale = options.scale ?? 1;
+        panelSize.set(sessionID, { width: options.width, height: options.height, scale });
         const id = session.current;
         const tab = id ? session.pages.get(id) : undefined;
-        await tab?.page.setViewport(options.width, options.height).catch(() => {});
+        await tab?.page.setViewport(options.width, options.height, scale).catch(() => {});
       }
       stopCast(sessionID);
       const fps = Math.min(Math.max(options.fps ?? 3, 1), 10);

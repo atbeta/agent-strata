@@ -52,7 +52,9 @@ bun run sidecar       # 64.7 MB, includes every builtin plugin
    - 保留：持久 profile、重启接管、多 tab、ref 快照、截图、console/pageerror/failed request、panel 的 trusted input。
    - 放弃：Playwright 的自动等待与选择器引擎。动作前会先用 ref 找元素、滚动到可见，找不到就报错——本来也要求每次动作后重新快照。
 
-2. **浏览器默认 headless、页面尺寸跟随右栏。** 原方案 §5.3 只说"面板是 `screencast` 类型化贡献"，没说浏览器窗口本身该不该可见；照字面实现成可见窗口是过度解读，且和面板重复。现在窗口是纯实现细节。代价：需要人工登录的站点要靠 `STRATA_BROWSER_PROFILE` 预先准备 profile。
+2. **`browser_navigate` 的 manifest floor 是 `allow`。** 方案 §5.2 写的是 `ask`，但 floor 对"不再询问"（auto stance）是不可抬升的，结果是读者每打开一个页面就被问一次——而这正是他们打开那个开关的原因。导航是这个能力的主路径，不是需要逐次确认的 `eval` 一类动作；把关交给 policy 文档、`net` guard，以及"没有策略时默认 ask"。`browser_eval` / `browser_attach` 保持 `ask`。
+
+3. **浏览器默认 headless、页面尺寸跟随右栏。** 原方案 §5.3 只说"面板是 `screencast` 类型化贡献"，没说浏览器窗口本身该不该可见；照字面实现成可见窗口是过度解读，且和面板重复。现在窗口是纯实现细节。代价：需要人工登录的站点要靠 `STRATA_BROWSER_PROFILE` 预先准备 profile。
 
 3. **`dev` 插件的 manifest `policy.default` 是 `allow`，不是 `ask`。** 方案 §5.2 写着 `dev_start` 默认 `ask`。按方案的合并语义（显式规则 > manifest floor > 其余），`ask` floor 会把**读者已经写 allow 规则**的命令也压回 ask，这与"读者显式规则仍生效"矛盾。真正的语义由 policy 引擎承担：`dev_start` 在 `SHELL_TOOLS` 里，命令照样被拆段分析，引擎的 floor 照样 ask。floor 只该"对没人表态的工具提高下限"，`echo_risky` 是它的测试用例。
 
@@ -65,6 +67,7 @@ bun run sidecar       # 64.7 MB, includes every builtin plugin
 ## 用户可见行为
 
 - 右栏多了插件面板 tab（browser 的 screencast）。帧走 `/plugins/browser/events`，指针/滚轮/键盘走 `/plugins/browser/panel/input`，坐标是**比例**不是像素。
+- **帧按显示器的像素比截。** 面板把自己的 `devicePixelRatio`（限到 2）报给 service，service 用 `Emulation.setDeviceMetricsOverride({ deviceScaleFactor })` 让页面按同样倍率渲染。之前固定 1x，在 Retina 上等于把半分辨率位图拉满一屏——这就是"糊"。实测：面板 700×900、2x → 帧 1400×1800。JPEG 质量也从 55 提到 75。
 - **浏览器是 headless 的，页面只活在右栏里。** 一开始做成可见窗口是错的：面板和窗口显示同一个页面，等于让读者看两个地方。现在启动固定带 `--headless=new`，面板把自身 CSS 尺寸（`ResizeObserver`）报给 service，service 用 `Emulation.setDeviceMetricsOverride` 把页面**按面板宽度重新排版**——不是把 1280 宽的页面缩小，所以字号是真实浏览器在窄栏里的大小。面板变化（拖右栏、改窗口）会重新协商，帧随之重启。
 - 登录态靠**持久 profile**（`<data>/browser-profile`）。headless 下没法人工在那个窗口里登录，所以 `STRATA_BROWSER_PROFILE` 可以指向一个你手动登录过的 profile 目录。
 - 工具行能显示 `tool.progress`（百分比或一句消息），结束即清。

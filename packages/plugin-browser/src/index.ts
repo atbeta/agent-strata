@@ -51,7 +51,14 @@ export const manifest: PluginManifest = {
         properties: { url: { type: "string", description: "http(s) URL, or host:port" } },
         required: ["url"],
       },
-      policy: { default: "ask", risk: "network" },
+      // `allow` is the floor, not the answer. Opening a page is how the
+      // browser is used at all, and a session on "stop asking me" has to stop
+      // asking for it — a floor of `ask` survives that stance by design, and a
+      // prompt on every navigation is the reason someone turns the stance on.
+      // What still stands: the `net` guard (scheme, credentials, allowlist) and
+      // whatever the policy document says, including its default of `ask` when
+      // there is no document at all.
+      policy: { default: "allow", risk: "network" },
       guards: { url: "net" },
       timeout_ms: 45_000,
     },
@@ -318,6 +325,7 @@ export function createBrowserPlugin(options: BrowserPluginOptions): StrataPlugin
           fps?: unknown;
           width?: unknown;
           height?: unknown;
+          scale?: unknown;
         } | null;
         if (typeof body?.session !== "string") return Response.json({ error: "session required" }, { status: 400 });
         const session = resolveSession(body.session);
@@ -329,9 +337,16 @@ export function createBrowserPlugin(options: BrowserPluginOptions): StrataPlugin
           typeof v === "number" && Number.isFinite(v) ? Math.min(Math.max(Math.round(v), 320), 1920) : undefined;
         const width = clamp(body.width);
         const height = clamp(body.height);
+        // The panel's `devicePixelRatio`, kept to the two factors a display
+        // actually uses: more is memory for no visible gain.
+        const scale =
+          typeof body.scale === "number" && Number.isFinite(body.scale)
+            ? Math.min(Math.max(body.scale, 1), 2)
+            : undefined;
         const state = await m().screencast(session, {
           ...(fps === undefined ? {} : { fps }),
           ...(width === undefined || height === undefined ? {} : { width, height }),
+          ...(scale === undefined ? {} : { scale }),
         });
         return Response.json(state);
       }

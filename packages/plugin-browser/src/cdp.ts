@@ -278,13 +278,19 @@ export class CdpPage {
    * the page to the panel means text is the size it would be in a real
    * browser at that width.
    */
-  async setViewport(width: number, height: number): Promise<void> {
+  async setViewport(width: number, height: number, scale = 1): Promise<void> {
     const w = Math.max(320, Math.round(width));
     const h = Math.max(320, Math.round(height));
+    // `deviceScaleFactor` is the display's pixel ratio, not a zoom: the page
+    // still lays out at `w`x`h` CSS pixels, and a screenshot comes back at
+    // `w * scale`. With a factor of 1 on a retina display the frame was a
+    // half-resolution bitmap stretched over twice the pixels — which is what
+    // "糊" was.
+    const factor = Math.min(Math.max(scale, 1), 2);
     await this.send("Emulation.setDeviceMetricsOverride", {
       width: w,
       height: h,
-      deviceScaleFactor: 1,
+      deviceScaleFactor: factor,
       mobile: false,
     });
   }

@@ -86,7 +86,7 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
   let surface: HTMLElement | undefined;
   let observer: ResizeObserver | undefined;
   /** The size last sent to the service, so a re-layout does not re-send it. */
-  let sent: { width: number; height: number } | undefined;
+  let sent: { width: number; height: number; scale: number } | undefined;
 
   const post = (path: string, body: unknown) =>
     apiFetch(`/plugins/${encodeURIComponent(props.panel.plugin)}${path}`, {
@@ -105,7 +105,14 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
   const panelSize = () => {
     const rect = surface?.getBoundingClientRect();
     if (!rect || rect.width < 1 || rect.height < 1) return undefined;
-    return { width: Math.round(rect.width), height: Math.round(rect.height) };
+    // `devicePixelRatio` is what makes the frame sharp on a retina display:
+    // the page lays out at the panel's CSS size and is captured at the
+    // display's own resolution, so one bitmap pixel is one screen pixel.
+    return {
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+      scale: Math.min(Math.max(window.devicePixelRatio || 1, 1), 2),
+    };
   };
 
   const start = async () => {
@@ -119,7 +126,7 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
     const res = await post("/panel/cast", {
       session: props.sessionId(),
       fps: 3,
-      ...(size ? { width: size.width, height: size.height } : {}),
+      ...(size ? { width: size.width, height: size.height, scale: size.scale } : {}),
     }).catch((e: unknown) => {
       setError(e instanceof Error ? e.message : String(e));
       setState("error");
@@ -147,7 +154,14 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
       debounce = setTimeout(() => {
         const size = panelSize();
         if (!size) return;
-        if (sent && Math.abs(sent.width - size.width) < 8 && Math.abs(sent.height - size.height) < 8) return;
+        if (
+          sent &&
+          sent.scale === size.scale &&
+          Math.abs(sent.width - size.width) < 8 &&
+          Math.abs(sent.height - size.height) < 8
+        ) {
+          return;
+        }
         void start();
       }, 250);
     });

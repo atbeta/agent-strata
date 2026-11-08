@@ -312,3 +312,69 @@ describe("the page the panel sees", () => {
     }
   }, 120_000);
 });
+
+describe("a frame the reader can read", () => {
+  test("the capture is at the display's pixel ratio, not the CSS size", async () => {
+    // A 1x bitmap stretched over a retina panel is the "糊" this fixes: the
+    // page still lays out at the panel's CSS pixels, and the PNG comes back at
+    // `width * scale`.
+    const dir = mkdtempSync(join(tmpdir(), "strata-browser-dpr-"));
+    const server = Bun.serve({
+      port: 0,
+      fetch: () => new Response("<title>DPR</title><p>hello</p>", { headers: { "content-type": "text/html" } }),
+    });
+    const frames: { data: string }[] = [];
+    const manager = createBrowserManager({
+      stateDir: dir,
+      onFrame: (f) => frames.push(f),
+      launch: (profileDir, port) => {
+        const proc = Bun.spawn(
+          [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            `--remote-debugging-port=${port}`,
+            `--user-data-dir=${profileDir}`,
+            "--headless=new",
+            "--no-first-run",
+            "about:blank",
+          ],
+          { stdout: "ignore", stderr: "ignore", stdin: "ignore" },
+        );
+        return { pid: proc.pid, kill: () => proc.kill() };
+      },
+    });
+    try {
+      await manager.navigate("s", `http://127.0.0.1:${server.port}`);
+      await manager.screencast("s", { fps: 4, width: 400, height: 500, scale: 2 });
+      for (let i = 0; i < 60 && frames.length === 0; i++) await Bun.sleep(50);
+      manager.stopScreencast("s");
+      expect(frames.length).toBeGreaterThan(0);
+
+      const bytes = Buffer.from(frames[0]!.data, "base64");
+      // JPEG SOF0 carries the image size; parse the segment walk rather than
+      // guessing an offset.
+      let at = 2;
+      let size: { width: number; height: number } | undefined;
+      while (at < bytes.length - 9) {
+        if (bytes[at] !== 0xff) {
+          at++;
+          continue;
+        }
+        const marker = bytes[at + 1]!;
+        const length = bytes.readUInt16BE(at + 2);
+        if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+          size = { height: bytes.readUInt16BE(at + 5), width: bytes.readUInt16BE(at + 7) };
+          break;
+        }
+        at += 2 + length;
+      }
+      expect(size).toBeDefined();
+      // The page is 400x500 CSS pixels; the frame is twice that per axis.
+      expect(size!.width).toBe(800);
+      expect(size!.height).toBe(1000);
+    } finally {
+      await manager.dispose();
+      server.stop(true);
+      rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    }
+  }, 120_000);
+});

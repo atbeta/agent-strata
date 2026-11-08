@@ -309,3 +309,87 @@ describe("the panel's frame stream", () => {
     }
   }, 120_000);
 });
+
+describe("a session that said stop asking", () => {
+  test("navigate goes through without a card, while eval still asks", async () => {
+    // The reader turned the stance on and still got a prompt per navigation:
+    // `navigate` declared a floor of `ask`, and a floor survives the stance by
+    // design. Opening a page is how the browser is used at all, so that floor
+    // was wrong — the stance has to be able to lift it. `eval` keeps its floor
+    // because running script in a page is not the same act as visiting it.
+    const desktop = mkdtempSync(join(tmpdir(), "strata-auto-"));
+    const work = mkdtempSync(join(tmpdir(), "strata-auto-work-"));
+    const page = Bun.serve({
+      port: 0,
+      fetch: () => new Response("<title>Auto</title><p>hi</p>", { headers: { "content-type": "text/html" } }),
+    });
+    const policyFile = join(desktop, "policy.json");
+    writeFileSync(policyFile, JSON.stringify({ version: 1, default: "ask", rules: [] }));
+    const svc = startService({ db: ":memory:", port: 0, desktopDir: desktop, policyFile });
+    const base = `http://127.0.0.1:${svc.port}`;
+    const post = (path: string, body: unknown) =>
+      fetch(`${base}${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    try {
+      svc.store.append([
+        makeEvent({
+          session_id: "opencode:ses_auto",
+          type: "session.started",
+          ts: "2026-01-01T00:00:00Z",
+          source: { backend: "opencode" },
+          data: { title: "auto", workspace: work },
+        } as EventInput),
+      ]);
+      for (let i = 0; i < 300; i++) {
+        const listing = (await (await fetch(`${base}/plugins`)).json()) as {
+          plugins: { id: string; state: string }[];
+        };
+        if (listing.plugins.find((p) => p.id === "browser")?.state === "running") break;
+        await Bun.sleep(50);
+      }
+
+      const switched = await fetch(`${base}/sessions/opencode%3Ases_auto/policy`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mode: "auto" }),
+      });
+      expect(switched.status).toBe(200);
+
+      const navigated = await post("/plugins/browser/tools/navigate", {
+        session_id: "opencode:ses_auto",
+        input: { url: `http://127.0.0.1:${page.port}` },
+      });
+      expect(navigated.status).toBe(200);
+      const pending = (await (await fetch(`${base}/permissions`)).json()) as {
+        pending: { tool: string }[];
+      };
+      expect(pending.pending.some((p) => p.tool === "browser_navigate")).toBe(false);
+
+      // eval keeps its ask floor: the stance does not turn arbitrary script in
+      // a page into something that runs unattended.
+      const evaluating = post("/plugins/browser/tools/eval", {
+        session_id: "opencode:ses_auto",
+        input: { source: "1 + 1" },
+      });
+      let ask: { request_id: string; tool: string } | undefined;
+      for (let i = 0; i < 60 && !ask; i++) {
+        const listing = (await (await fetch(`${base}/permissions`)).json()) as {
+          pending: { request_id: string; tool: string }[];
+        };
+        ask = listing.pending.find((p) => p.tool === "browser_eval");
+        if (!ask) await Bun.sleep(50);
+      }
+      expect(ask).toBeDefined();
+      await post(`/permissions/${encodeURIComponent(ask!.request_id)}/respond`, { decision: "deny" });
+      expect((await evaluating).status).toBe(403);
+    } finally {
+      svc.stop();
+      page.stop(true);
+      rmSync(desktop, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+      rmSync(work, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    }
+  }, 120_000);
+});
