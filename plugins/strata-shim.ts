@@ -134,7 +134,7 @@ async function toolTable() {
  * One OpenCode tool from one table row.
  *
  * The description carries a line naming the plugin: a model looking at
- * `browser_navigate` should be able to tell it is not a builtin, because the
+ * `dev_start` should be able to tell it is not a builtin, because the
  * permission card for it names the plugin too.
  */
 function opencodeTool(tool) {

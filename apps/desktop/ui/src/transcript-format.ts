@@ -266,7 +266,7 @@ export type ToolIconName =
 
 export function toolIcon(tool: string, input?: Record<string, unknown>): ToolIconName {
   // A declared icon wins over the kind's default, which is the whole point of
-  // letting a plugin name one: `browser_screenshot` and `read` are both
+  // letting a plugin name one: `dev_logs` and `read` are both
   // pictures, but only one of them is obviously a picture.
   void registryVersion();
   const declared = toolRenderer(tool)?.icon;

@@ -42,7 +42,7 @@ describe("plugin display names", () => {
             provides: ["panel"],
             tools: [],
             resources: [],
-            panel: { id: "browser", title: "Browser", kind: "screencast" },
+            panel: { id: "browser", title: "Browser", kind: "logs" },
           },
         ],
       })) as unknown as typeof fetch;

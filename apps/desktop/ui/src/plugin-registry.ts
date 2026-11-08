@@ -74,7 +74,7 @@ export interface PanelContribution {
   plugin: string;
   id: string;
   title: string;
-  kind: "screencast" | "logs" | "status" | "component";
+  kind: "logs" | "status" | "component";
   icon?: string;
 }
 

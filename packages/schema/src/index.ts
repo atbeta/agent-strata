@@ -235,7 +235,7 @@ const data = {
     /**
      * The plugin the tool came from, when one owns it.
      *
-     * The tool name is a string (`browser_navigate`), and the prefix is a
+     * The tool name is a string (`dev_start`), and the prefix is a
      * convention the UI can read; this field is the authority. Old logs have
      * neither, and a name without a prefix simply has no plugin.
      */

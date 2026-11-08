@@ -69,7 +69,7 @@ export const PluginResourceManifest = z.object({
   description: z.string().optional(),
 });
 
-export const PanelKind = z.enum(["screencast", "logs", "status", "component"]);
+export const PanelKind = z.enum(["logs", "status", "component"]);
 export type PanelKind = z.infer<typeof PanelKind>;
 
 export const PluginManifestSchema = z

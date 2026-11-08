@@ -33,7 +33,7 @@ describe("the plugin registry", () => {
           provides: ["tools", "panel"],
           tools: [{ name: "navigate", description: "" }],
           resources: [],
-          panel: { id: "browser", title: "Browser", kind: "screencast", icon: "globe" },
+          panel: { id: "browser", title: "Browser", kind: "logs", icon: "globe" },
           ui: { toolRenderers: { navigate: { kind: "web", icon: "globe" } } },
         },
       ],
@@ -46,7 +46,7 @@ describe("the plugin registry", () => {
       tool: "navigate",
     });
     expect(registry.panelContributions()).toHaveLength(1);
-    expect(registry.panelContributions()[0]!.kind).toBe("screencast");
+    expect(registry.panelContributions()[0]!.kind).toBe("logs");
   });
 
   test("a disabled plugin contributes nothing but remains in the management list", async () => {
@@ -61,7 +61,7 @@ describe("the plugin registry", () => {
           provides: ["panel"],
           tools: [],
           resources: [],
-          panel: { id: "browser", title: "Browser", kind: "screencast" },
+          panel: { id: "browser", title: "Browser", kind: "logs" },
         },
         {
           id: "broken",

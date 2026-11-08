@@ -522,7 +522,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
    * the tool's qualified name, apply the manifest floor, then put an ask in
    * front of the reader.
    *
-   * The qualified name (`dev_start`, `browser_navigate`) is what makes the
+   * The qualified name (`dev_start`, `dev_logs`) is what makes the
    * engine see a shell in disguise as a shell: `dev_start` is in
    * `SHELL_TOOLS`, so a command routed through it is split, analysed and
    * judged exactly as it was before the move. A plugin tool the engine has

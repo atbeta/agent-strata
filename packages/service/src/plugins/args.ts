@@ -10,10 +10,9 @@
  * - that same object JSON-encoded into a string, sometimes twice:
  *   `{ properties: '{"properties":{"url":"http://localhost:4321/"}}' }`.
  *
- * The second one is what `browser_navigate` got from an agent that had
- * resorted to guessing, and it answered "not a URL an agent may open:
- * undefined" — a tool failure that looks like a bad URL rather than a bad
- * argument.
+ * The second one is what a page-opening tool got from an agent that had
+ * resorted to guessing: it answered "not a URL an agent may open: undefined"
+ * — a tool failure that looks like a bad URL rather than a bad argument.
  *
  * Unwrapping is only done for a *single* key named like a parameter bag, and
  * never for a key the schema itself declares, so a tool that genuinely takes
