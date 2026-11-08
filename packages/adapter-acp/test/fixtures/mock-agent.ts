@@ -21,6 +21,8 @@ const output = new ReadableStream<Uint8Array>({
 });
 
 let lastOutcome = "none";
+/** What the last `session/new` carried. See `newSession` above. */
+let lastMcpServers: unknown[] = [];
 let counter = 0;
 const sid = () => `sess-${++counter}`;
 
@@ -109,6 +111,17 @@ async function runTurn(
     return { stopReason: "end_turn" };
   }
 
+  if (scenario === "mcp") {
+    // The MCP servers the session was opened with, as JSON the test can read
+    // out of the transcript.
+    const summary = lastMcpServers.map((server) => {
+      const row = server as { type?: string; name?: string; url?: string; headers?: unknown };
+      return { type: row.type, name: row.name, url: row.url, headers: row.headers };
+    });
+    await upd({ sessionUpdate: "agent_message_chunk", content: text(JSON.stringify(summary)) });
+    return { stopReason: "end_turn" };
+  }
+
   if (scenario === "diff") {
     await upd({
       sessionUpdate: "tool_call",
@@ -137,7 +150,12 @@ const agent: (conn: AgentSideConnection) => Agent = (conn) => ({
   async initialize() {
     return { protocolVersion: PROTOCOL_VERSION, agentCapabilities: {} };
   },
-  async newSession() {
+  async newSession(params: { cwd?: string; mcpServers?: unknown[] }) {
+    // The one thing this fixture exists to make observable: what the client
+    // handed it at session creation. A scenario called `mcp` echoes it back,
+    // so a test can assert the real request shape rather than the client's
+    // own idea of it.
+    lastMcpServers = Array.isArray(params.mcpServers) ? params.mcpServers : [];
     return { sessionId: sid() };
   },
   async authenticate() {

@@ -63,6 +63,35 @@
         "@agent-strata/store": "workspace:*",
       },
     },
+    "packages/plugin-browser": {
+      "name": "@agent-strata/plugin-browser",
+      "version": "0.0.0",
+      "dependencies": {
+        "@agent-strata/plugin-sdk": "workspace:*",
+      },
+    },
+    "packages/plugin-dev-process": {
+      "name": "@agent-strata/plugin-dev-process",
+      "version": "0.0.0",
+      "dependencies": {
+        "@agent-strata/api": "workspace:*",
+        "@agent-strata/plugin-sdk": "workspace:*",
+      },
+    },
+    "packages/plugin-echo": {
+      "name": "@agent-strata/plugin-echo",
+      "version": "0.0.0",
+      "dependencies": {
+        "@agent-strata/plugin-sdk": "workspace:*",
+      },
+    },
+    "packages/plugin-sdk": {
+      "name": "@agent-strata/plugin-sdk",
+      "version": "0.0.0",
+      "dependencies": {
+        "zod": "3.25.76",
+      },
+    },
     "packages/policy": {
       "name": "@agent-strata/policy",
       "version": "0.0.0",
@@ -97,10 +126,16 @@
         "@agent-strata/adapter-opencode": "workspace:*",
         "@agent-strata/api": "workspace:*",
         "@agent-strata/core": "workspace:*",
+        "@agent-strata/plugin-browser": "workspace:*",
+        "@agent-strata/plugin-dev-process": "workspace:*",
+        "@agent-strata/plugin-sdk": "workspace:*",
         "@agent-strata/policy": "workspace:*",
         "@agent-strata/projector": "workspace:*",
         "@agent-strata/schema": "workspace:*",
         "@agent-strata/store": "workspace:*",
+      },
+      "devDependencies": {
+        "@agent-strata/plugin-echo": "workspace:*",
       },
     },
     "packages/store": {
@@ -121,6 +156,14 @@
     "@agent-strata/api": ["@agent-strata/api@workspace:packages/api"],
 
     "@agent-strata/core": ["@agent-strata/core@workspace:packages/core"],
+
+    "@agent-strata/plugin-browser": ["@agent-strata/plugin-browser@workspace:packages/plugin-browser"],
+
+    "@agent-strata/plugin-dev-process": ["@agent-strata/plugin-dev-process@workspace:packages/plugin-dev-process"],
+
+    "@agent-strata/plugin-echo": ["@agent-strata/plugin-echo@workspace:packages/plugin-echo"],
+
+    "@agent-strata/plugin-sdk": ["@agent-strata/plugin-sdk@workspace:packages/plugin-sdk"],
 
     "@agent-strata/policy": ["@agent-strata/policy@workspace:packages/policy"],
 

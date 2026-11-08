@@ -88,6 +88,9 @@ const fixtures: Record<string, unknown> = {
     ],
   },
   "question.resolved": { request_id: "q1", decision: "reply", answers: [["bun"]] },
+  // Memory-only: the fixture exists so the type is exercised, and the store's
+  // own test proves it is never written down.
+  "tool.progress": { call_id: "c1", message: "halfway", percent: 50, plugin_id: "browser" },
 };
 
 describe("what a rebuild can get back", () => {

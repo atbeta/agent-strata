@@ -51,6 +51,7 @@ import {
   type ToolKind,
 } from "./transcript-format";
 import { MessageActions } from "./message-actions";
+import { clearProgress, progressLabel } from "./plugin-progress";
 import type { TurnPart } from "./turn-segments";
 
 /**
@@ -667,6 +668,9 @@ function ToolCallCard(props: {
       (status, prev) => {
         if (status === "error" || (status === "pending" && props.live)) setOpen(true);
         else if (prev === "pending" && status === "ok") setOpen(false);
+        // A settled call has no progress to show; keeping it would leak a
+        // number from a call that ended.
+        if (status !== "pending") clearProgress(props.call.call_id);
       },
       // The first state is the signal's own: a choice the reader made, or the default.
       { defer: true },
@@ -758,6 +762,16 @@ function ToolCallCard(props: {
             <Tip label={permLabel() ?? ""}>
               <Icon name="shield-check" class="size-3 shrink-0 text-muted-foreground" />
             </Tip>
+          </Show>
+          {/* A plugin tool can narrate itself while it runs. The row shows the
+              latest message or percentage; with nothing said it looks exactly
+              as it did before progress existed. */}
+          <Show when={running() ? progressLabel(props.call.call_id) : undefined}>
+            {(label) => (
+              <span class="shrink-0 max-w-40 truncate text-2xs text-muted-foreground" title={label()}>
+                {label()}
+              </span>
+            )}
           </Show>
           <Show when={elapsed()}>
             {(s) => (

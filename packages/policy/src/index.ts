@@ -15,6 +15,16 @@ export const PolicySchema = z.object({
       id: z.string(),
       effect: z.enum(["allow", "deny", "ask"]),
       tool: z.string(),
+      /**
+       * The plugin a rule is about, when it is about one.
+       *
+       * `tool` already globs (`browser_*`), which is enough to talk about a
+       * plugin's tools by name. This is for the case the name cannot express:
+       * a rule that should reach a tool whichever plugin later claims that
+       * name, or one that should NOT reach a plugin tool at all. Absent means
+       * "any plugin, including none".
+       */
+      plugin_id: z.string().optional(),
       when: z.record(Condition).optional(),
       reason: z.string().optional(),
     }),
@@ -25,10 +35,31 @@ type Rule = Policy["rules"][number];
 
 export const SHELL_TOOLS = ["bash", "shell", "execute", "terminal", "dev_start"];
 
+/**
+ * Whether a decision came from a rule the reader wrote.
+ *
+ * The state was previously inferred from `rule_id` being present. That is
+ * still true for a rule, but not sufficient to describe the rest: a manifest
+ * floor needs to know the difference between "a rule said ask" and "nothing
+ * was said, so the default asked", and only the engine can tell.
+ */
+export function isExplicit(d: Decision): boolean {
+  return d.rule_id !== undefined && d.overridable !== true;
+}
+
 export interface Decision {
   decision: "allow" | "deny" | "ask";
   rule_id?: string;
   reason?: string;
+  /**
+   * Whether a stricter declaring party may override this answer.
+   *
+   * A rule the reader wrote is a decision they made; a plugin's manifest
+   * floor must not be able to overrule it. A default, an engine floor, and
+   * the auto stance are all "nobody said anything about this tool", and those
+   * are exactly the answers a manifest may harden.
+   */
+  overridable?: boolean;
 }
 
 export function loadPolicy(json: unknown): Policy {
@@ -143,15 +174,21 @@ function whenMatches(rule: Rule, input: Record<string, unknown>): boolean {
  * so the rules a reader wrote for the shell have to reach it — while the
  * rules they wrote for `dev_start` stay about background commands.
  */
-function toolMatches(rule: Rule, tools: string[]): boolean {
+function toolMatches(rule: Rule, tools: string[], pluginId: string | undefined): boolean {
+  if (rule.plugin_id !== undefined && rule.plugin_id !== pluginId) return false;
   return tools.some((tool) => globToRe(rule.tool).test(tool));
 }
 
 const EFFECT_RANK = { deny: 3, ask: 2, allow: 1 } as const;
 
-function pickRule(policy: Policy, tools: string[], input: Record<string, unknown>): Rule | undefined {
+function pickRule(
+  policy: Policy,
+  tools: string[],
+  input: Record<string, unknown>,
+  pluginId: string | undefined,
+): Rule | undefined {
   const matching = policy.rules.filter(
-    (r) => toolMatches(r, tools) && whenMatches(r, input),
+    (r) => toolMatches(r, tools, pluginId) && whenMatches(r, input),
   );
   matching.sort((a, b) => EFFECT_RANK[b.effect] - EFFECT_RANK[a.effect]);
   return matching[0];
@@ -161,10 +198,11 @@ function evalSingle(
   policy: Policy,
   tools: string[],
   input: Record<string, unknown>,
+  pluginId?: string,
 ): Decision {
-  const rule = pickRule(policy, tools, input);
+  const rule = pickRule(policy, tools, input, pluginId);
   if (!rule) {
-    return { decision: policy.default, reason: "default" };
+    return { decision: policy.default, reason: "default", overridable: true };
   }
   return { decision: rule.effect, rule_id: rule.id, reason: rule.reason ?? `matched rule ${rule.id}` };
 }
@@ -340,15 +378,25 @@ function hasOutputRedirection(segment: string): boolean {
   return false;
 }
 
+/**
+ * Judge one tool call.
+ *
+ * `plugin_id` is the authority on where a tool came from; the name
+ * (`browser_navigate`) is a convention the UI can read. A rule may name either
+ * or both, and a rule naming a plugin only speaks about that plugin's tools.
+ */
 export function evaluate(
   policy: Policy,
-  req: { tool: string; input: Record<string, unknown> },
+  req: { tool: string; input: Record<string, unknown>; plugin_id?: string },
 ): Decision {
-  const { tool, input } = req;
-  if (!SHELL_TOOLS.includes(tool)) return evalSingle(policy, [tool], input);
+  const { tool, input, plugin_id } = req;
+  if (!SHELL_TOOLS.includes(tool)) return evalSingle(policy, [tool], input, plugin_id);
 
   const raw = input.command ?? input.cmd;
-  if (typeof raw !== "string") return evalSingle(policy, [tool], input);
+  // A shell-shaped tool whose command is not a string has nothing to analyse,
+  // but it is still that tool's call: a rule scoped to its plugin must reach
+  // it, which is why `plugin_id` goes through here too.
+  if (typeof raw !== "string") return evalSingle(policy, [tool], input, plugin_id);
 
   // The names a rule about this command may be written under. A background
   // command answers to two: the rules for the shell reach it, and the rules
@@ -366,7 +414,7 @@ export function evaluate(
   let firstDecision: Decision | undefined;
   let askDecision: Decision | undefined;
   for (const seg of segments) {
-    const d = evalSingle(policy, tools, { ...input, command: seg });
+    const d = evalSingle(policy, tools, { ...input, command: seg }, plugin_id);
     firstDecision ??= d;
     if (d.decision === "deny") return { decision: "deny", rule_id: d.rule_id, reason: d.reason };
     if (d.decision === "ask") askDecision ??= d;
@@ -377,13 +425,43 @@ export function evaluate(
   // auto stance the reader is holding for this session.
   if (!autoDerived.has(policy)) {
     if (unanalyzable) {
-      return { decision: "ask", reason: "unanalyzable shell construct" };
+      return { decision: "ask", reason: "unanalyzable shell construct", overridable: true };
     }
     if (segments.some(hasOutputRedirection)) {
-      return { decision: "ask", reason: "output redirection" };
+      return { decision: "ask", reason: "output redirection", overridable: true };
     }
   }
-  return firstDecision ?? { decision: "allow", reason: "default" };
+  return firstDecision ?? { decision: "allow", reason: "default", overridable: true };
+}
+
+/** The order a stricter answer moves in. */
+const RANK = { allow: 0, ask: 1, deny: 2 } as const;
+
+/**
+ * A plugin tool's verdict, with the manifest's floor applied.
+ *
+ * Two rules, and they are the whole semantic:
+ *
+ * 1. An explicit rule the reader wrote wins. `browser_navigate` set to `allow`
+ *    by hand is a decision, and a manifest that says `ask` cannot undo it.
+ * 2. Everything else — the document default, the engine floor, the live auto
+ *    stance — is "nobody said anything", and the manifest's `policy.default`
+ *    is the floor for that case. `deny > ask > allow`, so a manifest asking
+ *    for `ask` survives an auto stance that would have allowed: auto means
+ *    "stop asking me", not "override what the plugin requires".
+ *
+ * The returned decision carries `rule_id` only when a rule produced it, so the
+ * caller's audit line can say where the answer came from.
+ */
+export function floorDecision(base: Decision, floor: "allow" | "ask" | "deny" | undefined): Decision {
+  if (!floor) return base;
+  if (isExplicit(base)) return base;
+  if (RANK[floor] <= RANK[base.decision]) return base;
+  return {
+    decision: floor,
+    reason: `plugin requires at least "${floor}"`,
+    overridable: true,
+  };
 }
 
 export function decide(policy: Policy, event: Event): EventInput | null {

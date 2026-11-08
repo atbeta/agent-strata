@@ -45,6 +45,11 @@ interface SessionState {
   open: boolean;
 }
 
+/** ACP wants headers as an array of name/value pairs, not an object. */
+function headersOf(headers: Record<string, string> | undefined): { name: string; value: string }[] {
+  return Object.entries(headers ?? {}).map(([name, value]) => ({ name, value }));
+}
+
 function toBlock(b: AcpContentBlock): ContentBlock | undefined {
   switch (b.type) {
     case "text":
@@ -392,6 +397,16 @@ export async function connectAcpAgent(opts: {
   policy?: PolicySource;
   onAsk?: OnAsk;
   env?: Record<string, string | undefined>;
+  /**
+   * Open an MCP endpoint for one session.
+   *
+   * ACP hands MCP servers over in `session/new`, before the session id exists.
+   * So the caller mints a ticket first, names it in the request, and binds it
+   * to the session the agent returns — a server can only be called once the
+   * agent has a session, which is after the bind. Undefined means no plugin
+   * tools for this session; an agent that cannot take one still runs.
+   */
+  openMcp?: () => { name: string; url: string; headers?: Record<string, string>; bind(casfSessionId: string): void } | undefined;
 }): Promise<{
   newSession: (cwd: string) => Promise<string>;
   prompt: (sessionId: string, text: string) => Promise<PromptResponse>;
@@ -441,9 +456,17 @@ export async function connectAcpAgent(opts: {
 
   return {
     async newSession(cwd) {
-      const res = await conn.newSession({ cwd, mcpServers: [] });
+      // The ticket is minted before the call and bound after it: the agent
+      // cannot invoke a tool before it has a session, and the bind happens
+      // before the session is visible to this caller, so the order is safe.
+      const ticket = opts.openMcp?.();
+      const mcpServers = ticket
+        ? [{ type: "http" as const, name: ticket.name, url: ticket.url, headers: headersOf(ticket.headers) }]
+        : [];
+      const res = await conn.newSession({ cwd, mcpServers });
       const acpSessionId = res.sessionId;
       const casfSessionId = `acp:${opts.agentName}:${acpSessionId}`;
+      ticket?.bind(casfSessionId);
       const s = recorder.startSession(acpSessionId, casfSessionId);
       opts.sink.append([
         recorder.ev(s, "session.started", { workspace: cwd }),

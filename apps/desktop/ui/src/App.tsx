@@ -27,6 +27,8 @@ import { isStreamingSnapshotMessage } from "./live";
 import { parseHash, sessionBackHref, type Route } from "./routes";
 import { explain } from "./errors";
 import { useSessionList } from "./use-session-list";
+import { refreshPlugins } from "./plugin-registry";
+import { installProgressListener } from "./plugin-progress";
 import { ConnectionEmpty, useConnections } from "./use-connections";
 import { useWorkspace } from "./use-workspace";
 import { useSessionSwitcher } from "./use-switcher";
@@ -196,6 +198,11 @@ export function App() {
         });
     };
     pull();
+    // The plugin registry is loaded once here and refreshed by the stream:
+    // the transcript asks it which renderer a tool row gets, and the rail asks
+    // it which panels to offer. A failed read is not fatal — both fall back.
+    void refreshPlugins();
+    const uninstallProgress = installProgressListener();
     const syncTimer = setInterval(pull, 12_000);
     const onFocus = () => pull();
     window.addEventListener("focus", onFocus);
@@ -257,6 +264,21 @@ export function App() {
       // so the list never refreshes at all and every row sits at whatever state
       // it had when the server started.
       if (isDevEvent(type)) return;
+      if (type === "tool.progress") {
+        // Live-only: a tool row may want it, the session list never does. The
+        // payload was parsed above, so the raw string is re-read here rather
+        // than kept alive for the one consumer that wants it.
+        try {
+          window.dispatchEvent(new CustomEvent("strata-stream-event", { detail: JSON.parse(m.data) }));
+        } catch {
+          // a heartbeat or a frame split across chunks; there is nothing to show
+        }
+        return;
+      }
+      if (type === "plugins.changed") {
+        void refreshPlugins();
+        return;
+      }
       const behindSync = conns.syncTicks().size > 0;
       if (behindSync && !changesSessionList(type)) return;
       clearTimeout(timer);
@@ -352,6 +374,7 @@ export function App() {
       window.removeEventListener("contextmenu", onContextMenu);
       clearInterval(clockTimer);
       clearInterval(syncTimer);
+      uninstallProgress();
       clearTimeout(timer);
       conns.clearSyncGrace();
       window.removeEventListener("focus", onFocus);

@@ -435,10 +435,22 @@ export async function apiFetch(p: string, init?: RequestInit): Promise<Response>
  * shell has handed the token over, which is why this is a promise.
  */
 export async function streamUrl(p: string): Promise<string> {
+  return streamUrlFor(p);
+}
+
+/**
+ * A stream address with the token in the query, for a path that already has
+ * one.
+ *
+ * `?session=…` is how a plugin's stream is scoped, and the token has to join
+ * it rather than replace it. Building the URL by hand in the panel would be
+ * the second way to attach a token, which is exactly how one gets left off.
+ */
+export async function streamUrlFor(p: string): Promise<string> {
   const token = await apiToken();
-  const url = api(p);
-  if (!token) return url;
-  return `${url}?${new URLSearchParams({ token }).toString()}`;
+  const url = new URL(api(p), location.origin);
+  if (token) url.searchParams.set("token", token);
+  return url.toString();
 }
 
 export async function getJson<T>(p: string, init?: RequestInit): Promise<T> {
@@ -1304,8 +1316,34 @@ export interface DevLogLine {
   text: string;
 }
 
+/** One plugin, as the UI needs it: what it contributes and whether it is on. */
+export interface PluginSummary {
+  id: string;
+  name: string;
+  version: string;
+  description?: string;
+  state: "disabled" | "starting" | "running" | "stopping" | "failed";
+  error?: string;
+  provides: string[];
+  tools: { name: string; description: string }[];
+  resources: { key: string; mime: string }[];
+  panel?: { id: string; title: string; kind: "screencast" | "logs" | "status" | "component"; icon?: string };
+  hooks?: { beforeTool: string[]; systemPrompt: boolean };
+  ui?: { toolRenderers: Record<string, { kind: string; icon?: string }> };
+}
+
+export function listPlugins(): Promise<PluginSummary[]> {
+  return getJson<{ plugins: PluginSummary[] }>("/plugins", { signal: AbortSignal.timeout(10_000) }).then(
+    (r) => r.plugins ?? [],
+  );
+}
+
 export function listDevProcesses(sessionId: string): Promise<{ processes: DevProcess[] }> {
-  return getJson(`/dev?session=${encodeURIComponent(sessionId)}`, { signal: AbortSignal.timeout(10_000) });
+  // The dev commands are the "dev" plugin's private routes now. The paths moved
+  // with the capability; nothing else about this read changed.
+  return getJson(`/plugins/dev/processes?session=${encodeURIComponent(sessionId)}`, {
+    signal: AbortSignal.timeout(10_000),
+  });
 }
 
 /**
@@ -1316,26 +1354,26 @@ export function listDevProcesses(sessionId: string): Promise<{ processes: DevPro
  * table and a reader with four sessions should not have to ask four times.
  */
 export function listAllDevProcesses(): Promise<{ processes: DevProcess[] }> {
-  return getJson(`/dev`, { signal: AbortSignal.timeout(10_000) });
+  return getJson(`/plugins/dev/processes`, { signal: AbortSignal.timeout(10_000) });
 }
 
 export async function readDevLogs(
   processId: string,
   tail = 200,
 ): Promise<{ process: DevProcess; lines: DevLogLine[] }> {
-  return getJson(`/dev/${encodeURIComponent(processId)}/logs?tail=${tail}`, {
+  return getJson(`/plugins/dev/processes/${encodeURIComponent(processId)}/logs?tail=${tail}`, {
     signal: AbortSignal.timeout(10_000),
   });
 }
 
 /** Drop a finished process record; the service refuses one that is still running. */
 export async function deleteDevProcess(processId: string): Promise<void> {
-  const res = await apiFetch(`/dev/${encodeURIComponent(processId)}`, { method: "DELETE" });
+  const res = await apiFetch(`/plugins/dev/processes/${encodeURIComponent(processId)}`, { method: "DELETE" });
   if (!res.ok) await throwOnError(res);
 }
 
 export async function stopDevProcess(processId: string): Promise<DevStopResult> {
-  const res = await apiFetch(`/dev/${encodeURIComponent(processId)}/stop`, { method: "POST" });
+  const res = await apiFetch(`/plugins/dev/processes/${encodeURIComponent(processId)}/stop`, { method: "POST" });
   if (!res.ok) await throwOnError(res);
   const result = DevStopResult.parse(await res.json());
   if (result.clean) return result;

@@ -163,7 +163,7 @@ describe("stopping a dev command", () => {
       return Response.json({ stopped: true, clean: true, residual: [], ok: true });
     }) as unknown as typeof fetch;
     const result = await stopDevProcess("dev_1");
-    expect(urls).toEqual(["/api/dev/dev_1/stop"]);
+    expect(urls).toEqual(["/api/plugins/dev/processes/dev_1/stop"]);
     expect(result).toEqual({ stopped: true, clean: true, residual: [], ok: true });
   });
 

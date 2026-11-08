@@ -232,6 +232,14 @@ const data = {
      */
     msg_id: z.string().optional(),
     child_session_id: z.string().min(1).optional(),
+    /**
+     * The plugin the tool came from, when one owns it.
+     *
+     * The tool name is a string (`browser_navigate`), and the prefix is a
+     * convention the UI can read; this field is the authority. Old logs have
+     * neither, and a name without a prefix simply has no plugin.
+     */
+    plugin_id: z.string().optional(),
   }),
   "tool.result": z.object({
     call_id: z.string(),
@@ -241,6 +249,23 @@ const data = {
     attachments: z.array(ContentBlock).max(1_000).optional(),
     latency_ms: z.number().int().min(0).optional(),
     child_session_id: z.string().min(1).optional(),
+    /** Same as `tool.call.plugin_id`; kept so a result alone can be attributed. */
+    plugin_id: z.string().optional(),
+  }),
+  /**
+   * A plugin tool's own progress. Memory only — never stored.
+   *
+   * It is not in `EVENT_DATA_CLASS` because it never reaches the store; the
+   * overlay carries it to whoever is watching, and a reader who joins late
+   * simply sees the next one. That is also what keeps old logs parseable: no
+   * new event type is ever written.
+   */
+  "tool.progress": z.object({
+    call_id: z.string(),
+    message: z.string().optional(),
+    percent: z.number().min(0).max(100).optional(),
+    data: z.unknown().optional(),
+    plugin_id: z.string().optional(),
   }),
   "permission.requested": z.object({
     request_id: z.string(),
@@ -348,6 +373,10 @@ export const EVENT_DATA_CLASS: Record<EventType, "rebuildable" | "local"> = {
   "permission.resolved": "local",
   "question.asked": "local",
   "question.resolved": "local",
+  // Never written: it exists so the type has a row and the store's exhaustive
+  // tables do not need a special case. `isEphemeralEvent` is the answer to
+  // "does this go to disk", and it is false for every row marked here.
+  "tool.progress": "local",
 };
 
 export const REBUILDABLE_EVENT_TYPES = (Object.keys(EVENT_DATA_CLASS) as EventType[]).filter(
@@ -414,6 +443,18 @@ export function makeEvent(
 /** A mid-generation snapshot: shown while it lasts, superseded by the completed message, never stored. */
 export function isStreamingSnapshot(e: { type: string; data: unknown }): boolean {
   return e.type === "turn.assistant" && (e.data as { partial?: unknown }).partial === true;
+}
+
+/**
+ * Events that live only until the next one arrives.
+ *
+ * Not a classification the store acts on — it never sees these, because every
+ * writer filters them first. It is the one function a new writer should call
+ * so "this one is not an event log entry" is stated once instead of being
+ * remembered in four places.
+ */
+export function isEphemeralEvent(e: { type: string }): boolean {
+  return e.type === "tool.progress" || isStreamingSnapshot(e as { type: string; data: unknown });
 }
 
 /**

@@ -6,6 +6,7 @@ import {
   Event,
   EventInput,
   REBUILDABLE_EVENT_TYPES,
+  isEphemeralEvent,
   isStreamingSnapshot,
   makeEvent,
   parseEvent,
@@ -211,9 +212,13 @@ export function openStore(path: string | ":memory:"): Store {
       }
   };
 
+  // Ephemeral events — a streaming snapshot, a tool's progress — are for the
+  // live overlay, never for the log. Dropping them here rather than at each
+  // call site is what makes "the log only holds durable events" true no matter
+  // which writer reaches the store.
   const parseAll = (inputs: EventInput[]): Parsed[] =>
     inputs
-      .filter((i) => !isStreamingSnapshot(i))
+      .filter((i) => !isStreamingSnapshot(i) && !isEphemeralEvent(i))
       .map((i) => ({ event: makeEvent(i), clock: i.ts }));
 
   // Runs inside a caller's transaction.

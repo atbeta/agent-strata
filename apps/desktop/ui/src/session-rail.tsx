@@ -9,6 +9,7 @@ import {
 } from "./api";
 import { settled } from "./resource";
 import { BackgroundPanel } from "./background-panel";
+import { PluginPanel, isPluginPanelTab, panelForTab, pluginPanelTabs } from "./plugin-panel";
 import type { DevProcesses } from "./dev-processes";
 import { num, t, tn } from "./i18n";
 import { DiffBlock } from "./diff";
@@ -122,7 +123,14 @@ export function SessionRail(props: {
   );
 
   // The file browser only exists for the OpenCode backend.
-  const effectiveTab = (): SidePanelTab => (props.opencode() ? props.tab() : "changes");
+  const effectiveTab = (): SidePanelTab => {
+    if (!props.opencode()) return "changes";
+    // A panel tab whose plugin was disabled since the reader picked it would
+    // otherwise leave the rail blank; fall back to the builtin tab.
+    const chosen = props.tab();
+    if (chosen.startsWith("plugin:") && !isPluginPanelTab(chosen)) return "changes";
+    return chosen;
+  };
 
   /** How many files the changes view actually found. */
   const changeCount = () =>
@@ -193,6 +201,10 @@ export function SessionRail(props: {
                 { id: "changes", label: t("panel.changes"), count: changeCount() },
                 { id: "files", label: t("panel.files") },
                 { id: "background", label: t("panel.background"), count: props.dev.count() },
+                // A panel a plugin contributed, appended in the order the
+                // plugins were registered. The tab id carries the plugin, so
+                // the body does not have to guess which one it is.
+                ...pluginPanelTabs().map((tab) => ({ id: tab.id, label: tab.label })),
               ]}
               class="min-w-0 flex-1"
             />
@@ -219,6 +231,9 @@ export function SessionRail(props: {
             workspace={() => realWorkspace(props.view().workspace)}
             focus={props.pathFocus}
           />
+        </Show>
+        <Show when={panelForTab(effectiveTab())}>
+          {(panel) => <PluginPanel panel={panel()} sessionId={props.sessionId} />}
         </Show>
         <Show when={effectiveTab() === "background"}>
           <BackgroundPanel

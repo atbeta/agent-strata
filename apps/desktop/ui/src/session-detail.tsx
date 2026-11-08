@@ -46,6 +46,7 @@ import { PaneStage, type SessionRowSummary } from "./pane-stage";
 import { usePaneActions } from "./pane-actions";
 import { paneWorkspace, panelOpen, panelTab, setPanelOpen, setPanelTab } from "./session-chrome";
 import { writePanelOpen, writePanelTab, type SidePanelTab } from "./right-pane";
+import { refreshPlugins } from "./plugin-registry";
 import { PeerSessionTranscript } from "./peer-transcript";
 import { LoadingTranscript } from "./content-sashes";
 import { useSessionSearch, SearchPanel } from "./session-search";
@@ -474,6 +475,18 @@ export function SessionDetail(props: {
         }
         if (evt.session_id === props.id && evt.type === "session.status" && evt.data?.state === "idle")
           composer.clearPending();
+        if (evt.type === "plugins.changed") {
+          // A plugin was enabled, disabled or restarted: the tool renderers and
+          // panel tabs this window draws all come from that set.
+          void refreshPlugins();
+          return;
+        }
+        if (evt.type === "tool.progress") {
+          // Progress is live-only and belongs to a tool row, not to the
+          // transcript. It is forwarded for whoever is drawing that row.
+          window.dispatchEvent(new CustomEvent("strata-stream-event", { detail: evt }));
+          return;
+        }
         if (evt.type === "session.policy") {
           // Another window, or another pane of this one, moved the switch. A
           // read that is only correct because it happens not to be looking

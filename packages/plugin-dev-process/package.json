@@ -1,0 +1,11 @@
+{
+  "name": "@agent-strata/plugin-dev-process",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@agent-strata/api": "workspace:*",
+    "@agent-strata/plugin-sdk": "workspace:*"
+  }
+}

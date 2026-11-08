@@ -12,6 +12,8 @@ export async function connectAcpDriver(opts: {
   name?: string;
   policy?: PolicySource;
   onAsk?: OnAsk;
+  /** A per-session MCP endpoint, if the service has plugin tools to hand out. */
+  openMcp?: () => { name: string; url: string; headers?: Record<string, string>; bind(casfSessionId: string): void } | undefined;
 }): Promise<BackendDriver> {
   const agent = await connectAcpAgent({
     command: opts.command,
@@ -21,6 +23,7 @@ export async function connectAcpDriver(opts: {
     sink: opts.sink,
     policy: opts.policy,
     onAsk: opts.onAsk,
+    openMcp: opts.openMcp,
   });
   const prefix = `acp:${opts.agentName}:`;
   const endpoint = `acp://${[opts.command, ...(opts.args ?? [])].join(" ")}`;

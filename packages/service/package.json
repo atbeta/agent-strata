@@ -9,9 +9,15 @@
     "@agent-strata/adapter-acp": "workspace:*",
     "@agent-strata/adapter-opencode": "workspace:*",
     "@agent-strata/core": "workspace:*",
+    "@agent-strata/plugin-dev-process": "workspace:*",
+    "@agent-strata/plugin-browser": "workspace:*",
+    "@agent-strata/plugin-sdk": "workspace:*",
     "@agent-strata/policy": "workspace:*",
     "@agent-strata/projector": "workspace:*",
     "@agent-strata/schema": "workspace:*",
     "@agent-strata/store": "workspace:*"
+  },
+  "devDependencies": {
+    "@agent-strata/plugin-echo": "workspace:*"
   }
 }

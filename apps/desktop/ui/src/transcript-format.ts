@@ -1,5 +1,6 @@
 import type { ContentBlock, ToolCallView, Turn } from "./api";
 import { t, tn } from "./i18n";
+import { pluginOfTool, registryVersion, toolRenderer } from "./plugin-registry";
 
 /**
  * Whether the message carries anything worth showing at all. Text/thinking
@@ -206,9 +207,40 @@ const KINDS: Record<string, ToolKind> = {
   task: "task",
 };
 
+/**
+ * How a tool call should be drawn.
+ *
+ * A plugin's declaration comes first, then the builtin table, then the generic
+ * row — the order the design asks for (§4.7: "插件元数据优先"). What keeps a
+ * plugin from repainting a builtin name is not this order but manifest
+ * validation: a renderer may only name one of that plugin's *own* tools, and a
+ * qualified name is `<plugin>_<tool>` with an id that cannot contain `_`. So
+ * the only entries a plugin can reach are the ones it owns — `dev_start`
+ * belongs to the `dev` plugin, which is the whole reason it may describe it.
+ *
+ * Reading `registryVersion()` is what makes this reactive: the registry loads
+ * after the first paint, and a renderer that arrives late has to reach rows
+ * that are already on screen.
+ */
 export function toolKind(name: string): ToolKind {
+  void registryVersion();
+  const declared = toolRenderer(name);
+  if (declared) return RENDER_KIND_TO_TOOL_KIND[declared.kind] ?? "generic";
   return KINDS[name.toLowerCase()] ?? "generic";
 }
+
+/** A plugin renders in the app's vocabulary, not its own. */
+const RENDER_KIND_TO_TOOL_KIND: Record<string, ToolKind> = {
+  terminal: "shell",
+  web: "web",
+  read: "read",
+  edit: "edit",
+  search: "search",
+  todo: "todo",
+  task: "task",
+  image: "read",
+  generic: "generic",
+};
 
 /**
  * The mark beside a tool call.
@@ -218,10 +250,27 @@ export function toolKind(name: string): ToolKind {
  * And a read whose path is an image is a picture, not a page — the input is
  * what says which.
  */
-export function toolIcon(
-  tool: string,
-  input?: Record<string, unknown>,
-): "terminal" | "page" | "pencil" | "folder" | "search" | "globe" | "list" | "fork" | "wrench" | "image" {
+export type ToolIconName =
+  | "terminal"
+  | "page"
+  | "pencil"
+  | "folder"
+  | "search"
+  | "globe"
+  | "list"
+  | "fork"
+  | "wrench"
+  | "image"
+  | "message"
+  | "code";
+
+export function toolIcon(tool: string, input?: Record<string, unknown>): ToolIconName {
+  // A declared icon wins over the kind's default, which is the whole point of
+  // letting a plugin name one: `browser_screenshot` and `read` are both
+  // pictures, but only one of them is obviously a picture.
+  void registryVersion();
+  const declared = toolRenderer(tool)?.icon;
+  if (declared) return declared as ToolIconName;
   const kind = toolKind(tool);
   if (kind === "shell") return "terminal";
   if (kind === "read") {
@@ -235,6 +284,9 @@ export function toolIcon(
   if (kind === "todo") return "list";
   if (kind === "task") return "fork";
   if (tool.toLowerCase().includes("screenshot")) return "image";
+  // A plugin tool with no declared renderer still gets a mark that says
+  // "outside the builtin set" rather than pretending to be a file read.
+  if (pluginOfTool(tool)) return "fork";
   return "wrench";
 }
 

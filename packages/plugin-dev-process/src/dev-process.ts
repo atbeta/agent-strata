@@ -845,6 +845,11 @@ export function pathInside(root: string, target: string): boolean {
   return insideWorkspace(realish(root), realish(target));
 }
 
+/** Real paths where they exist, so a symlinked checkout is the same folder. */
+export function canonicalPath(path: string): string {
+  return realish(path);
+}
+
 function parseLost(value: unknown): DevLost | undefined {
   if (!value || typeof value !== "object") return undefined;
   const row = value as { process?: unknown; port_held?: unknown; port_holders?: unknown };

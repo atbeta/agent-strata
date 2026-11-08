@@ -68,7 +68,12 @@ export type Name =
   | "export"
   | "eye"
   | "eye-off"
-  | "layout";
+  | "layout"
+  // Marks a plugin contributes through its manifest. A plugin may name any of
+  // these; the registry refuses anything else, so the alias table here is the
+  // whole vocabulary rather than a starting point.
+  | "message"
+  | "code";
 
 /**
  * `box` exists for the glyphs that are lifted from an icon library instead of
@@ -164,6 +169,21 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
         <path d="M4 6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v1a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6" />
         <path d="M4 15a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-3" />
         <path d="M14 6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2V6" />
+      </Glyph>
+    );
+  // A speech bubble: a plugin answering with words.
+  if (name === "message")
+    return (
+      <Glyph class={cls}>
+        <path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" />
+      </Glyph>
+    );
+  // Angle brackets: a plugin running code.
+  if (name === "code")
+    return (
+      <Glyph class={cls}>
+        <path d="M6 4.5 2 8l4 3.5" />
+        <path d="M10 4.5 14 8l-4 3.5" />
       </Glyph>
     );
   /**

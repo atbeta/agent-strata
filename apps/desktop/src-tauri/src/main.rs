@@ -984,11 +984,11 @@ impl Sidecars {
         if let Some(dir) = plugin_install::opencode_config_dir() {
             match plugin_install::install_plugin(&dir) {
                 Ok(path) => {
-                    log_note(&log, &format!("installed dev-process plugin at {}", path.display()));
+                    log_note(&log, &format!("installed the plugin shim at {}", path.display()));
                 }
                 Err(e) => {
-                    eprintln!("agent-strata: could not install the dev-process plugin: {e}");
-                    log_note(&log, &format!("could not install dev-process plugin: {e}"));
+                    eprintln!("agent-strata: could not install the plugin shim: {e}");
+                    log_note(&log, &format!("could not install the plugin shim: {e}"));
                 }
             }
         }

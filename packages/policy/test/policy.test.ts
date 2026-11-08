@@ -394,3 +394,48 @@ describe("one session asking not to be interrupted", () => {
     expect(policyFor(perSession, "other")).toBe(doc);
   });
 });
+
+describe("a rule can name a plugin", () => {
+  const P = (rules: unknown[]) => loadPolicy({ version: 1, default: "allow", rules });
+  const ask = (tool: string, plugin_id?: string) =>
+    evaluate(P([
+      { id: "no-browser", effect: "deny", tool: "*", plugin_id: "browser" },
+      { id: "no-eval", effect: "ask", tool: "browser_eval", plugin_id: "other" },
+    ]), { tool, input: {}, ...(plugin_id ? { plugin_id } : {}) });
+
+  test("a plugin-scoped rule reaches that plugin's tools and no others", () => {
+    expect(ask("browser_navigate", "browser").decision).toBe("deny");
+    // The same name from a different plugin is not what the rule was about.
+    expect(ask("browser_navigate", "other").decision).toBe("allow");
+    // And a builtin tool has no plugin at all, so the rule never applies.
+    expect(ask("bash").decision).toBe("allow");
+  });
+
+  test("a rule for one plugin does not fire for another", () => {
+    expect(ask("browser_eval", "other").decision).toBe("ask");
+    expect(ask("browser_eval", "browser").decision).toBe("deny");
+  });
+
+  test("a rule without a plugin still speaks about every tool", () => {
+    const d = evaluate(P([{ id: "all", effect: "ask", tool: "*" }]), { tool: "browser_x", input: {}, plugin_id: "browser" });
+    expect(d.decision).toBe("ask");
+    expect(d.rule_id).toBe("all");
+  });
+});
+
+describe("plugin_id survives every branch", () => {
+  test("a shell tool with a non-string command still sees plugin rules", () => {
+    // `dev_start` is judged as a shell command; when the command is missing or
+    // malformed there is nothing to split, but the call is still that plugin's
+    // and a rule scoped to it has to apply.
+    const policy = loadPolicy({
+      version: 1,
+      default: "allow",
+      rules: [{ id: "no-dev", effect: "deny", tool: "*", plugin_id: "dev" }],
+    });
+    expect(evaluate(policy, { tool: "dev_start", input: { command: 42 }, plugin_id: "dev" }).decision).toBe("deny");
+    expect(evaluate(policy, { tool: "dev_start", input: {}, plugin_id: "dev" }).decision).toBe("deny");
+    // A different plugin's call is untouched.
+    expect(evaluate(policy, { tool: "dev_start", input: {}, plugin_id: "other" }).decision).toBe("allow");
+  });
+});

@@ -9,7 +9,8 @@ import { dirname, join } from "node:path";
 import { openStore, type Store, type EventQuery } from "@agent-strata/store";
 import { projectSession, aggregate, emptySessionView, runningShell, type SessionView } from "@agent-strata/projector";
 import { compareSessions, exportEvents, sessionBriefing } from "@agent-strata/core";
-import { autoAccept, evaluate, loadPolicy, type Policy } from "@agent-strata/policy";
+import { autoAccept, evaluate, floorDecision, loadPolicy, type Decision, type Policy } from "@agent-strata/policy";
+import type { ToolEntry } from "@agent-strata/plugin-sdk";
 import { UnknownCommandError } from "@agent-strata/adapter-opencode";
 import type { OpencodeLaunchMode, OpencodeLaunchState } from "@agent-strata/api";
 import type { BackendDriver, BackendSink, ModelChoice, PromptPart } from "./driver";
@@ -49,13 +50,35 @@ import { refused, shellCors } from "./shell-origin";
 import { queryTokenOk, readApiToken, tokenOk } from "./api-token";
 import { writeSecureJson } from "./secure-write";
 import { terminalClose, terminalMessage, terminalOpen, terminalRoute, terminalUpgrade } from "./terminal";
-import { createDevManager, pathInside, resolveWorkdir, stopInside, type DevEvent } from "./dev-process";
+import { pathInside } from "./path-inside";
+import { PluginHost, type RegisteredPlugin } from "./plugins/host";
+import { builtinPlugins } from "./plugins/builtin";
+import { pluginRoute } from "./plugins/routes";
+import { mcpRoute } from "./plugins/mcp";
+import { createMcpTickets } from "./plugins/tickets";
 import { WorktreeError, reposOf, worktreeAdd, worktreeRemove, withWorktrees } from "./worktree";
 import { SessionClaims } from "./identity";
 import { promptRoute, type PendingAsk, type PendingQuestion } from "./prompt-routes";
 
-/** A log read is bounded by what a person can read, not by what the process wrote. */
-const MAX_DEV_LOG_TAIL = 5000;
+
+
+/**
+ * A log line with its data attached, bounded.
+ *
+ * A plugin can log anything it likes, including a whole page of HTML or a
+ * socket object; the service log is read by a person and a line longer than a
+ * screen is a line nobody reads.
+ */
+function logLine(message: string, data?: unknown): string {
+  if (data === undefined) return message;
+  let text: string;
+  try {
+    text = JSON.stringify(data);
+  } catch {
+    text = String(data);
+  }
+  return text.length > 2_000 ? `${message} ${text.slice(0, 2_000)}…` : `${message} ${text}`;
+}
 /**
  * The most one request may carry.
  *
@@ -82,6 +105,15 @@ export interface ServiceOpts {
   autoConnectPlacement?: "embed" | "external";
   // directory holding desktop.json and opencode-status.json; default ~/.agent-strata
   desktopDir?: string;
+  /**
+   * Plugins to register on top of the builtins.
+   *
+   * The seam exists because the reference plugin (`echo`) is a test fixture:
+   * registering it here rather than in `builtinPlugins` keeps a proof of the
+   * architecture out of what a user installs, while still letting the suite
+   * exercise the real routes.
+   */
+  plugins?: RegisteredPlugin[];
 }
 
 export interface RunningService {
@@ -215,17 +247,94 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   // Long-running commands belong to the service, not to a detached window.
   // They are broadcast like any other event so the UI can show them without
   // polling, and stopped with the session that started them.
-  const dev = createDevManager({ pidFile: join(desktopDir, "dev-processes.json") });
-  dev.subscribe((event: DevEvent) => broadcast(event));
-  // A service that was killed outright could not stop its dev servers. The
-  // pid file is what survives to tell this run which ones to clean up.
-  // The cleanup runs in the background, and a dev command waits for it: an
-  // orphan of the previous run may still be holding the port the command
-  // wants, and starting into that collision hides the real cause.
-  void dev.reapStale().then((reaped) => {
-    if (reaped > 0) {
-      console.error(`stopped ${reaped} dev process(es) left by a previous run`);
-    }
+  /**
+   * The plugin host.
+   *
+   * Constructed here, before the routes, because the routes are the only
+   * caller: the tool table, the lifecycle, the private routes and the tool
+   * execution all go through the same object.
+   *
+   * Plugins start after the listeners are wired (below), so a plugin that
+   * emits during `initialize` has somewhere to emit to.
+   */
+  const plugins = new PluginHost({
+    dataDir: desktopDir,
+    logger: {
+      info: (m, d) => console.log(logLine(m, d)),
+      warn: (m, d) => console.warn(logLine(m, d)),
+      error: (m, d) => console.error(logLine(m, d)),
+    },
+    workspaceOf: (sessionId) => directoryOf(sessionId) ?? driverFor(sessionId)?.directory,
+    resolveSession: (given) => resolveSessionId(given),
+    /**
+     * The last tool call this session has open, by the name the agent knows.
+     *
+     * An adapter that cannot name the backend's call id (the OpenCode shim on
+     * a release without `context.id`) still expects its progress to land on the
+     * row the reader is watching. The projection is the only thing that knows
+     * which calls are open, so the answer comes from there.
+     */
+    pendingCall: (sessionId, toolName) => {
+      try {
+        const view = sessionView(sessionId);
+        let found: { call_id: string; ts?: string } | undefined;
+        for (const turn of view.turns) {
+          for (const call of turn.tool_calls) {
+            if (call.tool !== toolName || call.status !== "pending") continue;
+            // The transcript is ordered; the last pending one is the newest.
+            found = { call_id: call.call_id, ts: call.ts };
+          }
+        }
+        return found?.call_id;
+      } catch {
+        // A session with no events yet has no calls to join to.
+        return undefined;
+      }
+    },
+    onStreamEvent: (event) => broadcast(event),
+    /**
+     * Progress is a live event, not a log row: it goes straight to `/stream`
+     * and is never appended to the store. `plugin_id` and `call_id` ride along
+     * so a tool row can attach it, and a client that cannot match it still
+     * has the message.
+     */
+    onProgress: (progress) => {
+      broadcast({
+        type: "tool.progress",
+        session_id: progress.session_id,
+        plugin_id: progress.plugin_id,
+        tool: progress.tool,
+        call_id: progress.call_id,
+        message: progress.message,
+        percent: progress.percent,
+        data: progress.data,
+      });
+    },
+  });
+  for (const extra of opts.plugins ?? []) plugins.register(extra);
+  for (const builtin of builtinPlugins({
+    dataDir: desktopDir,
+    workspaceOf: (sessionId) => directoryOf(sessionId) ?? driverFor(sessionId)?.directory,
+  })) {
+    plugins.register(builtin);
+  }
+  /**
+   * A plugin set changed. The UI keeps a tool-renderer registry and a panel
+   * list from this, so the change is broadcast rather than discovered by
+   * polling: enable/disable is rare and the cost of a stale renderer is a
+   * wrongly drawn row.
+   */
+  plugins.onChange(() => broadcast({ type: "plugins.changed" }));
+
+  /**
+   * The tickets ACP sessions use to reach `/plugins/mcp`.
+   *
+   * Minted per session, so the endpoint an agent holds names exactly one
+   * session and dies with it — a scoped capability, not the global token.
+   * The base URL is read late because the port is chosen by the listener.
+   */
+  const mcpTickets = createMcpTickets({
+    baseUrl: () => `http://127.0.0.1:${server.port ?? 0}`,
   });
   const maintenanceDirsInfo = maintenanceDirs(opts.db, desktopDir);
   const maintenanceSnapshot = () => {
@@ -404,6 +513,52 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     return given;
   };
 
+  /**
+   * Judge one plugin tool call.
+   *
+   * This is *the* policy point for plugin tools, and it is the same sequence
+   * the old `/dev` route used: resolve the session's live policy (a
+   * connection's own policy first, the shared one otherwise), evaluate with
+   * the tool's qualified name, apply the manifest floor, then put an ask in
+   * front of the reader.
+   *
+   * The qualified name (`dev_start`, `browser_navigate`) is what makes the
+   * engine see a shell in disguise as a shell: `dev_start` is in
+   * `SHELL_TOOLS`, so a command routed through it is split, analysed and
+   * judged exactly as it was before the move. A plugin tool the engine has
+   * never heard of simply gets its document default.
+   */
+  const authorize = async (
+    sessionId: string,
+    tool: ToolEntry,
+    input: Record<string, unknown>,
+  ): Promise<{ allow: true } | { allow: false; status: number; error: string }> => {
+    const source = policySourceFor(sessionId);
+    const live = source ? source(sessionId) : policyForSession(sessionId);
+    const base: Decision = live
+      ? evaluate(live, { tool: tool.name, input, plugin_id: tool.plugin_id })
+      : { decision: "ask", reason: "no policy" };
+    const verdict = floorDecision(base, tool.policy?.default);
+    // Audit: every plugin tool execution names the plugin, the tool, the
+    // session, and where the decision came from. One line, on the service log.
+    console.log(
+      `[plugin-audit] ${tool.name} session=${sessionId} decision=${verdict.decision}` +
+        (verdict.rule_id ? ` rule=${verdict.rule_id}` : "") +
+        (verdict.reason ? ` (${verdict.reason})` : ""),
+    );
+
+    if (verdict.decision === "deny") {
+      const why = verdict.reason ? `denied: ${verdict.reason}` : "denied by policy";
+      return { allow: false, status: 403, error: why };
+    }
+
+    if (verdict.decision === "ask") {
+      const decision = await askPermission(sessionId, tool.name, input);
+      if (decision === "deny") return { allow: false, status: 403, error: "permission denied" };
+    }
+    return { allow: true };
+  };
+
   const directoryOf = (casfId: string): string | undefined => {
     try {
       const ws = sessionView(casfId).workspace;
@@ -467,7 +622,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   const releaseInside = async (dir: string): Promise<void> => {
     const disposed = new Set<string>();
     const terminalsClosed = new Set<string>();
-    await stopInside(dev, dir);
+    await plugins.releaseDirectory(dir);
     // A parent waiting on a child is one task. Aborting only the parent cuts
     // its reply short while the child keeps writing — into a folder that is
     // being deleted — and the transcript says the reply was cut off while the
@@ -883,6 +1038,9 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         name: body.name,
         policy,
         onAsk,
+        // Every session this connection opens is handed its own MCP endpoint,
+        // so its agent sees the plugin tools with the right session attached.
+        openMcp: () => mcpTickets.open(),
       });
     } else {
       throw new Error(`backend ${backend} is not registered`);
@@ -1982,7 +2140,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       const deleted = store.deleteSessions([casfId]);
       views.drop(casfId);
       // A deleted session's dev servers have no owner left to stop them.
-      void dev.stopSession(casfId);
+      void plugins.sessionEnded(casfId);
       broadcast({ type: "session.deleted", session_id: casfId });
       return json({ ok: true, backend, deleted, local: counts?.local ?? 0 });
     }
@@ -2445,142 +2603,33 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     const terminal = await terminalRoute(req, url, ownedTerminal);
     if (terminal) return terminal;
 
-    // Long-running commands a session started (a dev server, a watcher). They
-    // live here rather than in a detached shell so they can be read, stopped,
-    // and cleaned up with the session that owns them.
-    if (path === "/dev" && req.method === "GET") {
-      const requested = url.searchParams.get("session");
-      // A plugin inside OpenCode knows the native id; this layer keys by casf.
-      const sessionID = requested === null ? undefined : resolveSessionId(requested);
-      return json({ processes: dev.list(sessionID) });
-    }
-
-    if (path === "/dev" && req.method === "POST") {
-      // `cwd` is ignored. `workdir` may name a directory, and only one inside
-      // the session workspace: a command that can point anywhere can leave
-      // the project, and a `cd` stuffed into the command fails when the shell
-      // is not already there.
-      const body = (await req.json().catch(() => null)) as {
-        session_id?: unknown;
-        command?: unknown;
-        port?: unknown;
-        wait_ms?: unknown;
-        workdir?: unknown;
-      } | null;
-      if (typeof body?.session_id !== "string" || body.session_id.length === 0) {
-        return json({ error: "session_id required" }, 400);
-      }
-      if (typeof body.command !== "string" || body.command.trim().length === 0) {
-        return json({ error: "command required" }, 400);
-      }
-      // A caller that knows its port should say so: the start then waits until
-      // the port answers instead of returning on a stopwatch.
-      const port =
-        typeof body.port === "number" && Number.isInteger(body.port) && body.port > 0 && body.port < 65536
-          ? body.port
-          : undefined;
-      const waitMs =
-        typeof body.wait_ms === "number" && Number.isInteger(body.wait_ms) && body.wait_ms > 0
-          ? Math.min(body.wait_ms, 120_000)
-          : undefined;
-      // The caller may speak either spelling of a session id; everything below
-      // works in casf ids, because that is what the view and the owners table use.
-      const sessionID = resolveSessionId(body.session_id);
-      // The workspace comes from the session, not from the caller: a dev server
-      // that can name any directory is a dev server that can leave the project.
-      // A session whose first events have not arrived yet has no workspace in
-      // its projection, so fall back to the connection that owns it.
-      const directory = directoryOf(sessionID) ?? driverFor(sessionID)?.directory;
-      if (!directory) return json({ error: "session has no workspace" }, 400);
-      let cwd = directory;
-      if (typeof body.workdir === "string") {
-        try {
-          cwd = resolveWorkdir(directory, body.workdir);
-        } catch (e) {
-          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
-        }
-      }
-      // The tool is a shell in disguise. Judge its command as dev_start, so
-      // the rules the reader wrote for the shell reach it and the rules they
-      // wrote for background commands are read as well, and never let an
-      // explicit deny (or a default deny) turn into a background process.
-      //
-      // The rules are the ones this session's own connection answers to: a
-      // policy handed to that connection wins over the shared one, and the
-      // session's stance softens it.
-      const source = policySourceFor(sessionID);
-      const live = source ? source(sessionID) : policyForSession(sessionID);
-      const verdict = live
-        ? evaluate(live, { tool: "dev_start", input: { command: body.command } })
-        : { decision: "ask" as const, reason: "no policy" };
-      if (verdict.decision === "deny") {
-        return json({ error: verdict.reason ? `denied: ${verdict.reason}` : "denied by policy" }, 403);
-      }
-      if (verdict.decision === "ask") {
-        const decision = await askPermission(sessionID, "dev_start", { command: body.command });
-        if (decision === "deny") return json({ error: "permission denied" }, 403);
-      }
-      try {
-        const started = await dev.start({
-          session_id: sessionID,
-          command: body.command,
-          cwd,
-          port,
-          waitMs,
-        });
-        return json(started, started.error ? 502 : 200);
-      } catch (e) {
-        return json({ error: e instanceof Error ? e.message : String(e) }, 400);
-      }
-    }
-
-    const devHit = path.match(/^\/dev\/([A-Za-z0-9_]+)(?:\/(logs|stop|restart))?$/);
-    if (devHit) {
-      const id = devHit[1];
-      const action = devHit[2];
-      if (id === undefined) return json({ error: "not found" }, 404);
-      const info = dev.get(id);
-      if (!info) return json({ error: "not found" }, 404);
-      if (!action && req.method === "GET") return json(info);
-      if (!action && req.method === "DELETE") {
-        try {
-          return json({ removed: dev.forget(id) });
-        } catch (e) {
-          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
-        }
-      }
-      if (action === "logs" && req.method === "GET") {
-        const numberParam = (name: string) => {
-          const raw = url.searchParams.get(name);
-          if (raw === null || raw.length === 0) return undefined;
-          const value = Number(raw);
-          return Number.isFinite(value) ? value : undefined;
-        };
-        const tail = numberParam("tail");
-        const page = dev.readLogs(id, {
-          tail: tail === undefined ? undefined : Math.min(Math.max(Math.floor(tail), 1), MAX_DEV_LOG_TAIL),
-          since: numberParam("since"),
-          offset: numberParam("offset"),
-        });
-        return json({ process: info, ...page });
-      }
-      if (action === "restart" && req.method === "POST") {
-        try {
-          const started = await dev.restart(id);
-          return json(started, started.error ? 502 : 200);
-        } catch (e) {
-          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
-        }
-      }
-      if (action === "stop" && req.method === "POST") {
-        // The answer says what is left, not just that a stop was asked for: a
-        // stop that leaves the port held has to be reported as the failure it
-        // is, or the next command collides with it and nobody knows why.
-        const result = await dev.stop(id);
-        return json({ ...result, ok: result.stopped && result.clean });
-      }
-      return json({ error: "method not allowed" }, 405);
-    }
+    // The plugin surface. Tool execution is here because it is the one place
+    // policy, the ask card and the plugin dispatch have to meet; everything
+    // else under /plugins is plumbing.
+    const pluginHit = await pluginRoute(req, url, {
+      host: plugins,
+      resolveSession: resolveSessionId,
+      mcp: (request, target) =>
+        mcpRoute(request, target, {
+          host: plugins,
+          tools: () => plugins.toolTable(),
+          execute: async (pluginId, tool, sessionId, input, signal, callId) => {
+            const found = plugins.resolveTool(pluginId, tool);
+            if (!found) throw new Error(`no tool ${pluginId}_${tool}`);
+            const verdict = await authorize(sessionId, found.entry, input);
+            if (!verdict.allow) throw new Error(verdict.error);
+            const result = await plugins.callTool(pluginId, tool, { callId, sessionId, input, signal });
+            return { output: result.output, isError: result.isError };
+          },
+          sessionOf: (ticket) => mcpTickets.sessionOf(ticket),
+          json,
+        }),
+      authorize,
+      directoryOf,
+      json,
+      onChanged: (listener) => plugins.onChange(listener),
+    });
+    if (pluginHit) return pluginHit;
 
     const providers = await providerRoute(req, path, (id) => conns.get(id)?.extension?.providers);
     if (providers) return providers;
@@ -2690,6 +2739,13 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     return directory ? { directory, terminal } : undefined;
   };
 
+  // Plugins start last: a plugin that emits during initialize has a route, a
+  // store and a fan-out to emit into. A failure here is logged and leaves that
+  // one plugin failed, rather than taking the service down with it.
+  void plugins.startAll().catch((e: unknown) => {
+    console.error("plugins failed to start:", e);
+  });
+
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: opts.port ?? 0,
@@ -2726,8 +2782,30 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       // and the health check carries none, so a probe can ask whether the
       // service is up without holding a secret.
       const upgrade = req.headers.get("upgrade")?.toLowerCase() === "websocket";
-      const browserless = upgrade || url.pathname === "/stream";
-      const authorized = tokenOk(req, apiToken) || (browserless && queryTokenOk(url, apiToken));
+      // A browser cannot put a header on an EventSource or a WebSocket, so
+      // those carry the token in the URL. A plugin's event stream is the same
+      // kind of request and needs the same exception.
+      const browserless =
+        upgrade || url.pathname === "/stream" || /^\/plugins\/[a-z][a-z0-9-]*\/events$/.test(url.pathname);
+      /**
+       * The MCP endpoint an ACP agent holds.
+       *
+       * Its URL *is* the credential: a per-session ticket that names one
+       * session and dies with it (see `plugins/tickets.ts`). There is no
+       * header to check — an agent's MCP client sends none, and handing it the
+       * global token would be handing it the whole service. So this one path
+       * is authorized by the ticket, and `mcpRoute` refuses anything that does
+       * not resolve to a session.
+       *
+       * It was missing from here until a real ACP session tried it: every call
+       * was a 401 in the desktop build, where the service always has a token,
+       * while the tests ran tokenless and stayed green.
+       */
+      const ticketAuthorized = url.pathname === "/plugins/mcp";
+      const authorized =
+        tokenOk(req, apiToken) ||
+        (browserless && queryTokenOk(url, apiToken)) ||
+        ticketAuthorized;
       const health = req.method === "GET" && url.pathname === "/health";
       if (!health && !authorized)
         return Response.json({ error: "unauthorized" }, { status: 401, headers: allow });
@@ -2762,7 +2840,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       conns.clear();
       // Nothing outlives the service: a dev server still listening after the
       // app is gone is the orphan this module exists to prevent.
-      void dev.stopAll();
+      void plugins.stopAll();
       server.stop();
       store.close();
     },
