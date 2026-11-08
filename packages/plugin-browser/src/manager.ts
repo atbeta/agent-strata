@@ -149,8 +149,17 @@ export const DEFAULT_FPS = 20;
 const STREAM_QUALITY = 72;
 /** JPEG quality of the settled still. This is the frame that gets read. */
 const STILL_QUALITY = 82;
-/** How long the page must be still before that still is taken. */
-const STILL_SETTLE_MS = 200;
+/**
+ * How long the page must be still before that still is taken.
+ *
+ * Too short and a page that repaints every few hundred milliseconds is
+ * captured between every frame: the rail then alternates sharp and soft, and
+ * each capture costs a full-page screenshot for a picture that is about to
+ * move again.
+ */
+const STILL_SETTLE_MS = 600;
+/** Never capture stills faster than this, whatever the page does. */
+const STILL_COOLDOWN_MS = 1_500;
 
 /** Snapshot rows after this many elements get cut — the list has to stay readable. */
 const MAX_ELEMENTS = 160;
@@ -572,6 +581,8 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
    */
   interface Cast {
     fps: number;
+    /** When the last still was taken, for the cooldown. */
+    stillAt: number;
     /** The page the stream belongs to; a tab switch restarts it. */
     targetId: string;
     /** Unsubscribes this cast's frame listener. */
@@ -628,6 +639,9 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
     const session = sessions.get(sessionID);
     const tab = session?.pages.get(cast.targetId);
     if (!tab) return;
+    const now = Date.now();
+    if (now - cast.stillAt < STILL_COOLDOWN_MS) return;
+    cast.stillAt = now;
     try {
       const jpeg = await tab.page.screenshot("jpeg", STILL_QUALITY);
       emitFrame(sessionID, cast.targetId, tab, jpeg);
@@ -653,6 +667,7 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
       fps,
       targetId: tabId,
       lastSent: 0,
+      stillAt: 0,
       sentStill: false,
       detach: () => {},
     };

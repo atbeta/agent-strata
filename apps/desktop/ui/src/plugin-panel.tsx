@@ -199,9 +199,18 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
         if (state() === "live") setState("connecting");
       };
     };
+    // A hidden window still receives frames and still decodes them. Stopping
+    // the stream is cheaper than painting into a canvas nobody can see, and it
+    // is what keeps a backgrounded session from holding the rail busy.
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void start();
+      else void post("/panel/stop", { session: props.sessionId() }).catch(() => {});
+    };
+    document.addEventListener("visibilitychange", onVisibility);
     void open();
     void start();
     onCleanup(() => {
+      document.removeEventListener("visibilitychange", onVisibility);
       socket?.close();
       socket = undefined;
       observer?.disconnect();
@@ -211,15 +220,36 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
     });
   });
 
-  // The canvas is sized to the picture, not the pane: scaled by CSS so a
-  // click's fractions are of the page, and the page's aspect ratio survives.
+  /**
+   * Draw one frame into a canvas whose size does not depend on the frame.
+   *
+   * The stream and the settled still arrive at different pixel sizes — the
+   * stream at the page's CSS size, the still at the display's ratio. Sizing
+   * the canvas to the picture meant it was resized on every frame that came
+   * from the other source: a 1400x1800 backing store allocated twenty times a
+   * second, which is what made the rail flash and then stop answering. The
+   * canvas is now fixed to the panel's own pixels and each frame is drawn into
+   * it, so the two sources differ in sharpness and not in geometry.
+   */
   const paint = (image: HTMLImageElement) => {
     const c = canvas;
-    if (!c) return;
-    c.width = image.naturalWidth;
-    c.height = image.naturalHeight;
+    const size = panelSize();
+    if (!c || !size) return;
+    const w = Math.round(size.width * size.scale);
+    const h = Math.round(size.height * size.scale);
+    if (c.width !== w || c.height !== h) {
+      c.width = w;
+      c.height = h;
+    }
     const ctx = c.getContext("2d");
-    ctx?.drawImage(image, 0, 0);
+    if (!ctx) return;
+    ctx.clearRect(0, 0, w, h);
+    // Contained, not stretched: a frame from before a resize has a different
+    // aspect, and one bad frame should letterbox rather than squash the page.
+    const scale = Math.min(w / image.naturalWidth, h / image.naturalHeight);
+    const dw = image.naturalWidth * scale;
+    const dh = image.naturalHeight * scale;
+    ctx.drawImage(image, (w - dw) / 2, (h - dh) / 2, dw, dh);
   };
 
   /**
