@@ -65,6 +65,9 @@ export interface ToolRenderer {
 const [renderers, setRenderers] = createSignal<Record<string, ToolRenderer>>({});
 const [panels, setPanels] = createSignal<PanelContribution[]>([]);
 const [plugins, setPlugins] = createSignal<PluginSummary[]>([]);
+const [allPlugins, setAllPlugins] = createSignal<PluginSummary[]>([]);
+const [loaded, setLoaded] = createSignal(false);
+const [readFailed, setReadFailed] = createSignal(false);
 const [version, setVersion] = createSignal(0);
 
 export interface PanelContribution {
@@ -88,6 +91,7 @@ export async function refreshPlugins(): Promise<void> {
   try {
     list = await listPlugins();
   } catch {
+    setReadFailed(true);
     return;
   }
   const nextRenderers: Record<string, ToolRenderer> = {};
@@ -118,6 +122,9 @@ export async function refreshPlugins(): Promise<void> {
   setRenderers(nextRenderers);
   setPanels(nextPanels);
   setPlugins(list.filter((p) => p.state === "running"));
+  setAllPlugins(list);
+  setLoaded(true);
+  setReadFailed(false);
   setVersion((n) => n + 1);
 }
 
@@ -141,6 +148,18 @@ export function panelContributions(): PanelContribution[] {
 
 export function runningPlugins(): PluginSummary[] {
   return plugins();
+}
+
+export function pluginSummaries(): PluginSummary[] {
+  return allPlugins();
+}
+
+export function pluginsLoaded(): boolean {
+  return loaded();
+}
+
+export function pluginsReadFailed(): boolean {
+  return readFailed();
 }
 
 /** A counter the transcript can read to know the registry changed under it. */

@@ -469,6 +469,12 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
     const tab = session.pages.get(id)!;
     const size = panelSize.get(sessionId);
     if (size) await tab.page.setViewport(size.width, size.height, size.scale).catch(() => {});
+    // A panel that opened before this tab existed was remembered; the first
+    // page it gets is what it has been waiting for.
+    const wanted = castWanted.get(sessionId);
+    if (wanted !== undefined && !casts.has(sessionId)) {
+      void startCast(sessionId, wanted, id, tab);
+    }
     return tab;
   };
 
@@ -528,59 +534,147 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
   };
 
   /**
-   * A screenshot loop for one session.
+   * The live view of one session.
    *
-   * CDP has `Page.startScreencast`, but it needs a listener per tab and an
-   * ack per frame, and the panel is a glance, not a stream: ~3 fps of JPEG is
-   * enough to watch a page fill in and costs one request per frame.
+   * Two sources, and the split is the whole design:
+   *
+   * - `Page.startScreencast` for motion. Chrome pushes a frame per paint
+   *   (~58 fps here), which is what makes scrolling and typing feel immediate.
+   *   Those frames are at the page's CSS size — the protocol cannot enlarge
+   *   them — so they are a preview, not something to read small text on.
+   * - A still, at the display's pixel ratio, once the page stops changing.
+   *   That is the frame a reader actually reads, and it costs one
+   *   `Page.captureScreenshot` per settle rather than one per frame.
+   *
+   * Every screencast frame is acknowledged the moment it arrives, whether or
+   * not it is forwarded: Chrome sends nothing more until the previous frame is
+   * acked, and the acknowledgement is the flow control. Sending is throttled
+   * to the panel's frame rate, so a 60 fps paint loop costs ~10 frames a
+   * second over the wire.
    */
-  const casts = new Map<string, ReturnType<typeof setInterval>>();
+  interface Cast {
+    fps: number;
+    /** The page the stream belongs to; a tab switch restarts it. */
+    targetId: string;
+    /** Unsubscribes this cast's frame listener. */
+    detach: () => void;
+    lastSent: number;
+    settle?: ReturnType<typeof setTimeout>;
+    /** Frames are dropped until the first still lands, so the panel is not
+     *  blank while a page is loading. */
+    sentStill: boolean;
+  }
+  const casts = new Map<string, Cast>();
+  /**
+   * Panels that asked for frames before there was a page.
+   *
+   * The reader opens the tab while the agent is still thinking. The request is
+   * remembered here and honoured by `newTab`, instead of being one early
+   * return away from never showing anything.
+   */
+  const castWanted = new Map<string, number>();
+
   const stopCast = (sessionID: string) => {
-    const timer = casts.get(sessionID);
-    if (timer) clearInterval(timer);
+    castWanted.delete(sessionID);
+    const cast = casts.get(sessionID);
+    if (!cast) return;
+    if (cast.settle) clearTimeout(cast.settle);
+    cast.detach();
     casts.delete(sessionID);
+    const session = sessions.get(sessionID);
+    const tab = session?.pages.get(cast.targetId);
+    void tab?.page.stopScreencast();
   };
 
   /**
    * The size each session's panel asked for, applied to its page.
    *
    * `scale` is the panel's `devicePixelRatio`: the layout stays in CSS pixels
-   * and the capture comes back at the display's own resolution, which is the
+   * and the still comes back at the display's own resolution, which is the
    * difference between a readable frame and a soft one on a retina screen.
    */
   const panelSize = new Map<string, { width: number; height: number; scale: number }>();
 
-  const shoot = async (sessionID: string) => {
+  const emitFrame = (sessionID: string, tabId: string, tab: Tab, jpeg: Uint8Array) => {
+    opts.onFrame?.({
+      session_id: sessionID,
+      tab: tabId,
+      url: tab.url,
+      mime: "image/jpeg",
+      data: Buffer.from(jpeg).toString("base64"),
+    });
+  };
+
+  /** One crisp frame at the display's resolution, for when the page is still. */
+  const takeStill = async (sessionID: string, cast: Cast) => {
     const session = sessions.get(sessionID);
-    if (!session) {
-      stopCast(sessionID);
-      return;
-    }
-    const id = session.current;
-    const tab = id ? session.pages.get(id) : undefined;
-    // No page yet is the normal state of a panel that was opened before the
-    // agent navigated: the reader clicks the tab while the agent is still
-    // thinking. Giving up here left the panel blank for the rest of the
-    // session, because nothing ever started the loop again.
+    const tab = session?.pages.get(cast.targetId);
     if (!tab) return;
     try {
-      // 75 rather than 55: this frame is read, not glanced at. The size is
-      // bounded by the panel's own pixels, so the cost stays predictable.
-      const jpeg = await tab.page.screenshot("jpeg", 75);
-      opts.onFrame?.({
-        session_id: sessionID,
-        tab: id ?? "",
-        url: tab.url,
-        mime: "image/jpeg",
-        data: Buffer.from(jpeg).toString("base64"),
-      });
+      const jpeg = await tab.page.screenshot("jpeg", 78);
+      emitFrame(sessionID, cast.targetId, tab, jpeg);
+      cast.sentStill = true;
     } catch {
-      // A page mid-navigation cannot be screenshotted for a moment; the next
-      // frame catches it. Only a dead session stops the loop.
+      // A page mid-navigation cannot be captured for a moment; the next
+      // settle will try again.
     }
   };
 
-  /** Close this session's own tabs, and let go of the targets it attached to. */
+  /** Re-arm the still for a page that has stopped changing. */
+  const scheduleStill = (sessionID: string, cast: Cast) => {
+    if (cast.settle) clearTimeout(cast.settle);
+    cast.settle = setTimeout(() => {
+      cast.settle = undefined;
+      void takeStill(sessionID, cast);
+    }, 220);
+  };
+
+  const startCast = async (sessionID: string, fps: number, tabId: string, tab: Tab) => {
+    const frameInterval = 1000 / Math.min(Math.max(fps, 1), 20);
+    const cast: Cast = {
+      fps,
+      targetId: tabId,
+      lastSent: 0,
+      sentStill: false,
+      detach: () => {},
+    };
+    casts.set(sessionID, cast);
+
+    // The ack is sent from the handler, not from a timer: a queued ack
+    // measurably stalls the stream (one frame instead of ~58 a second).
+    const off = tab.connection.on("Page.screencastFrame", (event) => {
+      if (event.sessionId !== tab.page.sessionId) return;
+      const params = event.params as { data?: string; sessionId?: number | string };
+      void tab.page.ackScreencast(params.sessionId ?? 0);
+      const now = Date.now();
+      // The still owns the "readable" frame; until it arrives, forward the
+      // stream so the panel is not blank during a first paint.
+      const due = now - cast.lastSent >= frameInterval;
+      if (!due && cast.sentStill) return;
+      if (!due) return;
+      cast.lastSent = now;
+      if (!params.data) return;
+      emitFrame(sessionID, tabId, tab, Buffer.from(params.data, "base64"));
+      scheduleStill(sessionID, cast);
+    });
+    cast.detach = off;
+
+    const size = panelSize.get(sessionID);
+    await tab.page
+      .startScreencast({
+        quality: 62,
+        ...(size ? { maxWidth: size.width, maxHeight: size.height } : {}),
+      })
+      .catch(() => {
+        // An older build without screencast support still gets stills.
+      });
+    // Seed both: a still for the panel, so it has something readable before
+    // the first paint arrives.
+    await takeStill(sessionID, cast);
+    scheduleStill(sessionID, cast);
+  };
+
+  /** Close this session's own tabs, and let go of the targets it attached to. */  /** Close this session's own tabs, and let go of the targets it attached to. */
   const closeSession = async (sessionID: string): Promise<number> => {
     const session = sessions.get(sessionID);
     if (!session) return 0;
@@ -755,10 +849,6 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
 
     async screencast(sessionID, options = {}) {
       const session = sessionOf(sessionID);
-      // Started even with no page: see `shoot`. The size is remembered and
-      // applied when the first tab opens, so the frame arrives already laid
-      // out for the rail rather than at a desktop width.
-      void session;
       // The panel says how big it is; the page is laid out at that size so the
       // frame is the page, not a shrunk desktop. Applied before the first
       // frame, so the panel never shows the old shape.
@@ -768,15 +858,23 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
         const id = session.current;
         const tab = id ? session.pages.get(id) : undefined;
         await tab?.page.setViewport(options.width, options.height, scale).catch(() => {});
+        // A different layout means different frames; restart the stream so
+        // its bounds match the page.
+        const running = casts.get(sessionID);
+        if (running && tab && running.targetId === id) {
+          stopCast(sessionID);
+          await startCast(sessionID, options.fps ?? running.fps, id!, tab);
+          return state(sessionID);
+        }
       }
+      const fps = Math.min(Math.max(options.fps ?? 10, 1), 20);
       stopCast(sessionID);
-      const fps = Math.min(Math.max(options.fps ?? 3, 1), 10);
-      const timer = setInterval(() => void shoot(sessionID), Math.round(1000 / fps));
-      if (typeof timer === "object" && timer !== null && "unref" in timer) {
-        (timer as unknown as { unref(): void }).unref();
-      }
-      casts.set(sessionID, timer);
-      void shoot(sessionID);
+      // The request is kept even with no page: see `castWanted`.
+      castWanted.set(sessionID, fps);
+      const id = session.current;
+      const tab = id ? session.pages.get(id) : undefined;
+      if (!tab || !id) return state(sessionID);
+      await startCast(sessionID, fps, id, tab);
       return state(sessionID);
     },
 

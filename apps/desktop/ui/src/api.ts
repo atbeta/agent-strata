@@ -1338,6 +1338,17 @@ export function listPlugins(): Promise<PluginSummary[]> {
   );
 }
 
+export type PluginLifecycleAction = "enable" | "disable" | "restart";
+
+export async function setPluginLifecycle(id: string, action: PluginLifecycleAction): Promise<void> {
+  const res = await apiFetch(`/plugins/${encodeURIComponent(id)}/lifecycle`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ action }),
+  });
+  if (!res.ok) await throwOnError(res);
+}
+
 export function listDevProcesses(sessionId: string): Promise<{ processes: DevProcess[] }> {
   // The dev commands are the "dev" plugin's private routes now. The paths moved
   // with the capability; nothing else about this read changed.

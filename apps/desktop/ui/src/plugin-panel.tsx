@@ -2,6 +2,7 @@ import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiFetch, streamUrlFor } from "./api";
 import { Button } from "@/components/ui/button";
 import { panelContributions, type PanelContribution } from "./plugin-registry";
+import { pluginDisplayName } from "./plugin-display";
 import { t } from "./i18n";
 
 /**
@@ -24,7 +25,7 @@ export function pluginPanelTab(panel: PanelContribution): string {
 export function pluginPanelTabs(): { id: string; label: string; panel: PanelContribution }[] {
   return panelContributions().map((panel) => ({
     id: pluginPanelTab(panel),
-    label: panel.title,
+    label: pluginDisplayName(panel.plugin, panel.title),
     panel,
   }));
 }
@@ -125,7 +126,10 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
     // fields are only added when there is something to say.
     const res = await post("/panel/cast", {
       session: props.sessionId(),
-      fps: 3,
+      // Chrome pushes a frame per paint; the service acks all of them and
+      // forwards at this rate. 12 is where scrolling stops looking like a
+      // slideshow without turning the rail into a video stream.
+      fps: 12,
       ...(size ? { width: size.width, height: size.height, scale: size.scale } : {}),
     }).catch((e: unknown) => {
       setError(e instanceof Error ? e.message : String(e));

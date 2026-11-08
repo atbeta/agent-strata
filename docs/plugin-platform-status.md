@@ -67,7 +67,10 @@ bun run sidecar       # 64.7 MB, includes every builtin plugin
 ## 用户可见行为
 
 - 右栏多了插件面板 tab（browser 的 screencast）。帧走 `/plugins/browser/events`，指针/滚轮/键盘走 `/plugins/browser/panel/input`，坐标是**比例**不是像素。
-- **帧按显示器的像素比截。** 面板把自己的 `devicePixelRatio`（限到 2）报给 service，service 用 `Emulation.setDeviceMetricsOverride({ deviceScaleFactor })` 让页面按同样倍率渲染。之前固定 1x，在 Retina 上等于把半分辨率位图拉满一屏——这就是"糊"。实测：面板 700×900、2x → 帧 1400×1800。JPEG 质量也从 55 提到 75。
+- **画面是两路合成的**，这是和官方做法对齐后的结论：
+  - **动**用 `Page.startScreencast`。Chrome 每次绘制推一帧（实测本机 ~58fps），service **逐帧立刻 ack**（协议上 ack 就是流控，排队 ack 会让流停在一帧），再按面板的 12fps 节流后才转发。协议只能输出页面 CSS 尺寸的图（`maxWidth/maxHeight` 只能缩不能放大，`deviceScaleFactor` 对它无效），所以流帧是"看得见动作"，不是"读得清小字"。
+  - **静**时补一张 `Page.captureScreenshot`，按面板 `devicePixelRatio`（限 2）出图，停在最后一次绘制后 220ms 发。实测：面板 700×900、2x → 流帧 700×900（约 20KB），静止帧 1400×1800（约 180KB）。
+  - 这样滚动/打字不再像幻灯片（原来 3fps 定时截图），停下时又是清晰的一帧，成本是每次静止一张截图而不是每帧一张。
 - **浏览器是 headless 的，页面只活在右栏里。** 一开始做成可见窗口是错的：面板和窗口显示同一个页面，等于让读者看两个地方。现在启动固定带 `--headless=new`，面板把自身 CSS 尺寸（`ResizeObserver`）报给 service，service 用 `Emulation.setDeviceMetricsOverride` 把页面**按面板宽度重新排版**——不是把 1280 宽的页面缩小，所以字号是真实浏览器在窄栏里的大小。面板变化（拖右栏、改窗口）会重新协商，帧随之重启。
 - 登录态靠**持久 profile**（`<data>/browser-profile`）。headless 下没法人工在那个窗口里登录，所以 `STRATA_BROWSER_PROFILE` 可以指向一个你手动登录过的 profile 目录。
 - 工具行能显示 `tool.progress`（百分比或一句消息），结束即清。

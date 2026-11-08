@@ -314,10 +314,11 @@ describe("the page the panel sees", () => {
 });
 
 describe("a frame the reader can read", () => {
-  test("the capture is at the display's pixel ratio, not the CSS size", async () => {
-    // A 1x bitmap stretched over a retina panel is the "糊" this fixes: the
-    // page still lays out at the panel's CSS pixels, and the PNG comes back at
-    // `width * scale`.
+  test("the stream carries motion, and a settled page carries a sharp still", async () => {
+    // Two sources by design: `Page.startScreencast` for motion (Chrome pushes
+    // a frame per paint, at the page's CSS size — the protocol cannot enlarge
+    // it), and a capture at the display's pixel ratio once the page stops
+    // changing. The still is the frame a reader actually reads.
     const dir = mkdtempSync(join(tmpdir(), "strata-browser-dpr-"));
     const server = Bun.serve({
       port: 0,
@@ -344,33 +345,23 @@ describe("a frame the reader can read", () => {
     });
     try {
       await manager.navigate("s", `http://127.0.0.1:${server.port}`);
-      await manager.screencast("s", { fps: 4, width: 400, height: 500, scale: 2 });
-      for (let i = 0; i < 60 && frames.length === 0; i++) await Bun.sleep(50);
+      await manager.screencast("s", { fps: 10, width: 400, height: 500, scale: 2 });
+      // Long enough for the seed still and one settle after the last paint.
+      for (let i = 0; i < 60 && frames.length < 2; i++) await Bun.sleep(50);
       manager.stopScreencast("s");
       expect(frames.length).toBeGreaterThan(0);
 
-      const bytes = Buffer.from(frames[0]!.data, "base64");
-      // JPEG SOF0 carries the image size; parse the segment walk rather than
-      // guessing an offset.
-      let at = 2;
-      let size: { width: number; height: number } | undefined;
-      while (at < bytes.length - 9) {
-        if (bytes[at] !== 0xff) {
-          at++;
-          continue;
-        }
-        const marker = bytes[at + 1]!;
-        const length = bytes.readUInt16BE(at + 2);
-        if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
-          size = { height: bytes.readUInt16BE(at + 5), width: bytes.readUInt16BE(at + 7) };
-          break;
-        }
-        at += 2 + length;
+      const sizes = frames.map((f) => jpegSize(Buffer.from(f.data, "base64")));
+      // The page is 400x500 CSS pixels. Motion frames come at that size; the
+      // settled still comes at twice that per axis, which is what makes text
+      // readable on a retina panel.
+      expect(sizes.some((s) => s && s.width === 800 && s.height === 1000)).toBe(true);
+      for (const size of sizes) {
+        expect(size).toBeDefined();
+        // Never larger than the page can render, and never a desktop frame
+        // squeezed into the rail.
+        expect(size!.width).toBeLessThanOrEqual(800);
       }
-      expect(size).toBeDefined();
-      // The page is 400x500 CSS pixels; the frame is twice that per axis.
-      expect(size!.width).toBe(800);
-      expect(size!.height).toBe(1000);
     } finally {
       await manager.dispose();
       server.stop(true);
@@ -378,3 +369,21 @@ describe("a frame the reader can read", () => {
     }
   }, 120_000);
 });
+
+/** Read a JPEG's pixel size by walking its segments. */
+function jpegSize(bytes: Buffer): { width: number; height: number } | undefined {
+  let at = 2;
+  while (at < bytes.length - 9) {
+    if (bytes[at] !== 0xff) {
+      at++;
+      continue;
+    }
+    const marker = bytes[at + 1]!;
+    const length = bytes.readUInt16BE(at + 2);
+    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+      return { height: bytes.readUInt16BE(at + 5), width: bytes.readUInt16BE(at + 7) };
+    }
+    at += 2 + length;
+  }
+  return undefined;
+}

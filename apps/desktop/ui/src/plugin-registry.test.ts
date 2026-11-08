@@ -49,7 +49,7 @@ describe("the plugin registry", () => {
     expect(registry.panelContributions()[0]!.kind).toBe("screencast");
   });
 
-  test("a disabled plugin contributes nothing", async () => {
+  test("a disabled plugin contributes nothing but remains in the management list", async () => {
     const registry = await import("./plugin-registry");
     servePlugins({
       plugins: [
@@ -63,11 +63,25 @@ describe("the plugin registry", () => {
           resources: [],
           panel: { id: "browser", title: "Browser", kind: "screencast" },
         },
+        {
+          id: "broken",
+          name: "Broken",
+          version: "1.0.0",
+          state: "failed",
+          error: "could not start",
+          provides: ["tools"],
+          tools: [],
+          resources: [],
+        },
       ],
     });
     await registry.refreshPlugins();
     expect(registry.toolRenderer("browser_navigate")).toBeUndefined();
     expect(registry.panelContributions()).toHaveLength(0);
+    expect(registry.runningPlugins()).toHaveLength(0);
+    expect(registry.pluginSummaries().map((plugin) => plugin.state)).toEqual(["disabled", "failed"]);
+    expect(registry.pluginsLoaded()).toBe(true);
+    expect(registry.pluginsReadFailed()).toBe(false);
   });
 
   test("a renderer kind this build does not know falls back instead of drawing nothing", async () => {
@@ -119,5 +133,7 @@ describe("the plugin registry", () => {
     await registry.refreshPlugins();
     // A restart that races a read must not blank the transcript's renderers.
     expect(registry.toolRenderer("keep_go")).toBeDefined();
+    expect(registry.pluginSummaries().map((plugin) => plugin.id)).toEqual(["keep"]);
+    expect(registry.pluginsReadFailed()).toBe(true);
   });
 });

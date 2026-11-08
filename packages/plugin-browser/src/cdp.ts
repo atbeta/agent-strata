@@ -212,6 +212,38 @@ export class CdpPage {
     return this.connection.send<T>(method, params, this.sessionId);
   }
 
+  /**
+   * Ask Chrome to push frames as it paints.
+   *
+   * The image is at the page's CSS size: `maxWidth`/`maxHeight` can shrink it
+   * and cannot enlarge it, and `deviceScaleFactor` does not change what comes
+   * out. That is why the plugin also takes a 2x still when the page settles —
+   * the stream is for motion, the still is for reading.
+   *
+   * Frames arrive on `Page.screencastFrame` and each one **must** be answered
+   * with `Page.screencastFrameAck`, or Chrome stops sending. Measured on this
+   * build: ~58 fps for an animating page when the ack is sent from the frame
+   * handler, one frame when the ack is queued.
+   */
+  async startScreencast(opts: { quality?: number; maxWidth?: number; maxHeight?: number } = {}): Promise<void> {
+    await this.send("Page.startScreencast", {
+      format: "jpeg",
+      quality: Math.min(Math.max(opts.quality ?? 70, 1), 100),
+      everyNthFrame: 1,
+      ...(opts.maxWidth ? { maxWidth: Math.round(opts.maxWidth) } : {}),
+      ...(opts.maxHeight ? { maxHeight: Math.round(opts.maxHeight) } : {}),
+    });
+  }
+
+  async stopScreencast(): Promise<void> {
+    await this.send("Page.stopScreencast").catch(() => {});
+  }
+
+  /** Tell Chrome this frame has been consumed; without it the stream stalls. */
+  async ackScreencast(sessionId: number | string): Promise<void> {
+    await this.send("Page.screencastFrameAck", { sessionId }).catch(() => {});
+  }
+
   /** Evaluate in this page's main world, by value. */
   async evaluate<T = unknown>(expression: string): Promise<T> {
     const answer = await this.send<{

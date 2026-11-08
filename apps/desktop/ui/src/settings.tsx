@@ -66,6 +66,7 @@ import type { ConnectionsCtl } from "./use-connections";
 import { PolicyEditor } from "./policy";
 import { ProviderSettings } from "./providers";
 import { MaintenanceSettings } from "./maintenance";
+import { PluginSettings } from "./plugin-settings";
 import { SETTINGS_SECTIONS, settingsSection } from "./settings-sections";
 import { Tip } from "./tip";
 import { handleRovingKey } from "./roving-key";
@@ -1119,6 +1120,10 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
           own section instead of the bottom of the process manager. The keys
           themselves are written to OpenCode either way. */}
       <ProviderSettings />
+      </Show>
+
+      <Show when={section() === "plugins"}>
+        <PluginSettings />
       </Show>
 
       <Show when={section() === "permission"}>

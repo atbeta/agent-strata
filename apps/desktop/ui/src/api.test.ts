@@ -12,6 +12,7 @@ import {
   readMcp,
   readSkills,
   runCommand,
+  setPluginLifecycle,
   stopDevProcess,
 } from "./api";
 
@@ -184,6 +185,37 @@ describe("stopping a dev command", () => {
   test("surfaces a service error", async () => {
     globalThis.fetch = (async () => Response.json({ error: "nope" }, { status: 400 })) as unknown as typeof fetch;
     await expect(stopDevProcess("dev_1")).rejects.toThrow("nope");
+  });
+});
+
+describe("changing a plugin lifecycle", () => {
+  const realFetch = globalThis.fetch;
+  let sent: { url: string; method?: string; body?: string }[] = [];
+  beforeEach(() => {
+    sent = [];
+  });
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  test("POSTs the action to the encoded plugin endpoint", async () => {
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      sent.push({ url: String(url), method: init?.method, body: init?.body as string | undefined });
+      return Response.json({ ok: true });
+    }) as unknown as typeof fetch;
+    await setPluginLifecycle("browser", "restart");
+    expect(sent).toEqual([
+      {
+        url: "/api/plugins/browser/lifecycle",
+        method: "POST",
+        body: JSON.stringify({ action: "restart" }),
+      },
+    ]);
+  });
+
+  test("surfaces a service error", async () => {
+    globalThis.fetch = (async () => Response.json({ error: "nope" }, { status: 400 })) as unknown as typeof fetch;
+    await expect(setPluginLifecycle("browser", "disable")).rejects.toThrow("nope");
   });
 });
 
