@@ -2,6 +2,17 @@ import { Show, type JSX } from "solid-js";
 import { cn } from "@/lib/utils";
 import { Icon, type Name } from "@/icons";
 
+export function PageSectionHeader(props: { label: string; count?: number; class?: string }) {
+  return (
+    <h2 class={cn("text-xs font-medium tracking-[0.01em] text-muted-foreground", props.class)}>
+      {props.label}
+      <Show when={props.count !== undefined}>
+        <span class="ml-1.5 tabular-nums text-faint-foreground">{props.count}</span>
+      </Show>
+    </h2>
+  );
+}
+
 /**
  * A sidebar group header: a label, how many rows it holds, and an optional
  * right-aligned hint (a path, in mono).

@@ -267,7 +267,9 @@ export function SessionHeader(props: {
         <DropdownMenu placement="bottom-end">
           <DropdownMenuTrigger
             ref={(el: HTMLButtonElement) => props.bindMoreTrigger(el)}
-            class={`relative h-7 w-7 rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground @min-[720px]:hidden ${toggleClasses(props.terminalOn || props.traceOn || props.tools.toolsOpen())}`}
+            variant="icon"
+            size="icon-sm"
+            class={`relative @min-[720px]:hidden ${toggleClasses(props.terminalOn || props.traceOn || props.tools.toolsOpen())}`}
             aria-label={t("header.more")}
           >
             <Icon name="more" class="size-4" />

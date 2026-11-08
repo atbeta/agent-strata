@@ -27,6 +27,15 @@ describe("visual details", () => {
     expect(source).not.toContain("sm:grid-cols");
   });
 
+  test("fleet surfaces share card and page header primitives", () => {
+    for (const file of ["fleet-view.tsx", "fleet-dev.tsx"]) {
+      const source = read(file);
+      expect(source, file).toContain('from "@/components/ui/card"');
+      expect(source, file).toContain("PageSectionHeader");
+      expect(source, file).not.toContain("rounded-lg border border-border bg-card");
+    }
+  });
+
   test("fleet status groups expand and usage failures preserve honest data", () => {
     const source = read("fleet-view.tsx");
     expect(source).toContain("aria-expanded={expanded()}");

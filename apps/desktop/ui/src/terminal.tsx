@@ -267,7 +267,8 @@ export function TerminalPane(props: { sessionId: string; onEmpty?: () => void })
             to, not like a button that happens to be elsewhere. */}
         <DropdownMenu>
           <DropdownMenuTrigger
-            class="size-6 text-muted-foreground hover:bg-secondary hover:text-foreground"
+            variant="icon"
+            size="icon-xs"
             aria-label={t("terminal.new")}
           >
             +

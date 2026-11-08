@@ -177,7 +177,9 @@ export function SessionListItem(props: {
             </span>
             <DropdownMenu placement="bottom-end" open={menuOpen()} onOpenChange={setMenuOpen}>
               <DropdownMenuTrigger
-                class={`absolute right-1 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground ${
+                variant="icon"
+                size="icon-xs"
+                class={`absolute right-1 top-1/2 -translate-y-1/2 hover:bg-background ${
                   reveal()
                     ? ""
                     : "invisible pointer-events-none group-focus-within:visible group-focus-within:pointer-events-auto"

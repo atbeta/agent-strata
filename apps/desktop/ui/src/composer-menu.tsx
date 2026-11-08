@@ -29,7 +29,7 @@ export function ComposerMenu(props: {
   const title = () => (props.kind === "file" ? t("composer.menu.files") : t("composer.menu.commands"));
   return (
     <div
-      class="surface-popover absolute inset-x-0 bottom-full z-20 mb-2 overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground"
+      class="surface-popover absolute inset-x-0 bottom-full z-20 mb-2 overflow-hidden rounded-lg bg-popover p-1 text-popover-foreground"
       // a press anywhere in the menu, scrollbar included, must not take focus from the textarea
       onMouseDown={(e) => e.preventDefault()}
     >

@@ -1638,6 +1638,10 @@ textarea {
   }
   .surface-composer {
     box-shadow: var(--composer-shadow);
+    transition: box-shadow 140ms ease;
+  }
+  .surface-composer:focus-within {
+    box-shadow: var(--composer-shadow), 0 0 0 2px color-mix(in srgb, var(--ring) 65%, transparent);
   }
   .surface-action {
     box-shadow: var(--action-shadow);

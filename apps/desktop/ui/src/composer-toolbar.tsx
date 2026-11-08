@@ -64,7 +64,9 @@ export function ComposerToolbar(props: {
             <Popover gutter={6} placement="top-end">
               <Tip label={t("composer.more")}>
                 <PopoverTrigger
-                  class="grid h-8 w-8 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                  variant="icon"
+                  size="icon-sm"
+                  class="shrink-0"
                   aria-label={t("composer.more")}
                 >
                   <Icon name="gear" class="size-4" />

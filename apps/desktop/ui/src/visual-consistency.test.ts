@@ -15,9 +15,15 @@ describe("quiet visual consistency", () => {
     const files = [
       "components/ui/dropdown-menu.tsx",
       "components/ui/popover.tsx",
+      "components/ui/context-menu.tsx",
       "session-search.tsx",
       "session-tools.tsx",
       "prompt-navigator.tsx",
+      "tip.tsx",
+      "message-actions.tsx",
+      "composer-menu.tsx",
+      "transcript-view.tsx",
+      "sidebar.tsx",
     ];
     for (const file of files) {
       const src = read(file);
@@ -28,6 +34,18 @@ describe("quiet visual consistency", () => {
     expect(read("components/ui/dropdown-menu.tsx")).not.toContain(
       "rounded-md border border-border bg-popover",
     );
+  });
+
+  test("menu triggers share button variants and composer focus preserves elevation", () => {
+    for (const file of ["components/ui/dropdown-menu.tsx", "components/ui/popover.tsx"]) {
+      const src = read(file);
+      expect(src, file).toContain("buttonVariants");
+      expect(src, file).toContain('variant?: ButtonProps["variant"]');
+      expect(src, file).toContain('size?: ButtonProps["size"]');
+    }
+    const theme = read("theme.css");
+    expect(theme).toContain(".surface-composer:focus-within");
+    expect(theme).toContain("box-shadow: var(--composer-shadow), 0 0 0 2px");
   });
 
   test("backend fields keep the primitive's font size and padding", () => {

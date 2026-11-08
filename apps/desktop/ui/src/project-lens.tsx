@@ -130,16 +130,16 @@ export function ProjectLensMenu(props: { list: SessionListCtl }) {
     <DropdownMenu placement="right-start" gutter={8}>
       <Tip label={on() ? t("sidebar.project.filter.on") : t("sidebar.project.filter")}>
         <DropdownMenuTrigger
+          variant="icon"
+          size="icon-2xs"
           class={cn(
-            "grid h-5 place-items-center rounded-sm text-faint-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+            "text-faint-foreground hover:bg-accent",
             // A search, a status, a period or a backend takes sessions off
             // the list, and the button has to keep saying so after the menu
             // closes. Hiding empty projects and the way the list is grouped
             // are how the reader keeps the sidebar; they stay written on
             // their own rows and do not light this chip.
-            on()
-              ? "grid-flow-col gap-0.5 bg-primary/15 px-1 text-primary hover:bg-primary/20 hover:text-primary"
-              : "size-5",
+            on() && "w-auto grid-flow-col gap-0.5 bg-primary/15 px-1 text-primary hover:bg-primary/20 hover:text-primary",
           )}
           aria-label={t("sidebar.project.filter")}
           aria-pressed={on()}

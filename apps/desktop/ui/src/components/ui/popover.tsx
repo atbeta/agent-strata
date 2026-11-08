@@ -6,19 +6,23 @@ import type {
 } from "@kobalte/core/popover";
 import type { PolymorphicProps } from "@kobalte/core/polymorphic";
 import { cn } from "@/lib/utils";
+import { buttonVariants, type ButtonProps } from "./button";
 
 const Popover = PopoverPrimitive;
 
 type TriggerProps = PolymorphicProps<"button", PopoverTriggerProps<"button">> & {
   class?: string;
+  variant?: ButtonProps["variant"];
+  size?: ButtonProps["size"];
 };
 
 function PopoverTrigger(props: TriggerProps) {
-  const [local, rest] = splitProps(props, ["class"]);
+  const [local, rest] = splitProps(props, ["class", "variant", "size"]);
   return (
     <PopoverPrimitive.Trigger
       class={cn(
         "inline-flex items-center justify-center rounded-md text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40",
+        (local.variant || local.size) && buttonVariants({ variant: local.variant, size: local.size }),
         local.class,
       )}
       {...rest}

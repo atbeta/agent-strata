@@ -425,7 +425,7 @@ export function TranscriptView(props: {
               <Show when={pathErr()}>
                 {(e) => (
                   <p
-                    class="surface-popover absolute z-30 -translate-x-1/2 rounded-md px-3 py-1.5 text-xs text-destructive"
+                    class="surface-popover absolute z-30 -translate-x-1/2 rounded-md bg-popover px-3 py-1.5 text-xs text-destructive"
                     classList={{ "-translate-y-full": !e().centered }}
                     style={{
                       left: e().centered ? "50%" : `${e().x}px`,

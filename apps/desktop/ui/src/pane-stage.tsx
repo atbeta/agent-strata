@@ -86,9 +86,9 @@ export function LayoutSwitcher(props: {
     <DropdownMenu placement="bottom-end">
       <Tip label={t("pane.layout")}>
         <DropdownMenuTrigger
-          class={`inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-secondary ${
-            isMultiplex() ? toggleClasses(true) : "text-muted-foreground hover:text-foreground"
-          }`}
+          variant="icon"
+          size="icon-sm"
+          class={isMultiplex() ? toggleClasses(true) : undefined}
           aria-label={t("pane.layout")}
         >
           <ToggleIcon on={isMultiplex()}>

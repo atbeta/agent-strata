@@ -133,11 +133,13 @@ export function GoalButton(props: { g: GoalCtl }) {
     >
       <Tip label={g().metShown() ? t("goal.restart") : g().shown() ? t("goal.edit_tip") : t("goal.set")} disabled={g().open()}>
         <PopoverTrigger
-          class={`grid size-7 shrink-0 place-items-center rounded-md transition-colors hover:bg-secondary ${
+          variant="icon"
+          size="icon-sm"
+          class={`shrink-0 ${
             g().metShown() || g().pausedShown()
               ? "text-muted-foreground"
               : g().shown()
-                ? "text-primary"
+                ? "text-primary hover:text-primary"
                 : "text-muted-foreground hover:text-foreground"
           }`}
           aria-pressed={Boolean(g().shown()) && !g().metShown()}

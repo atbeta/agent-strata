@@ -219,10 +219,10 @@ export function Tip(props: {
         <span
           ref={setBubble}
           role="tooltip"
-          class={`fade-in pointer-events-none fixed z-[80] w-max -translate-x-1/2 border border-border bg-popover break-words text-popover-foreground ${
+          class={`fade-in surface-popover pointer-events-none fixed z-[80] w-max -translate-x-1/2 bg-popover break-words text-popover-foreground ${
             props.content
-              ? "surface-popover rounded-lg px-3 py-2.5 text-xs whitespace-normal"
-              : "rounded-md px-1.5 py-0.5 text-2xs whitespace-pre-wrap shadow-md"
+              ? "rounded-lg px-3 py-2.5 text-xs whitespace-normal"
+              : "rounded-md px-1.5 py-0.5 text-2xs whitespace-pre-wrap"
           } ${pos()?.below ? "" : "-translate-y-full"}`}
           style={{
             left: `${pos()?.x ?? 0}px`,

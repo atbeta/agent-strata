@@ -8,6 +8,8 @@ import { devLogLineClass, devRunning, stableDevRows } from "./dev-state";
 import { Tip } from "./tip";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Card } from "@/components/ui/card";
+import { PageSectionHeader } from "@/components/ui/section-header";
 
 /** How often the running time and an open log refresh. */
 const TICK_MS = 1_000;
@@ -89,12 +91,7 @@ export function FleetDevSection(props: {
   return (
     <Show when={live().length > 0 || processes.error}>
       <section>
-        <h2 class="text-xs font-medium text-muted-foreground">
-          {t("fleet.dev")}
-          <Show when={live().length > 0}>
-            <span class="ml-1.5 tabular-nums text-faint-foreground">{live().length}</span>
-          </Show>
-        </h2>
+        <PageSectionHeader label={t("fleet.dev")} count={live().length} />
         <Show when={err()}>
           <p class="mt-1.5 text-xs text-destructive">{err()}</p>
         </Show>
@@ -102,7 +99,7 @@ export function FleetDevSection(props: {
           <Show
             when={live().length > 0}
             fallback={
-              <div class="mt-2.5 rounded-lg border border-border bg-card">
+              <Card class="mt-2.5">
                 <EmptyState
                   icon="alert"
                   tone="danger"
@@ -114,19 +111,19 @@ export function FleetDevSection(props: {
                     </Button>
                   }
                 />
-              </div>
+              </Card>
             }
           >
-            <div class="mt-2.5 flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2 text-xs text-muted-foreground" role="status">
+            <Card class="mt-2.5 flex items-center justify-between gap-3 px-3 py-2 text-xs text-muted-foreground" role="status">
               <span>{t("fleet.dev.stale")}</span>
               <Button variant="quiet" size="xs" onClick={() => void refetch()}>
                 {t("session.retry")}
               </Button>
-            </div>
+            </Card>
           </Show>
         </Show>
         <Show when={live().length > 0}>
-          <ul class="mt-2.5 divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
+          <Card as="ul" class="mt-2.5 divide-y divide-border overflow-hidden">
             <For each={rows()}>
               {(row) => (
                 <li>
@@ -169,7 +166,7 @@ export function FleetDevSection(props: {
                 </li>
               )}
             </For>
-          </ul>
+          </Card>
         </Show>
       </section>
     </Show>

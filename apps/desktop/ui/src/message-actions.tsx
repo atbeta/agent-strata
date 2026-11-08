@@ -67,10 +67,8 @@ export function MessageActions(props: {
       data-copied={copied() || undefined}
     >
       <Show when={!props.disabled}>
-        {/* One chip, not stray glyphs: the card surface, hairline border and a
-            soft shadow group the actions into a single control that reads as
-            floating over the message, the way the popover and composer do. */}
-        <div class="flex h-7 items-center gap-0.5 rounded-lg border border-border bg-card/95 px-1 shadow-sm">
+        {/* One floating chip, with the same edge and elevation as the menus. */}
+        <div class="surface-popover flex h-7 items-center gap-0.5 rounded-lg bg-popover/95 px-1">
           <Show when={props.text.trim()}>
             <Tip label={copied() ? t("message.copied") : t("message.copy")}>
               <Button

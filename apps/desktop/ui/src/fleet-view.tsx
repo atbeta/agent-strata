@@ -33,6 +33,8 @@ import { RowButton } from "@/components/ui/row-button";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { MiniTabs } from "@/components/ui/mini-tabs";
+import { Card } from "@/components/ui/card";
+import { PageSectionHeader } from "@/components/ui/section-header";
 import { cn } from "@/lib/utils";
 
 /**
@@ -141,7 +143,7 @@ export function FleetView(props: {
   return (
     <div class="flex h-full min-h-0 flex-col overflow-hidden">
       <div class="min-h-0 flex-1 overflow-y-auto">
-        <div class="mx-auto flex w-full max-w-6xl flex-col gap-6 px-5 py-4">
+        <div class="mx-auto flex w-full max-w-6xl flex-col gap-7 px-6 py-6">
           <StatusCard
             waiting={status().waiting}
             running={status().running}
@@ -159,21 +161,21 @@ export function FleetView(props: {
           />
 
           <section>
-            <SectionHead label={t("fleet.usage")} />
+            <PageSectionHeader label={t("fleet.usage")} />
             <div class="mt-2.5 flex flex-col gap-3">
               <PeriodTabs windows={windows()} value={period()} onChange={setPeriod} />
               <Show when={daily.error && buckets()}>
-                <div class="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2 text-xs text-muted-foreground" role="status">
+                <Card class="flex items-center justify-between gap-3 px-3 py-2 text-xs text-muted-foreground" role="status">
                   <span>{t("fleet.usage.stale")}</span>
                   <Button variant="quiet" size="xs" onClick={() => void refetchDaily()}>
                     {t("session.retry")}
                   </Button>
-                </div>
+                </Card>
               </Show>
               <Show
                 when={!daily.error || buckets()}
                 fallback={
-                  <div class="rounded-lg border border-border bg-card">
+                  <Card>
                     <EmptyState
                       icon="alert"
                       tone="danger"
@@ -185,7 +187,7 @@ export function FleetView(props: {
                         </Button>
                       }
                     />
-                  </div>
+                  </Card>
                 }
               >
                 <UsageCard
@@ -208,8 +210,8 @@ export function FleetView(props: {
           >
             <div class="grid grid-cols-1 items-start gap-4 pb-2 @min-[768px]/main:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)]">
               <section class="min-w-0">
-                <SectionHead label={t("fleet.overview.recent")} count={recent().length} />
-                <div class="mt-2.5 overflow-hidden rounded-lg border border-border bg-card">
+                <PageSectionHeader label={t("fleet.overview.recent")} count={recent().length} />
+                <Card class="mt-2.5 overflow-hidden">
                   <Show
                     when={recent().length > 0}
                     fallback={<p class="px-4 py-6 text-2xs text-muted-foreground">{t("fleet.overview.emptyPeriod")}</p>}
@@ -265,7 +267,7 @@ export function FleetView(props: {
                       </For>
                     </ul>
                   </Show>
-                </div>
+                </Card>
                 <Show when={recent().length > RECENT_SHOWN}>
                   <Button
                     variant="quiet"
@@ -282,7 +284,7 @@ export function FleetView(props: {
 
               <section class="min-w-0">
                 <div class="flex items-baseline justify-between gap-3">
-                  <SectionHead label={t("fleet.rank")} />
+                  <PageSectionHeader label={t("fleet.rank")} />
                   <MiniTabs
                     kind="radio"
                     label={t("fleet.rank")}
@@ -294,7 +296,7 @@ export function FleetView(props: {
                     ]}
                   />
                 </div>
-                <div class="mt-2.5 overflow-hidden rounded-lg border border-border bg-card">
+                <Card class="mt-2.5 overflow-hidden">
                   <Show
                     when={rank() === "projects"}
                     fallback={
@@ -334,7 +336,7 @@ export function FleetView(props: {
                       </ul>
                     </Show>
                   </Show>
-                </div>
+                </Card>
                 <Show when={rankCount() > RANK_SHOWN}>
                   <Button
                     variant="quiet"
@@ -375,17 +377,6 @@ function providerIdPart(model: string | null): string | null {
   return i < 0 ? null : model.slice(0, i);
 }
 
-function SectionHead(props: { label: string; count?: number }) {
-  return (
-    <h2 class="text-xs font-medium text-muted-foreground">
-      {props.label}
-      <Show when={props.count !== undefined}>
-        <span class="ml-1.5 tabular-nums text-faint-foreground">{props.count}</span>
-      </Show>
-    </h2>
-  );
-}
-
 /**
  * The sessions that are waiting on somebody or still working, at the top of
  * the page — the one thing here that asks for an action earns the first slot.
@@ -411,7 +402,7 @@ function StatusCard(props: {
         </p>
       }
     >
-      <section class="divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
+      <Card as="section" class="divide-y divide-border overflow-hidden">
         <StatusGroup
           label={t("fleet.status.waiting")}
           rows={props.waiting}
@@ -420,7 +411,7 @@ function StatusCard(props: {
           onOpen={props.onOpen}
         />
         <StatusGroup label={t("fleet.status.running")} rows={props.running} now={props.now} onOpen={props.onOpen} />
-      </section>
+      </Card>
     </Show>
   );
 }
@@ -522,9 +513,9 @@ function PeriodTabs(props: {
     (cells?.[keys().indexOf(next)] as HTMLElement | undefined)?.focus();
   };
   return (
-    <div
+    <Card
       ref={group}
-      class="grid grid-cols-2 rounded-lg border border-border bg-card @min-[640px]/main:grid-cols-4"
+      class="grid grid-cols-2 overflow-hidden @min-[640px]/main:grid-cols-4"
       role="radiogroup"
       aria-label={t("fleet.usage")}
       onKeyDown={move}
@@ -536,7 +527,7 @@ function PeriodTabs(props: {
             aria-checked={props.value === w.key}
             tabIndex={props.value === w.key ? 0 : -1}
             class={cn(
-              "group/tab relative flex-col items-start gap-1 rounded-none border-border px-4 py-3 hover:bg-secondary/40",
+              "group/tab relative flex-col items-start gap-1.5 rounded-none border-border px-4 py-3.5 hover:bg-secondary/40 focus-visible:ring-inset",
               i() % 2 === 1 && "border-l",
               i() >= 2 && "border-t @min-[640px]/main:border-t-0",
               i() > 0 && "@min-[640px]/main:border-l",
@@ -552,7 +543,7 @@ function PeriodTabs(props: {
                   "text-xl font-medium tabular-nums",
                   props.value === w.key
                     ? "text-foreground"
-                    : "text-foreground/60 group-hover/tab:text-foreground/80",
+                    : "text-muted-foreground group-hover/tab:text-foreground",
                 )}
               >
                 {w.totals ? compactNum(tokenTotal(w.totals)) : "—"}
@@ -574,7 +565,7 @@ function PeriodTabs(props: {
           </RowButton>
         )}
       </For>
-    </div>
+    </Card>
   );
 }
 
@@ -603,9 +594,9 @@ function UsageCard(props: {
     </div>
   );
   return (
-    <section class="grid rounded-lg border border-border bg-card @min-[768px]/main:grid-cols-[minmax(0,1fr)_15rem]">
+    <Card as="section" class="grid overflow-hidden @min-[768px]/main:grid-cols-[minmax(0,1fr)_15rem]">
       <TrendChart points={props.points} since={props.since} all={props.all} />
-      <div class="border-border px-4 py-3 @max-[767px]/main:border-t @min-[768px]/main:border-l">
+      <div class="border-border px-4 py-3.5 @max-[767px]/main:border-t @min-[768px]/main:border-l">
         {row(t("fleet.overview.estCost"), () => (
           <span class="font-mono">{fmtUsd(props.totals!.cost)}</span>
         ))}
@@ -655,7 +646,7 @@ function UsageCard(props: {
           </Tip>
         </div>
       </div>
-    </section>
+    </Card>
   );
 }
 

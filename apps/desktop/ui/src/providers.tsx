@@ -410,7 +410,9 @@ function ProviderRow(props: {
         <Show when={props.row.connected}>
           <DropdownMenu>
             <DropdownMenuTrigger
-              class="size-6 shrink-0 text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+              variant="icon"
+              size="icon-xs"
+              class="shrink-0 hover:bg-secondary/60"
               aria-label={t("settings.provider.actions")}
             >
               <Icon name="more" class="size-3.5" />

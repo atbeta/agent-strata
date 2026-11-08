@@ -821,7 +821,9 @@ export function useSessionComposer(args: {
         disabled={detailsOpen()}
       >
         <PopoverTrigger
-          class="grid size-8 place-items-center transition-colors hover:bg-secondary"
+          variant="icon"
+          size="icon-sm"
+          class="shrink-0"
           aria-label={t("composer.details")}
         >
           <ContextRing percent={context()?.percent ?? null} />

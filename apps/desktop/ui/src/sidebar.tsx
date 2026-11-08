@@ -700,7 +700,12 @@ export function Sidebar(props: {
                   placement="bottom-end"
                 >
                   <Tip label={t("sidebar.project.openDirectory")}>
-                    <DropdownMenuTrigger class="grid size-5 place-items-center rounded-sm text-faint-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+                    <DropdownMenuTrigger
+                      variant="icon"
+                      size="icon-2xs"
+                      class="text-faint-foreground hover:bg-accent"
+                      aria-label={t("sidebar.project.openDirectory")}
+                    >
                       <Icon name="folder-plus" class="size-3.5" />
                     </DropdownMenuTrigger>
                   </Tip>
@@ -880,7 +885,7 @@ export function Sidebar(props: {
           <div class="fixed inset-x-0 bottom-6 z-50 flex justify-center px-4">
             <div
               role="alert"
-              class="flex max-w-[min(30rem,100%)] items-start gap-2 rounded-lg border border-border bg-card px-3 py-2 shadow-lg"
+              class="surface-popover flex max-w-[min(30rem,100%)] items-start gap-2 rounded-lg bg-popover px-3 py-2"
             >
               <Icon name="alert" class="mt-0.5 size-3.5 shrink-0 text-destructive" />
               <p class="min-w-0 flex-1 text-xs leading-5 text-foreground">{list().actionErr()}</p>
