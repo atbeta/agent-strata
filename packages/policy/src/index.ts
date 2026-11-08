@@ -389,7 +389,7 @@ function hasOutputRedirection(segment: string): boolean {
  * Judge one tool call.
  *
  * `plugin_id` is the authority on where a tool came from; the name
- * (`browser_navigate`) is a convention the UI can read. A rule may name either
+ * (`dev_start`) is a convention the UI can read. A rule may name either
  * or both, and a rule naming a plugin only speaks about that plugin's tools.
  */
 export function evaluate(
@@ -449,7 +449,7 @@ const RANK = { allow: 0, ask: 1, deny: 2 } as const;
  *
  * Two rules, and they are the whole semantic:
  *
- * 1. An explicit rule the reader wrote wins. `browser_navigate` set to `allow`
+ * 1. An explicit rule the reader wrote wins. `dev_start` set to `allow`
  *    by hand is a decision, and a manifest that says `ask` cannot undo it.
  * 2. Everything else — the document default, the engine floor, the live auto
  *    stance — is "nobody said anything", and the manifest's `policy.default`
