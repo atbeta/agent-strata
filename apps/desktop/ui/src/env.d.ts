@@ -15,7 +15,7 @@ declare const __BRAND__:
       dataDir: string;
       sourceUrl: string;
       sourceLabel: string;
-      sourceTitle?: string;
-      sourceHint?: string;
+      sourceTitle?: string | { zh?: string; en?: string };
+      sourceHint?: string | { zh?: string; en?: string };
     }
   | undefined;

@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createResource, createSignal, For, Show } from "solid-js";
-import { APP_NAME, SOURCE_HINT, SOURCE_LABEL, SOURCE_TITLE, SOURCE_URL } from "./app-name";
+import { APP_NAME, BRAND, SOURCE_LABEL, SOURCE_URL, brandText } from "./app-name";
 import {
   readOpencodeLaunch,
   saveOpencodeMode,
@@ -1166,8 +1166,8 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
           </Row>
 
           <Row
-            label={SOURCE_TITLE || t("settings.about.source")}
-            hint={SOURCE_HINT || t("settings.about.sourceHint")}
+            label={brandText(BRAND.sourceTitle) || t("settings.about.source")}
+            hint={brandText(BRAND.sourceHint) || t("settings.about.sourceHint")}
           >
             <Show when={SOURCE_URL}>
               <a

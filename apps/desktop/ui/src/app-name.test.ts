@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { APP_NAME, UPSTREAM } from "./app-name";
+import { APP_NAME, UPSTREAM, brandText } from "./app-name";
+import { locale, setLocale, type Locale } from "./i18n";
 import { isCustom, overlay as brandOverlay, resolveBrand } from "../../../../scripts/brand";
 
 /**
@@ -139,6 +140,59 @@ describe("the about row", () => {
     const blank = await resolveBrand({ STRATA_BRAND_SOURCE_URL: "  " });
     expect(blank.sourceUrl).toBe(UPSTREAM.sourceUrl);
     expect(isCustom(blank)).toBe(false);
+  });
+
+  test("suffixed variables write each language its own wording", async () => {
+    const brand = await resolveBrand({
+      STRATA_BRAND_SOURCE_TITLE_ZH: "使用说明",
+      STRATA_BRAND_SOURCE_TITLE_EN: "Usage notes",
+    });
+    expect(brand.sourceTitle).toEqual({ zh: "使用说明", en: "Usage notes" });
+    expect(isCustom(brand)).toBe(true);
+  });
+
+  test("the plain variable is the language nobody named", async () => {
+    const brand = await resolveBrand({
+      STRATA_BRAND_SOURCE_TITLE: "说明",
+      STRATA_BRAND_SOURCE_TITLE_EN: "Notes",
+    });
+    expect(brand.sourceTitle).toEqual({ zh: "说明", en: "Notes" });
+  });
+
+  test("one language alone collapses back to a plain string", async () => {
+    // A map with a single wording is a plain string: the page resolves both
+    // the same way, and the payload stays the simpler shape.
+    const brand = await resolveBrand({ STRATA_BRAND_SOURCE_TITLE_ZH: "使用说明" });
+    expect(brand.sourceTitle).toBe("使用说明");
+  });
+});
+
+describe("the brand text in the active language", () => {
+  const previous = locale();
+  const inside = (loc: Locale, check: () => void) => {
+    setLocale(loc);
+    try {
+      check();
+    } finally {
+      setLocale(previous);
+    }
+  };
+
+  test("a plain string reads the same everywhere", () => {
+    inside("zh", () => expect(brandText("使用说明")).toBe("使用说明"));
+    inside("en", () => expect(brandText("使用说明")).toBe("使用说明"));
+    expect(brandText(undefined)).toBe("");
+  });
+
+  test("a map follows the locale it is read under", () => {
+    const text = { zh: "使用说明", en: "Usage notes" };
+    inside("zh", () => expect(brandText(text)).toBe("使用说明"));
+    inside("en", () => expect(brandText(text)).toBe("Usage notes"));
+  });
+
+  test("a missing language falls back to English, then to what exists", () => {
+    inside("zh", () => expect(brandText({ en: "Notes" })).toBe("Notes"));
+    inside("en", () => expect(brandText({ zh: "说明" })).toBe("说明"));
   });
 });
 

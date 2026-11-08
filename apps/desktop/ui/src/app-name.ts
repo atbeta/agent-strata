@@ -17,6 +17,15 @@
  * white-label build, `scripts/brand.ts` writes an overlay that both this build
  * and that config read, so the two are renamed together.
  */
+import { locale } from "./i18n";
+
+/**
+ * A brand string that may differ per language: one string for every locale,
+ * or `{ zh, en }` for each. `brandText` resolves it against the active
+ * language at render time.
+ */
+export type BrandText = string | { zh?: string; en?: string };
+
 export type Brand = {
   productName: string;
   identifier: string;
@@ -24,9 +33,9 @@ export type Brand = {
   sourceUrl: string;
   sourceLabel: string;
   /** About row title. Absent: the page uses its translated "Source" line. */
-  sourceTitle?: string;
+  sourceTitle?: BrandText;
   /** The sentence under that title. Absent: the translated sentence. */
-  sourceHint?: string;
+  sourceHint?: BrandText;
 };
 
 // A bare `__BRAND__`, not `globalThis.__BRAND__`: Vite's `define` rewrites an
@@ -65,8 +74,16 @@ export const SOURCE_URL = BRAND.sourceUrl;
 /** The words on that link. */
 export const SOURCE_LABEL = BRAND.sourceLabel;
 
-/** About row title, when this build replaces the translated one. */
-export const SOURCE_TITLE = BRAND.sourceTitle ?? "";
-
-/** The sentence under that title, when this build replaces the translated one. */
-export const SOURCE_HINT = BRAND.sourceHint ?? "";
+/**
+ * One brand string in the active language.
+ *
+ * A plain string reads the same everywhere; `{ zh, en }` picks the current
+ * locale, falls back to English, and then to whichever language the brand
+ * did write — a half-localized row still says what the brand meant. Call it
+ * inside a component, so switching the language redraws the row.
+ */
+export function brandText(text: BrandText | undefined): string {
+  if (!text) return "";
+  if (typeof text === "string") return text;
+  return text[locale()] ?? text.en ?? Object.values(text).find((v) => v !== undefined) ?? "";
+}

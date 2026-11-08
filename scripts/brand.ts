@@ -51,6 +51,16 @@ const overlayPath = join(tauriDir, "brand.overlay.json");
 const rustPath = join(tauriDir, "brand.generated.rs");
 const localPath = join(here, "brand.local.ts");
 
+/**
+ * A brand string that may differ per language.
+ *
+ * A single string covers every locale; `{ zh, en }` gives each its own
+ * wording. The environment spells the same thing with suffixes:
+ * `STRATA_BRAND_SOURCE_TITLE` is every language at once, `..._ZH` and
+ * `..._EN` are one each.
+ */
+export type BrandText = string | { zh?: string; en?: string };
+
 export type Brand = {
   productName: string;
   identifier: string;
@@ -61,8 +71,8 @@ export type Brand = {
    * The About row's title and the sentence under it. Absent means the page
    * keeps its own translated wording ("Source" / "源代码").
    */
-  sourceTitle?: string;
-  sourceHint?: string;
+  sourceTitle?: BrandText;
+  sourceHint?: BrandText;
   /**
    * The bundled icon set, relative to `src-tauri`.
    *
@@ -163,10 +173,37 @@ export async function resolveBrand(
     dataDir: clean(env.STRATA_BRAND_DATA_DIR) ?? base.dataDir,
     sourceUrl: sourceUrl(env.STRATA_BRAND_SOURCE_URL, base.sourceUrl),
     sourceLabel: clean(env.STRATA_BRAND_SOURCE_LABEL) ?? base.sourceLabel,
-    sourceTitle: clean(env.STRATA_BRAND_SOURCE_TITLE) ?? clean(base.sourceTitle),
-    sourceHint: clean(env.STRATA_BRAND_SOURCE_HINT) ?? clean(base.sourceHint),
+    sourceTitle: brandText(env, "STRATA_BRAND_SOURCE_TITLE", base.sourceTitle),
+    sourceHint: brandText(env, "STRATA_BRAND_SOURCE_HINT", base.sourceHint),
     ...(base.icons ? { icons: base.icons } : {}),
   };
+}
+
+/**
+ * One prose field, from three variables or the preset.
+ *
+ * The plain variable is every language at once; `..._ZH` and `..._EN` name
+ * one each, and a preset's map fills whichever language the environment left
+ * unset. When no language was ever named the answer stays a plain string —
+ * the shape every preset written before maps existed already produces — so
+ * the page sees a map only where the languages actually differ.
+ */
+function brandText(
+  env: Record<string, string | undefined>,
+  name: string,
+  fallback: BrandText | undefined,
+): BrandText | undefined {
+  const plain = clean(env[name]);
+  const zh = clean(env[`${name}_ZH`]);
+  const en = clean(env[`${name}_EN`]);
+  if (zh === undefined && en === undefined && typeof fallback !== "object") {
+    return plain ?? fallback;
+  }
+  const base = typeof fallback === "object" ? fallback : { zh: fallback, en: fallback };
+  const merged = { zh: zh ?? plain ?? base.zh, en: en ?? plain ?? base.en };
+  if (merged.zh === undefined) return merged.en;
+  if (merged.en === undefined) return merged.zh;
+  return merged.zh === merged.en ? merged.zh : merged;
 }
 
 /** Whether a brand differs from the upstream one in any field. */
@@ -305,9 +342,10 @@ export const PRESETS = {
     sourceLabel: "your-org/your-fork",
     // Optional: the About row. Leave both out and the page keeps its own
     // translated "Source" line. Set sourceUrl to "-" for the sentence with
-    // no link.
-    // sourceTitle: "使用说明",
-    // sourceHint: "安装、常见问题和找谁问，都在右边。",
+    // no link. One string covers every language; a map gives each its own —
+    // STRATA_BRAND_SOURCE_TITLE_ZH / _EN do the same from the environment.
+    // sourceTitle: { zh: "使用说明", en: "Usage notes" },
+    // sourceHint: { zh: "安装、常见问题和找谁问，都在右边。", en: "Setup, FAQ, and who to ask." },
     // Optional: a bundled icon set, relative to apps/desktop/src-tauri.
     // Leave it out to keep the upstream marks.
     // icons: [
