@@ -1640,8 +1640,14 @@ textarea {
     box-shadow: var(--composer-shadow);
     transition: box-shadow 140ms ease;
   }
+  /*
+   * Focus is a hint, not a frame. A one-pixel hairline is enough to say "what
+   * you type goes here", and it has to stay quieter than the dock's own edge:
+   * the composer is where the reader already is, so a ring around it reads as
+   * an alarm rather than an affordance.
+   */
   .surface-composer:focus-within {
-    box-shadow: var(--composer-shadow), 0 0 0 2px color-mix(in srgb, var(--ring) 65%, transparent);
+    box-shadow: var(--composer-shadow), 0 0 0 1px color-mix(in srgb, var(--ring) 35%, transparent);
   }
   .surface-action {
     box-shadow: var(--action-shadow);

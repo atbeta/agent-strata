@@ -22,7 +22,11 @@ function PopoverTrigger(props: TriggerProps) {
     <PopoverPrimitive.Trigger
       class={cn(
         "inline-flex items-center justify-center rounded-md text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40",
-        (local.variant || local.size) && buttonVariants({ variant: local.variant, size: local.size }),
+        // A trigger is an icon button unless told otherwise. Without the
+        // fallback, passing only `size` picked `buttonVariants`'s default
+        // variant and painted a filled primary button.
+        (local.variant || local.size) &&
+          buttonVariants({ variant: local.variant ?? "icon", size: local.size }),
         local.class,
       )}
       {...rest}

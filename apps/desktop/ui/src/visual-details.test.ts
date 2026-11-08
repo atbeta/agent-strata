@@ -32,7 +32,12 @@ describe("visual details", () => {
       const source = read(file);
       expect(source, file).toContain('from "@/components/ui/card"');
       expect(source, file).toContain("PageSectionHeader");
-      expect(source, file).not.toContain("rounded-lg border border-border bg-card");
+      // A card built by hand again is the regression; class order is not.
+      for (const match of source.matchAll(/class="([^"]*)"/g)) {
+        const set = new Set((match[1] ?? "").split(/\s+/).filter(Boolean));
+        const handBuilt = set.has("rounded-lg") && set.has("border") && set.has("bg-card");
+        expect(handBuilt, `${file}: ${match[0]}`).toBe(false);
+      }
     }
   });
 
