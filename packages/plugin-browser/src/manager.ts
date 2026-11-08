@@ -134,6 +134,24 @@ export interface BrowserManagerOptions {
   executable?: string;
 }
 
+/**
+ * What the rail gets by default, because there are no settings to change it.
+ *
+ * These are the values a reader would have chosen for "a browser in a side
+ * panel": smooth enough that typing does not feel like a slideshow, sharp
+ * enough that body text is readable when the page holds still, and cheap
+ * enough that a page sitting open costs nothing but its still frame.
+ */
+/** Frames per second forwarded to the panel. Chrome paints faster; the rest
+ *  are acked and dropped, which is what keeps the cost bounded. */
+export const DEFAULT_FPS = 20;
+/** JPEG quality of the live stream. It is a preview: it moves. */
+const STREAM_QUALITY = 72;
+/** JPEG quality of the settled still. This is the frame that gets read. */
+const STILL_QUALITY = 82;
+/** How long the page must be still before that still is taken. */
+const STILL_SETTLE_MS = 200;
+
 /** Snapshot rows after this many elements get cut — the list has to stay readable. */
 const MAX_ELEMENTS = 160;
 /** Tabs one session may hold. A runaway opener is a bug, not a workload. */
@@ -143,7 +161,7 @@ const MAX_CONSOLE_LINES = 500;
 /** How long navigation waits for DOM before answering with what is there. */
 const NAV_TIMEOUT_MS = 20_000;
 /** Pause after an action before the next snapshot — a DOM update needs a beat. */
-const SETTLE_MS = 350;
+const ACTION_SETTLE_MS = 350;
 
 const REF = /^e\d{1,6}$/;
 
@@ -505,7 +523,7 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
 
   /** Give a triggered navigation or DOM update a moment before reading back. */
   const settle = async (tab: Tab): Promise<void> => {
-    await Bun.sleep(SETTLE_MS);
+    await Bun.sleep(ACTION_SETTLE_MS);
     await tab.page.evaluate("document.readyState").catch(() => {});
   };
 
@@ -611,7 +629,7 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
     const tab = session?.pages.get(cast.targetId);
     if (!tab) return;
     try {
-      const jpeg = await tab.page.screenshot("jpeg", 78);
+      const jpeg = await tab.page.screenshot("jpeg", STILL_QUALITY);
       emitFrame(sessionID, cast.targetId, tab, jpeg);
       cast.sentStill = true;
     } catch {
@@ -626,7 +644,7 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
     cast.settle = setTimeout(() => {
       cast.settle = undefined;
       void takeStill(sessionID, cast);
-    }, 220);
+    }, STILL_SETTLE_MS);
   };
 
   const startCast = async (sessionID: string, fps: number, tabId: string, tab: Tab) => {
@@ -662,7 +680,7 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
     const size = panelSize.get(sessionID);
     await tab.page
       .startScreencast({
-        quality: 62,
+        quality: STREAM_QUALITY,
         ...(size ? { maxWidth: size.width, maxHeight: size.height } : {}),
       })
       .catch(() => {
@@ -674,7 +692,7 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
     scheduleStill(sessionID, cast);
   };
 
-  /** Close this session's own tabs, and let go of the targets it attached to. */  /** Close this session's own tabs, and let go of the targets it attached to. */
+  /** Close this session's own tabs, and let go of the targets it attached to. */
   const closeSession = async (sessionID: string): Promise<number> => {
     const session = sessions.get(sessionID);
     if (!session) return 0;
@@ -867,7 +885,7 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
           return state(sessionID);
         }
       }
-      const fps = Math.min(Math.max(options.fps ?? 10, 1), 20);
+      const fps = Math.min(Math.max(options.fps ?? DEFAULT_FPS, 1), 24);
       stopCast(sessionID);
       // The request is kept even with no page: see `castWanted`.
       castWanted.set(sessionID, fps);

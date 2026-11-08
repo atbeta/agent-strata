@@ -387,3 +387,59 @@ function jpegSize(bytes: Buffer): { width: number; height: number } | undefined 
   }
   return undefined;
 }
+
+describe("the stream costs what it says", () => {
+  test("frames are forwarded at the requested rate, not at every paint", async () => {
+    // Chrome paints far faster than a rail needs. The service acks every frame
+    // (the ack is the flow control) and forwards only enough of them: the
+    // difference between a bounded cost and a 60 fps firehose.
+    const dir = mkdtempSync(join(tmpdir(), "strata-browser-rate-"));
+    const server = Bun.serve({
+      port: 0,
+      fetch: () =>
+        new Response(
+          `<title>busy</title><body style="margin:0"><h1 id=h>0</h1>
+           <script>let n=0;setInterval(()=>{document.getElementById('h').textContent=++n},16)</script>`,
+          { headers: { "content-type": "text/html" } },
+        ),
+    });
+    const stamps: number[] = [];
+    const manager = createBrowserManager({
+      stateDir: dir,
+      onFrame: () => stamps.push(Date.now()),
+      launch: (profileDir, port) => {
+        const proc = Bun.spawn(
+          [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            `--remote-debugging-port=${port}`,
+            `--user-data-dir=${profileDir}`,
+            "--headless=new",
+            "--no-first-run",
+            "about:blank",
+          ],
+          { stdout: "ignore", stderr: "ignore", stdin: "ignore" },
+        );
+        return { pid: proc.pid, kill: () => proc.kill() };
+      },
+    });
+    try {
+      await manager.navigate("s", `http://127.0.0.1:${server.port}`);
+      await manager.screencast("s", { fps: 10, width: 400, height: 300, scale: 1 });
+      await Bun.sleep(300);
+      stamps.length = 0;
+      const from = Date.now();
+      await Bun.sleep(2_000);
+      manager.stopScreencast("s");
+      const seconds = (Date.now() - from) / 1000;
+      const rate = stamps.length / seconds;
+      // Ten asked, ten-ish delivered: a little under is the settle stills
+      // taking a slot, well over would mean the throttle is not applied.
+      expect(rate).toBeGreaterThan(5);
+      expect(rate).toBeLessThan(16);
+    } finally {
+      await manager.dispose();
+      server.stop(true);
+      rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    }
+  }, 120_000);
+});

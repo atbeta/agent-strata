@@ -2,7 +2,6 @@ import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiFetch, streamUrlFor } from "./api";
 import { Button } from "@/components/ui/button";
 import { TextFieldInput } from "@/components/ui/text-field";
-import { explain } from "./errors";
 import { panelContributions, type PanelContribution } from "./plugin-registry";
 import { pluginDisplayName } from "./plugin-display";
 import { t } from "./i18n";
@@ -83,8 +82,6 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
   const [frame, setFrame] = createSignal<Frame>();
   const [state, setState] = createSignal<"connecting" | "live" | "idle" | "error">("connecting");
   const [error, setError] = createSignal<string>();
-  /** What the address bar holds while the reader is editing it. */
-  const [address, setAddress] = createSignal<string>();
   let canvas: HTMLCanvasElement | undefined;
   let socket: EventSource | undefined;
   /** The surface the frame is drawn into; its size is the page's size. */
@@ -138,9 +135,9 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
     const res = await post("/panel/cast", {
       session: props.sessionId(),
       // Chrome pushes a frame per paint; the service acks all of them and
-      // forwards at this rate. 12 is where scrolling stops looking like a
-      // slideshow without turning the rail into a video stream.
-      fps: 12,
+      // forwards at this rate. 20 is where typing stops feeling like a
+      // slideshow, and the service drops (and acks) the rest.
+      fps: 20,
       ...(size ? { width: size.width, height: size.height, scale: size.scale } : {}),
     }).catch((e: unknown) => {
       setError(e instanceof Error ? e.message : String(e));
@@ -263,7 +260,7 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
 
   return (
     <div class="flex min-h-0 flex-1 flex-col">
-      <div class="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1 text-2xs text-muted-foreground">
+      <div class="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5 text-2xs text-muted-foreground">
         <span
           class="h-1.5 w-1.5 shrink-0 rounded-full"
           classList={{
@@ -273,49 +270,31 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
           }}
         />
         {/*
-          An address bar, not a caption. The page in the rail is the reader's
-          to drive — typing a URL here is the same act as clicking a link, and
-          it goes through the plugin's private route rather than the agent's
-          tool, so it is not a policy decision.
+          Where the page is, not a place to go. Navigation belongs to the
+          agent: it is the thing deciding what to open and why, and a reader
+          who typed a URL here would be driving a page the agent is not
+          looking at. Clicks and keys still reach the page — signing in or
+          answering a dialog is the reader's, not a second driver.
+        */}
+        {/*
+          The address bar is a read-out, not an input: navigation belongs to
+          the agent, which is the thing deciding what to open. It still looks
+          like what it is — the page's address — because a bare sentence
+          floating in the header reads as a caption to nothing.
         */}
         <TextFieldInput
           bare
           mono
+          readonly
           size="sm"
           type="url"
-          class="min-w-0 flex-1 truncate px-1 py-0.5 text-2xs text-muted-foreground focus:bg-secondary/60 focus:text-foreground"
-          value={address() ?? frame()?.url ?? error() ?? t("panel.plugin.waiting")}
-          spellcheck={false}
-          autocomplete="off"
+          class="pointer-events-none min-w-0 flex-1 select-all truncate px-1 py-0.5 text-2xs text-muted-foreground"
+          value={frame()?.url ?? error() ?? t("panel.plugin.waiting")}
+          tabindex={-1}
           aria-label={t("panel.plugin.address")}
-          onInput={(e) => setAddress(e.currentTarget.value)}
-          onKeyDown={(e) => {
-            if (e.key !== "Enter") return;
-            e.preventDefault();
-            const target = address();
-            if (!target) return;
-            void post("/panel/navigate", { session: props.sessionId(), url: target })
-              .then((res) => {
-                if (!res.ok) throw new Error(t("api.err.service", { status: res.status }));
-                setAddress(undefined);
-              })
-              .catch((err: unknown) => {
-                setState("error");
-                setError(explain(err));
-              });
-          }}
-          onBlur={() => setAddress(undefined)}
+          title={frame()?.url ?? undefined}
         />
-        <Button
-          type="button"
-          variant="quiet"
-          size="sm"
-          class="shrink-0"
-          onClick={() => {
-            if (!frame()) return void start();
-            void post("/panel/reload", { session: props.sessionId() }).catch(() => {});
-          }}
-        >
+        <Button type="button" variant="quiet" size="sm" class="shrink-0" onClick={() => void start()}>
           {t("panel.plugin.refresh")}
         </Button>
       </div>

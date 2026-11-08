@@ -293,10 +293,6 @@ export class CdpPage {
     await loaded;
   }
 
-  async reload(): Promise<void> {
-    await this.send("Page.reload", { ignoreCache: false });
-  }
-
   async screenshot(format: "png" | "jpeg" = "png", quality?: number): Promise<Uint8Array> {
     const answer = await this.send<{ data: string }>("Page.captureScreenshot", {
       format,

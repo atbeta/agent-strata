@@ -350,28 +350,6 @@ export function createBrowserPlugin(options: BrowserPluginOptions): StrataPlugin
         });
         return Response.json(state);
       }
-      // A reader navigating is the reader's own action, like a click: it goes
-      // through the plugin's private route, not the agent's tool, so it is not
-      // a policy decision. The agent's `browser_navigate` keeps its own entry
-      // point and its own guard.
-      if (subpath === "/panel/navigate" && req.method === "POST") {
-        const body = (await req.json().catch(() => null)) as { session?: unknown; url?: unknown } | null;
-        if (typeof body?.session !== "string") return Response.json({ error: "session required" }, { status: 400 });
-        const target = browserUrl(body.url);
-        if (!target) return Response.json({ error: "not a URL this panel may open" }, { status: 400 });
-        const page = m().pageOf(resolveSession(body.session));
-        if (!page) return Response.json({ error: "no page" }, { status: 404 });
-        await page.navigate(target).catch(() => {});
-        return Response.json({ ok: true, url: target });
-      }
-      if (subpath === "/panel/reload" && req.method === "POST") {
-        const body = (await req.json().catch(() => null)) as { session?: unknown } | null;
-        if (typeof body?.session !== "string") return Response.json({ error: "session required" }, { status: 400 });
-        const page = m().pageOf(resolveSession(body.session));
-        if (!page) return Response.json({ error: "no page" }, { status: 404 });
-        await page.reload().catch(() => {});
-        return Response.json({ ok: true });
-      }
       if (subpath === "/panel/stop" && req.method === "POST") {
         const body = (await req.json().catch(() => null)) as { session?: unknown } | null;
         if (typeof body?.session === "string") m().stopScreencast(resolveSession(body.session));
