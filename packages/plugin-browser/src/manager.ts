@@ -552,10 +552,11 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
     }
     const id = session.current;
     const tab = id ? session.pages.get(id) : undefined;
-    if (!tab) {
-      stopCast(sessionID);
-      return;
-    }
+    // No page yet is the normal state of a panel that was opened before the
+    // agent navigated: the reader clicks the tab while the agent is still
+    // thinking. Giving up here left the panel blank for the rest of the
+    // session, because nothing ever started the loop again.
+    if (!tab) return;
     try {
       const jpeg = await tab.page.screenshot("jpeg", 55);
       opts.onFrame?.({
@@ -746,7 +747,10 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
 
     async screencast(sessionID, options = {}) {
       const session = sessionOf(sessionID);
-      if (session.pages.size === 0) return state(sessionID);
+      // Started even with no page: see `shoot`. The size is remembered and
+      // applied when the first tab opens, so the frame arrives already laid
+      // out for the rail rather than at a desktop width.
+      void session;
       // The panel says how big it is; the page is laid out at that size so the
       // frame is the page, not a shrunk desktop. Applied before the first
       // frame, so the panel never shows the old shape.

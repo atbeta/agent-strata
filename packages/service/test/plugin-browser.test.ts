@@ -211,3 +211,101 @@ describe.skipIf(!hasChrome)("browser tools through the service", () => {
     expect(after.output).toContain("No tabs in this session");
   }, 60_000);
 });
+
+describe("the panel's frame stream", () => {
+  test("a panel opened before the agent navigates still gets its first frame", async () => {
+    // The reader clicks the Browser tab while the agent is still thinking, so
+    // the cast is requested with no tab in the session. It used to give up
+    // there — `screencast` returned as soon as `pages.size === 0` — and nothing
+    // ever restarted it, so the panel stayed blank for the whole session while
+    // browser_screenshot worked in the transcript.
+    const desktop = mkdtempSync(join(tmpdir(), "strata-cast-"));
+    const work = mkdtempSync(join(tmpdir(), "strata-cast-work-"));
+    const page = Bun.serve({
+      port: 0,
+      fetch: () => new Response("<title>Cast</title><button>Go</button>", { headers: { "content-type": "text/html" } }),
+    });
+    const policyFile = join(desktop, "policy.json");
+    writeFileSync(
+      policyFile,
+      JSON.stringify({ version: 1, default: "allow", rules: [{ id: "browse", effect: "allow", tool: "browser_*" }] }),
+    );
+    const svc = startService({ db: ":memory:", port: 0, desktopDir: desktop, policyFile });
+    const base = `http://127.0.0.1:${svc.port}`;
+    const post = (path: string, body: unknown) =>
+      fetch(`${base}${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    try {
+      svc.store.append([
+        makeEvent({
+          session_id: "opencode:ses_cast",
+          type: "session.started",
+          ts: "2026-01-01T00:00:00Z",
+          source: { backend: "opencode" },
+          data: { title: "cast", workspace: work },
+        } as EventInput),
+      ]);
+      for (let i = 0; i < 300; i++) {
+        const listing = (await (await fetch(`${base}/plugins`)).json()) as {
+          plugins: { id: string; state: string }[];
+        };
+        if (listing.plugins.find((p) => p.id === "browser")?.state === "running") break;
+        await Bun.sleep(50);
+      }
+
+      // 1) The panel asks for frames first, with nothing to show yet.
+      const cast = await post("/plugins/browser/panel/cast", {
+        session: "opencode:ses_cast",
+        fps: 6,
+        width: 700,
+        height: 900,
+      });
+      expect(cast.status).toBe(200);
+
+      // 2) The events stream is what the panel listens on.
+      const events = await fetch(`${base}/plugins/browser/events?session=opencode%3Ases_cast`);
+      expect(events.status).toBe(200);
+      const reader = events.body!.getReader();
+      const decoder = new TextDecoder();
+      let sawFrame = "";
+      const pump = (async () => {
+        let buffered = "";
+        const deadline = Date.now() + 15_000;
+        while (Date.now() < deadline && !sawFrame) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffered += decoder.decode(value, { stream: true });
+          const chunks = buffered.split("\n\n");
+          buffered = chunks.pop() ?? "";
+          for (const chunk of chunks) {
+            const data = chunk.replace(/^data: /, "").trim();
+            if (!data) continue;
+            if (data.includes('"frame"')) sawFrame = data;
+          }
+        }
+      })();
+
+      // 3) Only now does the agent open a page.
+      await Bun.sleep(200);
+      const navigated = await post("/plugins/browser/tools/navigate", {
+        session_id: "opencode:ses_cast",
+        input: { url: `http://127.0.0.1:${page.port}` },
+      });
+      expect(navigated.status).toBe(200);
+
+      await Promise.race([pump, Bun.sleep(16_000)]);
+      await reader.cancel().catch(() => {});
+      expect(sawFrame).toContain("image/jpeg");
+
+      await post("/plugins/browser/panel/stop", { session: "opencode:ses_cast" });
+    } finally {
+      svc.stop();
+      page.stop(true);
+      rmSync(desktop, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+      rmSync(work, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    }
+  }, 120_000);
+});

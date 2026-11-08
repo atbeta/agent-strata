@@ -245,6 +245,8 @@ export interface BrowserPluginOptions {
 export function createBrowserPlugin(options: BrowserPluginOptions): StrataPlugin {
   let manager: BrowserManager | undefined;
   let emit: ((event: { type: string; data?: unknown }) => void) | undefined;
+  /** Installed by initialize: panel routes name sessions the way tools do. */
+  let resolveSession: (given: string) => string = (given) => given;
 
   const m = (): BrowserManager => {
     if (!manager) throw new Error("the browser plugin was called before it initialized");
@@ -256,6 +258,7 @@ export function createBrowserPlugin(options: BrowserPluginOptions): StrataPlugin
   return {
     async initialize(ctx: PluginContext) {
       emit = (event) => ctx.emit(event);
+      resolveSession = (given) => ctx.resolveSession(given);
       manager = createBrowserManager({
         stateDir: options.dataDir,
         onFrame: (frame) => {
@@ -306,7 +309,7 @@ export function createBrowserPlugin(options: BrowserPluginOptions): StrataPlugin
       if (subpath === "/panel/state" && req.method === "GET") {
         const requested = new URL(req.url).searchParams.get("session");
         if (!requested) return Response.json({ error: "session required" }, { status: 400 });
-        const state = m().state(requested);
+        const state = m().state(resolveSession(requested));
         return Response.json(state);
       }
       if (subpath === "/panel/cast" && req.method === "POST") {
@@ -317,6 +320,7 @@ export function createBrowserPlugin(options: BrowserPluginOptions): StrataPlugin
           height?: unknown;
         } | null;
         if (typeof body?.session !== "string") return Response.json({ error: "session required" }, { status: 400 });
+        const session = resolveSession(body.session);
         const fps = typeof body.fps === "number" ? body.fps : undefined;
         // The panel's pixel size, clamped: a page laid out at 40px wide is a
         // page whose own CSS has given up, and a huge one costs a bigger
@@ -325,7 +329,7 @@ export function createBrowserPlugin(options: BrowserPluginOptions): StrataPlugin
           typeof v === "number" && Number.isFinite(v) ? Math.min(Math.max(Math.round(v), 320), 1920) : undefined;
         const width = clamp(body.width);
         const height = clamp(body.height);
-        const state = await m().screencast(body.session, {
+        const state = await m().screencast(session, {
           ...(fps === undefined ? {} : { fps }),
           ...(width === undefined || height === undefined ? {} : { width, height }),
         });
@@ -333,7 +337,7 @@ export function createBrowserPlugin(options: BrowserPluginOptions): StrataPlugin
       }
       if (subpath === "/panel/stop" && req.method === "POST") {
         const body = (await req.json().catch(() => null)) as { session?: unknown } | null;
-        if (typeof body?.session === "string") m().stopScreencast(body.session);
+        if (typeof body?.session === "string") m().stopScreencast(resolveSession(body.session));
         return Response.json({ ok: true });
       }
       if (subpath === "/panel/input" && req.method === "POST") {
@@ -347,7 +351,7 @@ export function createBrowserPlugin(options: BrowserPluginOptions): StrataPlugin
           delta?: unknown;
         } | null;
         if (typeof body?.session !== "string") return Response.json({ error: "session required" }, { status: 400 });
-        const page = m().pageOf(body.session);
+        const page = m().pageOf(resolveSession(body.session));
         if (!page) return Response.json({ error: "no page" }, { status: 404 });
         const fx = typeof body.x === "number" ? Math.min(Math.max(body.x, 0), 1) : 0.5;
         const fy = typeof body.y === "number" ? Math.min(Math.max(body.y, 0), 1) : 0.5;

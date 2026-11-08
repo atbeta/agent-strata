@@ -105,6 +105,10 @@ curl -s localhost:7791/plugins | jq -r '.plugins[] | "\(.id) \(.state)"'
 | 6 | `evaluate` 的非字符串 command 分支丢 `plugin_id` | 该分支补传 | `policy.test.ts`「plugin_id survives every branch」 |
 | 7 | `toolKind` 注释与实现相反；两个死接口 | 注释改为描述真实顺序，并写明不变量由 manifest 校验保证；删掉 `usePluginRegistry`、`PluginRouteDeps.policyFor` | typecheck + lint |
 
+第三轮（真机反馈）：右栏 Browser tab 一直是"等待插件画面"。
+
+原因是 `screencast` 在没有 tab 时直接返回，**而且不装定时器**：读者在 agent 还没导航前就点开 Browser tab 是常态，那一次 cast 就此放弃，之后没有任何东西再启动它。修法：cast 在没有页面时保持运行，`shoot` 等页面出现再拍；面板路由的 session 也走 `ctx.resolveSession`，避免面板和工具调用用两种写法命名同一个会话。用例：`plugin-browser.test.ts`「a panel opened before the agent navigates still gets its first frame」（HTTP 全程：cast → SSE → navigate → 等帧）。
+
 顺带发现并修的一个洞（#2 的延伸）：`file:/etc/passwd` 只写一个斜杠时，旧的"只有 `//` 才算 scheme"规则把它读成主机 `file`，会真的去网络请求。现在冒号后不是端口数字就按 scheme 处理并拒绝。
 
 ## 没做的
