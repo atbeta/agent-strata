@@ -145,9 +145,10 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
     const res = await post("/panel/cast", {
       session: props.sessionId(),
       // Chrome pushes a frame per paint; the service acks all of them and
-      // forwards at this rate. 20 is where typing stops feeling like a
-      // slideshow, and the service drops (and acks) the rest.
-      fps: 20,
+      // forwards at this rate, dropping the rest. Twelve is smooth enough to
+      // type against and leaves the panel's decoder room to keep up: a rate
+      // the client cannot decode is a rate that piles up until the rail stops.
+      fps: 12,
       ...(size ? { width: size.width, height: size.height, scale: size.scale } : {}),
     }).catch((e: unknown) => {
       setError(e instanceof Error ? e.message : String(e));
@@ -201,8 +202,11 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
           return;
         }
         if (payload?.type !== "frame") return;
-        setFrame(payload.data as Frame);
+        const next = payload.data as Frame;
+        setFrame(next);
         setState("live");
+        pending = next;
+        void pump();
       };
       socket.onerror = () => {
         // EventSource reconnects by itself; the frame stays on screen.
@@ -237,11 +241,13 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
    * stream at the page's CSS size, the still at the display's ratio. Sizing
    * the canvas to the picture meant it was resized on every frame that came
    * from the other source: a 1400x1800 backing store allocated twenty times a
-   * second, which is what made the rail flash and then stop answering. The
-   * canvas is now fixed to the panel's own pixels and each frame is drawn into
-   * it, so the two sources differ in sharpness and not in geometry.
+   * second. The canvas is fixed to the panel's own pixels now, so the two
+   * sources differ in sharpness and not in geometry.
+   *
+   * `source` is a decoded bitmap, not an `<img>`: decoding a JPEG on the main
+   * thread, twenty times a second, is what wedged the rail.
    */
-  const paint = (image: HTMLImageElement) => {
+  const draw = (source: ImageBitmap | HTMLImageElement) => {
     const c = canvas;
     const size = panelSize();
     if (!c || !size) return;
@@ -253,13 +259,62 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
     }
     const ctx = c.getContext("2d");
     if (!ctx) return;
+    const sw = source.width;
+    const sh = source.height;
+    if (!sw || !sh) return;
     ctx.clearRect(0, 0, w, h);
     // Contained, not stretched: a frame from before a resize has a different
     // aspect, and one bad frame should letterbox rather than squash the page.
-    const scale = Math.min(w / image.naturalWidth, h / image.naturalHeight);
-    const dw = image.naturalWidth * scale;
-    const dh = image.naturalHeight * scale;
-    ctx.drawImage(image, (w - dw) / 2, (h - dh) / 2, dw, dh);
+    const scale = Math.min(w / sw, h / sh);
+    const dw = sw * scale;
+    const dh = sh * scale;
+    ctx.drawImage(source, (w - dw) / 2, (h - dh) / 2, dw, dh);
+  };
+
+  /**
+   * The newest frame, and at most one decode in flight.
+   *
+   * A stream can arrive faster than frames can be decoded. Everything that
+   * piles up behind the decoder is a frame nobody will look at, so a frame
+   * that lands mid-decode replaces the previous one instead of queueing: the
+   * display is always the latest picture, and the work stays bounded by the
+   * decoder rather than by the network.
+   */
+  let pending: Frame | undefined;
+  let decoding = false;
+  const pump = async () => {
+    if (decoding) return;
+    const next = pending;
+    pending = undefined;
+    if (!next) return;
+    decoding = true;
+    try {
+      const bytes = Uint8Array.from(atob(next.data), (ch) => ch.charCodeAt(0));
+      const blob = new Blob([bytes], { type: next.mime });
+      if (typeof createImageBitmap === "function") {
+        const bitmap = await createImageBitmap(blob);
+        draw(bitmap);
+        bitmap.close();
+      } else {
+        // No off-thread decoder: decode through an image element. Slower, but
+        // the panel still draws.
+        const url = URL.createObjectURL(blob);
+        try {
+          const image = new Image();
+          image.src = url;
+          await image.decode();
+          draw(image);
+        } finally {
+          URL.revokeObjectURL(url);
+        }
+      }
+    } catch {
+      // A truncated frame is the stream's problem, not the panel's; the next
+      // one paints.
+    } finally {
+      decoding = false;
+    }
+    if (pending) void pump();
   };
 
   /**
@@ -358,7 +413,7 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
             </p>
           }
         >
-          {(f) => (
+          {(
             <div
               // Fills the surface: the page was laid out at this size, so the
               // frame is 1:1 rather than a picture scaled to fit a box.
@@ -446,7 +501,6 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
                   canvas = el;
                 }}
                 class="block h-full w-full select-none"
-                style={{ "object-fit": "contain" }}
                 data-frame
               />
               {/*
@@ -486,12 +540,6 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
                   const value = e.clipboardData?.getData("text") ?? "";
                   if (value) input("text", { text: value });
                 }}
-              />
-              <img
-                src={`data:${f().mime};base64,${f().data}`}
-                alt=""
-                class="hidden"
-                onLoad={(e) => paint(e.currentTarget)}
               />
             </div>
           )}

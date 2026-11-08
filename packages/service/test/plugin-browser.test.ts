@@ -665,3 +665,75 @@ describe("the rail can wear the page's cursor", () => {
     }
   }, 120_000);
 });
+
+describe("the wheel reaches the page", () => {
+  test("scrolling moves the page, so content below the fold can be reached", async () => {
+    // The rail is the only way to the page's lower half; a wheel that does not
+    // scroll leaves whatever the agent opened half-unreachable.
+    const desktop = mkdtempSync(join(tmpdir(), "strata-wheel-"));
+    const work = mkdtempSync(join(tmpdir(), "strata-wheel-work-"));
+    const page = Bun.serve({
+      port: 0,
+      fetch: () =>
+        new Response(
+          `<!doctype html><title>Tall</title><style>body{margin:0} .tall{height:3000px}</style><div class=tall>x</div>`,
+          { headers: { "content-type": "text/html" } },
+        ),
+    });
+    const policyFile = join(desktop, "policy.json");
+    // `browser_eval` is the plugin's own floor of "ask", so reading scrollY
+    // needs a rule that says so; nothing here is a decision a person makes.
+    writeFileSync(
+      policyFile,
+      JSON.stringify({
+        version: 1,
+        default: "allow",
+        rules: [{ id: "eval", effect: "allow", tool: "browser_eval" }],
+      }),
+    );
+    const svc = startService({ db: ":memory:", port: 0, desktopDir: desktop, policyFile });
+    const base = `http://127.0.0.1:${svc.port}`;
+    const post = (path: string, body: unknown) =>
+      fetch(`${base}${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    try {
+      svc.store.append([
+        makeEvent({
+          session_id: "opencode:ses_wheel",
+          type: "session.started",
+          ts: "2026-01-01T00:00:00Z",
+          source: { backend: "opencode" },
+          data: { title: "wheel", workspace: work },
+        } as EventInput),
+      ]);
+      for (let i = 0; i < 300; i++) {
+        const listing = (await (await fetch(`${base}/plugins`)).json()) as { plugins: { id: string; state: string }[] };
+        if (listing.plugins.find((p) => p.id === "browser")?.state === "running") break;
+        await Bun.sleep(50);
+      }
+      await post("/plugins/browser/tools/navigate", {
+        session_id: "opencode:ses_wheel",
+        input: { url: `http://127.0.0.1:${page.port}` },
+      });
+      await post("/plugins/browser/panel/input", { session: "opencode:ses_wheel", kind: "wheel", x: 0.5, y: 0.5, delta: 400 });
+      let y = 0;
+      for (let i = 0; i < 30 && y === 0; i++) {
+        await Bun.sleep(100);
+        const read = (await (await post("/plugins/browser/tools/eval", {
+          session_id: "opencode:ses_wheel",
+          input: { source: "String(scrollY)" },
+        })).json()) as { output: string };
+        y = Number(read.output.trim());
+      }
+      expect(y).toBeGreaterThan(0);
+    } finally {
+      svc.stop();
+      page.stop(true);
+      rmSync(desktop, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+      rmSync(work, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    }
+  }, 120_000);
+});
