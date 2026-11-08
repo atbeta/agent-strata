@@ -8,6 +8,9 @@ export type PermissionView =
   | { kind: "paths"; paths: string[]; command?: string }
   | { kind: "diff"; path?: string; patch: string }
   | { kind: "url"; url: string }
+  /** Nothing to show: the ask is the tool and its name, and a `{}` box would be
+   *  a frame around nothing. */
+  | { kind: "empty" }
   | { kind: "json" };
 
 function patterns(input: Record<string, unknown>): string {
@@ -59,6 +62,28 @@ function pathList(input: Record<string, unknown>): string[] {
   return out;
 }
 
+/**
+ * Whether there is anything to put in the card's body.
+ *
+ * A tool that takes no arguments still sends `input: {}`, and a tool that
+ * takes one may send it empty. Rendering those as a JSON block drew an empty
+ * framed box — the loudest thing on the card, saying nothing.
+ */
+function blank(input: Record<string, unknown>): boolean {
+  const keys = Object.keys(input);
+  if (keys.length === 0) return true;
+  return keys.every((key) => {
+    const value = input[key];
+    return (
+      value === undefined ||
+      value === null ||
+      value === "" ||
+      (Array.isArray(value) && value.length === 0) ||
+      (typeof value === "object" && value !== null && Object.keys(value).length === 0)
+    );
+  });
+}
+
 /** The one thing the card should show. Anything unrecognised stays a JSON dump. */
 export function permissionView(ask: { tool: string; input: Record<string, unknown> }): PermissionView {
   const input = ask.input ?? {};
@@ -95,7 +120,7 @@ export function permissionView(ask: { tool: string; input: Record<string, unknow
     const url = typeof input.url === "string" && input.url ? input.url : patterns(input);
     if (url) return { kind: "url", url };
   }
-  return { kind: "json" };
+  return blank(input) ? { kind: "empty" } : { kind: "json" };
 }
 
 /** `waiting` is how many sessions currently need the user. */

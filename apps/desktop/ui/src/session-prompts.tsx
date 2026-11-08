@@ -13,6 +13,29 @@ import { Button } from "@/components/ui/button";
 import { ChoiceCard } from "@/components/ui/choice-card";
 import { TextFieldInput } from "@/components/ui/text-field";
 
+/**
+ * The top level of an object when every value is a single fact.
+ *
+ * Nested arrays or objects are a document and keep the tree view; a handful of
+ * scalar fields is a sentence, and the card is asking someone to read it fast.
+ */
+function flatRows(input: Record<string, unknown>): { key: string; value: string }[] | undefined {
+  const entries = Object.entries(input);
+  if (entries.length === 0) return undefined;
+  const rows: { key: string; value: string }[] = [];
+  for (const [key, value] of entries) {
+    if (typeof value === "string") {
+      if (!value.trim()) continue;
+      rows.push({ key, value });
+    } else if (typeof value === "number" || typeof value === "boolean") {
+      rows.push({ key, value: String(value) });
+    } else {
+      return undefined;
+    }
+  }
+  return rows.length > 0 ? rows : undefined;
+}
+
 function askIcon(
   detail: PermissionView,
   tool: string,
@@ -78,6 +101,23 @@ export function AskCard(props: {
     if (view.kind === "url") {
       return <p class="break-all font-mono text-xs leading-5 text-foreground/90">{view.url}</p>;
     }
+    // A flat object reads as a list of facts, not as a document: the braces,
+    // quotes and indentation were most of what the card was showing.
+    const rows = flatRows(props.ask.input);
+    if (rows) {
+      return (
+        <ul class="max-h-32 space-y-0.5 overflow-auto">
+          <For each={rows}>
+            {(row) => (
+              <li class="flex items-baseline gap-2">
+                <span class="shrink-0 font-mono text-2xs text-muted-foreground">{row.key}</span>
+                <span class="min-w-0 break-words font-mono text-xs leading-5 text-foreground/90">{row.value}</span>
+              </li>
+            )}
+          </For>
+        </ul>
+      );
+    }
     return (
       <div class="max-h-32 overflow-auto rounded-md bg-secondary/50 px-2.5 py-1.5">
         <JsonView value={props.ask.input} />
@@ -85,8 +125,8 @@ export function AskCard(props: {
     );
   };
   return (
-    <div class="overflow-hidden rounded-lg border border-event-permission/40 bg-card">
-      <div class="flex items-center gap-2 border-b border-event-permission/15 bg-event-permission/8 px-3 py-2">
+    <div class="overflow-hidden rounded-lg border border-event-permission/30 bg-card">
+      <div class="flex items-center gap-2 border-b border-event-permission/15 bg-event-permission/6 px-3 py-2">
         <Icon name={askIcon(detail(), props.ask.tool, props.ask.input)} class="size-3.5 shrink-0 text-event-permission" />
         <span class="text-xs font-medium">{props.ask.tool}</span>
         <span class="text-2xs text-muted-foreground">{t("permission.wants_to_run")}</span>
@@ -96,7 +136,11 @@ export function AskCard(props: {
           </span>
         </Show>
       </div>
-      <div class="px-3 py-2">{body()}</div>
+      {/* No body means no frame: a tool with no arguments is its name and its
+          two decisions, and an empty box under them was the whole complaint. */}
+      <Show when={detail().kind !== "empty"}>
+        <div class="px-3 py-2">{body()}</div>
+      </Show>
       <div class="flex items-center justify-end gap-1.5 border-t border-border px-2 py-1.5">
         <Button
           variant="ghost"

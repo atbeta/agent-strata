@@ -107,3 +107,20 @@ describe("window title", () => {
     expect(windowTitle(2)).toBe(`(2) ${APP_NAME}`);
   });
 });
+
+describe("an ask with nothing to show", () => {
+  test("no arguments, or arguments that carry nothing, draw no body", () => {
+    // `dev_list` takes none; the card used to draw a framed `{}` under the
+    // header — the loudest element on it, saying nothing.
+    expect(permissionView({ tool: "dev_list", input: {} })).toEqual({ kind: "empty" });
+    expect(permissionView({ tool: "search", input: { query: "" } })).toEqual({ kind: "empty" });
+    expect(permissionView({ tool: "search", input: { paths: [] } })).toEqual({ kind: "empty" });
+    expect(permissionView({ tool: "search", input: { query: null } })).toEqual({ kind: "empty" });
+    expect(permissionView({ tool: "glob", input: { pattern: "", flags: {} } })).toEqual({ kind: "empty" });
+  });
+
+  test("one real field is still a body", () => {
+    expect(permissionView({ tool: "search", input: { query: "session" } })).toEqual({ kind: "json" });
+    expect(permissionView({ tool: "task", input: { description: "look" } })).toEqual({ kind: "json" });
+  });
+});
