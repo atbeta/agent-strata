@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { hasAnsi, stripAnsi } from "./ansi";
-import { grammarFor, guessGrammar, tokenize, tokenizeDiff } from "./highlight";
+import { ansiRuns, hasAnsi, stripAnsi } from "./ansi";
+import { grammarFor, guessGrammar, tokenize, tokenizeDiff, tokenizeLogMarkers } from "./highlight";
 
 /**
  * `structure` looks its strings up in `i18n`, which stamps
@@ -172,5 +172,58 @@ describe("structured payloads", () => {
     expect(summaryOf("object", ["a", "b"])).toBe("{a, b}");
     expect(summaryOf("object", ["a", "b", "c", "d", "e"])).toBe("{a, b, c, d, …}");
     expect(summaryOf("object", [])).toBe("{}");
+  });
+});
+describe("guessGrammar stays quiet on prose", () => {
+  // The old rules matched words anywhere in the text, so a sentence that
+  // mentioned git became a shell block — and the first word of a shell block
+  // is painted as the command, which made "Please" look executable.
+  test("a sentence that mentions a tool is not that tool", () => {
+    expect(guessGrammar("Please run git status before committing.")).toBeNull();
+    expect(guessGrammar("用 npm 安装依赖即可")).toBeNull();
+    expect(guessGrammar("The function returns a value when called.")).toBeNull();
+    expect(guessGrammar("go to the store and get milk")).toBeNull();
+  });
+
+  test("a real command line still reads as one", () => {
+    expect(guessGrammar("git status")).toBe("sh");
+    expect(guessGrammar("npm run build")).toBe("sh");
+    expect(guessGrammar("ls -la /tmp")).toBe("sh");
+  });
+
+  test("python is a block header or an import plus a call", () => {
+    expect(guessGrammar("import os\nprint(os.getcwd())")).toBe("py");
+    expect(guessGrammar("def main():\n    pass")).toBe("py");
+  });
+});
+
+describe("log levels in plain output", () => {
+  test("a level word inside a machine prefix is a marker", () => {
+    const line =
+      "[85305:308044565:1105/035830.878128:ERROR:ui/display/mac/cv_display_link_mac.mm:188] CVDisplayLinkCreateWithCGDisplay failed.";
+    const marked = tokenizeLogMarkers(line);
+    expect(marked?.filter((t) => t.kind !== "plain").map((t) => `${t.kind}:${t.text}`)).toEqual(["log-error:ERROR"]);
+  });
+
+  test("the same word in a sentence is just a word", () => {
+    expect(tokenizeLogMarkers("this had an error in it but is prose")).toBeNull();
+    expect(tokenizeLogMarkers("no levels here")).toBeNull();
+  });
+});
+
+describe("ansi runs", () => {
+  test("colour survives, escapes do not, text is intact", () => {
+    const runs = ansiRuns("\u001b[32mgreen\u001b[0m plain \u001b[1;31mred\u001b[0m");
+    expect(runs).toBeDefined();
+    expect(runs!.map((r) => r.text).join("")).toBe("green plain red");
+    expect(runs![0]!.tone).toContain("tok-ansi-green");
+    const red = runs!.find((r) => r.text === "red")!;
+    expect(red.tone).toContain("tok-ansi-red");
+    expect(red.tone).toContain("tok-ansi-bold");
+    expect(runs!.some((r) => r.text.includes("\u001b"))).toBe(false);
+  });
+
+  test("no escapes means no runs, so the caller can highlight instead", () => {
+    expect(ansiRuns("plain output")).toBeUndefined();
   });
 });

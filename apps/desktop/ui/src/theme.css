@@ -1672,6 +1672,29 @@ textarea {
   .tok-punct   { @apply text-syntax-punctuation; }
   .tok-add     { @apply text-diff-add-fg; }
   .tok-del     { @apply text-diff-del-fg; }
+  /* A tool's own ANSI colour, kept: `git status` and `cargo test` say which
+     lines matter in colour, and that is better evidence than a guess. */
+  .tok-ansi-black   { color: var(--faint-foreground); }
+  .tok-ansi-red     { color: var(--destructive); }
+  .tok-ansi-green   { color: var(--status-active); }
+  .tok-ansi-yellow  { color: var(--event-permission); }
+  .tok-ansi-blue    { color: var(--primary); }
+  .tok-ansi-magenta { color: var(--event-tool); }
+  .tok-ansi-cyan    { color: var(--event-file); }
+  .tok-ansi-white   { color: var(--foreground); }
+  .tok-ansi-bright-black   { color: var(--muted-foreground); }
+  .tok-ansi-bright-red     { color: var(--status-error); }
+  .tok-ansi-bright-green   { color: var(--status-active); }
+  .tok-ansi-bright-yellow  { color: var(--event-permission); }
+  .tok-ansi-bright-blue    { color: var(--ring); }
+  .tok-ansi-bright-magenta { color: var(--event-tool); }
+  .tok-ansi-bright-cyan    { color: var(--event-file); }
+  .tok-ansi-bright-white   { color: var(--foreground); }
+  .tok-ansi-bold { font-weight: 600; }
+  .tok-ansi-dim  { opacity: 0.65; }
+  /* Log levels in plain output: two places to look, not a colour scheme. */
+  .tok-log-error { color: var(--destructive); font-weight: 500; }
+  .tok-log-warn  { color: var(--event-permission); font-weight: 500; }
 }
 
 /* The busy session mark. OpenCode's spinner: the inner four breathe between

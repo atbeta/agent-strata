@@ -572,7 +572,7 @@ function ShellWell(props: { call: ToolCallView; command?: string; running: boole
         </Show>
         <Show when={output()}>
           <div class={props.command ? "border-t border-border" : undefined}>
-            <Code source={output()!} maxHeight="max-h-72" class="rounded-none border-0 bg-transparent pr-16" />
+            <Code source={output()!} shell maxHeight="max-h-72" class="rounded-none border-0 bg-transparent pr-16" />
           </div>
         </Show>
         <Show when={!output() && props.running}>
@@ -608,7 +608,7 @@ function OutputWell(props: { text: string; kind: ToolKind; danger?: boolean }) {
     <div class="group relative">
       <Show
         when={diff()}
-        fallback={<Code source={clean()} maxHeight="max-h-72" class="pr-16" danger={props.danger} />}
+        fallback={<Code source={clean()} shell={props.kind === "shell"} maxHeight="max-h-72" class="pr-16" danger={props.danger} />}
       >
         <pre class="max-h-72 overflow-auto rounded-md border border-border bg-code-surface px-3 py-2 pr-16 font-mono text-xs leading-5">
         <For each={clean().split("\n")}>

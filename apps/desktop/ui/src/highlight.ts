@@ -13,6 +13,9 @@
 
 export type TokenKind =
   | "plain"
+  // Log levels in a tool's output: not a language, a place to look.
+  | "log-error"
+  | "log-warn"
   | "comment"
   | "string"
   | "number"
@@ -182,17 +185,81 @@ export function grammarFor(label: string | undefined): keyof typeof GRAMMARS | n
 }
 
 /**
- * Guess a grammar from the text itself. Used for tool results, which arrive
- * with no label at all.
+ * Guess a grammar from the text itself. Used for tool results and for fenced
+ * blocks that carry no label.
+ *
+ * The rules are deliberately narrow. A word that merely appears in a sentence
+ * is not a language: "Please run git status" used to make the whole block
+ * shell — and painted "Please" as the command, because the first word of a
+ * shell block is always the command. Each rule below needs a shape prose does
+ * not have: a prompt, a run of command-shaped lines, or a declaration at the
+ * start of a line.
  */
 export function guessGrammar(src: string): keyof typeof GRAMMARS | null {
   const head = src.slice(0, 400).trim();
   if (!head) return null;
   if (/^[[{]/.test(head) && /["'][\w$-]*["']\s*:/.test(head)) return "json";
-  if (/^(#!\/|\$ |> )/.test(src) || /\b(bun|npm|pnpm|yarn|git|cd|ls|cat|curl)\b/.test(head)) return "sh";
-  if (/^(from|import)\s+\S+\s+import\b|^(def|class)\s+\w+.*:\s*$/m.test(src)) return "py";
-  if (/\b(const|let|function|=>|interface|export)\b/.test(head)) return "ts";
+
+  // A prompt at the start of a line is the strongest shell signal there is.
+  if (/^\s*(\$|❯)\s+\S/m.test(src)) return "sh";
+
+  const lines = src.split("\n").slice(0, 12);
+  // Unambiguous tools: their name at the start of a line is already a command.
+  const strong =
+    /^\s*(?:sudo\s+)?(?:bun|npm|pnpm|yarn|npx|cargo|docker|kubectl|git|gh|systemctl|brew|mkdir|curl|wget)\b/;
+  // Ordinary ones: a flag, a path or a pipe is what separates `ls -la` from a
+  // sentence that happens to begin with "go".
+  const anyCommand =
+    /^\s*(?:sudo\s+)?(?:cd|ls|cat|rm|cp|mv|grep|rg|sed|awk|find|make|go|node|python3?|tar|chmod|chown|ssh|scp|tail|head|wc|sort|uniq|jq|echo|export|less|touch)\b/;
+  const shaped = (line: string) =>
+    (strong.test(line) && line.trim().split(/\s+/).length >= 2) ||
+    (anyCommand.test(line) && /(\s-{1,2}[\w-]+|\s\/|\s\.{1,2}\/|&&|\|)/.test(line));
+  if (lines.length === 1 && shaped(lines[0]!)) return "sh";
+  if (lines.filter(shaped).length >= 2) return "sh";
+
+  // Python: a block header at the start of a line, or an import plus a call.
+  if (/^\s*(?:async\s+)?(?:def|class)\s+\w+[^\n]*:\s*$/m.test(src)) return "py";
+  if (/^\s*(?:import|from)\s+[\w.]+/m.test(src) && /^\s*\w+\(.*\)\s*$/m.test(src)) return "py";
+
+  // TypeScript/JavaScript: a declaration at the start of a line, and code
+  // punctuation in the head — prose may well contain the word "function".
+  if (/^\s*(?:const|let|var|function|interface|export|import|type)\b/m.test(head) && /[{};=()]/.test(head)) {
+    return "ts";
+  }
   return null;
+}
+
+/**
+ * Tint the level words in machine output: `ERROR:` in a stack trace, `[WARN]`
+ * in a build log.
+ *
+ * Only the word is coloured and only where it reads as a marker — followed by
+ * `:` or `]`, or sitting inside a bracketed prefix. A sentence that contains
+ * the word "error" is a sentence.
+ */
+const LOG_LEVEL = /\b(ERROR|FATAL|PANIC|CRITICAL|WARN|WARNING|SEVERE)\b/g;
+
+export function tokenizeLogMarkers(src: string): Token[] | null {
+  const hits: { at: number; len: number; kind: TokenKind }[] = [];
+  for (const match of src.matchAll(LOG_LEVEL)) {
+    const at = match.index;
+    const after = src.slice(at + match[0].length, at + match[0].length + 2);
+    const before = src.slice(Math.max(0, at - 1), at);
+    const marker = /^[\]:]/.test(after) || /[[:]/.test(before) || at === 0 || src[at - 1] === "\n";
+    if (!marker) continue;
+    const kind: TokenKind = /^(ERROR|FATAL|PANIC|CRITICAL|SEVERE)$/.test(match[0]) ? "log-error" : "log-warn";
+    hits.push({ at, len: match[0].length, kind });
+  }
+  if (hits.length === 0) return null;
+  const out: Token[] = [];
+  let last = 0;
+  for (const hit of hits) {
+    push(out, "plain", src.slice(last, hit.at));
+    push(out, hit.kind, src.slice(hit.at, hit.at + hit.len));
+    last = hit.at + hit.len;
+  }
+  push(out, "plain", src.slice(last));
+  return out;
 }
 
 function push(out: Token[], kind: TokenKind, text: string) {

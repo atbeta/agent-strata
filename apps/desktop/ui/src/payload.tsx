@@ -1,7 +1,7 @@
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { copyText } from "./clipboard";
-import { stripAnsi } from "./ansi";
-import { grammarFor, guessGrammar, tokenize, tokenizeDiff } from "./highlight";
+import { ansiRuns, stripAnsi } from "./ansi";
+import { grammarFor, guessGrammar, tokenize, tokenizeDiff, tokenizeLogMarkers } from "./highlight";
 import { asStructure, looksStructured } from "./structure";
 import { JsonView } from "./json-view";
 import { t } from "./i18n";
@@ -35,28 +35,53 @@ function CopyButton(props: { text: string }) {
   );
 }
 
-export function CodeTokens(props: { source: string; label?: string }) {
+export function CodeTokens(props: { source: string; label?: string; shell?: boolean }) {
+  // A tool that coloured its own output knew which lines mattered; keep that
+  // and do not guess a language on top of it.
+  const runs = createMemo(() => ansiRuns(props.source));
   const tokens = createMemo(() => {
     const src = stripAnsi(props.source);
     const diff = tokenizeDiff(src);
     if (diff) return diff;
     const grammar = grammarFor(props.label) ?? guessGrammar(src);
+    // Plain machine output still has landmarks: the level word in a log line.
+    if (grammar === null && props.shell) {
+      const marked = tokenizeLogMarkers(src);
+      if (marked) return marked;
+    }
     return tokenize(src, grammar);
   });
   return (
-    <For each={tokens()}>
-      {(token) => (
-        <Show when={token.kind !== "plain"} fallback={token.text}>
-          <span class={`tok-${token.kind}`}>{token.text}</span>
-        </Show>
+    <Show
+      when={runs()}
+      fallback={
+        <For each={tokens()}>
+          {(token) => (
+            <Show when={token.kind !== "plain"} fallback={token.text}>
+              <span class={`tok-${token.kind}`}>{token.text}</span>
+            </Show>
+          )}
+        </For>
+      }
+    >
+      {(list) => (
+        <For each={list()}>
+          {(run) => (
+            <Show when={run.tone} fallback={run.text}>
+              <span class={run.tone}>{run.text}</span>
+            </Show>
+          )}
+        </For>
       )}
-    </For>
+    </Show>
   );
 }
 
 function Code(props: {
   source: string;
   label?: string;
+  /** A shell call's output: level words in it are worth a tint. */
+  shell?: boolean;
   maxHeight?: string;
   class?: string;
   /** A failed call's output. The frame takes the destructive tint so the
@@ -75,7 +100,7 @@ function Code(props: {
       )}
     >
       <code>
-        <CodeTokens source={props.source} label={props.label} />
+        <CodeTokens source={props.source} label={props.label} shell={props.shell} />
       </code>
     </pre>
   );

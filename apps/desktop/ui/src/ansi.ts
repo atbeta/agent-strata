@@ -68,3 +68,78 @@ export function stripAnsi(input: string): string {
 export function hasAnsi(input: string): boolean {
   return !!input && marked(input);
 }
+/**
+ * Colour runs from a tool's own SGR escapes.
+ *
+ * Stripping the codes is right for copying and for layout, but wrong for
+ * reading: `git status`, `cargo test` and `ls --color` say which lines matter
+ * with colour, and dropping it throws away the only part of the output that
+ * knew the answer. This keeps the colour and drops everything else.
+ *
+ * Returns `undefined` when the text carries no SGR at all, so the caller can
+ * fall back to syntax highlighting instead of treating plain text as one run.
+ */
+export interface AnsiRun {
+  text: string;
+  /** Space-separated `tok-ansi-*` classes, or empty for the default colour. */
+  tone: string;
+}
+
+const SGR = /\u001B\[([0-9;]*)m/g;
+
+/** The eight ANSI colours plus their bright forms, as class suffixes. */
+const COLOURS: Record<number, string> = {
+  30: "black",
+  31: "red",
+  32: "green",
+  33: "yellow",
+  34: "blue",
+  35: "magenta",
+  36: "cyan",
+  37: "white",
+  90: "bright-black",
+  91: "bright-red",
+  92: "bright-green",
+  93: "bright-yellow",
+  94: "bright-blue",
+  95: "bright-magenta",
+  96: "bright-cyan",
+  97: "bright-white",
+};
+
+export function ansiRuns(input: string): AnsiRun[] | undefined {
+  if (!/\u001B\[[0-9;]*m/.test(input)) return undefined;
+  const runs: AnsiRun[] = [];
+  const colour = { fg: "", weight: "" };
+  const tone = () => [colour.fg, colour.weight].filter(Boolean).join(" ");
+
+  const add = (text: string) => {
+    const clean = stripAnsi(text);
+    if (!clean) return;
+    const current = tone();
+    const last = runs[runs.length - 1];
+    if (last && last.tone === current) last.text += clean;
+    else runs.push({ text: clean, tone: current });
+  };
+
+  let at = 0;
+  for (const match of input.matchAll(SGR)) {
+    add(input.slice(at, match.index));
+    at = match.index + match[0].length;
+    // An empty parameter list is `ESC[m`, which every terminal reads as reset.
+    const codes = (match[1] || "0").split(";").map((part) => Number(part) || 0);
+    for (const code of codes) {
+      if (code === 0) {
+        colour.fg = "";
+        colour.weight = "";
+      } else if (code === 1) colour.weight = "tok-ansi-bold";
+      else if (code === 2) colour.weight = "tok-ansi-dim";
+      else if (code === 22) colour.weight = "";
+      else if (code === 39) colour.fg = "";
+      else if (COLOURS[code]) colour.fg = `tok-ansi-${COLOURS[code]}`;
+    }
+  }
+  add(input.slice(at));
+  // Trailing whitespace-only runs are layout, not content.
+  return runs.length > 0 ? runs : undefined;
+}

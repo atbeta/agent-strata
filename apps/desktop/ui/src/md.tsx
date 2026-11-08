@@ -369,8 +369,10 @@ function highlightCode(host: ParentNode) {
     const src = stripAnsi(code.textContent ?? "");
     if (!src) continue;
 
-    const tokens =
-      tokenizeDiff(src) ?? tokenize(src, grammarFor(lang) ?? guessGrammar(src));
+    // One guess, used for both the colours and the label: the label is what the
+    // reader sees, so it must not disagree with what was coloured.
+    const guessed = lang ? null : guessGrammar(src);
+    const tokens = tokenizeDiff(src) ?? tokenize(src, grammarFor(lang) ?? guessed);
 
     code.replaceChildren(
       ...tokens.map((t) => {
@@ -383,7 +385,7 @@ function highlightCode(host: ParentNode) {
     );
 
     // The label is drawn from CSS so the frame does not need extra markup.
-    const label = lang ?? guessGrammar(src);
+    const label = lang ?? guessed;
     if (label) block.dataset.lang = label;
   }
 }
