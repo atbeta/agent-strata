@@ -30,7 +30,7 @@ import type {
   ToolCallResult,
 } from "@agent-strata/plugin-sdk";
 import { createDevManager, resolveWorkdir, stopInside, type DevEvent, type DevManager, type DevProcess } from "./dev-process";
-import { GUIDANCE, detaches } from "./guidance";
+import { GUIDANCE, SHELL_TOOL_IDS, detaches } from "./guidance";
 
 /**
  * The manifest, in code rather than JSON.
@@ -47,7 +47,7 @@ export const manifest: PluginManifest = {
   entry: { kind: "builtin" },
   provides: ["tools", "resources"],
   permissions: { shell: false },
-  hooks: { beforeTool: ["shell"], systemPrompt: true },
+  hooks: { beforeTool: [...SHELL_TOOL_IDS], systemPrompt: true },
   tools: [
     {
       name: "start",
@@ -359,7 +359,7 @@ export function createDevPlugin(options: DevPluginOptions): StrataPlugin {
     },
 
     async beforeToolCall(req) {
-      if (req.tool !== "shell") return { allow: true };
+      if (!(SHELL_TOOL_IDS as readonly string[]).includes(req.tool)) return { allow: true };
       const command = req.input.command ?? req.input.cmd;
       if (typeof command !== "string" || !detaches(command)) return { allow: true };
       return { allow: false, message: DETACH_REFUSAL };

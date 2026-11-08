@@ -439,3 +439,18 @@ describe("plugin_id survives every branch", () => {
     expect(evaluate(policy, { tool: "dev_start", input: {}, plugin_id: "other" }).decision).toBe("allow");
   });
 });
+
+describe("a command that arrives as powershell", () => {
+  test("is analysed like any other shell command", () => {
+    // OpenCode registers `powershell` on Windows. Without it in the shell list
+    // every Windows command skipped the segment split, the redirect floor and
+    // the reader's rules — silently, because a tool the engine does not
+    // recognise is simply a tool with no rules.
+    const P = (default_: "allow" | "ask" = "allow") => loadPolicy({ version: 1, default: default_, rules: [] });
+    const cmd = (command: string) => ({ tool: "powershell", input: { command } });
+    // A redirect is the engine's own floor, which only the shell path applies.
+    expect(evaluate(P(), cmd("Get-ChildItem > out.txt")).decision).toBe("ask");
+    expect(evaluate(P(), cmd("Get-ChildItem")).decision).toBe("allow");
+    expect(evaluate(P("ask"), cmd("Write-Host hi")).decision).toBe("ask");
+  });
+});

@@ -89,7 +89,7 @@ describe("the shim without a service", () => {
     // A guard with nothing to offer would block work the reader asked for.
     const args = { command: "Start-Process -WindowStyle Hidden foo" };
     await expect(
-      plugin["tool.execute.before"]({ tool: "shell", sessionID: "ses_x" }, { args }),
+      plugin["tool.execute.before"]({ tool: "bash", sessionID: "ses_x" }, { args }),
     ).resolves.toBeUndefined();
 
     // Nothing contributed, nothing appended.
@@ -178,7 +178,7 @@ describe("the shim with a service", () => {
     expect(answer).toMatch(/workspace/);
   }, 60_000);
 
-  test("the before-tool hook forwards the plugin's refusal", async () => {
+  test("the before-tool hook forwards a refusal, under the ids OpenCode uses", async () => {
     withService(base);
     const plugin: Shim = await loadShim();
     const before = plugin["tool.execute.before"];
@@ -196,6 +196,20 @@ describe("the shim with a service", () => {
     await expect(
       before({ tool: "bash", sessionID: "opencode:ses_shim" }, { args: { command: "ls" } }),
     ).resolves.toBeUndefined();
+
+    // `powershell` is what Windows registers, and the dev plugin's
+    // Start-Process guard is the case that matters there. The shim must
+    // forward it as the id the backend reported, untouched.
+    let detached = "";
+    try {
+      await before(
+        { tool: "powershell", sessionID: "opencode:ses_shim" },
+        { args: { command: "Start-Process -WindowStyle Hidden cmd" } },
+      );
+    } catch (e) {
+      detached = e instanceof Error ? e.message : String(e);
+    }
+    expect(detached).toMatch(/Do not detach a process/);
   }, 60_000);
 
   test("the system prompt is appended once, not once per call", async () => {

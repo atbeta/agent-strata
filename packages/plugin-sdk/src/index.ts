@@ -22,8 +22,8 @@ import { z } from "zod";
 export const PluginId = z
   .string()
   .regex(/^[a-z][a-z0-9-]*$/, "plugin id must match [a-z][a-z0-9-]*")
-  .refine((id) => id !== "tools" && id !== "hooks", {
-    message: '"tools" and "hooks" are reserved route segments, not plugin ids',
+  .refine((id) => !["tools", "hooks", "mcp"].includes(id), {
+    message: '"tools", "hooks" and "mcp" are reserved route segments, not plugin ids',
   });
 
 /** A tool name, unique inside its plugin. `_` is allowed; `-` reads better. */

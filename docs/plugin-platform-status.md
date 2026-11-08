@@ -114,6 +114,17 @@ curl -s localhost:7791/plugins | jq -r '.plugins[] | "\(.id) \(.state)"'
 
 顺带发现并修的一个洞（#2 的延伸）：`file:/etc/passwd` 只写一个斜杠时，旧的"只有 `//` 才算 scheme"规则把它读成主机 `file`，会真的去网络请求。现在冒号后不是端口数字就按 scheme 处理并拒绝。
 
+### 第四轮检视（外部）
+
+| # | 问题 | 结论 | 修法 / 用例 |
+| --- | --- | --- | --- |
+| 1 | `hooks.beforeTool: ["shell"]` 永远不触发 | **属实，且旧 `dev-process.ts` 就有**。本机 1.18.30 二进制里只注册 `bash` 和 `powershell` | 声明改成 `SHELL_TOOL_IDS`（bash / powershell / shell / execute / terminal），`beforeToolCall` 用同一集合；用例 `plugins.test.ts`「the shell guard names the tools that exist」（去掉修复即红） |
+| 1b | （由此暴露）policy 的 `SHELL_TOOLS` 没有 `powershell` | 属实，Windows 上所有命令都跳过了 shell 分析 | 加入 `SHELL_TOOLS`；用例 `policy.test.ts`「a command that arrives as powershell」 |
+| 2 | `mcp` 没被当作保留 id | 属实，会造成"半影子"插件 | `PluginId` refine 排除 `mcp`；用例在 manifest validation |
+| 3 | `manifest.test.ts` 偶发失败 | 12 次单独重跑未复现，判断为旧转译缓存 | 未改代码，记录在案 |
+| 4a | `toolTable()` 每次 dispatch 全量重建，且一个插件抛异常拖垮全表 | 属实 | 按插件缓存（生命周期变化时失效）+ per-plugin try/catch；用例 `plugins.test.ts`「one broken plugin does not take the table with it」 |
+| 4b | events 的 session 过滤语义（未声明 session = 全局） | 属实的语义说明 | 在过滤处写明，不改行为 |
+
 ## 没做的
 
 - **M4**：`entry.kind: "process"`、`~/.agent-strata/plugins/` 扫描、scoped token、安装授权 UI、`iframe` panel kind。契约里的位置都留着（`entry` 是 discriminated union，`McpServer` 的传输面已具备）。

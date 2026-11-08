@@ -33,7 +33,14 @@ export const PolicySchema = z.object({
 export type Policy = z.infer<typeof PolicySchema>;
 type Rule = Policy["rules"][number];
 
-export const SHELL_TOOLS = ["bash", "shell", "execute", "terminal", "dev_start"];
+/**
+ * The tool names a command can arrive under.
+ *
+ * `powershell` is what OpenCode registers on Windows, so without it every
+ * command on that platform skipped the shell analysis entirely — the split
+ * into segments, the redirect floor, the rules a reader wrote for the shell.
+ */
+export const SHELL_TOOLS = ["bash", "powershell", "shell", "execute", "terminal", "dev_start"];
 
 /**
  * Whether a decision came from a rule the reader wrote.

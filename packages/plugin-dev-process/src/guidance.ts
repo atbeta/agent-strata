@@ -50,6 +50,18 @@ If \`dev_start\` reports that the shell is not running, say so and ask — do no
 fall back to \`Start-Process\`.
 `;
 
+/**
+ * The tool ids a shell runs under, which is what a hook has to name.
+ *
+ * `shell` is not one of them: OpenCode registers `bash` everywhere and
+ * `powershell` on Windows, and `tool.execute.before` reports the registered
+ * id. The old plugin declared `["shell"]` and checked `tool !== "shell"`, so
+ * the Start-Process guard — the Windows case it exists for — never ran. The
+ * other names are here because other backends do use them, and a guard that
+ * silently does not apply is worse than no guard.
+ */
+export const SHELL_TOOL_IDS = ["bash", "powershell", "shell", "execute", "terminal"] as const;
+
 /** Whether a command is an attempt to detach a process. */
 export function detaches(command: string): boolean {
   return /\bStart-Process\b/i.test(command) || /\bnohup\b/i.test(command) || /\bstart\s+\/b\b/i.test(command);

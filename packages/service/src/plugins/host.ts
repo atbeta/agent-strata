@@ -112,6 +112,8 @@ export class PluginHost {
   private readonly records = new Map<string, PluginRecord>();
   private readonly registered = new Map<string, RegisteredPlugin>();
   private readonly sinks = new Map<string, EventSink>();
+  /** Per-plugin tool tables, dropped when that plugin's instance changes. */
+  private readonly toolCache = new Map<string, ToolEntry[]>();
   private readonly disabled = new Set<string>();
   private readonly listeners = new Set<() => void>();
   private readonly stateFile: string;
@@ -180,6 +182,8 @@ export class PluginHost {
     // make restart a different operation than enable-after-disable.
     const fresh = this.registered.get(id)!.create();
     record.plugin = fresh;
+    // A new instance may expose a different set; the old table is not it.
+    this.forgetTools(id);
     try {
       await fresh.initialize(ctx);
       if (fresh.onEvent) fresh.onEvent((event) => sink.emit(event));
@@ -291,25 +295,52 @@ export class PluginHost {
    * registered there at all. Whether a call is allowed is decided at call
    * time, which is the only place the answer is current anyway.
    */
+  /**
+   * The tools every running plugin offers.
+   *
+   * Cached per plugin until that plugin's lifecycle changes. Every dispatch
+   * asks this table for the tool it is dispatching, so rebuilding it on each
+   * call was O(plugins × tools) on the hot path for a value that only moves
+   * when a plugin starts or stops.
+   *
+   * A plugin whose `listTools()` throws loses only its own entry: one broken
+   * plugin must not make every other plugin's tools unresolvable, which is
+   * what an unguarded loop did.
+   */
   toolTable(): ToolEntry[] {
     const out: ToolEntry[] = [];
     for (const record of this.records.values()) {
       if (record.state !== "running") continue;
-      for (const tool of record.plugin.listTools()) {
-        const declared = record.manifest.tools.find((t) => t.name === tool.name);
-        out.push({
-          plugin_id: record.manifest.id,
-          tool: tool.name,
-          name: qualifiedToolName(record.manifest.id, tool.name),
-          description: tool.description,
-          input: tool.input,
-          policy: declared?.policy,
-          guards: declared?.guards,
-          timeout_ms: declared?.timeout_ms,
-        });
+      let tools = this.toolCache.get(record.manifest.id);
+      if (!tools) {
+        try {
+          tools = record.plugin.listTools().map((tool) => {
+            const declared = record.manifest.tools.find((t) => t.name === tool.name);
+            return {
+              plugin_id: record.manifest.id,
+              tool: tool.name,
+              name: qualifiedToolName(record.manifest.id, tool.name),
+              description: tool.description,
+              input: tool.input,
+              policy: declared?.policy,
+              guards: declared?.guards,
+              timeout_ms: declared?.timeout_ms,
+            };
+          });
+          this.toolCache.set(record.manifest.id, tools);
+        } catch (e) {
+          this.options.logger.warn(`plugin ${record.manifest.id} could not list its tools`, e);
+          continue;
+        }
       }
+      out.push(...tools);
     }
     return out;
+  }
+
+  /** Drop a plugin's cached table; its instance is about to change or go. */
+  private forgetTools(id: string): void {
+    this.toolCache.delete(id);
   }
 
   /** Resolve a route segment pair back to a running plugin and tool. */

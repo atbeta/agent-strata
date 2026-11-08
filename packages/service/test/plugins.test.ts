@@ -366,6 +366,9 @@ describe("manifest validation", () => {
     expect(() => loadManifest({ ...base, id: "Tools" })).toThrow();
     expect(() => loadManifest({ ...base, id: "tools" })).toThrow(/reserved/);
     expect(() => loadManifest({ ...base, id: "hooks" })).toThrow(/reserved/);
+    // `/plugins/mcp` is a fixed route of its own; an id named `mcp` would
+    // register a plugin whose private routes were all shadowed by it.
+    expect(() => loadManifest({ ...base, id: "mcp" })).toThrow(/reserved/);
     expect(() => loadManifest({ ...base, id: "has_underscore" })).toThrow();
     // An id without `_` is what makes `<id>_<tool>` splittable.
     expect(splitToolName("browser_navigate")).toEqual({ pluginId: "browser", tool: "navigate" });
@@ -634,4 +637,118 @@ describe("what a fresh install ships", () => {
       rmSync(desktop, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
     }
   }, 60_000);
+});
+
+describe("the shell guard names the tools that exist", () => {
+  let svc: ReturnType<typeof startService>;
+  let base = "";
+
+  beforeAll(async () => {
+    const desktop = mkdtempSync(join(tmpdir(), "strata-hooks-"));
+    const policyFile = join(desktop, "policy.json");
+    writeFileSync(policyFile, JSON.stringify({ version: 1, default: "allow", rules: [] }));
+    svc = startService({ db: ":memory:", port: 0, desktopDir: desktop, policyFile, plugins: echoPlugin() });
+    base = `http://127.0.0.1:${svc.port}`;
+    for (let i = 0; i < 240; i++) {
+      const listing = (await (await fetch(`${base}/plugins`)).json()) as {
+        plugins: { id: string; state: string }[];
+      };
+      if (listing.plugins.filter((p) => p.state === "running").length >= 2) break;
+      await Bun.sleep(50);
+    }
+  }, 30_000);
+
+  afterAll(() => {
+    svc.stop();
+  }, 30_000);
+
+  const hook = async (tool: string, command: string) =>
+    (await (await fetch(`${base}/hooks/before-tool`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ session_id: "opencode:ses_hook", tool, input: { command } }),
+    })).json()) as { allow: boolean; message?: string };
+
+  test("bash and powershell are guarded, which is how OpenCode names them", async () => {
+    // The plugin used to declare `["shell"]`, and OpenCode registers `bash`
+    // everywhere and `powershell` on Windows — so the Start-Process guard,
+    // whose whole reason is the Windows case, never ran.
+    for (const tool of ["bash", "powershell"]) {
+      const verdict = await hook(tool, "Start-Process -WindowStyle Hidden powershell spawn");
+      expect(verdict.allow).toBe(false);
+      expect(verdict.message).toContain("Do not detach a process");
+    }
+  }, 30_000);
+
+  test("an ordinary command passes, and a tool the plugin did not name is not asked", async () => {
+    expect((await hook("bash", "ls -la")).allow).toBe(true);
+    expect((await hook("read", "Start-Process anything")).allow).toBe(true);
+  }, 30_000);
+});
+
+describe("one broken plugin does not take the table with it", () => {
+  test("a plugin that cannot list its tools is skipped, not fatal", async () => {
+    // `toolTable()` feeds every dispatch, so an exception from one plugin's
+    // `listTools()` used to make every other plugin's tools unresolvable —
+    // the whole platform going dark because one plugin was confused.
+    const { PluginHost } = await import("../src/plugins/host");
+    const host = new PluginHost({
+      dataDir: mkdtempSync(join(tmpdir(), "strata-table-")),
+      logger: { info: () => {}, warn: () => {}, error: () => {} },
+      workspaceOf: () => undefined,
+      resolveSession: (id) => id,
+    });
+    const tool = (name: string) => ({ name, description: name, input: { type: "object", properties: {} } });
+    host.register({
+      manifest: {
+        id: "broken",
+        name: "Broken",
+        version: "1.0.0",
+        entry: { kind: "builtin" },
+        provides: ["tools"],
+        permissions: {},
+        tools: [tool("x")],
+        resources: [],
+      },
+      create: () => ({
+        async initialize() {},
+        listTools() {
+          throw new Error("the plugin is confused");
+        },
+        async callTool() {
+          return { output: "" };
+        },
+        async shutdown() {},
+      }),
+    });
+    host.register({
+      manifest: {
+        id: "fine",
+        name: "Fine",
+        version: "1.0.0",
+        entry: { kind: "builtin" },
+        provides: ["tools"],
+        permissions: {},
+        tools: [tool("go")],
+        resources: [],
+      },
+      create: () => ({
+        async initialize() {},
+        listTools: () => [tool("go")],
+        async callTool() {
+          return { output: "ok" };
+        },
+        async shutdown() {},
+      }),
+    });
+    await host.enable("broken");
+    await host.enable("fine");
+    const table = host.toolTable();
+    expect(table.map((t) => t.name)).toEqual(["fine_go"]);
+    // The broken one is still callable by name? No — it has no table entry, so
+    // resolving it is a 404 rather than a crash, which is the right failure.
+    expect(host.resolveTool("broken", "x")).toBeUndefined();
+    expect(host.resolveTool("fine", "go")).toBeDefined();
+    await host.stopAll();
+  });
 });

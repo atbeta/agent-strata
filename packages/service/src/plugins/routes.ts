@@ -281,6 +281,12 @@ function eventStream(host: PluginHost, pluginId: string, sessionId: string | und
       };
       write(`data: ${JSON.stringify({ type: "plugin.connected", plugin_id: pluginId })}\n\n`);
       unsubscribe = host.subscribe(pluginId, (event: PluginEvent) => {
+        // Scoping follows what the event says about itself. An event that
+        // names a session is delivered only to that session's subscriber; one
+        // that names none is global, and goes to every subscriber of the
+        // plugin. That is deliberate — a plugin announcing "my tab appeared"
+        // has no session to name — but it means a plugin that forgets
+        // `session_id` on a per-session event broadcasts it to all of them.
         const owner = (event.data as { session_id?: string } | undefined)?.session_id;
         if (sessionId !== undefined && owner !== undefined && owner !== sessionId) return;
         write(`data: ${JSON.stringify({ ...event, plugin_id: pluginId })}\n\n`);
