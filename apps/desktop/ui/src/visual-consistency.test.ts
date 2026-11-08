@@ -35,7 +35,6 @@ describe("quiet visual consistency", () => {
       "session-tools.tsx",
       "prompt-navigator.tsx",
       "tip.tsx",
-      "message-actions.tsx",
       "composer-menu.tsx",
       "transcript-view.tsx",
       "sidebar.tsx",
@@ -49,6 +48,16 @@ describe("quiet visual consistency", () => {
       expect(combined(src, ["rounded-lg", "border", "bg-popover"]), file).toBeUndefined();
     }
     expect(combined(read("components/ui/dropdown-menu.tsx"), ["rounded-md", "border", "bg-popover"])).toBeUndefined();
+  });
+
+  test("message actions float as separate chips, with the lightest shadow", () => {
+    // A tray holding the actions made a copy button and a stats button read as
+    // one control, and a tray over body text is heavier than either button.
+    const src = read("message-actions.tsx");
+    expect(src).not.toContain("surface-popover");
+    const chip = /const btn = "([^"]*)"/.exec(src)?.[1] ?? "";
+    expect(chip).toContain("shadow-sm");
+    expect(chip).toContain("bg-card/95");
   });
 
   test("menu triggers share button variants and composer focus preserves elevation", () => {

@@ -58,115 +58,120 @@ export function MessageActions(props: {
   };
 
   const details = () => assistantMessageDetails(props.details);
-  const btn = "size-6 text-muted-foreground";
+  /**
+   * One chip per action, not one box holding them.
+   *
+   * They used to share a bordered tray, which made a copy button and a stats
+   * button read as one control — and a tray over body text is a heavy thing to
+   * put there. Each button floats on its own with the lightest shadow the set
+   * has; the distance between them is what groups them.
+   */
+  const btn = "size-6 rounded-md bg-card/95 text-muted-foreground shadow-sm";
   return (
     <div
-      class={`message-actions mt-1 flex h-7 items-center gap-0.5 ${
+      class={`message-actions mt-1 flex h-7 items-center gap-1.5 ${
         props.align === "end" ? "justify-end" : "justify-start"
       }`}
       data-copied={copied() || undefined}
     >
       <Show when={!props.disabled}>
-        {/* One floating chip, with the same edge and elevation as the menus. */}
-        <div class="surface-popover flex h-7 items-center gap-0.5 rounded-lg bg-popover/95 px-1">
-          <Show when={props.text.trim()}>
-            <Tip label={copied() ? t("message.copied") : t("message.copy")}>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                class={btn}
-                aria-label={copied() ? t("message.copied") : t("message.copy")}
-                onClick={copy}
-              >
-                <Icon
-                  name={copied() ? "check" : "copy"}
-                  class={`size-3.5 ${copied() ? "text-status-active" : ""}`}
-                />
-              </Button>
-            </Tip>
-          </Show>
-          <Show when={details().length > 0}>
-            <Tip
-              label={t("message.details")}
-              content={() => (
-                <div class="w-72">
-                  <div class="mb-2 text-xs font-medium text-foreground">{t("message.details")}</div>
-                  <div class="grid grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)] gap-x-4 gap-y-1.5">
-                    <For each={details()}>
-                      {(row) => (
-                        <>
-                          <span class="text-2xs text-muted-foreground">{row.label}</span>
-                          <span class="min-w-0 break-words text-right font-mono text-2xs tabular-nums" title={row.value}>
-                            {row.value}
-                          </span>
-                        </>
-                      )}
-                    </For>
-                  </div>
-                </div>
-              )}
+        <Show when={props.text.trim()}>
+          <Tip label={copied() ? t("message.copied") : t("message.copy")}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              class={btn}
+              aria-label={copied() ? t("message.copied") : t("message.copy")}
+              onClick={copy}
             >
+              <Icon
+                name={copied() ? "check" : "copy"}
+                class={`size-3.5 ${copied() ? "text-status-active" : ""}`}
+              />
+            </Button>
+          </Tip>
+        </Show>
+        <Show when={details().length > 0}>
+          <Tip
+            label={t("message.details")}
+            content={() => (
+              <div class="w-72">
+                <div class="mb-2 text-xs font-medium text-foreground">{t("message.details")}</div>
+                <div class="grid grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)] gap-x-4 gap-y-1.5">
+                  <For each={details()}>
+                    {(row) => (
+                      <>
+                        <span class="text-2xs text-muted-foreground">{row.label}</span>
+                        <span class="min-w-0 break-words text-right font-mono text-2xs tabular-nums" title={row.value}>
+                          {row.value}
+                        </span>
+                      </>
+                    )}
+                  </For>
+                </div>
+              </div>
+            )}
+          >
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              class={btn}
+              aria-label={t("message.details")}
+            >
+              <Icon name="stats" class="size-3.5" />
+            </Button>
+          </Tip>
+        </Show>
+        <Show when={props.onEdit}>
+          {(edit) => (
+            <Tip label={t("message.edit")}>
               <Button
                 type="button"
                 variant="ghost"
                 size="icon-sm"
                 class={btn}
-                aria-label={t("message.details")}
+                aria-label={t("message.edit")}
+                onClick={() => edit()()}
               >
-                <Icon name="info" class="size-3.5" />
+                <Icon name="pencil" class="size-3.5" />
               </Button>
             </Tip>
-          </Show>
-          <Show when={props.onEdit}>
-            {(edit) => (
-              <Tip label={t("message.edit")}>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  class={btn}
-                  aria-label={t("message.edit")}
-                  onClick={() => edit()()}
-                >
-                  <Icon name="pencil" class="size-3.5" />
-                </Button>
-              </Tip>
-            )}
-          </Show>
-          <Show when={props.onRevert}>
-            {(revert) => (
-              <Tip label={t("message.revert")}>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  class={btn}
-                  aria-label={t("message.revert")}
-                  onClick={() => revert()()}
-                >
-                  <Icon name="undo" class="size-3.5" />
-                </Button>
-              </Tip>
-            )}
-          </Show>
-          <Show when={props.onFork}>
-            {(fork) => (
-              <Tip label={t("message.fork")}>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  class={btn}
-                  aria-label={t("message.fork")}
-                  onClick={() => fork()()}
-                >
-                  <Icon name="fork" class="size-3.5" />
-                </Button>
-              </Tip>
-            )}
-          </Show>
-        </div>
+          )}
+        </Show>
+        <Show when={props.onRevert}>
+          {(revert) => (
+            <Tip label={t("message.revert")}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                class={btn}
+                aria-label={t("message.revert")}
+                onClick={() => revert()()}
+              >
+                <Icon name="undo" class="size-3.5" />
+              </Button>
+            </Tip>
+          )}
+        </Show>
+        <Show when={props.onFork}>
+          {(fork) => (
+            <Tip label={t("message.fork")}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                class={btn}
+                aria-label={t("message.fork")}
+                onClick={() => fork()()}
+              >
+                <Icon name="fork" class="size-3.5" />
+              </Button>
+            </Tip>
+          )}
+        </Show>
       </Show>
     </div>
   );

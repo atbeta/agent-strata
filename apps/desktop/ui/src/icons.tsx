@@ -73,7 +73,10 @@ export type Name =
   // these; the registry refuses anything else, so the alias table here is the
   // whole vocabulary rather than a starting point.
   | "message"
-  | "code";
+  | "code"
+  // Three bars: the numbers a message cost. Used where an "i" would read as
+  // help rather than "what did this one use".
+  | "stats";
 
 /**
  * `box` exists for the glyphs that are lifted from an icon library instead of
@@ -176,6 +179,15 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
     return (
       <Glyph class={cls}>
         <path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" />
+      </Glyph>
+    );
+  // Three bars of different heights: measurements, not a question mark.
+  if (name === "stats")
+    return (
+      <Glyph class={cls}>
+        <path d="M4 13V9.5" />
+        <path d="M8 13V4.5" />
+        <path d="M12 13V7.5" />
       </Glyph>
     );
   // Angle brackets: a plugin running code.
