@@ -867,7 +867,14 @@ export function useSessionComposer(args: {
           {(m) => <ProviderIcon provider={m().providerID} />}
         </Show>
       }
+      // Pseudo groups ("Hidden", "Unavailable") get no mark — only real providers do.
+      groupIcon={(group) =>
+        allModels().some((m) => m.providerID === group) ? (
+          <ProviderIcon provider={group} />
+        ) : undefined
+      }
       class="composer-model max-w-64"
+      contentClass="min-w-64 max-w-80"
       onChange={(value) => {
         setModelTouched(true);
         setModelSel(value);

@@ -37,6 +37,8 @@ export interface PickerProps {
   showValueInTip?: boolean;
   /** Drawn on the trigger ahead of the current pick. */
   icon?: JSX.Element;
+  /** Drawn in a group heading ahead of its name — the model picker's provider mark. */
+  groupIcon?: (group: string) => JSX.Element;
 }
 
 /**
@@ -113,39 +115,57 @@ export function Picker(props: PickerProps) {
         </Show>
 
         <For each={groups()}>
-          {(group) => (
-            <DropdownMenuPrimitive.Group>
-              <Show when={group.name !== ""}>
-                <DropdownMenuGroupLabel>{group.name}</DropdownMenuGroupLabel>
+          {(group, index) => (
+            <>
+              <Show when={index() > 0}>
+                <DropdownMenuSeparator />
               </Show>
-              <For each={group.items}>
-                {(opt) => (
-                  <DropdownMenuItem
-                    onSelect={() => pick(opt.value)}
-                    class={cn(
-                      "justify-between gap-4",
-                      props.capitalize && "capitalize",
-                      opt.value === props.value && "text-foreground",
-                    )}
-                  >
-                    <span class="truncate font-mono text-xs">{opt.label}</span>
-                    <Show when={opt.value === props.value}>
-                      <svg
-                        viewBox="0 0 12 12"
-                        class="size-3 shrink-0 text-foreground"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.6"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      >
-                        <path d="M2.5 6.2 5 8.6l4.5-5" />
-                      </svg>
-                    </Show>
-                  </DropdownMenuItem>
-                )}
-              </For>
-            </DropdownMenuPrimitive.Group>
+              <DropdownMenuPrimitive.Group>
+                <Show when={group.name !== ""}>
+                  <DropdownMenuGroupLabel class="flex items-center gap-1.5 text-xs">
+                    {props.groupIcon?.(group.name)}
+                    <span class="truncate">{group.name}</span>
+                  </DropdownMenuGroupLabel>
+                </Show>
+                <For each={group.items}>
+                  {(opt) => (
+                    <DropdownMenuItem
+                      onSelect={() => pick(opt.value)}
+                      class={cn(
+                        "justify-between gap-4",
+                        // pl-7 lands the label under the group name, past its
+                        // icon (px-2 + size-3.5 + gap-1.5): provider as heading,
+                        // models as members.
+                        group.name !== "" && "pl-7",
+                        props.capitalize && "capitalize",
+                        opt.value === props.value && "text-foreground",
+                      )}
+                    >
+                      {/* Sans, not mono: `.font-mono` follows the reader's
+                          content size (theme.css), which ballooned these rows
+                          past the group heading. The label is a display name,
+                          not an id, so it never needed the code face. */}
+                      <span class="truncate text-xs" title={opt.label}>
+                        {opt.label}
+                      </span>
+                      <Show when={opt.value === props.value}>
+                        <svg
+                          viewBox="0 0 12 12"
+                          class="size-3 shrink-0 text-foreground"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.6"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <path d="M2.5 6.2 5 8.6l4.5-5" />
+                        </svg>
+                      </Show>
+                    </DropdownMenuItem>
+                  )}
+                </For>
+              </DropdownMenuPrimitive.Group>
+            </>
           )}
         </For>
       </DropdownMenuContent>
