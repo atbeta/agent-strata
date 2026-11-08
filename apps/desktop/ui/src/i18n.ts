@@ -10,10 +10,11 @@ export type { MessageKey };
  *
  * Chinese is the default because that is the language this window was built
  * in; English is the fallback for anything the backend or a browser hands us.
- * What this module deliberately does not do is translate data. Session titles,
- * model names, tool names, file paths and event payloads all arrive from the
- * backends and are shown verbatim — a translated model id is a broken model id.
- * Only the chrome around them is ours to translate.
+ * What this module deliberately does not do is translate arbitrary data. Session
+ * titles, model names, tool names, file paths and event payloads all arrive from
+ * the backends and are shown verbatim — a translated model id is a broken model
+ * id. Built-in plugin display names are the exception: the shell owns their
+ * localized presentation while their ids and tool names stay unchanged.
  *
  * The two dictionaries cannot drift because `en` is typed against the key set
  * of `zh`: adding a string to one and forgetting the other is a compile error,
