@@ -509,3 +509,68 @@ describe("the panel can be typed in", () => {
     }
   }, 120_000);
 });
+
+describe("an agent that sent the schema instead of the arguments", () => {
+  test("is understood, instead of being told its URL was undefined", async () => {
+    // Seen in the wild: `browser_navigate` arrived as
+    // `{"properties": "{\"url\": \"http://localhost:4321/\"}"}` — the
+    // parameter bag, JSON-encoded — and the tool answered
+    // "not a URL an agent may open: undefined" before falling back to opening
+    // the page in the system browser.
+    const desktop = mkdtempSync(join(tmpdir(), "strata-args-"));
+    const work = mkdtempSync(join(tmpdir(), "strata-args-work-"));
+    const page = Bun.serve({
+      port: 0,
+      fetch: () => new Response("<title>Wrapped</title><p>hello</p>", { headers: { "content-type": "text/html" } }),
+    });
+    const policyFile = join(desktop, "policy.json");
+    writeFileSync(
+      policyFile,
+      JSON.stringify({ version: 1, default: "allow", rules: [{ id: "browse", effect: "allow", tool: "browser_*" }] }),
+    );
+    const svc = startService({ db: ":memory:", port: 0, desktopDir: desktop, policyFile });
+    const base = `http://127.0.0.1:${svc.port}`;
+    try {
+      svc.store.append([
+        makeEvent({
+          session_id: "opencode:ses_args",
+          type: "session.started",
+          ts: "2026-01-01T00:00:00Z",
+          source: { backend: "opencode" },
+          data: { title: "args", workspace: work },
+        } as EventInput),
+      ]);
+      for (let i = 0; i < 300; i++) {
+        const listing = (await (await fetch(`${base}/plugins`)).json()) as {
+          plugins: { id: string; state: string }[];
+        };
+        if (listing.plugins.find((p) => p.id === "browser")?.state === "running") break;
+        await Bun.sleep(50);
+      }
+      const call = async (input: unknown) =>
+        (await (await fetch(`${base}/plugins/browser/tools/navigate`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ session_id: "opencode:ses_args", input }),
+        })).json()) as { output?: string; is_error?: boolean; error?: string };
+
+      for (const wrapped of [
+        { properties: JSON.stringify({ url: `http://127.0.0.1:${page.port}/` }) },
+        { properties: { url: `http://127.0.0.1:${page.port}/` } },
+      ]) {
+        const res = await call(wrapped);
+        expect(res.is_error).toBeFalsy();
+        expect(res.output ?? "").toContain("Wrapped");
+      }
+
+      // And a call with no url at all now says so instead of blaming the URL.
+      const empty = await call({});
+      expect(empty.output ?? "").toContain('needs a "url" argument');
+    } finally {
+      svc.stop();
+      page.stop(true);
+      rmSync(desktop, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+      rmSync(work, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    }
+  }, 120_000);
+});

@@ -42,7 +42,8 @@ export const manifest: PluginManifest = {
     {
       name: "navigate",
       description:
-        "Open a URL in this session's browser tab (opening one if needed) and return what is on the page.\n\n" +
+        "Open a URL in this session's browser tab (opening one if needed) and return what is on the page.\n" +
+        "The browser runs on this machine, so localhost and 127.0.0.1 are reachable.\n\n" +
         "The answer lists the interactive elements with short refs (`e5`). Pass a ref to\n" +
         "browser_click/browser_fill/browser_type/browser_press/browser_hover/browser_select.\n" +
         "A ref is only valid until the page changes; every action answers with a fresh list.",
@@ -431,7 +432,16 @@ export function createBrowserPlugin(options: BrowserPluginOptions): StrataPlugin
 
     if (tool === "navigate") {
       const url = browserUrl(input.url);
-      if (!url) throw new BrowserClientError(`not a URL an agent may open: ${JSON.stringify(input.url)}`);
+      // Name the arguments it actually got. "not a URL an agent may open:
+      // undefined" reads like a bad URL when the real problem was a call with
+      // no `url` in it at all.
+      if (!url) {
+        throw new BrowserClientError(
+          input.url === undefined
+            ? `browser_navigate needs a "url" argument; got ${JSON.stringify(input ?? {})}`
+            : `not a URL an agent may open: ${JSON.stringify(input.url)}`,
+        );
+      }
       req.progress?.({ message: `navigating to ${url}` });
       const snap = await m().navigate(sessionId, url);
       // The page is up; the snapshot is next. Saying so is what makes a slow

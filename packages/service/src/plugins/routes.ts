@@ -13,6 +13,7 @@
 // capability that had to be wired into the service and into the shim.
 
 import type { PluginEvent, ToolEntry } from "@agent-strata/plugin-sdk";
+import { coerceToolInput } from "./args";
 import { readToolCall } from "./call";
 import type { PluginHost } from "./host";
 import { GuardError } from "./host";
@@ -141,7 +142,10 @@ export async function pluginRoute(
     const parsed = await readToolCall(req, deps.resolveSession);
     if (!parsed.ok) return json({ error: parsed.error }, parsed.status);
 
-    const verdict = await deps.authorize(parsed.sessionId, found.entry, parsed.input);
+    // The same normalisation the MCP face applies: a client that sent the
+    // schema instead of an instance of it should not reach the tool as-is.
+    const input = coerceToolInput(found.entry.input, parsed.input);
+    const verdict = await deps.authorize(parsed.sessionId, found.entry, input);
     if (!verdict.allow) return json({ error: verdict.error }, verdict.status);
 
     // The caller's connection is the cancellation source: if it goes away, the
@@ -156,7 +160,7 @@ export async function pluginRoute(
       const result = await host.callTool(pluginId, tool, {
         callId: parsed.callId,
         sessionId: parsed.sessionId,
-        input: parsed.input,
+        input,
         signal: controller.signal,
       });
       // A tool that failed is a successful call that reports failure: the

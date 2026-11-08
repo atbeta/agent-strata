@@ -13,6 +13,7 @@
 // a stream nobody reads is a socket held open for nothing.
 
 import type { ToolEntry } from "@agent-strata/plugin-sdk";
+import { coerceToolInput } from "./args";
 import type { PluginHost } from "./host";
 
 export interface McpDeps {
@@ -126,12 +127,13 @@ async function handle(
     case "tools/call": {
       const params = message.params ?? {};
       const name = typeof params.name === "string" ? params.name : "";
-      const args =
-        params.arguments && typeof params.arguments === "object"
-          ? (params.arguments as Record<string, unknown>)
-          : {};
       const split = splitQualified(name);
       if (!split) return fail(-32602, `unknown tool ${name}`);
+      // The schema is the tool's own, so a parameter bag the schema does not
+      // declare can be unwrapped without guessing.
+      // `name` is already `<plugin>_<tool>`, which is how the table is keyed.
+      const entry = deps.tools().find((tool) => tool.name === name);
+      const args = coerceToolInput(entry?.input, params.arguments);
       // The call id is minted here and used for both sides: the tool call the
       // agent reports and the progress this endpoint sends carry the same key.
       const callId = `mcp:${crypto.randomUUID()}`;
