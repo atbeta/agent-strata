@@ -431,6 +431,28 @@ export class CdpPage {
   }
 
   /** Text as a person typed it, including IME output. One call, not per char. */
+  /**
+   * The cursor the page would show at a point.
+   *
+   * A canvas has one cursor for its whole surface, so a page drawn into one
+   * cannot tell the pointer it is over a link. This asks the page the question
+   * the browser would have answered itself: the element under the point, and
+   * the cursor it inherits. Only ever called while the pointer is moving
+   * inside the panel, and throttled by the caller.
+   */
+  async cursorAt(x: number, y: number): Promise<string | undefined> {
+    const result = await this.evaluate<string | null>(
+      `(() => {
+        const el = document.elementFromPoint(${Math.round(x)}, ${Math.round(y)});
+        return el ? getComputedStyle(el).cursor : null;
+      })()`,
+    ).catch(() => undefined);
+    if (typeof result !== "string") return undefined;
+    // Anything the CSS cursor property accepts is legal here, but a page can
+    // return `auto`, which inherits nothing useful in the rail.
+    return result === "auto" ? "default" : result;
+  }
+
   async insertText(text: string): Promise<void> {
     if (!text) return;
     await this.send("Input.insertText", { text });

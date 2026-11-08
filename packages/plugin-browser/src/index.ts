@@ -394,6 +394,12 @@ export function createBrowserPlugin(options: BrowserPluginOptions): StrataPlugin
           else if (body.kind === "up") await page.mouseUp(x, y, button);
           else if (body.kind === "move") await page.move(x, y, body.dragging === true ? 1 : 0);
           else if (body.kind === "wheel") await page.wheel(x, y, typeof body.delta === "number" ? body.delta : 200);
+          else if (body.kind === "cursor") {
+            // A question, not an action: answer with the cursor the page would
+            // show, so the rail can wear it.
+            const cursor = await page.cursorAt(x, y);
+            return Response.json({ cursor: cursor ?? null });
+          }
           else if (body.kind === "key" && typeof body.key === "string") {
             await page.key(body.key, modifiers);
           } else if (body.kind === "text" && typeof body.text === "string") {

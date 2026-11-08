@@ -574,3 +574,94 @@ describe("an agent that sent the schema instead of the arguments", () => {
     }
   }, 120_000);
 });
+
+describe("the rail can wear the page's cursor", () => {
+  test("a point over a link answers pointer, and a moving page updates its URL", async () => {
+    const desktop = mkdtempSync(join(tmpdir(), "strata-cursor-"));
+    const work = mkdtempSync(join(tmpdir(), "strata-cursor-work-"));
+    const page = Bun.serve({
+      port: 0,
+      fetch: (req) => {
+        const url = new URL(req.url);
+        if (url.pathname === "/next") {
+          return new Response("<title>Next</title><p>next</p>", { headers: { "content-type": "text/html" } });
+        }
+        return new Response(
+          `<!doctype html><title>Cursor</title>
+           <style>html,body{margin:0;height:100%;cursor:crosshair} a{display:block;height:400px;cursor:pointer}</style>
+           <a href="/next" id=goto>go</a>`,
+          { headers: { "content-type": "text/html" } },
+        );
+      },
+    });
+    const policyFile = join(desktop, "policy.json");
+    writeFileSync(
+      policyFile,
+      JSON.stringify({ version: 1, default: "allow", rules: [{ id: "b", effect: "allow", tool: "browser_*" }] }),
+    );
+    const svc = startService({ db: ":memory:", port: 0, desktopDir: desktop, policyFile });
+    const base = `http://127.0.0.1:${svc.port}`;
+    const post = (path: string, body: unknown) =>
+      fetch(`${base}${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    try {
+      svc.store.append([
+        makeEvent({
+          session_id: "opencode:ses_cur",
+          type: "session.started",
+          ts: "2026-01-01T00:00:00Z",
+          source: { backend: "opencode" },
+          data: { title: "cursor", workspace: work },
+        } as EventInput),
+      ]);
+      for (let i = 0; i < 300; i++) {
+        const listing = (await (await fetch(`${base}/plugins`)).json()) as {
+          plugins: { id: string; state: string }[];
+        };
+        if (listing.plugins.find((p) => p.id === "browser")?.state === "running") break;
+        await Bun.sleep(50);
+      }
+      await post("/plugins/browser/tools/navigate", {
+        session_id: "opencode:ses_cur",
+        input: { url: `http://127.0.0.1:${page.port}` },
+      });
+      // The linked block covers the top half; below it the body's crosshair.
+      const over = (await (await post("/plugins/browser/panel/input", {
+        session: "opencode:ses_cur",
+        kind: "cursor",
+        x: 0.5,
+        y: 0.2,
+      })).json()) as { cursor?: string | null };
+      expect(over.cursor).toBe("pointer");
+      const below = (await (await post("/plugins/browser/panel/input", {
+        session: "opencode:ses_cur",
+        kind: "cursor",
+        x: 0.5,
+        y: 0.9,
+      })).json()) as { cursor?: string | null };
+      expect(below.cursor).toBe("crosshair");
+
+      // Clicking the link moves the page; the next frame's url must be the new
+      // one, not the URL the last tool call happened to navigate to.
+      await post("/plugins/browser/panel/input", { session: "opencode:ses_cur", kind: "click", x: 0.5, y: 0.2 });
+      let url = "";
+      for (let i = 0; i < 40 && !url.endsWith("/next"); i++) {
+        await Bun.sleep(100);
+        const tabs = (await (await post("/plugins/browser/tools/tabs", {
+          session_id: "opencode:ses_cur",
+          input: {},
+        })).json()) as { output: string };
+        url = /http:\/\/[^\s]+/.exec(tabs.output)?.[0] ?? "";
+      }
+      expect(url).toContain("/next");
+    } finally {
+      svc.stop();
+      page.stop(true);
+      rmSync(desktop, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+      rmSync(work, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    }
+  }, 120_000);
+});

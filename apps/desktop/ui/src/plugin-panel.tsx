@@ -94,6 +94,9 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
   let pointerDown = false;
   let composing = false;
   let lastMove = 0;
+  /** The last cursor probe, so a hover costs one round trip every ~120ms. */
+  let lastProbe = 0;
+  let hoverCursor = "";
   /** The size last sent to the service, so a re-layout does not re-send it. */
   let sent: { width: number; height: number; scale: number } | undefined;
 
@@ -114,12 +117,19 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
   const panelSize = () => {
     const rect = surface?.getBoundingClientRect();
     if (!rect || rect.width < 1 || rect.height < 1) return undefined;
+    // What is actually on screen, not what the box claims. A rail that
+    // overflows the window by even thirty pixels puts the page's fixed footer
+    // — a dev toolbar, a cookie bar — behind the window edge, where it cannot
+    // be seen or clicked.
+    const visibleHeight = Math.floor(Math.min(rect.height, window.innerHeight - rect.top));
+    const visibleWidth = Math.floor(Math.min(rect.width, window.innerWidth - rect.left));
+    if (visibleHeight < 1 || visibleWidth < 1) return undefined;
     // `devicePixelRatio` is what makes the frame sharp on a retina display:
     // the page lays out at the panel's CSS size and is captured at the
     // display's own resolution, so one bitmap pixel is one screen pixel.
     return {
-      width: Math.round(rect.width),
-      height: Math.round(rect.height),
+      width: visibleWidth,
+      height: visibleHeight,
       scale: Math.min(Math.max(window.devicePixelRatio || 1, 1), 2),
     };
   };
@@ -368,7 +378,29 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
                 input("down", { ...at, button: buttonOf(e), modifiers: modifiersOf(e) });
               }}
               onPointerMove={(e) => {
-                if (!pointerDown) return;
+                if (!pointerDown) {
+                  // A canvas cannot change cursor per element, so ask the page
+                  // what it would show here. Throttled: a hover is not worth a
+                  // round trip per pixel, and the answer changes rarely.
+                  const now = Date.now();
+                  if (now - lastProbe > 120) {
+                    lastProbe = now;
+                    const at = atPoint(e);
+                    if (at) {
+                      void post("/panel/input", { session: props.sessionId(), kind: "cursor", ...at })
+                        .then(async (res) => {
+                          if (!res.ok) return;
+                          const body = (await res.json().catch(() => ({}))) as { cursor?: string | null };
+                          const next = body.cursor ?? "";
+                          if (next === hoverCursor) return;
+                          hoverCursor = next;
+                          if (frameBox) frameBox.style.cursor = next || "default";
+                        })
+                        .catch(() => {});
+                    }
+                  }
+                  return;
+                }
                 // A drag is a move the page sees with a button held; without
                 // the flag every drag reads as a hover.
                 const now = Date.now();

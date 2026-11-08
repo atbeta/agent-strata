@@ -355,6 +355,23 @@ export function createBrowserManager(opts: BrowserManagerOptions): BrowserManage
       const text = params.exceptionDetails?.exception?.description ?? params.exceptionDetails?.text ?? "page error";
       pushLine(key, "pageerror", text);
     });
+    // The page is not where it was just because the agent navigated it: a
+    // link, a form post, a redirect or a client-side route all move it, and
+    // the panel's address bar was showing the URL from the last tool call.
+    connection.on("Page.frameNavigated", (event) => {
+      if (event.sessionId !== session) return;
+      const frame = (event.params as { frame?: { url?: string; parentId?: string } }).frame;
+      if (!frame?.url || frame.parentId) return;
+      tab.url = frame.url;
+      void tab.page.title().then((title) => {
+        tab.title = title;
+      }).catch(() => {});
+    });
+    connection.on("Page.navigatedWithinDocument", (event) => {
+      if (event.sessionId !== session) return;
+      const url = (event.params as { url?: string }).url;
+      if (url) tab.url = url;
+    });
     connection.on("Network.loadingFailed", (event) => {
       if (event.sessionId !== session) return;
       const params = event.params as { type?: string; errorText?: string; requestId?: string };
