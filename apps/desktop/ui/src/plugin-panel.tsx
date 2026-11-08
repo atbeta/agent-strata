@@ -91,7 +91,6 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
   let frameBox: HTMLElement | undefined;
   /** The focus target for keys and IME: a real field, kept invisible. */
   let field: HTMLTextAreaElement | undefined;
-  let pointerDown = false;
   let composing = false;
   let lastMove = 0;
   /** The last cursor probe, so a hover costs one round trip every ~120ms. */
@@ -169,7 +168,25 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
     setState("live");
   };
 
+  /**
+   * A stream that stops is a panel that looks dead, and nothing tells the
+   * difference between "this page is not repainting" and "the pipe broke".
+   * While the page is visible, a panel without a frame for this long asks
+   * again — the same thing the 重连 button does, without the reader having to
+   * notice that the button is the answer.
+   */
+  let lastFrameAt = Date.now();
+  const STALL_MS = 4_000;
+
   onMount(() => {
+    const stall = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - lastFrameAt < STALL_MS) return;
+      // Not while the rail is closed: `start` would re-open the stream.
+      if (!surface?.isConnected) return;
+      lastFrameAt = Date.now();
+      void start();
+    }, STALL_MS);
     // The rail is resizable and the window is too; a page laid out for the
     // old width would reflow late. Re-announcing the size restarts the cast at
     // the new one, which is cheaper than carrying a second "resize" verb.
@@ -204,6 +221,7 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
           return;
         }
         if (payload?.type !== "frame") return;
+        lastFrameAt = Date.now();
         const next = payload.data as Frame;
         setFrame(next);
         setState("live");
@@ -226,6 +244,8 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
     void open();
     void start();
     onCleanup(() => {
+      clearInterval(stall);
+      endDrag();
       document.removeEventListener("visibilitychange", onVisibility);
       socket?.close();
       socket = undefined;
@@ -317,6 +337,59 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
       decoding = false;
     }
     if (pending) void pump();
+  };
+
+  /**
+   * A drag, tracked on the window rather than through pointer capture.
+   *
+   * `setPointerCapture` keeps the pointer's events on this element for as long
+   * as the button is held — including the ones the pointer would otherwise
+   * deliver elsewhere. A drag that never sees its `pointerup` (the page
+   * navigates, the field unmounts, the button comes up outside) leaves the
+   * capture in place, and from then on the whole rail stops receiving clicks:
+   * the tabs beside the panel go dead while the rest of the app is fine. That
+   * is what this replaces.
+   */
+  let dragging = false;
+  let dragPointer = -1;
+
+  const onWindowMove = (e: PointerEvent) => {
+    if (!dragging || e.pointerId !== dragPointer) return;
+    const now = Date.now();
+    if (now - lastMove < 16) return;
+    lastMove = now;
+    const at = atPoint(e);
+    // A move the page sees with the button held; without the flag every drag
+    // reads as a hover.
+    if (at) input("move", { ...at, dragging: true, modifiers: modifiersOf(e) });
+  };
+
+  const onWindowUp = (e: PointerEvent) => {
+    if (!dragging || e.pointerId !== dragPointer) return;
+    endDrag();
+    const at = atPoint(e);
+    if (at) input("up", { ...at, button: buttonOf(e), modifiers: modifiersOf(e) });
+  };
+
+  const endDrag = () => {
+    dragging = false;
+    dragPointer = -1;
+    window.removeEventListener("pointermove", onWindowMove);
+    window.removeEventListener("pointerup", onWindowUp);
+    window.removeEventListener("pointercancel", endDrag);
+    window.removeEventListener("blur", endDrag);
+  };
+
+  const beginDrag = (e: PointerEvent) => {
+    endDrag();
+    dragging = true;
+    dragPointer = e.pointerId;
+    window.addEventListener("pointermove", onWindowMove);
+    window.addEventListener("pointerup", onWindowUp);
+    window.addEventListener("pointercancel", endDrag);
+    // A window that loses focus never delivers the button-up; without this the
+    // drag would stay armed forever.
+    window.addEventListener("blur", endDrag);
   };
 
   /**
@@ -428,14 +501,13 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
                 e.preventDefault();
                 frameBox?.focus?.();
                 field?.focus({ preventScroll: true });
-                pointerDown = true;
                 const at = atPoint(e);
                 if (!at) return;
-                (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
                 input("down", { ...at, button: buttonOf(e), modifiers: modifiersOf(e) });
+                beginDrag(e);
               }}
               onPointerMove={(e) => {
-                if (!pointerDown) {
+                if (!dragging) {
                   // A canvas cannot change cursor per element, so ask the page
                   // what it would show here. Throttled: a hover is not worth a
                   // round trip per pixel, and the answer changes rarely.
@@ -467,25 +539,8 @@ function ScreencastPanel(props: { panel: PanelContribution; sessionId: () => str
                       probing = false;
                     }
                   }
-                  return;
                 }
-                // A drag is a move the page sees with a button held; without
-                // the flag every drag reads as a hover.
-                const now = Date.now();
-                if (now - lastMove < 16) return;
-                lastMove = now;
-                const at = atPoint(e);
-                if (at) input("move", { ...at, dragging: true, modifiers: modifiersOf(e) });
-              }}
-              onPointerUp={(e) => {
-                if (!pointerDown) return;
-                pointerDown = false;
-                (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
-                const at = atPoint(e);
-                if (at) input("up", { ...at, button: buttonOf(e), modifiers: modifiersOf(e) });
-              }}
-              onPointerCancel={() => {
-                pointerDown = false;
+                // The drag is tracked on the window; see `beginDrag`.
               }}
               onWheel={(e) => {
                 e.preventDefault();

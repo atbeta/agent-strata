@@ -1,4 +1,4 @@
-import { createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
+import { createMemo, createResource, createSignal, ErrorBoundary, For, onCleanup, Show } from "solid-js";
 import {
   readSessionDiff,
   readVcs,
@@ -232,9 +232,27 @@ export function SessionRail(props: {
             focus={props.pathFocus}
           />
         </Show>
-        <Show when={panelForTab(effectiveTab())}>
-          {(panel) => <PluginPanel panel={panel()} sessionId={props.sessionId} />}
-        </Show>
+        {/* A panel that throws must not take the rail with it: without a
+            boundary an error inside one plugin's panel leaves the tabs beside
+            it unable to change anything, which reads as the whole rail having
+            frozen. The reader gets a message and a retry instead. */}
+        <ErrorBoundary
+          fallback={(err, reset) => (
+            <div class="flex flex-col items-start gap-2 p-3 text-xs text-muted-foreground">
+              <p class="text-destructive">{t("panel.plugin.crashed")}</p>
+              <p class="max-h-24 overflow-auto break-words font-mono text-2xs">
+                {err instanceof Error ? err.message : String(err)}
+              </p>
+              <Button variant="outline" size="sm" onClick={reset}>
+                {t("panel.plugin.retry")}
+              </Button>
+            </div>
+          )}
+        >
+          <Show when={panelForTab(effectiveTab())}>
+            {(panel) => <PluginPanel panel={panel()} sessionId={props.sessionId} />}
+          </Show>
+        </ErrorBoundary>
         <Show when={effectiveTab() === "background"}>
           <BackgroundPanel
             processes={() => props.dev.processes() ?? []}

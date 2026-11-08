@@ -191,6 +191,8 @@ export default {
   "panel.files": "Files",
   "panel.background": "Running",
   "panel.plugin.waiting": "Waiting for the plugin…",
+  "panel.plugin.crashed": "This panel failed",
+  "panel.plugin.retry": "Retry",
   "panel.plugin.address": "Address bar",
   "panel.plugin.input": "Browser page",
   "panel.plugin.noPage": "No page yet. Once the agent opens a URL, its frames appear here.",
