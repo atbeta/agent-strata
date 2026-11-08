@@ -4,6 +4,8 @@ import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chooseWindowsShell, createDevManager, looksLongRunning, commandName, resolveWorkdir, stopInside } from "../src/dev-process";
+import { createDevPlugin } from "../src/index";
+import { detaches } from "../src/guidance";
 
 function workspace(): string {
   return mkdtempSync(join(tmpdir(), "strata-dev-"));
@@ -1169,4 +1171,50 @@ describe("shell selection on Windows", () => {
     expect(picked.name).toBe("cmd");
     expect(picked.path).toBe("cmd.exe");
   }, 30_000);
+});
+
+describe("a command that detaches itself", () => {
+  // The guard runs on whatever id the backend gave its shell: `bash` on
+  // unix, `powershell` on Windows, the other names for other agents. A check
+  // written against one name is dead code under another, which is exactly
+  // what the old `tool !== "shell"` was.
+  const plugin = createDevPlugin({ workspaceOf: () => "/tmp" });
+  const guard = (tool: string, command: unknown) =>
+    plugin.beforeToolCall!({ tool, input: { command }, sessionId: "s" });
+
+  test("every shell id is refused, including the Windows one", async () => {
+    for (const tool of ["bash", "powershell", "shell", "execute", "terminal"]) {
+      const verdict = await guard(tool, "Start-Process notepad");
+      expect(verdict.allow).toBe(false);
+      if (!verdict.allow) expect(verdict.message).toContain("dev_start");
+    }
+  });
+
+  test("bash detach idioms are refused too", async () => {
+    for (const command of ["nohup server &", "start /b node server.js"]) {
+      expect((await guard("bash", command)).allow).toBe(false);
+    }
+  });
+
+  test("an ordinary command passes", async () => {
+    expect((await guard("bash", "npm run dev")).allow).toBe(true);
+    expect((await guard("powershell", "node server.js")).allow).toBe(true);
+  });
+
+  test("a tool that is not a shell never reaches the check", async () => {
+    expect((await guard("read", "Start-Process notepad")).allow).toBe(true);
+  });
+
+  test("a non-string command has nothing to match", async () => {
+    expect((await guard("bash", undefined)).allow).toBe(true);
+  });
+
+  test("the matcher reads detach idioms, not the words around them", () => {
+    expect(detaches("Start-Process foo -WindowStyle Hidden")).toBe(true);
+    expect(detaches("start-process foo")).toBe(true);
+    expect(detaches("nohup ./server &")).toBe(true);
+    expect(detaches("start /b server")).toBe(true);
+    expect(detaches("npm run start")).toBe(false);
+    expect(detaches("echo started")).toBe(false);
+  });
 });
