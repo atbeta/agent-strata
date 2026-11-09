@@ -62,6 +62,19 @@ export interface CleanResult {
   deleted?: number;
   targets: CleanTarget[];
   totals: CleanTotals;
+  /** Name of the copy taken just before the delete, when one was made. */
+  backup?: string;
+}
+
+/**
+ * The snapshot an optimize or a vacuum answers with.
+ *
+ * A vacuum takes a backup first — it rewrites the whole file, and it is the
+ * operation a reader reaches for when the disk is nearly full. The name comes
+ * back so the reader can be told one exists instead of having to guess.
+ */
+export interface OptimizeResult extends MaintenanceSnapshot {
+  backup?: string;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -89,8 +102,8 @@ export function syncBackends(): Promise<{
   return request("/sync", { method: "POST" });
 }
 
-export function optimizeMaintenance(vacuum: boolean): Promise<MaintenanceSnapshot> {
-  return request<MaintenanceSnapshot>("/maintenance/optimize", {
+export function optimizeMaintenance(vacuum: boolean): Promise<OptimizeResult> {
+  return request<OptimizeResult>("/maintenance/optimize", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ vacuum }),

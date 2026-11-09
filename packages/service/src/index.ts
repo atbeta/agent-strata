@@ -354,6 +354,32 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       legacy: listLegacy(maintenanceDirsInfo.dir),
     };
   };
+  /**
+   * Take a backup right before something rewrites or deletes stored data.
+   *
+   * The panel could write a backup and never did it on its own, so the one
+   * operation that cannot be undone — cleaning the rebuildable cache — ran
+   * with no copy behind it. A backend that has since dropped a session will
+   * not hand its transcript back, and those bytes are gone for good. Vacuum
+   * gets one too: it is safe in principle, and it is exactly the operation a
+   * reader tries when the disk is nearly full.
+   *
+   * Returns the file name, or undefined when there is nothing to copy (an
+   * in-memory store) or the copy failed. A failure is reported, not thrown:
+   * refusing to clean because the disk is full would be the wrong trade.
+   */
+  const backupBefore = (why: string): string | undefined => {
+    if (!maintenanceDirsInfo.dbPath) return undefined;
+    try {
+      mkdirSync(maintenanceDirsInfo.backupDir, { recursive: true });
+      const name = availableBackupName(maintenanceDirsInfo.dir);
+      store.backupTo(join(maintenanceDirsInfo.backupDir, name));
+      return name;
+    } catch (e) {
+      console.error(`could not back up before ${why}:`, e);
+      return undefined;
+    }
+  };
   // A continuation already handed to the backend, waiting until that run shows
   // as busy. Without it, the idle that accepted the prompt sends another one.
   const goalKicked = new Set<string>();
@@ -1314,9 +1340,13 @@ export function startService(opts: ServiceOpts = {}): RunningService {
 
     if (path === "/maintenance/optimize" && req.method === "POST") {
       const body = (await req.json().catch(() => null)) as { vacuum?: unknown } | null;
+      // Vacuum rewrites the whole file, and it is the operation a reader reaches
+      // for when the disk is nearly full — the one moment a failure is likeliest
+      // and a copy is worth the space. Optimize alone touches no stored rows.
+      const backup = body?.vacuum === true ? backupBefore("vacuum") : undefined;
       store.optimize();
       if (body?.vacuum === true) store.vacuum();
-      return json(maintenanceSnapshot());
+      return json({ ...maintenanceSnapshot(), backup });
     }
 
     if (path === "/maintenance/backup" && req.method === "POST") {
@@ -1428,10 +1458,15 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       if (body.apply !== true) {
         return json({ mode, applied: false, targets, totals });
       }
+      // The only irreversible operation in this panel: it deletes transcripts.
+      // A session the backend still has comes back on the next sync, but one it
+      // has since dropped does not — so a copy goes down before the delete, not
+      // after the reader regrets it.
+      const backup = backupBefore("clean");
       const deleted = store.deleteRebuildable(ids);
       for (const id of ids) views.drop(id);
       broadcast({ type: "maintenance.applied", mode, sessions: ids });
-      return json({ mode, applied: true, deleted, targets, totals });
+      return json({ mode, applied: true, deleted, targets, totals, backup });
     }
 
     if (path === "/events" && req.method === "GET") {

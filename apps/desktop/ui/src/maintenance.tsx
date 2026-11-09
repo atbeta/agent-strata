@@ -12,6 +12,7 @@ import {
   type MaintenanceSnapshot,
 } from "./maintenance-api";
 import { displayTitle } from "./session-title";
+import { revealPath } from "./api";
 import { explain } from "./errors";
 import { date, num, stamp, t } from "./i18n";
 import { Card, Group, Row } from "./settings-blocks";
@@ -59,6 +60,17 @@ export function MaintenanceSettings() {
   };
 
   const stats = () => snapshot()?.db.stats;
+  /**
+   * What a vacuum says when it finishes.
+   *
+   * The service takes a copy before it rewrites the file. A reader who is not
+   * told that will assume the operation ran bare, and this is the only place
+   * they learn a copy exists.
+   */
+  const vacuumDone = (backup: string | undefined) =>
+    backup
+      ? t("maintenance.vacuum.done.backup", { name: backup })
+      : t("maintenance.vacuum.done");
   const totalBytes = () => {
     const row = snapshot()?.db;
     return row ? row.bytes + row.wal_bytes + row.shm_bytes : 0;
@@ -105,8 +117,17 @@ export function MaintenanceSettings() {
   const runVacuum = () =>
     void run("vacuum", () => optimizeMaintenance(true), (next) => {
       showSnapshot(next);
-      setFeedback({ key: "vacuum", ok: true, text: t("maintenance.vacuum.done") });
+      setFeedback({ key: "vacuum", ok: true, text: vacuumDone(next.backup) });
     });
+  /**
+   * Show a backup in the file manager.
+   *
+   * The panel could write these files and list them, but nothing led to where
+   * they live — so the only way to use one was to already know the path. A
+   * backup nobody can find is not a backup.
+   */
+  const revealFile = (path: string) =>
+    void run("reveal", () => revealPath(path), () => {});
   const runBackup = () =>
     void run("backup", backupMaintenance, (next) => {
       showSnapshot(next);
@@ -161,7 +182,9 @@ export function MaintenanceSettings() {
         setFeedback({
           key: "clean",
           ok: true,
-          text: t("maintenance.clean.done", { n: result.deleted ?? 0 }),
+          text: result.backup
+            ? t("maintenance.clean.done.backup", { n: num(result.deleted ?? 0), name: result.backup })
+            : t("maintenance.clean.done", { n: num(result.deleted ?? 0) }),
         });
         void refetch();
       },
@@ -403,6 +426,16 @@ export function MaintenanceSettings() {
                             {fmtBytes(file.bytes)} · {stamp(file.modified_at)}
                           </p>
                         </div>
+                        <Button
+                          type="button"
+                          size="icon-sm"
+                          variant="icon"
+                          class="shrink-0"
+                          aria-label={t("maintenance.reveal")}
+                          onClick={() => void revealFile(file.path)}
+                        >
+                          <Icon name="folder" class="size-3.5" />
+                        </Button>
                         <Show
                           when={confirming() === `backup:${file.name}`}
                           fallback={
