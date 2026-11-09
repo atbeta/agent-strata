@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createResource, createSignal, For, Show } from "solid-js";
-import { APP_NAME, BRAND, SOURCE_LABEL, SOURCE_URL, brandText } from "./app-name";
+import { APP_NAME, BRAND, SOURCE_URL, brandText } from "./app-name";
 import {
   readOpencodeLaunch,
   saveOpencodeMode,
@@ -1177,7 +1177,7 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
                 class="inline-flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
               >
                 <Icon name="globe" class="size-3.5 shrink-0" />
-                <span class="truncate">{SOURCE_LABEL || SOURCE_URL}</span>
+                <span class="truncate">{brandText(BRAND.sourceLabel) || SOURCE_URL}</span>
               </a>
             </Show>
           </Row>

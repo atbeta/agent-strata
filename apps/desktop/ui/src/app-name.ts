@@ -31,7 +31,8 @@ export type Brand = {
   identifier: string;
   dataDir: string;
   sourceUrl: string;
-  sourceLabel: string;
+  /** The words on the About row's link: one string, or one per language. */
+  sourceLabel: BrandText;
   /** About row title. Absent: the page uses its translated "Source" line. */
   sourceTitle?: BrandText;
   /** The sentence under that title. Absent: the translated sentence. */
@@ -70,9 +71,6 @@ export const APP_NAME = BRAND.productName;
 
 /** Where the About row's link goes. Empty: the row has no link. */
 export const SOURCE_URL = BRAND.sourceUrl;
-
-/** The words on that link. */
-export const SOURCE_LABEL = BRAND.sourceLabel;
 
 /**
  * One brand string in the active language.

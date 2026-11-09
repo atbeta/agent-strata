@@ -165,6 +165,80 @@ describe("the about row", () => {
     const brand = await resolveBrand({ STRATA_BRAND_SOURCE_TITLE_ZH: "使用说明" });
     expect(brand.sourceTitle).toBe("使用说明");
   });
+
+  /**
+   * The link's own wording follows the same rule as the two fields above it.
+   *
+   * It did not, and that is the half of this that was easy to miss: the title
+   * and the sentence were made translatable while the label stayed a plain
+   * string, so a brand configured entirely with `_ZH`/`_EN` variables resolved
+   * the last one to the upstream repository name and looked ignored.
+   */
+  test("the link's words take a language too", async () => {
+    const brand = await resolveBrand({
+      STRATA_BRAND_SOURCE_LABEL_ZH: "博客链接",
+      STRATA_BRAND_SOURCE_LABEL_EN: "Blog Link",
+    });
+    expect(brand.sourceLabel).toEqual({ zh: "博客链接", en: "Blog Link" });
+    expect(isCustom(brand)).toBe(true);
+  });
+
+  /**
+   * A brand that names every field per language, and nothing plain.
+   *
+   * This is the shape the internal build actually uses, and the one that
+   * produced an About row reading "源代码" over an upstream link: the fields
+   * existed in the repository, but the workflow never passed them to the build.
+   */
+  test("a brand written entirely in suffixes resolves all three fields", async () => {
+    const brand = await resolveBrand({
+      STRATA_BRAND_SOURCE_TITLE_ZH: "功能指引",
+      STRATA_BRAND_SOURCE_TITLE_EN: "Feature Guide",
+      STRATA_BRAND_SOURCE_HINT_ZH: "反馈问题或查看更新可访问。",
+      STRATA_BRAND_SOURCE_HINT_EN: "You can report issues or check for updates here.",
+      STRATA_BRAND_SOURCE_LABEL_ZH: "博客链接",
+      STRATA_BRAND_SOURCE_LABEL_EN: "Blog Link",
+    });
+    expect(brand.sourceTitle).toEqual({ zh: "功能指引", en: "Feature Guide" });
+    expect(brand.sourceHint).toEqual({
+      zh: "反馈问题或查看更新可访问。",
+      en: "You can report issues or check for updates here.",
+    });
+    expect(brand.sourceLabel).toEqual({ zh: "博客链接", en: "Blog Link" });
+  });
+
+  /**
+   * The workflow maps every one of those variables into the build.
+   *
+   * GitHub does not export repository variables on its own, so a name missing
+   * from the workflow's `env:` block is a variable the build never sees — the
+   * failure is silent, and the install ships with the upstream wording. This
+   * asserts the mapping exists rather than the outcome, because the outcome
+   * cannot be observed from a test.
+   */
+  test("every brand variable is mapped into the build", () => {
+    const workflow = readFileSync(
+      new URL("../../../../.github/workflows/desktop-release.yml", import.meta.url),
+      "utf8",
+    );
+    for (const name of [
+      "STRATA_BRAND_NAME",
+      "STRATA_BRAND_IDENTIFIER",
+      "STRATA_BRAND_DATA_DIR",
+      "STRATA_BRAND_SOURCE_URL",
+      "STRATA_BRAND_SOURCE_LABEL",
+      "STRATA_BRAND_SOURCE_TITLE",
+      "STRATA_BRAND_SOURCE_HINT",
+      "STRATA_BRAND_SOURCE_LABEL_ZH",
+      "STRATA_BRAND_SOURCE_LABEL_EN",
+      "STRATA_BRAND_SOURCE_TITLE_ZH",
+      "STRATA_BRAND_SOURCE_TITLE_EN",
+      "STRATA_BRAND_SOURCE_HINT_ZH",
+      "STRATA_BRAND_SOURCE_HINT_EN",
+    ]) {
+      expect(workflow).toContain(`${name}: \${{ vars.${name} }}`);
+    }
+  });
 });
 
 describe("the brand text in the active language", () => {

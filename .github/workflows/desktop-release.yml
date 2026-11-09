@@ -56,6 +56,17 @@ jobs:
       STRATA_BRAND_SOURCE_LABEL: ${{ vars.STRATA_BRAND_SOURCE_LABEL }}
       STRATA_BRAND_SOURCE_TITLE: ${{ vars.STRATA_BRAND_SOURCE_TITLE }}
       STRATA_BRAND_SOURCE_HINT: ${{ vars.STRATA_BRAND_SOURCE_HINT }}
+      # One language each. The plain variables above cover every language at
+      # once; these name a single one. They have to be mapped by hand like the
+      # rest — a repository variable that is not named here never reaches the
+      # build, which is how a brand configured entirely with `_ZH`/`_EN`
+      # resolved to the upstream wording and looked like it was ignored.
+      STRATA_BRAND_SOURCE_LABEL_ZH: ${{ vars.STRATA_BRAND_SOURCE_LABEL_ZH }}
+      STRATA_BRAND_SOURCE_LABEL_EN: ${{ vars.STRATA_BRAND_SOURCE_LABEL_EN }}
+      STRATA_BRAND_SOURCE_TITLE_ZH: ${{ vars.STRATA_BRAND_SOURCE_TITLE_ZH }}
+      STRATA_BRAND_SOURCE_TITLE_EN: ${{ vars.STRATA_BRAND_SOURCE_TITLE_EN }}
+      STRATA_BRAND_SOURCE_HINT_ZH: ${{ vars.STRATA_BRAND_SOURCE_HINT_ZH }}
+      STRATA_BRAND_SOURCE_HINT_EN: ${{ vars.STRATA_BRAND_SOURCE_HINT_EN }}
     steps:
       - uses: actions/checkout@v5
 
