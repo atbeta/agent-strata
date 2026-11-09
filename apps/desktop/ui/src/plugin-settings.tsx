@@ -34,24 +34,59 @@ const STATE_TONES: Record<PluginSummary["state"], string> = {
   failed: "bg-destructive",
 };
 
+/** How long the undo line stays after a disable. */
+const UNDO_MS = 10_000;
+
 export function PluginSettings() {
   const [busyId, setBusyId] = createSignal("");
   const [expanded, setExpanded] = createSignal<Record<string, boolean>>({});
   const [feedback, setFeedback] = fadeKeyed();
   const [confirming, setConfirming] = createSignal("");
+  /**
+   * Plugins disabled a moment ago, so the reader can take it back.
+   *
+   * A switch states a fact about the present, not a request to be confirmed.
+   * It used to ask twice, and the second ask was invisible: the switch is
+   * driven by the service's state, so the first click moved nothing at all and
+   * the confirmation was a line of text under a control that had not budged.
+   * Disabling is now immediate, and a mistake is undone from the line that
+   * reports it — the same place the reader is already looking.
+   */
+  const [justDisabled, setJustDisabled] = createSignal<Record<string, boolean>>({});
   let confirmTimer: ReturnType<typeof setTimeout> | undefined;
+  const undoTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  const markJustDisabled = (id: string, on: boolean) => {
+    clearTimeout(undoTimers.get(id));
+    undoTimers.delete(id);
+    setJustDisabled((current) => {
+      if (Boolean(current[id]) === on) return current;
+      const next = { ...current };
+      if (on) next[id] = true;
+      else delete next[id];
+      return next;
+    });
+    if (on) undoTimers.set(id, setTimeout(() => markJustDisabled(id, false), UNDO_MS));
+  };
 
   onMount(() => void refreshPlugins());
-  onCleanup(() => clearTimeout(confirmTimer));
+  onCleanup(() => {
+    clearTimeout(confirmTimer);
+    for (const timer of undoTimers.values()) clearTimeout(timer);
+    undoTimers.clear();
+  });
 
   const run = async (id: string, action: PluginLifecycleAction) => {
     setBusyId(id);
     setConfirming("");
     clearTimeout(confirmTimer);
     setFeedback(id, "");
+    // Any attempt settles the question the undo line was asking.
+    markJustDisabled(id, false);
     try {
       await setPluginLifecycle(id, action);
       await refreshPlugins();
+      if (action === "disable") markJustDisabled(id, true);
     } catch (error) {
       setFeedback(id, explain(error));
     } finally {
@@ -60,7 +95,10 @@ export function PluginSettings() {
   };
 
   const request = (plugin: PluginSummary, action: PluginLifecycleAction) => {
-    if (action === "enable") {
+    // Only restart asks twice: it throws away the running instance and
+    // whatever it was in the middle of. Turning a switch on or off is not
+    // that kind of act, and the reader is looking right at the result.
+    if (action !== "restart") {
       void run(plugin.id, action);
       return;
     }
@@ -120,7 +158,6 @@ export function PluginSettings() {
                   const name = () => pluginDisplayName(plugin.id, plugin.name);
                   const busy = () => busyId() === plugin.id;
                   const transitional = () => plugin.state === "starting" || plugin.state === "stopping";
-                  const disableConfirming = () => confirming() === `${plugin.id}:disable`;
                   const restartConfirming = () => confirming() === `${plugin.id}:restart`;
                   return (
                     <div class="px-4 py-3">
@@ -172,12 +209,25 @@ export function PluginSettings() {
                           />
                         </div>
                       </div>
-                      <Show when={disableConfirming() || restartConfirming()}>
+                      <Show when={restartConfirming()}>
                         <p class="mt-2 text-2xs leading-4 text-muted-foreground">
-                          {disableConfirming()
-                            ? t("settings.plugins.disableHint")
-                            : t("settings.plugins.restartHint")}
+                          {t("settings.plugins.restartHint")}
                         </p>
+                      </Show>
+                      <Show when={justDisabled()[plugin.id] && plugin.state === "disabled"}>
+                        <div class="mt-2 flex items-center gap-2 text-2xs leading-4 text-muted-foreground">
+                          <span>{t("settings.plugins.justDisabled")}</span>
+                          <Button
+                            type="button"
+                            variant="link"
+                            size="xs"
+                            class="text-2xs"
+                            disabled={busy() || transitional()}
+                            onClick={() => request(plugin, "enable")}
+                          >
+                            {t("settings.plugins.undo")}
+                          </Button>
+                        </div>
                       </Show>
                       <Show when={plugin.error}>
                         <p class="mt-2 whitespace-pre-wrap break-words text-2xs leading-4 text-destructive">
