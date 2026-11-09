@@ -6,13 +6,13 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
-  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  canonical,
   toplevel,
   worktreeAdd,
   worktreeInfo,
@@ -67,7 +67,7 @@ describe("worktreeAdd", () => {
     const wt = await worktreeAdd({ dir: repo, stateDir: state });
     // canonical() resolves /var → /private/var, so compare against the
     // resolved root the way the implementation does
-    expect(wt.directory.startsWith(realpathSync(join(state, "worktrees")))).toBe(true);
+    expect(wt.directory.startsWith(canonical(join(state, "worktrees")))).toBe(true);
     expect(wt.branch.startsWith("strata/")).toBe(true);
     expect(wt.repo).toBeTruthy();
     expect(existsSync(join(wt.directory, "f"))).toBe(true);
@@ -306,10 +306,13 @@ describe("withWorktrees", () => {
       state,
     );
     const byDir = new Map(marked.map((w) => [w.directory, w]));
-    expect(byDir.get(repo)?.repo).toBe(realpathSync(repo));
+    // canonical(), not realpathSync(): a Windows temp path spelled through
+    // its 8.3 alias realpaths back short, and the service reports the long
+    // name git itself prints.
+    expect(byDir.get(repo)?.repo).toBe(canonical(repo));
     // a linked worktree names its repo's main checkout, not its own root —
     // the listing that ran inside it must not point the mark at itself
-    expect(byDir.get(wt.directory)?.repo).toBe(realpathSync(repo));
+    expect(byDir.get(wt.directory)?.repo).toBe(canonical(repo));
     expect(byDir.get(plain)?.repo).toBeUndefined();
   });
 

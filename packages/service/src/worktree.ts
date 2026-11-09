@@ -6,7 +6,7 @@
 
 import { spawn } from "bun";
 import { createHash, randomBytes } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, rmdirSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, rmdirSync, statSync } from "node:fs";
 import type { Dirent } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 
@@ -45,13 +45,54 @@ async function git(args: readonly string[], cwd?: string): Promise<string> {
   return out.trim();
 }
 
-/** symlinks resolved, so a worktree path compares equal no matter how it was spelled */
-function canonical(path: string): string {
+/**
+ * symlinks resolved, so a worktree path compares equal no matter how it was
+ * spelled.
+ *
+ * On Windows a path can be spelled through an 8.3 alias (`ADMINI~1`) as well
+ * as the long name, and realpath keeps whichever the caller used — while git
+ * always prints the long name, so the two spellings of one directory compare
+ * unequal. Any segment containing `~` is expanded by file identity: the short
+ * alias and the long name are the same directory entry, and the parent
+ * directory's listing says which.
+ */
+export function canonical(path: string): string {
+  let resolved: string;
   try {
-    return realpathSync(path);
+    resolved = realpathSync(path);
   } catch {
     return path;
   }
+  if (process.platform !== "win32") return resolved;
+  const parts = resolved.split(sep);
+  for (let i = 1; i < parts.length; i++) {
+    if (!parts[i]!.includes("~")) continue;
+    const parent = parts.slice(0, i).join(sep) || sep;
+    const soFar = parts.slice(0, i + 1).join(sep);
+    let id: { dev: number; ino: number };
+    try {
+      const st = statSync(soFar);
+      id = { dev: st.dev, ino: st.ino };
+    } catch {
+      continue;
+    }
+    try {
+      for (const name of readdirSync(parent)) {
+        try {
+          const st = statSync(join(parent, name));
+          if (st.dev === id.dev && st.ino === id.ino) {
+            parts[i] = name;
+            break;
+          }
+        } catch {
+          // an entry that went, or is unreadable — skip it
+        }
+      }
+    } catch {
+      // the parent is unreadable — keep the spelling we have
+    }
+  }
+  return parts.join(sep);
 }
 
 /** The repository's main checkout, or nothing when dir is inside no repo. */
