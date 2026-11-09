@@ -617,7 +617,7 @@ export class OpencodeMapper {
     // turn is not deduped away, and the event has to carry the session's own
     // clock or `MAX(last_ts)` moves an old conversation to the top of the list.
     stillRunning?: (
-      sessionID: string,
+      casfId: string,
     ) => { running: boolean; seq: number; ts?: string } | undefined,
   ): EventInput[] {
     const out: EventInput[] = [];
@@ -625,7 +625,9 @@ export class OpencodeMapper {
       const known = this.sessions.get(sessionID);
       // Memory first — this generation watched it run. Otherwise ask the store,
       // which is the only thing that remembers a run from before the restart.
-      const stored = stillRunning?.(sessionID);
+      // It is asked under the id the store knows: `opencode:ses_…`, not the
+      // bare id the backend uses.
+      const stored = stillRunning?.(`opencode:${sessionID}`);
       const stale = known?.sawBusy === true || stored?.running === true;
       if (!stale) continue;
       const s = known ?? this.adopt(sessionID);

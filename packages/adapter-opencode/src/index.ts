@@ -130,6 +130,10 @@ export async function connectOpencode(opts: {
   /** How long prompt_async may take to accept. It returns once the run has started. */
   promptAcceptMs?: number;
   abortTimeoutMs?: number;
+  /** Testing seam: how quiet a session believed running may get before its status is asked. */
+  quietProbeMs?: number;
+  /** Testing seam: how often a still-quiet, still-busy session is asked again. */
+  statusReprobeMs?: number;
   fetch?: typeof fetch;
 }): Promise<{
   stop: () => void;
@@ -313,12 +317,22 @@ export async function connectOpencode(opts: {
     sink: opts.sink,
     ingestor,
   });
+  /**
+   * When each session last said anything. The bus heartbeats keep the socket
+   * alive while one session goes silent, so quiet has to be measured per
+   * session — a frame without a `sessionID` refreshes nothing.
+   */
+  const lastEventAt = new Map<string, number>();
   await runOpencodeStream({
     client,
     abort,
     connectTimeout,
     onEvent: opts.onEvent,
-    handle: (evt) => ingestor.handle(evt),
+    handle: (evt) => {
+      const sid = (evt.properties as { sessionID?: unknown } | undefined)?.sessionID;
+      if (typeof sid === "string") lastEventAt.set(sid, Date.now());
+      ingestor.handle(evt);
+    },
     onReconnect: () => {
       void sessionImport.refreshSessions().catch((err) =>
         console.error("opencode catch-up failed:", err),
@@ -366,6 +380,44 @@ export async function connectOpencode(opts: {
   // alone would miss it, because nothing has reconnected yet.
   void reconcileIdle();
 
+  /**
+   * A quiet session that still reads running is asked, not declared.
+   *
+   * `session.idle` is the only honest end of a run, and it does not always
+   * arrive — measured, a turn that ends in `permission.replied` +
+   * `session.updated` produces none, and nothing that follows mentions the
+   * session again, so the running mark outlives the run for good. Silence
+   * alone is still not evidence — a model can think for a minute without a
+   * frame — so what fires is a question, not a verdict: `session.status`,
+   * the same read a reconnect makes, and only an `idle` the backend itself
+   * reports corrects the projection. A session that keeps streaming is never
+   * probed; one that is merely thinking costs one status read a minute.
+   */
+  const QUIET_MS = opts.quietProbeMs ?? 15_000;
+  const REPROBE_MS = opts.statusReprobeMs ?? 60_000;
+  const lastProbeAt = new Map<string, number>();
+  const quietTimer = setInterval(() => {
+    const now = Date.now();
+    const running = opts.sink.sessionRunning?.bind(opts.sink);
+    if (!running) return;
+    let stale = false;
+    for (const [id, at] of lastEventAt) {
+      // Asked under the id the store knows — `opencode:ses_…`, not the
+      // backend's bare id.
+      if (!running(`opencode:${id}`).running) {
+        // A session the store already calls idle keeps no clock of ours.
+        lastEventAt.delete(id);
+        lastProbeAt.delete(id);
+        continue;
+      }
+      if (now - at < QUIET_MS || now - (lastProbeAt.get(id) ?? 0) < REPROBE_MS) continue;
+      lastProbeAt.set(id, now);
+      stale = true;
+    }
+    // One read covers every quiet session — the answer names them all.
+    if (stale) void reconcileIdle();
+  }, Math.min(QUIET_MS, 10_000));
+
   const mcpAuthFetch = (path: string, directory: string | undefined, signal: AbortSignal, body?: unknown) => {
     const q = new URLSearchParams();
     const dir = directory ?? opts.directory;
@@ -392,6 +444,7 @@ export async function connectOpencode(opts: {
       abort.abort();
       ingestor.stop();
       clearInterval(restoreTimer);
+      clearInterval(quietTimer);
     },
     async createSession(sessOpts?: { title?: string; directory?: string }) {
       const r = await client.session.create({

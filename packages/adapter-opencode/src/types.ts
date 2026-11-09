@@ -25,7 +25,9 @@ export interface Sink {
    * A correction at connect time has to act on sessions this connection never
    * watched, so it cannot answer that question from its own memory. The store
    * can, and it is the only thing that survives a restart — which is exactly
-   * when a run cut off mid-write leaves its `busy` behind.
+   * when a run cut off mid-write leaves its `busy` behind. Like the rest of
+   * this interface it is asked under the store's id — `opencode:ses_…`, not
+   * the backend's bare `ses_…`.
    */
   sessionRunning?(sessionId: string): { running: boolean; seq: number; ts?: string };
   /**

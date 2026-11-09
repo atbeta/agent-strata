@@ -4055,3 +4055,99 @@ describe("reconciling a run the app was closed in the middle of", () => {
     expect(out.some((e) => e.type === "session.status" && (e.data as { state: string }).state === "idle")).toBe(true);
   });
 });
+
+describe("a quiet session on a live connection", () => {
+  /**
+   * The settle guess was removed because silence alone cannot say a run ended
+   * — a thinking model is quiet too. What fires now is the question instead:
+   * a session that stopped talking while the store still calls it running has
+   * its status read, and only an `idle` the backend itself reports lands.
+   * Measured: a turn that ends in `permission.replied` + `session.updated`
+   * emits no `session.idle`, so without the ask the running mark outlives
+   * the run.
+   */
+  const quietProbeFetch = (
+    status: () => Record<string, { type: string }>,
+    statusCalls: { n: number },
+  ) => {
+    const enc = new TextEncoder();
+    const frames = [
+      sessionCreated(),
+      msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 10 } }),
+      partUpdated({ id: "pt1", sessionID: sid, messageID: "u1", type: "text", text: "hi", time: { start: 10 } }),
+      {
+        id: freshId("pr"),
+        type: "permission.replied",
+        properties: { sessionID: sid, requestID: "perm1", reply: "once" },
+      },
+    ];
+    return async (input: Request | URL | string) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.includes("/global/event") || url.endsWith("/event")) {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(ctrl) {
+              for (const evt of frames) ctrl.enqueue(enc.encode(`data: ${JSON.stringify(evt)}\n\n`));
+            },
+          }),
+          { status: 200, headers: { "content-type": "text/event-stream" } },
+        );
+      }
+      if (url.includes("/session/status")) {
+        statusCalls.n += 1;
+        return Response.json(status());
+      }
+      return Response.json([]);
+    };
+  };
+
+  test("the backend's idle lands as the correction once the session goes quiet", async () => {
+    const { connectOpencode } = await import("../src/index");
+    const statusCalls = { n: 0 };
+    const store = openStore(":memory:");
+    const conn = await connectOpencode({
+      baseUrl: "http://fake",
+      sink: store,
+      // Busy at connect (the run is still going), idle by the time the quiet
+      // probe asks — the correction must come from the probe, not the connect.
+      fetch: quietProbeFetch(
+        () => (statusCalls.n <= 1 ? { [sid]: { type: "busy" } } : { [sid]: { type: "idle" } }),
+        statusCalls,
+      ) as typeof fetch,
+      connectTimeoutMs: 5_000,
+      quietProbeMs: 100,
+    });
+    const casf = `opencode:${sid}`;
+    const deadline = Date.now() + 4_000;
+    // The busy frames land after connectOpencode resolves — wait for the run
+    // to register before waiting for the correction.
+    while (!store.sessionRunning(casf).running && Date.now() < deadline) await Bun.sleep(20);
+    while (store.sessionRunning(casf).running && Date.now() < deadline) await Bun.sleep(20);
+    expect(store.sessionRunning(casf).running).toBe(false);
+    // once at connect, once because the session went quiet while marked running
+    expect(statusCalls.n).toBeGreaterThanOrEqual(2);
+    conn.stop();
+    store.close();
+  });
+
+  test("a quiet session the backend still calls busy is asked but believed", async () => {
+    const { connectOpencode } = await import("../src/index");
+    const statusCalls = { n: 0 };
+    const store = openStore(":memory:");
+    const conn = await connectOpencode({
+      baseUrl: "http://fake",
+      sink: store,
+      fetch: quietProbeFetch(() => ({ [sid]: { type: "busy" } }), statusCalls) as typeof fetch,
+      connectTimeoutMs: 5_000,
+      quietProbeMs: 100,
+      statusReprobeMs: 60_000,
+    });
+    const casf = `opencode:${sid}`;
+    const deadline = Date.now() + 4_000;
+    while (statusCalls.n < 2 && Date.now() < deadline) await Bun.sleep(50);
+    expect(statusCalls.n).toBe(2); // connect + the one quiet probe
+    expect(store.sessionRunning(casf).running).toBe(true);
+    conn.stop();
+    store.close();
+  });
+});
