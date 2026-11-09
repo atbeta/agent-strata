@@ -163,45 +163,21 @@ function recoveryAction(action: unknown): RetryAction | undefined {
 export const STREAM_SNAPSHOT_MS = 50;
 
 /**
- * How long a finished turn waits before we claim the session is idle.
+ * Whether a session is running is the backend's answer, not ours.
  *
- * Long enough for the next assistant message of the same turn to arrive — it is
- * created after the previous one completes, so this window is the gap between
- * the halves of one run. Short enough that a dot on a finished conversation
- * stops within the same beat.
+ * This file used to guess it from silence: a session that stopped talking was
+ * declared idle after thirty seconds (five minutes with a tool open), on the
+ * theory that a run which had died would otherwise breathe forever. Measured
+ * against real use that trade was the wrong way round. A self-hosted model
+ * thinking for a minute is silent and alive, and the guess retired the live
+ * message being written — the text vanished off the screen — then fired the
+ * composer's queued messages and a goal continuation into a run that was still
+ * going. `reconcileIdle` at connect and the stop button both ask
+ * `session.status` for the real answer, and a wedged stream is caught by the
+ * stream's own silence window and reconnected. What the guess covered that they
+ * do not — one session going quiet on a healthy connection — costs a marker
+ * that keeps moving until the reader presses stop.
  */
-export const SETTLE_DELAY_MS = 250;
-
-/**
- * How long a session may sit with an open assistant message and no activity of
- * its own before the settle fallback stops waiting for that message.
- *
- * The fallback waits for every assistant message to report completion, because
- * a mid-turn gap between two messages must not read as idle. But a message can
- * stay open forever without the turn going on: measured on a real one, a turn
- * whose last tool sat awaiting a permission the reader never saw kept that
- * message open for three hours, and the guard turned the fallback off for all
- * of them — a breathing dot on a conversation nobody was in. Past this window
- * an open message with no running tool is a stall, not a pause, and the next
- * real event re-marks busy if it was wrong.
- */
-export const SETTLE_QUIET_MS = 30_000;
-
-/**
- * How long a tool still reported as running keeps the correction back.
- *
- * Nothing in the event stream can tell a long tool from a run the backend
- * dropped: both are a session that has stopped talking, and the only evidence
- * either way is how long that lasts. So the tool gets a ceiling instead of a
- * veto. It has to have one: a settle that a running tool can hold off forever
- * is a settle that never speaks in the exact case it was written for — a run
- * that went quiet without ever completing a message and without ever sending
- * `session.idle` — and `busy` then survives for the life of the session, which
- * is the failure this whole mechanism exists to end. Past this the tool is
- * taken to have been dropped; the next real event re-marks the session busy if
- * that was wrong.
- */
-export const SETTLE_STALL_MS = 300_000;
 
 /** Bump when the mapping changes; stored sessions mapped by an older version are rebuilt. */
 export const OPENCODE_MAPPER_VERSION = "opencode-16";
@@ -354,10 +330,10 @@ interface MsgState {
   /** one entry per model call this message ran, keyed by the step part's id */
   steps?: Map<string, AssistantStep>;
   /**
-   * A close path (idle, settle, error) already wrote this message's durable
-   * final with `stop_reason: "interrupted"`. A real completion may still
-   * arrive and replace it — unlike an ordinary final, an interrupted one is
-   * not the last word.
+   * A close path (idle or error) already wrote this message's durable final
+   * with `stop_reason: "interrupted"`. A real completion may still arrive and
+   * replace it — unlike an ordinary final, an interrupted one is not the last
+   * word.
    */
   interrupted?: boolean;
 }
@@ -390,11 +366,9 @@ interface SessionState {
    * message still open, a permission waiting. The backend's `busy` frame is
    * never trusted — the slower bus keeps claiming it for a run that already
    * ended — but its `idle` is the authoritative close for a turn that
-   * completed nothing. Either way a missing `idle` must not leave it set
-   * forever: a session that reads "running" while nothing is running is worse
-   * than one that reads "running" a moment too long — it is a breathing dot on
-   * a dead conversation, and it never corrects itself, so nobody can tell it
-   * apart from a real run. The settle pass is what notices the disagreement.
+   * completed nothing. A session therefore stays "running" until the backend
+   * says otherwise; the two things that can still correct it are a reconnect
+   * (`reconcileIdle`, which asks the server) and the reader's own stop.
    */
   sawBusy?: boolean;
   /** fingerprint and attempt of the retry currently projected, for status/part dedup */
@@ -411,23 +385,18 @@ interface SessionState {
   summaryMsg?: string;
   /**
    * Assistant messages seen in this session, by id, carrying the turn they
-   * belong to. A turn is finished when every assistant message in it has
-   * reported completion.
+   * belong to.
    *
    * Per message rather than a bare counter, because a turn is several assistant
-   * messages and they arrive in order: the second is created after the first has
-   * already completed. A counter would read zero the moment the first finished
-   * and announce idleness mid-turn — the opposite failure from the one this
-   * exists to fix, and a worse one, because it stops the projector clearing a
-   * run that is genuinely going.
+   * messages and they arrive in order: the second is created after the first
+   * has completed. Kept so idle can close every open message at once, and so a
+   * completion can retire its own entry.
    */
   liveMsgs?: Map<string, string | undefined>;
   /**
    * Questions and permissions the backend is still holding open, by request
-   * id. While one is outstanding the run is parked on the reader — knowable
-   * state, unlike a silent tool — so the settle fallback holds its verdict
-   * unconditionally rather than writing an interrupted final the reader's own
-   * answer will revoke.
+   * id. While one is outstanding the run is parked on the reader, so nothing
+   * in this file closes it out — the answer is what moves it.
    */
   awaiting?: Set<string>;
   /** last title / directory / archive we emitted, so cost-only session.updated stays quiet */
@@ -438,12 +407,6 @@ interface SessionState {
   parent?: string;
   /** last revert message id we emitted; cleared after revert: null */
   revertMessageID?: string;
-  /**
-   * When this session last produced an event of its own. The settle fallback
-   * reads it: an open message inside a session that has gone quiet is a stall
-   * rather than a pause, and one still receiving events is a live turn.
-   */
-  lastTouch?: number;
   /**
    * Whether this mapper generation has announced an idle for the session.
    *
@@ -604,172 +567,6 @@ export class OpencodeMapper {
     return base;
   }
 
-  /**
-   * Say the session is idle when the backend has stopped generating but did not
-   * say so itself.
-   *
-   * This exists because `busy` is only ever cleared by an incoming idle, and the
-   * backend does not always send one. A session whose turn finished after a
-   * permission was granted ends on `permission.replied` and `session.updated`,
-   * with no `session.idle` behind them: measured on a real one, the last
-   * `session.status` was `busy` and nothing ever followed it. Every list that
-   * shows state then shows a breathing dot on a conversation that finished
-   * hours ago, and because the projector only ever hears "busy", nothing can
-   * tell it apart from a live run — the one state a reader cannot afford to
-   * misread.
-   *
-   * Two things have to be true before speaking, because an idle that arrives
-   * early is its own lie:
-   *
-   *   - the backend said busy at some point, so this is correcting it rather
-   *     than announcing idleness for a session that never started;
-   *   - every assistant message we have seen has reported completion — or, if
-   *     one is stuck open, the session has gone quiet long enough with no
-   *     running tool that the message is a stall rather than a pause.
-   *
-   * The event is keyed per completion rather than per state change, so it is
-   * idempotent under replay: a session already known idle emits nothing.
-   */
-  /**
-   * Announce idleness for turns that finished without the backend saying so.
-   *
-   * It is deliberately not done at the moment the last assistant message
-   * completes. A turn is several messages and the next one is created *after*
-   * the previous one has completed, so deciding there announces idleness in the
-   * gap between two halves of the same run — the projector then clears `busy`
-   * while the session is still working, which is worse than leaving it set,
-   * because the run goes on with nothing marking it. Waiting one window lets a
-   * message that is already on its way arrive first and keep the session live.
-   *
-   * A turn that really has ended waits one window and nothing more. The cost is
-   * a few hundred milliseconds of a dot still breathing on a conversation that
-   * just finished; the alternative is a dot that never stops.
-   */
-  flushSettles(): EventInput[] {
-    const out: EventInput[] = [];
-    for (const [s, entry] of [...this.pendingSettles]) {
-      // The backend said idle itself, or we already announced: drop the queued
-      // correction rather than stacking a second idle under a different id.
-      if (!s.sawBusy) {
-        this.pendingSettles.delete(s);
-        continue;
-      }
-      if (!this.settleReady(s, entry)) continue;
-      this.pendingSettles.delete(s);
-      s.sawBusy = false;
-      s.retryKey = undefined;
-      s.retryAttempt = undefined;
-      s.retryError = undefined;
-      s.compacting = undefined;
-      s.summaryMsg = undefined;
-      s.awaiting = undefined;
-      this.closeOpenMessages(s, out, "settle");
-      s.liveMsgs?.clear();
-      // The same streaming retirement a real idle does; durable finals still land.
-      this.retireStreaming(s);
-      out.push(
-        this.ev(
-          s,
-          "session.status",
-          { state: "idle" },
-          `opencode:${s.sessionID}:session.status:idle:${entry.key}`,
-        ),
-      );
-    }
-    return out;
-  }
-
-  /**
-   * Sessions waiting to be declared idle, and why each is waiting.
-   *
-   * `afterCompletion` means an assistant message reported completion, so the
-   * turn may be over and the short beat is enough to find out. `false` means
-   * work was seen but nothing has finished yet — the run may only be starting,
-   * and it has to be quiet for a whole window before it can be called over.
-   *
-   * `key` names what queued it, so a session corrected twice under different
-   * evidence does not collapse into one event id and replay as already seen.
-   */
-  private pendingSettles = new Map<SessionState, { key: string; afterCompletion: boolean }>();
-
-  private queueSettle(s: SessionState, key: string, afterCompletion: boolean): void {
-    if (!s.sawBusy) return;
-    // A completion is the stronger reason to be here; a work sighting queued
-    // behind it must not downgrade it into waiting for the whole quiet window.
-    if (afterCompletion) this.pendingSettles.set(s, { key, afterCompletion });
-    else if (!this.pendingSettles.has(s)) this.pendingSettles.set(s, { key, afterCompletion });
-  }
-
-  /** Whether any tool part in the session is still reported as running. */
-  private toolRunning(s: SessionState): boolean {
-    for (const m of s.messages.values()) {
-      for (const t of m.toolParts.values()) if (t.status === "running") return true;
-    }
-    return false;
-  }
-
-  /**
-   * Whether a queued settle may speak.
-   *
-   * Three questions, in the order they can mislead:
-   *
-   *   - Did anything finish? No, and the session has not gone quiet for the
-   *     whole window — then this is a run in progress and announcing idleness
-   *     would clear `busy` out from under work that is genuinely going.
-   *   - Is a tool still running? While it is, the run is real; it stops being
-   *     evidence only once the session has said nothing at all for the stall
-   *     ceiling, because a tool that never reports back and a tool that is
-   *     still working look identical from here.
-   *   - Is a message still open? A pause while the session is producing events
-   *     of its own, a stall once it has gone quiet.
-   *
-   * The order matters: "every message reported completion" used to be the first
-   * test and short-circuited before tool parts were ever looked at, so a turn
-   * whose last event was an unreported tool was announced idle one beat in.
-   */
-  private settleReady(s: SessionState, entry: { afterCompletion: boolean }): boolean {
-    const quietFor = this.now() - (s.lastTouch ?? 0);
-    // An unanswered question or permission is the reader's clock, not a
-    // stall: however long they take, the run is parked on them, not dead.
-    if (s.awaiting?.size) return false;
-    if (!entry.afterCompletion && quietFor < SETTLE_QUIET_MS) return false;
-    if (this.toolRunning(s) && quietFor < SETTLE_STALL_MS) return false;
-    if ((s.liveMsgs?.size ?? 0) > 0 && quietFor < SETTLE_QUIET_MS) return false;
-    return true;
-  }
-
-  /**
-   * How long the ingestor should wait before the next settle flush, or
-   * undefined when nothing is waiting.
-   *
-   * Always a number while a settle is pending. Answering undefined meant
-   * "nothing can become ready without a new event", which is true of the
-   * conditions and irrelevant to the outcome: the runs that stall do it by
-   * going silent, and a silent run produces no event to re-arm anything with.
-   */
-  settleTimerMs(): number | undefined {
-    if (this.pendingSettles.size === 0) return undefined;
-    const now = this.now();
-    let candidate: number | undefined;
-    for (const [s, entry] of this.pendingSettles) {
-      if (!s.sawBusy) continue;
-      // A parked question can hold its settle for as long as the reader
-      // thinks — no timer to re-arm meanwhile.
-      if (s.awaiting?.size) continue;
-      if (this.settleReady(s, entry)) return SETTLE_DELAY_MS;
-      const until = Math.max(
-        // Not ready because nothing finished: the whole quiet window is still
-        // owed before work that never produced an ending can be called over.
-        entry.afterCompletion ? SETTLE_DELAY_MS : SETTLE_QUIET_MS,
-        // Not ready because a tool or an open message is holding it: whichever
-        // ceiling is later.
-        this.toolRunning(s) ? SETTLE_STALL_MS : SETTLE_QUIET_MS,
-      );
-      const wait = Math.max(SETTLE_DELAY_MS, until - (now - (s.lastTouch ?? 0)));
-      candidate = candidate === undefined ? wait : Math.max(candidate, wait);
-    }
-    return candidate;
-  }
 
   /**
    * The session, and the `session.started` event that introduces it.
@@ -878,7 +675,6 @@ export class OpencodeMapper {
       started: false,
       messages: new Map(),
       pendingUserMsgs: new Set(),
-      lastTouch: this.now(),
     };
     this.sessions.set(sessionID, s);
     return s;
@@ -894,7 +690,6 @@ export class OpencodeMapper {
         started: false,
         messages: new Map(),
         pendingUserMsgs: new Set(),
-        lastTouch: this.now(),
       };
       this.sessions.set(sessionID, s);
     }
@@ -1070,7 +865,7 @@ export class OpencodeMapper {
     s.retryKey = undefined;
     s.retryAttempt = undefined;
     s.retryError = undefined;
-    this.markWork(s, key);
+    this.markWork(s);
     out.push(
       this.ev(
         s,
@@ -1081,12 +876,11 @@ export class OpencodeMapper {
     );
   }
 
-  private markWork(s: SessionState, key: string): void {
+  private markWork(s: SessionState): void {
     s.sawBusy = true;
-    // A new run gets to announce its own ending: the correction above is one
-    // per generation, and reusing it here would silence the idle that follows.
+    // A new run gets to announce its own ending, so the duplicate-idle guard
+    // does not silence the one that follows.
     s.emittedIdle = false;
-    this.queueSettle(s, `work:${key}`, false);
   }
 
   private noteRetry(
@@ -1104,7 +898,7 @@ export class OpencodeMapper {
     };
     const key = Bun.hash(JSON.stringify(current)).toString(36);
     if (s.retryKey === key) return;
-    this.markWork(s, `retry:${current.attempt}`);
+    this.markWork(s);
     s.retryKey = key;
     s.retryAttempt = current.attempt;
     s.retryError = current.error;
@@ -1121,7 +915,7 @@ export class OpencodeMapper {
     const active = info.time?.compacting;
     if (active !== undefined && Number.isFinite(active) && active > 0) {
       if (s.compacting === active) return;
-      this.markWork(s, `compacting:${active}`);
+      this.markWork(s);
       s.compacting = active;
       s.retryKey = undefined;
       s.retryAttempt = undefined;
@@ -1144,7 +938,7 @@ export class OpencodeMapper {
     // clock ended but its assistant has not finished writing the summary yet.
     if (s.summaryMsg !== undefined) return;
     // Compaction finishing is not the session going idle: its assistant turn
-    // may resume immediately, and the usual idle/settle path owns that close.
+    // may resume immediately, and the usual idle path owns that close.
     out.push(
       this.ev(
         s,
@@ -1164,7 +958,6 @@ export class OpencodeMapper {
     s.compacting = undefined;
     s.summaryMsg = undefined;
     s.awaiting = undefined;
-    this.pendingSettles.delete(s);
     for (const [msgID, held] of this.held) if (held.s === s) this.held.delete(msgID);
     // A stop the reader asked for arrives as MessageAbortedError; it closes
     // the session without naming it a failure, and the reply it was cutting
@@ -1354,13 +1147,6 @@ export class OpencodeMapper {
     const props = "properties" in evt ? evt.properties : undefined;
     const sessionID =
       props && "sessionID" in props ? (props.sessionID as string) : undefined;
-    if (sessionID) {
-      const known = this.sessions.get(sessionID);
-      // Every frame the backend emits for this session is activity, including
-      // a `retry`: a run that is being retried has not ended, and the settle
-      // fallback must not call it over while it is still moving.
-      if (known) known.lastTouch = this.now();
-    }
 
     const boundary = this.revertBoundary(evt);
     if (boundary) return boundary;
@@ -1485,7 +1271,7 @@ export class OpencodeMapper {
             if (info.time.completed === undefined && !info.error) {
               if (s.summaryMsg !== info.id) {
                 s.summaryMsg = info.id;
-                this.markWork(s, `compaction:${info.id}`);
+                this.markWork(s);
                 if (s.compacting === undefined) {
                   out.push(
                     this.ev(
@@ -1501,7 +1287,7 @@ export class OpencodeMapper {
             } else if (s.summaryMsg === info.id) {
               s.summaryMsg = undefined;
               // Finished, not failed: the turn resumes, so the state falls back
-              // to busy — idle belongs to the usual idle/settle path.
+              // to busy — idle belongs to the usual idle path.
               if (info.time.completed !== undefined && !info.error && s.compacting === undefined) {
                 out.push(
                   this.ev(
@@ -1577,7 +1363,6 @@ export class OpencodeMapper {
           }
           if (info.time.completed !== undefined) {
             s.liveMsgs?.delete(info.id);
-            this.queueSettle(s, info.id, true);
           }
         }
         return out;

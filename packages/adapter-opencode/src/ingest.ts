@@ -60,43 +60,6 @@ export function createIngestor(opts: {
     }, STREAM_SNAPSHOT_MS);
   };
 
-  /**
-   * Drives the mapper's idle fallback, on its own timer rather than the stream
-   * flush above: a turn that ended produces no held stream, so a flush that
-   * waits for one would never fire and the session would stay busy forever —
-   * which is the state this exists to end. The delay comes from the mapper, so
-   * a stalled open message waits out its quiet window instead of the beat.
-   */
-  let settleTimer: ReturnType<typeof setTimeout> | undefined;
-  let settleArmedAt = 0;
-  let settleArmedDelay = 0;
-  const scheduleSettle = () => {
-    const delay = mapper.settleTimerMs();
-    if (delay === undefined) {
-      clearTimeout(settleTimer);
-      settleTimer = undefined;
-      return;
-    }
-    // A delay that shrank (the open message just completed) must not wait out
-    // the long one an earlier state armed; a delay that grew can keep waiting.
-    if (settleTimer) {
-      const remaining = settleArmedDelay - (Date.now() - settleArmedAt);
-      if (delay >= remaining) return;
-      clearTimeout(settleTimer);
-    }
-    settleArmedAt = Date.now();
-    settleArmedDelay = delay;
-    settleTimer = setTimeout(() => {
-      settleTimer = undefined;
-      try {
-        emit(mapper.flushSettles());
-      } catch (err) {
-        console.error("opencode settle flush error:", err);
-      }
-      scheduleSettle();
-    }, delay);
-  };
-
   const emitResolved = (sessionID: string, data: Record<string, unknown>) => {
     const s = mapper.sessions.get(sessionID);
     if (!s) return;
@@ -224,7 +187,6 @@ export function createIngestor(opts: {
       sink.markMapped?.(`opencode:${evt.properties.sessionID}`, OPENCODE_MAPPER_VERSION);
     }
     scheduleFlush();
-    scheduleSettle();
     if (evt.type === "permission.asked") {
       const key = `perm:${evt.properties.id}`;
       if (!inflightPrompts.has(key)) {
@@ -283,11 +245,6 @@ export function createIngestor(opts: {
     stop() {
       clearTimeout(flushTimer);
       flushTimer = undefined;
-      // The settle timer holds a reference to the emitter and to the mapper's
-      // pending queue, so leaving it armed keeps a stopped connection's work
-      // alive until it fires on its own.
-      clearTimeout(settleTimer);
-      settleTimer = undefined;
     },
   };
 }
