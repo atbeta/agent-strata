@@ -641,7 +641,8 @@ fn spawn_opencode_supervisor(
     }
     // The last run's port, if it is still free. A different port every launch
     // would leave the app with a new remembered address every time it opened.
-    // If an older run left an opencode serve on that port, stop it first.
+    // A listener without a verified recovery record is left alone; the planner
+    // chooses another port rather than guessing ownership from its command line.
     let preferred = previous_port(&status_path);
     if let Some(port) = preferred {
         if !embed::port_is_free(port) {

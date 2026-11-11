@@ -164,7 +164,7 @@ pub fn classify(output: &str) -> Option<Attention> {
 /// A command that starts without a console window.
 ///
 /// The shell is a GUI program, so it has no console of its own. A console
-/// application it starts — `opencode --version`, `tasklist`, `taskkill` — is
+/// application it starts — `opencode --version`, `powershell`, `taskkill` — is
 /// handed a brand new console, and that console is a window on the reader's
 /// screen for as long as the command runs. `opencode --version` runs at every
 /// launch, so the window flashed on every start.
@@ -995,56 +995,170 @@ pub fn read_desktop_bin(path: &Path) -> Option<PathBuf> {
     }
 }
 
+const PID_FILE_VERSION: u8 = 1;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct PidRecord {
+    version: u8,
+    pid: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    started: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    command: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProcessIdentity {
+    started: String,
+    command: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ProcessLookup {
+    Live(ProcessIdentity),
+    Gone,
+    Unavailable,
+}
+
+#[cfg(unix)]
+fn lookup_process(pid: u32) -> ProcessLookup {
+    let output = match command("ps")
+        .args([
+            "-p",
+            &pid.to_string(),
+            "-o",
+            "lstart=",
+            "-o",
+            "stat=",
+            "-o",
+            "command=",
+        ])
+        .output()
+    {
+        Ok(output) => output,
+        Err(_) => return ProcessLookup::Unavailable,
+    };
+    if !output.status.success() {
+        return if output.stderr.iter().all(u8::is_ascii_whitespace) {
+            ProcessLookup::Gone
+        } else {
+            ProcessLookup::Unavailable
+        };
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let text = text.trim();
+    // `lstart` is a fixed-width, 24-byte ASCII timestamp. Reading all three
+    // fields from one snapshot avoids a pid-reuse race between separate calls.
+    if text.len() <= 24 || !text.is_char_boundary(24) {
+        return ProcessLookup::Unavailable;
+    }
+    let started = text[..24].trim();
+    let rest = text[24..].trim_start();
+    let Some(split) = rest.find(char::is_whitespace) else {
+        return ProcessLookup::Unavailable;
+    };
+    let state = &rest[..split];
+    let command = rest[split..].trim();
+    if state.starts_with('Z') {
+        return ProcessLookup::Gone;
+    }
+    if started.is_empty() || command.is_empty() {
+        return ProcessLookup::Unavailable;
+    }
+    ProcessLookup::Live(ProcessIdentity {
+        started: started.to_string(),
+        command: command.to_string(),
+    })
+}
+
+#[cfg(windows)]
+fn lookup_process(pid: u32) -> ProcessLookup {
+    // tasklist does not expose a command line or creation time. CIM supplies
+    // both; the ISO timestamp retains the milliseconds that distinguish a
+    // reused pid, and the full command line is captured in the same snapshot.
+    let script = r#"$p = Get-CimInstance Win32_Process -Filter ("ProcessId = " + $args[0]); if ($null -eq $p) { exit 3 }; [pscustomobject]@{ started = $p.CreationDate.ToUniversalTime().ToString("o"); command = [string]$p.CommandLine } | ConvertTo-Json -Compress"#;
+    let output = match command("powershell")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            script,
+            &pid.to_string(),
+        ])
+        .output()
+    {
+        Ok(output) => output,
+        Err(_) => return ProcessLookup::Unavailable,
+    };
+    if output.status.code() == Some(3) {
+        return ProcessLookup::Gone;
+    }
+    if !output.status.success() {
+        return ProcessLookup::Unavailable;
+    }
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(&output.stdout) else {
+        return ProcessLookup::Unavailable;
+    };
+    let started = value.get("started").and_then(|v| v.as_str()).unwrap_or("");
+    let command = value.get("command").and_then(|v| v.as_str()).unwrap_or("");
+    if started.is_empty() || command.is_empty() {
+        return ProcessLookup::Unavailable;
+    }
+    ProcessLookup::Live(ProcessIdentity {
+        started: started.to_string(),
+        command: command.to_string(),
+    })
+}
+
+impl PidRecord {
+    fn owns(&self, process: &ProcessIdentity) -> bool {
+        self.version == PID_FILE_VERSION
+            && self.started.as_deref() == Some(process.started.as_str())
+            && self.command.as_deref() == Some(process.command.as_str())
+    }
+}
+
+/// Write the recovery record for a child. Version 1 is JSON; the previous
+/// decimal-pid format is still readable but is deliberately not enough to
+/// authorise a signal. The next successful launch migrates its own record.
 pub fn write_pid(path: &Path, pid: u32) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::write(path, pid.to_string())
+    let (started, command) = match lookup_process(pid) {
+        ProcessLookup::Live(process) => (Some(process.started), Some(process.command)),
+        ProcessLookup::Gone | ProcessLookup::Unavailable => (None, None),
+    };
+    let record = PidRecord {
+        version: PID_FILE_VERSION,
+        pid,
+        started,
+        command,
+    };
+    let json = serde_json::to_string(&record)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    std::fs::write(path, format!("{json}\n"))?;
+    owner_only(path);
+    Ok(())
+}
+
+fn read_pid_record(path: &Path) -> Option<PidRecord> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let text = text.trim();
+    if let Ok(pid) = text.parse() {
+        return Some(PidRecord {
+            version: 0,
+            pid,
+            started: None,
+            command: None,
+        });
+    }
+    let record: PidRecord = serde_json::from_str(text).ok()?;
+    (record.version == PID_FILE_VERSION).then_some(record)
 }
 
 pub fn read_pid(path: &Path) -> Option<u32> {
-    std::fs::read_to_string(path).ok()?.trim().parse().ok()
-}
-
-/// The command line of a live process, or `None` when it has gone.
-#[cfg(unix)]
-fn process_command(pid: u32) -> Option<String> {
-    let output = command("ps")
-        .args(["-p", &pid.to_string(), "-o", "command="])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if text.is_empty() {
-        None
-    } else {
-        Some(text)
-    }
-}
-
-#[cfg(windows)]
-fn process_command(pid: u32) -> Option<String> {
-    let output = command("tasklist")
-        .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
-        .output()
-        .ok()?;
-    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if text.is_empty() || text.contains("No tasks") {
-        None
-    } else {
-        Some(text)
-    }
-}
-
-fn process_is_opencode(pid: u32) -> bool {
-    process_command(pid)
-        .map(|command| {
-            let lower = command.to_ascii_lowercase();
-            lower.contains("opencode") && lower.contains("serve")
-        })
-        .unwrap_or(false)
+    Some(read_pid_record(path)?.pid)
 }
 
 #[cfg(unix)]
@@ -1069,133 +1183,67 @@ pub(crate) fn kill_tree(pid: u32) {
         .output();
 }
 
-/// The pid of an `opencode serve` whose command line names this exact port.
-///
-/// Used only for the address the status file says the app was running: a server
-/// from before the pid file existed, or one whose pid file was lost. The command
-/// line has to name both `opencode`/`serve` and `--port <port>`, so a listener
-/// that merely happens to hold the port is not a candidate.
-#[cfg(unix)]
-fn opencode_pid_on_port(port: u16) -> Option<u32> {
-    let output = command("ps")
-        .args(["-axo", "pid=,command="])
-        .output()
-        .ok()?;
-    let text = String::from_utf8_lossy(&output.stdout);
-    let wanted = port.to_string();
-    for line in text.lines() {
-        let mut parts = line.split_whitespace();
-        let Some(pid_text) = parts.next() else {
-            continue;
-        };
-        let Ok(pid) = pid_text.parse::<u32>() else {
-            continue;
-        };
-        let args: Vec<&str> = parts.collect();
-        let is_opencode = args
-            .iter()
-            .any(|arg| arg.to_ascii_lowercase().contains("opencode"));
-        let serves = args.iter().any(|arg| *arg == "serve");
-        let names_port = args
-            .windows(2)
-            .any(|pair| pair[0] == "--port" && pair[1] == wanted);
-        if is_opencode && serves && names_port {
-            return Some(pid);
-        }
-    }
+/// A port and an `opencode serve` command line do not prove that this app owns
+/// the listener. This legacy entry point has no recovery record to validate,
+/// so it fails closed; `plan_with_port` will choose another loopback port.
+pub fn reap_opencode_on_port(_port: u16) -> Option<u32> {
     None
 }
 
-#[cfg(unix)]
-pub fn reap_opencode_on_port(port: u16) -> Option<u32> {
-    let pid = opencode_pid_on_port(port)?;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StalePidAction {
+    Kill,
+    Remove,
+    Preserve,
+}
+
+fn stale_pid_action(record: &PidRecord, process: &ProcessLookup) -> StalePidAction {
+    match process {
+        ProcessLookup::Gone => StalePidAction::Remove,
+        ProcessLookup::Unavailable => StalePidAction::Preserve,
+        ProcessLookup::Live(identity) if record.owns(identity) => StalePidAction::Kill,
+        ProcessLookup::Live(_) => StalePidAction::Preserve,
+    }
+}
+
+fn cleanup_stale(path: &Path) -> Option<u32> {
+    let record = read_pid_record(path)?;
+    let pid = record.pid;
+    match stale_pid_action(&record, &lookup_process(pid)) {
+        StalePidAction::Remove => {
+            let _ = std::fs::remove_file(path);
+            return None;
+        }
+        StalePidAction::Preserve => return None,
+        StalePidAction::Kill => {}
+    }
+
     kill_tree(pid);
     for _ in 0..40 {
-        if port_is_free(port) {
-            break;
+        match lookup_process(pid) {
+            ProcessLookup::Live(identity) if record.owns(&identity) => {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            ProcessLookup::Live(_) | ProcessLookup::Gone => {
+                let _ = std::fs::remove_file(path);
+                break;
+            }
+            // Keep the exact identity needed to finish the cleanup later.
+            ProcessLookup::Unavailable => break,
         }
-        std::thread::sleep(Duration::from_millis(50));
     }
     Some(pid)
 }
 
-#[cfg(windows)]
-pub fn reap_opencode_on_port(_port: u16) -> Option<u32> {
-    // Windows cleans up through the pid file; enumerating listeners and
-    // matching command lines is a different, larger job.
-    None
-}
-
-/// Stop an embedded server left behind by a previous run.
-///
-/// The shell supervises its server while it is alive, but a crash, a killed dev
-/// process, or a rebuild can orphan one. The next launch then finds the old
-/// port taken, picks a new one, and the remembered address points at a server
-/// nobody supervises — which is exactly the "old port, then a new port" start.
-/// The pid is checked against the process command line before it is signalled,
-/// so a recycled pid is never enough to kill something else.
+/// Stop an embedded server left behind by a previous run only when its pid,
+/// creation identity, and original command line still match the recovery file.
 pub fn cleanup_stale_opencode(path: &Path) -> Option<u32> {
-    let pid = read_pid(path)?;
-    let killed = process_is_opencode(pid);
-    if killed {
-        kill_tree(pid);
-        for _ in 0..40 {
-            if !process_is_opencode(pid) {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
-    }
-    let _ = std::fs::remove_file(path);
-    if killed {
-        Some(pid)
-    } else {
-        None
-    }
+    cleanup_stale(path)
 }
 
-/// Whether this pid is a service this build started.
-///
-/// The bundled sidecar names itself `strata-service`; a dev run is bun reading
-/// the TypeScript entry, so both spellings count. Matching the program rather
-/// than trusting the number is what makes a recycled pid safe: killing by pid
-/// alone is how a stale file ends up stopping somebody else's process.
-fn process_is_service(pid: u32) -> bool {
-    process_command(pid)
-        .map(|command| {
-            let lower = command.to_ascii_lowercase();
-            lower.contains("strata-service")
-                || (lower.contains("bun") && lower.contains("packages/service/src/index.ts"))
-        })
-        .unwrap_or(false)
-}
-
-/// Stop a service left behind by a previous run, so its port comes back.
-///
-/// The embedded server has had this from the start; the service had nothing,
-/// and it is the one whose port the page is hardwired to. A run that was killed
-/// rather than closed leaves the service holding 7700, the next launch's child
-/// prints `EADDRINUSE` and exits, and the window sits on a spinner that cannot
-/// resolve. The pid is checked before it is signalled, so a number that has
-/// since been reused is never enough on its own.
+/// Stop a stale service under the same ownership rule as the embedded server.
 pub fn cleanup_stale_service(path: &Path) -> Option<u32> {
-    let pid = read_pid(path)?;
-    let killed = process_is_service(pid);
-    if killed {
-        kill_tree(pid);
-        for _ in 0..40 {
-            if !process_is_service(pid) {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
-    }
-    let _ = std::fs::remove_file(path);
-    if killed {
-        Some(pid)
-    } else {
-        None
-    }
+    cleanup_stale(path)
 }
 
 /// Keep a file to its owner.
@@ -1923,12 +1971,101 @@ mod tests {
         let path = temp_path("opencode.pid");
         write_pid(&path, 4321).unwrap();
         assert_eq!(read_pid(&path), Some(4321));
+        let record = read_pid_record(&path).unwrap();
+        assert_eq!(record.version, PID_FILE_VERSION);
         assert_eq!(read_pid(&path.with_extension("missing")), None);
+    }
+
+    #[test]
+    fn an_old_pid_record_never_authorises_a_signal() {
+        let identity = ProcessIdentity {
+            started: "Wed Nov 12 10:11:12 2026".into(),
+            command: "opencode serve --port 43123".into(),
+        };
+        let legacy = PidRecord {
+            version: 0,
+            pid: 4321,
+            started: None,
+            command: None,
+        };
+        assert_eq!(
+            stale_pid_action(&legacy, &ProcessLookup::Live(identity)),
+            StalePidAction::Preserve
+        );
+    }
+
+    #[test]
+    fn identification_failure_preserves_the_recovery_record() {
+        let record = PidRecord {
+            version: PID_FILE_VERSION,
+            pid: 4321,
+            started: Some("start".into()),
+            command: Some("opencode serve".into()),
+        };
+        assert_eq!(
+            stale_pid_action(&record, &ProcessLookup::Unavailable),
+            StalePidAction::Preserve
+        );
+        assert_eq!(
+            stale_pid_action(&record, &ProcessLookup::Gone),
+            StalePidAction::Remove
+        );
+    }
+
+    #[test]
+    fn a_pid_reuse_or_command_change_does_not_match_the_recorded_process() {
+        let record = PidRecord {
+            version: PID_FILE_VERSION,
+            pid: 4321,
+            started: Some("start".into()),
+            command: Some("opencode serve".into()),
+        };
+        for identity in [
+            ProcessIdentity {
+                started: "different-start".into(),
+                command: "opencode serve".into(),
+            },
+            ProcessIdentity {
+                started: "start".into(),
+                command: "somebody-elses-process".into(),
+            },
+        ] {
+            assert_eq!(
+                stale_pid_action(&record, &ProcessLookup::Live(identity)),
+                StalePidAction::Preserve
+            );
+        }
     }
 
     #[cfg(unix)]
     #[test]
-    fn a_stale_pid_that_is_not_opencode_is_not_killed() {
+    fn a_legacy_pid_file_does_not_kill_an_external_process() {
+        use std::os::unix::process::CommandExt;
+
+        extern "C" {
+            fn kill(pid: i32, sig: i32) -> i32;
+        }
+
+        let mut child = Command::new("/bin/sleep")
+            .arg("30")
+            .process_group(0)
+            .spawn()
+            .expect("sleep");
+        let pid = child.id();
+        let path = temp_path("opencode.pid");
+        fs::write(&path, pid.to_string()).unwrap();
+        assert_eq!(read_pid(&path), Some(pid));
+
+        assert_eq!(cleanup_stale_opencode(&path), None);
+        assert_eq!(read_pid(&path), Some(pid));
+        assert_eq!(unsafe { kill(pid as i32, 0) }, 0);
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_reused_pid_does_not_kill_the_replacement_process() {
         use std::os::unix::process::CommandExt;
 
         extern "C" {
@@ -1943,10 +2080,12 @@ mod tests {
         let pid = child.id();
         let path = temp_path("opencode.pid");
         write_pid(&path, pid).unwrap();
+        let mut record = read_pid_record(&path).unwrap();
+        record.started = Some("a-different-process-start".into());
+        fs::write(&path, serde_json::to_string(&record).unwrap()).unwrap();
 
         assert_eq!(cleanup_stale_opencode(&path), None);
-        assert_eq!(read_pid(&path), None);
-        // Still alive: the command line did not look like `opencode serve`.
+        assert_eq!(read_pid(&path), Some(pid));
         assert_eq!(unsafe { kill(pid as i32, 0) }, 0);
         let _ = child.kill();
         let _ = child.wait();
@@ -1954,9 +2093,13 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn an_opencode_serve_on_a_port_is_found_and_reaped() {
+    fn an_external_opencode_serve_on_a_port_is_not_killed() {
         use std::os::unix::fs::PermissionsExt;
         use std::os::unix::process::CommandExt;
+
+        extern "C" {
+            fn kill(pid: i32, sig: i32) -> i32;
+        }
 
         let script = temp_path("opencode");
         fs::write(&script, "#!/bin/sh\nsleep 30\n").unwrap();
@@ -1968,15 +2111,15 @@ mod tests {
             .expect("fake opencode");
         let pid = child.id();
 
-        assert_eq!(opencode_pid_on_port(45678), Some(pid));
-        assert_eq!(reap_opencode_on_port(45678), Some(pid));
-        assert_eq!(opencode_pid_on_port(45678), None);
+        assert_eq!(reap_opencode_on_port(45678), None);
+        assert_eq!(unsafe { kill(pid as i32, 0) }, 0);
+        let _ = child.kill();
         let _ = child.wait();
     }
 
     #[cfg(unix)]
     #[test]
-    fn a_stale_opencode_serve_process_is_reaped() {
+    fn a_stale_opencode_process_with_matching_identity_is_reaped() {
         use std::os::unix::fs::PermissionsExt;
         use std::os::unix::process::CommandExt;
 
@@ -1991,6 +2134,9 @@ mod tests {
         let pid = child.id();
         let path = temp_path("opencode.pid");
         write_pid(&path, pid).unwrap();
+        let record = read_pid_record(&path).unwrap();
+        assert!(record.started.is_some());
+        assert!(record.command.is_some());
 
         assert_eq!(cleanup_stale_opencode(&path), Some(pid));
         assert_eq!(read_pid(&path), None);
