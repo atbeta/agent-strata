@@ -2,6 +2,7 @@ import type { Event } from "@opencode-ai/sdk/v2";
 import { isStreamingSnapshot, type EventInput } from "@agent-strata/schema";
 import { evaluate, policyFor, type PolicySource } from "@agent-strata/policy";
 import { OPENCODE_MAPPER_VERSION, OpencodeMapper, SHELL_PERMS, STREAM_SNAPSHOT_MS } from "./map";
+import { permissionInput, permissionRequest, questionRequest } from "./mapping/interactions";
 import type { OnAsk, OnQuestion, Sink } from "./types";
 
 /**
@@ -61,20 +62,21 @@ export function createIngestor(opts: {
   };
 
   const emitResolved = (sessionID: string, data: Record<string, unknown>) => {
-    const s = mapper.sessions.get(sessionID);
-    if (!s) return;
-    emit([
-      mapper.ev(s, "permission.resolved", data, `opencode:${data.request_id}:permission.resolved`),
-    ]);
+    const event = mapper.interactionEvent(
+      sessionID,
+      "permission.resolved",
+      data,
+      `opencode:${data.request_id}:permission.resolved`,
+    );
+    if (event) emit([event]);
   };
 
   const handlePermission = async (evt: Extract<Event, { type: "permission.asked" }>) => {
     const p = evt.properties;
     const shell = SHELL_PERMS.has(p.permission);
-    const input: Record<string, unknown> = { ...p.metadata, patterns: p.patterns };
-    if (shell) input.command = p.patterns.join("\n");
+    const input = permissionInput(p);
     const tool = shell ? "bash" : p.permission;
-    const s = mapper.sessions.get(p.sessionID);
+    const s = mapper.sessionContext(p.sessionID);
     // Asked with the session, not the connection: a reader can leave one
     // session on "stop asking" while the rest of the fleet still asks. Keyed
     // off the mapper's own state so an ask for a session we have not seen still
@@ -101,12 +103,13 @@ export function createIngestor(opts: {
     }
     if (!opts.onAsk) return;
     if (!s) return;
-    const req = mapper.ev(
-      s,
+    const req = mapper.interactionEvent(
+      p.sessionID,
       "permission.requested",
-      { request_id: p.id, call_id: p.tool?.callID, tool: p.permission, input },
+      permissionRequest(p),
       `opencode:${p.id}:permission.requested`,
-    ) as Extract<EventInput, { type: "permission.requested" }>;
+    ) as Extract<EventInput, { type: "permission.requested" }> | undefined;
+    if (!req) return;
     const ans = await opts.onAsk(req);
     if (ans.external) return;
     if (ans.decision === "allow") {
@@ -129,38 +132,27 @@ export function createIngestor(opts: {
     decision: "reply" | "reject",
     answers?: string[][],
   ) => {
-    const s = mapper.sessions.get(sessionID);
-    if (!s) return;
-    emit([
-      mapper.ev(
-        s,
-        "question.resolved",
-        { request_id: requestID, decision, answers },
-        `opencode:${requestID}:question.resolved`,
-      ),
-    ]);
+    const event = mapper.interactionEvent(
+      sessionID,
+      "question.resolved",
+      { request_id: requestID, decision, answers },
+      `opencode:${requestID}:question.resolved`,
+    );
+    if (event) emit([event]);
   };
 
   const handleQuestion = async (evt: Extract<Event, { type: "question.asked" }>) => {
     if (!opts.onQuestion || !opts.replyQuestion || !opts.rejectQuestion) return;
     const p = evt.properties;
-    const s = mapper.sessions.get(p.sessionID);
+    const s = mapper.sessionContext(p.sessionID);
     if (!s) return;
-    const req = mapper.ev(
-      s,
+    const req = mapper.interactionEvent(
+      p.sessionID,
       "question.asked",
-      {
-        request_id: p.id,
-        questions: p.questions.map((q) => ({
-          question: q.question,
-          header: q.header,
-          options: q.options.map((o) => ({ label: o.label, description: o.description })),
-          multiple: q.multiple,
-          custom: q.custom,
-        })),
-      },
+      questionRequest(p),
       `opencode:${p.id}:question.asked`,
-    ) as Extract<EventInput, { type: "question.asked" }>;
+    ) as Extract<EventInput, { type: "question.asked" }> | undefined;
+    if (!req) return;
     const ans = await opts.onQuestion(req);
     if (ans.external) return;
     if (ans.decision === "reply") {
