@@ -191,6 +191,10 @@ export interface Connection {
   directory?: string;
   /** OpenCode only: the shell spawned this server, or it is someone else's. */
   placement?: ConnectionPlacement;
+  /** the service's own sync word: "starting" until the run begins, counts only while "syncing" */
+  sync?: "starting" | "syncing" | "idle";
+  syncDone?: number;
+  syncTotal?: number;
   capabilities?: {
     prompt: boolean;
     abort: boolean;
@@ -1032,7 +1036,9 @@ async function throwOnError(res: Response): Promise<void> {
   const body = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
   // The code travels with the sentence: the reader gets a translated line
   // chosen by the code, and the sentence stays for the log.
-  throw new ServiceError(body.error ?? t("api.err.service", { status: res.status }), body.code);
+  const fallback =
+    res.status === 499 || res.status === 503 ? t("api.err.busy") : t("api.err.service", { status: res.status });
+  throw new ServiceError(body.error ?? fallback, body.code);
 }
 
 export function listProviders(connectionId: string): Promise<{ providers: ApiProvider[] }> {

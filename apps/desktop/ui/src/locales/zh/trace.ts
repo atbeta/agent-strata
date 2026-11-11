@@ -123,4 +123,5 @@ export default {
   "api.status.error": "错误",
   "api.status.cancelled": "已停止",
   "api.err.service": "服务返回 {status}",
+  "api.err.busy": "OpenCode 暂时没有响应，请稍后再试",
 } as const;

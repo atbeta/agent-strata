@@ -126,6 +126,12 @@ describe("the panel copy stays on the row", () => {
     expect(src.includes("mcpAddProblem")).toBe(true);
   });
 
+  test("the background read on open reports nothing under the composer", () => {
+    const src = readFileSync(join(import.meta.dir, "session-tools.tsx"), "utf8");
+    expect(src).toContain("if (args.enabled()) void loadTools(false);");
+    expect(src).not.toContain("if (args.enabled()) void loadTools(true);");
+  });
+
   test("the header icon carries the attention mark", () => {
     const src = readFileSync(join(import.meta.dir, "session-header.tsx"), "utf8");
     expect(src.includes("tools.attention()")).toBe(true);

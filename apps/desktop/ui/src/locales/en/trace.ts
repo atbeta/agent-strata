@@ -124,4 +124,5 @@ export default {
   "api.status.error": "error",
   "api.status.cancelled": "stopped",
   "api.err.service": "service returned {status}",
+  "api.err.busy": "OpenCode didn't answer just now. Try again in a moment",
 } as const;

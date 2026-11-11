@@ -15,6 +15,7 @@ import {
   setPluginLifecycle,
   stopDevProcess,
 } from "./api";
+import { t } from "./i18n";
 
 describe("a cost in dollars", () => {
   test("drops the digits past the cent once it is worth dollars", () => {
@@ -145,6 +146,25 @@ describe("running a backend command", () => {
         },
       },
     ]);
+  });
+});
+
+describe("an OpenCode read that fails without a reason", () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  test("a cancelled or unavailable answer reads as a pause, not a status code", async () => {
+    for (const status of [499, 503]) {
+      globalThis.fetch = (async () => new Response("", { status })) as unknown as typeof fetch;
+      await expect(readMcp("opencode:ses_1")).rejects.toThrow(t("api.err.busy"));
+    }
+  });
+
+  test("any other status keeps its number", async () => {
+    globalThis.fetch = (async () => new Response("", { status: 500 })) as unknown as typeof fetch;
+    await expect(readMcp("opencode:ses_1")).rejects.toThrow(t("api.err.service", { status: 500 }));
   });
 });
 

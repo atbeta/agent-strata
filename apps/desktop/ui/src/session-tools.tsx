@@ -141,7 +141,7 @@ export function useMcpTools(args: {
   };
 
   createEffect(() => {
-    if (args.enabled()) void loadTools(true);
+    if (args.enabled()) void loadTools(false);
   });
 
   const toggleMcp = async (name: string, action: "connect" | "disconnect") => {
