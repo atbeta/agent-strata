@@ -1,5 +1,6 @@
 import {
   createEffect,
+  createMemo,
   createSignal,
   createUniqueId,
   For,
@@ -1295,7 +1296,7 @@ export function SessionComposer(props: {
 }) {
   const c = () => props.c;
   const g = useGoal(props.sessionId, () => props.goal, () => props.goalMet, () => props.goalPaused);
-  const ro = () => props.readOnly?.();
+  const ro = createMemo(() => props.readOnly?.());
   const placeholder = () =>
     ro() ??
     (paneWorkspace().mode === "multiplex"

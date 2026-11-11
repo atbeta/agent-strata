@@ -27,6 +27,10 @@ describe("a read-only composer", () => {
     expect(composer).toContain("goal={ro() ? undefined :");
   });
 
+  test("the reason is memoized so streaming does not remount the toolbar slots", () => {
+    expect(composer).toContain("const ro = createMemo(() => props.readOnly?.());");
+  });
+
   test("a child session is what sets the reason", () => {
     expect(detail).toContain("displayed()?.parent_session_id ? t(\"composer.childReadonly\")");
     expect(detail).toContain("v().parent_session_id ? t(\"composer.childReadonly\")");
