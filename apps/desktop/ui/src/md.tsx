@@ -209,7 +209,7 @@ function cursorTarget(block: Element): Element | undefined {
  * from the cache; the block a reply is still writing is new on every token, so
  * caching it would only evict what is worth keeping.
  */
-function parsed(markdown: string, finished: boolean): DocumentFragment {
+export function parsed(markdown: string, finished: boolean): DocumentFragment {
   const tpl = document.createElement("template");
   const cached = finished ? htmlCache.get(markdown) : undefined;
   if (cached === undefined) {
