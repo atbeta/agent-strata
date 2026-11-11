@@ -3,7 +3,15 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { chooseWindowsShell, createDevManager, looksLongRunning, commandName, resolveWorkdir, stopInside } from "../src/dev-process";
+import {
+  childEnv,
+  chooseWindowsShell,
+  createDevManager,
+  looksLongRunning,
+  commandName,
+  resolveWorkdir,
+  stopInside,
+} from "../src/dev-process";
 import { createDevPlugin } from "../src/index";
 import { detaches } from "../src/guidance";
 
@@ -189,6 +197,27 @@ describe("commandName", () => {
     expect(commandName("  pnpm   dev  ")).toBe("pnpm");
     expect(commandName('"/opt/my tool/bin/run" --flag')).toBe("run");
   }, 30_000);
+});
+
+describe("child environment", () => {
+  test("keeps ordinary variables but not service credentials", () => {
+    const keys = ["STRATA_API_TOKEN", "STRATA_OPENCODE_PASSWORD", "STRATA_TEST_INHERIT"] as const;
+    const previous = keys.map((key) => [key, process.env[key]] as const);
+    process.env.STRATA_API_TOKEN = "service-secret";
+    process.env.STRATA_OPENCODE_PASSWORD = "opencode-secret";
+    process.env.STRATA_TEST_INHERIT = "kept";
+    try {
+      const env = childEnv();
+      expect(env.STRATA_API_TOKEN).toBeUndefined();
+      expect(env.STRATA_OPENCODE_PASSWORD).toBeUndefined();
+      expect(env.STRATA_TEST_INHERIT).toBe("kept");
+    } finally {
+      for (const [key, value] of previous) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
 });
 
 describe("dev manager", () => {

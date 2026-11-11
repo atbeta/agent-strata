@@ -549,13 +549,14 @@ function spawnOptions(cwd: string, env: Record<string, string>) {
   };
 }
 
-function childEnv(): Record<string, string> {
+export function childEnv(): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined) out[key] = value;
   }
   // A dev server that inherits the service's own PORT would collide with it.
   delete out.STRATA_PORT;
+  delete out.STRATA_API_TOKEN;
   delete out.STRATA_OPENCODE_URL;
   delete out.STRATA_OPENCODE_USERNAME;
   delete out.STRATA_OPENCODE_PASSWORD;
