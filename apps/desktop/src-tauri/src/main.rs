@@ -591,8 +591,8 @@ fn reap(child: &mut Child) {
         // per session, and those are grandchildren: killing the service alone
         // leaves them running with nothing that can stop them.
         //
-        // The helper is a console program, so it lives in embed.rs, which
-        // starts every command without a console window.
+        // The helper is a console program, so it lives in embed/process.rs,
+        // which starts every command without a console window.
         embed::kill_tree(child.id());
     }
     let _ = child.wait();
