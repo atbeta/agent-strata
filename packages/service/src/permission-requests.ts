@@ -266,7 +266,7 @@ export class PermissionRequests {
   }
 
   private sessionIdOfPendingQuestion(requestId: string): string | undefined {
-    for (const summary of this.deps.store.listSessions({ limit: 500 })) {
+    for (const summary of this.deps.store.listSessions()) {
       const view = this.deps.sessionView(summary.session_id);
       if (view.pending_questions.some((question) => question.request_id === requestId)) {
         return summary.session_id;

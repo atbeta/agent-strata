@@ -160,16 +160,44 @@ function getPath(obj: unknown, dotPath: string): unknown {
   return cur;
 }
 
+/**
+ * A rule with its patterns compiled once.
+ *
+ * `matches`, `glob`, and the tool glob used to be rebuilt on every check —
+ * every rule, every segment of every command. The Rule object is the same
+ * across `autoAccept`'s shallow copy (the `rules` array is shared), so keying
+ * the cache on it compiles once per document, however many sessions evaluate.
+ */
+type Cond = NonNullable<Rule["when"]>[string];
+interface CompiledRule {
+  toolRe: RegExp;
+  when: { path: string; cond: Cond; re?: RegExp; globRe?: RegExp }[];
+}
+const compiledOf = new WeakMap<Rule, CompiledRule>();
+
+function compiled(rule: Rule): CompiledRule {
+  let hit = compiledOf.get(rule);
+  if (hit === undefined) {
+    hit = {
+      toolRe: globToRe(rule.tool),
+      when: Object.entries(rule.when ?? {}).map(([path, cond]) => ({
+        path,
+        cond,
+        re: cond.matches === undefined ? undefined : new RegExp(cond.matches),
+        globRe: cond.glob === undefined ? undefined : globToRe(cond.glob),
+      })),
+    };
+    compiledOf.set(rule, hit);
+  }
+  return hit;
+}
+
 function whenMatches(rule: Rule, input: Record<string, unknown>): boolean {
-  for (const [path, cond] of Object.entries(rule.when ?? {})) {
+  for (const { path, cond, re, globRe } of compiled(rule).when) {
     const v = getPath(input, path);
     if (cond.equals !== undefined && v !== cond.equals) return false;
-    if (cond.matches !== undefined) {
-      if (typeof v !== "string" || !new RegExp(cond.matches).test(v)) return false;
-    }
-    if (cond.glob !== undefined) {
-      if (typeof v !== "string" || !globToRe(cond.glob).test(v)) return false;
-    }
+    if (re !== undefined && (typeof v !== "string" || !re.test(v))) return false;
+    if (globRe !== undefined && (typeof v !== "string" || !globRe.test(v))) return false;
   }
   return true;
 }
@@ -183,7 +211,8 @@ function whenMatches(rule: Rule, input: Record<string, unknown>): boolean {
  */
 function toolMatches(rule: Rule, tools: string[], pluginId: string | undefined): boolean {
   if (rule.plugin_id !== undefined && rule.plugin_id !== pluginId) return false;
-  return tools.some((tool) => globToRe(rule.tool).test(tool));
+  const re = compiled(rule).toolRe;
+  return tools.some((tool) => re.test(tool));
 }
 
 const EFFECT_RANK = { deny: 3, ask: 2, allow: 1 } as const;
@@ -278,13 +307,64 @@ export function splitShell(command: string): string[] {
 
 const SHELL_NAMES = new Set(["sh", "bash", "zsh", "dash", "ksh", "ash", "fish"]);
 
+/**
+ * The words of a segment with quoting resolved the way the shell resolves it.
+ *
+ * Splitting on whitespace alone read `sh -c"ls"` as a flag token `-c"ls"` that
+ * no letter-only flag pattern could match — and `-c` fused to its operand is
+ * exactly what getopt sees. Quotes and backslash escapes are stripped here,
+ * like the shell does before option parsing, so every spelling of `-c` is the
+ * same word: `-c ls`, `-c"ls"`, `-c'ls'`, `-c$'ls'`, `-lc ls`.
+ */
+function shellWords(segment: string): string[] {
+  const words: string[] = [];
+  let cur = "";
+  let quote: "'" | '"' | null = null;
+  const push = () => {
+    if (cur !== "") words.push(cur);
+    cur = "";
+  };
+  for (let i = 0; i < segment.length; i++) {
+    const c = segment[i]!;
+    if (quote === "'") {
+      if (c === "'") quote = null;
+      else cur += c;
+      continue;
+    }
+    if (c === "\\" && i + 1 < segment.length) {
+      cur += segment[++i]!;
+      continue;
+    }
+    if (quote === '"') {
+      if (c === '"') quote = null;
+      else cur += c;
+      continue;
+    }
+    if (c === "'" || c === '"') {
+      quote = c;
+      continue;
+    }
+    if (/\s/.test(c)) {
+      push();
+      continue;
+    }
+    cur += c;
+  }
+  push();
+  return words;
+}
+
 function hasShellDashC(segment: string): boolean {
-  const tokens = segment.split(/\s+/).filter(Boolean);
-  for (let i = 0; i < tokens.length; i++) {
-    const base = tokens[i]!.split("/").pop()!;
+  const words = shellWords(segment);
+  for (let i = 0; i < words.length; i++) {
+    const base = words[i]!.split("/").pop()!;
     if (SHELL_NAMES.has(base)) {
-      for (let j = i + 1; j < tokens.length; j++) {
-        if (/^-[A-Za-z]*c[A-Za-z]*$/.test(tokens[j]!)) return true;
+      for (let j = i + 1; j < words.length; j++) {
+        // The flag is the option cluster's leading letters; whatever is fused
+        // after them (a quoted operand, `$'…'`, a digit) is the cluster's
+        // argument, the way `-c1` runs the command `1`.
+        const opt = /^-[A-Za-z]+/.exec(words[j]!);
+        if (opt?.[0].includes("c")) return true;
       }
     }
   }
@@ -419,10 +499,12 @@ export function evaluate(
     hasUnanalyzableConstruct(raw) || segments.some(hasShellDashC);
 
   let firstDecision: Decision | undefined;
+  let firstRuled: { decision: Decision; index: number } | undefined;
   let askDecision: Decision | undefined;
-  for (const seg of segments) {
-    const d = evalSingle(policy, tools, { ...input, command: seg }, plugin_id);
+  for (let i = 0; i < segments.length; i++) {
+    const d = evalSingle(policy, tools, { ...input, command: segments[i] }, plugin_id);
     firstDecision ??= d;
+    if (d.rule_id !== undefined) firstRuled ??= { decision: d, index: i };
     if (d.decision === "deny") return { decision: "deny", rule_id: d.rule_id, reason: d.reason };
     if (d.decision === "ask") askDecision ??= d;
   }
@@ -437,6 +519,15 @@ export function evaluate(
     if (segments.some(hasOutputRedirection)) {
       return { decision: "ask", reason: "output redirection", overridable: true };
     }
+  }
+  // An all-allow run attributes itself to the first segment a rule decided,
+  // not the first segment — a rule that fired on `rm` in `ls; rm` is the
+  // answer "why was this allowed", and segment N says which part it covered.
+  if (firstRuled) {
+    const { decision: d, index } = firstRuled;
+    const reason =
+      segments.length > 1 ? `${d.reason} (segment ${index + 1} of ${segments.length})` : d.reason;
+    return { ...d, reason };
   }
   return firstDecision ?? { decision: "allow", reason: "default", overridable: true };
 }

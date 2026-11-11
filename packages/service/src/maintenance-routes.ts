@@ -88,7 +88,7 @@ export async function maintenanceRoute(
         return Response.json({ error: "session_ids or older_than_days is required" }, { status: 400 });
       }
       const cutoff = Date.now() - days * 86_400_000;
-      const summaries = deps.store.listSessions({ limit: 5000 });
+      const summaries = deps.store.listSessions();
       ids = summaries
         .filter((summary) => {
           const at = new Date(summary.last_ts).getTime();
@@ -108,7 +108,7 @@ export async function maintenanceRoute(
     ids = [...new Set(ids)].slice(0, 1000);
     const counts = new Map(deps.store.classCounts(ids).map((row) => [row.session_id, row]));
     const summaries = new Map(
-      deps.store.listSessions({ limit: 5000 }).map((summary) => [summary.session_id, summary]),
+      deps.store.listSessions().map((summary) => [summary.session_id, summary]),
     );
     const targets = ids
       .map((id) => {

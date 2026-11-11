@@ -136,6 +136,42 @@ describe("policy evaluate (table-driven)", () => {
       { decision: "ask" },
     ],
     [
+      "sh -c fused to a double-quoted operand -> ask",
+      P([{ id: "all", effect: "allow", tool: "*" }]),
+      bash('sh -c"rm -rf /"'),
+      { decision: "ask" },
+    ],
+    [
+      "sh -c fused to a single-quoted operand -> ask",
+      P([{ id: "all", effect: "allow", tool: "*" }]),
+      bash("sh -c'rm -rf /'"),
+      { decision: "ask" },
+    ],
+    [
+      "sh -c fused to an ANSI-C operand -> ask",
+      P([{ id: "all", effect: "allow", tool: "*" }]),
+      bash("sh -c$'rm -rf /'"),
+      { decision: "ask" },
+    ],
+    [
+      "bash -lc fused to a quoted operand -> ask",
+      P([{ id: "all", effect: "allow", tool: "*" }]),
+      bash('bash -lc"rm -rf /"'),
+      { decision: "ask" },
+    ],
+    [
+      "env bash -c fused -> ask",
+      P([{ id: "all", effect: "allow", tool: "*" }]),
+      bash('env bash -c"rm -rf /"'),
+      { decision: "ask" },
+    ],
+    [
+      "sh -c fused to a digit operand -> ask",
+      P([{ id: "all", effect: "allow", tool: "*" }]),
+      bash("sh -c1"),
+      { decision: "ask" },
+    ],
+    [
       "escaped $( in double quotes -> allow",
       P([{ id: "echo", effect: "allow", tool: "bash", when: { command: { matches: "^echo\\b" } } }]),
       bash('echo "\\$(x)"'),
@@ -215,6 +251,39 @@ describe("policy evaluate (table-driven)", () => {
       if (want.rule_id) expect(d.rule_id).toBe(want.rule_id);
     });
   }
+
+  test("an all-allow compound attributes the rule that fired, not segment one", () => {
+    // `ls` falls to the default; the allow rule only spoke about `rm`. Naming
+    // segment one's (nonexistent) rule, or the default, in the audit line
+    // would both be wrong — the rule that fired is the answer.
+    const p = P(
+      [{ id: "rm-ok", effect: "allow", tool: "bash", when: { command: { matches: "^rm\\b" } } }],
+      "allow",
+    );
+    const d = evaluate(p, bash("ls; rm -f x"));
+    expect(d.decision).toBe("allow");
+    expect(d.rule_id).toBe("rm-ok");
+    expect(d.reason).toContain("segment 2 of 2");
+  });
+
+  test("a compound ruled on segment one says which part the rule covered", () => {
+    const p = P(
+      [{ id: "git-ok", effect: "allow", tool: "bash", when: { command: { matches: "^git\\b" } } }],
+      "allow",
+    );
+    const d = evaluate(p, bash("git status; rm -f x"));
+    expect(d.rule_id).toBe("git-ok");
+    expect(d.reason).toContain("segment 1 of 2");
+  });
+
+  test("a single-segment allow keeps the rule's own reason", () => {
+    const p = P(
+      [{ id: "git-ok", effect: "allow", tool: "bash", when: { command: { matches: "^git\\b" } } }],
+      "allow",
+    );
+    const d = evaluate(p, bash("git status"));
+    expect(d.reason).toBe("matched rule git-ok");
+  });
 
   test("an arrow inside a double-quoted one-liner is not a redirect", () => {
     const node = P([{ id: "node", effect: "allow", tool: "bash", when: { command: { matches: "^node\\b" } } }]);
@@ -452,5 +521,65 @@ describe("a command that arrives as powershell", () => {
     expect(evaluate(P(), cmd("Get-ChildItem > out.txt")).decision).toBe("ask");
     expect(evaluate(P(), cmd("Get-ChildItem")).decision).toBe("allow");
     expect(evaluate(P("ask"), cmd("Write-Host hi")).decision).toBe("ask");
+  });
+});
+
+describe("the shell analyser under generated input", () => {
+  // The analyser is a quote-aware state machine; the interesting inputs live
+  // between the examples. These properties cover the space examples cannot.
+  const open = P([], "allow");
+  const run = (command: string) => evaluate(open, bash(command));
+
+  test("every spelling of `shell -c` must ask", () => {
+    const shells = ["sh", "bash", "zsh", "dash", "ksh", "ash", "fish", "/bin/sh", "/bin/bash", "env bash", "sudo sh"];
+    const flags = ["-c", "-lc", "-xc", "-ec", "-lxc"];
+    // The operand: spaced bare/quoted, or fused straight onto the flag the
+    // way getopt reads `-c"cmd"` — one word, `-c` carrying `cmd`.
+    const operands = [
+      " rm -rf /tmp/x",
+      ' "rm -rf /tmp/x"',
+      " 'rm -rf /tmp/x'",
+      " $'rm -rf /tmp/x'",
+      '"rm -rf /tmp/x"',
+      "'rm -rf /tmp/x'",
+      "$'rm -rf /tmp/x'",
+      "rm",
+      "1",
+    ];
+    for (const shell of shells)
+      for (const flag of flags)
+        for (const operand of operands) {
+          const command = `${shell} ${flag}${operand}`;
+          expect(run(command).decision).toBe("ask");
+        }
+  });
+
+  test("a $( outside single quotes always asks; inside, never for that reason", () => {
+    let seed = 0x5eed;
+    const rand = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    const junk = [" ", "x ", "echo ", "a b ", "\\n ", "s=1 "];
+    for (let i = 0; i < 500; i++) {
+      const before = junk[Math.floor(rand() * junk.length)]!;
+      const after = junk[Math.floor(rand() * junk.length)]!;
+      // Bare and double-quoted substitution is live shell — the analyser
+      // cannot see inside it, so the floor has to answer.
+      expect(run(`echo ${before}$(${after}x)`).decision).toBe("ask");
+      expect(run(`echo ${before}"$(${after}x)"`).decision).toBe("ask");
+      // Inside single quotes it is literal text; the floor stays down.
+      expect(run(`echo ${before}'$(${after}x)'`).decision).not.toBe("ask");
+    }
+  });
+
+  test("no generated input crashes the analyser or yields a non-decision", () => {
+    let seed = 0xc0ffee;
+    const rand = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    const alphabet = "abc $'\"`;|&><()\\-~/";
+    for (let i = 0; i < 2000; i++) {
+      const n = Math.floor(rand() * 40);
+      let command = "";
+      for (let j = 0; j < n; j++) command += alphabet[Math.floor(rand() * alphabet.length)]!;
+      const d = run(command);
+      expect(["allow", "ask", "deny"]).toContain(d.decision);
+    }
   });
 });

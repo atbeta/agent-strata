@@ -139,7 +139,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         // a backend that cannot list projects still contributes its sessions
       }
     }
-    for (const summary of store.listSessions({ limit: 500 })) {
+    for (const summary of store.listSessions()) {
       const workspace = summary.workspace;
       if (workspace && workspace !== "unknown" && workspace !== "no workspace" && !dirs.has(workspace)) {
         dirs.set(workspace, { directory: workspace });
@@ -423,7 +423,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     const disposed = new Set<string>();
     const terminalsClosed = new Set<string>();
     await plugins.releaseDirectory(dir);
-    const sessions = store.listSessions({ limit: 500 });
+    const sessions = store.listSessions();
     const parents = new Map<string, string | undefined>();
     for (const summary of sessions) {
       try {
