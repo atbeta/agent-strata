@@ -370,7 +370,10 @@ export function toolHeadline(call: Pick<ToolCallView, "tool" | "input">): ToolHe
       title: field(input, ["description", "subagent_type", "agent"]) ?? call.tool,
     };
   }
-  if (call.tool.toLowerCase() === "question") {
+  if (
+    call.tool.toLowerCase() === "question" ||
+    (isInteractiveTool(call.tool) && Array.isArray(input.questions))
+  ) {
     const first = Array.isArray(input.questions) ? input.questions[0] : undefined;
     const title =
       first && typeof first === "object"
@@ -546,6 +549,96 @@ export function fmtElapsed(fromIso: string, now: number): string | undefined {
  */
 export function isInteractiveTool(tool: string): boolean {
   return ["question", "ask", "askuserquestion", "ask_user_question"].includes(tool.toLowerCase());
+}
+
+export type QuestionAnswer = {
+  header?: string;
+  question: string;
+  /** empty = unanswered */
+  choices: { label: string; description?: string; custom: boolean }[];
+};
+
+const ANSWERED_PREFIX = "User has answered your questions: ";
+const ANSWERED_SUFFIX = ". You can now continue with the user's answers in mind.";
+
+export function questionAnswers(call: {
+  tool: string;
+  input?: Record<string, unknown>;
+  output?: string;
+}): QuestionAnswer[] | undefined {
+  if (!isInteractiveTool(call.tool)) return undefined;
+  const output = call.output;
+  if (typeof output !== "string") return undefined;
+  const raw = call.input?.questions;
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const questions: { entry: Record<string, unknown>; question: string }[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") return undefined;
+    const question = (item as Record<string, unknown>).question;
+    if (typeof question !== "string") return undefined;
+    questions.push({ entry: item as Record<string, unknown>, question });
+  }
+  const text = output.trimEnd();
+  if (!text.startsWith(ANSWERED_PREFIX) || !text.endsWith(ANSWERED_SUFFIX)) return undefined;
+  const body = text.slice(ANSWERED_PREFIX.length, text.length - ANSWERED_SUFFIX.length);
+
+  const out: QuestionAnswer[] = [];
+  let cursor = 0;
+  for (let i = 0; i < questions.length; i++) {
+    const { entry, question } = questions[i];
+    const marker = `"${question}"="`;
+    const expected = i === 0 ? marker : `, ${marker}`;
+    if (!body.startsWith(expected, cursor)) return undefined;
+    const answerStart = cursor + expected.length;
+    let answerEnd: number;
+    if (i + 1 < questions.length) {
+      const needle = `", "${questions[i + 1].question}"="`;
+      const at = body.indexOf(needle, answerStart);
+      if (at === -1) return undefined;
+      answerEnd = at;
+      cursor = at + 1;
+    } else {
+      if (!body.endsWith('"')) return undefined;
+      answerEnd = body.length - 1;
+    }
+    const answer = body.slice(answerStart, answerEnd);
+
+    const options = Array.isArray(entry.options) ? entry.options : [];
+    const labels = new Map<string, string | undefined>();
+    for (const option of options) {
+      if (!option || typeof option !== "object") continue;
+      const label = (option as Record<string, unknown>).label;
+      if (typeof label !== "string") continue;
+      const description = (option as Record<string, unknown>).description;
+      labels.set(label, typeof description === "string" && description !== "" ? description : undefined);
+    }
+    const choice = (label: string): QuestionAnswer["choices"][number] => {
+      const description = labels.get(label);
+      return {
+        label,
+        custom: !labels.has(label),
+        ...(description !== undefined ? { description } : {}),
+      };
+    };
+    let choices: QuestionAnswer["choices"];
+    if (answer === "Unanswered") {
+      choices = [];
+    } else {
+      const parts = answer.split(", ");
+      choices =
+        parts.length > 1 && parts.every((part) => labels.has(part))
+          ? parts.map(choice)
+          : [choice(answer)];
+    }
+
+    const header = entry.header;
+    out.push({
+      ...(typeof header === "string" && header !== "" ? { header } : {}),
+      question,
+      choices,
+    });
+  }
+  return out;
 }
 
 export function statusLabel(status: ToolCallView["status"]): string | undefined {

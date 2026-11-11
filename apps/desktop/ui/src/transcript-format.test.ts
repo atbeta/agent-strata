@@ -29,6 +29,7 @@ const {
   permissionLabel,
   permissionReason,
   permissionVerdict,
+  questionAnswers,
   replyInterrupted,
   waitingOnChild,
   interruptionNotice,
@@ -190,6 +191,17 @@ describe("tool headlines", () => {
     });
   });
 
+  test("an AskUserQuestion tool reads as a question too", () => {
+    withLocale("en", () => {
+      expect(
+        toolHeadline({
+          tool: "AskUserQuestion",
+          input: { questions: [{ header: "Pick", question: "Which?" }] },
+        }),
+      ).toEqual({ kind: "generic", verb: "Question", title: "Pick" });
+    });
+  });
+
   test("an unrecognised tool keeps its name capitalised in both languages", () => {
     // The fallback is the backend's identifier with the same leading capital
     // the named verbs carry — `browser_use` next to `Bash` reads `Browser_use`.
@@ -200,6 +212,117 @@ describe("tool headlines", () => {
     withLocale("zh", () => {
       expect(toolHeadline({ tool: "browser_use", input: {} }).verb).toBe("Browser_use");
     });
+  });
+});
+
+describe("questionAnswers", () => {
+  test("parses the answered-question output into question → choices", () => {
+    expect(
+      questionAnswers({
+        tool: "question",
+        input: {
+          questions: [
+            {
+              header: "拉取",
+              question: "本地有未提交改动，拉取最新代码前如何处理？",
+              options: [
+                { label: "stash 后 pull 再 pop（推荐）", description: "保留改动" },
+                { label: "放弃改动" },
+              ],
+            },
+          ],
+        },
+        output: `User has answered your questions: "本地有未提交改动，拉取最新代码前如何处理？"="stash 后 pull 再 pop（推荐）". You can now continue with the user's answers in mind.`,
+      }),
+    ).toEqual([
+      {
+        header: "拉取",
+        question: "本地有未提交改动，拉取最新代码前如何处理？",
+        choices: [
+          { label: "stash 后 pull 再 pop（推荐）", description: "保留改动", custom: false },
+        ],
+      },
+    ]);
+  });
+
+  test("parses upstream's multi-question string, marking unanswered and custom answers", () => {
+    expect(
+      questionAnswers({
+        tool: "question",
+        input: {
+          questions: [
+            { question: "What should happen?", options: [{ label: "Build" }, { label: "Test" }] },
+            { question: "Which environment?", options: [{ label: "Dev" }, { label: "Prod" }] },
+            { question: "Anything else?", options: [{ label: "Nothing" }] },
+            { question: "Notes?", options: [{ label: "None" }] },
+          ],
+        },
+        output: `User has answered your questions: "What should happen?"="Build", "Which environment?"="Dev", "Anything else?"="Unanswered", "Notes?"="Ship it Friday". You can now continue with the user's answers in mind.`,
+      }),
+    ).toEqual([
+      { question: "What should happen?", choices: [{ label: "Build", custom: false }] },
+      { question: "Which environment?", choices: [{ label: "Dev", custom: false }] },
+      { question: "Anything else?", choices: [] },
+      { question: "Notes?", choices: [{ label: "Ship it Friday", custom: true }] },
+    ]);
+  });
+
+  test("a multi-select answer splits on the join separator only when every piece is a label", () => {
+    expect(
+      questionAnswers({
+        tool: "question",
+        input: {
+          questions: [
+            { question: "Pick letters", options: [{ label: "A" }, { label: "B" }, { label: "C" }] },
+            { question: "Pick words", options: [{ label: "Yes" }, { label: "No" }] },
+          ],
+        },
+        output: `User has answered your questions: "Pick letters"="A, B", "Pick words"="Foo, bar". You can now continue with the user's answers in mind.`,
+      }),
+    ).toEqual([
+      {
+        question: "Pick letters",
+        choices: [
+          { label: "A", custom: false },
+          { label: "B", custom: false },
+        ],
+      },
+      { question: "Pick words", choices: [{ label: "Foo, bar", custom: true }] },
+    ]);
+  });
+
+  test("question texts containing quotes still parse", () => {
+    expect(
+      questionAnswers({
+        tool: "question",
+        input: { questions: [{ question: 'Say "hi", "bye"?' }] },
+        output: `User has answered your questions: "Say "hi", "bye"?"="Absolutely". You can now continue with the user's answers in mind.`,
+      }),
+    ).toEqual([{ question: 'Say "hi", "bye"?', choices: [{ label: "Absolutely", custom: true }] }]);
+  });
+
+  test("other interactive tool names parse; anything else returns undefined", () => {
+    const output = `User has answered your questions: "Which?"="A". You can now continue with the user's answers in mind.`;
+    const input = { questions: [{ question: "Which?", options: [{ label: "A" }] }] };
+    expect(questionAnswers({ tool: "AskUserQuestion", input, output })).toEqual([
+      { question: "Which?", choices: [{ label: "A", custom: false }] },
+    ]);
+    expect(questionAnswers({ tool: "ask_user_question", input, output })).toEqual([
+      { question: "Which?", choices: [{ label: "A", custom: false }] },
+    ]);
+    expect(questionAnswers({ tool: "bash", input, output })).toBeUndefined();
+    expect(questionAnswers({ tool: "question", input, output: "The user dismissed this question" })).toBeUndefined();
+    expect(questionAnswers({ tool: "question", input: {}, output })).toBeUndefined();
+    expect(questionAnswers({ tool: "question", input: { questions: [] }, output })).toBeUndefined();
+    expect(questionAnswers({ tool: "question", input: { questions: [{ header: "x" }] }, output })).toBeUndefined();
+    expect(questionAnswers({ tool: "question", input })).toBeUndefined();
+    expect(
+      questionAnswers({
+        tool: "question",
+        input: { questions: [{ question: "Which?" }] },
+        output: `User has answered your questions: "Other?"="A". You can now continue with the user's answers in mind.`,
+      }),
+    ).toBeUndefined();
   });
 });
 

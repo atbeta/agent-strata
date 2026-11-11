@@ -43,6 +43,7 @@ import {
   permissionLabel,
   permissionReason,
   permissionVerdict,
+  questionAnswers,
   toolStatusLabel,
   thinkingPreview,
   todoItems,
@@ -642,6 +643,16 @@ function ToolCallCard(props: {
   const title = () => child()?.title || headline().title;
   const childBusy = () => child()?.busy === true;
   const childError = () => child()?.status === "error";
+  const answers = createMemo(() => questionAnswers(props.call));
+  const answerTitle = () =>
+    (answers() ?? [])
+      .map(
+        (a) =>
+          `${a.question}: ${
+            a.choices.length ? a.choices.map((c) => c.label).join(", ") : t("question.unanswered")
+          }`,
+      )
+      .join("\n");
   // Same gate the well uses: only an edit whose output parses as a diff earns
   // a change count. `ls -l` rows start with `-` too — counting them painted a
   // fake "+0 −24" on a plain directory listing.
@@ -743,9 +754,37 @@ function ToolCallCard(props: {
               than the information it costs: the label and the stats stay
               vertically centred, so the second line reads as an orphan, and the
               row loses its shape. The tail of a long command is in the title. */}
-          <span class="min-w-0 flex-1 truncate font-mono text-xs text-foreground/90" title={title()}>
-            {title()}
-          </span>
+          <Show
+            when={answers()}
+            fallback={
+              <span class="min-w-0 flex-1 truncate font-mono text-xs text-foreground/90" title={title()}>
+                {title()}
+              </span>
+            }
+          >
+            {(list) => (
+              <>
+                <span class="min-w-0 max-w-[55%] truncate font-mono text-xs text-foreground/90" title={title()}>
+                  {title()}
+                </span>
+                <span class="shrink-0 text-xs text-faint-foreground">→</span>
+                <span class="min-w-0 flex-1 truncate text-xs text-foreground" title={answerTitle()}>
+                  <Show
+                    when={list()[0]?.choices.length}
+                    fallback={<span class="text-muted-foreground">{t("question.unanswered")}</span>}
+                  >
+                    {list()[0]?.choices.map((c) => c.label).join(", ")}
+                  </Show>
+                  <Show when={list().length > 1}>
+                    <span class="text-muted-foreground">
+                      {" "}
+                      {t("question.more", { n: list().length - 1 })}
+                    </span>
+                  </Show>
+                </span>
+              </>
+            )}
+          </Show>
           <Show when={stat()}>
             {(s) => (
               <span class="shrink-0 font-mono text-2xs tabular-nums">
@@ -864,14 +903,53 @@ function ToolCallCard(props: {
             when={headline().kind === "shell"}
             fallback={
               <Show
-                when={props.call.output}
+                when={answers()}
                 fallback={
-                  <Show when={running()}>
-                    <PendingDots />
+                  <Show
+                    when={props.call.output}
+                    fallback={
+                      <Show when={running()}>
+                        <PendingDots />
+                      </Show>
+                    }
+                  >
+                    <OutputWell text={props.call.output!} kind={headline().kind} danger={denied()} />
                   </Show>
                 }
               >
-                <OutputWell text={props.call.output!} kind={headline().kind} danger={denied()} />
+                {(list) => (
+                  <ul class="space-y-2.5">
+                    <For each={list()}>
+                      {(a) => (
+                        <li class="break-words">
+                          <p class="text-xs text-muted-foreground">{a.question}</p>
+                          <Show
+                            when={a.choices.length > 0}
+                            fallback={
+                              <p class="mt-1 text-sm text-faint-foreground">{t("question.unanswered")}</p>
+                            }
+                          >
+                            <ul class="mt-1 space-y-0.5">
+                              <For each={a.choices}>
+                                {(c) => (
+                                  <li class="flex items-start gap-1.5 text-sm">
+                                    <Icon name="check" class="mt-1 size-3.5 shrink-0 text-status-completed" />
+                                    <span class="min-w-0">
+                                      <span class="text-foreground">{c.label}</span>
+                                      <Show when={c.description}>
+                                        <span class="ml-1.5 text-xs text-muted-foreground">{c.description}</span>
+                                      </Show>
+                                    </span>
+                                  </li>
+                                )}
+                              </For>
+                            </ul>
+                          </Show>
+                        </li>
+                      )}
+                    </For>
+                  </ul>
+                )}
               </Show>
             }
           >

@@ -11,6 +11,8 @@ export default {
   "question.placeholder.custom": "或输入自定义回答",
   "question.reply": "回复",
   "question.dismiss": "忽略",
+  "question.unanswered": "未回答",
+  "question.more": "另 {n} 题",
 
   // A prompt whose payload is malformed. The agent still holds its turn and
   // still expects an answer, so this cannot be a silent drop — it has to be

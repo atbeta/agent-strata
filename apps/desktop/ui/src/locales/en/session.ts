@@ -11,6 +11,8 @@ export default {
   "question.placeholder.custom": "or type your own",
   "question.reply": "reply",
   "question.dismiss": "dismiss",
+  "question.unanswered": "Unanswered",
+  "question.more": "+{n} more",
 
   // A prompt whose payload is malformed. The agent still holds its turn and
   // still expects an answer, so this cannot be a silent drop — it has to be
