@@ -185,6 +185,21 @@ export function useConnections(opts: {
   };
   const clearSyncGrace = () => clearTimeout(syncGrace);
 
+  /**
+   * The snapshot's own sync flag, for the gap the stream cannot cover.
+   * `syncTicks` is fed by `sync.*` events, but a conn is listed before its
+   * sync starts and the socket attaches later still — a sync that fires in
+   * between produces no events this window can see. While the snapshot says
+   * busy and the ticks are quiet, reread until one side catches up.
+   */
+  const syncBusy = () =>
+    (settled(conns)?.connections ?? []).some((c) => c.sync === "starting" || c.sync === "syncing");
+  createEffect(() => {
+    if (!syncBusy() || syncTicks().size > 0) return;
+    const timer = setInterval(() => void refetchConns(), 1_000);
+    onCleanup(() => clearInterval(timer));
+  });
+
   return {
     conns,
     refetchConns,
@@ -214,6 +229,7 @@ export function useConnections(opts: {
     newSessionConnection,
     syncTicks,
     syncShown,
+    syncBusy,
     onSyncEvent,
     clearSyncGrace,
   };

@@ -1592,6 +1592,79 @@ describe("agent-strata service", () => {
     oc.stop();
     svc.stop();
   });
+
+  test("/connections says starting, then syncing, then idle as a connect's sync runs", async () => {
+    // Two reads gate the connect: the session list indexSessions waits on,
+    // and the project list a sync begins with. Holding each in turn is what
+    // makes the gap between "connected" and "syncing" visible — without a
+    // hold both are over before the next request lands.
+    const gate = () => {
+      let open = false;
+      const waiters: (() => void)[] = [];
+      return {
+        hold: async () => {
+          if (!open) await new Promise<void>((resolve) => waiters.push(resolve));
+        },
+        release: () => {
+          open = true;
+          for (const resolve of waiters.splice(0)) resolve();
+        },
+      };
+    };
+    const sessions = gate();
+    const projects = gate();
+    const oc = fakeOpencode({
+      "/session": async () => {
+        await sessions.hold();
+        return Response.json([]);
+      },
+      "/project": async () => {
+        await projects.hold();
+        return Response.json([]);
+      },
+    });
+    const svc = startService({ db: ":memory:", port: 0 });
+    const base = `http://127.0.0.1:${svc.port}`;
+    const conn = async () =>
+      ((await fetch(`${base}/connections`).then((r) => r.json())) as {
+        connections: { backend?: string; sync?: string; syncDone?: number; syncTotal?: number }[];
+      }).connections[0];
+    const until = async (want: string) => {
+      let seen;
+      for (let i = 0; i < 200; i++) {
+        seen = await conn();
+        if (seen?.sync === want) return seen;
+        await Bun.sleep(20);
+      }
+      return seen;
+    };
+
+    const connecting = fetch(`${base}/connect`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ baseUrl: oc.baseUrl }),
+    }).then((r) => r.json());
+
+    const starting = await until("starting");
+    expect(starting).toMatchObject({ backend: "opencode", sync: "starting" });
+    expect(starting?.syncDone).toBeUndefined();
+    expect(starting?.syncTotal).toBeUndefined();
+
+    sessions.release();
+    const connected = await connecting;
+    expect(connected.id).toStartWith("opencode:");
+
+    const syncing = await until("syncing");
+    expect(syncing).toMatchObject({ sync: "syncing", syncDone: 0, syncTotal: 0 });
+
+    projects.release();
+    const idle = await until("idle");
+    expect(idle?.sync).toBe("idle");
+    expect(idle?.syncDone).toBeUndefined();
+
+    oc.stop();
+    svc.stop();
+  });
 });
 
 describe("only the desktop shell reaches the service from a browser", () => {

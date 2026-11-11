@@ -131,7 +131,7 @@ export function useStartup(opts: {
     return opts.list.data.error ? "error" : "loading";
   };
 
-  const syncing = () => opts.conns.syncTicks().size > 0;
+  const syncing = () => opts.conns.syncTicks().size > 0 || opts.conns.syncBusy();
   const stage = createMemo(() =>
     startupStage({
       health: health(),

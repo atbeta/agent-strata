@@ -455,7 +455,15 @@ export function startService(opts: ServiceOpts = {}): RunningService {
    * `/stream` replays this to every new subscriber.
    */
   const activeSyncs = new Map<string, { done: number; total: number }>();
+  /**
+   * Conns whose sync is scheduled but has not started. Between `conns.set`
+   * and `syncDriver` a connection already reads as connected while the map
+   * above still says nothing — the startup sync's indexSessions await is the
+   * window `/connections` reports as "starting".
+   */
+  const pendingSyncs = new Set<string>();
   const syncDriver = (driver: BackendDriver) => {
+    pendingSyncs.delete(driver.id);
     activeSyncs.set(driver.id, { done: 0, total: 0 });
     broadcast({ type: "sync.started", connection_id: driver.id });
     // Filled by the reconcile pass: local sessions the backend confirmed it
@@ -494,6 +502,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       .then((imported) => ({ imported, reconciled: reconciled.size }))
       .finally(() => {
         activeSyncs.delete(driver.id);
+        pendingSyncs.delete(driver.id);
         broadcast({ type: "sync.finished", connection_id: driver.id });
       });
   };
@@ -1025,6 +1034,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     const already = [...conns.values()].find((c) => c.baseUrl === endpoint);
     if (already) {
       finishAttempt(endpoint);
+      pendingSyncs.add(already.id);
       void syncDriver(already).catch((e) => console.error(`sync ${already.id} failed: ${e}`));
       return { id: already.id, indexed: 0 };
     }
@@ -1076,6 +1086,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       throw new Error("service is stopped");
     }
     conns.set(driver.id, driver);
+    pendingSyncs.add(driver.id);
     connPassword.set(driver.id, body.password);
     // The connection's own judgement, kept where the routes that need it can
     // find it: a command started in one of its sessions has to meet the same
@@ -2323,6 +2334,10 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         directory: c.directory,
         capabilities: { ...c.capabilities, extension: c.extension?.kind },
         placement: connectionPlacement(c.backend, c.baseUrl, launch),
+        sync: activeSyncs.has(c.id) ? "syncing" : pendingSyncs.has(c.id) ? "starting" : "idle",
+        ...(activeSyncs.has(c.id)
+          ? { syncDone: activeSyncs.get(c.id)?.done, syncTotal: activeSyncs.get(c.id)?.total }
+          : {}),
       }));
       return json({
         connections,
