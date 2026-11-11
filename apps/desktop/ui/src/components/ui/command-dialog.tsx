@@ -1,6 +1,7 @@
 import { type JSX } from "solid-js";
 import { Dialog as DialogPrimitive } from "@kobalte/core/dialog";
 import { cn } from "@/lib/utils";
+import { shellPlatform } from "@/shell";
 
 export { DialogPrimitive };
 
@@ -21,7 +22,12 @@ export function CommandDialog(props: {
       }}
     >
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay class="fade-in fixed inset-0 z-50 flex items-start justify-center bg-background/60 px-4 pt-[15vh] backdrop-blur-[2px]">
+        <DialogPrimitive.Overlay
+          class={cn(
+            "fade-in fixed inset-0 z-50 flex items-start justify-center bg-background/60 px-4 pt-[15vh]",
+            shellPlatform() !== "windows" && "backdrop-blur-[2px]",
+          )}
+        >
           <DialogPrimitive.Content
             aria-label={props.label}
             class={cn(
@@ -29,7 +35,8 @@ export function CommandDialog(props: {
               props.class,
             )}
             onOpenAutoFocus={() => {
-              returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+              const el = document.activeElement;
+              returnFocus = el instanceof HTMLElement && el.matches(":focus-visible") ? el : undefined;
             }}
             onCloseAutoFocus={() => {
               if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
