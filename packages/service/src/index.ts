@@ -9,8 +9,9 @@ import { dirname, join } from "node:path";
 import { openStore, type Store, type EventQuery } from "@agent-strata/store";
 import { projectSession, aggregate, emptySessionView, runningShell, type SessionView } from "@agent-strata/projector";
 import { compareSessions, exportEvents, sessionBriefing } from "@agent-strata/core";
-import { autoAccept, evaluate, floorDecision, loadPolicy, type Decision, type Policy } from "@agent-strata/policy";
-import type { ToolEntry } from "@agent-strata/plugin-sdk";
+import { evaluate, loadPolicy, type Policy } from "@agent-strata/policy";
+import { createAuthorizer } from "./authorization";
+import { createPolicyRuntime } from "./policy-runtime";
 import { UnknownCommandError } from "@agent-strata/adapter-opencode";
 import type { OpencodeLaunchMode, OpencodeLaunchState } from "@agent-strata/api";
 import type { BackendDriver, BackendSink, ModelChoice, PromptPart } from "./driver";
@@ -200,8 +201,6 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     }
     return dirs;
   };
-  // live policy: applies to every connection (hot-swapped via PUT /policy)
-  let currentPolicy: Policy | undefined;
   const loadPolicyFile = (): Policy | undefined => {
     if (!opts.policyFile) return undefined;
     try {
@@ -210,22 +209,12 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       return undefined;
     }
   };
-  currentPolicy = loadPolicyFile();
-  /**
-   * Sessions left on "stop asking me", by casf id.
-   *
-   * A set rather than a stored policy on purpose: the answer is derived from
-   * the live one every time it is needed, so a session on auto keeps following
-   * the shared rules as they are edited instead of freezing a copy of them the
-   * moment the switch was flipped. A reader who then tightens a rule sees it
-   * take effect in the session they already switched off.
-   */
-  const autoSessions = new Set<string>();
-  const modeOf = (sessionID: string): "auto" | "inherit" =>
-    autoSessions.has(sessionID) ? "auto" : "inherit";
+  const policyRuntime = createPolicyRuntime(loadPolicyFile(), (sessionID) => parentOf(sessionID));
+  const modeOf = policyRuntime.modeOf;
+  const policyForSession = policyRuntime.policyForSession;
   const persistPolicy = () => {
     if (!opts.policyFile) return;
-    if (currentPolicy === undefined) {
+    if (policyRuntime.shared === undefined) {
       try {
         unlinkSync(opts.policyFile);
       } catch {
@@ -234,7 +223,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       return;
     }
     mkdirSync(dirname(opts.policyFile), { recursive: true });
-    writeSecureJson(opts.policyFile, currentPolicy);
+    writeSecureJson(opts.policyFile, policyRuntime.shared);
   };
   const pendingAsks = new Map<string, PendingAsk>();
   const pendingQuestions = new Map<string, PendingQuestion>();
@@ -563,36 +552,22 @@ export function startService(opts: ServiceOpts = {}): RunningService {
    * judged exactly as it was before the move. A plugin tool the engine has
    * never heard of simply gets its document default.
    */
-  const authorize = async (
-    sessionId: string,
-    tool: ToolEntry,
-    input: Record<string, unknown>,
-  ): Promise<{ allow: true } | { allow: false; status: number; error: string }> => {
-    const source = policySourceFor(sessionId);
-    const live = source ? source(sessionId) : policyForSession(sessionId);
-    const base: Decision = live
-      ? evaluate(live, { tool: tool.name, input, plugin_id: tool.plugin_id })
-      : { decision: "ask", reason: "no policy" };
-    const verdict = floorDecision(base, tool.policy?.default);
-    // Audit: every plugin tool execution names the plugin, the tool, the
-    // session, and where the decision came from. One line, on the service log.
-    console.log(
-      `[plugin-audit] ${tool.name} session=${sessionId} decision=${verdict.decision}` +
-        (verdict.rule_id ? ` rule=${verdict.rule_id}` : "") +
-        (verdict.reason ? ` (${verdict.reason})` : ""),
-    );
-
-    if (verdict.decision === "deny") {
-      const why = verdict.reason ? `denied: ${verdict.reason}` : "denied by policy";
-      return { allow: false, status: 403, error: why };
-    }
-
-    if (verdict.decision === "ask") {
-      const decision = await askPermission(sessionId, tool.name, input);
-      if (decision === "deny") return { allow: false, status: 403, error: "permission denied" };
-    }
-    return { allow: true };
-  };
+  const authorize = createAuthorizer({
+    policyFor(sessionId) {
+      const source = policySourceFor(sessionId);
+      return source ? source(sessionId) : policyForSession(sessionId);
+    },
+    askPermission(sessionId, tool, input) {
+      return askPermission(sessionId, tool, input);
+    },
+    audit(sessionId, tool, verdict) {
+      console.log(
+        `[plugin-audit] ${tool.name} session=${sessionId} decision=${verdict.decision}` +
+          (verdict.rule_id ? ` rule=${verdict.rule_id}` : "") +
+          (verdict.reason ? ` (${verdict.reason})` : ""),
+      );
+    },
+  });
 
   const directoryOf = (casfId: string): string | undefined => {
     try {
@@ -742,31 +717,6 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       return undefined;
     }
   };
-  /**
-   * Whether this session was left on auto — or any session it descends from.
-   *
-   * A subagent is part of the conversation that opened it: the reader put
-   * *that* session on auto, and the work it delegated is the work they meant.
-   * Reading the stance from the child alone made the switch stop at the
-   * subagent, whose ask then waited in a session the sidebar hides — the run
-   * went nowhere and there was nothing on screen to answer.
-   */
-  const autoStance = (sessionID: string): boolean => {
-    let id: string | undefined = sessionID;
-    for (let hops = 0; id && hops < 8; hops++) {
-      if (autoSessions.has(id)) return true;
-      id = parentOf(id);
-    }
-    return false;
-  };
-  /** The live shared policy, softened for a session whose reader chose auto. */
-  const policyForSession = (sessionID: string): Policy | undefined => {
-    if (!autoStance(sessionID)) return currentPolicy;
-    // No shared document means there is nothing to soften, not nothing to do
-    // — the stance still answers "do not ask me here".
-    return autoAccept(currentPolicy ?? { version: 1, default: "ask", rules: [] });
-  };
-
   const settledAsks = new Map<string, "allow" | "deny">();
   const rememberAsk = (id: string, decision: "allow" | "deny") => {
     settledAsks.set(id, decision);
@@ -1039,13 +989,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       return { id: already.id, indexed: 0 };
     }
     const explicit: Policy | undefined = body.policy ? loadPolicy(body.policy) : undefined;
-    // Per-connect policy wins; otherwise follow the live shared policy — unless
-    // this session was left on auto, which softens the fallback rather than
-    // replacing the document, so the reader's own rules still apply.
-    const policy = (sessionID: string): Policy | undefined => {
-      if (!explicit) return policyForSession(sessionID);
-      return autoStance(sessionID) ? autoAccept(explicit) : explicit;
-    };
+    const policy = policyRuntime.policyForConnection(explicit);
     let driver: BackendDriver;
     if (backend === "opencode") {
       if (!body.baseUrl) throw new Error("baseUrl required");
@@ -2351,22 +2295,22 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     }
 
     if (path === "/policy" && req.method === "GET") {
-      return json({ policy: currentPolicy ?? null, file: opts.policyFile ?? null });
+      return json({ policy: policyRuntime.shared ?? null, file: opts.policyFile ?? null });
     }
 
     if (path === "/policy" && req.method === "PUT") {
       const body = (await req.json().catch(() => null)) as unknown;
       try {
-        currentPolicy = loadPolicy(body);
+        policyRuntime.setShared(loadPolicy(body));
       } catch (e) {
         return json({ error: String(e) }, 400);
       }
       persistPolicy();
-      return json({ ok: true, policy: currentPolicy });
+      return json({ ok: true, policy: policyRuntime.shared });
     }
 
     if (path === "/policy" && req.method === "DELETE") {
-      currentPolicy = undefined;
+      policyRuntime.setShared(undefined);
       persistPolicy();
       return json({ ok: true });
     }
@@ -2393,14 +2337,14 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       }
       if (req.method === "PUT") {
         const body = (await req.json().catch(() => null)) as { mode?: string } | null;
-        if (body?.mode === "auto") autoSessions.add(sid);
-        else if (body?.mode === "inherit" || body?.mode === undefined) autoSessions.delete(sid);
+        if (body?.mode === "auto") policyRuntime.setMode(sid, "auto");
+        else if (body?.mode === "inherit" || body?.mode === undefined) policyRuntime.setMode(sid, "inherit");
         else return json({ error: "mode must be auto or inherit" }, 400);
         broadcast({ type: "session.policy", session_id: sid, mode: modeOf(sid) });
         return json({ ok: true, mode: modeOf(sid), session_id: sid });
       }
       if (req.method === "DELETE") {
-        autoSessions.delete(sid);
+        policyRuntime.setMode(sid, "inherit");
         broadcast({ type: "session.policy", session_id: sid, mode: "inherit" });
         return json({ ok: true, mode: "inherit", session_id: sid });
       }
@@ -2508,7 +2452,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         policy?: unknown;
       } | null;
       if (!body?.tool) return json({ error: "tool required" }, 400);
-      let p = currentPolicy;
+      let p = policyRuntime.shared;
       if (body.policy !== undefined) {
         try {
           p = loadPolicy(body.policy);
