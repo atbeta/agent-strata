@@ -40,11 +40,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y lsof
 
+      # One install covers everything: apps/desktop/ui is a workspace member,
+      # so the root lockfile holds its dependencies too.
       - name: Install workspace dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Install desktop UI dependencies
-        working-directory: apps/desktop/ui
         run: bun install --frozen-lockfile
 
       - name: Typecheck
@@ -53,14 +51,13 @@ jobs:
       - name: Lint
         run: bun run lint
 
-      # Scoped to packages: the desktop UI is a separate install with its own
-      # lockfile and dependency versions, so it is tested on its own.
+      # Scoped to packages: the desktop UI's tests live in their own
+      # directory and run under their own tsconfig, so they run on their own.
       - name: Test packages
         run: bun test packages
 
-      # The UI has its own install, so it runs with its own runner too. Its
-      # tests are plain bun tests over the modules that decide what the screen
-      # shows, and they need nothing from the machine.
+      # The UI's tests are plain bun tests over the modules that decide what
+      # the screen shows, and they need nothing from the machine.
       - name: Test desktop UI
         working-directory: apps/desktop/ui
         run: bun test

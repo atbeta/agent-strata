@@ -10,6 +10,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@agent-strata/api": "workspace:*",
+    "@agent-strata/projector": "workspace:*",
+    "@agent-strata/schema": "workspace:*",
     "@kobalte/core": "^0.13.14",
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/api": "2",
@@ -28,6 +31,8 @@
     "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
+    "@agent-strata/service": "workspace:*",
+    "@agent-strata/store": "workspace:*",
     "playwright": "1.64.1",
     "typescript": "5.5.4",
     "vite": "^7.0.0",

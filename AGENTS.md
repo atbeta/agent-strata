@@ -3,10 +3,15 @@
 ## Checks
 - `bun run typecheck` (root): every package, the desktop UI, and `apps/desktop/ui/bench`.
 - `bun run lint` (root): oxlint over the same trees and `scripts`. Warnings fail the run.
-- `bun run audit` (root): `bun audit` for the workspace and the desktop UI; critical/high advisories fail unless a dated exception with a reason is listed in `scripts/audit.ts`.
+- `bun run audit` (root): `bun audit` for the single workspace install (`apps/desktop/ui` is a workspace member; the root lockfile covers it); critical/high advisories fail unless a dated exception with a reason is listed in `scripts/audit.ts`.
 - `bun test packages`: all package tests.
 - `bun run test:ui`: desktop UI unit tests (includes `apps/desktop/ui/bench/metrics.test.ts`).
 - `cargo test --locked` in `apps/desktop/src-tauri`: Tauri shell tests. Push and pull request run these; a release runs the check job only, so a shell-test failure does not skip the installers.
+
+## Package boundaries
+- Import workspace packages by name (`@agent-strata/*`), never by path. A specifier containing `packages/` fails `no-restricted-imports`; a relative hop into another package's directory fails `scripts/check-boundaries.ts` (runs inside `bun run lint`).
+- Each package's `package.json` `exports` map is the whole reachable surface. To expose a module outside `src/index.ts`, add a subpath there (see `@agent-strata/service`'s `./prompt-parts`); deep imports not listed fail resolution.
+- `@agent-strata/*` imports must be declared in the importer's `package.json`; the boundary check verifies both the declaration and the exports-map entry.
 
 ## Transcript bench (`apps/desktop/ui/bench`)
 Replays a reader's journeys (cold open, scroll up, wheel, outline jump, session switches) in Playwright WebKit and Chromium against an isolated service + Vite on random ports (temp HOME and DB, never `~/.agent-strata`).

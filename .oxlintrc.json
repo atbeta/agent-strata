@@ -9,6 +9,22 @@
     "no-control-regex": "off",
     // Several loops copy a Map or a live NodeList before deleting from it.
     // The copy is what makes the walk safe, and the rule cannot see that.
-    "unicorn/no-useless-spread": "off"
+    "unicorn/no-useless-spread": "off",
+    // Workspace packages are imported by name (@agent-strata/*) so their
+    // "exports" map decides what is reachable. A specifier containing
+    // "packages/" is a filesystem path that bypasses that surface entirely.
+    // scripts/check-boundaries.ts catches the forms this regex cannot see
+    // (relative hops like ../../schema that never spell "packages/").
+    "no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "regex": "packages/",
+            "message": "Import workspace packages by name (@agent-strata/*); path imports bypass the exports map."
+          }
+        ]
+      }
+    ]
   }
 }

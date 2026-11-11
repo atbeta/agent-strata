@@ -13,8 +13,8 @@
 import { copyFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { openStore } from "../../../../packages/store/src/index";
-import type { ContentBlock, EventInput } from "../../../../packages/schema/src/index";
+import { openStore } from "@agent-strata/store";
+import type { ContentBlock, EventInput } from "@agent-strata/schema";
 
 export const FIXTURE_VERSION = 3;
 

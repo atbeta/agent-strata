@@ -1,8 +1,8 @@
-// Dependency audit for both installs.
+// Dependency audit for the workspace.
 //
-// The desktop UI is a separate install with its own lockfile, so one `bun
-// audit` at the root never sees it. This runs both and fails on a new high or
-// critical advisory. Two kinds of exceptions exist:
+// The desktop UI is a workspace member, so one `bun audit` at the root sees
+// every install this repository makes. It fails on a new high or critical
+// advisory. Two kinds of exceptions exist:
 //
 // - low and moderate findings are printed but do not fail the run; they are
 //   recorded in the audit report and handled on their own schedule;
@@ -20,10 +20,7 @@ type Advisory = {
 };
 
 const root = join(import.meta.dir, "..");
-const targets = [
-  { label: "workspace", cwd: root },
-  { label: "desktop UI", cwd: join(root, "apps/desktop/ui") },
-];
+const targets = [{ label: "workspace", cwd: root }];
 
 const exceptions = new Map([
   [

@@ -1,7 +1,7 @@
 // Reports the invariants the event store is meant to hold. Read-only.
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
-import { OPENCODE_MAPPER_VERSION } from "../packages/adapter-opencode/src/index";
+import { OPENCODE_MAPPER_VERSION } from "@agent-strata/adapter-opencode";
 
 const file =
   process.argv[2] ?? join(process.env.HOME || process.env.USERPROFILE || ".", ".agent-strata", "events.db");

@@ -85,11 +85,9 @@ jobs:
         with:
           workspaces: apps/desktop/src-tauri -> target
 
+      # One install covers everything: apps/desktop/ui is a workspace member,
+      # so the root lockfile holds its dependencies too.
       - name: Install workspace dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Install desktop UI dependencies
-        working-directory: apps/desktop/ui
         run: bun install --frozen-lockfile
 
       - name: The tag must name the app version

@@ -4,7 +4,7 @@ import {
   type OAuthStart,
   type OpencodeLaunch,
   type OpencodeLaunchMode,
-} from "../../../../packages/api/src/index";
+} from "@agent-strata/api";
 
 export type {
   ApiProvider,
@@ -17,7 +17,7 @@ export type {
   OpencodeRuntimeSource,
   ProviderMethod,
   ProviderPrompt,
-} from "../../../../packages/api/src/index";
+} from "@agent-strata/api";
 import { inDesktopShell } from "./shell";
 import { t } from "./i18n";
 import { ServiceError } from "./errors";
@@ -31,7 +31,7 @@ import type {
   SessionView,
   ToolCallView,
   Turn,
-} from "../../../../packages/projector/src/index";
+} from "@agent-strata/projector";
 
 export type {
   AssistantStep,
@@ -39,7 +39,7 @@ export type {
   RetryAction,
   SessionDiagnostic,
   SessionRetry,
-} from "../../../../packages/schema/src/index";
+} from "@agent-strata/schema";
 export type {
   FileChangeView as FileChange,
   FileEditView as FileEdit,

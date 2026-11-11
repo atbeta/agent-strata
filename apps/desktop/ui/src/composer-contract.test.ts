@@ -10,7 +10,7 @@ import {
   MAX_ATTACHMENT_BYTES,
   MAX_ATTACHMENTS,
   readPromptParts,
-} from "../../../../packages/service/src/prompt-parts";
+} from "@agent-strata/service/prompt-parts";
 
 const shot = (i: number): Attachment => ({ id: String(i), name: `s${i}.png`, mime: "image/png", url: "data:image/png;base64,AA==" });
 

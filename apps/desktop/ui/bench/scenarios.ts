@@ -1,5 +1,5 @@
 import type { Page } from "playwright";
-import { openStore } from "../../../../packages/store/src/index";
+import { openStore } from "@agent-strata/store";
 import {
   appWrites,
   drift,

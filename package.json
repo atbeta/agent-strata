@@ -2,7 +2,8 @@
   "name": "agent-strata",
   "private": true,
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "apps/desktop/ui"
   ],
   "scripts": {
     "test": "bun test packages",
@@ -14,10 +15,11 @@
     "sidecar:force": "bun run scripts/build-sidecar.ts --force",
     "icons:providers": "bun run scripts/provider-icons.ts",
     "icons:windows": "bun run scripts/generate-windows-icon.ts",
-    "lint": "oxlint --deny-warnings",
+    "lint": "oxlint --deny-warnings && bun run scripts/check-boundaries.ts",
     "typecheck": "bun run scripts/typecheck.ts"
   },
   "devDependencies": {
+    "@agent-strata/adapter-opencode": "workspace:*",
     "@resvg/resvg-js": "^2.6.2",
     "@tauri-apps/cli": "2.12.4",
     "@types/bun": "^1.2.0",

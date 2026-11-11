@@ -1,5 +1,5 @@
 import type { SessionView, ViewTail } from "./api";
-import { filesKeyOf } from "../../../../packages/projector/src/files-key";
+import { filesKeyOf } from "@agent-strata/projector";
 
 export { filesKeyOf };
 

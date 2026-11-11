@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Database } from "bun:sqlite";
-import { openStore } from "../../../../packages/store/src/index";
+import { openStore } from "@agent-strata/store";
 import { buildFixtureDb, FIXTURE_SESSIONS } from "./fixtures";
 
 export interface BenchSessions {
