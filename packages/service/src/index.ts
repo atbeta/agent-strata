@@ -6,23 +6,24 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync, unwatchFile, watchFile
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { openStore, type Store, type EventQuery } from "@agent-strata/store";
-import { projectSession, aggregate, emptySessionView, runningShell, type SessionView } from "@agent-strata/projector";
-import { compareSessions, exportEvents, sessionBriefing } from "@agent-strata/core";
-import { evaluate, loadPolicy, type Policy } from "@agent-strata/policy";
+import { openStore, type Store } from "@agent-strata/store";
+import { emptySessionView, projectSession, type SessionView } from "@agent-strata/projector";
+import { loadPolicy, type Policy } from "@agent-strata/policy";
 import { createAuthorizer } from "./authorization";
 import { createPolicyRuntime } from "./policy-runtime";
-import { UnknownCommandError } from "@agent-strata/adapter-opencode";
-import type { OpencodeLaunchMode, OpencodeLaunchState } from "@agent-strata/api";
-import type { BackendDriver, BackendSink, ModelChoice, PromptPart } from "./driver";
+import { policyRoute } from "./policy-routes";
+import { PermissionRequests } from "./permission-requests";
+import { ConnectionRegistry } from "./connection-registry";
+import { GoalRunner } from "./goal-runner";
+import type { BackendDriver, BackendSink } from "./driver";
 import { connectOpencodeDriver } from "./opencode-driver";
 import { LiveOverlay } from "./live";
-import { filesKeyOf, ViewCache } from "./views";
-import { makeEvent, type EventInput } from "@agent-strata/schema";
-import { goalContinuation, goalMetByReply, lastAssistantReply, nextPlanStep, sessionAwaiting, shouldContinueGoal } from "./goal";
+import { ViewCache } from "./views";
+import { type EventInput } from "@agent-strata/schema";
 import { connectAcpDriver } from "./acp-driver";
 import { bootPlan, REMEMBERED_PROBE_MS } from "./boot-connect";
-import { connectionPhase, connectionPlacement, sameEndpoint } from "./connection-phase";
+import { sameEndpoint } from "./connection-phase";
+import { connectionRoute, type ConnectionAttempt } from "./connection-routes";
 import {
   agentNameOf,
   connectionMemory,
@@ -31,22 +32,9 @@ import {
   type ConnectBody,
 } from "./connections";
 import { extensionRoute } from "./extension-route";
-import { mcpAddRequest, safeMcpError } from "./mcp-add";
-import { mcpAuthCode, mcpAuthStartView } from "./mcp-auth";
 import { providerRoute } from "./provider-auth";
-import { readPromptParts } from "./prompt-parts";
-import {
-  availableBackupName,
-  fileInfo,
-  listBackups,
-  listLegacy,
-  maintenanceDirs,
-  safeName,
-} from "./maintenance";
-import { editorLaunch } from "./editor";
-import { revealTarget } from "./reveal";
-import { checkPaths } from "./paths";
-import { forkBefore, forkTitle } from "./fork";
+import { availableBackupName, fileInfo, listBackups, listLegacy, maintenanceDirs } from "./maintenance";
+import { maintenanceRoute } from "./maintenance-routes";
 import { refused, shellCors } from "./shell-origin";
 import { queryTokenOk, readApiToken, tokenOk } from "./api-token";
 import { writeSecureJson } from "./secure-write";
@@ -57,19 +45,14 @@ import { builtinPlugins } from "./plugins/builtin";
 import { pluginRoute } from "./plugins/routes";
 import { mcpRoute } from "./plugins/mcp";
 import { createMcpTickets } from "./plugins/tickets";
-import { WorktreeError, reposOf, worktreeAdd, worktreeRemove, withWorktrees } from "./worktree";
 import { SessionClaims } from "./identity";
-import { promptRoute, type PendingAsk, type PendingQuestion } from "./prompt-routes";
+import { promptRoute } from "./prompt-routes";
+import { sessionRoute } from "./session-routes";
+import { eventRoute } from "./event-routes";
+import { desktopRoute } from "./desktop-routes";
+import { workspaceRoute } from "./workspace-routes";
+import { autoConnectPlacement, readOpencodeMode, readOpencodeStatus } from "./opencode-status";
 
-
-
-/**
- * A log line with its data attached, bounded.
- *
- * A plugin can log anything it likes, including a whole page of HTML or a
- * socket object; the service log is read by a person and a line longer than a
- * screen is a line nobody reads.
- */
 function logLine(message: string, data?: unknown): string {
   if (data === undefined) return message;
   let text: string;
@@ -80,13 +63,7 @@ function logLine(message: string, data?: unknown): string {
   }
   return text.length > 2_000 ? `${message} ${text.slice(0, 2_000)}…` : `${message} ${text}`;
 }
-/**
- * The most one request may carry.
- *
- * It leaves room for ten 5 MiB attachments written as base64 (the composer's
- * own limit) with JSON overhead, and stops a malformed or hostile body before
- * the parser allocates without bound.
- */
+
 const MAX_REQUEST_BODY_BYTES = 80 * 1024 * 1024;
 
 export interface ServiceOpts {
@@ -124,13 +101,6 @@ export interface RunningService {
   stop: () => void;
 }
 
-/**
- * A file extension for a mime type, so a spilled attachment opens as what it is.
- *
- * The id is a content hash and carries no type of its own. Without the suffix
- * every screenshot would be an extensionless blob, which the OS and the
- * browser both refuse to preview.
- */
 function extFor(mime: string): string {
   const base = mime.split(";")[0]?.trim().toLowerCase() ?? "";
   const known: Record<string, string> = {
@@ -150,53 +120,29 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   // STRATA_DESKTOP_DIR exists mostly for tests: without it a suite on a dev
   // machine reads the real ~/.agent-strata — a running embedded server there
   // is a real backend the reconcile would happily connect to.
-  const desktopDir =
-    opts.desktopDir ?? process.env.STRATA_DESKTOP_DIR ?? join(homedir(), ".agent-strata");
-  // The capability token, when there is one. The desktop sets it for every
-  // launch; a service started by hand runs without it and asks for nothing.
+  const desktopDir = opts.desktopDir ?? process.env.STRATA_DESKTOP_DIR ?? join(homedir(), ".agent-strata");
   const apiToken = readApiToken(opts);
   const store = openStore(opts.db ?? ":memory:");
   let stopped = false;
-  const conns = new Map<string, BackendDriver>();
-  // casf session id -> driver id, filled as sessions are indexed or created
-  const owners = new Map<string, string>();
-  /**
-   * driver id -> the rules that connection is judged by.
-   *
-   * A connection can carry a policy of its own, and that policy wins over the
-   * shared one. The judgement belongs to the connection, not to the route
-   * that happens to ask: a command started in a session has to meet the same
-   * rules the session's own tool calls meet, wherever the check happens.
-   */
-  const connPolicy = new Map<string, (sessionID: string) => Policy | undefined>();
-  /** The directory a session was created in, kept until its first event
-      lands — the view's `workspace` cannot come from events that do not
-      exist yet. */
+  const conns = new ConnectionRegistry();
   const createdDirs = new Map<string, string>();
-  /**
-   * The directories this service knows about: what a backend lists as its
-   * workspaces, and the workspace of every session in the store.
-   *
-   * The sidebar shows them, and a reveal may only open something inside one
-   * of them — a path can arrive from rendered text, which the model wrote.
-   */
   const knownDirs = async (): Promise<Map<string, { directory: string; name?: string }>> => {
     const dirs = new Map<string, { directory: string; name?: string }>();
     for (const conn of conns.values()) {
       try {
-        for (const w of await conn.listWorkspaces()) {
-          if (w.directory && !dirs.has(w.directory)) {
-            dirs.set(w.directory, { directory: w.directory, name: w.name });
+        for (const workspace of await conn.listWorkspaces()) {
+          if (workspace.directory && !dirs.has(workspace.directory)) {
+            dirs.set(workspace.directory, { directory: workspace.directory, name: workspace.name });
           }
         }
       } catch {
         // a backend that cannot list projects still contributes its sessions
       }
     }
-    for (const s of store.listSessions({ limit: 500 })) {
-      const ws = s.workspace;
-      if (ws && ws !== "unknown" && ws !== "no workspace" && !dirs.has(ws)) {
-        dirs.set(ws, { directory: ws });
+    for (const summary of store.listSessions({ limit: 500 })) {
+      const workspace = summary.workspace;
+      if (workspace && workspace !== "unknown" && workspace !== "no workspace" && !dirs.has(workspace)) {
+        dirs.set(workspace, { directory: workspace });
       }
     }
     return dirs;
@@ -209,8 +155,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       return undefined;
     }
   };
-  const policyRuntime = createPolicyRuntime(loadPolicyFile(), (sessionID) => parentOf(sessionID));
-  const modeOf = policyRuntime.modeOf;
+  const policyRuntime = createPolicyRuntime(loadPolicyFile(), (sessionId) => parentOf(sessionId));
   const policyForSession = policyRuntime.policyForSession;
   const persistPolicy = () => {
     if (!opts.policyFile) return;
@@ -225,44 +170,34 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     mkdirSync(dirname(opts.policyFile), { recursive: true });
     writeSecureJson(opts.policyFile, policyRuntime.shared);
   };
-  const pendingAsks = new Map<string, PendingAsk>();
-  const pendingQuestions = new Map<string, PendingQuestion>();
+  const permissionRequests = new PermissionRequests({
+    store,
+    sessionView: (sessionId) => sessionView(sessionId),
+    driverFor: (sessionId) => driverFor(sessionId),
+    directoryOf: (sessionId) => directoryOf(sessionId),
+  });
+  const goalRunner = new GoalRunner({
+    store,
+    sessionView: (sessionId) => sessionView(sessionId),
+    driverFor: (sessionId) => driverFor(sessionId),
+    directoryOf: (sessionId) => directoryOf(sessionId),
+    hasPending: (sessionId) => permissionRequests.hasPending(sessionId),
+  });
   const subscribers = new Set<(payload: unknown) => void>();
   const broadcast = (payload: unknown) => {
     for (const fn of subscribers) fn(payload);
   };
   const live = new LiveOverlay();
   const views = new ViewCache(store);
-  // Long-running commands belong to the service, not to a detached window.
-  // They are broadcast like any other event so the UI can show them without
-  // polling, and stopped with the session that started them.
-  /**
-   * The plugin host.
-   *
-   * Constructed here, before the routes, because the routes are the only
-   * caller: the tool table, the lifecycle, the private routes and the tool
-   * execution all go through the same object.
-   *
-   * Plugins start after the listeners are wired (below), so a plugin that
-   * emits during `initialize` has somewhere to emit to.
-   */
   const plugins = new PluginHost({
     dataDir: desktopDir,
     logger: {
-      info: (m, d) => console.log(logLine(m, d)),
-      warn: (m, d) => console.warn(logLine(m, d)),
-      error: (m, d) => console.error(logLine(m, d)),
+      info: (message, data) => console.log(logLine(message, data)),
+      warn: (message, data) => console.warn(logLine(message, data)),
+      error: (message, data) => console.error(logLine(message, data)),
     },
     workspaceOf: (sessionId) => directoryOf(sessionId) ?? driverFor(sessionId)?.directory,
     resolveSession: (given) => resolveSessionId(given),
-    /**
-     * The last tool call this session has open, by the name the agent knows.
-     *
-     * An adapter that cannot name the backend's call id (the OpenCode shim on
-     * a release without `context.id`) still expects its progress to land on the
-     * row the reader is watching. The projection is the only thing that knows
-     * which calls are open, so the answer comes from there.
-     */
     pendingCall: (sessionId, toolName) => {
       try {
         const view = sessionView(sessionId);
@@ -270,23 +205,15 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         for (const turn of view.turns) {
           for (const call of turn.tool_calls) {
             if (call.tool !== toolName || call.status !== "pending") continue;
-            // The transcript is ordered; the last pending one is the newest.
             found = { call_id: call.call_id, ts: call.ts };
           }
         }
         return found?.call_id;
       } catch {
-        // A session with no events yet has no calls to join to.
         return undefined;
       }
     },
     onStreamEvent: (event) => broadcast(event),
-    /**
-     * Progress is a live event, not a log row: it goes straight to `/stream`
-     * and is never appended to the store. `plugin_id` and `call_id` ride along
-     * so a tool row can attach it, and a client that cannot match it still
-     * has the message.
-     */
     onProgress: (progress) => {
       broadcast({
         type: "tool.progress",
@@ -307,21 +234,8 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   })) {
     plugins.register(builtin);
   }
-  /**
-   * A plugin set changed. The UI keeps a tool-renderer registry and a panel
-   * list from this, so the change is broadcast rather than discovered by
-   * polling: enable/disable is rare and the cost of a stale renderer is a
-   * wrongly drawn row.
-   */
   plugins.onChange(() => broadcast({ type: "plugins.changed" }));
 
-  /**
-   * The tickets ACP sessions use to reach `/plugins/mcp`.
-   *
-   * Minted per session, so the endpoint an agent holds names exactly one
-   * session and dies with it — a scoped capability, not the global token.
-   * The base URL is read late because the port is chosen by the listener.
-   */
   const mcpTickets = createMcpTickets({
     baseUrl: () => `http://127.0.0.1:${server.port ?? 0}`,
   });
@@ -343,20 +257,6 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       legacy: listLegacy(maintenanceDirsInfo.dir),
     };
   };
-  /**
-   * Take a backup right before something rewrites or deletes stored data.
-   *
-   * The panel could write a backup and never did it on its own, so the one
-   * operation that cannot be undone — cleaning the rebuildable cache — ran
-   * with no copy behind it. A backend that has since dropped a session will
-   * not hand its transcript back, and those bytes are gone for good. Vacuum
-   * gets one too: it is safe in principle, and it is exactly the operation a
-   * reader tries when the disk is nearly full.
-   *
-   * Returns the file name, or undefined when there is nothing to copy (an
-   * in-memory store) or the copy failed. A failure is reported, not thrown:
-   * refusing to clean because the disk is full would be the wrong trade.
-   */
   const backupBefore = (why: string): string | undefined => {
     if (!maintenanceDirsInfo.dbPath) return undefined;
     try {
@@ -364,100 +264,58 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       const name = availableBackupName(maintenanceDirsInfo.dir);
       store.backupTo(join(maintenanceDirsInfo.backupDir, name));
       return name;
-    } catch (e) {
-      console.error(`could not back up before ${why}:`, e);
+    } catch (error) {
+      console.error(`could not back up before ${why}:`, error);
       return undefined;
     }
   };
-  // A continuation already handed to the backend, waiting until that run shows
-  // as busy. Without it, the idle that accepted the prompt sends another one.
-  const goalKicked = new Set<string>();
-  // The user aborted. The idle that follows is them stopping, not the run ending.
-  const goalPaused = new Set<string>();
-  store.subscribe((e) => {
-    live.settle(e);
-    broadcast(e);
-    if (e.type === "session.status" && e.data.state === "busy") goalKicked.delete(e.session_id);
-    if (e.type === "session.status" && e.data.state === "idle") considerGoal(e.session_id);
-    if (e.type === "permission.resolved" || e.type === "question.resolved") considerGoal(e.session_id);
+  store.subscribe((event) => {
+    live.settle(event);
+    broadcast(event);
+    goalRunner.handleEvent(event);
   });
   const claims = new SessionClaims();
-  // Every channel a backend writes through ends here, so this is the one place
-  // that can tell a second copy of a session from the session itself.
   const unshadowed = (events: EventInput[]) =>
-    events.filter((e) => !claims.shadowed(e.source, e.session_id));
+    events.filter((event) => !claims.shadowed(event.source, event.session_id));
   const sink: BackendSink = {
     append: (events) => store.append(unshadowed(events)),
     publish: (events) => {
-      for (const e of unshadowed(events)) if (live.put(e)) broadcast(e);
+      for (const event of unshadowed(events)) if (live.put(event)) broadcast(event);
     },
     replaceSession: (sessionId, events, replace) => {
-      if (events.some((e) => claims.shadowed(e.source, sessionId))) return 0;
-      const n = store.replaceSession(sessionId, events, replace);
+      if (events.some((event) => claims.shadowed(event.source, sessionId))) return 0;
+      const count = store.replaceSession(sessionId, events, replace);
       views.drop(sessionId);
       broadcast({ type: "session.rebuilt", session_id: sessionId });
-      return n;
+      return count;
     },
     markMapped: (sessionId, mapper) => store.markMapper(sessionId, mapper),
     sessionRevision: (sessionId) => store.sessionRevision(sessionId),
-    markRevision: (sessionId, rev) => store.markRevision(sessionId, rev),
-    // What the store still believes about a run. The driver's connect-time
-    // correction used to be limited to sessions it had personally watched go
-    // busy, which excluded every run that was cut off by the app closing —
-    // precisely the case it exists for.
+    markRevision: (sessionId, revision) => store.markRevision(sessionId, revision),
     sessionRunning: (sessionId) => store.sessionRunning(sessionId),
-    /**
-     * Keep a tool attachment's bytes on disk, under a content-addressed name.
-     *
-     * A screenshot past the inline cap cannot ride in the event: it would be
-     * megabytes that every reader of the transcript pays to load. Dropping the
-     * bytes left a filename and nothing to look at, so they land here instead
-     * and the block keeps the id. Content addressing means the same picture
-     * twice costs one file, and the name cannot collide.
-     *
-     * A failure here is not fatal — the block degrades to what it was before,
-     * a reference with no bytes behind it.
-     */
     spillAttachment: (mime, base64) => {
       try {
         const bytes = Buffer.from(base64, "base64");
         const id = `${createHash("sha256").update(bytes).digest("hex").slice(0, 32)}${extFor(mime)}`;
         const dir = join(desktopDir, "attachments");
         const path = join(dir, id);
-        // Written once per distinct picture. A re-import of the same tool
-        // result would otherwise rewrite it every time.
         if (!existsSync(path)) {
           mkdirSync(dir, { recursive: true });
           writeFileSync(path, bytes, { mode: 0o600 });
         }
         return id;
-      } catch (e) {
-        console.error("could not keep a tool attachment:", e);
+      } catch (error) {
+        console.error("could not keep a tool attachment:", error);
         return undefined;
       }
     },
   };
-  /**
-   * Syncs currently running, for subscribers that attach mid-flight: the
-   * startup sync fires `sync.started` before the app's stream socket exists,
-   * and an event-only channel has no way to say "a sync is already going".
-   * `/stream` replays this to every new subscriber.
-   */
   const activeSyncs = new Map<string, { done: number; total: number }>();
-  /**
-   * Conns whose sync is scheduled but has not started. Between `conns.set`
-   * and `syncDriver` a connection already reads as connected while the map
-   * above still says nothing — the startup sync's indexSessions await is the
-   * window `/connections` reports as "starting".
-   */
   const pendingSyncs = new Set<string>();
   const syncDriver = (driver: BackendDriver) => {
     pendingSyncs.delete(driver.id);
     activeSyncs.set(driver.id, { done: 0, total: 0 });
     broadcast({ type: "sync.started", connection_id: driver.id });
-    // Filled by the reconcile pass: local sessions the backend confirmed it
-    // no longer has, so they are marked deleted the same way a live delete
-    // event would have marked them.
     const reconciled = new Set<string>();
     return driver
       .sync({
@@ -470,15 +328,15 @@ export function startService(opts: ServiceOpts = {}): RunningService {
             claims.shadowed({ backend: driver.agent, native_id: native }, casfId)
           );
         },
-        claimed: (casfId) => owners.set(casfId, driver.id),
+        claimed: (casfId) => conns.own(casfId, driver.id),
         local: () => {
           const gone = new Set(store.deletedSessions());
           const rows: { id: string; directory?: string }[] = [];
-          for (const s of store.listSessions({ backend: driver.agent })) {
-            const id = driver.nativeId(s.session_id);
-            if (!id || gone.has(s.session_id)) continue;
-            if (claims.shadowed({ backend: driver.agent, native_id: id }, s.session_id)) continue;
-            rows.push({ id, directory: s.workspace ?? undefined });
+          for (const summary of store.listSessions({ backend: driver.agent })) {
+            const id = driver.nativeId(summary.session_id);
+            if (!id || gone.has(summary.session_id)) continue;
+            if (claims.shadowed({ backend: driver.agent, native_id: id }, summary.session_id)) continue;
+            rows.push({ id, directory: summary.workspace ?? undefined });
           }
           return rows;
         },
@@ -507,58 +365,25 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       if (!live.has(sessionId)) return views.view(sessionId);
       const stored = views.events(sessionId);
       return projectSession([...stored, ...live.events(sessionId, stored.at(-1)?.seq ?? 0)]);
-    } catch (e) {
-      // A session just created owns an id before its first event lands. That
-      // gap used to surface as a 500 and the reader painted its "service
-      // unreachable" frame for a beat on every new session.
-      if (e instanceof Error && e.message === "no events" && owners.has(sessionId)) {
-        return { ...emptySessionView(sessionId, sessionId.split(":")[0]!), workspace: createdDirs.get(sessionId) };
+    } catch (error) {
+      if (error instanceof Error && error.message === "no events" && conns.owns(sessionId)) {
+        return {
+          ...emptySessionView(sessionId, sessionId.split(":")[0]!),
+          workspace: createdDirs.get(sessionId),
+        };
       }
-      throw e;
+      throw error;
     }
   };
 
-  /**
-   * The casf id for a session a caller named.
-   *
-   * A plugin runs inside OpenCode and sees the native session id (`ses_…`),
-   * while this layer keys everything by `opencode:<native>`. Both spellings are
-   * accepted: a caller that already speaks casf ids passes through untouched,
-   * and a native id is matched against each connection's own prefix. An id that
-   * matches nothing is returned as given — it is a session this layer has not
-   * indexed yet, and the caller's spelling is the best guess we have.
-   */
-  const resolveSessionId = (given: string): string => {
-    if (owners.has(given)) return given;
-    for (const conn of conns.values()) {
-      const candidate = `${conn.agent}:${given}`;
-      if (owners.has(candidate)) return candidate;
-    }
-    return given;
-  };
-
-  /**
-   * Judge one plugin tool call.
-   *
-   * This is *the* policy point for plugin tools, and it is the same sequence
-   * the old `/dev` route used: resolve the session's live policy (a
-   * connection's own policy first, the shared one otherwise), evaluate with
-   * the tool's qualified name, apply the manifest floor, then put an ask in
-   * front of the reader.
-   *
-   * The qualified name (`dev_start`, `dev_logs`) is what makes the
-   * engine see a shell in disguise as a shell: `dev_start` is in
-   * `SHELL_TOOLS`, so a command routed through it is split, analysed and
-   * judged exactly as it was before the move. A plugin tool the engine has
-   * never heard of simply gets its document default.
-   */
+  const resolveSessionId = (given: string): string => conns.resolveSessionId(given);
   const authorize = createAuthorizer({
     policyFor(sessionId) {
       const source = policySourceFor(sessionId);
       return source ? source(sessionId) : policyForSession(sessionId);
     },
     askPermission(sessionId, tool, input) {
-      return askPermission(sessionId, tool, input);
+      return permissionRequests.askPermission(sessionId, tool, input);
     },
     audit(sessionId, tool, verdict) {
       console.log(
@@ -571,52 +396,17 @@ export function startService(opts: ServiceOpts = {}): RunningService {
 
   const directoryOf = (casfId: string): string | undefined => {
     try {
-      const ws = sessionView(casfId).workspace;
-      if (ws && ws !== "unknown" && ws !== "no workspace") return ws;
+      const workspace = sessionView(casfId).workspace;
+      if (workspace && workspace !== "unknown" && workspace !== "no workspace") return workspace;
     } catch {
       // session has no events yet
     }
     return undefined;
   };
+  const driverFor = (casfId: string): BackendDriver | undefined => conns.driverFor(casfId);
+  const policySourceFor = (casfId: string): ((sessionId: string) => Policy | undefined) | undefined =>
+    conns.policySourceFor(casfId);
 
-  const driverFor = (casfId: string): BackendDriver | undefined => {
-    const owned = owners.get(casfId);
-    if (owned) return conns.get(owned);
-    if (conns.size === 1) return [...conns.values()][0];
-    const backend = casfId.split(":")[0];
-    const matches = [...conns.values()].filter((c) => c.backend === backend);
-    return matches.length === 1 ? matches[0] : undefined;
-  };
-
-  /**
-   * The rules in force for this session's connection, if it has its own.
-   *
-   * The connection is found the same way the session's driver is found, so a
-   * command started in a session is judged by the same document the session's
-   * own tool calls are judged by — a policy the reader handed that connection
-   * included.
-   */
-  const policySourceFor = (casfId: string): ((sessionID: string) => Policy | undefined) | undefined => {
-    const driver = driverFor(casfId);
-    return driver ? connPolicy.get(driver.id) : undefined;
-  };
-
-  /**
-   * Let go of the app's own programs standing in a folder that will not go.
-   *
-   * A dev server started in there is one of them, and so is the agent the app
-   * started for a session in that checkout: on Windows both hold the folder
-   * they are standing in, and neither is the reader's to close by hand. The
-   * session is stopped rather than killed — the agent gets to finish what it
-   * was doing and leave — and a backend that cannot be asked is left alone.
-   *
-   * The app's terminal shells are holders too, and a closed panel is not a
-   * closed shell: the PTY keeps its working directory until something ends
-   * it, so a reader who has closed everything they can see still has the
-   * folder open. The app started these shells, so it ends them here rather
-   * than asking the reader to find a panel that is no longer on screen.
-   */
-  /** Wait, bounded, for a session to stop being busy after an abort. */
   const settle = async (sessionId: string): Promise<void> => {
     const until = Date.now() + 5_000;
     while (Date.now() < until) {
@@ -633,79 +423,56 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     const disposed = new Set<string>();
     const terminalsClosed = new Set<string>();
     await plugins.releaseDirectory(dir);
-    // A parent waiting on a child is one task. Aborting only the parent cuts
-    // its reply short while the child keeps writing — into a folder that is
-    // being deleted — and the transcript says the reply was cut off while the
-    // child, opened on its own, is still producing. Take the whole tree: the
-    // sessions standing in the folder, and everything they started, wherever
-    // a child's own workspace happens to be.
     const sessions = store.listSessions({ limit: 500 });
     const parents = new Map<string, string | undefined>();
-    for (const s of sessions) {
+    for (const summary of sessions) {
       try {
-        parents.set(s.session_id, sessionView(s.session_id).parent_session_id);
+        parents.set(summary.session_id, sessionView(summary.session_id).parent_session_id);
       } catch {
         // a session with no events yet has no parent to read
       }
     }
     const doomed = new Set(
-      sessions.filter((s) => s.workspace && pathInside(dir, s.workspace)).map((s) => s.session_id),
+      sessions.filter((summary) => summary.workspace && pathInside(dir, summary.workspace)).map((summary) => summary.session_id),
     );
     let grew = doomed.size > 0;
     while (grew) {
       grew = false;
-      for (const s of sessions) {
-        const parent = parents.get(s.session_id);
-        if (parent && doomed.has(parent) && !doomed.has(s.session_id)) {
-          doomed.add(s.session_id);
+      for (const summary of sessions) {
+        const parent = parents.get(summary.session_id);
+        if (parent && doomed.has(parent) && !doomed.has(summary.session_id)) {
+          doomed.add(summary.session_id);
           grew = true;
         }
       }
     }
-    for (const s of sessions) {
-      if (!doomed.has(s.session_id)) continue;
-      const ws =
-        s.workspace && s.workspace !== "unknown" && s.workspace !== "no workspace"
-          ? s.workspace
+    for (const summary of sessions) {
+      if (!doomed.has(summary.session_id)) continue;
+      const workspace =
+        summary.workspace && summary.workspace !== "unknown" && summary.workspace !== "no workspace"
+          ? summary.workspace
           : undefined;
-      const inFolder = ws !== undefined && pathInside(dir, ws);
-      const where = ws ?? directoryOf(s.session_id);
-      // A goal continues the session whenever it goes idle. Aborting it to
-      // remove the folder would therefore start the next turn in a folder
-      // that is being taken apart — the removal then races a live writer and
-      // never empties. The user's own abort pauses the goal; this abort has to
-      // do the same, because the folder is going away either way.
-      goalPaused.add(s.session_id);
-      const conn = driverFor(s.session_id);
+      const inFolder = workspace !== undefined && pathInside(dir, workspace);
+      const where = workspace ?? directoryOf(summary.session_id);
+      goalRunner.pause(summary.session_id);
+      const conn = driverFor(summary.session_id);
       if (!conn) continue;
       const terminal = conn.extension?.terminal;
-      if (terminal && ws && inFolder && !terminalsClosed.has(ws)) {
-        terminalsClosed.add(ws);
-        const shells = await terminal.list(ws).catch(() => []);
-        for (const shell of shells) await terminal.remove(ws, shell.id).catch(() => {});
+      if (terminal && workspace && inFolder && !terminalsClosed.has(workspace)) {
+        terminalsClosed.add(workspace);
+        const shells = await terminal.list(workspace).catch(() => []);
+        for (const shell of shells) await terminal.remove(workspace, shell.id).catch(() => {});
       }
       if (!conn.capabilities.abort) continue;
-      const native = conn.nativeId(s.session_id);
+      const native = conn.nativeId(summary.session_id);
       if (!native) continue;
       await conn.abort(native, where).catch(() => {});
-      // abort asks the backend to stop; it does not wait for the turn to
-      // unwind. A tool still finishing in the folder — a build, a watcher, a
-      // child process — would keep recreating what the removal just deleted,
-      // and the retry loop would expire while the turn was still alive. Wait
-      // for the session to report idle, with a bound so a stuck turn cannot
-      // hold the button forever.
-      await settle(s.session_id);
-      // The backend keeps a per-directory instance alive — watchers, language
-      // servers, open handles. It is not tied to a turn, so aborting never
-      // released it, and a worktree only became removable after the app (and
-      // with it the backend) restarted. Ask for it to be disposed now.
-      if (inFolder && ws && !disposed.has(ws)) {
-        disposed.add(ws);
-        await conn.extension?.dispose?.(ws).catch(() => {});
+      await settle(summary.session_id);
+      if (inFolder && workspace && !disposed.has(workspace)) {
+        disposed.add(workspace);
+        await conn.extension?.dispose?.(workspace).catch(() => {});
       }
     }
-    // A turn that was just aborted can still be writing for a moment. The
-    // caller retries at once; a brief pause lets the handles go first.
     await new Promise((resolve) => setTimeout(resolve, 300));
   };
 
@@ -713,233 +480,11 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     try {
       return sessionView(casfId).parent_session_id;
     } catch {
-      // a session with no events yet has no parent to read
       return undefined;
     }
   };
-  const settledAsks = new Map<string, "allow" | "deny">();
-  const rememberAsk = (id: string, decision: "allow" | "deny") => {
-    settledAsks.set(id, decision);
-    if (settledAsks.size <= 1000) return;
-    let extra = settledAsks.size - 800;
-    for (const key of settledAsks.keys()) {
-      settledAsks.delete(key);
-      if (--extra <= 0) break;
-    }
-  };
-  const onAsk = (
-    req: Extract<EventInput, { type: "permission.requested" }>,
-    local = false,
-  ) => {
-    store.append([req]);
-    const data = req.data;
-    const known = settledAsks.get(data.request_id);
-    // A second copy of an ask that is already on screen, or already answered,
-    // must not open another prompt or reply to OpenCode again.
-    if (known || pendingAsks.has(data.request_id)) {
-      return Promise.resolve({ decision: known ?? "allow", external: true as const });
-    }
-    return new Promise<{ decision: "allow" | "deny"; scope?: "once" | "always"; external?: boolean }>((resolve) =>
-      pendingAsks.set(data.request_id, {
-        request_id: data.request_id,
-        session_id: req.session_id,
-        tool: data.tool,
-        input: data.input,
-        call_id: data.call_id,
-        asked_at: req.ts,
-        local,
-        resolve,
-      }),
-    );
-  };
-  const settleAsk = (requestId: string, decision: "allow" | "deny") => {
-    rememberAsk(requestId, decision);
-    const ask = pendingAsks.get(requestId);
-    if (!ask) return;
-    pendingAsks.delete(requestId);
-    ask.resolve({ decision, external: true });
-  };
-  /**
-   * Put a decision the policy did not make in front of the reader.
-   *
-   * Plugin tools are not part of OpenCode's permission events, so a background
-   * command has no card of its own. This is the same card a tool ask gets: the
-   * request goes through the store, the UI's permission deck answers it, and
-   * the call blocks until that answer arrives. A reader who never answers must
-   * not leave the tool call open forever, so it times out as a deny.
-   */
-  const askPermission = async (
-    sessionId: string,
-    tool: string,
-    input: Record<string, unknown>,
-  ): Promise<"allow" | "deny"> => {
-    const requestId = `desktop:${tool}:${crypto.randomUUID()}`;
-    const req = makeEvent({
-      session_id: sessionId,
-      source: { backend: "desktop" },
-      type: "permission.requested",
-      data: { request_id: requestId, tool, input },
-    }) as Extract<EventInput, { type: "permission.requested" }>;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const timed = new Promise<"timeout">((resolve) => {
-      timer = setTimeout(() => resolve("timeout"), 5 * 60_000);
-    });
-    const answer = await Promise.race([onAsk(req, true), timed]);
-    if (timer) clearTimeout(timer);
-    if (answer === "timeout") {
-      pendingAsks.delete(requestId);
-      store.append([
-        makeEvent({
-          id: `desktop:${requestId}:permission.resolved`,
-          session_id: sessionId,
-          source: { backend: "desktop" },
-          type: "permission.resolved",
-          data: { request_id: requestId, decision: "deny", by: "auto", reason: "timeout" },
-        }) as EventInput,
-      ]);
-      return "deny";
-    }
-    // The local ask has no backend event that would close it in the log; the
-    // answer has to be written here or the session keeps saying it is waiting.
-    store.append([
-      makeEvent({
-        id: `desktop:${requestId}:permission.resolved`,
-        session_id: sessionId,
-        source: { backend: "desktop" },
-        type: "permission.resolved",
-        data: { request_id: requestId, decision: answer.decision, by: "user" },
-      }) as EventInput,
-    ]);
-    return answer.decision;
-  };
-  const onQuestion = (req: Extract<EventInput, { type: "question.asked" }>) => {
-    store.append([req]);
-    const data = req.data;
-    return new Promise<{ decision: "reply" | "reject"; answers?: string[][]; external?: boolean }>(
-      (resolve) =>
-        pendingQuestions.set(data.request_id, {
-          request_id: data.request_id,
-          session_id: req.session_id,
-          questions: data.questions,
-          asked_at: req.ts,
-          resolve,
-        }),
-    );
-  };
-  /** Answered on another client — drop our card without replying again. */
-  const settleQuestion = (requestId: string) => {
-    const q = pendingQuestions.get(requestId);
-    if (!q) return;
-    pendingQuestions.delete(requestId);
-    q.resolve({ decision: "reply", external: true });
-  };
-
-  const GOAL_MAX = 4_000;
-  function considerGoal(sessionId: string) {
-    let view: SessionView;
-    try {
-      view = sessionView(sessionId);
-    } catch {
-      return;
-    }
-    const pending =
-      sessionAwaiting(view) ||
-      [...pendingAsks.values()].some((ask) => ask.session_id === sessionId) ||
-      [...pendingQuestions.values()].some((q) => q.session_id === sessionId);
-    const goal = view.goal;
-    if (
-      goal &&
-      goalMetByReply({
-        goal,
-        met: view.goal_met,
-        goalSeq: view.goal_seq,
-        reply: lastAssistantReply(view.turns),
-      })
-    ) {
-      // The text stays. The flag is what stops the loop, including after the
-      // reader sends an ordinary message of their own.
-      store.append([
-        makeEvent({
-          session_id: sessionId,
-          source: { backend: "desktop" },
-          type: "session.goal",
-          data: { text: goal, met: true },
-        }) as EventInput,
-      ]);
-      return;
-    }
-    if (
-      !shouldContinueGoal({
-        goal,
-        busy: view.busy,
-        status: view.status,
-        deleted: view.deleted,
-        archived: view.archived,
-        pending,
-        paused: goalPaused.has(sessionId),
-        kicked: goalKicked.has(sessionId),
-        met: view.goal_met,
-        held: view.goal_paused,
-      })
-    ) {
-      return;
-    }
-    const conn = driverFor(sessionId);
-    const native = conn?.nativeId(sessionId);
-    if (!conn || !native || !conn.capabilities.prompt || !view.goal) return;
-    const text = goalContinuation(view.goal, nextPlanStep(view.plan));
-    goalKicked.add(sessionId);
-    void conn.prompt(native, [{ type: "text", text }], { directory: directoryOf(sessionId) }).catch((err) => {
-      goalKicked.delete(sessionId);
-      console.error("goal continuation failed:", err);
-    });
-  }
-
-  /**
-   * Which session is still waiting on this question, according to the log.
-   *
-   * The live map knows only about questions this process saw. The log knows all
-   * of them, and it is the one a restarted service can still read — which is
-   * the whole difference between answering a question after a restart and being
-   * told there is nothing to answer.
-   */
-  const sessionIdOfPendingQuestion = (requestId: string): string | undefined => {
-    for (const summary of store.listSessions({ limit: 500 })) {
-      const view = sessionView(summary.session_id);
-      if (view.pending_questions.some((q) => q.request_id === requestId)) return summary.session_id;
-    }
-    return undefined;
-  };
-
-  /** Tell the backend an answer, for a question this process did not receive. */
-  const replyQuestion = async (
-    sessionId: string,
-    requestId: string,
-    decision: "reply" | "reject",
-    answers?: string[][],
-  ) => {
-    const conn = driverFor(sessionId);
-    if (!conn) return;
-    const directory = directoryOf(sessionId);
-    if (decision === "reject") await conn.rejectQuestion?.(requestId, directory);
-    else await conn.replyQuestion?.(requestId, answers ?? [], directory);
-  };
   const memory = connectionMemory(opts.db);
-
-  /**
-   * Boot and the periodic reconnect share one record.
-   *
-   * A failure used to be a `console.error` and then nothing: the window had
-   * connected last time, the address was gone, and the only visible state was
-   * the same "nothing is connected" as a person who had never connected.
-   * `retrying` is owned by the boot loop until it gives up. A shorter probe
-   * from `/sync` must not overwrite it, or the first poll would report the
-   * address dead while boot was still waiting for an embedded server.
-   */
-  const attempts = new Map<
-    string,
-    { endpoint: string; backend: string; phase: "retrying" | "failed"; error?: string }
-  >();
+  const attempts = new Map<string, ConnectionAttempt>();
   const beginAttempt = (body: ConnectBody) => {
     const endpoint = endpointOf(body);
     attempts.set(endpoint, { endpoint, backend: body.backend ?? "opencode", phase: "retrying" });
@@ -961,12 +506,6 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   };
 
   const inflightConnects = new Map<string, Promise<{ id: string; indexed: number }>>();
-  /** The password each live connection was dialed with, for telling a respawned
-   *  embedded server — same address, fresh pair — from the one still running. */
-  const connPassword = new Map<string, string | undefined>();
-  /** Embedded endpoints the reader cut on purpose: url → password of the server
-   *  they cut. A respawn rotates the password, so only the dismissed server
-   *  stays dismissed — its replacement is a new server, not the same row back. */
   const dismissedEmbedded = new Map<string, string>();
   const connectBackend = (body: ConnectBody): Promise<{ id: string; indexed: number }> => {
     if (stopped) return Promise.reject(new Error("service is stopped"));
@@ -981,11 +520,11 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     if (stopped) throw new Error("service is stopped");
     const backend = body.backend ?? "opencode";
     const endpoint = endpointOf(body);
-    const already = [...conns.values()].find((c) => c.baseUrl === endpoint);
+    const already = [...conns.values()].find((conn) => conn.baseUrl === endpoint);
     if (already) {
       finishAttempt(endpoint);
       pendingSyncs.add(already.id);
-      void syncDriver(already).catch((e) => console.error(`sync ${already.id} failed: ${e}`));
+      void syncDriver(already).catch((error) => console.error(`sync ${already.id} failed: ${error}`));
       return { id: already.id, indexed: 0 };
     }
     const explicit: Policy | undefined = body.policy ? loadPolicy(body.policy) : undefined;
@@ -1002,10 +541,10 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         password: body.password,
         policy,
         connectTimeoutMs: body.connectTimeoutMs,
-        onAsk,
-        onQuestion,
-        onSettled: settleAsk,
-        onQuestionSettled: settleQuestion,
+        onAsk: permissionRequests.onAsk,
+        onQuestion: permissionRequests.onQuestion,
+        onSettled: permissionRequests.settleAsk,
+        onQuestionSettled: permissionRequests.settleQuestion,
       });
     } else if (backend === "acp") {
       if (!body.command) throw new Error("command required");
@@ -1017,9 +556,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         agentName: body.agentName ?? agentNameOf(body.command),
         name: body.name,
         policy,
-        onAsk,
-        // Every session this connection opens is handed its own MCP endpoint,
-        // so its agent sees the plugin tools with the right session attached.
+        onAsk: permissionRequests.onAsk,
         openMcp: () => mcpTickets.open(),
       });
     } else {
@@ -1029,36 +566,24 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       driver.stop();
       throw new Error("service is stopped");
     }
-    conns.set(driver.id, driver);
+    conns.add(driver, policy, body.password);
     pendingSyncs.add(driver.id);
-    connPassword.set(driver.id, body.password);
-    // The connection's own judgement, kept where the routes that need it can
-    // find it: a command started in one of its sessions has to meet the same
-    // rules the session's tool calls meet.
-    connPolicy.set(driver.id, policy);
     let indexed: string[] = [];
     try {
       indexed = await driver.indexSessions();
-      for (const casfId of indexed) owners.set(casfId, driver.id);
-    } catch (e) {
-      console.error(`index sessions on ${driver.id} failed: ${e}`);
+      conns.ownMany(indexed, driver.id);
+    } catch (error) {
+      console.error(`index sessions on ${driver.id} failed: ${error}`);
     }
     if (stopped) {
       driver.stop();
       throw new Error("service is stopped");
     }
-    void syncDriver(driver).catch((e) => console.error(`sync ${driver.id} failed: ${e}`));
+    void syncDriver(driver).catch((error) => console.error(`sync ${driver.id} failed: ${error}`));
     finishAttempt(endpoint);
     return { id: driver.id, indexed: indexed.length };
   };
 
-  // The pair an embedded address is dialed with, when the address itself does
-  // not carry it.
-  //
-  // The password of the embedded server is the shell's secret and lives in
-  // the status file, not in connections.json. A remembered address that names
-  // our own server is read from there — while that server is up, which is
-  // exactly when a reconnect is worth trying.
   const withEmbeddedCredentials = (body: ConnectBody): ConnectBody => {
     if (body.password) return body;
     if (body.placement !== "embed" && body.credentials !== "opencode-status") return body;
@@ -1068,13 +593,6 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     return { ...body, username: status.username, password: status.password };
   };
 
-  // boot auto-connect. The address we mean to use retries until the deadline
-  // (an embedded server may still be starting). Every other remembered address
-  // is probed once, so a dead one does not sit on the connect timeout.
-  //
-  // The addresses of earlier runs of the app are not kept. The app stops the
-  // server it started when it exits, so those addresses are dead; dialing them
-  // again is what left the backend list with one more entry on every launch.
   const placement = autoConnectPlacement(opts, desktopDir);
   const remembered = memory.pruneEmbedded(placement, opts.autoConnect);
   const boot: ConnectBody[] = opts.autoConnect
@@ -1085,9 +603,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
           password: opts.autoConnectPassword,
           placement,
         },
-        ...remembered
-          .filter((c) => endpointOf(c) !== opts.autoConnect)
-          .map(withEmbeddedCredentials),
+        ...remembered.filter((conn) => endpointOf(conn) !== opts.autoConnect).map(withEmbeddedCredentials),
       ]
     : remembered.map(withEmbeddedCredentials);
   for (const { body, mode } of bootPlan(boot, opts.autoConnect)) {
@@ -1098,29 +614,20 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       for (;;) {
         try {
           const { id } = await connectBackend(
-            mode === "once"
-              ? { ...body, connectTimeoutMs: REMEMBERED_PROBE_MS }
-              : body,
+            mode === "once" ? { ...body, connectTimeoutMs: REMEMBERED_PROBE_MS } : body,
           );
           memory.remember(body);
           console.log(`auto-connected backend ${id}`);
           return;
-        } catch (e) {
+        } catch (error) {
           if (mode === "once" || Date.now() > deadline) {
-            console.error(`auto-connect to ${endpoint} gave up: ${e}`);
-            /**
-             * An address from an earlier run of the app, and one that answers
-             * nobody, is not a backend to keep reminding the reader about.
-             * The server the app starts is gone the moment the app exits, so
-             * the address is dropped instead of leaving a row behind that
-             * every launch would add another of.
-             */
+            console.error(`auto-connect to ${endpoint} gave up: ${error}`);
             if (looksEmbedded(body)) {
               memory.forget(endpoint);
               attempts.delete(endpoint);
               return;
             }
-            failAttempt(body, e, true);
+            failAttempt(body, error, true);
             return;
           }
           await Bun.sleep(750);
@@ -1129,29 +636,18 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     })();
   }
 
-  /**
-   * Follow the embedded server the shell supervises.
-   *
-   * The launch-time env reaches only a service that started with the app; a
-   * service restarted on its own, or a mode switched to embed mid-run, learns
-   * the address and credentials from the status file instead. A server that
-   * respawns keeps its port but rotates its password, so a live connection
-   * whose pair no longer matches is replaced rather than trusted.
-   */
   const reconcileEmbedded = () => {
     if (stopped || readOpencodeMode(desktopDir) !== "embed") return;
     const status = readOpencodeStatus(desktopDir);
     const url = status.url;
     if (status.state !== "running" || !url || !status.username || !status.password) return;
     if (dismissedEmbedded.get(url) === status.password) return;
-    const live = [...conns.values()].find((c) => c.baseUrl === url);
-    if (live) {
-      if (connPassword.get(live.id) === status.password) return;
-      live.stop();
-      conns.delete(live.id);
-      connPolicy.delete(live.id);
-      claims.release(live.id);
-      connPassword.delete(live.id);
+    const current = [...conns.values()].find((conn) => conn.baseUrl === url);
+    if (current) {
+      if (conns.passwordOf(current.id) === status.password) return;
+      current.stop();
+      conns.remove(current.id);
+      claims.release(current.id);
     }
     if (attempts.has(url)) return;
     const body: ConnectBody = {
@@ -1164,9 +660,8 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     beginAttempt(body);
     void connectBackend(body)
       .then(() => memory.remember(body))
-      .catch((e) => failAttempt(body, e, true));
+      .catch((error) => failAttempt(body, error, true));
   };
-  // Polling is cheap to unregister; closing fs.watch can block for seconds on macOS.
   const statusFile = join(desktopDir, "opencode-status.json");
   let reconcileTimer: ReturnType<typeof setTimeout> | undefined;
   const onStatusChange = () => {
@@ -1176,7 +671,6 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   };
   try {
     const statusWatcher = watchFile(statusFile, { interval: 200 }, onStatusChange);
-    // An in-process service — a test — must be free to exit when done.
     statusWatcher.unref();
   } catch {
     // No desktop directory to watch; the interval below still catches up.
@@ -1188,1418 +682,76 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   async function route(req: Request): Promise<Response> {
     const url = new URL(req.url);
     const path = url.pathname;
-
     if (path === "/health") return json({ ok: true, conns: conns.size });
 
-    /**
-     * A tool attachment's bytes, by the id the transcript carries.
-     *
-     * The id is a content hash plus an extension, and it is checked against
-     * exactly that shape before it touches the filesystem: the value comes from
-     * an event, and an event can be written by anything the backend talks to.
-     * A looser check — joining whatever arrived — would let `../` walk out of
-     * the directory.
-     */
-    const attachmentMatch = path.match(/^\/attachments\/([0-9a-f]{32})(\.[a-z0-9]{1,8})?$/);
-    if (attachmentMatch && req.method === "GET") {
-      const file = join(desktopDir, "attachments", `${attachmentMatch[1]}${attachmentMatch[2] ?? ""}`);
-      try {
-        const bytes = readFileSync(file);
-        return new Response(bytes, {
-          headers: {
-            // Served as an opaque download rather than sniffed: the extension
-            // is derived from a mime the backend reported, and trusting it to
-            // mean "render this as HTML" would be trusting the backend with
-            // this window's origin.
-            "content-type": "application/octet-stream",
-            "content-length": String(bytes.byteLength),
-            "cache-control": "private, max-age=31536000, immutable",
-          },
-        });
-      } catch {
-        return json({ error: "no such attachment" }, 404);
-      }
-    }
+    const desktop = await desktopRoute(req, path, { desktopDir, knownDirs });
+    if (desktop) return desktop;
 
-    if (path === "/sessions" && req.method === "GET") {
-      const requested = Math.min(
-        Math.max(Number(url.searchParams.get("limit") ?? 200) || 200, 1),
-        2000,
-      );
-      const fetched = store.listSessions({
-        backend: url.searchParams.get("backend") ?? undefined,
-        limit: requested + 1,
-      });
-      const more = fetched.length > requested;
-      const summaries = more ? fetched.slice(0, requested) : fetched;
-      const askSessions = new Set([...pendingAsks.values()].map((p) => p.session_id));
-      const rows = summaries.map((summary) => ({ summary, view: sessionView(summary.session_id) }));
-      // From the projection, not from `pendingQuestions`. That map only holds
-      // what arrived over a live connection since this process started, so it
-      // forgets everything the moment the service restarts — and a question
-      // someone is still looking at does not become answered because the app
-      // was closed. The projector reads the event log, which remembers.
-      const waiting = new Set(askSessions);
-      for (const { summary, view: v } of rows) {
-        if (v.pending_questions.length > 0) waiting.add(summary.session_id);
-      }
-      // A session whose subagent is waiting is waiting too. The run the reader
-      // started is the run that cannot move, and the subagent's own row is not
-      // in the sidebar — leaving the parent out of it means a conversation
-      // nothing can advance draws as an ordinary idle row.
-      const parentRow = new Map(rows.map(({ summary, view: v }) => [summary.session_id, v.parent_session_id]));
-      const needsInput = new Set(waiting);
-      for (const sid of waiting) {
-        let up = parentRow.get(sid);
-        for (let hops = 0; up && hops < 8; hops++) {
-          if (needsInput.has(up)) break;
-          needsInput.add(up);
-          up = parentRow.get(up);
-        }
-      }
-      const sessions = rows.map(({ summary, view: v }) => {
-        // A dev server still inside the shell. Absent for an ordinary pending
-        // command, so the list does not grow a field on every working session.
-        const shell = runningShell(v);
-        return {
-          summary,
-          status: v.status,
-          busy: v.busy,
-          retry: v.retry,
-          compacting: v.compacting === true,
-          session_error: v.session_error,
-          totals: v.totals,
-          title: v.title,
-          workspace: v.workspace,
-          parent: v.parent_session_id,
-          archived: v.archived === true,
-          deleted: v.deleted === true,
-          needs_input: needsInput.has(summary.session_id),
-          ...(shell ? { shell } : {}),
-          // Which connection owns it, resolved the same way the per-session
-          // commands resolve it, so a label in the UI cannot disagree with where
-          // the prompt actually goes. Absent when no connected backend claims it.
-          connection_id: driverFor(summary.session_id)?.id,
-        };
-      });
-      return json({ sessions, aggregate: aggregate(rows.map((r) => r.view)), more });
-    }
-
-    if (path === "/maintenance" && req.method === "GET") {
-      return json(maintenanceSnapshot());
-    }
-
-    if (path === "/maintenance/check" && req.method === "POST") {
-      return json({ results: store.integrityCheck() });
-    }
-
-    if (path === "/maintenance/optimize" && req.method === "POST") {
-      const body = (await req.json().catch(() => null)) as { vacuum?: unknown } | null;
-      // Vacuum rewrites the whole file, and it is the operation a reader reaches
-      // for when the disk is nearly full — the one moment a failure is likeliest
-      // and a copy is worth the space. Optimize alone touches no stored rows.
-      const backup = body?.vacuum === true ? backupBefore("vacuum") : undefined;
-      store.optimize();
-      if (body?.vacuum === true) store.vacuum();
-      return json({ ...maintenanceSnapshot(), backup });
-    }
-
-    if (path === "/maintenance/backup" && req.method === "POST") {
-      mkdirSync(maintenanceDirsInfo.backupDir, { recursive: true });
-      const name = availableBackupName(maintenanceDirsInfo.dir);
-      store.backupTo(join(maintenanceDirsInfo.backupDir, name));
-      return json(maintenanceSnapshot());
-    }
-
-    const removeBackup = path.match(/^\/maintenance\/backups\/([^/]+)$/);
-    if (removeBackup && req.method === "DELETE") {
-      const name = decodeURIComponent(removeBackup[1]!);
-      if (!safeName(name)) return json({ error: "invalid backup name" }, 400);
-      try {
-        unlinkSync(join(maintenanceDirsInfo.backupDir, name));
-      } catch {
-        return json({ error: "backup not found" }, 404);
-      }
-      return json(maintenanceSnapshot());
-    }
-
-    const removeLegacy = path.match(/^\/maintenance\/legacy\/([^/]+)$/);
-    if (removeLegacy && req.method === "DELETE") {
-      const name = decodeURIComponent(removeLegacy[1]!);
-      if (!safeName(name) || !name.includes(".bak")) {
-        return json({ error: "invalid snapshot name" }, 400);
-      }
-      try {
-        unlinkSync(join(maintenanceDirsInfo.dir, name));
-      } catch {
-        return json({ error: "snapshot not found" }, 404);
-      }
-      return json(maintenanceSnapshot());
-    }
-
-    if (path === "/maintenance/clean" && req.method === "POST") {
-      const body = (await req.json().catch(() => null)) as {
-        mode?: unknown;
-        session_ids?: unknown;
-        older_than_days?: unknown;
-        archived_only?: unknown;
-        apply?: unknown;
-      } | null;
-      if (body?.mode !== "rebuildable") {
-        return json({ error: "mode must be rebuildable" }, 400);
-      }
-      const mode = "rebuildable" as const;
-      let ids: string[] = [];
-      if (Array.isArray(body.session_ids)) {
-        ids = body.session_ids.filter(
-          (id): id is string => typeof id === "string" && id.length > 0,
-        );
-      } else {
-        const days = Number(body.older_than_days);
-        if (!Number.isFinite(days) || days <= 0) {
-          return json({ error: "session_ids or older_than_days is required" }, 400);
-        }
-        const cutoff = Date.now() - days * 86_400_000;
-        const summaries = store.listSessions({ limit: 5000 });
-        ids = summaries
-          .filter((summary) => {
-            const at = new Date(summary.last_ts).getTime();
-            return Number.isFinite(at) && at < cutoff;
-          })
-          .map((summary) => summary.session_id);
-        if (body.archived_only === true) {
-          ids = ids.filter((id) => {
-            try {
-              return sessionView(id).archived === true;
-            } catch {
-              return false;
-            }
-          });
-        }
-      }
-      ids = [...new Set(ids)].slice(0, 1000);
-      const counts = new Map(store.classCounts(ids).map((row) => [row.session_id, row]));
-      const summaries = new Map(
-        store.listSessions({ limit: 5000 }).map((summary) => [summary.session_id, summary]),
-      );
-      const targets = ids
-        .map((id) => {
-          const cls = counts.get(id);
-          const row = summaries.get(id);
-          return {
-            session_id: id,
-            title: row?.title ?? null,
-            workspace: row?.workspace ?? null,
-            last_ts: row?.last_ts ?? null,
-            rebuildable: cls?.rebuildable ?? 0,
-            local: cls?.local ?? 0,
-            rebuildable_bytes: cls?.rebuildable_bytes ?? 0,
-            local_bytes: cls?.local_bytes ?? 0,
-          };
-        })
-        // A session with nothing rebuildable is already as small as this
-        // action can make it; listing it would offer a delete that deletes 0.
-        .filter((row) => row.rebuildable > 0);
-      const totals = targets.reduce(
-        (sum, row) => ({
-          sessions: sum.sessions + 1,
-          rebuildable: sum.rebuildable + row.rebuildable,
-          local: sum.local + row.local,
-          rebuildable_bytes: sum.rebuildable_bytes + row.rebuildable_bytes,
-          local_bytes: sum.local_bytes + row.local_bytes,
-        }),
-        { sessions: 0, rebuildable: 0, local: 0, rebuildable_bytes: 0, local_bytes: 0 },
-      );
-      if (body.apply !== true) {
-        return json({ mode, applied: false, targets, totals });
-      }
-      // The only irreversible operation in this panel: it deletes transcripts.
-      // A session the backend still has comes back on the next sync, but one it
-      // has since dropped does not — so a copy goes down before the delete, not
-      // after the reader regrets it.
-      const backup = backupBefore("clean");
-      const deleted = store.deleteRebuildable(ids);
-      for (const id of ids) views.drop(id);
-      broadcast({ type: "maintenance.applied", mode, sessions: ids });
-      return json({ mode, applied: true, deleted, targets, totals, backup });
-    }
-
-    if (path === "/events" && req.method === "GET") {
-      const count = (raw: string | null): number | undefined | null => {
-        if (raw === null || raw === "") return undefined;
-        // Number("abc") is NaN, and SQLite treats the comparison as unknown,
-        // so a bad cursor used to come back as an empty log.
-        if (!/^\d+$/.test(raw)) return null;
-        const n = Number(raw);
-        return Number.isFinite(n) ? n : null;
-      };
-      const afterSeq = count(url.searchParams.get("after_seq"));
-      const offset = count(url.searchParams.get("offset"));
-      const limit = count(url.searchParams.get("limit"));
-      if (afterSeq === null || offset === null || limit === null) {
-        return json({ error: "invalid query" }, 400);
-      }
-      const q: EventQuery = {
-        session_id: url.searchParams.get("session_id") ?? undefined,
-        backend: url.searchParams.get("backend") ?? undefined,
-        types: url.searchParams.get("types")?.split(","),
-        since: url.searchParams.get("since") ?? undefined,
-        until: url.searchParams.get("until") ?? undefined,
-        text: url.searchParams.get("text") ?? undefined,
-        after_seq: afterSeq,
-        order: (url.searchParams.get("order") as "asc" | "desc") ?? "asc",
-        offset,
-        limit,
-      };
-      return json({ events: store.query(q) });
-    }
-
-    if (path === "/usage/daily" && req.method === "GET") {
-      const tz = url.searchParams.get("tz");
-      let fmt: Intl.DateTimeFormat;
-      try {
-        if (tz === null) throw new Error("missing tz");
-        fmt = new Intl.DateTimeFormat("en-CA", {
-          timeZone: tz,
-          year: "numeric",
-          month: "2-digit",
-          day: "2-digit",
-        });
-      } catch {
-        return json({ error: "invalid tz" }, 400);
-      }
-      const dayOf = (iso: string): string => {
-        const parts = fmt.formatToParts(new Date(iso));
-        const get = (type: string) => parts.find((x) => x.type === type)?.value ?? "";
-        return `${get("year")}-${get("month")}-${get("day")}`;
-      };
-      interface DailyBucket {
-        session_id: string;
-        day: string;
-        model: string | null;
-        input: number;
-        output: number;
-        reasoning: number;
-        cache_read: number;
-        cache_write: number;
-        cost_usd: number;
-        messages: number;
-        tool_calls: number;
-        tool_errors: number;
-      }
-      const buckets = new Map<string, DailyBucket>();
-      const bucket = (sessionId: string, day: string, model: string | null): DailyBucket => {
-        const key = `${sessionId}\n${day}\n${model ?? ""}`;
-        let b = buckets.get(key);
-        if (!b) {
-          b = {
-            session_id: sessionId, day, model,
-            input: 0, output: 0, reasoning: 0, cache_read: 0, cache_write: 0,
-            cost_usd: 0, messages: 0, tool_calls: 0, tool_errors: 0,
-          };
-          buckets.set(key, b);
-        }
-        return b;
-      };
-      // The projected view, never raw events: a streamed partial and the final
-      // snapshot share a msg_id, and counting both would double the day.
-      for (const summary of store.listSessions()) {
-        const view = sessionView(summary.session_id);
-        for (const turn of view.turns) {
-          // A tool call wears the model of the message that asked for it.
-          const modelByMsg = new Map<string, string | null>();
-          for (const a of turn.assistant) {
-            if (a.msg_id) modelByMsg.set(a.msg_id, a.model ?? null);
-            if (!a.ts) continue;
-            const b = bucket(summary.session_id, dayOf(a.ts), a.model ?? null);
-            b.input += a.usage?.input ?? 0;
-            b.output += a.usage?.output ?? 0;
-            b.reasoning += a.usage?.reasoning ?? 0;
-            b.cache_read += a.usage?.cache_read ?? 0;
-            b.cache_write += a.usage?.cache_write ?? 0;
-            b.cost_usd += a.cost_usd ?? 0;
-            b.messages += 1;
-          }
-          for (const c of turn.tool_calls) {
-            if (!c.ts) continue;
-            const model = c.msg_id ? (modelByMsg.get(c.msg_id) ?? null) : null;
-            const b = bucket(summary.session_id, dayOf(c.ts), model);
-            b.tool_calls += 1;
-            // Same rule as `view.totals.tool_errors`, so the overview and the
-            // session panel count the same calls as failed.
-            if (c.status === "error" || c.status === "interrupted") b.tool_errors += 1;
-          }
-        }
-      }
-      const rows = [...buckets.values()]
-        .filter(
-          (b) =>
-            b.input + b.output + b.reasoning + b.cache_read + b.cache_write +
-              b.cost_usd + b.messages + b.tool_calls + b.tool_errors >
-            0,
-        )
-        .sort(
-          (a, b) =>
-            a.day.localeCompare(b.day) ||
-            a.session_id.localeCompare(b.session_id) ||
-            (a.model === null ? 1 : b.model === null ? -1 : a.model.localeCompare(b.model)),
-        );
-      return json({ tz, rows });
-    }
-
-    if (path === "/options" && req.method === "GET") {
-      // model/agent pickers: merge every connected backend's lists
-      const models: ModelChoice[] = [];
-      const agents: { name: string; mode?: string }[] = [];
-      for (const conn of conns.values()) {
-        try {
-          models.push(...(await conn.listModels()));
-          agents.push(...(await conn.listAgents()));
-        } catch {
-          // a backend that can't list options just contributes nothing
-        }
-      }
-      return json({ models, agents });
-    }
-
-    const sessionMatch = path.match(/^\/sessions\/([^/]+)\/view$/);
-    if (sessionMatch && req.method === "GET") {
-      const sid = decodeURIComponent(sessionMatch[1]!);
-      const tail = url.searchParams.get("tail");
-      if (tail !== null) {
-        const v = sessionView(sid);
-        const n = Math.max(1, Math.floor(Number(tail)) || 1);
-        const offset = Math.max(0, v.turns.length - n);
-        const key = filesKeyOf(v);
-        const { files_changed, ...rest } = v;
-        return json({
-          ...rest,
-          turns: v.turns.slice(offset),
-          turn_offset: offset,
-          prev_turn_id: offset > 0 ? v.turns[offset - 1]!.turn_id : null,
-          files_key: key,
-          ...(url.searchParams.get("files_key") === key ? {} : { files_changed }),
-        });
-      }
-      const untilSeq = url.searchParams.get("until_seq");
-      if (untilSeq === null) {
-        // A live partial is not part of the stored record, so it cannot be
-        // served from the serialized body. Tail and replay reads slice the
-        // projection themselves and never touch that body.
-        if (!live.has(sid)) {
-          try {
-            return new Response(views.viewBody(sid), {
-              headers: { "content-type": "application/json" },
-            });
-          } catch {
-            // Zero events yet — sessionView knows when that is a real session.
-            return json(sessionView(sid));
-          }
-        }
-        return json(sessionView(sid));
-      }
-      const n = Number(untilSeq);
-      try {
-        return json(
-          projectSession(views.events(sid).filter((e) => e.seq <= n)),
-        );
-      } catch {
-        return json(sessionView(sid));
-      }
-    }
-
-    const sessionSearch = path.match(/^\/sessions\/([^/]+)\/search$/);
-    if (sessionSearch && req.method === "GET") {
-      const sid = decodeURIComponent(sessionSearch[1]!);
-      const q = url.searchParams.get("q") ?? "";
-      const limit = Number(url.searchParams.get("limit") ?? 300);
-      // FTS has been sitting in the store the whole time without a route to
-      // reach it. A transcript is too long to scan by eye, and the transcript
-      // view no longer holds every row in the DOM to let Ctrl+F find them, so
-      // this is how a reader locates anything now.
-      //
-      // Ask for one more than we will return. A truncated result set that
-      // reports itself as the whole list is worse than no search at all: the
-      // reader would stop looking at a term that still has matches further
-      // down a 1,500-turn session.
-      const found = store.search(q, { session_id: sid, limit: limit + 1 });
-      const hits = found.slice(0, limit).map(({ event, snippet }) => {
-        const d = event.data as { turn_id?: unknown; call_id?: unknown };
-        return {
-          seq: event.seq,
-          ts: event.ts,
-          type: event.type,
-          turn_id: typeof d.turn_id === "string" ? d.turn_id : null,
-          // A tool result names its call, not its turn — the projector binds
-          // the two. Handing the call id along lets the reader's transcript
-          // resolve it against the tool_calls it already holds, instead of
-          // making this route replay the projection to find out.
-          call_id: typeof d.call_id === "string" ? d.call_id : null,
-          snippet,
-        };
-      });
-      return json({ hits, more: found.length > limit });
-    }
-
-    if (path === "/sessions" && req.method === "POST") {
-      const body = (await req.json().catch(() => ({}))) as {
-        title?: string;
-        directory?: string;
-        connection_id?: string;
-      };
-      const conn = body.connection_id
-        ? conns.get(body.connection_id)
-        : [...conns.values()][0];
-      if (!conn) return json({ error: "no backend connected" }, 400);
-      if (!conn.capabilities.prompt) return json({ error: "backend cannot create sessions" }, 400);
-      const created = await conn.createSession({ title: body.title, directory: body.directory });
-      owners.set(created.casfId, conn.id);
-      if (body.directory) createdDirs.set(created.casfId, body.directory);
-      // The channel that hands the user a session is the one that owns it, so
-      // another channel onto the same agent leaves this session alone.
-      claims.claim(`${conn.agent}:${created.nativeId}`, created.casfId, conn.id);
-      return json({ id: created.casfId, native_id: created.nativeId });
-    }
-
-    const capsMatch = path.match(/^\/sessions\/([^/]+)\/capabilities$/);
-    if (capsMatch && req.method === "GET") {
-      let casfId: string;
-      try {
-        casfId = decodeURIComponent(capsMatch[1]!);
-      } catch {
-        return json({ error: "not found" }, 404);
-      }
-      const conn = driverFor(casfId);
-      if (!conn?.nativeId(casfId)) return json({ connected: false });
-      const c = conn.capabilities;
-      return json({
-        connected: true,
-        connection_id: conn.id,
-        prompt: c.prompt,
-        abort: c.abort,
-        commands: c.commands === true,
-        shell: c.shell === true,
-        attachments: c.attachments === true,
-        manage: c.manage === true,
-        ...(c.revert ? { revert: true } : {}),
-        ...(c.fork ? { fork: true } : {}),
-        ...(c.summarize ? { summarize: true } : {}),
-        ...(c.share ? { share: true } : {}),
-        ...(conn.extension ? { extension: conn.extension.kind } : {}),
-      });
-    }
-
-    const sessionCmd = path.match(
-      /^\/sessions\/([^/]+)\/(prompt|command|shell|abort|import|rebuild|rename|archive|unarchive)$/,
-    );
-    if (sessionCmd) {
-      const casfId = decodeURIComponent(sessionCmd[1]!);
-      const cmd = sessionCmd[2]!;
-      const conn = driverFor(casfId);
-      if (!conn) return json({ error: "no backend connected" }, 400);
-      const native = conn.nativeId(casfId);
-      if (!native) return json({ error: "session is not owned by a connected backend" }, 400);
-      owners.set(casfId, conn.id);
-      const directory = directoryOf(casfId);
-      if (cmd === "import" && req.method === "POST") {
-        if (!conn.capabilities.import) return json({ error: "backend cannot import" }, 400);
-        try {
-          await conn.importSession(native, directory);
-          return json({ ok: true });
-        } catch (e) {
-          return json({ error: String(e) }, 502);
-        }
-      }
-      if (cmd === "rebuild" && req.method === "POST") {
-        if (!conn.capabilities.import) return json({ error: "backend cannot rebuild" }, 400);
-        try {
-          const events = await conn.rebuild(native, directory);
-          return json({ ok: true, events });
-        } catch (e) {
-          return json({ error: String(e) }, 502);
-        }
-      }
-      if (cmd === "abort" && req.method === "POST") {
-        if (!conn.capabilities.abort) return json({ error: "backend cannot abort" }, 400);
-        goalPaused.add(casfId);
-        try {
-          await conn.abort(native, directory);
-          return json({ ok: true });
-        } catch (e) {
-          goalPaused.delete(casfId);
-          return json({ error: String(e) }, 502);
-        }
-      }
-      if ((cmd === "rename" || cmd === "archive" || cmd === "unarchive") && req.method === "POST") {
-        if (!conn.capabilities.manage) return json({ error: "backend cannot manage sessions" }, 400);
-        try {
-          if (cmd === "archive" || cmd === "unarchive") {
-            await conn.archive(native, directory, cmd === "archive");
-            // The session list filters on the projector's archived flag. Tell
-            // the readers to reread it instead of waiting for the next sync.
-            broadcast({ type: "session.updated", session_id: casfId });
-          } else {
-            const body = (await req.json().catch(() => null)) as { title?: string } | null;
-            const title = body?.title?.trim();
-            if (!title) return json({ error: "title required" }, 400);
-            await conn.rename(native, title, directory);
-          }
-          return json({ ok: true });
-        } catch (e) {
-          return json({ error: String(e) }, 502);
-        }
-      }
-      if (cmd === "prompt" && req.method === "POST") {
-        const body = (await req.json().catch(() => null)) as {
-          parts?: unknown;
-          text?: unknown;
-          model?: { providerID: string; modelID: string };
-          agent?: string;
-          variant?: string;
-        } | null;
-        const parts = readPromptParts(body);
-        if (!Array.isArray(parts)) return json(parts, 400);
-        if (!conn.capabilities.attachments && parts.some((p) => p.type !== "text"))
-          return json({ error: "backend cannot take files or attachments" }, 400);
-        if (parts.some((p) => p.type === "file_ref") && !(directory ?? conn.directory))
-          return json({ error: "session has no workspace to read files from" }, 400);
-        goalPaused.delete(casfId);
-        try {
-          await conn.prompt(native, parts, {
-            model: body?.model,
-            agent: body?.agent,
-            variant: body?.variant,
-            directory,
-          });
-          return json({ ok: true });
-        } catch (e) {
-          return json({ error: String(e) }, 502);
-        }
-      }
-      if (cmd === "command" && req.method === "POST") {
-        if (!conn.capabilities.commands || !conn.command) return json({ error: "backend cannot run commands" }, 400);
-        const body = (await req.json().catch(() => null)) as {
-          command?: unknown;
-          arguments?: unknown;
-          parts?: unknown;
-          model?: { providerID: string; modelID: string };
-          agent?: string;
-          variant?: string;
-        } | null;
-        if (typeof body?.command !== "string" || !body.command) return json({ error: "command required" }, 400);
-        let parts: PromptPart[] | undefined;
-        if (body.parts !== undefined) {
-          const read = readPromptParts({ parts: body.parts });
-          if (!Array.isArray(read)) return json(read, 400);
-          if (read.some((p) => p.type === "text")) return json({ error: "a command takes its words as arguments" }, 400);
-          if (!conn.capabilities.attachments && read.some((p) => p.type !== "text"))
-            return json({ error: "backend cannot take files or attachments" }, 400);
-          if (read.some((p) => p.type === "file_ref") && !(directory ?? conn.directory))
-            return json({ error: "session has no workspace to read files from" }, 400);
-          parts = read;
-        }
-        try {
-          await conn.command(native, body.command, typeof body.arguments === "string" ? body.arguments : "", {
-            parts,
-            model: body.model,
-            agent: body.agent,
-            variant: body.variant,
-            directory,
-          });
-          return json({ ok: true });
-        } catch (e) {
-          return json({ error: e instanceof Error ? e.message : String(e) }, e instanceof UnknownCommandError ? 400 : 502);
-        }
-      }
-      if (cmd === "shell" && req.method === "POST") {
-        if (!conn.capabilities.shell || !conn.shell) return json({ error: "backend cannot run shell commands" }, 400);
-        const body = (await req.json().catch(() => null)) as {
-          command?: unknown;
-          model?: { providerID: string; modelID: string };
-          agent?: string;
-        } | null;
-        // An empty command is not a request to run nothing; it is a client that
-        // sent the wrong field, and a shell handed "" exits silently.
-        if (typeof body?.command !== "string" || !body.command.trim())
-          return json({ error: "command required" }, 400);
-        // The optional fields are checked here rather than trusted: a malformed
-        // `model` would reach the backend and come back as an opaque 502, which
-        // reads like the backend broke rather than like the request was wrong.
-        if (body.model !== undefined) {
-          const m = body.model as { providerID?: unknown; modelID?: unknown } | null;
-          if (!m || typeof m.providerID !== "string" || typeof m.modelID !== "string")
-            return json({ error: "model must be { providerID, modelID }" }, 400);
-        }
-        if (body.agent !== undefined && typeof body.agent !== "string")
-          return json({ error: "agent must be a string" }, 400);
-        goalPaused.delete(casfId);
-        try {
-          await conn.shell(native, body.command, {
-            model: body.model,
-            agent: body.agent,
-            directory,
-          });
-          return json({ ok: true });
-        } catch (e) {
-          return json({ error: e instanceof Error ? e.message : String(e) }, 502);
-        }
-      }
-    }
-
-    const sessionMcpAdd = path.match(/^\/sessions\/([^/]+)\/mcp$/);
-    if (sessionMcpAdd && req.method === "POST") {
-      const casfId = decodeURIComponent(sessionMcpAdd[1]!);
-      const conn = driverFor(casfId);
-      if (!conn) return json({ error: "no backend connected" }, 400);
-      const native = conn.nativeId(casfId);
-      if (!native) return json({ error: "session is not owned by a connected backend" }, 400);
-      owners.set(casfId, conn.id);
-      if (conn.backend !== "opencode" || !conn.mcpAdd) return json({ error: "backend cannot manage mcp" }, 400);
-      const parsed = mcpAddRequest(await req.json().catch(() => null));
-      if ("error" in parsed) return json(parsed, 400);
-      try {
-        await conn.mcpAdd(parsed.name, parsed.config, directoryOf(casfId));
-        return json({ ok: true });
-      } catch (e) {
-        const secret =
-          parsed.config.type === "remote" ? { url: parsed.config.url } : { command: parsed.config.command };
-        return json({ error: safeMcpError(e, secret) }, 502);
-      }
-    }
-
-    const sessionMcpAuth = path.match(/^\/sessions\/([^/]+)\/mcp\/([^/]+)\/auth(\/callback)?$/);
-    if (sessionMcpAuth && req.method === "POST") {
-      const casfId = decodeURIComponent(sessionMcpAuth[1]!);
-      const conn = driverFor(casfId);
-      if (!conn) return json({ error: "no backend connected" }, 400);
-      const native = conn.nativeId(casfId);
-      if (!native) return json({ error: "session is not owned by a connected backend" }, 400);
-      owners.set(casfId, conn.id);
-      if (conn.backend !== "opencode" || !conn.mcpAuthStart || !conn.mcpAuthFinish) {
-        return json({ error: "backend cannot manage mcp" }, 400);
-      }
-      let name: string;
-      try {
-        name = decodeURIComponent(sessionMcpAuth[2]!);
-      } catch {
-        return json({ error: "invalid name" }, 400);
-      }
-      if (!name || name.includes("/") || name.includes("..")) return json({ error: "invalid name" }, 400);
-      const callback = sessionMcpAuth[3] === "/callback";
-      const body = callback ? ((await req.json().catch(() => null)) as { code?: unknown } | null) : null;
-      const code = callback ? mcpAuthCode(body?.code) : undefined;
-      if (callback && !code) return json({ error: "code required" }, 400);
-      try {
-        if (!callback) {
-          const started = await conn.mcpAuthStart(name, directoryOf(casfId), req.signal);
-          return json(mcpAuthStartView(started));
-        }
-        await conn.mcpAuthFinish(name, code!, directoryOf(casfId), req.signal);
-        return json({ ok: true });
-      } catch (e) {
-        return json({ error: safeMcpError(e, { command: code ? [code] : [] }) }, 502);
-      }
-    }
-
-    const sessionMcp = path.match(/^\/sessions\/([^/]+)\/mcp\/([^/]+)\/(connect|disconnect)$/);
-    if (sessionMcp && req.method === "POST") {
-      const casfId = decodeURIComponent(sessionMcp[1]!);
-      const conn = driverFor(casfId);
-      if (!conn) return json({ error: "no backend connected" }, 400);
-      const native = conn.nativeId(casfId);
-      if (!native) return json({ error: "session is not owned by a connected backend" }, 400);
-      owners.set(casfId, conn.id);
-      let name: string;
-      try {
-        name = decodeURIComponent(sessionMcp[2]!);
-      } catch {
-        return json({ error: "invalid name" }, 400);
-      }
-      if (!name || name.includes("/")) return json({ error: "invalid name" }, 400);
-      const fn = sessionMcp[3] === "connect" ? conn.mcpConnect : conn.mcpDisconnect;
-      if (conn.backend !== "opencode" || !fn) return json({ error: "backend cannot manage mcp" }, 400);
-      try {
-        await fn(name, directoryOf(casfId));
-        return json({ ok: true });
-      } catch (e) {
-        return json({ error: String(e) }, 502);
-      }
-    }
-
-    const sessionRevert = path.match(/^\/sessions\/([^/]+)\/revert$/);
-    if (sessionRevert && req.method === "POST") {
-      const casfId = decodeURIComponent(sessionRevert[1]!);
-      const conn = driverFor(casfId);
-      if (!conn) return json({ error: "no backend connected" }, 400);
-      const native = conn.nativeId(casfId);
-      if (!native) return json({ error: "session is not owned by a connected backend" }, 400);
-      owners.set(casfId, conn.id);
-      if (!conn.capabilities.revert || !conn.revert) return json({ error: "backend cannot revert" }, 400);
-      const body = (await req.json().catch(() => null)) as { message_id?: unknown } | null;
-      const messageId = typeof body?.message_id === "string" ? body.message_id : "";
-      if (!messageId) return json({ error: "message_id required" }, 400);
-      try {
-        await conn.revert(native, messageId, directoryOf(casfId));
-        return json({ ok: true });
-      } catch (e) {
-        return json({ error: String(e) }, 502);
-      }
-    }
-
-    const sessionUnrevert = path.match(/^\/sessions\/([^/]+)\/unrevert$/);
-    if (sessionUnrevert && req.method === "POST") {
-      const casfId = decodeURIComponent(sessionUnrevert[1]!);
-      const conn = driverFor(casfId);
-      if (!conn) return json({ error: "no backend connected" }, 400);
-      const native = conn.nativeId(casfId);
-      if (!native) return json({ error: "session is not owned by a connected backend" }, 400);
-      owners.set(casfId, conn.id);
-      if (!conn.capabilities.revert || !conn.unrevert) return json({ error: "backend cannot revert" }, 400);
-      try {
-        await conn.unrevert(native, directoryOf(casfId));
-        return json({ ok: true });
-      } catch (e) {
-        return json({ error: String(e) }, 502);
-      }
-    }
-
-    const sessionFork = path.match(/^\/sessions\/([^/]+)\/fork$/);
-    if (sessionFork && req.method === "POST") {
-      const casfId = decodeURIComponent(sessionFork[1]!);
-      const conn = driverFor(casfId);
-      if (!conn) return json({ error: "no backend connected" }, 400);
-      const native = conn.nativeId(casfId);
-      if (!native) return json({ error: "session is not owned by a connected backend" }, 400);
-      owners.set(casfId, conn.id);
-      if (!conn.capabilities.fork || !conn.fork) return json({ error: "backend cannot fork" }, 400);
-      const body = (await req.json().catch(() => null)) as { message_id?: unknown; through?: unknown } | null;
-      if (body?.message_id !== undefined && (typeof body.message_id !== "string" || !body.message_id)) {
-        return json({ error: "message_id must be a message id" }, 400);
-      }
-      const view = sessionView(casfId);
-      const cut = forkBefore(view, body?.message_id as string | undefined, body?.through === true);
-      if (!cut) return json({ error: "no such message in the session" }, 400);
-      const directory = directoryOf(casfId);
-      try {
-        const created = await conn.fork(native, cut.before, directory);
-        owners.set(created.casfId, conn.id);
-        claims.claim(`${conn.agent}:${created.nativeId}`, created.casfId, conn.id);
-        const source = view.title?.trim();
-        if (source && conn.capabilities.manage) {
-          const title = forkTitle(source, store.listSessions().map((s) => s.title));
-          await conn.rename(created.nativeId, title, directory).catch(() => {});
-        }
-        return json({ id: created.casfId });
-      } catch (e) {
-        return json({ error: String(e) }, 502);
-      }
-    }
-
-    const sessionHandoff = path.match(/^\/sessions\/([^/]+)\/handoff$/);
-    if (sessionHandoff && req.method === "POST") {
-      const casfId = decodeURIComponent(sessionHandoff[1]!);
-      let view: SessionView;
-      try {
-        view = sessionView(casfId);
-      } catch (e) {
-        if (e instanceof Error && e.message === "no events") return json({ error: "session not found" }, 404);
-        throw e;
-      }
-      const body = (await req.json().catch(() => null)) as {
-        connection_id?: unknown;
-        model?: { providerID: string; modelID: string };
-        agent?: string;
-        variant?: string;
-      } | null;
-      const connectionId = typeof body?.connection_id === "string" ? body.connection_id : "";
-      if (!connectionId) return json({ error: "connection_id required" }, 400);
-      const target = conns.get(connectionId);
-      if (!target) return json({ error: "no such connection" }, 400);
-      if (!target.capabilities.prompt) return json({ error: "backend cannot prompt" }, 400);
-      const titleBase = view.title?.trim() || "session";
-      const title = `Handoff: ${titleBase.length > 60 ? `${titleBase.slice(0, 59)}…` : titleBase}`;
-      const directory = directoryOf(casfId);
-      try {
-        const created = await target.createSession({ title, directory });
-        owners.set(created.casfId, target.id);
-        if (directory) createdDirs.set(created.casfId, directory);
-        claims.claim(`${target.agent}:${created.nativeId}`, created.casfId, target.id);
-        await target.prompt(created.nativeId, [{ type: "text", text: sessionBriefing(view) }], {
-          model: body?.model,
-          agent: body?.agent,
-          variant: body?.variant,
-          directory,
-        });
-        return json({ id: created.casfId });
-      } catch (e) {
-        return json({ error: String(e) }, 502);
-      }
-    }
-
-    const sessionSummarize = path.match(/^\/sessions\/([^/]+)\/summarize$/);
-    if (sessionSummarize && req.method === "POST") {
-      const casfId = decodeURIComponent(sessionSummarize[1]!);
-      const conn = driverFor(casfId);
-      if (!conn) return json({ error: "no backend connected" }, 400);
-      const native = conn.nativeId(casfId);
-      if (!native) return json({ error: "session is not owned by a connected backend" }, 400);
-      owners.set(casfId, conn.id);
-      if (!conn.capabilities.summarize || !conn.summarize) return json({ error: "backend cannot summarize" }, 400);
-      const body = (await req.json().catch(() => null)) as {
-        model?: { providerID?: unknown; modelID?: unknown };
-      } | null;
-      const model =
-        typeof body?.model?.providerID === "string" &&
-        typeof body.model.modelID === "string" &&
-        body.model.providerID &&
-        body.model.modelID
-          ? { providerID: body.model.providerID, modelID: body.model.modelID }
-          : undefined;
-      try {
-        await conn.summarize(native, directoryOf(casfId), model);
-        return json({ ok: true });
-      } catch (e) {
-        return json({ error: String(e) }, 502);
-      }
-    }
-
-    const sessionShare = path.match(/^\/sessions\/([^/]+)\/(share|unshare)$/);
-    if (sessionShare && req.method === "POST") {
-      const casfId = decodeURIComponent(sessionShare[1]!);
-      const action = sessionShare[2]!;
-      const conn = driverFor(casfId);
-      if (!conn) return json({ error: "no backend connected" }, 400);
-      const native = conn.nativeId(casfId);
-      if (!native) return json({ error: "session is not owned by a connected backend" }, 400);
-      owners.set(casfId, conn.id);
-      if (!conn.capabilities.share || !conn.share || !conn.unshare)
-        return json({ error: "backend cannot share sessions" }, 400);
-      try {
-        if (action === "share") return json({ url: (await conn.share(native, directoryOf(casfId))) ?? null });
-        await conn.unshare(native, directoryOf(casfId));
-        return json({ ok: true });
-      } catch (e) {
-        return json({ error: String(e) }, 502);
-      }
-    }
-
-    const sessionData = path.match(/^\/sessions\/([^/]+)\/data$/);
-    if (sessionData && req.method === "GET") {
-      const casfId = decodeURIComponent(sessionData[1]!);
-      const counts = store.classCounts([casfId])[0] ?? {
-        session_id: casfId,
-        rebuildable: 0,
-        local: 0,
-        rebuildable_bytes: 0,
-        local_bytes: 0,
-      };
-      const conn = driverFor(casfId);
-      return json({
-        ...counts,
-        backend: conn !== undefined,
-        can_delete: Boolean(conn?.capabilities.manage && conn.nativeId(casfId)),
-      });
-    }
-
-    const sessionDelete = path.match(/^\/sessions\/([^/]+)$/);
-    if (sessionDelete && req.method === "DELETE") {
-      const casfId = decodeURIComponent(sessionDelete[1]!);
-      const localOnly = url.searchParams.get("local") === "1";
-      const counts = store.classCounts([casfId])[0];
-      const conn = driverFor(casfId);
-      const native = conn?.nativeId(casfId);
-      let backend = false;
-      if (!localOnly && conn && conn.capabilities.manage && native) {
-        try {
-          await conn.deleteSession(native, directoryOf(casfId));
-          backend = true;
-        } catch (e) {
-          return json({ error: String(e) }, 502);
-        }
-      } else if (!localOnly) {
-        return json(
-          {
-            error: "no connected backend can delete this session",
-            backend: false,
-            local: counts?.local ?? 0,
-            local_only: true,
-          },
-          409,
-        );
-      }
-      const deleted = store.deleteSessions([casfId]);
-      views.drop(casfId);
-      // A deleted session's dev servers have no owner left to stop them.
-      void plugins.sessionEnded(casfId);
-      broadcast({ type: "session.deleted", session_id: casfId });
-      return json({ ok: true, backend, deleted, local: counts?.local ?? 0 });
-    }
-
-    if (path === "/workspaces" && req.method === "GET") {
-      const dirs = await knownDirs();
-      // Places the window added by hand ride along as `dir` params — nothing
-      // in the store may point at them yet, and the sidebar still needs to
-      // know what kind of directory each one is.
-      for (const dir of url.searchParams.getAll("dir")) {
-        if (dir && !dirs.has(dir)) dirs.set(dir, { directory: dir });
-      }
-      return json({ workspaces: await withWorktrees([...dirs.values()], desktopDir) });
-    }
-
-    if (path === "/worktrees" && req.method === "POST") {
-      const body = (await req.json().catch(() => ({}))) as {
-        directory?: string;
-        name?: string;
-        branch?: string;
-      };
-      if (!body.directory) return json({ error: "directory required" }, 400);
-      try {
-        return json(
-          await worktreeAdd({
-            dir: body.directory,
-            name: body.name,
-            branch: body.branch,
-            stateDir: desktopDir,
-          }),
-        );
-      } catch (e) {
-        const err = e instanceof WorktreeError ? e : new WorktreeError(String(e), 500);
-        return json({ error: err.message }, err.status);
-      }
-    }
-
-    if (path === "/worktrees/remove" && req.method === "POST") {
-      const body = (await req.json().catch(() => ({}))) as {
-        directory?: string;
-        force?: boolean;
-      };
-      if (!body.directory) return json({ error: "directory required" }, 400);
-      try {
-        // The checkout's folder may already have been emptied by a removal
-        // that could not finish, and an emptied folder cannot say which
-        // repository it belongs to. The repositories the app knows about still
-        // can, so the removal finds its subject by the path git recorded
-        // rather than by what is left on disk.
-        await worktreeRemove({
-          dir: body.directory,
-          force: body.force === true,
-          stateDir: desktopDir,
-          // Asked only when the folder can no longer say which repository it
-          // belongs to, because working them out costs a git process each.
-          repos: async () => reposOf([...(await knownDirs()).values()]),
-          // A program the app started inside the worktree keeps the folder
-          // locked — on Windows that is a hard "Permission denied". These
-          // processes are the app's own, so it stops them and tries again.
-          // Asked for only when the folder will not empty, so nothing dies
-          // for a removal that was only asking for a second click.
-          release: async () => {
-            await releaseInside(body.directory!);
-          },
-        });
-        return json({ ok: true });
-      } catch (e) {
-        const err = e instanceof WorktreeError ? e : new WorktreeError(String(e), 500);
-        return json({ error: err.message }, err.status);
-      }
-    }
-
-    if (path === "/compare" && req.method === "GET") {
-      const a = url.searchParams.get("a");
-      const b = url.searchParams.get("b");
-      if (!a || !b) return json({ error: "a and b session ids required" }, 400);
-      return json(compareSessions(sessionView(a), sessionView(b)));
-    }
-
-    if (path === "/export" && req.method === "GET") {
-      const sessionId = url.searchParams.get("session_id") ?? undefined;
-      const body = exportEvents(store, {
-        session_id: sessionId,
-        redact: url.searchParams.get("redact") !== "false",
-      });
-      return new Response(body, {
-        headers: { "content-type": "application/x-ndjson" },
-      });
-    }
-
-    if (path === "/connect" && req.method === "POST") {
-      const body = (await req.json().catch(() => null)) as ConnectBody | null;
-      if (!body?.baseUrl && !body?.command) return json({ error: "baseUrl or command required" }, 400);
-      try {
-        const connected = await connectBackend(body);
-        memory.remember(body);
-        return json(connected);
-      } catch (e) {
-        return json({ error: String(e) }, 502);
-      }
-    }
-
-    if (path === "/sync" && req.method === "POST") {
-      if (conns.size === 0) {
-        await Promise.all(
-          memory.saved().map(async (saved) => {
-            try {
-              await connectBackend({
-                ...withEmbeddedCredentials(saved),
-                connectTimeoutMs: REMEMBERED_PROBE_MS,
-              });
-            } catch (e) {
-              console.error(`reconnect ${endpointOf(saved)} failed: ${e}`);
-              failAttempt(saved, e, false);
-            }
-          }),
-        );
-      }
-      if (conns.size === 0) return json({ connected: false, imported: 0, reconciled: 0 });
-      let imported = 0;
-      let reconciled = 0;
-      for (const conn of conns.values()) {
-        try {
-          const r = await syncDriver(conn);
-          imported += r.imported;
-          reconciled += r.reconciled;
-        } catch (e) {
-          console.error(`sync ${conn.id} failed: ${e}`);
-        }
-      }
-      return json({ connected: true, imported, reconciled });
-    }
-
-    if (path === "/connections" && req.method === "GET") {
-      const launch = readOpencodeStatus(desktopDir);
-      const listed = [...attempts.values()].map((attempt) => ({
-        ...attempt,
-        placement: connectionPlacement(attempt.backend, attempt.endpoint, launch),
-      }));
-      const connections = [...conns.values()].map((c) => ({
-        id: c.id,
-        backend: c.backend,
-        baseUrl: c.baseUrl,
-        name: c.name,
-        directory: c.directory,
-        capabilities: { ...c.capabilities, extension: c.extension?.kind },
-        placement: connectionPlacement(c.backend, c.baseUrl, launch),
-        sync: activeSyncs.has(c.id) ? "syncing" : pendingSyncs.has(c.id) ? "starting" : "idle",
-        ...(activeSyncs.has(c.id)
-          ? { syncDone: activeSyncs.get(c.id)?.done, syncTotal: activeSyncs.get(c.id)?.total }
-          : {}),
-      }));
-      return json({
-        connections,
-        attempts: listed,
-        phase: connectionPhase({
-          connected: connections.length > 0,
-          attempts: listed,
-          launchState: launch.state,
-        }),
-      });
-    }
-
-    if (path === "/policy" && req.method === "GET") {
-      return json({ policy: policyRuntime.shared ?? null, file: opts.policyFile ?? null });
-    }
-
-    if (path === "/policy" && req.method === "PUT") {
-      const body = (await req.json().catch(() => null)) as unknown;
-      try {
-        policyRuntime.setShared(loadPolicy(body));
-      } catch (e) {
-        return json({ error: String(e) }, 400);
-      }
-      persistPolicy();
-      return json({ ok: true, policy: policyRuntime.shared });
-    }
-
-    if (path === "/policy" && req.method === "DELETE") {
-      policyRuntime.setShared(undefined);
-      persistPolicy();
-      return json({ ok: true });
-    }
-
-    /**
-     * Whether one session stops asking.
-     *
-     * The shared policy is the whole answer for every session, so this carries
-     * one bit and no rules: the reader has said "do not interrupt me here", not
-     * "here is a different policy". The effective document is derived, so the
-     * session keeps following edits to the shared one — a rule tightened later
-     * reaches a session that is already on auto.
-     *
-     * Not persisted, and deliberately: it is a stance about a conversation
-     * being in progress, and a service that came back up should not find a
-     * week-old session still running unattended.
-     */
-    const sessionPolicyMatch = path.match(/^\/sessions\/([^/]+)\/policy$/);
-    if (sessionPolicyMatch) {
-      const sid = decodeURIComponent(sessionPolicyMatch[1]!);
-      const known = store.lastSeq(sid) > 0;
-      if (req.method === "GET") {
-        return json({ mode: modeOf(sid), session_id: sid, known });
-      }
-      if (req.method === "PUT") {
-        const body = (await req.json().catch(() => null)) as { mode?: string } | null;
-        if (body?.mode === "auto") policyRuntime.setMode(sid, "auto");
-        else if (body?.mode === "inherit" || body?.mode === undefined) policyRuntime.setMode(sid, "inherit");
-        else return json({ error: "mode must be auto or inherit" }, 400);
-        broadcast({ type: "session.policy", session_id: sid, mode: modeOf(sid) });
-        return json({ ok: true, mode: modeOf(sid), session_id: sid });
-      }
-      if (req.method === "DELETE") {
-        policyRuntime.setMode(sid, "inherit");
-        broadcast({ type: "session.policy", session_id: sid, mode: "inherit" });
-        return json({ ok: true, mode: "inherit", session_id: sid });
-      }
-    }
-
-    const sessionGoal = path.match(/^\/sessions\/([^/]+)\/goal$/);
-    if (sessionGoal) {
-      let sid: string;
-      try {
-        sid = decodeURIComponent(sessionGoal[1]!);
-      } catch {
-        return json({ error: "not found" }, 404);
-      }
-      if (store.lastSeq(sid) <= 0) return json({ error: "not found" }, 404);
-      if (req.method === "GET") {
-        let text: string | null = null;
-        let paused = false;
-        let met = false;
-        try {
-          const view = sessionView(sid);
-          text = view.goal ?? null;
-          paused = view.goal_paused === true;
-          met = view.goal_met === true;
-        } catch {
-          text = null;
-        }
-        return json({ text, paused, met, session_id: sid });
-      }
-      if (req.method === "DELETE") {
-        store.append([
-          makeEvent({
-            session_id: sid,
-            source: { backend: "desktop" },
-            type: "session.goal",
-            data: { text: null },
-          }) as EventInput,
-        ]);
-        goalPaused.delete(sid);
-        goalKicked.delete(sid);
-        return json({ ok: true, text: null, session_id: sid });
-      }
-      if (req.method === "PUT") {
-        const body = (await req.json().catch(() => null)) as { text?: unknown; paused?: unknown } | null;
-        if (typeof body?.paused === "boolean" && body.text === undefined) {
-          let view: SessionView;
-          try {
-            view = sessionView(sid);
-          } catch {
-            return json({ error: "not found" }, 404);
-          }
-          if (!view.goal) return json({ error: "no goal" }, 400);
-          if (body.paused) {
-            if (view.goal_met) return json({ error: "goal is met" }, 409);
-            if (!view.goal_paused) {
-              store.append([
-                makeEvent({
-                  session_id: sid,
-                  source: { backend: "desktop" },
-                  type: "session.goal",
-                  data: { text: view.goal, paused: true },
-                }) as EventInput,
-              ]);
-            }
-            return json({ ok: true, text: view.goal, paused: true, session_id: sid });
-          }
-          if (view.goal_paused) {
-            store.append([
-              makeEvent({
-                session_id: sid,
-                source: { backend: "desktop" },
-                type: "session.goal",
-                data: { text: view.goal },
-              }) as EventInput,
-            ]);
-            goalPaused.delete(sid);
-            goalKicked.delete(sid);
-            considerGoal(sid);
-          }
-          return json({ ok: true, text: view.goal, paused: false, session_id: sid });
-        }
-        const text = typeof body?.text === "string" ? body.text.trim() : "";
-        if (!text) return json({ error: "text required" }, 400);
-        if (text.length > GOAL_MAX) return json({ error: "text is too long" }, 400);
-        store.append([
-          makeEvent({
-            session_id: sid,
-            source: { backend: "desktop" },
-            type: "session.goal",
-            data: { text },
-          }) as EventInput,
-        ]);
-        goalPaused.delete(sid);
-        goalKicked.delete(sid);
-        considerGoal(sid);
-        return json({ ok: true, text, session_id: sid });
-      }
-    }
-
-    if (path === "/policy/test" && req.method === "POST") {
-      // dry-run the permission engine: body { tool, input, policy? } —
-      // an inline policy is validated and used, else the live one
-      const body = (await req.json().catch(() => null)) as {
-        tool?: string;
-        input?: Record<string, unknown>;
-        policy?: unknown;
-      } | null;
-      if (!body?.tool) return json({ error: "tool required" }, 400);
-      let p = policyRuntime.shared;
-      if (body.policy !== undefined) {
-        try {
-          p = loadPolicy(body.policy);
-        } catch (e) {
-          return json({ error: String(e) }, 400);
-        }
-      }
-      if (!p) return json({ decision: "ask", reason: "no policy" });
-      return json(evaluate(p, { tool: body.tool, input: body.input ?? {} }));
-    }
-
-    const prompted = await promptRoute(req, path, {
-      pendingAsks,
-      pendingQuestions,
-      driverFor,
+    const session = await sessionRoute(req, path, {
+      store,
+      connections: conns,
+      claims,
+      permissions: permissionRequests,
+      views,
+      live,
+      plugins,
+      createdDirs,
+      goalRunner,
+      sessionView,
       directoryOf,
-      rememberAsk,
-      resolvePermissionLocally(sessionId, requestId, decision, scope) {
-        store.append([
-          makeEvent({
-            id: `opencode:${requestId}:permission.resolved`,
-            session_id: sessionId,
-            source: { backend: "desktop" },
-            type: "permission.resolved",
-            data: { request_id: requestId, decision, by: "user", scope: scope ?? "once" },
-          }) as EventInput,
-        ]);
-        settleAsk(requestId, decision);
-      },
-      sessionIdOfPendingQuestion,
-      replyQuestion,
-      resolveQuestionLocally(sessionId, requestId, decision, answers) {
-        store.append([
-          makeEvent({
-            id: `opencode:${requestId}:question.resolved`,
-            session_id: sessionId,
-            source: { backend: "desktop" },
-            type: "question.resolved",
-            data: { request_id: requestId, decision, answers },
-          }) as EventInput,
-        ]);
-        settleQuestion(requestId);
-      },
+      driverFor,
+      broadcast,
     });
+    if (session) return session;
+
+    const maintenance = await maintenanceRoute(req, path, {
+      store,
+      dirs: maintenanceDirsInfo,
+      snapshot: maintenanceSnapshot,
+      backupBefore,
+      sessionView,
+      views,
+      broadcast,
+    });
+    if (maintenance) return maintenance;
+
+    const events = await eventRoute(req, path, { store, sessionView, subscribers, activeSyncs });
+    if (events) return events;
+
+    const workspace = await workspaceRoute(req, path, { desktopDir, knownDirs, releaseInside });
+    if (workspace) return workspace;
+
+    const connection = await connectionRoute(req, path, {
+      connections: conns,
+      attempts,
+      activeSyncs,
+      pendingSyncs,
+      desktopDir,
+      memory,
+      dismissedEmbedded,
+      claims,
+      connectBackend,
+      withEmbeddedCredentials,
+      syncDriver,
+      failAttempt,
+    });
+    if (connection) return connection;
+
+    const policy = await policyRoute(req, path, {
+      runtime: policyRuntime,
+      store,
+      policyFile: opts.policyFile,
+      persist: persistPolicy,
+      broadcast,
+    });
+    if (policy) return policy;
+
+    const prompted = await promptRoute(req, path, permissionRequests);
     if (prompted) return prompted;
-
-    if (path === "/questions" && req.method === "GET") {
-      // Read from the projection rather than from `pendingQuestions`. That map
-      // is what a live connection writes into, so it only knows about questions
-      // asked since this process started — and it is a map of promises, which
-      // cannot be rebuilt from a restart. A question someone is still looking at
-      // does not stop being asked because the window was closed, and this
-      // endpoint is the only thing telling the UI that it is waiting on an
-      // answer.
-      const ids = store
-        .listSessions({ limit: Number(url.searchParams.get("limit") ?? 200) })
-        .map((s) => s.session_id);
-      const pending = ids.flatMap((session_id) =>
-        sessionView(session_id).pending_questions.map((q) => ({ ...q, session_id })),
-      );
-      return json({ pending });
-    }
-
-    if (path === "/desktop/editor" && req.method === "POST") {
-      const body = (await req.json().catch(() => null)) as { editor?: unknown; path?: unknown } | null;
-      const target = editorLaunch(body?.editor, body?.path);
-      if ("error" in target) return json({ error: target.error }, 400);
-      const bin = Bun.which(target.bin);
-      if (!bin) return json({ error: "editor is not installed" }, 400);
-      try {
-        Bun.spawn({ cmd: [bin, target.file], stdin: "ignore", stdout: "ignore", stderr: "ignore" });
-      } catch (e) {
-        return json({ error: String(e) }, 500);
-      }
-      return json({ ok: true });
-    }
-
-    if (path === "/desktop/reveal" && req.method === "POST") {
-      const body = (await req.json().catch(() => null)) as { path?: unknown } | null;
-      // A reveal opens a folder in the file manager. The path may have come
-      // from rendered text — which the model wrote — so it is confined to the
-      // folders the reader works in: their home, and the workspaces this
-      // service knows about.
-      const dirs = await knownDirs();
-      const roots = [homedir(), ...[...dirs.values()].map((d) => d.directory)];
-      const target = revealTarget(body?.path, roots);
-      if ("error" in target) return json({ error: target.error, code: target.code }, 400);
-      const bin = Bun.which(target.cmd[0]!);
-      if (!bin) return json({ error: "file manager is not available" }, 400);
-      try {
-        Bun.spawn({ cmd: [bin, ...target.cmd.slice(1)], stdin: "ignore", stdout: "ignore", stderr: "ignore" });
-      } catch (e) {
-        return json({ error: String(e) }, 500);
-      }
-      return json({ ok: true });
-    }
-
-    if (path === "/desktop/paths" && req.method === "POST") {
-      // Which of these paths are real local paths inside the folders this
-      // reader may open. The UI asks before it turns a path-shaped token into
-      // a link: a link that cannot be opened is worse than no link, and the
-      // model writes plenty of paths that do not exist on this machine.
-      const body = (await req.json().catch(() => null)) as { paths?: unknown } | null;
-      const list = Array.isArray(body?.paths) ? body.paths.slice(0, 256) : [];
-      const dirs = await knownDirs();
-      const roots = [homedir(), ...[...dirs.values()].map((d) => d.directory)];
-      const checks = checkPaths(list, roots);
-      return json({
-        paths: list.map((raw, i) => {
-          const check = checks[i]!;
-          return check.ok
-            ? { path: String(raw), ok: true }
-            : { path: String(raw), ok: false, code: check.code };
-        }),
-      });
-    }
-
-    if (path === "/desktop/opencode" && req.method === "GET") {
-      // The credentials the file carries are for the service, not the wire:
-      // the reconcile below reads them off disk so they never ride a response.
-      const { username: _username, password: _password, ...launch } =
-        readOpencodeStatus(desktopDir);
-      return json(launch);
-    }
-
-    if (path === "/desktop/opencode" && req.method === "PUT") {
-      const body = (await req.json().catch(() => null)) as { mode?: unknown } | null;
-      const mode = body?.mode;
-      if (!isOpencodeMode(mode)) return json({ error: "mode must be embed or external" }, 400);
-      // The file also holds the chosen binary. Rewriting it as `{opencode}` used
-      // to erase that choice every time someone switched modes.
-      const previous = readDesktopJson(join(desktopDir, "desktop.json"));
-      const next =
-        previous && typeof previous === "object" && !Array.isArray(previous)
-          ? { ...(previous as Record<string, unknown>), opencode: mode }
-          : { opencode: mode };
-      mkdirSync(desktopDir, { recursive: true });
-      writeSecureJson(join(desktopDir, "desktop.json"), next);
-      return json({ mode, applied: "next-launch" });
-    }
 
     const terminal = await terminalRoute(req, url, ownedTerminal);
     if (terminal) return terminal;
 
-    // The plugin surface. Tool execution is here because it is the one place
-    // policy, the ask card and the plugin dispatch have to meet; everything
-    // else under /plugins is plumbing.
     const pluginHit = await pluginRoute(req, url, {
       host: plugins,
       resolveSession: resolveSessionId,
@@ -2632,95 +784,12 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       connection: (id) => conns.get(id),
       session: (casfId) => {
         const driver = driverFor(casfId);
-        // the same ownership a prompt needs: a driver that maps this session id
         if (!driver?.nativeId(casfId)) return undefined;
         const directory = directoryOf(casfId);
         return directory ? { driver, directory } : undefined;
       },
     });
     if (extension) return extension;
-
-    if (path === "/connections/forget" && req.method === "POST") {
-      const body = (await req.json().catch(() => null)) as { endpoint?: unknown } | null;
-      const endpoint = body?.endpoint;
-      if (typeof endpoint !== "string" || endpoint.length === 0) {
-        return json({ error: "endpoint required" }, 400);
-      }
-      const status = readOpencodeStatus(desktopDir);
-      if (status.url === endpoint && status.password) {
-        dismissedEmbedded.set(endpoint, status.password);
-      }
-      memory.forget(endpoint);
-      attempts.delete(endpoint);
-      return json({ ok: true });
-    }
-
-    const discMatch = path.match(/^\/connections\/([^/]+)$/);
-    if (discMatch && req.method === "DELETE") {
-      const conn = conns.get(decodeURIComponent(discMatch[1]!));
-      if (!conn) return json({ error: "not found" }, 404);
-      // An embedded server the reader cut stays cut: the reconcile would
-      // otherwise put the still-running server back within a poll or two.
-      const status = readOpencodeStatus(desktopDir);
-      if (status.url && sameEndpoint(conn.baseUrl, status.url) && status.password) {
-        dismissedEmbedded.set(conn.baseUrl, status.password);
-      }
-      conn.stop();
-      conns.delete(conn.id);
-      connPolicy.delete(conn.id);
-      // Its sessions go back to the layer, so another channel may import them.
-      claims.release(conn.id);
-      connPassword.delete(conn.id);
-      memory.forget(conn.baseUrl);
-      return json({ ok: true });
-    }
-
-    if (path === "/stream") {
-      let enqueue: ((payload: unknown) => void) | undefined;
-      let heartbeat: ReturnType<typeof setInterval> | undefined;
-      const drop = () => {
-        if (enqueue) subscribers.delete(enqueue);
-        if (heartbeat) clearInterval(heartbeat);
-        heartbeat = undefined;
-      };
-      const stream = new ReadableStream<string>({
-        start(ctrl) {
-          const write = (chunk: string) => {
-            try {
-              ctrl.enqueue(chunk);
-            } catch {
-              // desiredSize === null means the stream is closed for good
-              if (ctrl.desiredSize === null) drop();
-            }
-          };
-          write(`data: ${JSON.stringify({ type: "service.connected" })}\n\n`);
-          // A sync that began before this socket attached would otherwise be
-          // invisible until the next round — replay its state as a started
-          // event carrying the progress seen so far.
-          for (const [connection_id, s] of activeSyncs) {
-            write(
-              `data: ${JSON.stringify({ type: "sync.started", connection_id, done: s.done, total: s.total })}\n\n`,
-            );
-          }
-          // comment-frame heartbeat: keeps proxies flushing the stream and
-          // surfaces dead connections so stale subscribers get reaped
-          heartbeat = setInterval(() => write(`: hb\n\n`), 15_000);
-          enqueue = (payload) => write(`data: ${JSON.stringify(payload)}\n\n`);
-          subscribers.add(enqueue);
-        },
-        cancel() {
-          drop();
-        },
-      });
-      return new Response(stream, {
-        headers: {
-          "content-type": "text/event-stream",
-          "cache-control": "no-cache",
-          connection: "keep-alive",
-          "x-accel-buffering": "no",
-        },
-      });
-    }
 
     return json({ error: "not found" }, 404);
   }
@@ -2733,17 +802,13 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     return directory ? { directory, terminal } : undefined;
   };
 
-  // Plugins start last: a plugin that emits during initialize has a route, a
-  // store and a fan-out to emit into. A failure here is logged and leaves that
-  // one plugin failed, rather than taking the service down with it.
-  void plugins.startAll().catch((e: unknown) => {
-    console.error("plugins failed to start:", e);
+  void plugins.startAll().catch((error: unknown) => {
+    console.error("plugins failed to start:", error);
   });
 
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: opts.port ?? 0,
-    // projecting every session can outlast Bun's 10s default
     idleTimeout: 0,
     maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
     websocket: {
@@ -2752,15 +817,13 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       close: terminalClose,
     },
     async fetch(req, server) {
-      // The desktop UI calls this process from the shell's origin (packaged:
-      // tauri.localhost; dev: the Vite port); no other page may drive it.
       const allow = {
         vary: "origin",
         "x-content-type-options": "nosniff",
         ...shellCors(req.headers.get("origin")),
       };
       if (refused(req)) return Response.json({ error: "forbidden" }, { status: 403, headers: allow });
-      if (req.method === "OPTIONS")
+      if (req.method === "OPTIONS") {
         return new Response(null, {
           status: 204,
           headers: {
@@ -2769,53 +832,31 @@ export function startService(opts: ServiceOpts = {}): RunningService {
             "access-control-allow-headers": "authorization, x-strata-token, content-type",
           },
         });
+      }
       const url = new URL(req.url);
-      // The token is the capability; the Host and Origin rules above are the
-      // other half. A browser cannot put a header on an EventSource or on a
-      // WebSocket, so those two requests carry the token in the URL instead —
-      // and the health check carries none, so a probe can ask whether the
-      // service is up without holding a secret.
       const upgrade = req.headers.get("upgrade")?.toLowerCase() === "websocket";
-      // A browser cannot put a header on an EventSource or a WebSocket, so
-      // those carry the token in the URL. A plugin's event stream is the same
-      // kind of request and needs the same exception.
       const browserless =
         upgrade || url.pathname === "/stream" || /^\/plugins\/[a-z][a-z0-9-]*\/events$/.test(url.pathname);
-      /**
-       * The MCP endpoint an ACP agent holds.
-       *
-       * Its URL *is* the credential: a per-session ticket that names one
-       * session and dies with it (see `plugins/tickets.ts`). There is no
-       * header to check — an agent's MCP client sends none, and handing it the
-       * global token would be handing it the whole service. So this one path
-       * is authorized by the ticket, and `mcpRoute` refuses anything that does
-       * not resolve to a session.
-       *
-       * It was missing from here until a real ACP session tried it: every call
-       * was a 401 in the desktop build, where the service always has a token,
-       * while the tests ran tokenless and stayed green.
-       */
       const ticketAuthorized = url.pathname === "/plugins/mcp";
       const authorized =
-        tokenOk(req, apiToken) ||
-        (browserless && queryTokenOk(url, apiToken)) ||
-        ticketAuthorized;
+        tokenOk(req, apiToken) || (browserless && queryTokenOk(url, apiToken)) || ticketAuthorized;
       const health = req.method === "GET" && url.pathname === "/health";
-      if (!health && !authorized)
+      if (!health && !authorized) {
         return Response.json({ error: "unauthorized" }, { status: 401, headers: allow });
+      }
       const declared = Number(req.headers.get("content-length") ?? "");
-      if (Number.isFinite(declared) && declared > MAX_REQUEST_BODY_BYTES)
+      if (Number.isFinite(declared) && declared > MAX_REQUEST_BODY_BYTES) {
         return Response.json({ error: "request body too large" }, { status: 413, headers: allow });
+      }
       const upgraded = terminalUpgrade(req, url, server, ownedTerminal);
       if (upgraded === "upgraded") return undefined;
       let res: Response;
       try {
         res = upgraded ?? (await route(req));
-      } catch (e) {
-        // Bun's own error page has no CORS, so the shell would only see a network error
-        res = json({ error: String(e) }, 500);
+      } catch (error) {
+        res = json({ error: String(error) }, 500);
       }
-      for (const [k, v] of Object.entries(allow)) res.headers.set(k, v);
+      for (const [key, value] of Object.entries(allow)) res.headers.set(key, value);
       return res;
     },
   });
@@ -2830,10 +871,8 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       clearTimeout(reconcileTimer);
       clearInterval(reconcilePoll);
       unwatchFile(statusFile, onStatusChange);
-      for (const c of conns.values()) c.stop();
+      for (const conn of conns.values()) conn.stop();
       conns.clear();
-      // Nothing outlives the service: a dev server still listening after the
-      // app is gone is the orphan this module exists to prevent.
       void plugins.stopAll();
       server.stop();
       store.close();
@@ -2841,148 +880,11 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   };
 }
 
-function isOpencodeMode(value: unknown): value is OpencodeLaunchMode {
-  return value === "embed" || value === "external";
-}
-
-function isOpencodeState(value: unknown): value is OpencodeLaunchState {
-  return (
-    value === "starting" ||
-    value === "running" ||
-    value === "missing" ||
-    value === "restarting" ||
-    value === "stopped" ||
-    value === "external" ||
-    value === "authRequired" ||
-    value === "authFailed" ||
-    value === "unmanaged"
-  );
-}
-
-function readDesktopJson(path: string): unknown {
-  try {
-    return JSON.parse(readFileSync(path, "utf8"));
-  } catch {
-    return undefined;
-  }
-}
-
-function readOpencodeMode(dir: string): OpencodeLaunchMode {
-  const parsed = readDesktopJson(join(dir, "desktop.json"));
-  if (parsed && typeof parsed === "object" && parsed !== null) {
-    const mode = (parsed as { opencode?: unknown }).opencode;
-    if (isOpencodeMode(mode)) return mode;
-  }
-  return "embed";
-}
-
-/**
- * Whether the boot address is the server the app starts, or one someone else
- * runs.
- *
- * The shell knows which one it started and says so. The status file is the
- * fallback for a service that was started without the shell: it names the URL
- * of the embedded server when there is one. When nothing says, the address is
- * someone else's — the app only owns a server when it says it started one.
- */
-function autoConnectPlacement(opts: ServiceOpts, desktopDir: string): "embed" | "external" {
-  if (opts.autoConnectPlacement) return opts.autoConnectPlacement;
-  const launch = readOpencodeStatus(desktopDir);
-  if (launch.url && opts.autoConnect && sameEndpoint(launch.url, opts.autoConnect)) return "embed";
-  return "external";
-}
-
-type OpencodeRuntimeSource = "setting" | "env" | "path" | "missing" | "external";
-
-interface OpencodeRuntime {
-  source: OpencodeRuntimeSource;
-  bin?: string;
-  version?: string;
-  error?: string;
-  checked_at?: number;
-}
-
-function isRuntimeSource(value: unknown): value is OpencodeRuntimeSource {
-  return (
-    value === "setting" ||
-    value === "env" ||
-    value === "path" ||
-    value === "missing" ||
-    value === "external"
-  );
-}
-
-/** The shell writes this once per launch and after a settings check. */
-function readOpencodeRuntime(dir: string): OpencodeRuntime | undefined {
-  const parsed = readDesktopJson(join(dir, "opencode-runtime.json"));
-  if (!parsed || typeof parsed !== "object" || parsed === null) return undefined;
-  const rec = parsed as {
-    source?: unknown;
-    bin?: unknown;
-    version?: unknown;
-    error?: unknown;
-    checked_at?: unknown;
-  };
-  if (!isRuntimeSource(rec.source)) return undefined;
-  const runtime: OpencodeRuntime = { source: rec.source };
-  if (typeof rec.bin === "string" && rec.bin) runtime.bin = rec.bin;
-  if (typeof rec.version === "string" && rec.version) runtime.version = rec.version;
-  if (typeof rec.error === "string" && rec.error) runtime.error = rec.error;
-  if (typeof rec.checked_at === "number" && Number.isFinite(rec.checked_at)) {
-    runtime.checked_at = rec.checked_at;
-  }
-  return runtime;
-}
-
-function readOpencodeStatus(dir: string): {
-  mode: OpencodeLaunchMode;
-  state: OpencodeLaunchState;
-  url?: string;
-  runtime?: OpencodeRuntime;
-  /** The pair the running embedded server answers to; the shell writes it so a
-   * service that was not told the address at launch can still connect. */
-  username?: string;
-  password?: string;
-} {
-  const mode = readOpencodeMode(dir);
-  const runtime = readOpencodeRuntime(dir);
-  const parsed = readDesktopJson(join(dir, "opencode-status.json"));
-  if (!parsed || typeof parsed !== "object" || parsed === null) {
-    return runtime ? { mode, state: "unmanaged", runtime } : { mode, state: "unmanaged" };
-  }
-  const rec = parsed as {
-    state?: unknown;
-    url?: unknown;
-    username?: unknown;
-    password?: unknown;
-  };
-  if (!isOpencodeState(rec.state)) {
-    return runtime ? { mode, state: "unmanaged", runtime } : { mode, state: "unmanaged" };
-  }
-  const body: {
-    mode: OpencodeLaunchMode;
-    state: OpencodeLaunchState;
-    url?: string;
-    runtime?: OpencodeRuntime;
-    username?: string;
-    password?: string;
-  } = {
-    mode,
-    state: rec.state,
-  };
-  if (typeof rec.url === "string") body.url = rec.url;
-  if (typeof rec.username === "string") body.username = rec.username;
-  if (typeof rec.password === "string") body.password = rec.password;
-  if (runtime) body.runtime = runtime;
-  return body;
-}
-
 function userHome(): string {
   const home = process.env.HOME || process.env.USERPROFILE;
   return home && home.length > 0 ? home : ".";
 }
 
-/** Start the service from the environment the desktop shell sets. */
 export function main(): void {
   const home = userHome();
   const db = process.env.STRATA_DB ?? join(home, ".agent-strata", "events.db");
@@ -2994,18 +896,15 @@ export function main(): void {
       db,
       port,
       policyFile,
-      // The capability token. The desktop sets one for every launch; a service
-      // started by hand runs without it and asks for nothing.
       apiToken: process.env.STRATA_API_TOKEN,
-      // e.g. STRATA_OPENCODE_URL=http://127.0.0.1:4096 (Tauri embed sets this)
       autoConnect: process.env.STRATA_OPENCODE_URL,
       autoConnectUsername: process.env.STRATA_OPENCODE_USERNAME,
       autoConnectPassword: process.env.STRATA_OPENCODE_PASSWORD,
       autoConnectPlacement: placement === "embed" || placement === "external" ? placement : undefined,
     });
     console.log(`agent-strata service listening on http://127.0.0.1:${svc.port} (db: ${db})`);
-  } catch (err) {
-    console.error(err);
+  } catch (error) {
+    console.error(error);
     process.exit(1);
   }
 }
