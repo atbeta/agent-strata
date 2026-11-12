@@ -7,7 +7,7 @@ import { t } from "./i18n";
 import { cn } from "./lib/utils";
 import { openOpencodeLog, readServiceError } from "./opencode-runtime";
 import { hostsTrafficLights, inDesktopShell } from "./shell";
-import type { StartupStage, SyncProgress } from "./startup";
+import type { StartupStage } from "./startup";
 import { endpointHost } from "./use-connections";
 
 type StepState = "done" | "active" | "pending" | "error";
@@ -30,12 +30,6 @@ function sessionsStep(stage: StartupStage): StepState {
   if (stage === "sessions") return "active";
   if (stage === "sessions-error") return "error";
   return "done";
-}
-
-function syncStep(stage: StartupStage): StepState {
-  if (stage === "sync") return "active";
-  if (stage === "ready") return "done";
-  return "pending";
 }
 
 function StageMark(props: { state: StepState }) {
@@ -89,7 +83,6 @@ function StageRow(props: { label: string; state: StepState }) {
  */
 export function StartupGate(props: {
   stage: StartupStage;
-  sync?: SyncProgress;
   attempts: readonly ConnectionAttempt[];
   slow: boolean;
   canEnter: boolean;
@@ -149,8 +142,6 @@ export function StartupGate(props: {
         return { title: t("startup.sessions"), hint: t("startup.sessionsHint") };
       case "sessions-error":
         return { title: t("startup.sessionsError"), hint: t("startup.sessionsErrorHint") };
-      case "sync":
-        return { title: t("startup.sync"), hint: t("startup.syncHint") };
       case "degraded":
         return { title: t("startup.degraded"), hint: t("startup.degradedHint") };
       default:
@@ -164,18 +155,6 @@ export function StartupGate(props: {
       .map((attempt) => endpointHost(attempt.endpoint))
       .join(" · "),
   );
-
-  const percent = () => {
-    const s = props.sync;
-    if (!s || s.indeterminate || s.total <= 0) return 0;
-    return Math.min(100, Math.round((s.done / s.total) * 100));
-  };
-
-  const syncLabel = () => {
-    const s = props.sync;
-    if (!s || s.total <= 0) return t("startup.syncScanning");
-    return t("startup.syncCount", { done: s.done, total: s.total });
-  };
 
   const openLog = () => {
     void openOpencodeLog().catch(() => {});
@@ -203,39 +182,7 @@ export function StartupGate(props: {
             <StageRow label={t("startup.step.service")} state={serviceStep(props.stage)} />
             <StageRow label={t("startup.step.opencode")} state={opencodeStep(props.stage)} />
             <StageRow label={t("startup.step.sessions")} state={sessionsStep(props.stage)} />
-            <StageRow label={t("startup.step.sync")} state={syncStep(props.stage)} />
           </ol>
-
-          <Show when={props.stage === "sync"}>
-            <div class="mt-4">
-              <div
-                class="h-1 overflow-hidden rounded-full bg-secondary"
-                role="progressbar"
-                aria-label={syncLabel()}
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={
-                  props.sync && !props.sync.indeterminate ? percent() : undefined
-                }
-              >
-                <div
-                  class={cn(
-                    "h-full rounded-full bg-foreground/40 transition-[width] duration-300",
-                    (!props.sync || props.sync.indeterminate) &&
-                      "w-1/3 motion-safe:animate-pulse",
-                  )}
-                  style={
-                    props.sync && !props.sync.indeterminate
-                      ? { width: `${percent()}%` }
-                      : undefined
-                  }
-                />
-              </div>
-              <p class="mt-1.5 font-mono text-2xs tabular-nums text-muted-foreground">
-                {syncLabel()}
-              </p>
-            </div>
-          </Show>
 
           <Show when={props.stage === "degraded" && targets().length > 0}>
             <p class="mt-3 truncate font-mono text-2xs text-muted-foreground" title={targets()}>
@@ -280,12 +227,6 @@ export function StartupGate(props: {
                   {t("startup.enterLocal")}
                 </Button>
               </>
-            </Show>
-
-            <Show when={props.stage === "sync" && props.slow}>
-              <Button size="sm" onClick={props.onEnter}>
-                {t("startup.enter")}
-              </Button>
             </Show>
 
             <Show when={props.stage === "opencode" && props.slow && !needsLogin()}>

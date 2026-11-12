@@ -605,7 +605,6 @@ export function App() {
           >
             <StartupGate
               stage={boot.stage()}
-              sync={boot.sync()}
               attempts={conns.attempts()}
               slow={boot.slow()}
               canEnter={boot.canEnter()}

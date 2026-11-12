@@ -5,8 +5,6 @@ const base: StartupInput = {
   health: "up",
   connections: "connected",
   sessions: "ready",
-  syncing: false,
-  skipped: false,
 };
 
 const stage = (patch: Partial<StartupInput>) => startupStage({ ...base, ...patch });
@@ -31,9 +29,11 @@ describe("startupStage", () => {
     expect(stage({ sessions: "error" })).toBe("sessions-error");
   });
 
-  test("shows the initial sync until it finishes or the reader skips it", () => {
-    expect(stage({ syncing: true })).toBe("sync");
-    expect(stage({ syncing: true, skipped: true })).toBe("ready");
+  test("a running sync does not hold the launch: the list is local", () => {
+    // The import adds to a list that is read from the local store, so it is
+    // background work — showing it as a launch stage kept the window on the
+    // launch surface for as long as the backend took to walk its projects.
+    expect(stage({})).toBe("ready");
   });
 
   test("a backend that never connected is a degraded launch, not a spinner", () => {
@@ -47,14 +47,13 @@ describe("startupStage", () => {
     expect(stage({ connections: "failed", sessions: "error" })).toBe("sessions-error");
   });
 
-  test("is ready only with a backend, a settled list and no sync left", () => {
+  test("is ready only with a backend and a settled list", () => {
     expect(stage({})).toBe("ready");
   });
 });
 
 describe("startupCanEnter", () => {
-  test("always lets the reader into a running sync or a degraded launch", () => {
-    expect(startupCanEnter("sync", { elapsedMs: 0, sessionsReady: true })).toBe(true);
+  test("always lets the reader into a degraded launch", () => {
     expect(startupCanEnter("degraded", { elapsedMs: 0, sessionsReady: true })).toBe(true);
   });
 

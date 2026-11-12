@@ -364,22 +364,31 @@ export interface PolicyDecision {
  */
 let desktopService = "http://127.0.0.1:7700";
 
-/** Resolved once, at module load, when a shell is hosting this page. */
-const desktopServiceRead: Promise<void> = !inDesktopShell()
-  ? Promise.resolve()
-  : (async () => {
-      try {
-        const { invoke } = await import("@tauri-apps/api/core");
-        const url = await invoke<string>("service_url");
-        if (url) desktopService = url.replace(/\/+$/, "");
-      } catch {
-        // A shell that cannot answer is one that started no service; the
-        // default is as good a guess as any and costs nothing to keep.
-      }
-    })();
+/**
+ * Ask the shell where its service is, retrying until it answers.
+ *
+ * The shell answers this from state it manages in `setup`, so a page that asks
+ * before that state exists gets an error. Caching the failure left the page on
+ * the default port for the rest of the run — and once the window is shown
+ * before the sidecars are up, that race is the common case rather than a
+ * rarity. Only a real answer is kept.
+ */
+let desktopServiceRead: Promise<void> | undefined;
 
-/** Await before building a URL that must be right the first time. */
-export const serviceUrlSettled = (): Promise<void> => desktopServiceRead;
+export function serviceUrlSettled(): Promise<void> {
+  if (!inDesktopShell()) return Promise.resolve();
+  desktopServiceRead ??= (async () => {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const url = await invoke<string>("service_url");
+      if (url) desktopService = url.replace(/\/+$/, "");
+      else desktopServiceRead = undefined;
+    } catch {
+      desktopServiceRead = undefined;
+    }
+  })();
+  return desktopServiceRead;
+}
 
 export const serviceUrl = () => desktopService;
 
@@ -394,6 +403,12 @@ export const api = (p: string) => (inDesktopShell() ? `${desktopService}${p}` : 
  *
  * It is read once and kept: the token does not change while the app is open,
  * and a page that asked again would only pay for the same answer twice.
+ *
+ * Only a successful read is kept. The shell answers `api_token` from state it
+ * manages in `setup`, and a page that asks before that state exists gets an
+ * error — caching that as "this build has no token" left every later request
+ * unauthenticated, which the service refuses. A failed read is retried on the
+ * next call instead.
  */
 let tokenRead: Promise<string> | undefined;
 
@@ -402,10 +417,15 @@ export function apiToken(): Promise<string> {
   tokenRead ??= (async () => {
     try {
       const { invoke } = await import("@tauri-apps/api/core");
-      return (await invoke<string>("api_token")) ?? "";
+      const token = (await invoke<string>("api_token")) ?? "";
+      // A shell that answered with nothing has nothing to give, now or later.
+      // A shell that answered with a token is worth remembering.
+      if (!token) tokenRead = undefined;
+      return token;
     } catch {
-      // A shell that cannot answer has no token to present, and a service
-      // without one asks for nothing.
+      // The shell may not have finished starting the sidecars the token comes
+      // from. Drop the memo so the next request asks again.
+      tokenRead = undefined;
       return "";
     }
   })();
@@ -428,6 +448,10 @@ export async function withAuth(init?: RequestInit): Promise<RequestInit> {
  * them by accident: a page that half works is worse than one that does not.
  */
 export async function apiFetch(p: string, init?: RequestInit): Promise<Response> {
+  // The address has to be right before the first byte goes out: the shell may
+  // be listening on a port of its own choosing, and the default is only a
+  // placeholder until it answers.
+  if (inDesktopShell()) await serviceUrlSettled();
   return fetch(api(p), await withAuth(init));
 }
 
@@ -451,6 +475,10 @@ export async function streamUrl(p: string): Promise<string> {
  * the second way to attach a token, which is exactly how one gets left off.
  */
 export async function streamUrlFor(p: string): Promise<string> {
+  // The address first, for the same reason `apiFetch` waits for it: the
+  // stream is built from it, and a socket opened against the placeholder port
+  // fails silently and stays failed.
+  if (inDesktopShell()) await serviceUrlSettled();
   const token = await apiToken();
   const url = new URL(api(p), location.origin);
   if (token) url.searchParams.set("token", token);

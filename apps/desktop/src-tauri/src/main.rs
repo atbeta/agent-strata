@@ -1515,8 +1515,23 @@ fn main() {
                     }
                 }
             }
-            app.manage(Sidecars::start());
 
+            // The window is shown here, before the sidecars are started.
+            //
+            // It has to be — the other order is what made a launch look like a
+            // black screen. `Sidecars::start()` spawns processes and runs
+            // several bounded waits (a service-ready poll, and two stale-pid
+            // cleanups that each shell out to PowerShell on Windows), and
+            // everything after it in this closure used to wait for all of it.
+            // The window config is `visible: false`, so until the call below
+            // there is nothing on screen at all: no launch surface, no
+            // spinner, nothing.
+            //
+            // Nothing in the page depends on the sidecars having started. The
+            // first read retries until the service answers, and `api_token` /
+            // `service_url` reopen their own read when the shell could not
+            // answer yet, so a window that appears early settles by itself.
+            //
             // The page shows this window itself, after two frames, which is
             // what keeps a black webview from flashing with a native title bar
             // over it. `requestAnimationFrame` does not run while the window is
@@ -1535,6 +1550,11 @@ fn main() {
                     }
                 }
             });
+
+            // Started after the window is scheduled to appear: see the note
+            // above. Everything in here runs before `setup` returns, and the
+            // page is already waiting on the service either way.
+            app.manage(Sidecars::start());
 
             Ok(())
         })

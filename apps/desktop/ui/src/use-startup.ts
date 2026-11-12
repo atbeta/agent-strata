@@ -5,7 +5,6 @@ import {
   STARTUP_SLOW_MS,
   startupCanEnter,
   startupStage,
-  syncProgress,
   type StartupHealth,
 } from "./startup";
 import type { ConnectionsCtl } from "./use-connections";
@@ -50,7 +49,6 @@ export function useStartup(opts: {
   const [health, setHealth] = createSignal<StartupHealth>("checking");
   const [elapsed, setElapsed] = createSignal(0);
   const [visible, setVisible] = createSignal(false);
-  const [skipped, setSkipped] = createSignal(false);
   const [entered, setEntered] = createSignal(false);
   /** Once launch is over it stays over, even when a later sync starts. */
   const [launched, setLaunched] = createSignal(false);
@@ -131,21 +129,17 @@ export function useStartup(opts: {
     return opts.list.data.error ? "error" : "loading";
   };
 
-  const syncing = () => opts.conns.syncTicks().size > 0 || opts.conns.syncBusy();
   const stage = createMemo(() =>
     startupStage({
       health: health(),
       connections: opts.conns.phase(),
       sessions: sessions(),
-      syncing: syncing(),
-      skipped: skipped(),
     }),
   );
-  const sync = createMemo(() => syncProgress(opts.conns.syncTicks()));
-
-  // A sync is part of the launch only until the first launch finishes. Later
-  // background syncs must not put the startup screen back over a window the
-  // reader is already using, so success latches instead of being re-derived.
+  // The launch is over as soon as there is something on screen to use. A sync
+  // that is still running belongs to the window, not to the launch: the list
+  // is read from the local store, so waiting for an import only delays the
+  // first paint.
   createEffect(() => {
     if (stage() === "ready") setLaunched(true);
   });
@@ -155,23 +149,18 @@ export function useStartup(opts: {
     startupCanEnter(stage(), { elapsedMs: elapsed(), sessionsReady: sessions() === "ready" });
   const slow = () =>
     elapsed() >= STARTUP_SLOW_MS &&
-    (stage() === "service" ||
-      stage() === "opencode" ||
-      stage() === "sessions" ||
-      stage() === "sync");
+    (stage() === "service" || stage() === "opencode" || stage() === "sessions");
 
   const enter = () => {
-    setSkipped(true);
     setEntered(true);
   };
 
   const retry = () => {
-    setSkipped(false);
     void probe();
     opts.conns.refetchConns();
     opts.list.refetch();
     opts.ws.refetchWs();
   };
 
-  return { stage, sync, ready, canEnter, slow, visible, elapsed, enter, retry };
+  return { stage, ready, canEnter, slow, visible, elapsed, enter, retry };
 }

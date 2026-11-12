@@ -13,9 +13,15 @@ describe("the snapshot's sync flag", () => {
     expect(returned).toContain("syncBusy,");
   });
 
-  test("the startup gate counts a sync the stream has not reported", () => {
-    const src = readFileSync(join(import.meta.dir, "use-startup.ts"), "utf8");
-    expect(src).toContain("syncTicks().size > 0 || opts.conns.syncBusy()");
+  test("the startup gate does not wait on a sync at all", () => {
+    // The list is read from the local store, so an import adds to a window
+    // that is already usable. Making the launch wait on it kept the window on
+    // the launch surface for as long as the backend took to walk its projects.
+    const gate = readFileSync(join(import.meta.dir, "startup.ts"), "utf8");
+    expect(gate).not.toContain('"sync"');
+    const boot = readFileSync(join(import.meta.dir, "use-startup.ts"), "utf8");
+    expect(boot).not.toContain("syncBusy()");
+    expect(boot).not.toContain("syncTicks()");
   });
 
   test("the connection type carries the fields /connections now sends", () => {

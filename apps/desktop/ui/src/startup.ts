@@ -20,19 +20,28 @@ export type StartupStage =
   | "opencode"
   | "sessions"
   | "sessions-error"
-  | "sync"
   | "degraded"
   | "ready";
 
+/**
+ * A running sync is deliberately not one of these fields.
+ *
+ * It used to be: a stage of its own between the session list and the window.
+ * That made the launch wait for an import the list does not need — `/sessions`
+ * is read from the local store, so a first paint has everything a reader can
+ * act on, and the sync only adds to it afterwards. Waiting for it meant the
+ * window stayed on the launch surface for as long as the backend took to walk
+ * its projects, and a slow or large checkout turned that into a black screen.
+ *
+ * The import is now background work the app shows off to the side (the 2px
+ * line at the top of the content, and the footer's spinner), which is where a
+ * reader can ignore it or watch it without being stopped by it.
+ */
 export interface StartupInput {
   health: StartupHealth;
   connections: ViewPhase;
   /** Whether the first session list has answered. */
   sessions: "loading" | "ready" | "error";
-  /** A backend sync is running. */
-  syncing: boolean;
-  /** The reader chose to enter while a sync was still going. */
-  skipped: boolean;
 }
 
 /**
@@ -56,7 +65,6 @@ export function startupStage(input: StartupInput): StartupStage {
   }
   if (input.sessions === "error") return "sessions-error";
   if (input.sessions === "loading") return "sessions";
-  if (input.syncing && !input.skipped) return "sync";
   if (
     input.connections === "failed" ||
     input.connections === "missing" ||
@@ -74,18 +82,16 @@ export const STARTUP_ENTER_AFTER_MS = 12_000;
 /**
  * Whether the reader may enter while something is still running.
  *
- * A sync can outlive anyone's patience, so entering is allowed and the sync
- * continues in the background. A backend that is still being dialed is allowed
- * after a while too, but only when the local list is already there — the
- * alternative is an empty window that cannot do anything. A launch that has
- * not reached the session list yet has nothing to show, so it does not offer
- * the door.
+ * A backend that is still being dialed is allowed after a while, but only when
+ * the local list is already there — the alternative is an empty window that
+ * cannot do anything. A launch that has not reached the session list yet has
+ * nothing to show, so it does not offer the door.
  */
 export function startupCanEnter(
   stage: StartupStage,
   input: { elapsedMs: number; sessionsReady: boolean },
 ): boolean {
-  if (stage === "sync" || stage === "degraded") return true;
+  if (stage === "degraded") return true;
   if (stage !== "opencode") return false;
   return input.sessionsReady && input.elapsedMs >= STARTUP_ENTER_AFTER_MS;
 }
