@@ -34,17 +34,26 @@ export async function copyText(text: string): Promise<boolean> {
   }
 }
 
+import { inDesktopShell } from "./shell";
+
 /**
  * Pixels for the clipboard, or the address when pixels cannot be had.
  *
- * `clipboard.write` accepts PNG and nothing else in WebKit, so whatever the
- * source was is decoded and re-encoded once. A source the page cannot read —
- * a file the shell will not serve, a remote image without CORS — falls back
- * to the address, which is still the useful thing to carry away.
+ * WKWebView exposes no way to write an image at all — `clipboard.write` and
+ * `ClipboardItem` are both missing — so the desktop shell asks the native
+ * clipboard instead; the web path stays for browsers, where PNG is the only
+ * type `clipboard.write` accepts. A source the page cannot read — a file the
+ * shell will not serve, a remote image without CORS — falls back to the
+ * address, which is still the useful thing to carry away.
  */
 export async function copyImage(src: string): Promise<boolean> {
   try {
     const png = await pngOf(src);
+    if (png && inDesktopShell()) {
+      const { writeImage } = await import("@tauri-apps/plugin-clipboard-manager");
+      await writeImage(new Uint8Array(await png.arrayBuffer()));
+      return true;
+    }
     if (png && typeof ClipboardItem === "function" && navigator.clipboard?.write) {
       await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
       return true;
