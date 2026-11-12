@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "bench": "bun run bench/run.ts",
+    "test": "bun test && vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -39,7 +40,8 @@
     "playwright": "1.64.1",
     "typescript": "5.5.4",
     "vite": "^7.0.0",
-    "vite-plugin-solid": "^2.11.0"
+    "vite-plugin-solid": "^2.11.0",
+    "vitest": "^5.1.0"
   },
   "overrides": {
     "dompurify": "3.4.17"

@@ -5,8 +5,9 @@
 - `bun run lint` (root): oxlint over the same trees and `scripts`. Warnings fail the run.
 - `bun run audit` (root): `bun audit` for the single workspace install (`apps/desktop/ui` is a workspace member; the root lockfile covers it); critical/high advisories fail unless a dated exception with a reason is listed in `scripts/audit.ts`.
 - `bun test packages`: all package tests.
-- `bun run test:ui`: desktop UI unit tests (includes `apps/desktop/ui/bench/metrics.test.ts`).
+- `bun run test:ui`: desktop UI tests — `bun test` for pure logic (includes `apps/desktop/ui/bench/metrics.test.ts`), then `vitest run` for component mounts.
   - DOM tests: `bun:test` has no DOM. `src/dom-env.ts` sets up jsdom — it must be the test file's FIRST import (`dompurify` binds `window` at module load). Not a global preload: `typeof document === "undefined"` guards elsewhere must keep their branch. happy-dom is not a substitute — DOMPurify silently stops sanitising under it.
+  - Component tests: `bun test` cannot compile Solid JSX (the tsconfig keeps `"jsx": "preserve"`, bun has no solid transform), so `*.vtest.tsx` files mount components via vitest + vite-plugin-solid + jsdom (`vitest.config.ts`). The `.vtest.` suffix keeps them out of `bun test`'s `.test.` glob. Mount a component there when a bug could only surface at render time.
 - `cargo test --locked` in `apps/desktop/src-tauri`: Tauri shell tests. Push and pull request run these; a release runs the check job only, so a shell-test failure does not skip the installers.
 
 ## Package boundaries

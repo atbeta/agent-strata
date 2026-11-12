@@ -1057,12 +1057,16 @@ function EventSections(props: { block: TraceBlock }) {
                         ? "bg-status-completed"
                         : entry.status === "in_progress"
                           ? "bg-status-active"
-                          : "bg-muted-foreground/50"
+                          : entry.status === "cancelled"
+                            ? "bg-muted-foreground/40"
+                            : "bg-muted-foreground/50"
                     }`}
                   />
                   <span
                     class={
-                      entry.status === "completed" ? "text-muted-foreground line-through" : ""
+                      entry.status === "completed" || entry.status === "cancelled"
+                        ? "text-muted-foreground line-through"
+                        : ""
                     }
                   >
                     {entry.content}

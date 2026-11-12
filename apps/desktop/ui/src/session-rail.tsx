@@ -132,9 +132,14 @@ export function SessionRail(props: {
     return chosen;
   };
 
-  /** How many files the selected review source actually found. */
+  /**
+   * How many files the visible pane actually found. The rail outlives a
+   * session switch and `reviewSource` keeps its last pick, so a non-OpenCode
+   * session inherits "git" or "branch" — conditions on the backend, not the
+   * stale source, are what keep the session pane and its count reachable.
+   */
   const changeCount = () =>
-    effectiveSource() === "session"
+    !props.opencode() || effectiveSource() === "session"
       ? props.view().files_changed.length
       : (reviewDiff() ?? []).filter((f) => f.file).length;
 
@@ -306,7 +311,7 @@ export function SessionRail(props: {
                 </Show>
               </div>
             </Show>
-            <Show when={effectiveSource() === "session"}>
+            <Show when={!props.opencode() || effectiveSource() === "session"}>
               <div class="@container flex min-h-0 flex-1 flex-col @min-[560px]:flex-row">
                 <div
                   class={`min-h-0 overflow-x-hidden overflow-y-auto px-2 py-3 ${

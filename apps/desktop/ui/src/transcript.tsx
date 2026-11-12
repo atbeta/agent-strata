@@ -888,10 +888,18 @@ function ToolCallCard(props: {
                           ? "bg-status-completed"
                           : item.status === "in_progress"
                             ? "bg-status-active"
-                            : "bg-status-pending"
+                            : item.status === "cancelled"
+                              ? "bg-muted-foreground/40"
+                              : "bg-status-pending"
                       }`}
                     />
-                    <span class={item.status === "completed" ? "text-muted-foreground line-through" : ""}>
+                    <span
+                      class={
+                        item.status === "completed" || item.status === "cancelled"
+                          ? "text-muted-foreground line-through"
+                          : ""
+                      }
+                    >
                       {item.content}
                     </span>
                   </li>

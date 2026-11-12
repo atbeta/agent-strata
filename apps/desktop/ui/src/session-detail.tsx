@@ -115,15 +115,6 @@ export function SessionDetail(props: {
     publishPaneBusy(id, v?.session_id === id && v.busy === true);
     onCleanup(() => clearPaneBusy(id));
   });
-  // Live machine state, not part of the record: it shows only while the
-  // session's OpenCode backend is connected, and follows a checkout made
-  // outside strata once the window comes back. One read feeds the header
-  // chip and the rail's branch option; a second copy in the rail was the
-  // same endpoint asked twice per session open.
-  const [vcs, { refetch: refetchVcs }] = createResource(
-    () => (opencode() ? props.id : undefined),
-    (id) => readVcs(id).catch(() => undefined),
-  );
   const {
     promptsFailed,
     refetchAsks,
@@ -144,6 +135,17 @@ export function SessionDetail(props: {
     (id) => readCapabilities(id).catch(() => undefined),
   );
   const opencode = () => caps()?.extension === "opencode";
+  // Live machine state, not part of the record: it shows only while the
+  // session's OpenCode backend is connected, and follows a checkout made
+  // outside strata once the window comes back. One read feeds the header
+  // chip and the rail's branch option; a second copy in the rail was the
+  // same endpoint asked twice per session open. This resource must sit
+  // below `opencode`: createResource evaluates its source eagerly, so a
+  // forward reference throws on mount.
+  const [vcs, { refetch: refetchVcs }] = createResource(
+    () => (opencode() ? props.id : undefined),
+    (id) => readVcs(id).catch(() => undefined),
+  );
   // The rail's background tab and the composer's pill read the same list; the
   // pill must keep working while the rail is closed.
   const dev = useDevProcesses(() => props.id, opencode);

@@ -7,7 +7,7 @@
   ],
   "scripts": {
     "test": "bun test packages",
-    "test:ui": "bun test --cwd=apps/desktop/ui",
+    "test:ui": "cd apps/desktop/ui && bun test && bunx vitest run",
     "check:secrets": "bun run scripts/check-secrets-perms.ts",
     "audit": "bun run scripts/audit.ts",
     "brand": "bun run scripts/brand.ts",
