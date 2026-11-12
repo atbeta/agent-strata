@@ -1,13 +1,10 @@
 import { createMemo, createResource, createSignal, ErrorBoundary, For, onCleanup, Show } from "solid-js";
 import {
-  readSessionDiff,
-  readVcs,
   readVcsDiff,
   realWorkspace,
   type SessionView,
   type VcsInfo,
 } from "./api";
-import { settled } from "./resource";
 import { BackgroundPanel } from "./background-panel";
 import { PluginPanel, isPluginPanelTab, panelForTab, pluginPanelTabs } from "./plugin-panel";
 import type { DevProcesses } from "./dev-processes";
@@ -52,15 +49,13 @@ export function SessionRail(props: {
   pathFocus?: () => { path: string; n: number } | undefined;
   /** the session's background commands, shared with the composer's pill */
   dev: DevProcesses;
+  /** live repo state, read once by the parent for its branch chip */
+  vcs: () => VcsInfo | undefined;
 }) {
   /** which file the reader opened in the rail, null for the plain list */
   const [openFile, setOpenFile] = createSignal<string | null>(null);
   const [reviewSource, setReviewSource] = createSignal<"session" | "git" | "branch">("session");
-  const [vcsInfo] = createResource(
-    () => (props.opencode() ? props.sessionId() : undefined),
-    (sessionId) => readVcs(sessionId).catch(() => ({}) as VcsInfo),
-  );
-  const defaultBranch = () => settled(vcsInfo)?.default_branch ?? undefined;
+  const defaultBranch = () => props.vcs()?.default_branch ?? undefined;
   /** "branch" presumes a default branch exists; absent one it answers as "git". */
   const effectiveSource = () => (reviewSource() === "branch" && !defaultBranch() ? "git" : reviewSource());
   const [reviewLayout, setReviewLayout] = createSignal<"unified" | "split">("unified");
@@ -114,13 +109,18 @@ export function SessionRail(props: {
     handle.addEventListener("pointercancel", done);
   };
 
+  /**
+   * "本会话" needs no fetch — its record is the view's own files_changed,
+   * which is also what non-OpenCode sessions already drew. OpenCode's
+   * /session/diff answered [] unconditionally without a messageID, which is
+   * why the tab read empty; only the two repo sources still ask the backend.
+   */
   const reviewKey = () => {
-    if (!props.opencode()) return false as const;
-    return { id: props.sessionId(), source: effectiveSource() };
+    const source = effectiveSource();
+    if (!props.opencode() || source === "session") return false as const;
+    return { id: props.sessionId(), source };
   };
-  const [reviewDiff] = createResource(reviewKey, (key) =>
-    key.source === "session" ? readSessionDiff(key.id) : readVcsDiff(key.id, key.source),
-  );
+  const [reviewDiff] = createResource(reviewKey, (key) => readVcsDiff(key.id, key.source));
 
   // The file browser only exists for the OpenCode backend.
   const effectiveTab = (): SidePanelTab => {
@@ -132,20 +132,18 @@ export function SessionRail(props: {
     return chosen;
   };
 
-  /** How many files the changes view actually found. */
+  /** How many files the selected review source actually found. */
   const changeCount = () =>
-    props.opencode()
-      ? (reviewDiff() ?? []).filter((f) => f.file).length
-      : (props.view().files_changed.length ?? 0);
+    effectiveSource() === "session"
+      ? props.view().files_changed.length
+      : (reviewDiff() ?? []).filter((f) => f.file).length;
 
   const files = () => props.view().files_changed;
   /** An empty diff reads differently per baseline, so it says which. */
   const emptyNote = () =>
-    effectiveSource() === "git"
-      ? t("review.empty.git")
-      : effectiveSource() === "branch"
-        ? t("review.empty.branch", { branch: defaultBranch() ?? "HEAD" })
-        : t("review.empty");
+    effectiveSource() === "branch"
+      ? t("review.empty.branch", { branch: defaultBranch() ?? "HEAD" })
+      : t("review.empty.git");
   // A selected file borrows room only while it is open; below 560px its list
   // stacks above the diff instead of crushing it into a narrow column.
   const open = () => files().find((f) => f.path === openFile()) ?? null;
@@ -280,7 +278,7 @@ export function SessionRail(props: {
               />
               </div>
             </Show>
-            <Show when={props.opencode()}>
+            <Show when={props.opencode() && effectiveSource() !== "session"}>
               <div class="flex min-h-0 min-w-0 flex-1 flex-col">
                 <Show
                   when={!reviewDiff.loading && !reviewDiff.error}
@@ -308,7 +306,7 @@ export function SessionRail(props: {
                 </Show>
               </div>
             </Show>
-            <Show when={!props.opencode()}>
+            <Show when={effectiveSource() === "session"}>
               <div class="@container flex min-h-0 flex-1 flex-col @min-[560px]:flex-row">
                 <div
                   class={`min-h-0 overflow-x-hidden overflow-y-auto px-2 py-3 ${

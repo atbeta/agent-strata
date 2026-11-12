@@ -550,11 +550,6 @@ export type ReviewDiff = {
   status?: "added" | "deleted" | "modified";
 };
 
-/** The session's current file changes. `messageID` limits them to one reply. */
-export function readSessionDiff(sessionId: string, messageID?: string): Promise<ReviewDiff[] | undefined> {
-  return readOpencode<ReviewDiff[]>(sessionId, "/session/diff", messageID ? { messageID } : undefined);
-}
-
 /** `git` is the worktree. `branch` is the worktree against the default branch. */
 export function readVcsDiff(sessionId: string, mode: "git" | "branch"): Promise<ReviewDiff[] | undefined> {
   return readOpencode<ReviewDiff[]>(sessionId, "/vcs/diff", { mode });

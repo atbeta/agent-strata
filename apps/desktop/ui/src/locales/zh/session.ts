@@ -267,7 +267,6 @@ export default {
   "review.split": "并排",
   "review.layout": "排布方式",
   "review.loading": "正在读取改动。",
-  "review.empty": "OpenCode 没有报告这个会话的改动。",
   "review.empty.git": "工作区是干净的，没有未提交的改动。",
   "review.empty.branch": "相对 {branch} 没有改动。",
   "review.comment": "把这一行放进输入框",

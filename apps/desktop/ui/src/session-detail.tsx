@@ -117,9 +117,11 @@ export function SessionDetail(props: {
   });
   // Live machine state, not part of the record: it shows only while the
   // session's OpenCode backend is connected, and follows a checkout made
-  // outside strata once the window comes back.
+  // outside strata once the window comes back. One read feeds the header
+  // chip and the rail's branch option; a second copy in the rail was the
+  // same endpoint asked twice per session open.
   const [vcs, { refetch: refetchVcs }] = createResource(
-    () => props.id,
+    () => (opencode() ? props.id : undefined),
     (id) => readVcs(id).catch(() => undefined),
   );
   const {
@@ -918,6 +920,7 @@ export function SessionDetail(props: {
             }}
             onCite={composer.citeLine}
             dev={dev}
+            vcs={() => settled(vcs)}
           />
         )}
       </Show>
