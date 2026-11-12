@@ -1,10 +1,12 @@
-import { beforeAll, expect, test } from "vitest";
+import { beforeAll, expect, test, vi } from "vitest";
 import { render } from "solid-js/web";
 import { emptySessionView, type FileChangeView } from "@agent-strata/projector";
 import { PlanStrip } from "./plan-strip";
 import { writePlanChoice } from "./plan-progress";
 import { SessionRail } from "./session-rail";
+import { SessionDetail } from "./session-detail";
 import type { DevProcesses } from "./dev-processes";
+import type { SessionRowSummary } from "./pane-stage";
 
 /**
  * A component that crashes during setup — a resource whose source reads a
@@ -20,6 +22,27 @@ beforeAll(() => {
     unobserve() {}
     disconnect() {}
   } as unknown as typeof ResizeObserver;
+  // The transcript's virtual list watches visibility the same way.
+  globalThis.IntersectionObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+    takeRecords() {
+      return [];
+    }
+  } as unknown as typeof IntersectionObserver;
+  Element.prototype.scrollIntoView ??= () => {};
+  // No service is listening: reads land as connection failures, the same
+  // state the app itself boots through while the sidecar warms up.
+  vi.stubGlobal("fetch", () => Promise.reject(new Error("offline")));
+  vi.stubGlobal(
+    "EventSource",
+    class {
+      close() {}
+      addEventListener() {}
+      set onmessage(_v: unknown) {}
+    },
+  );
 });
 
 const devStub = {
@@ -98,4 +121,16 @@ test("SessionRail mounts for an OpenCode session on the default source", () => {
   render(() => <SessionRail {...railProps(view, true)} />, host);
   // Default source is "session": the file record renders, not a git fetch.
   expect(host.textContent).toContain("alpha.ts");
+});
+
+test("SessionDetail mounts — the view that crashed on a forward-referenced resource", () => {
+  const row: SessionRowSummary = {
+    summary: { session_id: "opencode:s3", title: "s", workspace: "/tmp/ws" },
+    status: "active",
+  };
+  const host = document.createElement("div");
+  // Every resource inside fires a fetch that rejects here; the mount is what
+  // is under test — a setup-time throw would escape render() and fail this.
+  render(() => <SessionDetail id={row.summary.session_id} sessions={[row]} onNewSession={() => {}} />, host);
+  expect(host.innerHTML.length).toBeGreaterThan(0);
 });
