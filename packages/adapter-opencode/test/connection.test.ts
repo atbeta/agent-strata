@@ -432,6 +432,106 @@ describe("importSession revision", () => {
       store.close();
     }
   });
+
+  test("the todo table rides the import and becomes a plan", async () => {
+    const { connectOpencode } = await import("../src/index");
+    const enc = new TextEncoder();
+    const info = {
+      id: "ses_todo",
+      title: "T",
+      directory: dir,
+      time: { created: 1, updated: 7 },
+    };
+    const todos = [
+      { content: "land it", status: "in_progress", priority: "high" },
+      { content: "dropped", status: "cancelled", priority: "low" },
+    ];
+    const fakeFetch = async (input: Request | URL | string) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.includes("/session/ses_todo/todo")) return Response.json(todos);
+      if (url.includes("/session/ses_todo/message")) return Response.json([]);
+      if (url.includes("/session/ses_todo")) return Response.json(info);
+      if (url.includes("/event")) {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(ctrl) {
+              ctrl.enqueue(enc.encode('data: {"type":"server.connected","properties":{}}\n\n'));
+            },
+          }),
+          { status: 200, headers: { "content-type": "text/event-stream" } },
+        );
+      }
+      return new Response("{}", { status: 404 });
+    };
+    const store = openStore(":memory:");
+    const conn = await connectOpencode({
+      baseUrl: "http://fake",
+      sink: store,
+      fetch: fakeFetch as typeof fetch,
+      connectTimeoutMs: 5_000,
+    });
+    try {
+      expect(await conn.importSession("ses_todo", dir)).toBe(true);
+      const plans = store
+        .read({ session_id: "opencode:ses_todo" })
+        .filter((e) => e.type === "plan.updated");
+      // A session with no completed todowrite in the replay answers from the
+      // table — and a cancelled entry comes with it.
+      expect(plans.length).toBe(1);
+      expect((plans[0]!.data as { entries: unknown[] }).entries).toEqual([
+        { content: "land it", status: "in_progress" },
+        { content: "dropped", status: "cancelled" },
+      ]);
+    } finally {
+      conn.stop();
+      store.close();
+    }
+  });
+
+  test("a todo read that fails still imports the transcript", async () => {
+    const { connectOpencode } = await import("../src/index");
+    const enc = new TextEncoder();
+    const info = {
+      id: "ses_notodo",
+      title: "T",
+      directory: dir,
+      time: { created: 1, updated: 7 },
+    };
+    const fakeFetch = async (input: Request | URL | string) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.includes("/session/ses_notodo/todo")) return new Response("nope", { status: 500 });
+      if (url.includes("/session/ses_notodo/message")) return Response.json([]);
+      if (url.includes("/session/ses_notodo")) return Response.json(info);
+      if (url.includes("/event")) {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(ctrl) {
+              ctrl.enqueue(enc.encode('data: {"type":"server.connected","properties":{}}\n\n'));
+            },
+          }),
+          { status: 200, headers: { "content-type": "text/event-stream" } },
+        );
+      }
+      return new Response("{}", { status: 404 });
+    };
+    const store = openStore(":memory:");
+    const conn = await connectOpencode({
+      baseUrl: "http://fake",
+      sink: store,
+      fetch: fakeFetch as typeof fetch,
+      connectTimeoutMs: 5_000,
+    });
+    try {
+      expect(await conn.importSession("ses_notodo", dir)).toBe(true);
+      const plans = store
+        .read({ session_id: "opencode:ses_notodo" })
+        .filter((e) => e.type === "plan.updated");
+      expect(plans.length).toBe(0);
+    } finally {
+      conn.stop();
+      store.close();
+    }
+  });
 });
 
 describe("sync stays off the live path", () => {

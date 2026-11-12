@@ -49,8 +49,28 @@ export function createSessionImport(args: {
     // listener already imported costs one small GET instead.
     const updated = info.time?.updated ?? info.time?.created ?? 0;
     if (!options.force && knownRevision(sessionID) === updated) return null;
-    const msgs = await client.session.messages({ sessionID, directory: directory ?? opts.directory });
-    return { updated, events: snapshotEvents(sessionID, info, msgs.data ?? []) };
+    const dir = directory ?? opts.directory;
+    const [msgs, todos] = await Promise.all([
+      client.session.messages({ sessionID, directory: dir }),
+      // The todo table answers where the transcript cannot prove a plan —
+      // a compacted or partial replay holds no completed todowrite — while a
+      // transcript that does prove one still wins in the projector. The table
+      // is the backend's word, so a failed read stays out of the batch rather
+      // than landing as an empty list.
+      client.session.todo({ sessionID, directory: dir }).then(
+        (r) => (Array.isArray(r.data) ? r.data : undefined),
+        () => undefined,
+      ),
+    ]);
+    const events = snapshotEvents(sessionID, info, msgs.data ?? []);
+    if (todos !== undefined) {
+      events.push({
+        id: `import:${sessionID}:todos`,
+        type: "todo.updated",
+        properties: { sessionID, todos },
+      } as unknown as Event);
+    }
+    return { updated, events };
   };
   const importSession = async (
     sessionID: string,
