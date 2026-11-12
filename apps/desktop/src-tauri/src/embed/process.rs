@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
 
-use super::store::{read_pid_record, write_pid_record, PidRecord, PID_FILE_VERSION};
+use super::store::{owner_only, read_pid_record, write_pid_record, PidRecord, PID_FILE_VERSION};
 
 /// Build every console subprocess through one Windows-windowless command.
 pub(crate) fn command<S: AsRef<std::ffi::OsStr>>(program: S) -> Command {
@@ -81,8 +81,49 @@ fn lookup_process(pid: u32) -> ProcessLookup {
     })
 }
 
+/// Whether any process holds this pid, answered without starting PowerShell.
+///
+/// `tasklist` is a native console program: tens of milliseconds against the
+/// one to three seconds a cold `powershell` start costs. It cannot say *which*
+/// process it is, so it is only ever used to rule out the empty case.
+#[cfg(windows)]
+fn pid_is_alive(pid: u32) -> bool {
+    let output = match command("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+        .output()
+    {
+        Ok(output) => output,
+        // A tasklist that cannot run says nothing about the pid. Assume it is
+        // there and let the query that can answer decide.
+        Err(_) => return true,
+    };
+    if !output.status.success() {
+        // Running as a user who may not list processes: same reasoning as
+        // above — do not turn "cannot look" into "it is gone".
+        return true;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let text = text.trim();
+    // "No tasks are running which match the specified criteria." — localized,
+    // so the check is for a csv row rather than for that sentence.
+    !text.is_empty() && text.starts_with('"')
+}
+
 #[cfg(windows)]
 fn lookup_process(pid: u32) -> ProcessLookup {
+    // Answer "nothing is there" before paying for a PowerShell start.
+    //
+    // The CIM query below is the only way to learn a process's creation time
+    // and command line, and it is what makes a reused pid safe. It also costs
+    // one to three seconds cold, and every launch path runs this lookup at
+    // least twice — once per pid file — while a pid file left by a clean exit
+    // almost always names a process that has already gone. `tasklist` cannot
+    // answer the identity question, but it can answer the cheaper one, and the
+    // two answers together are exactly as strong as before: identity still
+    // comes from CIM, only it is asked for when there is something to name.
+    if !pid_is_alive(pid) {
+        return ProcessLookup::Gone;
+    }
     // CIM supplies both creation time and the full command line that tasklist lacks.
     let script = r#"$p = Get-CimInstance Win32_Process -Filter ("ProcessId = " + $args[0]); if ($null -eq $p) { exit 3 }; [pscustomobject]@{ started = $p.CreationDate.ToUniversalTime().ToString("o"); command = [string]$p.CommandLine } | ConvertTo-Json -Compress"#;
     let output = match command("powershell")
@@ -124,6 +165,27 @@ impl PidRecord {
             && self.started.as_deref() == Some(process.started.as_str())
             && self.command.as_deref() == Some(process.command.as_str())
     }
+}
+
+/// Record a pid without asking the operating system what process it is.
+///
+/// The identity — start time and command line — is what makes a reused pid safe
+/// to signal, and on Windows learning it costs a cold PowerShell start of one
+/// to three seconds. A caller that has just spawned the process already knows it
+/// is alive; it can write this and add the identity afterwards instead of
+/// holding the launch behind an answer it can get later.
+///
+/// A record without an identity never authorises a signal: `owns` compares
+/// `version` as well, so a version-0 file is preserved rather than killed. That
+/// is the safe direction, and the window that can leave one behind is the few
+/// seconds between this write and the upgrade.
+pub fn write_pid_plain(path: &Path, pid: u32) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, pid.to_string())?;
+    owner_only(path);
+    Ok(())
 }
 
 /// Version 1 is JSON. Decimal pids remain readable but never authorise a signal.

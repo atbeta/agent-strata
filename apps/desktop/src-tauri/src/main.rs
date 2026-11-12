@@ -34,7 +34,8 @@ use embed::{
     child_env, cleanup_stale_opencode, cleanup_stale_service, command_for, detect_runtime,
     health_ok, plan_with_port,
     previous_port, read_mode, reap_opencode_on_port, resolve_mode, serve_args, service_env,
-    supervise, write_pid, write_runtime, write_status, OpencodeMode, OpencodePlan, OpencodeState,
+    supervise, write_pid, write_pid_plain, write_runtime, write_status, OpencodeMode, OpencodePlan,
+    OpencodeState,
     resolve_bin, Attention, Spawned, AUTH_PROMPT, AUTH_REFUSED,
 };
 
@@ -1097,9 +1098,20 @@ impl Sidecars {
         let service_child = match service_child {
             Some(mut child) => {
                 if wait_service_ready(port, Duration::from_secs(5)) {
-                    // Written while it is known to answer, so the pid names a
-                    // live process that cleanup can check next launch.
-                    let _ = write_pid(&data.join("service.pid"), child.id());
+                    // Written before the identity is known, because learning it
+                    // costs a cold PowerShell start on Windows and this is the
+                    // launch path. The pid alone is enough for the next launch
+                    // to find the file; the identity — which is what authorises
+                    // a signal — is filled in on a thread of its own.
+                    let pid_path = data.join("service.pid");
+                    let pid = child.id();
+                    let _ = write_pid_plain(&pid_path, pid);
+                    let log_for_pid = log.clone();
+                    std::thread::spawn(move || {
+                        if let Err(e) = write_pid(&pid_path, pid) {
+                            log_note(&log_for_pid, &format!("could not record service pid identity: {e}"));
+                        }
+                    });
                     // A port that was taken on an earlier launch leaves a note
                     // behind. It is stale the moment this one works, and a
                     // stale note on screen is worse than none.
@@ -1515,23 +1527,8 @@ fn main() {
                     }
                 }
             }
+            app.manage(Sidecars::start());
 
-            // The window is shown here, before the sidecars are started.
-            //
-            // It has to be — the other order is what made a launch look like a
-            // black screen. `Sidecars::start()` spawns processes and runs
-            // several bounded waits (a service-ready poll, and two stale-pid
-            // cleanups that each shell out to PowerShell on Windows), and
-            // everything after it in this closure used to wait for all of it.
-            // The window config is `visible: false`, so until the call below
-            // there is nothing on screen at all: no launch surface, no
-            // spinner, nothing.
-            //
-            // Nothing in the page depends on the sidecars having started. The
-            // first read retries until the service answers, and `api_token` /
-            // `service_url` reopen their own read when the shell could not
-            // answer yet, so a window that appears early settles by itself.
-            //
             // The page shows this window itself, after two frames, which is
             // what keeps a black webview from flashing with a native title bar
             // over it. `requestAnimationFrame` does not run while the window is
@@ -1550,11 +1547,6 @@ fn main() {
                     }
                 }
             });
-
-            // Started after the window is scheduled to appear: see the note
-            // above. Everything in here runs before `setup` returns, and the
-            // page is already waiting on the service either way.
-            app.manage(Sidecars::start());
 
             Ok(())
         })

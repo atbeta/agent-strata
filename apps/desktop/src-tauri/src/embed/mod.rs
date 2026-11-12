@@ -22,6 +22,7 @@ pub(crate) use plan::{
 pub(crate) use process::kill_tree;
 pub(crate) use process::{
     cleanup_stale_opencode, cleanup_stale_service, command_for, reap_opencode_on_port, write_pid,
+    write_pid_plain,
 };
 pub(crate) use runtime::{detect_runtime, resolve_bin, write_runtime};
 pub(crate) use store::{read_mode, write_desktop_bin, write_status};
