@@ -295,7 +295,7 @@ const data = {
     entries: z.array(
       z.object({
         content: z.string(),
-        status: z.enum(["pending", "in_progress", "completed"]),
+        status: z.enum(["pending", "in_progress", "completed", "cancelled"]),
       }),
     ).max(10_000),
   }),

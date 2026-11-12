@@ -162,10 +162,13 @@ export interface SessionView {
   orphans: ToolCallView[];
   pending_permissions: PermissionInfo[];
   pending_questions: QuestionPrompt[];
-  plan?: { content: string; status: "pending" | "in_progress" | "completed" }[];
+  plan?: { content: string; status: PlanStatus }[];
   files_changed: FileChangeView[];
   totals: Totals;
 }
+
+type PlanStatus = "pending" | "in_progress" | "completed" | "cancelled";
+const PLAN_STATUSES = new Set<unknown>(["pending", "in_progress", "completed", "cancelled"]);
 
 const zeroTotals = (): Totals => ({
   input: 0,
@@ -641,6 +644,37 @@ export function projectSession(events: Event[]): SessionView {
     if (start >= 0) {
       for (let i = start; i < view.turns.length; i++) view.turns[i]!.reverted = true;
     }
+  }
+  // The transcript is the authority on the plan, not the last `plan.updated`
+  // the wire happened to carry — the same conclusion the official client
+  // reaches with `sessionTodos`: the current list is the input of the latest
+  // completed `todowrite` before the revert boundary. Reads that way, a write
+  // that was reverted away, left interrupted, or lost between events cannot
+  // keep a stale list standing, and a `cancelled` entry — which the event
+  // path used to filter out — survives. Where no completed write exists the
+  // folded event still answers, for logs that predate the parts and for
+  // backends that only emit plan.updated.
+  {
+    let derived: SessionView["plan"] | undefined;
+    outer: for (let i = view.turns.length - 1; i >= 0; i--) {
+      const turn = view.turns[i]!;
+      if (turn.reverted) continue;
+      for (let j = turn.tool_calls.length - 1; j >= 0; j--) {
+        const call = turn.tool_calls[j]!;
+        if (call.tool !== "todowrite" || call.status !== "ok") continue;
+        const todos = call.input.todos;
+        if (!Array.isArray(todos)) break outer;
+        derived = todos.flatMap((t) =>
+          typeof t === "object" && t !== null &&
+          typeof (t as { content?: unknown }).content === "string" &&
+          PLAN_STATUSES.has((t as { status?: unknown }).status)
+            ? [{ content: (t as { content: string }).content, status: (t as { status: PlanStatus }).status }]
+            : [],
+        );
+        break outer;
+      }
+    }
+    if (derived !== undefined) view.plan = derived;
   }
   for (const c of compacted) {
     const i = messageTurn(c.message_id);

@@ -231,6 +231,7 @@ export default {
   "plan.status.completed": "Done",
   "plan.status.in_progress": "In progress",
   "plan.status.pending": "Pending",
+  "plan.status.cancelled": "Cancelled",
   "files.pick": "Choose a file to read.",
   "files.empty": "This folder is empty.",
   "files.loading": "Reading.",

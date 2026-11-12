@@ -147,11 +147,13 @@ describe("OpencodeMapper", () => {
           { content: "a", status: "pending", priority: "high" },
           { content: "b", status: "cancelled", priority: "low" },
           { content: "c", status: "completed", priority: "low" },
+          { content: "d", status: "bogus", priority: "low" },
         ],
       },
     } as unknown as Event);
     expect((out[0]!.data as { entries: object[] }).entries).toEqual([
       { content: "a", status: "pending" },
+      { content: "b", status: "cancelled" },
       { content: "c", status: "completed" },
     ]);
     const fc = m.handle(partUpdated({

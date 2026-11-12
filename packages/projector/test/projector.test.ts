@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { aggregate, projectSession } from "../src/index";
+import { aggregate, projectSession, type SessionView } from "../src/index";
 import { makeEvent, parseEvent, type Event, type EventInput } from "@agent-strata/schema";
 
 let seq = 0;
@@ -884,5 +884,82 @@ describe("projector", () => {
     expect(v.turns[0]!.assistant[0]!.ts).toBe("2026-01-01T00:00:05Z");
     // A call is stamped when it is declared; its result does not move it.
     expect(v.turns[0]!.tool_calls[0]!.ts).toBe("2026-01-01T00:00:03Z");
+  });
+});
+
+describe("the plan a transcript proves", () => {
+  const turn = (turn_id: string, text = "go") =>
+    mk("s", "turn.user", { turn_id, content: [{ type: "text", text }] });
+  const write = (turn_id: string, call_id: string, todos: unknown[], status = "ok") => [
+    mk("s", "tool.call", { turn_id, call_id, tool: "todowrite", input: { todos } }),
+    mk("s", "tool.result", { call_id, status }),
+  ];
+  const items: NonNullable<SessionView["plan"]> = [
+    { content: "a", status: "completed" },
+    { content: "b", status: "in_progress" },
+  ];
+
+  test("the latest completed todowrite speaks, not the last event on the wire", () => {
+    // The event stream may carry a newer plan.updated than the transcript
+    // proves — a backend that emitted it for a write whose call errored, for
+    // instance. The completed call is the honest source.
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      turn("t1"),
+      ...write("t1", "c1", items),
+      mk("s", "plan.updated", { entries: [{ content: "phantom", status: "pending" }] }),
+    ]);
+    expect(v.plan).toEqual(items);
+  });
+
+  test("a cancelled entry survives the derivation the event filter used to lose", () => {
+    const withCancel: NonNullable<SessionView["plan"]> = [...items, { content: "c", status: "cancelled" }];
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      turn("t1"),
+      ...write("t1", "c1", withCancel),
+    ]);
+    expect(v.plan).toEqual(withCancel);
+  });
+
+  test("a write on the far side of the revert boundary stays silent", () => {
+    const earlier: NonNullable<SessionView["plan"]> = [{ content: "kept", status: "completed" }];
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      turn("t1"),
+      ...write("t1", "c1", earlier),
+      turn("t2"),
+      ...write("t2", "c2", [{ content: "undone", status: "in_progress" }]),
+      mk("s", "session.updated", { revert: { turn_id: "t2" } }),
+    ]);
+    expect(v.plan).toEqual(earlier);
+  });
+
+  test("an interrupted write never happened, whatever the event said", () => {
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      turn("t1"),
+      ...write("t1", "c1", items, "interrupted"),
+      mk("s", "plan.updated", { entries: items }),
+    ]);
+    expect(v.plan).toEqual(items); // event still answers: no completed write exists
+  });
+
+  test("an empty write clears the list the events built", () => {
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      mk("s", "plan.updated", { entries: items }),
+      turn("t1"),
+      ...write("t1", "c1", []),
+    ]);
+    expect(v.plan).toEqual([]);
+  });
+
+  test("a session with no write at all still answers from plan.updated", () => {
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      mk("s", "plan.updated", { entries: items }),
+    ]);
+    expect(v.plan).toEqual(items);
   });
 });

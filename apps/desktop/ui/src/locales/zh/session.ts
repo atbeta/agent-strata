@@ -233,6 +233,7 @@ export default {
   "plan.status.completed": "已完成",
   "plan.status.in_progress": "进行中",
   "plan.status.pending": "待办",
+  "plan.status.cancelled": "已取消",
   "files.pick": "选择一个文件查看。",
   "files.empty": "这个目录是空的。",
   "files.loading": "正在读取。",

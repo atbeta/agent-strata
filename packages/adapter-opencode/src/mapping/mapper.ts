@@ -340,10 +340,10 @@ export class OpencodeMapper extends TurnsRuntime {
         const { s, out: pre } = this.ensureSession(sessionID);
         out.push(...pre);
         const entries = evt.properties.todos
-          .filter((t) => ["pending", "in_progress", "completed"].includes(t.status))
+          .filter((t) => ["pending", "in_progress", "completed", "cancelled"].includes(t.status))
           .map((t) => ({
             content: t.content,
-            status: t.status as "pending" | "in_progress" | "completed",
+            status: t.status as "pending" | "in_progress" | "completed" | "cancelled",
           }));
         out.push(
           this.ev(

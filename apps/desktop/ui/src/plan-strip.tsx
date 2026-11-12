@@ -40,13 +40,17 @@ export function PlanStrip(props: {
       ? t("plan.status.completed")
       : status === "in_progress"
         ? t("plan.status.in_progress")
-        : t("plan.status.pending");
+        : status === "cancelled"
+          ? t("plan.status.cancelled")
+          : t("plan.status.pending");
   const statusTone = (status: PlanItem["status"]) =>
     status === "completed"
       ? "text-faint-foreground"
       : status === "in_progress"
         ? "text-foreground font-medium"
-        : "text-muted-foreground";
+        : status === "cancelled"
+          ? "text-faint-foreground line-through"
+          : "text-muted-foreground";
   const [choice, setChoice] = createSignal<boolean | undefined>(readPlanChoice(props.sessionId));
   /** No choice yet means the plan gets to decide, and only a toggle outranks it. */
   const open = () => choice() ?? planOpensOnEntry(props.plan, props.generating);
@@ -106,8 +110,10 @@ export function PlanStrip(props: {
                         part.status === "completed"
                           ? "bg-status-completed/45"
                           : part.status === "in_progress"
-                            ? "bg-status-active/45 motion-safe:animate-pulse"
-                            : "bg-foreground/10"
+                            ? `bg-status-active/45 ${props.generating ? "motion-safe:animate-pulse" : ""}`
+                            : part.status === "cancelled"
+                              ? "bg-muted-foreground/25"
+                              : "bg-foreground/10"
                       }`}
                     />
                   )}
@@ -121,14 +127,22 @@ export function PlanStrip(props: {
             {(item) => (
               <li
                 class="flex gap-2 px-1"
-                aria-current={item.status === "in_progress" ? "step" : undefined}
+                aria-current={item.status === "in_progress" && props.generating ? "step" : undefined}
               >
                 <span class="mt-1 grid size-3.5 shrink-0 place-items-center" aria-hidden="true">
                   <Show when={item.status === "completed"}>
                     <Icon name="check" class="size-3 text-status-completed" />
                   </Show>
                   <Show when={item.status === "in_progress"}>
-                    <span class="size-1.5 rounded-full bg-status-active motion-safe:animate-pulse" />
+                    {/* The step sits between runs the same as between items —
+                        it pulses only while the session is actually working,
+                        or a dead session's plan reads as live work. */}
+                    <span
+                      class={`size-1.5 rounded-full bg-status-active ${props.generating ? "motion-safe:animate-pulse" : ""}`}
+                    />
+                  </Show>
+                  <Show when={item.status === "cancelled"}>
+                    <span class="h-0.5 w-2 rounded-full bg-muted-foreground/60" />
                   </Show>
                   <Show when={item.status === "pending"}>
                     <span class="size-1.5 rounded-full border border-muted-foreground/40" />

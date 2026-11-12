@@ -39,7 +39,11 @@ export function planSegments(
 
 export function planProgress(plan: readonly PlanItem[] | undefined): PlanProgress {
   const items = plan ?? [];
-  const done = items.filter((i) => i.status === "completed").length;
+  // A cancelled step is settled: the work will not come back, and a plan held
+  // at "4/5" forever by one cancelled row reads as unfinished business it
+  // does not have. It still draws its own marker — settled, not succeeded.
+  const settled = (i: PlanItem) => i.status === "completed" || i.status === "cancelled";
+  const done = items.filter(settled).length;
   const current =
     items.find((i) => i.status === "in_progress")?.content ??
     items.find((i) => i.status === "pending")?.content;

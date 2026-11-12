@@ -162,3 +162,23 @@ describe("plan opens on entry", () => {
     expect(planOpensOnEntry([], true)).toBe(false);
   });
 });
+
+describe("a cancelled step", () => {
+  test("is settled — it closes the plan instead of holding it at a fraction", () => {
+    const p = planProgress([item("a", "completed"), item("b", "cancelled")]);
+    expect(p.done).toBe(2);
+    expect(p.allDone).toBe(true);
+    expect(p.current).toBeUndefined();
+  });
+
+  test("is never the current step", () => {
+    const p = planProgress([item("x", "cancelled"), item("y", "pending")]);
+    expect(p.current).toBe("y");
+  });
+
+  test("and a pending step keeps the plan unfinished", () => {
+    const p = planProgress([item("a", "cancelled"), item("b", "pending")]);
+    expect(p.done).toBe(1);
+    expect(p.allDone).toBe(false);
+  });
+});
