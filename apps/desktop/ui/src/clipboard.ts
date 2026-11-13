@@ -64,8 +64,43 @@ export async function copyImage(src: string): Promise<boolean> {
   return src ? copyText(src) : false;
 }
 
+/**
+ * The bytes behind a `data:` URL, without going through `fetch`.
+ *
+ * `fetch` is governed by `connect-src`, and the shell's policy only lists the
+ * loopback origins there — `data:` and `blob:` are allowed for `img-src` alone.
+ * So fetching a data URL is refused by CSP in any Chromium webview: the copy
+ * then fell through to the address fallback and put a base64 paragraph on the
+ * clipboard. WebKit does not police `connect-src` for data URLs, which is why
+ * the same code appeared to work on macOS and not on Windows.
+ *
+ * Decoding here is also just shorter: no request, no blob round-trip. Returns
+ * undefined for anything that is not a data URL this can read.
+ */
+export function decodeDataUrl(src: string): Blob | undefined {
+  if (!src.startsWith("data:")) return undefined;
+  const comma = src.indexOf(",");
+  if (comma < 0) return undefined;
+  const meta = src.slice(5, comma);
+  const body = src.slice(comma + 1);
+  const mime = meta.split(";")[0] || "application/octet-stream";
+  try {
+    if (meta.includes(";base64")) {
+      const binary = atob(body);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return new Blob([bytes], { type: mime });
+    }
+    return new Blob([decodeURIComponent(body)], { type: mime });
+  } catch {
+    // Malformed base64 or a broken escape: nothing to hand to the clipboard.
+    return undefined;
+  }
+}
+
 async function pngOf(src: string): Promise<Blob | undefined> {
-  const blob = await (await fetch(src)).blob();
+  // A data URL is already in hand — `fetch` would only be refused by CSP.
+  const blob = decodeDataUrl(src) ?? (await (await fetch(src)).blob());
   const bmp = await createImageBitmap(blob);
   try {
     const canvas = document.createElement("canvas");
