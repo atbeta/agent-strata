@@ -1,7 +1,7 @@
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import { Button } from "@/components/ui/button";
 import { DialogPrimitive } from "@/components/ui/command-dialog";
-import { copyImage } from "./clipboard";
+import { copyImage, saveImage } from "./clipboard";
 import { Icon } from "./icons";
 import { t } from "./i18n";
 import { fitScale, zoomAt, zoomBounds } from "./image-zoom";
@@ -24,7 +24,10 @@ export function ImageViewerHost() {
   const [fit, setFit] = createSignal(1);
   const [pos, setPos] = createSignal({ x: 0, y: 0 });
   const [copied, setCopied] = createSignal(false);
+  /** Where the last save landed, so the button can say it rather than blink. */
+  const [saved, setSaved] = createSignal("");
   let copyTimer: ReturnType<typeof setTimeout> | undefined;
+  let saveTimer: ReturnType<typeof setTimeout> | undefined;
   let frame: HTMLDivElement | undefined;
   let returnFocus: HTMLElement | undefined;
   /** A pan in progress; `moved` outlives it long enough for the click after
@@ -67,9 +70,11 @@ export function ImageViewerHost() {
   createEffect(() => {
     if (!viewer()) return;
     setCopied(false);
+    setSaved("");
     drag = undefined;
     moved = 0;
     onCleanup(() => clearTimeout(copyTimer));
+    onCleanup(() => clearTimeout(saveTimer));
   });
 
   const copy = async (src: string) => {
@@ -77,6 +82,22 @@ export function ImageViewerHost() {
     setCopied(true);
     clearTimeout(copyTimer);
     copyTimer = setTimeout(() => setCopied(false), 2000);
+  };
+
+  /**
+   * Save the picture as its own file.
+   *
+   * The clipboard keeps pixels; a file keeps the picture — and for a screenshot
+   * a tool produced this is the only way to get it out of the app at all. The
+   * shell's save panel reports the path back, which is worth saying out loud:
+   * the reader picked a folder and should see which one.
+   */
+  const save = async (src: string, alt: string) => {
+    const path = await saveImage(src, alt).catch(() => undefined);
+    if (!path) return;
+    setSaved(path);
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => setSaved(""), 6000);
   };
 
   return (
@@ -172,6 +193,15 @@ export function ImageViewerHost() {
                 <Button
                   variant="icon"
                   size="icon-sm"
+                  aria-label={t("transcript.image.save")}
+                  class="bg-secondary/80 hover:bg-secondary"
+                  onClick={() => void save(v().src, v().alt)}
+                >
+                  <Icon name="download" class="size-4" />
+                </Button>
+                <Button
+                  variant="icon"
+                  size="icon-sm"
                   aria-label={t("transcript.image.close")}
                   class="bg-secondary/80 hover:bg-secondary"
                   onClick={close}
@@ -179,6 +209,13 @@ export function ImageViewerHost() {
                   <Icon name="x" class="size-4" />
                 </Button>
               </div>
+              {/* Where the file went, under the picture rather than beside a
+                  button: a path is long and the corner is small. */}
+              <Show when={saved()}>
+                <p class="absolute inset-x-0 bottom-3 text-center font-mono text-2xs text-muted-foreground">
+                  {t("transcript.image.saved", { path: saved() })}
+                </p>
+              </Show>
             </DialogPrimitive.Content>
           </DialogPrimitive.Portal>
         </DialogPrimitive>

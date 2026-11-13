@@ -61,6 +61,8 @@ export default {
   "transcript.image": "image",
   "transcript.image.view": "View image",
   "transcript.image.copy": "Copy image",
+  "transcript.image.save": "Save image…",
+  "transcript.image.saved": "Saved to {path}",
   "transcript.image.close": "Close",
   "transcript.toolRun.one": "Ran {n} tool",
   "transcript.toolRun.other": "Ran {n} tools",

@@ -60,6 +60,8 @@ export default {
   "transcript.image": "图片",
   "transcript.image.view": "查看大图",
   "transcript.image.copy": "复制图片",
+  "transcript.image.save": "保存图片…",
+  "transcript.image.saved": "已保存到 {path}",
   "transcript.image.close": "关闭",
   "transcript.toolRun.one": "执行了 {n} 个工具",
   "transcript.toolRun.other": "执行了 {n} 个工具",

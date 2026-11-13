@@ -1,3 +1,5 @@
+import { inDesktopShell } from "./shell";
+
 /**
  * One place for clipboard writes. `navigator.clipboard` is missing on
  * plain-HTTP contexts and can reject when the document lacks focus, so a copy
@@ -33,8 +35,6 @@ export async function copyText(text: string): Promise<boolean> {
     if (prev?.focus && prev.isConnected) prev.focus();
   }
 }
-
-import { inDesktopShell } from "./shell";
 
 /**
  * Pixels for the clipboard, or the address when pixels cannot be had.
@@ -96,6 +96,65 @@ export function decodeDataUrl(src: string): Blob | undefined {
     // Malformed base64 or a broken escape: nothing to hand to the clipboard.
     return undefined;
   }
+}
+
+/**
+ * The picture's own bytes — no canvas, no re-encode.
+ *
+ * `pngOf` re-encodes because the clipboard wants PNG and nothing else. A file
+ * on disk has no such rule: saving a JPEG should produce a JPEG, not a lossless
+ * copy of what it looked like when it was decoded.
+ */
+export async function imageBytesOf(src: string): Promise<Blob | undefined> {
+  const decoded = decodeDataUrl(src);
+  if (decoded) return decoded;
+  try {
+    return await (await fetch(src)).blob();
+  } catch {
+    return undefined;
+  }
+}
+
+/** File name for a saved picture: the caller's hint, or a stamp, plus its type. */
+export function imageFileName(mime: string, hint?: string): string {
+  const ext =
+    { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp", "image/svg+xml": "svg" }[
+      mime.split(";")[0]!.trim()
+    ] ?? "png";
+  const stem = hint?.trim().replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "");
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+  return `${stem ? `${stem}-` : "image-"}${stamp}.${ext}`;
+}
+
+/**
+ * Write a picture to a file the reader chose, and answer with that path.
+ *
+ * The desktop shell asks for a real save panel — a webview download drops into
+ * `~/Downloads` without showing one, which is not what "save as" means. The
+ * browser path is the anchor trick, which cannot report a path back; it returns
+ * undefined and the caller says nothing rather than lying about where it went.
+ */
+export async function saveImage(src: string, hint?: string): Promise<string | undefined> {
+  const blob = await imageBytesOf(src);
+  if (!blob) return undefined;
+  const name = imageFileName(blob.type, hint);
+  if (inDesktopShell()) {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const saved = await invoke<string | null>("save_export", {
+      fileName: name,
+      contents: new Uint8Array(await blob.arrayBuffer()),
+    });
+    return saved ?? undefined;
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  return undefined;
 }
 
 async function pngOf(src: string): Promise<Blob | undefined> {

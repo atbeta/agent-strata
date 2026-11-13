@@ -10,7 +10,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { copyImage, copyText } from "./clipboard";
+import { copyImage, copyText, saveImage } from "./clipboard";
 import { pathActions } from "./path-link";
 import { Icon, type Name } from "./icons";
 import { openImage } from "./image-viewer";
@@ -54,6 +54,68 @@ import {
 import { MessageActions } from "./message-actions";
 import { clearProgress, progressLabel } from "./plugin-progress";
 import type { TurnPart } from "./turn-segments";
+
+/**
+ * What a right-click on a picture offers, wherever the picture is.
+ *
+ * The same three things apply to a markdown image in a reply and to a
+ * screenshot a tool produced: look at it, copy its pixels, put it on disk.
+ * They used to live inline in `MessageMenu` only, which wrapped messages — so
+ * a tool's attachment had no menu at all, and the global handler that
+ * suppresses the webview's own menu left a right-click doing nothing.
+ */
+function ImageMenuItems(props: { src: string; alt?: string }) {
+  return (
+    <>
+      <ContextMenuItem onSelect={() => openImage(props.src, props.alt ?? "")}>
+        <Icon name="maximize" class="size-3.5 text-muted-foreground" />
+        {t("transcript.image.view")}
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => void copyImage(props.src)}>
+        <Icon name="copy" class="size-3.5 text-muted-foreground" />
+        {t("transcript.image.copy")}
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => void saveImage(props.src, props.alt)}>
+        <Icon name="download" class="size-3.5 text-muted-foreground" />
+        {t("transcript.image.save")}
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+    </>
+  );
+}
+
+/**
+ * Right-click actions for pictures inside arbitrary content.
+ *
+ * `MessageMenu` only wraps messages, so anything drawn elsewhere — a tool's
+ * attachments, a generated file preview — had no image actions. This is the
+ * same idea narrowed to what those places need: find the picture under the
+ * pointer, offer its actions, and let every other right-click fall through to
+ * the trigger it would have hit anyway.
+ */
+function ImageContextMenu(props: { children: JSX.Element }) {
+  let ctxImage: HTMLImageElement | undefined;
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger class="contents">
+        <div
+          class="contents"
+          onContextMenu={(e) => {
+            ctxImage = e.target instanceof HTMLImageElement ? e.target : undefined;
+          }}
+        >
+          {props.children}
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent class="min-w-40">
+        {(() => {
+          const img = ctxImage;
+          return img ? <ImageMenuItems src={img.currentSrc || img.src} alt={img.alt} /> : null;
+        })()}
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
 
 /**
  * A right-click on a message gets the same things the action row under it
@@ -117,19 +179,10 @@ function MessageMenu(props: {
         {(() => {
           const img = ctxImage;
           return img ? (
-            <>
-              <ContextMenuItem onSelect={() => openImage(img.currentSrc || img.src, img.alt)}>
-                <Icon name="maximize" class="size-3.5 text-muted-foreground" />
-                {t("transcript.image.view")}
-              </ContextMenuItem>
-              <ContextMenuItem
-                onSelect={() => void copyImage(img.currentSrc || img.src)}
-              >
-                <Icon name="copy" class="size-3.5 text-muted-foreground" />
-                {t("transcript.image.copy")}
-              </ContextMenuItem>
-              <ContextMenuSeparator />
-            </>
+            <ImageMenuItems
+              src={img.currentSrc || img.src}
+              alt={img.alt}
+            />
           ) : null;
         })()}
         {(() => {
@@ -967,10 +1020,17 @@ function ToolCallCard(props: {
               a generated file, a fetched page. */}
           <Show when={props.call.attachments?.length}>
             <div class="mt-2 border-t border-border/60 pt-2">
-              <BlockText
-                blocks={props.call.attachments!}
-                scope={`${props.call.call_id}:att`}
-              />
+              {/* The message menu wraps messages, and a tool card is not one —
+                  so a screenshot had no right-click actions at all, and the
+                  global handler that suppresses the webview menu left it
+                  doing nothing. `ImageContextMenu` gives every picture the
+                  same three actions wherever it is drawn. */}
+              <ImageContextMenu>
+                <BlockText
+                  blocks={props.call.attachments!}
+                  scope={`${props.call.call_id}:att`}
+                />
+              </ImageContextMenu>
             </div>
           </Show>
           {/* The provenance is a footer, not a subtitle: what the tool did is
