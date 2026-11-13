@@ -13,7 +13,7 @@
  * Must equal `apps/desktop/src-tauri/tauri.conf.json`'s `version`; a test in
  * `packages/plugin-sdk/test` fails when they disagree. Bump both together.
  */
-export const STRATA_VERSION = "0.32.0";
+export const STRATA_VERSION = "0.32.1";
 
 type Comparator = { op: ">=" | ">" | "<=" | "<" | "="; version: [number, number, number] };
 
