@@ -135,6 +135,18 @@ export async function desktopRoute(
    * An empty value clears the setting rather than storing one — that is how
    * the field goes back to the state dir's own `worktrees`.
    */
+  if (path === "/desktop/worktree-root" && req.method === "GET") {
+    const configured = readWorktreeRoot(deps.desktopDir);
+    const roots = worktreeRoots(deps.desktopDir, configured);
+    return Response.json({
+      worktreeRoot: configured ?? null,
+      // Where new checkouts would land right now, so the screen can say it
+      // without repeating the fallback rule.
+      createsIn: roots[0] ?? null,
+      knownRoots: roots,
+    });
+  }
+
   if (path === "/desktop/worktree-root" && req.method === "PUT") {
     const body = (await req.json().catch(() => null)) as { path?: unknown } | null;
     const raw = typeof body?.path === "string" ? body.path.trim() : "";

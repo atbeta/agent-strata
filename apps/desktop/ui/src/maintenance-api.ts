@@ -166,3 +166,29 @@ export function deleteSession(id: string, localOnly: boolean): Promise<{
     method: "DELETE",
   });
 }
+
+/**
+ * Where new worktree checkouts go.
+ *
+ * `worktreeRoot` is what the reader chose (null when they never did), and
+ * `createsIn` is where the next one would actually land — the chosen folder,
+ * or the state dir's own `worktrees` when there is no choice.
+ */
+export interface WorktreeRootInfo {
+  worktreeRoot: string | null;
+  createsIn: string | null;
+  knownRoots: string[];
+}
+
+export function readWorktreeRoot(): Promise<WorktreeRootInfo> {
+  return request<WorktreeRootInfo>("/desktop/worktree-root");
+}
+
+/** An empty `path` clears the setting and goes back to the default. */
+export function setWorktreeRoot(path: string): Promise<{ worktreeRoot: string | null }> {
+  return request("/desktop/worktree-root", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ path }),
+  });
+}
