@@ -726,24 +726,22 @@ describe("a quiet session on a live connection", () => {
     const conn = await connectOpencode({
       baseUrl: "http://fake",
       sink: store,
-      // Busy at connect (the run is still going), idle by the time the quiet
-      // probe asks — the correction must come from the probe, not the connect.
-      fetch: quietProbeFetch(
-        () => (statusCalls.n <= 1 ? { [sid]: { type: "busy" } } : { [sid]: { type: "idle" } }),
-        statusCalls,
-      ) as typeof fetch,
+      // The frames below leave the store saying running; the backend's own
+      // table says idle by the time the quiet probe asks. Nothing else in the
+      // stream ever says idle, so the correction can only come from that read.
+      fetch: quietProbeFetch(() => ({ [sid]: { type: "idle" } }), statusCalls) as typeof fetch,
       connectTimeoutMs: 5_000,
       quietProbeMs: 100,
     });
     const casf = `opencode:${sid}`;
     const deadline = Date.now() + 4_000;
-    // The busy frames land after connectOpencode resolves — wait for the run
-    // to register before waiting for the correction.
     while (!store.sessionRunning(casf).running && Date.now() < deadline) await Bun.sleep(20);
+    expect(store.sessionRunning(casf).running).toBe(true);
     while (store.sessionRunning(casf).running && Date.now() < deadline) await Bun.sleep(20);
     expect(store.sessionRunning(casf).running).toBe(false);
-    // once at connect, once because the session went quiet while marked running
-    expect(statusCalls.n).toBeGreaterThanOrEqual(2);
+    // The connect read is skipped while the store has nothing running — there
+    // is nothing to correct — so the quiet probe is the one that asks.
+    expect(statusCalls.n).toBeGreaterThanOrEqual(1);
     conn.stop();
     store.close();
   });
@@ -762,8 +760,11 @@ describe("a quiet session on a live connection", () => {
     });
     const casf = `opencode:${sid}`;
     const deadline = Date.now() + 4_000;
-    while (statusCalls.n < 2 && Date.now() < deadline) await Bun.sleep(50);
-    expect(statusCalls.n).toBe(2); // connect + the one quiet probe
+    while (!store.sessionRunning(casf).running && Date.now() < deadline) await Bun.sleep(20);
+    while (statusCalls.n < 1 && Date.now() < deadline) await Bun.sleep(20);
+    // One read: the probe. The backend's table lists this session, so it is
+    // running and the projection is left alone.
+    expect(statusCalls.n).toBe(1);
     expect(store.sessionRunning(casf).running).toBe(true);
     conn.stop();
     store.close();

@@ -448,3 +448,82 @@ describe("store.query", () => {
     s.close();
   });
 });
+
+describe("running sessions, asked of the whole store at once", () => {
+  /**
+   * The bulk answer has to agree with the single-session one, exactly.
+   *
+   * A correction at connect time uses this to decide what to rewrite, and the
+   * two must never disagree: the per-session answer is what every other caller
+   * reads, so a bulk query that drifted would correct sessions that are fine
+   * and leave the ones that are not.
+   */
+  test("agrees with sessionRunning for every session in the store", () => {
+    const s = openStore(":memory:");
+    s.append([mk("opencode:busy", "session.started", { workspace: "/repo" })]);
+    s.append([mk("opencode:busy", "session.status", { state: "busy" })]);
+
+    s.append([mk("opencode:idle", "session.started", { workspace: "/other" })]);
+    s.append([mk("opencode:idle", "session.status", { state: "busy" })]);
+    s.append([mk("opencode:idle", "session.status", { state: "idle" })]);
+
+    s.append([mk("opencode:ended", "session.started", { workspace: "/repo" })]);
+    s.append([mk("opencode:ended", "session.status", { state: "busy" })]);
+    s.append([mk("opencode:ended", "session.ended", { reason: "completed" })]);
+
+    s.append([mk("opencode:errored", "session.started", { workspace: "/repo" })]);
+    s.append([mk("opencode:errored", "session.status", { state: "busy" })]);
+    s.append([mk("opencode:errored", "session.error", { error: { message: "boom" } })]);
+
+    // `retry` is still a run: the backend is working, just not on the reply.
+    s.append([mk("opencode:retrying", "session.started", { workspace: "/repo" })]);
+    s.append([mk("opencode:retrying", "session.status", { state: "retry" })]);
+
+    // Started but never said what it is doing: nothing to correct.
+    s.append([mk("opencode:quiet", "session.started", { workspace: "/repo" })]);
+
+    const ids = [
+      "opencode:busy",
+      "opencode:idle",
+      "opencode:ended",
+      "opencode:errored",
+      "opencode:retrying",
+      "opencode:quiet",
+    ];
+    const bulk = new Map(s.runningSessions().map((row) => [row.session_id, row]));
+    for (const id of ids) {
+      expect({ id, running: bulk.has(id) }).toEqual({ id, running: s.sessionRunning(id).running });
+    }
+    expect([...bulk.keys()].sort()).toEqual(["opencode:busy", "opencode:retrying"]);
+    s.close();
+  });
+
+  test("carries the workspace, so the answer can be compared per directory", () => {
+    const s = openStore(":memory:");
+    s.append([mk("opencode:a", "session.started", { workspace: "D:/code/a" })]);
+    s.append([mk("opencode:a", "session.status", { state: "busy" })]);
+    s.append([mk("opencode:b", "session.started", { workspace: "D:/code/b" })]);
+    s.append([mk("opencode:b", "session.status", { state: "busy" })]);
+
+    const byId = new Map(s.runningSessions().map((row) => [row.session_id, row]));
+    expect(byId.get("opencode:a")?.workspace).toBe("D:/code/a");
+    expect(byId.get("opencode:b")?.workspace).toBe("D:/code/b");
+    s.close();
+  });
+
+  test("carries the position the correction is written against", () => {
+    const s = openStore(":memory:");
+    s.append([mk("opencode:a", "session.started", { workspace: "/repo" })]);
+    s.append([mk("opencode:a", "session.status", { state: "busy" })]);
+    const row = s.runningSessions()[0]!;
+    expect(row.seq).toBe(s.sessionRunning("opencode:a").seq);
+    expect(row.ts).toBe(s.sessionRunning("opencode:a").ts);
+    s.close();
+  });
+
+  test("an empty store has nothing to correct", () => {
+    const s = openStore(":memory:");
+    expect(s.runningSessions()).toEqual([]);
+    s.close();
+  });
+});

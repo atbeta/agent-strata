@@ -29,6 +29,21 @@ export interface BackendSink {
    */
   sessionRunning(sessionId: string): { running: boolean; seq: number; ts?: string };
   /**
+   * Every session the projection still calls running, with its workspace.
+   *
+   * The same question asked of the whole store at once, because a connect-time
+   * correction acts on every stored session and asking one at a time cost a
+   * query each. `workspace` is how the caller tells "this backend is not
+   * running it" from "this backend was never asked about that directory" —
+   * the status table is per instance, so the two are different answers.
+   */
+  runningSessions(): {
+    session_id: string;
+    seq: number;
+    ts?: string;
+    workspace?: string;
+  }[];
+  /**
    * Keep a tool attachment's bytes somewhere the reader can fetch them later.
    *
    * A screenshot past the inline cap cannot ride in the event — it would be

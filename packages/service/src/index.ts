@@ -298,6 +298,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     sessionRevision: (sessionId) => store.sessionRevision(sessionId),
     markRevision: (sessionId, revision) => store.markRevision(sessionId, revision),
     sessionRunning: (sessionId) => store.sessionRunning(sessionId),
+    runningSessions: () => store.runningSessions(),
     spillAttachment: (mime, base64) => {
       try {
         const bytes = Buffer.from(base64, "base64");

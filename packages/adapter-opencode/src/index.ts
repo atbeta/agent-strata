@@ -350,6 +350,21 @@ export async function connectOpencode(opts: {
    * projection is durable, this process's memory is not, so a restart or a
    * reconnect is exactly where the two can disagree with nothing to correct it.
    *
+   * The answer is a list of what *is* running, not of what is idle: the
+   * backend's status table holds only the sessions it is working on and drops
+   * a session the moment it goes idle (`session/status.ts`: `set` deletes on
+   * idle, `list` returns what is left). This used to read the response looking
+   * for `type: "idle"` entries, which that table never contains — so the
+   * correction never ran once, and a session left busy by a restart kept its
+   * running mark forever. The condition is inverted here, and the inversion is
+   * the whole fix.
+   *
+   * The table is per directory — one backend instance each — so a session that
+   * belongs to a directory this call did not ask about is not "idle", it is
+   * unknown, and correcting it would blank a plan or a reply that is still
+   * being written. Hence: group by workspace, ask each, and only correct the
+   * sessions whose own directory answered.
+   *
    * Once per connection, not on a timer: a session that drifts while the stream
    * is healthy produces an event, and a poll would spend a request per period
    * to cover a case that only opens at a boundary. A failure here is silence,
@@ -357,21 +372,46 @@ export async function connectOpencode(opts: {
    * connect asks again.
    */
   const reconcileIdle = async () => {
-    try {
-      const statuses = await client.session.status({ directory: opts.directory });
-      const idle = Object.entries(statuses.data ?? {})
-        .filter(([, status]) => (status as { type?: string }).type === "idle")
-        .map(([sessionID]) => sessionID);
-      if (idle.length > 0) {
-        // The store is asked, not this connection: the run this correction is
-        // for happened before it, so nothing here watched it go busy.
-        const read = opts.sink.sessionRunning?.bind(opts.sink);
-        ingestor.append(mapper.reconcileIdle(idle, read));
+    const running = opts.sink.runningSessions?.();
+    if (!running || running.length === 0) return;
+    const read = opts.sink.sessionRunning?.bind(opts.sink);
+
+    // Which sessions each directory's answer would settle. A session with no
+    // stored workspace falls to the connection's own directory — that is the
+    // one directory this adapter can always ask about.
+    const wanted = new Map<string, string[]>();
+    for (const row of running) {
+      const native = row.session_id.replace(/^[a-z-]+:/, "");
+      const dir = row.workspace ?? opts.directory;
+      if (!dir) continue;
+      const list = wanted.get(dir);
+      if (list) list.push(native);
+      else wanted.set(dir, [native]);
+    }
+
+    const idle: string[] = [];
+    for (const [directory, sessions] of wanted) {
+      try {
+        const statuses = await client.session.status({ directory });
+        const busy = new Set(
+          Object.entries(statuses.data ?? {})
+            .filter(([, status]) => (status as { type?: string }).type !== "idle")
+            .map(([sessionID]) => sessionID),
+        );
+        // Only this directory's own sessions. The list is what the backend is
+        // running; a name that is not in it is idle *for that instance*.
+        for (const native of sessions) if (!busy.has(native)) idle.push(native);
+      } catch (err) {
+        // A directory that cannot answer says nothing about its sessions;
+        // they stay as they are and the next connect asks again.
+        console.error(`opencode status reconcile failed for ${directory}:`, err);
       }
-    } catch (err) {
-      // A backend that cannot answer says nothing about the run; leave the
-      // projection alone rather than guessing in either direction.
-      console.error("opencode status reconcile failed:", err);
+    }
+
+    if (idle.length > 0) {
+      // The store is asked, not this connection: the run this correction is
+      // for happened before it, so nothing here watched it go busy.
+      ingestor.append(mapper.reconcileIdle(idle, read));
     }
   };
 

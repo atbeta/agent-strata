@@ -106,6 +106,26 @@ export interface Store {
    * session up the list.
    */
   sessionRunning(session_id: string): { running: boolean; seq: number; ts?: string };
+  /**
+   * Every session the projection still calls running, with where it sits.
+   *
+   * The same question as `sessionRunning` asked of the whole store at once.
+   * A correction at connect time has to act on sessions this process never
+   * watched — that is the shape of the failure it exists for — and asking one
+   * row at a time meant one query per stored session before the check could
+   * even start.
+   *
+   * `workspace` rides along because the answer it is compared against comes
+   * from the backend per directory: the status table is one instance's, and a
+   * session belonging to another directory is not in it. Without the grouping
+   * key a caller cannot tell "not running" from "asked the wrong instance".
+   */
+  runningSessions(): {
+    session_id: string;
+    seq: number;
+    ts?: string;
+    workspace?: string;
+  }[];
   search(
     query: string,
     opts?: { session_id?: string; limit?: number },
@@ -496,6 +516,62 @@ export function openStore(path: string | ":memory:"): Store {
         seq: head.last_seq,
         ts: head.last_ts ?? undefined,
       };
+    },
+
+    runningSessions() {
+      // The same answer as `sessionRunning`, asked once for every session.
+      //
+      // Correlating the last of the four deciding events per session is one
+      // pass over the events table with an index on `session_id`, where asking
+      // one session at a time was one query each before the caller could even
+      // start. The join to `sessions` supplies the position and workspace the
+      // correction needs; a session with no deciding event at all is not
+      // running and does not appear.
+      const rows = db
+        .query(
+          `SELECT e.session_id AS sid, e.type AS type, e.body AS body,
+                  s.last_seq AS head_seq, s.last_ts AS head_ts, s.workspace AS workspace
+           FROM events e
+           JOIN (SELECT session_id, MAX(seq) AS seq FROM events
+                 WHERE type IN ('session.status','session.ended','session.error','session.deleted')
+                 GROUP BY session_id) last
+             ON last.session_id = e.session_id AND last.seq = e.seq
+           JOIN sessions s ON s.session_id = e.session_id`,
+        )
+        .all() as {
+        sid: string;
+        type: string;
+        body: string;
+        head_seq: number;
+        head_ts: string | null;
+        workspace: string | null;
+      }[];
+      const out: {
+        session_id: string;
+        seq: number;
+        ts?: string;
+        workspace?: string;
+      }[] = [];
+      for (const row of rows) {
+        // Only a `session.status` that is not `idle` reads as running; an
+        // ending of any kind is not. Parsed here rather than with
+        // `json_extract`, for the reason `sessionRunning` gives.
+        if (row.type !== "session.status") continue;
+        let state: string | undefined;
+        try {
+          state = (JSON.parse(row.body) as { data?: { state?: string } }).data?.state;
+        } catch {
+          continue;
+        }
+        if (state === undefined || state === "idle") continue;
+        out.push({
+          session_id: row.sid,
+          seq: row.head_seq,
+          ts: row.head_ts ?? undefined,
+          ...(row.workspace ? { workspace: row.workspace } : {}),
+        });
+      }
+      return out;
     },
 
     search(query, { session_id, limit } = {}) {

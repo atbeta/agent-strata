@@ -31,6 +31,21 @@ export interface Sink {
    */
   sessionRunning?(sessionId: string): { running: boolean; seq: number; ts?: string };
   /**
+   * Every session the projection still calls running, with its workspace.
+   *
+   * The same question asked of the whole store at once. A correction at
+   * connect time acts on sessions this process never watched — that is the
+   * shape of the failure — and asking one at a time meant a query per stored
+   * session before the check could start. `workspace` rides along so the
+   * caller can make sure the backend instance it asks is the right one.
+   */
+  runningSessions?(): {
+    session_id: string;
+    seq: number;
+    ts?: string;
+    workspace?: string;
+  }[];
+  /**
    * Keep an attachment's bytes somewhere the reader can fetch them later.
    *
    * A tool result carrying a screenshot larger than the inline cap cannot put
