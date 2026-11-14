@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -18,6 +19,7 @@ import {
   worktreeInfo,
   worktreeList,
   worktreeRemove,
+  worktreeRoots,
   withWorktrees,
 } from "../src/worktree";
 
@@ -338,5 +340,77 @@ describe("withWorktrees", () => {
     expect(at).toBeGreaterThan(-1);
     const options = src.slice(at, src.indexOf("});", at));
     expect(options).toContain("windowsHide: true");
+  });
+});
+
+describe("where checkouts go", () => {
+  /**
+   * A configured root moves where new checkouts are made, and nothing else.
+   *
+   * The state dir's own `worktrees` stays a known root on purpose: checkouts
+   * made before the setting existed still live there, and a sweep that only
+   * knew the new root would leave them invisible and un-removable — a
+   * directory the app created, cannot show, and refuses to delete.
+   */
+  test("a configured root takes new checkouts, and the old one still works", async () => {
+    const repo = makeRepo();
+    const state = tempDir();
+    const custom = tempDir();
+
+    const fresh = await worktreeAdd({ dir: repo, stateDir: state, root: custom });
+    expect(fresh.directory.startsWith(realpathSync(custom))).toBe(true);
+
+    const legacy = await worktreeAdd({ dir: repo, stateDir: state });
+    expect(legacy.directory.startsWith(realpathSync(state))).toBe(true);
+
+    // Both are ours: the listing marks them, and both can be removed.
+    const marked = await withWorktrees(
+      [{ directory: repo }, { directory: fresh.directory }, { directory: legacy.directory }],
+      state,
+      { root: custom },
+    );
+    const byDir = new Map(marked.map((w) => [w.directory, w]));
+    expect(byDir.get(fresh.directory)?.worktree?.branch).toBe(fresh.branch);
+    expect(byDir.get(legacy.directory)?.worktree?.branch).toBe(legacy.branch);
+
+    await worktreeRemove({ dir: fresh.directory, force: true, stateDir: state, root: custom });
+    expect(existsSync(fresh.directory)).toBe(false);
+    await worktreeRemove({ dir: legacy.directory, force: true, stateDir: state, root: custom });
+    expect(existsSync(legacy.directory)).toBe(false);
+  });
+
+  test("a checkout under the old root is still found when the setting moved", async () => {
+    // The one that would strand: made before the setting, listed while the
+    // setting points elsewhere. It has to show up in the orphan sweep, and a
+    // removal has to recognise it as ours.
+    const repo = makeRepo();
+    const state = tempDir();
+    const custom = tempDir();
+    const legacy = await worktreeAdd({ dir: repo, stateDir: state });
+
+    const marked = await withWorktrees([{ directory: repo }], state, { root: custom });
+    const row = marked.find((w) => w.directory === legacy.directory);
+    expect(row?.worktree).toBeTruthy();
+
+    await worktreeRemove({ dir: legacy.directory, force: true, stateDir: state, root: custom });
+    expect(existsSync(legacy.directory)).toBe(false);
+  });
+
+  test("an empty setting falls back to the state dir", () => {
+    const state = tempDir();
+    const roots = worktreeRoots(state, "   ");
+    expect(roots).toHaveLength(1);
+    expect(roots[0]).toBe(realpathSync(state).endsWith("worktrees")
+      ? realpathSync(state)
+      : join(realpathSync(state), "worktrees"));
+  });
+
+  test("the two roots are both listed, configured first", () => {
+    const state = tempDir();
+    const custom = tempDir();
+    const roots = worktreeRoots(state, custom);
+    expect(roots).toHaveLength(2);
+    expect(roots[0]).toBe(realpathSync(custom));
+    expect(roots[1]).toBe(join(realpathSync(state), "worktrees"));
   });
 });

@@ -251,6 +251,53 @@ export async function reposOf(dirs: readonly { directory: string }[]): Promise<s
   return [...out];
 }
 
+/** The place checkouts have always lived, and still the default. */
+function legacyRoot(stateDir: string): string {
+  return join(stateDir, "worktrees");
+}
+
+/**
+ * Every root a checkout may live under, the one to create in first.
+ *
+ * The configured root leads; the state dir's own `worktrees` is always in the
+ * list, because checkouts made before the setting existed still live there. A
+ * setting that silently orphaned them — invisible in the sidebar, refused by
+ * `remove` — would be worse than not having the setting at all, so "where new
+ * ones go" and "where ours may be" are deliberately two different questions
+ * answered from this one list.
+ */
+export function worktreeRoots(stateDir: string, configured?: string): string[] {
+  const out: string[] = [];
+  const add = (raw: string) => {
+    const abs = resolve(raw);
+    const real = canonical(abs);
+    if (!out.includes(real)) out.push(real);
+  };
+  if (configured && configured.trim()) add(configured.trim());
+  add(legacyRoot(stateDir));
+  return out;
+}
+
+/**
+ * Is `dir` inside `root`?
+ *
+ * Windows compares paths without regard to case and accepts either separator,
+ * so a plain `startsWith` is wrong there in both directions: `D:\\Worktrees`
+ * and `d:/worktrees` are one folder, and a checkout under either spelling has
+ * to be recognised as ours — the alternative is a directory the app created,
+ * cannot see, and refuses to remove.
+ */
+function withinPath(dir: string, root: string): boolean {
+  const base = root.endsWith(sep) ? root : root + sep;
+  if (process.platform !== "win32") return dir.startsWith(base);
+  const norm = (p: string) => p.replace(/[\\/]+/g, "\\").toLowerCase();
+  return norm(dir).startsWith(norm(base));
+}
+
+function underRoots(dir: string, roots: readonly string[]): boolean {
+  return roots.some((root) => withinPath(dir, root));
+}
+
 /**
  * A new checkout beside the repo's own, on a new `strata/<name>` branch off
  * the repo's HEAD. Worktrees live under the service's state dir — inside the
@@ -262,6 +309,8 @@ export async function worktreeAdd(opts: {
   name?: string;
   branch?: string;
   stateDir: string;
+  /** Where new checkouts go, when the reader chose somewhere else. */
+  root?: string;
 }): Promise<WorktreeAdded> {
   const repo = await toplevel(opts.dir);
   if (!repo) throw new WorktreeError("not a git repository");
@@ -269,7 +318,9 @@ export async function worktreeAdd(opts: {
     .update(repo)
     .digest("hex")
     .slice(0, 6)}`;
-  const parent = join(opts.stateDir, "worktrees", key);
+  // New checkouts go under the first root only. The legacy one stays known
+  // for the ones already there; it is not a second place to create.
+  const parent = join(worktreeRoots(opts.stateDir, opts.root)[0]!, key);
   mkdirSync(parent, { recursive: true });
   const base = opts.name?.trim() || slug();
   for (let i = 1; i <= 10; i += 1) {
@@ -299,6 +350,8 @@ export async function worktreeRemove(opts: {
   dir: string;
   force?: boolean;
   stateDir: string;
+  /** Where new checkouts go, when the reader chose somewhere else. */
+  root?: string;
   /**
    * The repositories the app knows about — asked only when the checkout's own
    * folder can no longer answer for itself, because working them out costs a
@@ -328,12 +381,13 @@ export async function worktreeRemove(opts: {
     if (sibling) owner = await worktreeOwner(dir, [sibling]);
   }
   const repo = info?.repo ?? owner?.repo;
+  const roots = worktreeRoots(opts.stateDir, opts.root);
   if (!repo) {
     // git has already given this checkout up: it drops the registration
     // before it deletes the folder, so a removal that failed leaves a
-    // directory with nothing left naming it. Under our own root that is ours
-    // to finish, and it is the only way it goes away.
-    if (!underOwnRoot(dir, opts.stateDir)) throw new WorktreeError("not a worktree");
+    // directory with nothing left naming it. Under one of our roots that is
+    // ours to finish, and it is the only way it goes away.
+    if (!underRoots(dir, roots)) throw new WorktreeError("not a worktree");
     await removeDirectory(dir, opts.release);
     return;
   }
@@ -354,9 +408,9 @@ export async function worktreeRemove(opts: {
     opts.force === true,
     opts.release,
   );
-  // Empty parents under our own worktrees root go with it; anywhere else is
+  // Empty parents under one of our own roots go with it; anywhere else is
   // not ours to clean.
-  if (underOwnRoot(dir, opts.stateDir)) {
+  if (underRoots(dir, roots)) {
     for (const parent of [dirname(dir), dirname(dirname(dir))]) {
       try {
         rmdirSync(parent);
@@ -365,11 +419,6 @@ export async function worktreeRemove(opts: {
       }
     }
   }
-}
-
-/** Is this directory one the service created, under its own worktrees root? */
-function underOwnRoot(dir: string, stateDir: string): boolean {
-  return dir.startsWith(canonical(join(stateDir, "worktrees")) + sep);
 }
 
 /** How many times to try a directory something is still holding, and how long
@@ -524,7 +573,11 @@ async function toplevelCached(dir: string): Promise<string | undefined> {
   return top;
 }
 
-export async function withWorktrees(dirs: WorkspaceDir[], stateDir: string): Promise<WorkspaceDir[]> {
+export async function withWorktrees(
+  dirs: WorkspaceDir[],
+  stateDir: string,
+  opts?: { root?: string },
+): Promise<WorkspaceDir[]> {
   const tops = new Map<string, string>();
   const repos = new Set<string>();
   await mapLimit(dirs, async (w) => {
@@ -536,7 +589,7 @@ export async function withWorktrees(dirs: WorkspaceDir[], stateDir: string): Pro
   });
   const marks = new Map<string, { repo: string; branch?: string }>();
   const ours = new Set<string>();
-  const ourRoot = canonical(join(stateDir, "worktrees")) + sep;
+  const roots = worktreeRoots(stateDir, opts?.root);
   await mapLimit([...repos], async (repo) => {
     let entries: WorktreeEntry[];
     try {
@@ -550,7 +603,7 @@ export async function withWorktrees(dirs: WorkspaceDir[], stateDir: string): Pro
     for (const e of entries) {
       if (e.main) continue;
       marks.set(e.path, { repo: main, ...(e.branch ? { branch: e.branch } : {}) });
-      if (e.path.startsWith(ourRoot)) ours.add(e.path);
+      if (underRoots(e.path, roots)) ours.add(e.path);
     }
   });
   const byPath = new Map(dirs.map((w) => [canonical(w.directory), w] as const));
@@ -562,7 +615,7 @@ export async function withWorktrees(dirs: WorkspaceDir[], stateDir: string): Pro
   // failed leaves a directory with nothing left naming it — still the app's,
   // still on disk, and the only way it goes is through the remove action.
   const known = new Set(marks.keys());
-  for (const path of ownCheckouts(stateDir)) {
+  for (const path of ownCheckouts(stateDir, opts?.root)) {
     if (known.has(path)) continue;
     const existing = byPath.get(path);
     if (existing?.worktree) continue;
@@ -582,33 +635,35 @@ export async function withWorktrees(dirs: WorkspaceDir[], stateDir: string): Pro
 }
 
 /**
- * The checkouts under the service's own root, whatever git still knows
- * about them.
+ * The checkouts under the roots we own, whatever git still knows about them.
  *
  * One level of repository key, one of checkout: the shape `worktreeAdd`
- * creates them in.
+ * creates them in. Both roots are walked, because a checkout made before the
+ * root setting existed is still ours — leaving it out of this sweep is what
+ * would turn it into a directory the app can neither show nor remove.
  */
-function ownCheckouts(stateDir: string): string[] {
-  const root = join(stateDir, "worktrees");
+function ownCheckouts(stateDir: string, configured?: string): string[] {
   const out: string[] = [];
-  let repos: Dirent[];
-  try {
-    repos = readdirSync(root, { withFileTypes: true });
-  } catch {
-    return out;
-  }
-  for (const repo of repos) {
-    if (!repo.isDirectory()) continue;
-    const parent = join(root, repo.name);
-    let names: Dirent[];
+  for (const root of worktreeRoots(stateDir, configured)) {
+    let repos: Dirent[];
     try {
-      names = readdirSync(parent, { withFileTypes: true });
+      repos = readdirSync(root, { withFileTypes: true });
     } catch {
       continue;
     }
-    for (const name of names) {
-      if (!name.isDirectory()) continue;
-      out.push(canonical(join(parent, name.name)));
+    for (const repo of repos) {
+      if (!repo.isDirectory()) continue;
+      const parent = join(root, repo.name);
+      let names: Dirent[];
+      try {
+        names = readdirSync(parent, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const name of names) {
+        if (!name.isDirectory()) continue;
+        out.push(canonical(join(parent, name.name)));
+      }
     }
   }
   return out;

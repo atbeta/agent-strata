@@ -38,6 +38,22 @@ export function readOpencodeMode(dir: string): OpencodeLaunchMode {
   return "embed";
 }
 
+/**
+ * Where the reader asked new checkouts to go, if anywhere.
+ *
+ * Absent means the state dir's own `worktrees`, which is where every checkout
+ * has lived until now. An empty string is treated the same as absent: clearing
+ * the field in settings is how a reader says "put it back".
+ */
+export function readWorktreeRoot(dir: string): string | undefined {
+  const parsed = readDesktopJson(join(dir, "desktop.json"));
+  if (!parsed || typeof parsed !== "object" || parsed === null) return undefined;
+  const root = (parsed as { worktreeRoot?: unknown }).worktreeRoot;
+  if (typeof root !== "string") return undefined;
+  const trimmed = root.trim();
+  return trimmed ? trimmed : undefined;
+}
+
 export function autoConnectPlacement(
   opts: { autoConnect?: string; autoConnectPlacement?: "embed" | "external" },
   desktopDir: string,

@@ -51,7 +51,12 @@ import { sessionRoute } from "./session-routes";
 import { eventRoute } from "./event-routes";
 import { desktopRoute } from "./desktop-routes";
 import { workspaceRoute } from "./workspace-routes";
-import { autoConnectPlacement, readOpencodeMode, readOpencodeStatus } from "./opencode-status";
+import {
+  autoConnectPlacement,
+  readOpencodeMode,
+  readOpencodeStatus,
+  readWorktreeRoot,
+} from "./opencode-status";
 
 function logLine(message: string, data?: unknown): string {
   if (data === undefined) return message;
@@ -718,7 +723,14 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     const events = await eventRoute(req, path, { store, sessionView, subscribers, activeSyncs });
     if (events) return events;
 
-    const workspace = await workspaceRoute(req, path, { desktopDir, knownDirs, releaseInside });
+    const workspace = await workspaceRoute(req, path, {
+      desktopDir,
+      knownDirs,
+      releaseInside,
+      // Read per request: the setting lives in a file the settings page
+      // writes, and a value captured at boot would be ignored until restart.
+      worktreeRoot: () => readWorktreeRoot(desktopDir),
+    });
     if (workspace) return workspace;
 
     const connection = await connectionRoute(req, path, {
