@@ -134,6 +134,15 @@ export async function connectOpencode(opts: {
   quietProbeMs?: number;
   /** Testing seam: how often a still-quiet, still-busy session is asked again. */
   statusReprobeMs?: number;
+  /**
+   * How many running sessions one reconcile pass names to the server.
+   *
+   * Proving ownership costs one `session.get` per candidate, so this bounds a
+   * connect. Running sessions are few by nature; the cap is for a store that
+   * accumulated stale marks, where hundreds of round-trips on one connect
+   * would be worse than a mark that waits for the next one.
+   */
+  reconcileProbesMax?: number;
   fetch?: typeof fetch;
 }): Promise<{
   stop: () => void;
@@ -342,7 +351,7 @@ export async function connectOpencode(opts: {
   });
 
   /**
-   * Ask the backend which sessions it is not running, and believe it.
+   * Ask the backend which of its own sessions it is not running, and believe it.
    *
    * Everything else in this adapter infers `busy` from the event stream, which
    * is right until a frame goes missing — and then it is wrong forever, because
@@ -350,20 +359,24 @@ export async function connectOpencode(opts: {
    * projection is durable, this process's memory is not, so a restart or a
    * reconnect is exactly where the two can disagree with nothing to correct it.
    *
-   * The answer is a list of what *is* running, not of what is idle: the
-   * backend's status table holds only the sessions it is working on and drops
-   * a session the moment it goes idle (`session/status.ts`: `set` deletes on
-   * idle, `list` returns what is left). This used to read the response looking
-   * for `type: "idle"` entries, which that table never contains — so the
-   * correction never ran once, and a session left busy by a restart kept its
-   * running mark forever. The condition is inverted here, and the inversion is
-   * the whole fix.
+   * Two conditions, and both have to be about this server's own answer:
    *
-   * The table is per directory — one backend instance each — so a session that
-   * belongs to a directory this call did not ask about is not "idle", it is
-   * unknown, and correcting it would blank a plan or a reply that is still
-   * being written. Hence: group by workspace, ask each, and only correct the
-   * sessions whose own directory answered.
+   * The status table lists what *is* running, not what is idle: opencode keeps
+   * only the sessions it is working on and drops an entry the moment it goes
+   * idle (`session/status.ts` — `set` deletes on idle, `list` returns the
+   * rest). This used to read the response looking for `type: "idle"` entries,
+   * which that table never contains, so the correction never ran once and a
+   * session left busy by a restart kept its running mark forever. The
+   * condition is inverted here, and the inversion is half the fix.
+   *
+   * The other half is ownership. "This server is not running it" is not the
+   * same sentence as "it is idle": a session belonging to another connection —
+   * the same `opencode serve` started twice, an `opencode acp` channel, a
+   * session under a directory this instance never opened — is missing from the
+   * table because this server has never heard of it. Correcting on absence
+   * would blank a reply that connection is still writing. So each candidate is
+   * named to the server first (`session.get`), and only one it actually
+   * returns is considered; a miss leaves the projection exactly as it was.
    *
    * Once per connection, not on a timer: a session that drifts while the stream
    * is healthy produces an event, and a poll would spend a request per period
@@ -371,40 +384,86 @@ export async function connectOpencode(opts: {
    * not an error the reader can act on — the stream still works, and the next
    * connect asks again.
    */
+  /**
+   * How many candidates one reconcile pass will name to the server.
+   *
+   * A running session costs one `session.get` to prove ownership, so this is
+   * the pass's ceiling. Running sessions are few by nature — the count is what
+   * the sidebar shows as moving — and a store carrying hundreds of stale ones
+   * should not turn one connect into hundreds of round-trips. Whatever is past
+   * the cap keeps its mark until the next connect, which is where it would
+   * have been anyway before this pass existed.
+   */
+  const RECONCILE_PROBES_MAX = opts.reconcileProbesMax ?? 50;
+
   const reconcileIdle = async () => {
-    const running = opts.sink.runningSessions?.();
-    if (!running || running.length === 0) return;
+    const all = opts.sink.runningSessions?.();
+    if (!all || all.length === 0) return;
+    // This adapter corrects its own backend's sessions and nothing else. An ACP
+    // session left running is another adapter's problem, and its id would
+    // simply not resolve here.
+    const candidates = all.filter((row) => row.backend === "opencode");
+    if (candidates.length === 0) return;
     const read = opts.sink.sessionRunning?.bind(opts.sink);
 
-    // Which sessions each directory's answer would settle. A session with no
-    // stored workspace falls to the connection's own directory — that is the
-    // one directory this adapter can always ask about.
-    const wanted = new Map<string, string[]>();
-    for (const row of running) {
-      const native = row.session_id.replace(/^[a-z-]+:/, "");
-      const dir = row.workspace ?? opts.directory;
-      if (!dir) continue;
-      const list = wanted.get(dir);
+    /** Sessions this server answered for, and the directory it named. */
+    const confirmed = new Map<string, string | undefined>();
+    let probes = 0;
+    for (const row of candidates) {
+      if (probes >= RECONCILE_PROBES_MAX) break;
+      probes += 1;
+      const native = row.session_id.replace(/^opencode:/, "");
+      if (!native) continue;
+      // A stored workspace of `unknown` is a placeholder, not a directory: the
+      // session was met through a frame that carried no directory.
+      const stored =
+        row.workspace && row.workspace !== "unknown" && row.workspace !== "no workspace"
+          ? row.workspace
+          : undefined;
+      try {
+        let res = await client.session.get({
+          sessionID: native,
+          ...(stored ? { directory: stored } : {}),
+        });
+        // The stored workspace may have drifted; a miss there is not proof,
+        // so ask once more the way the indexer does.
+        if (!res.data && stored !== undefined) {
+          res = await client.session.get({ sessionID: native });
+        }
+        // Not this server's session. Leave it alone — another connection owns
+        // it, and its absence from the table says nothing about the run.
+        if (!res.data) continue;
+        const fromServer = (res.data as { directory?: string }).directory;
+        confirmed.set(native, fromServer ?? stored);
+      } catch {
+        // An unreachable server is not evidence either way.
+      }
+    }
+    if (confirmed.size === 0) return;
+
+    const byDirectory = new Map<string, string[]>();
+    for (const [native, dir] of confirmed) {
+      const key = dir ?? "";
+      const list = byDirectory.get(key);
       if (list) list.push(native);
-      else wanted.set(dir, [native]);
+      else byDirectory.set(key, [native]);
     }
 
     const idle: string[] = [];
-    for (const [directory, sessions] of wanted) {
+    for (const [directory, sessions] of byDirectory) {
       try {
-        const statuses = await client.session.status({ directory });
+        const statuses = await client.session.status({
+          ...(directory ? { directory } : {}),
+        });
         const busy = new Set(
           Object.entries(statuses.data ?? {})
             .filter(([, status]) => (status as { type?: string }).type !== "idle")
             .map(([sessionID]) => sessionID),
         );
-        // Only this directory's own sessions. The list is what the backend is
-        // running; a name that is not in it is idle *for that instance*.
         for (const native of sessions) if (!busy.has(native)) idle.push(native);
       } catch (err) {
-        // A directory that cannot answer says nothing about its sessions;
-        // they stay as they are and the next connect asks again.
-        console.error(`opencode status reconcile failed for ${directory}:`, err);
+        // A directory that cannot answer leaves its sessions as they are.
+        console.error(`opencode status reconcile failed for ${directory || "(root)"}:`, err);
       }
     }
 

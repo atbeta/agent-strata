@@ -122,6 +122,7 @@ export interface Store {
    */
   runningSessions(): {
     session_id: string;
+    backend: string;
     seq: number;
     ts?: string;
     workspace?: string;
@@ -529,7 +530,7 @@ export function openStore(path: string | ":memory:"): Store {
       // running and does not appear.
       const rows = db
         .query(
-          `SELECT e.session_id AS sid, e.type AS type, e.body AS body,
+          `SELECT e.session_id AS sid, e.type AS type, e.body AS body, s.backend AS backend,
                   s.last_seq AS head_seq, s.last_ts AS head_ts, s.workspace AS workspace
            FROM events e
            JOIN (SELECT session_id, MAX(seq) AS seq FROM events
@@ -542,12 +543,14 @@ export function openStore(path: string | ":memory:"): Store {
         sid: string;
         type: string;
         body: string;
+        backend: string | null;
         head_seq: number;
         head_ts: string | null;
         workspace: string | null;
       }[];
       const out: {
         session_id: string;
+        backend: string;
         seq: number;
         ts?: string;
         workspace?: string;
@@ -566,6 +569,7 @@ export function openStore(path: string | ":memory:"): Store {
         if (state === undefined || state === "idle") continue;
         out.push({
           session_id: row.sid,
+          backend: row.backend ?? "",
           seq: row.head_seq,
           ts: row.head_ts ?? undefined,
           ...(row.workspace ? { workspace: row.workspace } : {}),

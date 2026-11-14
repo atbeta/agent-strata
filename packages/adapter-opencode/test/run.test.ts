@@ -770,4 +770,169 @@ describe("a quiet session on a live connection", () => {
     store.close();
   });
 });
+
+describe("reconciling only what the server owns", () => {
+  /**
+   * A session the server has never heard of is not idle — it is someone
+   * else's.
+   *
+   * The status table lists what one instance is running, so a session that
+   * belongs to another connection (the same `serve` started twice, an `acp`
+   * channel, a directory this instance never opened) is absent from it. Read
+   * as "idle" that blanks a reply still being written somewhere else. The
+   * correction therefore names each candidate to the server first and only
+   * acts on one it answers for.
+   */
+  const ownershipFetch = (opts: {
+    get: (id: string) => { status: number; body?: object };
+    status: () => Record<string, { type: string }>;
+    log: { gets: string[]; statuses: number };
+  }) => {
+    const enc = new TextEncoder();
+    return async (input: Request | URL | string) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.includes("/global/event") || url.endsWith("/event")) {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(ctrl) {
+              ctrl.enqueue(enc.encode('data: {"type":"server.connected","properties":{}}\n\n'));
+            },
+          }),
+          { status: 200, headers: { "content-type": "text/event-stream" } },
+        );
+      }
+      // Status first: `/session/status` also starts with `/session/`.
+      if (url.includes("/session/status")) {
+        opts.log.statuses += 1;
+        return Response.json(opts.status());
+      }
+      const m = /\/session\/([^/?]+)/.exec(url);
+      if (m) {
+        const id = decodeURIComponent(m[1]!);
+        opts.log.gets.push(id);
+        const answer = opts.get(id);
+        if (answer.status !== 200) return new Response("{}", { status: answer.status });
+        return Response.json(answer.body ?? { id, directory: "/repo" });
+      }
+      return Response.json([]);
+    };
+  };
+
+  /** Leave a session marked running in the store, the way a restart finds one. */
+  const runningInStore = (store: ReturnType<typeof openStore>, casf: string) => {
+    store.append([
+      {
+        id: `${casf}:started`,
+        session_id: casf,
+        ts: "2026-01-01T00:00:00.000Z",
+        source: { backend: "opencode", native_id: casf.replace(/^opencode:/, "") },
+        type: "session.started",
+        data: { workspace: "/repo" },
+      } as unknown as EventInput,
+      {
+        id: `${casf}:busy`,
+        session_id: casf,
+        ts: "2026-01-01T00:00:01.000Z",
+        source: { backend: "opencode", native_id: casf.replace(/^opencode:/, "") },
+        type: "session.status",
+        data: { state: "busy" },
+      } as unknown as EventInput,
+    ]);
+  };
+
+  test("a session the server does not return is left exactly as it was", async () => {
+    const { connectOpencode } = await import("../src/index");
+    const store = openStore(":memory:");
+    runningInStore(store, "opencode:ses_theirs");
+    const log = { gets: [] as string[], statuses: 0 };
+    const conn = await connectOpencode({
+      baseUrl: "http://fake",
+      sink: store,
+      fetch: ownershipFetch({
+        // Not this server's session.
+        get: () => ({ status: 404 }),
+        // The table is empty, which would read as "everything is idle".
+        status: () => ({}),
+        log,
+      }) as typeof fetch,
+      connectTimeoutMs: 5_000,
+      quietProbeMs: 10_000_000,
+    });
+    await Bun.sleep(200);
+    expect(log.gets).toContain("ses_theirs");
+    // Absent from the table and unowned: still running, because this server
+    // never said it had it.
+    expect(store.sessionRunning("opencode:ses_theirs").running).toBe(true);
+    conn.stop();
+    store.close();
+  });
+
+  test("a session the server does return, and is not running, is corrected", async () => {
+    const { connectOpencode } = await import("../src/index");
+    const store = openStore(":memory:");
+    runningInStore(store, "opencode:ses_ours");
+    const log = { gets: [] as string[], statuses: 0 };
+    const conn = await connectOpencode({
+      baseUrl: "http://fake",
+      sink: store,
+      fetch: ownershipFetch({
+        get: (id) => ({ status: 200, body: { id, directory: "/repo" } }),
+        // Ours, and the table does not list it: idle.
+        status: () => ({}),
+        log,
+      }) as typeof fetch,
+      connectTimeoutMs: 5_000,
+      quietProbeMs: 10_000_000,
+    });
+    const casf = "opencode:ses_ours";
+    const deadline = Date.now() + 4_000;
+    while (store.sessionRunning(casf).running && Date.now() < deadline) await Bun.sleep(20);
+    expect(store.sessionRunning(casf).running).toBe(false);
+    conn.stop();
+    store.close();
+  });
+
+  test("a session of another backend is never asked about at all", async () => {
+    const { connectOpencode } = await import("../src/index");
+    const store = openStore(":memory:");
+    // An ACP session left running. Its id would not resolve on an opencode
+    // server anyway, and the correction is not that adapter's business.
+    store.append([
+      {
+        id: "acp:1:started",
+        session_id: "claude:ses_acp",
+        ts: "2026-01-01T00:00:00.000Z",
+        source: { backend: "acp" },
+        type: "session.started",
+        data: { workspace: "/repo" },
+      } as unknown as EventInput,
+      {
+        id: "acp:1:busy",
+        session_id: "claude:ses_acp",
+        ts: "2026-01-01T00:00:01.000Z",
+        source: { backend: "acp" },
+        type: "session.status",
+        data: { state: "busy" },
+      } as unknown as EventInput,
+    ]);
+    const log = { gets: [] as string[], statuses: 0 };
+    const conn = await connectOpencode({
+      baseUrl: "http://fake",
+      sink: store,
+      fetch: ownershipFetch({
+        get: (id) => ({ status: 200, body: { id, directory: "/repo" } }),
+        status: () => ({}),
+        log,
+      }) as typeof fetch,
+      connectTimeoutMs: 5_000,
+      quietProbeMs: 10_000_000,
+    });
+    await Bun.sleep(200);
+    expect(log.gets).not.toContain("ses_acp");
+    expect(log.statuses).toBe(0);
+    expect(store.sessionRunning("claude:ses_acp").running).toBe(true);
+    conn.stop();
+    store.close();
+  });
+});
 });

@@ -41,6 +41,8 @@ export interface Sink {
    */
   runningSessions?(): {
     session_id: string;
+    /** the adapter that wrote it; this one only corrects its own */
+    backend: string;
     seq: number;
     ts?: string;
     workspace?: string;

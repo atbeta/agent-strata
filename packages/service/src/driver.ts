@@ -39,6 +39,7 @@ export interface BackendSink {
    */
   runningSessions(): {
     session_id: string;
+    backend: string;
     seq: number;
     ts?: string;
     workspace?: string;
