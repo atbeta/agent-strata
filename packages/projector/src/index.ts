@@ -645,16 +645,22 @@ export function projectSession(events: Event[]): SessionView {
       for (let i = start; i < view.turns.length; i++) view.turns[i]!.reverted = true;
     }
   }
-  // The transcript is the authority on the plan, not the last `plan.updated`
-  // the wire happened to carry — the same conclusion the official client
-  // reaches with `sessionTodos`: the current list is the input of the latest
-  // completed `todowrite` before the revert boundary. Reads that way, a write
-  // that was reverted away, left interrupted, or lost between events cannot
-  // keep a stale list standing, and a `cancelled` entry — which the event
-  // path used to filter out — survives. Where no completed write exists the
-  // folded event still answers, for logs that predate the parts and for
-  // backends that only emit plan.updated.
-  {
+  // The table is the authority on the plan; the transcript is a copy of it.
+  //
+  // `/session/{id}/todo` reads the server's own `TodoTable`, which every
+  // `todowrite` replaces wholesale — so it is the current list whatever the
+  // history looks like. The `todowrite` calls in the transcript are only the
+  // record of those writes, and they diverge from the table in both
+  // directions: a compacted session loses the call entirely, a reverted turn
+  // keeps its call while the table is never rolled back, and a list edited
+  // from the TUI moves the table without leaving a call at all. Reading the
+  // copy first meant showing a plan the server had already left behind.
+  //
+  // The transcript is still read, but only when no `plan.updated` arrived —
+  // logs that predate the parts, and backends that emit no table at all. If
+  // the server's list is ever wrong, that is the server's to answer for; a
+  // reader that guessed differently would just be wrong in a second place.
+  if (view.plan === undefined) {
     let derived: SessionView["plan"] | undefined;
     outer: for (let i = view.turns.length - 1; i >= 0; i--) {
       const turn = view.turns[i]!;

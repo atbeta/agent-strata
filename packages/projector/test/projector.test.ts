@@ -899,17 +899,20 @@ describe("the plan a transcript proves", () => {
     { content: "b", status: "in_progress" },
   ];
 
-  test("the latest completed todowrite speaks, not the last event on the wire", () => {
-    // The event stream may carry a newer plan.updated than the transcript
-    // proves — a backend that emitted it for a write whose call errored, for
-    // instance. The completed call is the honest source.
+  test("the table speaks, not the transcript's copy of it", () => {
+    // The server's `TodoTable` is the authority: every `todowrite` replaces it
+    // wholesale, and `/session/{id}/todo` reads it back. A transcript can only
+    // hold the writes it still has — a compaction drops the call, a revert
+    // keeps the call that the table never rolled back, and a list edited from
+    // the TUI moves the table without leaving a call at all. So the folded
+    // event wins whenever there is one, and the write is the fallback.
     const v = projectSession([
       mk("s", "session.started", { workspace: "/w" }),
       turn("t1"),
       ...write("t1", "c1", items),
-      mk("s", "plan.updated", { entries: [{ content: "phantom", status: "pending" }] }),
+      mk("s", "plan.updated", { entries: [{ content: "from the table", status: "pending" }] }),
     ]);
-    expect(v.plan).toEqual(items);
+    expect(v.plan).toEqual([{ content: "from the table", status: "pending" }]);
   });
 
   test("a cancelled entry survives the derivation the event filter used to lose", () => {
@@ -945,14 +948,17 @@ describe("the plan a transcript proves", () => {
     expect(v.plan).toEqual(items); // event still answers: no completed write exists
   });
 
-  test("an empty write clears the list the events built", () => {
+  test("an empty write does not clear a list the table still holds", () => {
+    // The other half of the same rule. A session whose table still lists the
+    // work does not go blank because a later transcript read found no writes
+    // in it — that read is a partial replay, not a retraction.
     const v = projectSession([
       mk("s", "session.started", { workspace: "/w" }),
       mk("s", "plan.updated", { entries: items }),
       turn("t1"),
       ...write("t1", "c1", []),
     ]);
-    expect(v.plan).toEqual([]);
+    expect(v.plan).toEqual(items);
   });
 
   test("a session with no write at all still answers from plan.updated", () => {

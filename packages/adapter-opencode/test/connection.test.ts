@@ -532,6 +532,135 @@ describe("importSession revision", () => {
       store.close();
     }
   });
+
+  /**
+   * One plan for one state of the table.
+   *
+   * The synthetic todo event carries an id hashed from the list, so two imports
+   * of a different table are two rows and the projector reads the later one.
+   * The mapper re-keys the frame to its own content hash on the way through,
+   * which is what keeps an unchanged table from being appended twice.
+   */
+  test("a later import moves the plan the table reports", async () => {
+    const { connectOpencode } = await import("../src/index");
+    const enc = new TextEncoder();
+    let todos = [
+      { content: "first", status: "in_progress", priority: "high" },
+      { content: "second", status: "pending", priority: "low" },
+    ];
+    let updated = 7;
+    const info = () => ({
+      id: "ses_replan",
+      title: "T",
+      directory: dir,
+      // A session's revision is what an import dedups on, so the second read
+      // has to look like a session that changed.
+      time: { created: 1, updated },
+    });
+    const fakeFetch = async (input: Request | URL | string) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.includes("/session/ses_replan/todo")) return Response.json(todos);
+      if (url.includes("/session/ses_replan/message")) return Response.json([]);
+      if (url.includes("/session/ses_replan")) return Response.json(info());
+      if (url.includes("/event")) {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(ctrl) {
+              ctrl.enqueue(enc.encode('data: {"type":"server.connected","properties":{}}\n\n'));
+            },
+          }),
+          { status: 200, headers: { "content-type": "text/event-stream" } },
+        );
+      }
+      return new Response("{}", { status: 404 });
+    };
+    const store = openStore(":memory:");
+    const conn = await connectOpencode({
+      baseUrl: "http://fake",
+      sink: store,
+      fetch: fakeFetch as typeof fetch,
+      connectTimeoutMs: 5_000,
+    });
+    try {
+      expect(await conn.importSession("ses_replan", dir)).toBe(true);
+
+      // The work moved on: one step finished, one added.
+      todos = [
+        { content: "first", status: "completed", priority: "high" },
+        { content: "second", status: "in_progress", priority: "low" },
+        { content: "third", status: "pending", priority: "low" },
+      ];
+      updated = 9;
+      expect(await conn.importSession("ses_replan", dir)).toBe(true);
+
+      const plans = store
+        .read({ session_id: "opencode:ses_replan" })
+        .filter((e) => e.type === "plan.updated");
+      // Two reads of a changed table are two rows, so the projector sees the
+      // later one. One row means the second import was swallowed.
+      expect(plans.length).toBe(2);
+      expect((plans.at(-1)!.data as { entries: unknown[] }).entries).toEqual([
+        { content: "first", status: "completed" },
+        { content: "second", status: "in_progress" },
+        { content: "third", status: "pending" },
+      ]);
+    } finally {
+      conn.stop();
+      store.close();
+    }
+  });
+
+  test("an unchanged table is not appended twice", async () => {
+    // The id hashes the list, so a re-import that found the same table dedups
+    // exactly as it did before — the fix must not turn every poll into a row.
+    const { connectOpencode } = await import("../src/index");
+    const enc = new TextEncoder();
+    const todos = [{ content: "only", status: "pending", priority: "high" }];
+    let updated = 7;
+    const info = () => ({
+      id: "ses_same",
+      title: "T",
+      directory: dir,
+      time: { created: 1, updated },
+    });
+    const fakeFetch = async (input: Request | URL | string) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.includes("/session/ses_same/todo")) return Response.json(todos);
+      if (url.includes("/session/ses_same/message")) return Response.json([]);
+      if (url.includes("/session/ses_same")) return Response.json(info());
+      if (url.includes("/event")) {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(ctrl) {
+              ctrl.enqueue(enc.encode('data: {"type":"server.connected","properties":{}}\n\n'));
+            },
+          }),
+          { status: 200, headers: { "content-type": "text/event-stream" } },
+        );
+      }
+      return new Response("{}", { status: 404 });
+    };
+    const store = openStore(":memory:");
+    const conn = await connectOpencode({
+      baseUrl: "http://fake",
+      sink: store,
+      fetch: fakeFetch as typeof fetch,
+      connectTimeoutMs: 5_000,
+    });
+    try {
+      expect(await conn.importSession("ses_same", dir)).toBe(true);
+      updated = 9;
+      expect(await conn.importSession("ses_same", dir)).toBe(true);
+      const plans = store
+        .read({ session_id: "opencode:ses_same" })
+        .filter((e) => e.type === "plan.updated");
+      expect(plans.length).toBe(1);
+    } finally {
+      conn.stop();
+      store.close();
+    }
+  });
+
 });
 
 describe("sync stays off the live path", () => {
