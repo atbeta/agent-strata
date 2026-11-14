@@ -177,7 +177,7 @@ export function ArchivedSection(props: {
                             type="button"
                             size="xs"
                             variant="quiet"
-                            class="text-destructive"
+                            class="text-destructive hover:text-destructive"
                             disabled={busy() === id}
                             onClick={() => void remove(row, target().data)}
                           >

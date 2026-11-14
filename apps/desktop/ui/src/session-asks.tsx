@@ -192,9 +192,9 @@ export function useSessionAsks(
         aria-label={t("header.autoAccept")}
         class={`shrink-0 transition-colors ${
           autoAcceptErr() || autoAccept() === "unknown"
-            ? "text-destructive"
+            ? "text-destructive hover:text-destructive"
             : autoAcceptOn()
-              ? "text-event-permission"
+              ? "text-event-permission hover:text-event-permission"
               : "text-muted-foreground"
         }`}
         onClick={() => void toggleAutoAccept()}

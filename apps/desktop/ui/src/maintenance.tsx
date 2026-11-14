@@ -459,7 +459,7 @@ export function MaintenanceSettings() {
                             type="button"
                             size="sm"
                             variant="quiet"
-                            class="shrink-0 text-destructive"
+                            class="shrink-0 text-destructive hover:text-destructive"
                             onClick={() =>
                               confirmAction(`backup:${file.name}`, () => removeBackup(file.name))
                             }
@@ -515,7 +515,7 @@ export function MaintenanceSettings() {
                               type="button"
                               size="sm"
                               variant="quiet"
-                              class="shrink-0 text-destructive"
+                              class="shrink-0 text-destructive hover:text-destructive"
                               onClick={() =>
                                 confirmAction(`legacy:${file.name}`, () => removeLegacy(file.name))
                               }
