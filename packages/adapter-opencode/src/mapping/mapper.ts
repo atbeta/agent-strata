@@ -345,12 +345,21 @@ export class OpencodeMapper extends TurnsRuntime {
             content: t.content,
             status: t.status as "pending" | "in_progress" | "completed" | "cancelled",
           }));
+        // The id moves with the list, not with a hash of it — see
+        // `planFingerprint`. An unchanged list keeps its id and dedups; a
+        // changed one, even back to an earlier shape, gets a fresh id so the
+        // store records the return instead of dropping it.
+        const fingerprint = JSON.stringify(entries);
+        if (s.planFingerprint !== fingerprint) {
+          s.planFingerprint = fingerprint;
+          s.planSeq = (s.planSeq ?? 0) + 1;
+        }
         out.push(
           this.ev(
             s,
             "plan.updated",
             { entries },
-            `opencode:${sessionID}:plan:${Bun.hash(JSON.stringify(entries)).toString(36)}`,
+            `opencode:${sessionID}:plan:${s.planSeq ?? 0}:${Bun.hash(fingerprint).toString(36)}`,
           ),
         );
         return out;

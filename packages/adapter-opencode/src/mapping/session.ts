@@ -78,6 +78,20 @@ export interface SessionState {
    * only trusted its own memory would refuse the very idle that clears it.
    */
   emittedIdle?: boolean;
+  /**
+   * The plan as last emitted, and how many distinct ones this generation sent.
+   *
+   * The event id cannot be a hash of the content alone: a plan that goes
+   * A -> B -> A would reuse A's id, and the store keeps an existing id for its
+   * timestamp alone — so the second A is dropped and the projection stays on B.
+   * Measured on the abort path, which is the ordinary way to get there: a run
+   * is stopped, the table is cleared, the next run writes the same list again,
+   * and the strip would show the empty one. A counter that moves only when the
+   * list changes gives a fresh id per change while an unchanged re-delivery
+   * still dedups.
+   */
+  planFingerprint?: string;
+  planSeq?: number;
 }
 
 export function makeSessionEvent(

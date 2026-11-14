@@ -271,6 +271,38 @@ describe("file changes come from the call that made them", () => {
     }));
     expect(out.some((e) => e.type === "file.changed")).toBe(false);
   });
+
+  /**
+   * A plan that returns to an earlier shape has to be recorded again.
+   *
+   * The event id used to be a hash of the list, and the store keeps an existing
+   * id for its timestamp alone. A run stopped and restarted writes the same
+   * list as before, so the second write reused the first id and was dropped —
+   * while the empty table the abort wrote stayed last by seq and the strip
+   * showed nothing. Measured on that path: the projection read `[]` with the
+   * plan plainly in the transcript.
+   */
+  test("a plan that comes back to an earlier shape is still a new event", () => {
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    const write = (todos: { content: string; status: string }[], id: string) =>
+      m
+        .handle({ id, type: "todo.updated", properties: { sessionID: sid, todos } } as unknown as Event)
+        .find((e) => e.type === "plan.updated")?.id;
+
+    const plan = [{ content: "a", status: "in_progress" }];
+    const first = write(plan, "t1");
+    write([], "t2"); // the abort: opencode clears the table
+    const again = write(plan, "t3");
+
+    expect(first).toBeDefined();
+    expect(again).toBeDefined();
+    expect(again).not.toBe(first);
+
+    // The same list delivered twice more is one event, not two: a re-import
+    // that found nothing new must not append.
+    expect(write(plan, "t4")).toBe(again);
+  });
 });
 
 

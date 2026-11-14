@@ -251,6 +251,20 @@ export async function reposOf(dirs: readonly { directory: string }[]): Promise<s
   return [...out];
 }
 
+/**
+ * Whether a checkout sits where `worktreeAdd` puts one.
+ *
+ * The layout is `<root>/<repoKey>/<name>`, and `repoKey` is
+ * `<basename>-<6 hex>` (see `worktreeAdd`). Matching that shape is what keeps
+ * a configured root from adopting a checkout the reader made by hand: a
+ * worktree under the root is worth *showing* — git knows it and the reader
+ * works in it — but it is not ours to delete, and the sidebar's remove action
+ * force-deletes the folder along with anything uncommitted in it.
+ */
+function ours_by_shape(dir: string): boolean {
+  return /-[0-9a-f]{6}$/.test(basename(dirname(dir)));
+}
+
 /** The place checkouts have always lived, and still the default. */
 function legacyRoot(stateDir: string): string {
   return join(stateDir, "worktrees");
@@ -410,13 +424,15 @@ export async function worktreeRemove(opts: {
   );
   // Empty parents under one of our own roots go with it; anywhere else is
   // not ours to clean.
+  // Only the repo-key folder, never the root itself. `<root>/<repoKey>/<name>`
+  // is one removed checkout away from an empty `<repoKey>`, which is ours to
+  // tidy; `<root>` is the folder the reader chose and picked on purpose, and
+  // deleting it would look like the setting broke.
   if (underRoots(dir, roots)) {
-    for (const parent of [dirname(dir), dirname(dirname(dir))]) {
-      try {
-        rmdirSync(parent);
-      } catch {
-        // not empty — leave it
-      }
+    try {
+      rmdirSync(dirname(dir));
+    } catch {
+      // not empty — leave it
     }
   }
 }
@@ -603,7 +619,7 @@ export async function withWorktrees(
     for (const e of entries) {
       if (e.main) continue;
       marks.set(e.path, { repo: main, ...(e.branch ? { branch: e.branch } : {}) });
-      if (underRoots(e.path, roots)) ours.add(e.path);
+      if (underRoots(e.path, roots) && ours_by_shape(e.path)) ours.add(e.path);
     }
   });
   const byPath = new Map(dirs.map((w) => [canonical(w.directory), w] as const));
@@ -653,6 +669,9 @@ function ownCheckouts(stateDir: string, configured?: string): string[] {
     }
     for (const repo of repos) {
       if (!repo.isDirectory()) continue;
+      // Only the folders this app made. A directory the reader put here is
+      // theirs, and surfacing it would put a force-delete button on it.
+      if (!/-[0-9a-f]{6}$/.test(repo.name)) continue;
       const parent = join(root, repo.name);
       let names: Dirent[];
       try {
