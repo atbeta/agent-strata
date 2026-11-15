@@ -2,19 +2,16 @@
 // to *do* goes through this interface. OpenCode implements the full set.
 // A later backend implements the subset it can, and the UI hides the rest.
 
-import type { EventInput, EventType } from "@agent-strata/schema";
+import type { EventInput } from "@agent-strata/schema";
+import type { AppendOptions, ReplaceOptions } from "@agent-strata/store";
 import type { ProviderApi } from "./provider-auth";
 import type { TerminalApi } from "./terminal";
 
 /** Where backends write: the log, the live overlay, and in-place rebuilds. */
 export interface BackendSink {
-  append(events: EventInput[]): unknown;
+  append(events: EventInput[], opts?: AppendOptions): unknown;
   publish(events: EventInput[]): void;
-  replaceSession(
-    sessionId: string,
-    events: EventInput[],
-    opts: { replaceTypes: EventType[]; mapper?: string },
-  ): number;
+  replaceSession(sessionId: string, events: EventInput[], opts: ReplaceOptions): number;
   markMapped(sessionId: string, mapper: string): void;
   /** the transcript revision stored for a session; absent until one is marked */
   sessionRevision(sessionId: string): number | null;
@@ -43,6 +40,7 @@ export interface BackendSink {
     seq: number;
     ts?: string;
     workspace?: string;
+    origin?: string;
   }[];
   /**
    * Keep a tool attachment's bytes somewhere the reader can fetch them later.

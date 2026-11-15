@@ -1,6 +1,7 @@
 import type { Event } from "@opencode-ai/sdk/v2";
 import { isStreamingSnapshot, type EventInput } from "@agent-strata/schema";
 import { evaluate, policyFor, type PolicySource } from "@agent-strata/policy";
+import type { AppendOptions } from "@agent-strata/store";
 import { OPENCODE_MAPPER_VERSION, OpencodeMapper, SHELL_PERMS, STREAM_SNAPSHOT_MS } from "./map";
 import { permissionInput, permissionRequest, questionRequest } from "./mapping/interactions";
 import type { OnAsk, OnQuestion, Sink } from "./types";
@@ -24,10 +25,10 @@ export function createIngestor(opts: {
   replyQuestion?: (requestID: string, answers: string[][], directory?: string) => Promise<unknown>;
   rejectQuestion?: (requestID: string, directory?: string) => Promise<unknown>;
 }): {
-  handle: (evt: Event) => void;
+  handle: (evt: Event, source?: "live" | "history") => void;
   handleBatch: (events: Event[]) => void;
   /** Events the mapper produced outside a stream frame — a reconcile at connect. */
-  append: (events: EventInput[]) => void;
+  append: (events: EventInput[], opts?: AppendOptions) => void;
   stop: () => void;
 } {
   const { mapper, sink } = opts;
@@ -35,12 +36,12 @@ export function createIngestor(opts: {
   // Set while a snapshot is mapped, so its durable events share one append.
   // A partial still publishes immediately; it is not part of that write.
   let batch: EventInput[] | null = null;
-  const emit = (evts: EventInput[]) => {
+  const emit = (evts: EventInput[], writeOpts?: AppendOptions) => {
     const live = evts.filter(isStreamingSnapshot);
     const durable = live.length ? evts.filter((e) => !isStreamingSnapshot(e)) : evts;
     if (durable.length) {
       if (batch) batch.push(...durable);
-      else sink.append(durable);
+      else sink.append(durable, writeOpts);
     }
     if (live.length) sink.publish?.(live);
   };
@@ -171,11 +172,11 @@ export function createIngestor(opts: {
    */
   const inflightPrompts = new Set<string>();
 
-  const handle = (evt: Event) => {
-    emit(mapper.handle(evt));
+  const handle = (evt: Event, source: "live" | "history" = "live") => {
+    emit(mapper.handle(evt), { claimOrigin: source === "live" });
     // Unmarked, a session watched from its creation reads as stale to every
     // later sync, which then rebuilds it in the middle of a reply.
-    if (evt.type === "session.created" && !evt.id.startsWith("import:")) {
+    if (evt.type === "session.created" && source === "live") {
       sink.markMapped?.(`opencode:${evt.properties.sessionID}`, OPENCODE_MAPPER_VERSION);
     }
     scheduleFlush();
@@ -222,7 +223,7 @@ export function createIngestor(opts: {
       const buf: EventInput[] = [];
       batch = buf;
       try {
-        for (const evt of events) handle(evt);
+        for (const evt of events) handle(evt, "history");
       } finally {
         batch = null;
         if (buf.length) sink.append(buf);
@@ -231,8 +232,8 @@ export function createIngestor(opts: {
     // Events the mapper produced outside a stream frame — a reconcile at
     // connect time. Same sink, same batching rules; there is simply no frame
     // to carry them.
-    append(events: EventInput[]) {
-      emit(events);
+    append(events: EventInput[], writeOpts?: AppendOptions) {
+      emit(events, writeOpts);
     },
     stop() {
       clearTimeout(flushTimer);

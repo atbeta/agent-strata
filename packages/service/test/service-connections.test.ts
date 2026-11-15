@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { makeEvent, type EventInput } from "@agent-strata/schema";
+import { openStore } from "@agent-strata/store";
 import { startService } from "../src/index";
+import { sessionOrigin } from "../src/connections";
 import { fakeOpencode } from "./fake-opencode";
 
 describe("connection lifecycle routes", () => {
@@ -221,6 +224,84 @@ describe("connection lifecycle routes", () => {
     svc.stop();
     oc.stop();
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("external servers sharing a session record do not clear each other's running mark", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "strata-external-origin-"));
+    writeFileSync(join(dir, "desktop.json"), JSON.stringify({ opencode: "external" }));
+    const other = fakeOpencode({
+      "/session": () => Response.json([
+        { id: "ses_shared", directory: "/repo", title: "shared", time: { created: 1, updated: 30 } },
+      ]),
+      "/session/ses_shared": () => Response.json({ id: "ses_shared", directory: "/repo" }),
+      "/session/status": () => Response.json({}),
+    });
+    const owner = fakeOpencode({
+      "/session": () => Response.json([
+        { id: "ses_shared", directory: "/repo", title: "shared", time: { created: 1, updated: 20 } },
+      ]),
+      "/session/ses_shared": () => Response.json({ id: "ses_shared", directory: "/repo" }),
+      "/session/status": () => Response.json({ ses_shared: { type: "busy" } }),
+    });
+    const originA = sessionOrigin({ baseUrl: owner.baseUrl, placement: "external" });
+    const store = openStore(join(dir, "events.db"));
+    store.append(
+      [
+        makeEvent({
+          id: "shared:started",
+          session_id: "opencode:ses_shared",
+          source: { backend: "opencode", native_id: "ses_shared" },
+          type: "session.started",
+          data: { workspace: "/repo" },
+          ts: "2026-01-01T00:00:00.000Z",
+        } as EventInput),
+        makeEvent({
+          id: "shared:busy",
+          session_id: "opencode:ses_shared",
+          source: { backend: "opencode", native_id: "ses_shared" },
+          type: "session.status",
+          data: { state: "busy" },
+          ts: "2026-01-01T00:00:01.000Z",
+        } as EventInput),
+      ],
+      { origin: originA, claimOrigin: true },
+    );
+    store.close();
+    const svc = startService({ db: join(dir, "events.db"), port: 0, desktopDir: dir });
+    const base = `http://127.0.0.1:${svc.port}`;
+    try {
+      const connect = async (server: ReturnType<typeof fakeOpencode>) => {
+        const connected = await fetch(`${base}/connect`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ baseUrl: server.baseUrl, placement: "external" }),
+        });
+        expect(connected.status).toBe(200);
+      };
+      await connect(owner);
+      await connect(other);
+      const deadline = Date.now() + 4_000;
+      while (other.seen.filter((row) => row.path === "/session").length < 2 && Date.now() < deadline) {
+        await Bun.sleep(20);
+      }
+      expect(svc.store.runningSessions().find((row) => row.session_id === "opencode:ses_shared")?.origin).toBe(originA);
+      await fetch(`${base}/connections/${encodeURIComponent(`opencode:${other.baseUrl}`)}`, { method: "DELETE" });
+      await connect(other);
+      while (!owner.seen.some((row) => row.path === "/session/status") && Date.now() < deadline) {
+        await Bun.sleep(20);
+      }
+      const body = (await fetch(`${base}/sessions`).then((r) => r.json())) as {
+        sessions: { summary: { session_id: string }; busy: boolean }[];
+      };
+      expect(body.sessions.find((row) => row.summary.session_id === "opencode:ses_shared")?.busy).toBe(true);
+      expect(other.seen.some((row) => row.path === "/session/status")).toBe(false);
+      expect(owner.seen.some((row) => row.path === "/session/status")).toBe(true);
+    } finally {
+      svc.stop();
+      other.stop();
+      owner.stop();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("/connections says starting, then syncing, then idle as a connect's sync runs", async () => {

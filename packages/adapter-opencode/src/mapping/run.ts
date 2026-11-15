@@ -132,6 +132,7 @@ export function reconcileIdleSessions(
   sessions: Map<string, SessionState>,
   idleSessionIDs: Iterable<string>,
   stillRunning: ((casfId: string) => { running: boolean; seq: number; ts?: string } | undefined) | undefined,
+  expectedSeq: Record<string, number> | undefined,
   closeOpenMessages: (s: SessionState, out: EventInput[]) => void,
   retireStreaming: (s: SessionState) => void,
 ): EventInput[] {
@@ -142,7 +143,9 @@ export function reconcileIdleSessions(
     // which is the only thing that remembers a run from before the restart.
     // It is asked under the id the store knows: `opencode:ses_…`, not the
     // bare id the backend uses.
-    const stored = stillRunning?.(`opencode:${sessionID}`);
+    const casfId = `opencode:${sessionID}`;
+    const stored = stillRunning?.(casfId);
+    if (expectedSeq && stored?.seq !== expectedSeq[casfId]) continue;
     const stale = known?.sawBusy === true || stored?.running === true;
     if (!stale) continue;
     const s = known ?? adoptSession(sessions, sessionID);

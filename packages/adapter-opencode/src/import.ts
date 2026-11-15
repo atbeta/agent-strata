@@ -12,7 +12,7 @@ export function createSessionImport(args: {
   directory?: string;
   sink: Sink;
   ingestor: {
-    handle: (evt: Event) => void;
+    handle: (evt: Event, source?: "live" | "history") => void;
     handleBatch: (events: Event[]) => void;
   };
 }) {
@@ -193,7 +193,7 @@ export function createSessionImport(args: {
         } as Event);
       }
     });
-    for (const evt of pending) ingestor.handle(evt);
+    for (const evt of pending) ingestor.handle(evt, "history");
   };
 
   const indexSessions = async () => {
@@ -205,7 +205,7 @@ export function createSessionImport(args: {
         id: `index:${info.id}`,
         type: "session.updated",
         properties: { sessionID: info.id, info },
-      } as Event);
+      } as Event, "history");
       ids.push(info.id);
     };
     for (const info of roots) await visit(info);
@@ -254,7 +254,7 @@ export function createSessionImport(args: {
           id: `sync:${info.id}:${info.time?.updated ?? 0}`,
           type: "session.updated",
           properties: { sessionID: info.id, info },
-        } as Event);
+        } as Event, "history");
         found.push({ info, directory: info.directory || directory });
       } catch (err) {
         console.error(`sync session ${info.id} failed:`, err);
@@ -316,7 +316,7 @@ export function createSessionImport(args: {
           id: `reconcile:${id}`,
           type: "session.deleted",
           properties: { sessionID: id },
-        } as Event);
+        } as Event, "history");
         guard?.reconciled?.(`opencode:${id}`);
       } catch (err) {
         console.error(`reconcile session ${id} failed:`, err);

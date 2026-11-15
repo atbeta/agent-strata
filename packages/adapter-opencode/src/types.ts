@@ -1,8 +1,9 @@
 import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk/v2";
 import type { EventInput, EventType } from "@agent-strata/schema";
+import type { AppendOptions } from "@agent-strata/store";
 
 export interface Sink {
-  append(events: EventInput[]): unknown;
+  append(events: EventInput[], opts?: AppendOptions): unknown;
   /** live-only state such as a message still being written; never stored */
   publish?(events: EventInput[]): void;
   replaceSession?(
@@ -46,6 +47,7 @@ export interface Sink {
     seq: number;
     ts?: string;
     workspace?: string;
+    origin?: string;
   }[];
   /**
    * Keep an attachment's bytes somewhere the reader can fetch them later.

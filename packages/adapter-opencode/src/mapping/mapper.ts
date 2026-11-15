@@ -52,8 +52,9 @@ export class OpencodeMapper extends TurnsRuntime {
   reconcileIdle(
     idleSessionIDs: Iterable<string>,
     stillRunning?: (casfId: string) => { running: boolean; seq: number; ts?: string } | undefined,
+    expectedSeq?: Record<string, number>,
   ): EventInput[] {
-    return reconcileIdleSessions(this.sessions, idleSessionIDs, stillRunning, (s, out) => {
+    return reconcileIdleSessions(this.sessions, idleSessionIDs, stillRunning, expectedSeq, (s, out) => {
       this.closeOpenMessages(s, out, "reconcile");
     }, (s) => this.retireStreaming(s));
   }

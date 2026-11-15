@@ -32,11 +32,10 @@ use std::time::{Duration, Instant};
 
 use embed::{
     child_env, cleanup_stale_opencode, cleanup_stale_service, command_for, detect_runtime,
-    health_ok, plan_with_port,
-    previous_port, read_mode, reap_opencode_on_port, resolve_mode, serve_args, service_env,
-    supervise, write_pid, write_pid_plain, write_runtime, write_status, OpencodeMode, OpencodePlan,
-    OpencodeState,
-    resolve_bin, Attention, Spawned, AUTH_PROMPT, AUTH_REFUSED,
+    health_ok, plan_with_port, previous_port, random_password, read_mode, reap_opencode_on_port,
+    resolve_bin, resolve_mode, serve_args, service_env, supervise, write_pid, write_pid_plain,
+    write_runtime, write_status, write_status_with_generation, Attention, OpencodeMode,
+    OpencodePlan, OpencodeState, Spawned, AUTH_PROMPT, AUTH_REFUSED,
 };
 
 use std::thread::JoinHandle;
@@ -623,12 +622,14 @@ fn spawn_opencode_supervisor(
     // login belongs to the supervisor thread, where a wait cannot hold the
     // window shut.
     let Some(bin) = resolve_bin(data).filter(|path| path.is_file()) else {
-        let _ = write_status(
+        let generation = random_password();
+        let _ = write_status_with_generation(
             &status_path,
             OpencodeMode::Embed,
             OpencodeState::Missing,
             None,
             None,
+            &generation,
         );
         log_note(log, "no opencode binary found for embedded mode");
         return None;
@@ -656,6 +657,15 @@ fn spawn_opencode_supervisor(
     let mut planned = match plan_with_port(OpencodeMode::Embed, preferred, service_port) {
         Ok(planned) => planned,
         Err(e) => {
+            let generation = random_password();
+            let _ = write_status_with_generation(
+                &status_path,
+                OpencodeMode::Embed,
+                OpencodeState::Stopped,
+                None,
+                None,
+                &generation,
+            );
             eprintln!("agent-strata: could not plan embedded opencode: {e}");
             log_note(log, &format!("could not plan embedded opencode: {e}"));
             return None;
@@ -1579,7 +1589,9 @@ fn main() {
 
 #[cfg(all(test, unix))]
 mod tests {
-    use super::{answer_login, auth_scan, open_log, reap, spawn, LoginPipe, Log};
+    use super::{
+        answer_login, auth_scan, open_log, reap, spawn, spawn_opencode_supervisor, Log, LoginPipe,
+    };
     use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
     use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
@@ -1587,6 +1599,57 @@ mod tests {
 
     extern "C" {
         fn kill(pid: i32, sig: i32) -> i32;
+    }
+
+    #[test]
+    fn missing_binary_writes_a_fresh_generation() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let data = std::env::temp_dir().join(format!(
+            "strata-missing-generation-{}-{unique}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&data).unwrap();
+        let missing = data.join("not-installed");
+        super::embed::write_desktop_bin(
+            &data.join("desktop.json"),
+            Some(missing.to_str().unwrap()),
+        )
+        .unwrap();
+        let status_path = data.join("opencode-status.json");
+        super::embed::write_status_with_generation(
+            &status_path,
+            super::embed::OpencodeMode::Embed,
+            super::embed::OpencodeState::Running,
+            None,
+            None,
+            "previous-generation",
+        )
+        .unwrap();
+        let log: Log = Arc::new(Mutex::new(
+            open_log(&data.join("opencode.log")).expect("open log"),
+        ));
+
+        let spawned = spawn_opencode_supervisor(
+            &data,
+            &log,
+            7700,
+            "token",
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(Mutex::new(None)),
+            Arc::new(Mutex::new(None)),
+        );
+
+        assert!(spawned.is_none());
+        let text = std::fs::read_to_string(status_path).unwrap();
+        let status: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(status["state"], "missing");
+        let generation = status["generation"].as_str().expect("generation");
+        assert!(!generation.is_empty());
+        assert_ne!(generation, "previous-generation");
     }
 
     #[test]

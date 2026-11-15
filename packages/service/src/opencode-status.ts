@@ -112,6 +112,7 @@ export function readOpencodeStatus(dir: string): {
   runtime?: OpencodeRuntime;
   username?: string;
   password?: string;
+  generation?: string;
 } {
   const mode = readOpencodeMode(dir);
   const runtime = readOpencodeRuntime(dir);
@@ -124,6 +125,7 @@ export function readOpencodeStatus(dir: string): {
     url?: unknown;
     username?: unknown;
     password?: unknown;
+    generation?: unknown;
   };
   if (!isOpencodeState(rec.state)) {
     return runtime ? { mode, state: "unmanaged", runtime } : { mode, state: "unmanaged" };
@@ -135,6 +137,7 @@ export function readOpencodeStatus(dir: string): {
     runtime?: OpencodeRuntime;
     username?: string;
     password?: string;
+    generation?: string;
   } = {
     mode,
     state: rec.state,
@@ -142,6 +145,7 @@ export function readOpencodeStatus(dir: string): {
   if (typeof rec.url === "string") body.url = rec.url;
   if (typeof rec.username === "string") body.username = rec.username;
   if (typeof rec.password === "string") body.password = rec.password;
+  if (typeof rec.generation === "string" && rec.generation) body.generation = rec.generation;
   if (runtime) body.runtime = runtime;
   return body;
 }

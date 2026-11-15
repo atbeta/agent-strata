@@ -274,7 +274,7 @@ describe("createIngestor seam", () => {
       sink: { append: () => {}, markMapped: (id, version) => marked.push([id, version]) },
       reply: async () => {},
     });
-    for (const e of snapshotFixture()) ing.handle(e);
+    for (const e of snapshotFixture()) ing.handle(e, "history");
     expect(marked).toEqual([]);
   });
 });

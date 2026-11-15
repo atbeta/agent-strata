@@ -84,4 +84,5 @@ export interface OpencodeLaunch {
   state: OpencodeLaunchState;
   url?: string;
   runtime?: OpencodeRuntime;
+  generation?: string;
 }

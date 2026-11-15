@@ -498,8 +498,24 @@ describe("running sessions, asked of the whole store at once", () => {
     s.close();
   });
 
-  test("carries the workspace, so the answer can be compared per directory", () => {
+  test("the quietest session comes first, so a capped caller reaches the stale ones", () => {
     const s = openStore(":memory:");
+    s.append([mk("opencode:new", "session.started", { workspace: "/repo" }, "2026-01-03T00:00:00.000Z")]);
+    s.append([mk("opencode:new", "session.status", { state: "busy" }, "2026-01-03T00:00:01.000Z")]);
+    s.append([mk("opencode:old", "session.started", { workspace: "/repo" }, "2026-01-01T00:00:00.000Z")]);
+    s.append([mk("opencode:old", "session.status", { state: "busy" }, "2026-01-01T00:00:01.000Z")]);
+
+    // A caller that can only afford to check some of them wants the ones that
+    // have been quiet longest: a mark that has not moved since yesterday is a
+    // mark left behind, while a session that moved today may still be running.
+    expect(s.runningSessions().map((row) => row.session_id)).toEqual([
+      "opencode:old",
+      "opencode:new",
+    ]);
+    s.close();
+  });
+
+  test("carries the workspace, so the answer can be compared per directory", () => {    const s = openStore(":memory:");
     s.append([mk("opencode:a", "session.started", { workspace: "D:/code/a" })]);
     s.append([mk("opencode:a", "session.status", { state: "busy" })]);
     s.append([mk("opencode:b", "session.started", { workspace: "D:/code/b" })]);
@@ -518,6 +534,82 @@ describe("running sessions, asked of the whole store at once", () => {
     const row = s.runningSessions()[0]!;
     expect(row.seq).toBe(s.sessionRunning("opencode:a").seq);
     expect(row.ts).toBe(s.sessionRunning("opencode:a").ts);
+    s.close();
+  });
+
+  test("carries the origin across reopen", () => {
+    const dir = mkdtempSync(join(tmpdir(), "strata-origin-"));
+    const path = join(dir, "events.db");
+    try {
+      const first = openStore(path);
+      first.append(
+        [
+          mk("opencode:a", "session.started", { workspace: "/repo" }),
+          mk("opencode:a", "session.status", { state: "busy" }),
+        ],
+        { origin: "opencode:http://a", claimOrigin: true },
+      );
+      first.close();
+      const second = openStore(path);
+      expect(second.runningSessions()[0]?.origin).toBe("opencode:http://a");
+      second.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a historical read does not take an origin from live evidence", () => {
+    const s = openStore(":memory:");
+    s.append(
+      [
+        mk("opencode:a", "session.started", { workspace: "/repo" }),
+        mk("opencode:a", "session.status", { state: "busy" }),
+      ],
+      { origin: "A", claimOrigin: true },
+    );
+    s.append([mk("opencode:a", "session.updated", { title: "history" })], { origin: "B" });
+    expect(s.runningSessions()[0]?.origin).toBe("A");
+    s.append([mk("opencode:a", "turn.user", { turn_id: "live", content: [] })], {
+      origin: "B",
+      claimOrigin: true,
+    });
+    expect(s.runningSessions()[0]?.origin).toBe("B");
+    s.close();
+  });
+
+  test("an unchanged historical replay backfills only a missing origin", () => {
+    const s = openStore(":memory:");
+    const events = [
+      mk("opencode:a", "session.started", { workspace: "/repo" }),
+      mk("opencode:a", "session.status", { state: "busy" }),
+    ];
+    s.append(events);
+    s.append(events, { origin: "A" });
+    expect(s.runningSessions()[0]?.origin).toBe("A");
+    s.append(events, { origin: "B" });
+    expect(s.runningSessions()[0]?.origin).toBe("A");
+    s.close();
+  });
+
+  test("a correction writes only sessions still at the observed position", () => {
+    const s = openStore(":memory:");
+    s.append([
+      mk("opencode:a", "session.started", { workspace: "/repo" }),
+      mk("opencode:a", "session.status", { state: "busy" }),
+      mk("opencode:b", "session.started", { workspace: "/repo" }),
+      mk("opencode:b", "session.status", { state: "busy" }),
+    ]);
+    const expected = Object.fromEntries(s.runningSessions().map((row) => [row.session_id, row.seq]));
+    s.append([mk("opencode:a", "turn.user", { turn_id: "new-work", content: [] })]);
+    s.append(
+      [
+        mk("opencode:a", "session.status", { state: "idle" }),
+        mk("opencode:b", "session.status", { state: "idle" }),
+      ],
+      { ifUnchanged: expected },
+    );
+    expect(s.sessionRunning("opencode:a").running).toBe(true);
+    expect(s.sessionRunning("opencode:b").running).toBe(false);
     s.close();
   });
 

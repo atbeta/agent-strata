@@ -21,6 +21,8 @@ export async function connectOpencodeDriver(opts: {
   password?: string;
   policy?: PolicySource;
   connectTimeoutMs?: number;
+  origin?: string;
+  reconcileLegacy?: boolean;
   onAsk?: OnAsk;
   onQuestion?: OnQuestion;
   onSettled?: (requestId: string, decision: "allow" | "deny") => void;
@@ -35,6 +37,8 @@ export async function connectOpencodeDriver(opts: {
     sink: opts.sink,
     policy: opts.policy,
     connectTimeoutMs: opts.connectTimeoutMs,
+    origin: opts.origin,
+    reconcileLegacy: opts.reconcileLegacy,
     onAsk: opts.onAsk,
     onQuestion: opts.onQuestion,
     onSettled: opts.onSettled,

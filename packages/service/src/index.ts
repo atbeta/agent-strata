@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync, unwatchFile, watchFile
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { openStore, type Store } from "@agent-strata/store";
+import { openStore, type AppendOptions, type Store } from "@agent-strata/store";
 import { emptySessionView, projectSession, type SessionView } from "@agent-strata/projector";
 import { loadPolicy, type Policy } from "@agent-strata/policy";
 import { createAuthorizer } from "./authorization";
@@ -19,7 +19,7 @@ import type { BackendDriver, BackendSink } from "./driver";
 import { connectOpencodeDriver } from "./opencode-driver";
 import { LiveOverlay } from "./live";
 import { ViewCache } from "./views";
-import { type EventInput } from "@agent-strata/schema";
+import { makeEvent, type EventInput } from "@agent-strata/schema";
 import { connectAcpDriver } from "./acp-driver";
 import { bootPlan, REMEMBERED_PROBE_MS } from "./boot-connect";
 import { sameEndpoint } from "./connection-phase";
@@ -28,7 +28,9 @@ import {
   agentNameOf,
   connectionMemory,
   endpointOf,
+  isEmbeddedOrigin,
   looksEmbedded,
+  sessionOrigin,
   type ConnectBody,
 } from "./connections";
 import { extensionRoute } from "./extension-route";
@@ -86,6 +88,8 @@ export interface ServiceOpts {
   autoConnectTimeoutMs?: number;
   // whether autoConnect is the server the app starts, or one someone else runs
   autoConnectPlacement?: "embed" | "external";
+  // desktop-owned process generation; survives a service-only restart unchanged
+  autoConnectGeneration?: string;
   // directory holding desktop.json and opencode-status.json; default ~/.agent-strata
   desktopDir?: string;
   /**
@@ -282,18 +286,26 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   const claims = new SessionClaims();
   const unshadowed = (events: EventInput[]) =>
     events.filter((event) => !claims.shadowed(event.source, event.session_id));
+  const appendStored = (events: EventInput[], writeOpts?: AppendOptions) =>
+    store.append(unshadowed(events), writeOpts);
+  const replaceStored = (
+    sessionId: string,
+    events: EventInput[],
+    replace: { replaceTypes: EventInput["type"][]; mapper?: string },
+    origin?: string,
+  ) => {
+    if (events.some((event) => claims.shadowed(event.source, sessionId))) return 0;
+    const count = store.replaceSession(sessionId, events, { ...replace, origin });
+    views.drop(sessionId);
+    broadcast({ type: "session.rebuilt", session_id: sessionId });
+    return count;
+  };
   const sink: BackendSink = {
-    append: (events) => store.append(unshadowed(events)),
+    append: appendStored,
     publish: (events) => {
       for (const event of unshadowed(events)) if (live.put(event)) broadcast(event);
     },
-    replaceSession: (sessionId, events, replace) => {
-      if (events.some((event) => claims.shadowed(event.source, sessionId))) return 0;
-      const count = store.replaceSession(sessionId, events, replace);
-      views.drop(sessionId);
-      broadcast({ type: "session.rebuilt", session_id: sessionId });
-      return count;
-    },
+    replaceSession: (sessionId, events, replace) => replaceStored(sessionId, events, replace),
     markMapped: (sessionId, mapper) => store.markMapper(sessionId, mapper),
     sessionRevision: (sessionId) => store.sessionRevision(sessionId),
     markRevision: (sessionId, revision) => store.markRevision(sessionId, revision),
@@ -316,6 +328,11 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       }
     },
   };
+  const sinkFor = (origin: string): BackendSink => ({
+    ...sink,
+    append: (events, writeOpts) => appendStored(events, { ...writeOpts, origin }),
+    replaceSession: (sessionId, events, replace) => replaceStored(sessionId, events, replace, origin),
+  });
   const activeSyncs = new Map<string, { done: number; total: number }>();
   const pendingSyncs = new Set<string>();
   const syncDriver = (driver: BackendDriver) => {
@@ -490,6 +507,39 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     }
   };
   const memory = connectionMemory(opts.db);
+  /**
+   * The generation the desktop was on when this service started.
+   *
+   * The file the desktop writes and the environment it hands the service
+   * agree, except in two moments, and each has to be read the right way
+   * round:
+   *
+   * At startup the file still holds the *previous* run's generation — the
+   * supervisor thread stamps it a moment after the service is spawned. The
+   * environment is the one that is right.
+   *
+   * If the desktop re-plans while the service runs, the environment is the
+   * one left behind and the file is the one that moved. A generation that is
+   * not the one this service started with means the desktop moved.
+   */
+  const bootGeneration = readOpencodeStatus(desktopDir).generation;
+  const embeddedGeneration = (status?: { generation?: string }): string | undefined => {
+    const file = status?.generation;
+    const env = opts.autoConnectGeneration;
+    if (env === undefined) return file;
+    if (file === undefined) return env;
+    if (file !== bootGeneration) return file;
+    return env;
+  };
+  const singleOpencode = (current?: string) => {
+    const endpoints = new Set<string>();
+    for (const saved of memory.saved()) {
+      if ((saved.backend ?? "opencode") === "opencode") endpoints.add(endpointOf(saved));
+    }
+    for (const conn of conns.values()) if (conn.backend === "opencode") endpoints.add(conn.baseUrl);
+    if (current) endpoints.add(current);
+    return endpoints.size <= 1;
+  };
   const attempts = new Map<string, ConnectionAttempt>();
   const beginAttempt = (body: ConnectBody) => {
     const endpoint = endpointOf(body);
@@ -533,13 +583,17 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       void syncDriver(already).catch((error) => console.error(`sync ${already.id} failed: ${error}`));
       return { id: already.id, indexed: 0 };
     }
+    const launch = readOpencodeStatus(desktopDir);
+    const generation = embeddedGeneration(launch);
+    const origin = sessionOrigin(body, generation);
+    const scopedSink = sinkFor(origin);
     const explicit: Policy | undefined = body.policy ? loadPolicy(body.policy) : undefined;
     const policy = policyRuntime.policyForConnection(explicit);
     let driver: BackendDriver;
     if (backend === "opencode") {
       if (!body.baseUrl) throw new Error("baseUrl required");
       driver = await connectOpencodeDriver({
-        sink,
+        sink: scopedSink,
         baseUrl: body.baseUrl,
         name: body.name,
         directory: body.directory,
@@ -547,6 +601,8 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         password: body.password,
         policy,
         connectTimeoutMs: body.connectTimeoutMs,
+        origin,
+        reconcileLegacy: singleOpencode(endpoint),
         onAsk: permissionRequests.onAsk,
         onQuestion: permissionRequests.onQuestion,
         onSettled: permissionRequests.settleAsk,
@@ -555,7 +611,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     } else if (backend === "acp") {
       if (!body.command) throw new Error("command required");
       driver = await connectAcpDriver({
-        sink,
+        sink: scopedSink,
         command: body.command,
         args: body.args,
         cwd: body.cwd ?? body.directory,
@@ -587,6 +643,9 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     }
     void syncDriver(driver).catch((error) => console.error(`sync ${driver.id} failed: ${error}`));
     finishAttempt(endpoint);
+    // A connection that just landed knows which generation it is under, and
+    // that is the authority over the file the desktop writes.
+    if (backend === "opencode") recoverEmbedded();
     return { id: driver.id, indexed: indexed.length };
   };
 
@@ -599,8 +658,76 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     return { ...body, username: status.username, password: status.password };
   };
 
+  /**
+   * The generation this service has already reconciled against.
+   *
+   * The recovery only has work to do when the generation changes, and finding
+   * out costs a pass over every stored session. Doing that on every poll
+   * would spend the same answer over and over on a store that never changes.
+   */
+  let reconciledGeneration: string | undefined;
+  let reconciledOwners: string | undefined;
+  const recoverEmbedded = () => {
+    if (readOpencodeMode(desktopDir) !== "embed") return;
+    const status = readOpencodeStatus(desktopDir);
+    // Which embedded generation is alive right now. The same answer the
+    // connect used, so the two never disagree about who owns the runs.
+    const generation = embeddedGeneration(status);
+    if (!generation) return;
+    const endpoint = opts.autoConnect ?? status.url;
+    const current = sessionOrigin(
+      { backend: "opencode", placement: "embed", baseUrl: endpoint },
+      generation,
+    );
+    // The opencode servers that are alive right now.
+    //
+    // A record no live server has claimed belongs to one that is gone. The
+    // claim is the origin a connection writes when it sees the session, so
+    // this asks a fact rather than guessing from how many addresses the
+    // store remembers — a remembered address that no longer answers is not
+    // an owner, and treating it as one left the very marks this exists for
+    // standing forever.
+    const owners = [...conns.values()]
+      .filter((conn) => conn.backend === "opencode")
+      .map((conn) => conn.baseUrl)
+      .sort()
+      .join("|");
+    const generationChanged = reconciledGeneration !== current;
+    const ownersChanged = reconciledOwners !== owners;
+    if (!generationChanged && !ownersChanged) return;
+    reconciledGeneration = current;
+    reconciledOwners = owners;
+    const stale = store
+      .runningSessions()
+      .filter(
+        (row) =>
+          row.backend === "opencode" &&
+          ((generationChanged && isEmbeddedOrigin(row.origin) && row.origin !== current) ||
+            (ownersChanged && row.origin === undefined)),
+      );
+    if (stale.length === 0) return;
+    const ifUnchanged = Object.fromEntries(stale.map((row) => [row.session_id, row.seq]));
+    store.append(
+      stale.map((row) =>
+        makeEvent({
+          id: `opencode:${row.session_id.replace(/^opencode:/, "")}:reconcile:idle:${row.seq}`,
+          session_id: row.session_id,
+          source: { backend: "opencode", native_id: row.session_id.replace(/^opencode:/, "") },
+          type: "session.status",
+          data: { state: "idle" },
+          ...(row.ts ? { ts: row.ts } : {}),
+        } as EventInput),
+      ),
+      { ifUnchanged },
+    );
+  };
+
   const placement = autoConnectPlacement(opts, desktopDir);
   const remembered = memory.pruneEmbedded(placement, opts.autoConnect);
+  // After the prune: the address the previous run used is gone by now, and
+  // counting it would make a store with one opencode look like it has two —
+  // which is what keeps the records nobody claims from being corrected.
+  recoverEmbedded();
   const boot: ConnectBody[] = opts.autoConnect
     ? [
         {
@@ -644,6 +771,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
 
   const reconcileEmbedded = () => {
     if (stopped || readOpencodeMode(desktopDir) !== "embed") return;
+    recoverEmbedded();
     const status = readOpencodeStatus(desktopDir);
     const url = status.url;
     if (status.state !== "running" || !url || !status.username || !status.password) return;
@@ -913,6 +1041,7 @@ export function main(): void {
       autoConnect: process.env.STRATA_OPENCODE_URL,
       autoConnectUsername: process.env.STRATA_OPENCODE_USERNAME,
       autoConnectPassword: process.env.STRATA_OPENCODE_PASSWORD,
+      autoConnectGeneration: process.env.STRATA_OPENCODE_GENERATION,
       autoConnectPlacement: placement === "embed" || placement === "external" ? placement : undefined,
     });
     console.log(`agent-strata service listening on http://127.0.0.1:${svc.port} (db: ${db})`);

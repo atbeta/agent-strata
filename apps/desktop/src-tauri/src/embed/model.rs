@@ -53,6 +53,7 @@ pub struct OpencodePlan {
     pub port: u16,
     pub username: String,
     pub password: String,
+    pub generation: String,
     pub url: String,
     pub service_port: u16,
     pub api_token: Option<String>,
@@ -62,6 +63,8 @@ pub struct OpencodePlan {
 pub struct OpencodeStatus {
     pub mode: OpencodeMode,
     pub state: OpencodeState,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generation: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

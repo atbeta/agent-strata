@@ -39,11 +39,22 @@ export interface SessionSummary {
   mapper: string | null;
 }
 
+export interface AppendOptions {
+  /** backend connection or embedded generation that produced these events */
+  origin?: string;
+  /** live evidence may move a session to this origin; a historical sync may not */
+  claimOrigin?: boolean;
+  /** write only sessions still at these positions */
+  ifUnchanged?: Record<string, number>;
+}
+
 export interface ReplaceOptions {
   /** the event types the new events stand in for; every other type is kept */
   replaceTypes: EventType[];
   /** recorded on the session so a later mapping change can tell it is stale */
   mapper?: string;
+  /** connection reading the rebuild; never displaces an established origin */
+  origin?: string;
 }
 
 export interface ClassStats {
@@ -72,7 +83,7 @@ export interface SessionClassStats {
 }
 
 export interface Store {
-  append(inputs: EventInput[]): Event[];
+  append(inputs: EventInput[], opts?: AppendOptions): Event[];
   /**
    * Swap one session's events of `replaceTypes` for `inputs` in one
    * transaction. Subscribers are not called; the caller announces the rebuild.
@@ -126,6 +137,8 @@ export interface Store {
     seq: number;
     ts?: string;
     workspace?: string;
+    /** connection/generation whose live evidence last owned the session */
+    origin?: string;
   }[];
   search(
     query: string,
@@ -219,6 +232,7 @@ export function openStore(path: string | ":memory:"): Store {
   `);
   const sessionColumns = db.query("PRAGMA table_info(sessions)").all() as { name: string }[];
   if (!sessionColumns.some((c) => c.name === "mapper")) db.exec("ALTER TABLE sessions ADD COLUMN mapper TEXT");
+  if (!sessionColumns.some((c) => c.name === "origin")) db.exec("ALTER TABLE sessions ADD COLUMN origin TEXT");
 
   const listeners = new Set<(e: Event) => void>();
 
@@ -243,16 +257,35 @@ export function openStore(path: string | ":memory:"): Store {
       .map((i) => ({ event: makeEvent(i), clock: i.ts }));
 
   // Runs inside a caller's transaction.
-  const insertAll = (parsed: Parsed[]): { out: Event[]; inserted: Event[] } => {
+  const insertAll = (parsed: Parsed[], opts: AppendOptions = {}): { out: Event[]; inserted: Event[] } => {
     const out: Event[] = [];
     const inserted: Event[] = [];
+    const positions = new Map<string, number>();
     for (const item of parsed) {
       const input = item.event;
+      const expected = opts.ifUnchanged?.[input.session_id];
+      if (expected !== undefined) {
+        let position = positions.get(input.session_id);
+        if (position === undefined) {
+          position =
+            (db
+              .query("SELECT last_seq FROM sessions WHERE session_id=?")
+              .get(input.session_id) as { last_seq: number } | null)?.last_seq ?? 0;
+          positions.set(input.session_id, position);
+        }
+        if (position !== expected) continue;
+      }
       const existing = db
         .query("SELECT body FROM events WHERE id = ?")
         .get(input.id!) as { body: string } | null;
       if (existing) {
         const stored = parseEvent(JSON.parse(existing.body));
+        if (opts.origin !== undefined) {
+          db.query("UPDATE sessions SET origin=? WHERE session_id=? AND origin IS NULL").run(
+            opts.origin,
+            stored.session_id,
+          );
+        }
         if (item.clock && item.clock !== stored.ts) {
           const next = parseEvent({ ...stored, ts: item.clock });
           db.query("UPDATE events SET ts=?, body=? WHERE id=?").run(
@@ -321,6 +354,11 @@ export function openStore(path: string | ":memory:"): Store {
           }
         }
       }
+      if (opts.origin !== undefined) {
+        db.query(
+          "UPDATE sessions SET origin=? WHERE session_id=? AND (origin IS NULL OR ?=1)",
+        ).run(opts.origin, sessionId, opts.claimOrigin === true ? 1 : 0);
+      }
       const text = ftsText(event);
       if (text.trim()) {
         db.query(
@@ -334,14 +372,14 @@ export function openStore(path: string | ":memory:"): Store {
   };
 
   const store: Store = {
-    append(inputs) {
+    append(inputs, opts) {
       const parsed = parseAll(inputs);
-      const result = db.transaction(() => insertAll(parsed))();
+      const result = db.transaction(() => insertAll(parsed, opts))();
       notify(result.inserted);
       return result.out;
     },
 
-    replaceSession(session_id, inputs, { replaceTypes, mapper }) {
+    replaceSession(session_id, inputs, { replaceTypes, mapper, origin }) {
       for (const i of inputs) {
         if (i.session_id !== session_id) {
           throw new Error(`event for ${i.session_id} in a rebuild of ${session_id}`);
@@ -360,7 +398,7 @@ export function openStore(path: string | ":memory:"): Store {
             ...replaceTypes,
           );
         }
-        const { inserted } = insertAll(parsed);
+        const { inserted } = insertAll(parsed, { origin });
         db.query(
           `UPDATE sessions SET
              last_ts=(SELECT MAX(ts) FROM events WHERE session_id=?),
@@ -528,16 +566,24 @@ export function openStore(path: string | ":memory:"): Store {
       // start. The join to `sessions` supplies the position and workspace the
       // correction needs; a session with no deciding event at all is not
       // running and does not appear.
+      //
+      // Oldest activity first. A caller that can only afford to check some of
+      // them — the reconcile names a capped number to the server — wants the
+      // ones that have been quiet longest: a mark that has not moved since
+      // yesterday is a mark left behind, while a session that moved today may
+      // well be running. Newest-first would spend the whole budget on live
+      // sessions and never reach the stale ones at all.
       const rows = db
         .query(
           `SELECT e.session_id AS sid, e.type AS type, e.body AS body, s.backend AS backend,
-                  s.last_seq AS head_seq, s.last_ts AS head_ts, s.workspace AS workspace
+                  s.last_seq AS head_seq, s.last_ts AS head_ts, s.workspace AS workspace, s.origin AS origin
            FROM events e
            JOIN (SELECT session_id, MAX(seq) AS seq FROM events
                  WHERE type IN ('session.status','session.ended','session.error','session.deleted')
                  GROUP BY session_id) last
              ON last.session_id = e.session_id AND last.seq = e.seq
-           JOIN sessions s ON s.session_id = e.session_id`,
+           JOIN sessions s ON s.session_id = e.session_id
+           ORDER BY COALESCE(s.last_ts, '') ASC, e.session_id ASC`,
         )
         .all() as {
         sid: string;
@@ -547,6 +593,7 @@ export function openStore(path: string | ":memory:"): Store {
         head_seq: number;
         head_ts: string | null;
         workspace: string | null;
+        origin: string | null;
       }[];
       const out: {
         session_id: string;
@@ -554,6 +601,7 @@ export function openStore(path: string | ":memory:"): Store {
         seq: number;
         ts?: string;
         workspace?: string;
+        origin?: string;
       }[] = [];
       for (const row of rows) {
         // Only a `session.status` that is not `idle` reads as running; an
@@ -573,6 +621,7 @@ export function openStore(path: string | ":memory:"): Store {
           seq: row.head_seq,
           ts: row.head_ts ?? undefined,
           ...(row.workspace ? { workspace: row.workspace } : {}),
+          ...(row.origin ? { origin: row.origin } : {}),
         });
       }
       return out;

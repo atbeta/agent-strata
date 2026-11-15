@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use super::model::{Attention, OpencodeMode, OpencodeState, OpencodeStatus};
+use super::model::{Attention, OpencodeMode, OpencodePlan, OpencodeState, OpencodeStatus};
 
 #[derive(Serialize, Deserialize)]
 struct ModeFile {
@@ -36,6 +36,52 @@ pub fn write_status(
     write_status_asking(path, mode, state, url, creds, None)
 }
 
+pub fn write_status_for_plan(
+    path: &Path,
+    plan: &OpencodePlan,
+    state: OpencodeState,
+    include_credentials: bool,
+) -> std::io::Result<()> {
+    let creds = include_credentials.then_some((plan.username.as_str(), plan.password.as_str()));
+    write_status_details(
+        path,
+        plan.mode,
+        state,
+        Some(&plan.url),
+        creds,
+        Some(&plan.generation),
+        None,
+    )
+}
+
+pub fn write_status_asking_for_plan(
+    path: &Path,
+    plan: &OpencodePlan,
+    state: OpencodeState,
+    attention: Option<Attention>,
+) -> std::io::Result<()> {
+    write_status_details(
+        path,
+        plan.mode,
+        state,
+        Some(&plan.url),
+        Some((plan.username.as_str(), plan.password.as_str())),
+        Some(&plan.generation),
+        attention,
+    )
+}
+
+pub fn write_status_with_generation(
+    path: &Path,
+    mode: OpencodeMode,
+    state: OpencodeState,
+    url: Option<&str>,
+    creds: Option<(&str, &str)>,
+    generation: &str,
+) -> std::io::Result<()> {
+    write_status_details(path, mode, state, url, creds, Some(generation), None)
+}
+
 pub fn write_status_asking(
     path: &Path,
     mode: OpencodeMode,
@@ -44,9 +90,22 @@ pub fn write_status_asking(
     creds: Option<(&str, &str)>,
     attention: Option<Attention>,
 ) -> std::io::Result<()> {
+    write_status_details(path, mode, state, url, creds, None, attention)
+}
+
+fn write_status_details(
+    path: &Path,
+    mode: OpencodeMode,
+    state: OpencodeState,
+    url: Option<&str>,
+    creds: Option<(&str, &str)>,
+    generation: Option<&str>,
+    attention: Option<Attention>,
+) -> std::io::Result<()> {
     let status = OpencodeStatus {
         mode,
         state,
+        generation: generation.map(str::to_string),
         url: url.map(str::to_string),
         username: creds.map(|(username, _)| username.to_string()),
         password: creds.map(|(_, password)| password.to_string()),
@@ -228,34 +287,37 @@ mod tests {
     }
 
     #[test]
-    fn status_json_carries_the_pair_while_up_and_drops_it_when_stopped() {
+    fn status_json_carries_generation_and_drops_credentials_when_stopped() {
         let plan = sample_plan();
         let path = temp_path("status.json");
-        write_status(
-            &path,
-            plan.mode,
-            OpencodeState::Running,
-            Some(&plan.url),
-            Some((plan.username.as_str(), plan.password.as_str())),
-        )
-        .expect("write running status");
+        write_status_for_plan(&path, &plan, OpencodeState::Running, true)
+            .expect("write running status");
         let running = read_status(&path).expect("read running status");
         assert_eq!(running.username.as_deref(), Some(plan.username.as_str()));
         assert_eq!(running.password.as_deref(), Some(plan.password.as_str()));
+        assert_eq!(
+            running.generation.as_deref(),
+            Some(plan.generation.as_str())
+        );
+        let running_text = fs::read_to_string(&path).unwrap();
+        let running_json: serde_json::Value = serde_json::from_str(&running_text).unwrap();
+        assert_eq!(running_json["generation"], plan.generation);
 
-        write_status(
-            &path,
-            plan.mode,
-            OpencodeState::Stopped,
-            Some(&plan.url),
-            None,
-        )
-        .expect("write stopped status");
+        write_status_for_plan(&path, &plan, OpencodeState::Stopped, false)
+            .expect("write stopped status");
+        let stopped = read_status(&path).expect("read stopped status");
+        assert_eq!(
+            stopped.generation.as_deref(),
+            Some(plan.generation.as_str())
+        );
         let text = fs::read_to_string(&path).unwrap();
         assert!(
             !text.contains(&plan.password),
             "status JSON must not contain the password: {text}"
         );
+        let stopped_json: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert!(stopped_json.get("username").is_none());
+        assert!(stopped_json.get("password").is_none());
     }
 
     #[test]

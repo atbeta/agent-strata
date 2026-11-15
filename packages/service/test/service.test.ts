@@ -17,7 +17,7 @@ describe("agent-strata service", () => {
         },
       }) as unknown as Parameters<typeof ing.handle>[0];
     ing.handle(created("evt_1", "ses_live"));
-    ing.handle(created("import:ses_old", "ses_old"));
+    ing.handle(created("import:ses_old", "ses_old"), "history");
     expect(svc.store.sessionMapper("opencode:ses_live")).toBe(OPENCODE_MAPPER_VERSION);
     expect(svc.store.sessionMapper("opencode:ses_old")).toBeNull();
     ing.stop();

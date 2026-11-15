@@ -66,6 +66,7 @@ pub fn plan_with_port(
                 port,
                 username: "opencode".into(),
                 password,
+                generation: random_password(),
                 url: format!("http://127.0.0.1:{port}"),
                 service_port,
                 api_token: None,
@@ -104,6 +105,7 @@ pub fn service_env(plan: &OpencodePlan) -> Vec<(String, String)> {
         ("STRATA_OPENCODE_URL".into(), plan.url.clone()),
         ("STRATA_OPENCODE_USERNAME".into(), plan.username.clone()),
         ("STRATA_OPENCODE_PASSWORD".into(), plan.password.clone()),
+        ("STRATA_OPENCODE_GENERATION".into(), plan.generation.clone()),
     ]
 }
 
@@ -185,6 +187,10 @@ mod tests {
                     "STRATA_OPENCODE_PASSWORD".to_string(),
                     "unit-test-password-value".to_string()
                 ),
+                (
+                    "STRATA_OPENCODE_GENERATION".to_string(),
+                    "unit-test-generation".to_string()
+                ),
             ]
         );
     }
@@ -218,6 +224,7 @@ mod tests {
         assert_eq!(planned.username, "opencode");
         assert_eq!(planned.url, format!("http://127.0.0.1:{}", planned.port));
         assert_eq!(planned.password.len(), 43);
+        assert_eq!(planned.generation.len(), 43);
     }
 
     #[test]

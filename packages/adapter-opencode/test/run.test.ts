@@ -786,6 +786,8 @@ describe("reconciling only what the server owns", () => {
   const ownershipFetch = (opts: {
     get: (id: string) => { status: number; body?: object };
     status: () => Record<string, { type: string }>;
+    /** When set, the status table answers with this HTTP status instead. */
+    statusStatus?: number;
     log: { gets: string[]; statuses: number };
   }) => {
     const enc = new TextEncoder();
@@ -804,6 +806,13 @@ describe("reconciling only what the server owns", () => {
       // Status first: `/session/status` also starts with `/session/`.
       if (url.includes("/session/status")) {
         opts.log.statuses += 1;
+        if (opts.statusStatus !== undefined) {
+          // The SDK puts an HTTP failure in `error` rather than throwing.
+          return new Response(JSON.stringify({ error: "boom" }), {
+            status: opts.statusStatus,
+            headers: { "content-type": "application/json" },
+          });
+        }
         return Response.json(opts.status());
       }
       const m = /\/session\/([^/?]+)/.exec(url);
@@ -819,7 +828,7 @@ describe("reconciling only what the server owns", () => {
   };
 
   /** Leave a session marked running in the store, the way a restart finds one. */
-  const runningInStore = (store: ReturnType<typeof openStore>, casf: string) => {
+  const runningInStore = (store: ReturnType<typeof openStore>, casf: string, origin?: string) => {
     store.append([
       {
         id: `${casf}:started`,
@@ -837,7 +846,7 @@ describe("reconciling only what the server owns", () => {
         type: "session.status",
         data: { state: "busy" },
       } as unknown as EventInput,
-    ]);
+    ], { origin, claimOrigin: true });
   };
 
   test("a session the server does not return is left exactly as it was", async () => {
@@ -870,11 +879,12 @@ describe("reconciling only what the server owns", () => {
   test("a session the server does return, and is not running, is corrected", async () => {
     const { connectOpencode } = await import("../src/index");
     const store = openStore(":memory:");
-    runningInStore(store, "opencode:ses_ours");
+    runningInStore(store, "opencode:ses_ours", "A");
     const log = { gets: [] as string[], statuses: 0 };
     const conn = await connectOpencode({
       baseUrl: "http://fake",
       sink: store,
+      origin: "A",
       fetch: ownershipFetch({
         get: (id) => ({ status: 200, body: { id, directory: "/repo" } }),
         // Ours, and the table does not list it: idle.
@@ -890,6 +900,167 @@ describe("reconciling only what the server owns", () => {
     expect(store.sessionRunning(casf).running).toBe(false);
     conn.stop();
     store.close();
+  });
+
+  test("a status read that fails says nothing about the run", async () => {
+    const { connectOpencode } = await import("../src/index");
+    const store = openStore(":memory:");
+    runningInStore(store, "opencode:ses_ours", "A");
+    const log = { gets: [] as string[], statuses: 0 };
+    const conn = await connectOpencode({
+      baseUrl: "http://fake",
+      sink: store,
+      origin: "A",
+      fetch: ownershipFetch({
+        // The server owns the session.
+        get: (id) => ({ status: 200, body: { id, directory: "/repo" } }),
+        // But its table cannot be read.
+        status: () => ({}),
+        statusStatus: 500,
+        log,
+      }) as typeof fetch,
+      connectTimeoutMs: 5_000,
+      quietProbeMs: 10_000_000,
+    });
+    await Bun.sleep(300);
+    // A table that never arrived reads exactly like an empty one. Believing
+    // that would close a session the server may well be running right now.
+    expect(store.sessionRunning("opencode:ses_ours").running).toBe(true);
+    conn.stop();
+    store.close();
+  });
+
+  test("a status read that never answers says nothing about the run", async () => {
+    const { connectOpencode } = await import("../src/index");
+    const enc = new TextEncoder();
+    const store = openStore(":memory:");
+    runningInStore(store, "opencode:ses_ours", "A");
+    const log = { gets: [] as string[], statuses: 0 };
+    const conn = await connectOpencode({
+      baseUrl: "http://fake",
+      sink: store,
+      origin: "A",
+      // The table hangs. The pass must not wait on it forever, and a read
+      // that timed out says nothing about the run either.
+      reconcileRequestMs: 50,
+      fetch: (async (input: Request | URL | string) => {
+        const url = input instanceof Request ? input.url : String(input);
+        if (url.includes("/global/event") || url.endsWith("/event")) {
+          return new Response(
+            new ReadableStream<Uint8Array>({
+              start(ctrl) {
+                ctrl.enqueue(enc.encode('data: {"type":"server.connected","properties":{}}\n\n'));
+              },
+            }),
+            { status: 200, headers: { "content-type": "text/event-stream" } },
+          );
+        }
+        if (url.includes("/session/status")) {
+          log.statuses += 1;
+          // The table takes longer than the reconcile is willing to wait.
+          await Bun.sleep(500);
+          return Response.json({});
+        }
+        const m = /\/session\/([^/?]+)/.exec(url);
+        if (m) {
+          const id = decodeURIComponent(m[1]!);
+          log.gets.push(id);
+          return Response.json({ id, directory: "/repo" });
+        }
+        return Response.json([]);
+      }) as typeof fetch,
+      connectTimeoutMs: 5_000,
+      quietProbeMs: 10_000_000,
+    });
+    await Bun.sleep(700);
+    expect(store.sessionRunning("opencode:ses_ours").running).toBe(true);
+    conn.stop();
+    store.close();
+  });
+
+  test("shared storage does not let another origin correct the session", async () => {
+    const { connectOpencode } = await import("../src/index");
+    const store = openStore(":memory:");
+    runningInStore(store, "opencode:ses_shared", "A");
+    const log = { gets: [] as string[], statuses: 0 };
+    const conn = await connectOpencode({
+      baseUrl: "http://fake-b",
+      sink: store,
+      origin: "B",
+      fetch: ownershipFetch({
+        get: (id) => ({ status: 200, body: { id, directory: "/repo" } }),
+        status: () => ({}),
+        log,
+      }) as typeof fetch,
+      connectTimeoutMs: 5_000,
+      quietProbeMs: 10_000_000,
+    });
+    await Bun.sleep(200);
+    expect(log.gets).toHaveLength(0);
+    expect(log.statuses).toBe(0);
+    expect(store.sessionRunning("opencode:ses_shared").running).toBe(true);
+    conn.stop();
+    store.close();
+  });
+
+  test("work arriving during a status read wins over the stale correction", async () => {
+    const { connectOpencode } = await import("../src/index");
+    const store = openStore(":memory:");
+    const casf = `opencode:${sid}`;
+    runningInStore(store, casf, "A");
+    const enc = new TextEncoder();
+    let push: ((evt: Event) => void) | undefined;
+    let statusCalls = 0;
+    let releaseStatus = () => {};
+    const statusWait = new Promise<void>((resolve) => {
+      releaseStatus = resolve;
+    });
+    const fakeFetch = async (input: Request | URL | string) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.includes("/global/event") || url.endsWith("/event")) {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(ctrl) {
+              push = (evt) => ctrl.enqueue(enc.encode(`data: ${JSON.stringify(evt)}\n\n`));
+              ctrl.enqueue(enc.encode('data: {"type":"server.connected","properties":{}}\n\n'));
+            },
+          }),
+          { status: 200, headers: { "content-type": "text/event-stream" } },
+        );
+      }
+      if (url.includes("/session/status")) {
+        statusCalls += 1;
+        await statusWait;
+        return Response.json({});
+      }
+      if (url.endsWith("/project") || url.endsWith("/session") || url.includes("/session?") || url.includes("/permission") || url.includes("/question")) {
+        return Response.json([]);
+      }
+      return Response.json({ id: sid, directory: "/repo" });
+    };
+    const conn = await connectOpencode({
+      baseUrl: "http://fake",
+      sink: store,
+      origin: "A",
+      fetch: fakeFetch as typeof fetch,
+      connectTimeoutMs: 5_000,
+      quietProbeMs: 10_000_000,
+    });
+    try {
+      const deadline = Date.now() + 4_000;
+      while (statusCalls === 0 && Date.now() < deadline) await Bun.sleep(20);
+      expect(statusCalls).toBe(1);
+      push?.(msgUpdated({ id: "new-work", sessionID: sid, role: "user", time: { created: 20 } }));
+      releaseStatus();
+      await Bun.sleep(100);
+      expect(store.sessionRunning(casf).running).toBe(true);
+      push?.({ id: "new-work-idle", type: "session.idle", properties: { sessionID: sid } } as Event);
+      while (store.sessionRunning(casf).running && Date.now() < deadline) await Bun.sleep(20);
+      expect(store.sessionRunning(casf).running).toBe(false);
+    } finally {
+      conn.stop();
+      store.close();
+    }
   });
 
   test("a session of another backend is never asked about at all", async () => {

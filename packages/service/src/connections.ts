@@ -46,6 +46,18 @@ export function endpointOf(body: ConnectBody): string {
   return body.baseUrl ?? "";
 }
 
+export function sessionOrigin(body: ConnectBody, generation?: string): string {
+  const backend = body.backend ?? "opencode";
+  if (backend === "opencode" && body.placement === "embed") {
+    return `opencode:embed:${generation || `endpoint:${endpointOf(body)}`}`;
+  }
+  return `${backend}:${endpointOf(body)}`;
+}
+
+export function isEmbeddedOrigin(origin: string | undefined): boolean {
+  return origin?.startsWith("opencode:embed:") === true;
+}
+
 export function agentNameOf(command: string): string {
   return (command.split(/[\\/]/).pop() ?? command).replace(/\.(exe|cmd|bat)$/i, "");
 }

@@ -134,15 +134,28 @@ export async function connectOpencode(opts: {
   quietProbeMs?: number;
   /** Testing seam: how often a still-quiet, still-busy session is asked again. */
   statusReprobeMs?: number;
+  /** Only this connection/generation may have its stored running marks corrected. */
+  origin?: string;
+  /** Allow pre-origin records only when the service knows there is one configured endpoint. */
+  reconcileLegacy?: boolean;
   /**
    * How many running sessions one reconcile pass names to the server.
    *
-   * Proving ownership costs one `session.get` per candidate, so this bounds a
-   * connect. Running sessions are few by nature; the cap is for a store that
-   * accumulated stale marks, where hundreds of round-trips on one connect
-   * would be worse than a mark that waits for the next one.
+   * Confirming the directory costs one `session.get` per candidate, so this
+   * bounds a connect. Running sessions are few by nature; the cap is for a
+   * store that accumulated stale marks, where hundreds of round-trips on one
+   * connect would be worse than a mark that waits for the next one. The count
+   * is of requests, not candidates: a candidate whose stored directory has
+   * drifted is asked twice, and both asks are the server's time.
    */
   reconcileProbesMax?: number;
+  /**
+   * How long one reconcile request may take before it counts as unanswered.
+   *
+   * The probes are sequential, so a server that accepts a connection and
+   * never answers holds every candidate behind it open.
+   */
+  reconcileRequestMs?: number;
   fetch?: typeof fetch;
 }): Promise<{
   stop: () => void;
@@ -351,88 +364,79 @@ export async function connectOpencode(opts: {
   });
 
   /**
-   * Ask the backend which of its own sessions it is not running, and believe it.
+   * Correct a durable running mark from the connected instance's own status.
+   * OpenCode deletes idle entries from that table, so absence is the idle answer.
    *
-   * Everything else in this adapter infers `busy` from the event stream, which
-   * is right until a frame goes missing — and then it is wrong forever, because
-   * no later event is guaranteed to mention that session again. The store's
-   * projection is durable, this process's memory is not, so a restart or a
-   * reconnect is exactly where the two can disagree with nothing to correct it.
-   *
-   * Two conditions, and both have to be about this server's own answer:
-   *
-   * The status table lists what *is* running, not what is idle: opencode keeps
-   * only the sessions it is working on and drops an entry the moment it goes
-   * idle (`session/status.ts` — `set` deletes on idle, `list` returns the
-   * rest). This used to read the response looking for `type: "idle"` entries,
-   * which that table never contains, so the correction never ran once and a
-   * session left busy by a restart kept its running mark forever. The
-   * condition is inverted here, and the inversion is half the fix.
-   *
-   * The other half is ownership. "This server is not running it" is not the
-   * same sentence as "it is idle": a session belonging to another connection —
-   * the same `opencode serve` started twice, an `opencode acp` channel, a
-   * session under a directory this instance never opened — is missing from the
-   * table because this server has never heard of it. Correcting on absence
-   * would blank a reply that connection is still writing. So each candidate is
-   * named to the server first (`session.get`), and only one it actually
-   * returns is considered; a miss leaves the projection exactly as it was.
-   *
-   * Once per connection, not on a timer: a session that drifts while the stream
-   * is healthy produces an event, and a poll would spend a request per period
-   * to cover a case that only opens at a boundary. A failure here is silence,
-   * not an error the reader can act on — the stream still works, and the next
-   * connect asks again.
-   */
-  /**
-   * How many candidates one reconcile pass will name to the server.
-   *
-   * A running session costs one `session.get` to prove ownership, so this is
-   * the pass's ceiling. Running sessions are few by nature — the count is what
-   * the sidebar shows as moving — and a store carrying hundreds of stale ones
-   * should not turn one connect into hundreds of round-trips. Whatever is past
-   * the cap keeps its mark until the next connect, which is where it would
-   * have been anyway before this pass existed.
+   * Origin is settled before any request: `session.get` reads shared storage and
+   * cannot prove which process is running a session. The lookup here only proves
+   * that this instance can read the session and supplies its current directory.
    */
   const RECONCILE_PROBES_MAX = opts.reconcileProbesMax ?? 50;
+
+  /**
+   * How long one reconcile request may take before it counts as unanswered.
+   *
+   * The probes are sequential, so a server that accepts a connection and
+   * never answers holds every candidate behind it open. A timeout reads as
+   * "could not tell", which is the same answer a failure gives.
+   */
+  const RECONCILE_REQUEST_MS = opts.reconcileRequestMs ?? 5_000;
+
+  /** The answer, or `undefined` when the request did not come back in time. */
+  const bounded = async <T>(request: Promise<T>): Promise<T | undefined> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        request,
+        new Promise<undefined>((resolve) => {
+          timer = setTimeout(() => resolve(undefined), RECONCILE_REQUEST_MS);
+        }),
+      ]);
+    } finally {
+      // The request that answered first leaves no timer behind.
+      if (timer !== undefined) clearTimeout(timer);
+    }
+  };
 
   const reconcileIdle = async () => {
     const all = opts.sink.runningSessions?.();
     if (!all || all.length === 0) return;
-    // This adapter corrects its own backend's sessions and nothing else. An ACP
-    // session left running is another adapter's problem, and its id would
-    // simply not resolve here.
-    const candidates = all.filter((row) => row.backend === "opencode");
+    const candidates = all.filter(
+      (row) =>
+        row.backend === "opencode" &&
+        (opts.origin === undefined ||
+          row.origin === opts.origin ||
+          (row.origin === undefined && opts.reconcileLegacy === true)),
+    );
     if (candidates.length === 0) return;
+    const expectedSeq = Object.fromEntries(candidates.map((row) => [row.session_id, row.seq]));
     const read = opts.sink.sessionRunning?.bind(opts.sink);
 
-    /** Sessions this server answered for, and the directory it named. */
     const confirmed = new Map<string, string | undefined>();
-    let probes = 0;
+    // Requests, not candidates: the retry after a missed directory is a
+    // request of its own, and the ceiling is about what the server is asked.
+    let requests = 0;
     for (const row of candidates) {
-      if (probes >= RECONCILE_PROBES_MAX) break;
-      probes += 1;
+      if (requests >= RECONCILE_PROBES_MAX) break;
       const native = row.session_id.replace(/^opencode:/, "");
       if (!native) continue;
-      // A stored workspace of `unknown` is a placeholder, not a directory: the
-      // session was met through a frame that carried no directory.
       const stored =
         row.workspace && row.workspace !== "unknown" && row.workspace !== "no workspace"
           ? row.workspace
           : undefined;
       try {
-        let res = await client.session.get({
-          sessionID: native,
-          ...(stored ? { directory: stored } : {}),
-        });
-        // The stored workspace may have drifted; a miss there is not proof,
-        // so ask once more the way the indexer does.
-        if (!res.data && stored !== undefined) {
-          res = await client.session.get({ sessionID: native });
+        requests += 1;
+        let res = await bounded(
+          client.session.get({
+            sessionID: native,
+            ...(stored ? { directory: stored } : {}),
+          }),
+        );
+        if (!res?.data && stored !== undefined) {
+          requests += 1;
+          res = await bounded(client.session.get({ sessionID: native }));
         }
-        // Not this server's session. Leave it alone — another connection owns
-        // it, and its absence from the table says nothing about the run.
-        if (!res.data) continue;
+        if (!res?.data) continue;
         const fromServer = (res.data as { directory?: string }).directory;
         confirmed.set(native, fromServer ?? stored);
       } catch {
@@ -452,25 +456,37 @@ export async function connectOpencode(opts: {
     const idle: string[] = [];
     for (const [directory, sessions] of byDirectory) {
       try {
-        const statuses = await client.session.status({
-          ...(directory ? { directory } : {}),
-        });
+        const statuses = await bounded(
+          client.session.status({
+            ...(directory ? { directory } : {}),
+          }),
+        );
+        // The SDK puts an HTTP failure in `error` rather than throwing, and a
+        // table that never arrived reads exactly like an empty one. Believing
+        // the second would blank every session of this directory — the ones
+        // still running included. A read that failed says nothing about the
+        // run, so it leaves the directory alone.
+        if (!statuses || statuses.error || statuses.data === undefined) {
+          console.error(
+            `opencode status reconcile failed for ${directory || "(root)"}:`,
+            statuses?.error ?? "no answer",
+          );
+          continue;
+        }
         const busy = new Set(
-          Object.entries(statuses.data ?? {})
+          Object.entries(statuses.data)
             .filter(([, status]) => (status as { type?: string }).type !== "idle")
             .map(([sessionID]) => sessionID),
         );
         for (const native of sessions) if (!busy.has(native)) idle.push(native);
       } catch (err) {
-        // A directory that cannot answer leaves its sessions as they are.
         console.error(`opencode status reconcile failed for ${directory || "(root)"}:`, err);
       }
     }
 
     if (idle.length > 0) {
-      // The store is asked, not this connection: the run this correction is
-      // for happened before it, so nothing here watched it go busy.
-      ingestor.append(mapper.reconcileIdle(idle, read));
+      const events = mapper.reconcileIdle(idle, read, expectedSeq);
+      ingestor.append(events, { ifUnchanged: expectedSeq });
     }
   };
 

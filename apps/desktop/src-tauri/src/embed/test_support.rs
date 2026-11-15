@@ -29,6 +29,7 @@ pub fn sample_plan() -> OpencodePlan {
         port: 43123,
         username: "opencode".into(),
         password: "unit-test-password-value".into(),
+        generation: "unit-test-generation".into(),
         url: "http://127.0.0.1:43123".into(),
         service_port: 7700,
         api_token: None,

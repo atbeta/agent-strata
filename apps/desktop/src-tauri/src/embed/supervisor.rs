@@ -7,7 +7,7 @@ use super::model::{Attention, AttentionKind, OpencodePlan, OpencodeState};
 use super::plan::backoff;
 #[cfg(test)]
 use super::store::read_status;
-use super::store::{write_status, write_status_asking};
+use super::store::{write_status_asking_for_plan, write_status_for_plan};
 
 pub struct Spawned {
     pub exited: Arc<AtomicBool>,
@@ -33,36 +33,21 @@ pub fn supervise<S, H, W>(
 {
     let mut attempt: u32 = 0;
     let mut unsuccessful: u32 = 0;
+    let write = |state, include_credentials| {
+        write_status_for_plan(status_path, &plan, state, include_credentials)
+    };
 
     loop {
         if shutdown.load(Ordering::SeqCst) {
-            let _ = write_status(
-                status_path,
-                plan.mode,
-                OpencodeState::Stopped,
-                Some(&plan.url),
-                None,
-            );
+            let _ = write(OpencodeState::Stopped, false);
             return;
         }
         restart.store(false, Ordering::SeqCst);
-        let _ = write_status(
-            status_path,
-            plan.mode,
-            OpencodeState::Starting,
-            Some(&plan.url),
-            Some((plan.username.as_str(), plan.password.as_str())),
-        );
+        let _ = write(OpencodeState::Starting, true);
         let spawned = match spawn(&plan) {
             Ok(child) => child,
             Err(_) => {
-                let _ = write_status(
-                    status_path,
-                    plan.mode,
-                    OpencodeState::Stopped,
-                    Some(&plan.url),
-                    None,
-                );
+                let _ = write(OpencodeState::Stopped, false);
                 return;
             }
         };
@@ -75,13 +60,7 @@ pub fn supervise<S, H, W>(
             while polls < 40 && !spawned.exited.load(Ordering::SeqCst) {
                 // A successful login can leave the stage marker stale, so health wins.
                 if healthy(&plan) {
-                    let _ = write_status(
-                        status_path,
-                        plan.mode,
-                        OpencodeState::Running,
-                        Some(&plan.url),
-                        Some((plan.username.as_str(), plan.password.as_str())),
-                    );
+                    let _ = write(OpencodeState::Running, true);
                     attempt = 0;
                     unsuccessful = 0;
                     reached_running = true;
@@ -95,12 +74,10 @@ pub fn supervise<S, H, W>(
                     if attention.kind != AttentionKind::Login {
                         let key = format!("{}:{}", attention.kind.as_str(), attention.message);
                         if asking.as_deref() != Some(key.as_str()) {
-                            let _ = write_status_asking(
+                            let _ = write_status_asking_for_plan(
                                 status_path,
-                                plan.mode,
+                                &plan,
                                 OpencodeState::NeedsInput,
-                                Some(&plan.url),
-                                Some((plan.username.as_str(), plan.password.as_str())),
                                 Some(attention),
                             );
                             asking = Some(key);
@@ -108,13 +85,7 @@ pub fn supervise<S, H, W>(
                         wait(Duration::from_millis(400));
                         if shutdown.load(Ordering::SeqCst) {
                             (spawned.kill)();
-                            let _ = write_status(
-                                status_path,
-                                plan.mode,
-                                OpencodeState::Stopped,
-                                Some(&plan.url),
-                                None,
-                            );
+                            let _ = write(OpencodeState::Stopped, false);
                             return;
                         }
                         if restart.swap(false, Ordering::SeqCst) {
@@ -131,29 +102,20 @@ pub fn supervise<S, H, W>(
                     .unwrap_or(0);
                 if stage > 0 {
                     if auth_written != stage as i8 {
-                        let _ = write_status(
-                            status_path,
-                            plan.mode,
+                        let _ = write(
                             if stage == 2 {
                                 OpencodeState::AuthFailed
                             } else {
                                 OpencodeState::AuthRequired
                             },
-                            Some(&plan.url),
-                            Some((plan.username.as_str(), plan.password.as_str())),
+                            true,
                         );
                         auth_written = stage as i8;
                     }
                     wait(Duration::from_millis(400));
                     if shutdown.load(Ordering::SeqCst) {
                         (spawned.kill)();
-                        let _ = write_status(
-                            status_path,
-                            plan.mode,
-                            OpencodeState::Stopped,
-                            Some(&plan.url),
-                            None,
-                        );
+                        let _ = write(OpencodeState::Stopped, false);
                         return;
                     }
                     if restart.swap(false, Ordering::SeqCst) {
@@ -166,13 +128,7 @@ pub fn supervise<S, H, W>(
                 polls += 1;
                 if shutdown.load(Ordering::SeqCst) {
                     (spawned.kill)();
-                    let _ = write_status(
-                        status_path,
-                        plan.mode,
-                        OpencodeState::Stopped,
-                        Some(&plan.url),
-                        None,
-                    );
+                    let _ = write(OpencodeState::Stopped, false);
                     return;
                 }
                 if restart.swap(false, Ordering::SeqCst) {
@@ -187,13 +143,7 @@ pub fn supervise<S, H, W>(
                     wait(Duration::from_secs(5));
                     if shutdown.load(Ordering::SeqCst) {
                         (spawned.kill)();
-                        let _ = write_status(
-                            status_path,
-                            plan.mode,
-                            OpencodeState::Stopped,
-                            Some(&plan.url),
-                            None,
-                        );
+                        let _ = write(OpencodeState::Stopped, false);
                         return;
                     }
                     if restart.swap(false, Ordering::SeqCst) {
@@ -221,23 +171,11 @@ pub fn supervise<S, H, W>(
         if !reached_running {
             unsuccessful += 1;
             if unsuccessful > 8 {
-                let _ = write_status(
-                    status_path,
-                    plan.mode,
-                    OpencodeState::Stopped,
-                    Some(&plan.url),
-                    None,
-                );
+                let _ = write(OpencodeState::Stopped, false);
                 return;
             }
         }
-        let _ = write_status(
-            status_path,
-            plan.mode,
-            OpencodeState::Restarting,
-            Some(&plan.url),
-            Some((plan.username.as_str(), plan.password.as_str())),
-        );
+        let _ = write(OpencodeState::Restarting, true);
         attempt += 1;
         wait(backoff(attempt));
     }
@@ -390,8 +328,10 @@ mod tests {
         );
         assert_eq!(spawned[1].port, plan.port);
         assert_eq!(spawned[1].password, plan.password);
+        assert_eq!(spawned[1].generation, plan.generation);
         assert_eq!(spawned[0].port, plan.port);
         assert_eq!(spawned[0].password, plan.password);
+        assert_eq!(spawned[0].generation, plan.generation);
     }
 
     #[test]
