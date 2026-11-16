@@ -61,6 +61,18 @@ describe("reader view cache", () => {
     expect(cache.peek("2")?.filesKey).toBeUndefined();
   });
 
+  test("a view pinned by a pane on screen is not evicted to make room", () => {
+    const cache = createViewCache(1, 1);
+    const shown = view(["a", "b"]);
+    cache.pin("shown", true);
+    cache.remember("shown", shown);
+    cache.remember("other", view(["c"]));
+    expect(cache.peek("shown")?.view).toBe(shown);
+    cache.pin("shown", false);
+    cache.remember("other", view(["c"]));
+    expect(cache.peek("shown")).toBeUndefined();
+  });
+
   test("a later remember keeps the files key it already had", () => {
     const cache = createViewCache(2);
     const held = view(["a"]);

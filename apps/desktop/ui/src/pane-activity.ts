@@ -23,6 +23,22 @@ import { sessionStatus, type SessionStatus } from "./session-status";
  * closed is the same lie this file exists to remove.
  */
 const [seen, setSeen] = createSignal<ReadonlyMap<string, boolean>>(new Map());
+/** Panes still showing a session. A focus change clears the route's claim, and
+ * that clear used to wipe the dot of the pane that was still showing it. */
+const holds = new Map<string, number>();
+
+export function holdPane(sessionId: string): void {
+  holds.set(sessionId, (holds.get(sessionId) ?? 0) + 1);
+}
+
+export function releasePane(sessionId: string): void {
+  const next = (holds.get(sessionId) ?? 0) - 1;
+  if (next > 0) holds.set(sessionId, next);
+  else {
+    holds.delete(sessionId);
+    clearPaneBusy(sessionId);
+  }
+}
 
 /**
  * Report what a pane's own view says about its session.
@@ -48,6 +64,7 @@ export function publishPaneBusy(sessionId: string, busy: boolean): void {
 /** A pane stopped vouching for this session — its claim expires with the pane. */
 export function clearPaneBusy(sessionId: string): void {
   untrack(() => {
+    if ((holds.get(sessionId) ?? 0) > 0) return;
     const cur = seen();
     if (!cur.has(sessionId)) return;
     const next = new Map(cur);

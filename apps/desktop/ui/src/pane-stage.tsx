@@ -1,4 +1,4 @@
-import { For, Show, createSignal, type JSX } from "solid-js";
+import { For, Show, createContext, createSignal, useContext, type JSX } from "solid-js";
 import { Icon, type Name } from "./icons";
 import { t } from "./i18n";
 import { displayTitle } from "./session-title";
@@ -36,6 +36,7 @@ import {
   type LayoutPreset,
   type PaneLeaf,
   type PaneNode,
+  type PaneSplit,
   type PaneWorkspaceState,
   type SplitDir,
 } from "./pane-tree";
@@ -515,17 +516,140 @@ function SplitDivider(props: {
   );
 }
 
+/**
+ * Callbacks the tree reads. A fresh object on every workspace change would
+ * remount the tree, which is the jump this split exists to avoid, so the
+ * object is created once and every field reads the live props.
+ */
+type StageApi = {
+  workspace: () => PaneWorkspaceState;
+  sessions: () => readonly SessionRowSummary[];
+  renderTranscript: (sessionId: string, paneId: string) => JSX.Element;
+  onFocusPane: (paneId: string, sessionId: string | null) => void;
+  onSelectPaneSession: (paneId: string, sessionId: string) => void;
+  onSplitPane: (paneId: string, dir: SplitDir) => void;
+  onClosePane: (paneId: string) => void;
+  onToggleZoom: (paneId: string) => void;
+  onResizeSplit: (splitId: string, ratio: number) => void;
+};
+
+const StageApiContext = createContext<StageApi>();
+
+function useStage(): StageApi {
+  const api = useContext(StageApiContext);
+  if (!api) throw new Error("pane tree rendered outside PaneStage");
+  return api;
+}
+
+/**
+ * One transcript for the life of this session in this pane.
+ *
+ * The slot is keyed on the session, so giving the pane a different
+ * conversation mounts a new column. Focus does not: the same component stays
+ * on screen and only its `active` prop changes.
+ */
+function TranscriptMount(props: { sessionId: string; paneId: string }) {
+  const stage = useStage();
+  return stage.renderTranscript(props.sessionId, props.paneId);
+}
+
+function PaneLeafView(props: { leaf: PaneLeaf; zoomed: boolean }) {
+  const stage = useStage();
+  const focused = () => stage.workspace().focusedPaneId === props.leaf.id;
+  const openIds = () => {
+    const set = new Set<string>();
+    for (const leaf of listLeaves(stage.workspace().root)) {
+      if (leaf.sessionId) set.add(leaf.sessionId);
+    }
+    return set;
+  };
+  return (
+    <section
+      data-pane-id={props.leaf.id}
+      aria-current={focused() ? "true" : undefined}
+      class="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-md border border-border bg-background"
+      onPointerDown={() => {
+        if (!focused()) stage.onFocusPane(props.leaf.id, props.leaf.sessionId);
+      }}
+    >
+      <PaneHeader
+        leaf={props.leaf}
+        focused={focused()}
+        zoomed={props.zoomed}
+        sessions={stage.sessions()}
+        onFocus={() => stage.onFocusPane(props.leaf.id, props.leaf.sessionId)}
+        onSelectSession={(sid) => stage.onSelectPaneSession(props.leaf.id, sid)}
+        onSplit={(dir) => stage.onSplitPane(props.leaf.id, dir)}
+        onToggleZoom={() => stage.onToggleZoom(props.leaf.id)}
+        onClose={() => stage.onClosePane(props.leaf.id)}
+      />
+      <Show
+        when={props.leaf.sessionId}
+        keyed
+        fallback={
+          <EmptyPanePicker
+            sessions={stage.sessions()}
+            openSessionIds={openIds()}
+            onSelect={(sid) => stage.onSelectPaneSession(props.leaf.id, sid)}
+          />
+        }
+      >
+        {(sid) => <TranscriptMount sessionId={sid} paneId={props.leaf.id} />}
+      </Show>
+    </section>
+  );
+}
+
+function PaneSplitView(props: { node: PaneSplit }) {
+  const stage = useStage();
+  const split = () => props.node;
+  return (
+    <div class={`flex min-h-0 min-w-0 flex-1 ${split().dir === "row" ? "flex-row" : "flex-col"}`}>
+      <div class="flex min-h-0 min-w-0 flex-col overflow-hidden" style={{ flex: `${split().ratio} 1 0%` }}>
+        <PaneBranch node={split().a} />
+      </div>
+      <SplitDivider
+        splitId={split().id}
+        dir={split().dir}
+        ratio={split().ratio}
+        onResize={(ratio) => stage.onResizeSplit(split().id, ratio)}
+      />
+      <div
+        class="flex min-h-0 min-w-0 flex-col overflow-hidden"
+        style={{ flex: `${1 - split().ratio} 1 0%` }}
+      >
+        <PaneBranch node={split().b} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A node of the tree, as a component rather than a function called while rendering.
+ *
+ * A `Show` fallback that *called* a render function built a new element tree on
+ * every workspace change — focus, a drag, a session landing in a slot — and the
+ * previous transcripts were thrown away. That is the jump, and it is why a pane
+ * left alone for a while loaded from scratch when you came back: its view had
+ * been evicted and its DOM was gone. Props update in place. The transcript
+ * mounts when the session does, and stays while focus moves around it.
+ */
+function PaneBranch(props: { node: PaneNode }) {
+  const leaf = () => (props.node.kind === "leaf" ? props.node : undefined);
+  return (
+    <Show when={leaf()} fallback={<PaneSplitView node={props.node as PaneSplit} />}>
+      {(item) => <PaneLeafView leaf={item()} zoomed={false} />}
+    </Show>
+  );
+}
+
 export function PaneStage(props: {
   workspace: PaneWorkspaceState;
   sessions: readonly SessionRowSummary[];
-  /**
-   * The session `renderFocusedTranscript` currently renders — the one the route
-   * is on. Focus and this are two different clocks: focusing a pane lands this
-   * frame, the hash behind it lands the next.
-   */
-  transcriptSessionId: string;
+  /** Single mode: the route's transcript, with no pane around it. */
   renderFocusedTranscript: () => JSX.Element;
-  renderPeerTranscript: (sessionId: string, paneId: string) => JSX.Element;
+  /** Multiplex: one transcript per pane, mounted for as long as that session stays there. */
+  renderTranscript: (sessionId: string, paneId: string) => JSX.Element;
   onFocusPane: (paneId: string, sessionId: string | null) => void;
   onSelectPaneSession: (paneId: string, sessionId: string) => void;
   onSplitPane: (paneId: string, dir: SplitDir) => void;
@@ -533,127 +657,40 @@ export function PaneStage(props: {
   onToggleZoom: (paneId: string) => void;
   onResizeSplit: (splitId: string, ratio: number) => void;
 }) {
-  const openIds = () => {
-    const set = new Set<string>();
-    for (const leaf of listLeaves(props.workspace.root)) {
-      if (leaf.sessionId) set.add(leaf.sessionId);
-    }
-    return set;
+  const api: StageApi = {
+    workspace: () => props.workspace,
+    sessions: () => props.sessions,
+    renderTranscript: (sessionId, paneId) => props.renderTranscript(sessionId, paneId),
+    onFocusPane: (paneId, sessionId) => props.onFocusPane(paneId, sessionId),
+    onSelectPaneSession: (paneId, sessionId) => props.onSelectPaneSession(paneId, sessionId),
+    onSplitPane: (paneId, dir) => props.onSplitPane(paneId, dir),
+    onClosePane: (paneId) => props.onClosePane(paneId),
+    onToggleZoom: (paneId) => props.onToggleZoom(paneId),
+    onResizeSplit: (splitId, ratio) => props.onResizeSplit(splitId, ratio),
   };
-
-  const renderLeaf = (leaf: PaneLeaf, zoomed: boolean): JSX.Element => {
-    const isFocused = () => props.workspace.focusedPaneId === leaf.id;
-    return (
-      <section
-        data-pane-id={leaf.id}
-        aria-current={isFocused() ? "true" : undefined}
-        class="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-md border border-border bg-background"
-        onPointerDown={() => {
-          if (!isFocused()) props.onFocusPane(leaf.id, leaf.sessionId);
-        }}
-      >
-        <PaneHeader
-          leaf={leaf}
-          focused={isFocused()}
-          zoomed={zoomed}
-          sessions={props.sessions}
-          onFocus={() => props.onFocusPane(leaf.id, leaf.sessionId)}
-          onSelectSession={(sid) => props.onSelectPaneSession(leaf.id, sid)}
-          onSplit={(dir) => props.onSplitPane(leaf.id, dir)}
-          onToggleZoom={() => props.onToggleZoom(leaf.id)}
-          onClose={() => props.onClosePane(leaf.id)}
-        />
-        <Show
-          when={leaf.sessionId}
-          fallback={
-            <EmptyPanePicker
-              sessions={props.sessions}
-              openSessionIds={openIds()}
-              onSelect={(sid) => props.onSelectPaneSession(leaf.id, sid)}
-            />
-          }
-        >
-          {(sid) => (
-            <Show
-              // Focus alone was not enough to be told to swap renderers. The
-              // focused transcript is bound to the session on the route, and the
-              // route is a hash: `focusPane` lands this frame, `hashchange` lands
-              // the next one. In that gap the pane you had just clicked rendered
-              // the transcript of the pane you had just left — the other
-              // conversation flashing through, then correcting itself.
-              //
-              // So it waits for the session it is actually bound to. Until the
-              // route catches up this pane keeps its own peer transcript, which
-              // is its own session anyway: what is on screen is right at every
-              // frame, and the swap is between two renderings of one
-              // conversation rather than a detour through another.
-              when={isFocused() && sid() === props.transcriptSessionId}
-              fallback={props.renderPeerTranscript(sid(), leaf.id)}
-            >
-              {props.renderFocusedTranscript()}
-            </Show>
-          )}
-        </Show>
-      </section>
-    );
-  };
-
-  const renderNode = (node: PaneNode): JSX.Element => {
-    if (node.kind === "leaf") {
-      return renderLeaf(node, false);
-    }
-    return (
-      <div
-        class={`flex min-h-0 min-w-0 flex-1 ${
-          node.dir === "row" ? "flex-row" : "flex-col"
-        }`}
-      >
-        <div
-          class="flex min-h-0 min-w-0 flex-col overflow-hidden"
-          style={{ flex: `${node.ratio} 1 0%` }}
-        >
-          {renderNode(node.a)}
-        </div>
-        <SplitDivider
-          splitId={node.id}
-          dir={node.dir}
-          ratio={node.ratio}
-          onResize={(ratio) => props.onResizeSplit(node.id, ratio)}
-        />
-        <div
-          class="flex min-h-0 min-w-0 flex-col overflow-hidden"
-          style={{ flex: `${1 - node.ratio} 1 0%` }}
-        >
-          {renderNode(node.b)}
-        </div>
-      </div>
-    );
-  };
-
   const zoomedLeaf = () =>
     props.workspace.zoomedPaneId
       ? findLeaf(props.workspace.root, props.workspace.zoomedPaneId)
       : undefined;
 
   return (
-    <Show
-      when={props.workspace.mode === "multiplex"}
-      fallback={props.renderFocusedTranscript()}
-    >
-      <div class="flex min-h-[30vh] min-w-0 flex-1 flex-col overflow-hidden p-2.5">
-        {/* The gutter between panes had no counterpart at the outside edge, so
-            the outermost panes were welded to the window while the inner ones
-            had a channel between them. The same 2.5 padding all round puts the
-            group of panes on one field, which is also what lets the corners be
-            rounded: there is now background visible outside the corner for the
-            radius to be cut against. */}
-        <Show
-          when={zoomedLeaf()}
-          fallback={renderNode(props.workspace.root)}
-        >
-          {(leaf) => renderLeaf(leaf(), true)}
-        </Show>
-      </div>
-    </Show>
+    <StageApiContext.Provider value={api}>
+      <Show when={props.workspace.mode === "multiplex"} fallback={props.renderFocusedTranscript()}>
+        <div class="flex min-h-[30vh] min-w-0 flex-1 flex-col overflow-hidden p-2.5">
+          {/* The gutter between panes had no counterpart at the outside edge, so
+              the outermost panes were welded to the window while the inner ones
+              had a channel between them. The same 2.5 padding all round puts the
+              group of panes on one field, which is also what lets the corners be
+              rounded: there is now background visible outside the corner for the
+              radius to be cut against. */}
+          <div class={props.workspace.zoomedPaneId ? "hidden" : "contents"}>
+            <PaneBranch node={props.workspace.root} />
+          </div>
+          <Show when={zoomedLeaf()}>
+            {(leaf) => <PaneLeafView leaf={leaf()} zoomed />}
+          </Show>
+        </div>
+      </Show>
+    </StageApiContext.Provider>
   );
 }

@@ -461,7 +461,10 @@ export function SessionDetail(props: {
           type: string;
           data?: { state?: string; partial?: boolean };
         };
-        if (evt.session_id && (evt.session_id !== props.id || isDevEvent(evt.type))) {
+        if (evt.session_id) {
+          // Every pane shows its own transcript, including the focused one.
+          // Partials for the route used to stop here, because the route's
+          // transcript was a different tree. That tree is gone.
           window.dispatchEvent(new CustomEvent("strata-stream-event", { detail: evt }));
         }
         // A dev server's output is not a turn. It is forwarded above, because the
@@ -487,8 +490,11 @@ export function SessionDetail(props: {
         }
         if (evt.type === "tool.progress") {
           // Progress is live-only and belongs to a tool row, not to the
-          // transcript. It is forwarded for whoever is drawing that row.
-          window.dispatchEvent(new CustomEvent("strata-stream-event", { detail: evt }));
+          // transcript. Session events were forwarded above; one with no
+          // session still has to reach the row that is drawing it.
+          if (!evt.session_id) {
+            window.dispatchEvent(new CustomEvent("strata-stream-event", { detail: evt }));
+          }
           return;
         }
         if (evt.type === "session.policy") {
@@ -756,19 +762,34 @@ export function SessionDetail(props: {
               <PaneStage
                 workspace={paneWorkspace()}
                 sessions={props.sessions}
-                transcriptSessionId={props.id}
                 onFocusPane={panes.focus}
                 onSelectPaneSession={panes.selectSession}
                 onSplitPane={panes.split}
                 onClosePane={panes.close}
                 onToggleZoom={panes.toggleZoom}
                 onResizeSplit={panes.resize}
-                renderPeerTranscript={(peerSessionId, paneId) => (
+                renderTranscript={(sessionId, paneId) => (
                   <PeerSessionTranscript
-                    sessionId={peerSessionId}
+                    sessionId={sessionId}
                     paneId={paneId}
                     sessions={props.sessions}
-                    onFocus={() => panes.focus(paneId, peerSessionId)}
+                    active={paneWorkspace().focusedPaneId === paneId && sessionId === props.id}
+                    replayTurns={() => (replayPos() !== null ? turns() : undefined)}
+                    decorateTurns={composer.decorateTurns}
+                    onEdit={composer.editTurn}
+                    onRevert={caps()?.revert ? revertTurn : undefined}
+                    onOpenPath={(rel) => {
+                      if (paneWorkspace().focusedPaneId !== paneId || props.id !== sessionId) {
+                        panes.focus(paneId, sessionId);
+                        setTimeout(() => openPathInRail(rel), 0);
+                        return;
+                      }
+                      openPathInRail(rel);
+                    }}
+                    registerApi={(api) => {
+                      list = api;
+                    }}
+                    onFocus={() => panes.focus(paneId, sessionId)}
                     onOpenChild={openChild}
                   />
                 )}

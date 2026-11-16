@@ -8,20 +8,20 @@ import {
   onMount,
   Show,
 } from "solid-js";
-import { getJson, readHead, readViewTail, type SessionView } from "./api";
+import { getJson, readHead, readViewTail, type SessionView, type Turn } from "./api";
 import { settled } from "./resource";
 import { createEntranceLedger } from "./entrance";
 import { planVisible } from "./plan-progress";
 import { PlanStrip } from "./plan-strip";
 import { TurnBlock } from "./transcript";
-import { TranscriptView } from "./transcript-view";
+import { TranscriptView, type TranscriptApi } from "./transcript-view";
 import { applyStreamingSnapshot, runInProgress, type StreamingSnapshot } from "./live";
 import { createScrollDeferral, deferTranscriptWrite } from "./scroll-defer";
 import { isDevEvent } from "./sync-events";
 import { createSessionViewLoader } from "./session-view-loader";
-import { outlineIsPartial, peekView, rememberView, TAIL_TURNS } from "./view-cache";
+import { outlineIsPartial, peekView, pinView, rememberView, TAIL_TURNS } from "./view-cache";
 import { t } from "./i18n";
-import { clearPaneBusy, publishPaneBusy } from "./pane-activity";
+import { holdPane, publishPaneBusy, releasePane } from "./pane-activity";
 import type { SessionRowSummary } from "./pane-stage";
 import { Button } from "@/components/ui/button";
 import { SessionEmpty } from "./session-empty";
@@ -44,6 +44,15 @@ export function PeerSessionTranscript(props: {
   sessions: readonly SessionRowSummary[];
   onFocus: () => void;
   onOpenChild: (id: string) => void;
+  /** This pane is the one the composer, rail and route belong to. */
+  active?: boolean;
+  /** Trace replay, already resolved, and only while this pane is active. */
+  replayTurns?: () => Turn[] | undefined;
+  decorateTurns?: (turns: SessionView["turns"]) => SessionView["turns"];
+  onEdit?: (turnId: string, text: string) => void;
+  onRevert?: (turnId: string) => void;
+  onOpenPath?: (rel: string) => void;
+  registerApi?: (api: TranscriptApi) => void;
 }) {
   const opening = peekView(props.sessionId);
   const [booting, setBooting] = createSignal(!opening);
@@ -58,10 +67,18 @@ export function PeerSessionTranscript(props: {
   onCleanup(() => {
     alive = false;
     viewLoader.invalidate();
-    // This pane stops vouching for the session the moment it stops existing. A
-    // claim outliving its pane is the exact failure `pane-activity` was written
-    // to remove, reintroduced by the cleanup that was supposed to prevent it.
-    clearPaneBusy(props.sessionId);
+  });
+  // The view stays in the cache for as long as this pane is showing it, and
+  // the busy claim stays too. Focus moving away used to clear both, which is
+  // the delay and the quiet dot on the way back.
+  createEffect(() => {
+    const id = props.sessionId;
+    pinView(id, true);
+    holdPane(id);
+    onCleanup(() => {
+      pinView(id, false);
+      releasePane(id);
+    });
   });
 
   const [view, { refetch, mutate }] = createResource(
@@ -288,8 +305,16 @@ createEffect(() => {
 });
 const shown = createMemo(() => {
   const v = displayed();
-  const t = v?.turns ?? [];
-  return { turns: t, arriving: entrance.arriving(v?.session_id ?? "", t.map((x) => x.turn_id)) };
+  const live = v?.turns ?? [];
+  // Replay and the optimistic echo belong to the focused pane only. Reading
+  // them from an unfocused pane would subscribe every column to the route's
+  // stream and rebuild them all on each token.
+  const replay = props.active ? props.replayTurns?.() : undefined;
+  const t = replay ?? (props.active && props.decorateTurns ? props.decorateTurns(live) : live);
+  // A replay is a different column of the same session. Keying the ledger on
+  // the live session would announce every historical turn as just arrived.
+  const who = replay ? `replay:${v?.session_id ?? ""}` : (v?.session_id ?? "");
+  return { turns: t, arriving: entrance.arriving(who, t.map((x) => x.turn_id)), replay: replay !== undefined };
 });
 const turns = () => shown().turns;
   const row = () => props.sessions.find((s) => s.summary.session_id === props.sessionId);
@@ -309,9 +334,13 @@ const turns = () => shown().turns;
       sessionId={displayed()?.session_id ?? props.sessionId}
       turns={turns()}
       onScrollGate={onScrollGate}
-      ready={!booting()}
-      nav={!booting() && !outlineIsPartial(displayed())}
+      ready={!booting() || shown().replay}
+      nav={!booting() && !shown().replay && !outlineIsPartial(displayed())}
+      latest={!shown().replay}
       class="min-h-0"
+      workspace={() => displayed()?.workspace}
+      onOpenPath={props.onOpenPath}
+      api={props.active ? props.registerApi : undefined}
       empty={
         // Peer panes have no composer, so no key hints — just where
         // the session lives and that nobody has said anything yet.
@@ -330,6 +359,9 @@ const turns = () => shown().turns;
           awaiting={() => false}
           childOf={childOf}
           onOpenChild={props.onOpenChild}
+          actions={() =>
+            props.active ? { onEdit: props.onEdit, onRevert: props.onRevert } : {}
+          }
         />
       )}
     />

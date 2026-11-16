@@ -44,9 +44,23 @@ export interface CachedView {
  */
 export function createViewCache(capacity = CAPACITY, maxTurns = MAX_TURNS) {
   const slots: Slot[] = [];
+  /** Sessions a pane is showing right now. Eviction skips them: the view is
+   * already on screen, and dropping it is what made switching back load the
+   * whole transcript again. */
+  const pinned = new Set<string>();
 
   /** Turns held across every slot; the bound the capacity alone could not give. */
   const held = () => slots.reduce((n, s) => n + s.view.turns.length, 0);
+
+  const dropOldestUnpinned = (): boolean => {
+    // The newest entry is never the one dropped: a conversation the reader just
+    // opened has to be here when they come back to it, even if it is the only
+    // thing that fits.
+    const victim = slots.findIndex((s, i) => i < slots.length - 1 && !pinned.has(s.id));
+    if (victim < 0) return false;
+    slots.splice(victim, 1);
+    return true;
+  };
 
   const peek = (id: string): CachedView | undefined => {
     const i = slots.findIndex((s) => s.id === id);
@@ -56,18 +70,20 @@ export function createViewCache(capacity = CAPACITY, maxTurns = MAX_TURNS) {
     return { view: slot!.view, filesKey: slot!.filesKey };
   };
 
+  const pin = (id: string, on: boolean) => {
+    if (on) pinned.add(id);
+    else pinned.delete(id);
+  };
+
   const remember = (id: string, view: SessionView, filesKey?: string) => {
     const i = slots.findIndex((s) => s.id === id);
     const prev = i >= 0 ? slots.splice(i, 1)[0] : undefined;
     slots.push({ id, view, filesKey: filesKey ?? prev?.filesKey });
-    // The newest entry is never the one dropped: a conversation the reader just
-    // opened has to be here when they come back to it, even if it is the only
-    // thing that fits.
-    while (slots.length > 1 && (slots.length > capacity || held() > maxTurns)) slots.shift();
-    while (slots.length > capacity) slots.shift();
+    while (slots.length > 1 && (slots.length > capacity || held() > maxTurns) && dropOldestUnpinned());
+    while (slots.length > capacity && dropOldestUnpinned());
   };
 
-  return { peek, remember };
+  return { peek, remember, pin };
 }
 
 const sessionViews = createViewCache();
@@ -75,6 +91,7 @@ const sessionViews = createViewCache();
 export const peekView = (id: string) => sessionViews.peek(id);
 export const rememberView = (id: string, view: SessionView, filesKey?: string) =>
   sessionViews.remember(id, view, filesKey);
+export const pinView = (id: string, on: boolean) => sessionViews.pin(id, on);
 
 /**
  * A tail that is only the end of a longer transcript.

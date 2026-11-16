@@ -151,7 +151,8 @@ describe("the transcript's flow is keyed so motion is possible", () => {
       // Keyed on the session the data says it is. The route's id changes before
       // the view lands, so keying on it would baseline the conversation being
       // left as the one being opened — the whole column, animating, on switch.
-      expect(src).toContain('entrance.arriving(v?.session_id ?? ""');
+      expect(src).toContain("entrance.arriving(");
+      expect(src).toContain('v?.session_id ?? ""');
       expect(src).not.toContain("entrance.arriving(props.");
     }
   });

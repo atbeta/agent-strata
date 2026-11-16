@@ -15,26 +15,14 @@ const code = (f: string) =>
     .join("\n");
 
 /**
- * Clicking from one pane to another showed the wrong conversation first: the
- * pane you clicked flashed the transcript of the pane you left, then corrected
- * itself a frame later.
+ * Clicking from one pane to another used to paint the wrong conversation, and
+ * then throw the column away and build it again.
  *
- * Two separate faults, one per clock.
- *
- * **The workspace.** The pane action `focus` moves focus synchronously and navigates
- * afterwards, because the route is a `location.hash` and lands a frame later.
- * The effect that puts the route session into the focused pane read the pane
- * signal — `updatePaneWorkspace` reads it to get the state it is updating — so
- * it was subscribed to the whole workspace rather than to the route id. It
- * re-fired on the focus change, stamping the session it still held, which was
- * the *previous* route, into the pane that had just been clicked. Rule 4 of
- * `assignSessionToWorkspace` replaced that pane's session in place, so for a
- * frame it showed the other conversation, until the hashchange restored it.
- *
- * **The renderer.** Even with the pane's own session intact, focus arrives a
- * frame before the route does. A pane that swapped renderer on focus alone
- * would ask for the focused transcript during that gap — and that transcript is
- * bound to the route, so it would be the previous session's.
+ * The route effect assigns a session only when the route changes, so a focus
+ * change cannot stamp the previous route onto the pane you just clicked. A
+ * session that is already open is focused where it is, rather than copied.
+ * The transcript itself stays mounted: focus changes who owns the composer,
+ * not which list is on screen.
  */
 describe("switching panes never paints another pane's conversation", () => {
   test("the route session is assigned on route changes only, not on focus changes", () => {
@@ -59,33 +47,41 @@ describe("switching panes never paints another pane's conversation", () => {
     expect(listLeaves(ws.root).map((l) => l.sessionId)).toEqual(["s1", "s2"]);
 
     // Clicking pane-2 moves focus. By itself that changes nothing about which
-    // conversation each pane holds — so the flash is not the focus.
+    // conversation each pane holds.
     const clicked = focusPane(ws, "pane-2");
     expect(clicked.focusedPaneId).toBe("pane-2");
     expect(listLeaves(clicked.root).map((l) => l.sessionId)).toEqual(["s1", "s2"]);
 
-    // It is the assign that follows, carrying the route the pane still holds.
-    // Rule 4 replaces the newly focused pane in place, so pane-2 now shows s1 —
-    // the conversation of the pane that was left. This is the flash, exactly.
-    const flashed = assignSessionToWorkspace(clicked, "s1");
-    expect(listLeaves(flashed.root).map((l) => l.sessionId)).toEqual(["s1", "s1"]);
-
-    // With the effect gated on the route, that assign never runs for a focus
-    // change, so pane-2 keeps what it was already showing.
-    expect(listLeaves(clicked.root).map((l) => l.sessionId)).toEqual(["s1", "s2"]);
+    // The route effect does not run for a focus change. If it did, and it
+    // carried the session the route still held, that session is already open
+    // in pane-1 — focus goes back there, it is not copied onto pane-2.
+    const redirected = assignSessionToWorkspace(clicked, "s1");
+    expect(listLeaves(redirected.root).map((l) => l.sessionId)).toEqual(["s1", "s2"]);
+    expect(redirected.focusedPaneId).toBe("pane-1");
   });
 
-  test("the focused transcript waits for the session it is bound to", () => {
+  test("focus does not swap in a second transcript", () => {
+    // The route transcript and the peer transcript were two trees. Focusing a
+    // pane disposed one and mounted the other, so the column jumped to the top
+    // and a session that had fallen out of the cache loaded from scratch.
+    // One transcript is born with the pane and stays with it. Focus only
+    // changes who owns the composer.
     const stage = code("pane-stage.tsx");
-    expect(stage).toContain("when={isFocused() && sid() === props.transcriptSessionId}");
-    // Focus on its own is the condition that let the stale frame through.
-    expect(stage).not.toContain("when={isFocused()}");
-    expect(code("session-detail.tsx")).toContain("transcriptSessionId={props.id}");
+    expect(stage).not.toContain("renderPeerTranscript");
+    expect(stage).not.toContain("transcriptSessionId");
+    expect(stage).not.toContain("fallback={renderNode(");
+    expect(stage).toContain("<PaneBranch node={props.workspace.root} />");
+    expect(stage).toContain("stage.renderTranscript(props.sessionId, props.paneId)");
+    // Single mode is still the route's own transcript, with no pane around it.
+    expect(stage).toContain("fallback={props.renderFocusedTranscript()}");
   });
 
-  test("an unfocused pane still reads as a peer, so nothing else changed", () => {
-    expect(code("pane-stage.tsx")).toContain(
-      "fallback={props.renderPeerTranscript(sid(), leaf.id)}",
-    );
+  test("a focused session's stream still reaches the pane that is showing it", () => {
+    // Partials for the route session used to stay inside SessionDetail, because
+    // that was the tree on screen. The pane's own transcript is on screen now,
+    // including while it is the focused one, so it has to hear the same events.
+    const detail = code("session-detail.tsx");
+    expect(detail).not.toContain("evt.session_id !== props.id");
+    expect(detail).toContain('new CustomEvent("strata-stream-event"');
   });
 });

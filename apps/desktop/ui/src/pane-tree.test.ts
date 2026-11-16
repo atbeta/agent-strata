@@ -96,6 +96,14 @@ describe("pane workspace model", () => {
     expect(listLeaves(ws.root).map((l) => l.sessionId)).toEqual(["s4", "s3"]);
   });
 
+  test("a session already open in another pane is focused, not copied over the one you are in", () => {
+    let ws = applyLayoutPreset(createInitialWorkspace("s1"), "cols-2", "s1", ["s1", "s2"]);
+    ws = focusPane(ws, "pane-2");
+    ws = assignSessionToWorkspace(ws, "s1");
+    expect(listLeaves(ws.root).map((l) => l.sessionId)).toEqual(["s1", "s2"]);
+    expect(ws.focusedPaneId).toBe("pane-1");
+  });
+
   test("free splitting and closing panes behaves like a terminal multiplexer", () => {
     let ws = createInitialWorkspace("s1");
     ws = splitPane(ws, "pane-1", "row", "s2");

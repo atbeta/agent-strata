@@ -145,6 +145,14 @@ export function assignSessionToWorkspace(
     };
   }
 
+  // Already on screen: move focus there. Copying it into the focused pane
+  // replaced a conversation the reader was still looking at.
+  const existing = findLeafBySession(state.root, sessionId);
+  if (existing) {
+    if (state.focusedPaneId === existing.id) return state;
+    return focusPane(state, existing.id);
+  }
+
   // Multiplex mode: fill focused if empty, else first empty slot, else replace focused.
   if (focused.sessionId === null) {
     return {

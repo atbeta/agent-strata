@@ -292,7 +292,7 @@ export function TranscriptView(props: {
             return promptAt(entries(), turnIndex)?.turnId;
           });
 
-          props.api?.({
+          const handle: TranscriptApi = {
             jumpTo: (turnId, align) => {
               wheel?.cancel();
               owner.jumpTo(turnId, align);
@@ -308,6 +308,12 @@ export function TranscriptView(props: {
               wheel?.cancel();
               owner.toLatest();
             },
+          };
+          createEffect(() => {
+            // Focus hands this list to search without mounting a new one. The
+            // list may have been born while another pane was the route.
+            const register = props.api;
+            if (register) register(handle);
           });
 
           return (

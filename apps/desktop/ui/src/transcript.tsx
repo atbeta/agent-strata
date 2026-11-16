@@ -1384,6 +1384,16 @@ export function TurnBlock(props: {
   onEdit?: (turnId: string, text: string) => void;
   onRevert?: (turnId: string) => void;
   onFork?: (turnId: string) => void;
+  /**
+   * Focus moved, the row did not. A static `onEdit` is captured when the row
+   * mounts, so a pane that becomes focused would keep a read-only menu until
+   * its rows happened to remount. Read at render time instead.
+   */
+  actions?: () => {
+    onEdit?: (turnId: string, text: string) => void;
+    onRevert?: (turnId: string) => void;
+    onFork?: (turnId: string) => void;
+  };
 }) {
   /**
    * One stream: the assistant writes, calls a tool, reads the result, writes
@@ -1395,6 +1405,12 @@ export function TurnBlock(props: {
    */
   const firstPart = () => props.part === undefined || props.part.part === 0;
   const lastPart = () => props.part === undefined || props.part.last;
+  const gesture = () =>
+    props.actions?.() ?? {
+      onEdit: props.onEdit,
+      onRevert: props.onRevert,
+      onFork: props.onFork,
+    };
   const flow = createMemo(() => {
     const msgs = props.turn.assistant;
     // Attribution is a property of the turn, not of a segment of it: a call's
@@ -1429,12 +1445,12 @@ export function TurnBlock(props: {
           <MessageMenu
             text={() => messageText(blocks())}
             onEdit={
-              props.onEdit
-                ? () => props.onEdit!(props.turn.turn_id, messageText(blocks()))
+              gesture().onEdit
+                ? () => gesture().onEdit!(props.turn.turn_id, messageText(blocks()))
                 : undefined
             }
-            onRevert={props.onRevert ? () => props.onRevert!(props.turn.turn_id) : undefined}
-            onFork={props.onFork ? () => props.onFork!(props.turn.turn_id) : undefined}
+            onRevert={gesture().onRevert ? () => gesture().onRevert!(props.turn.turn_id) : undefined}
+            onFork={gesture().onFork ? () => gesture().onFork!(props.turn.turn_id) : undefined}
           >
           <div class="transcript-message flex w-full flex-col items-end" data-message-role="user">
             <Show when={props.turn.reverted}>
@@ -1445,19 +1461,22 @@ export function TurnBlock(props: {
             </div>
             <Show
               when={
-                messageText(blocks()).trim() !== "" || props.onEdit || props.onRevert || props.onFork
+                messageText(blocks()).trim() !== "" ||
+                gesture().onEdit ||
+                gesture().onRevert ||
+                gesture().onFork
               }
             >
               <MessageActions
                 text={messageText(blocks())}
                 align="end"
                 onEdit={
-                  props.onEdit
-                    ? () => props.onEdit!(props.turn.turn_id, messageText(blocks()))
+                  gesture().onEdit
+                    ? () => gesture().onEdit!(props.turn.turn_id, messageText(blocks()))
                     : undefined
                 }
-                onRevert={props.onRevert ? () => props.onRevert!(props.turn.turn_id) : undefined}
-                onFork={props.onFork ? () => props.onFork!(props.turn.turn_id) : undefined}
+                onRevert={gesture().onRevert ? () => gesture().onRevert!(props.turn.turn_id) : undefined}
+                onFork={gesture().onFork ? () => gesture().onFork!(props.turn.turn_id) : undefined}
               />
             </Show>
           </div>

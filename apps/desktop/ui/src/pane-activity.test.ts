@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createRenderEffect, createRoot } from "solid-js";
-import { clearPaneBusy, paneStatus, publishPaneBusy } from "./pane-activity";
+import { clearPaneBusy, holdPane, paneStatus, publishPaneBusy, releasePane } from "./pane-activity";
 
 const read = (f: string) => readFileSync(join(import.meta.dir, f), "utf8");
 
@@ -45,6 +45,18 @@ describe("a pane dot that is not held hostage to the session list", () => {
     publishPaneBusy("c1", false);
     expect(paneStatus("c1", { status: "completed", busy: true })?.kind).toBe("running");
     clearPaneBusy("c1");
+  });
+
+  test("a claim another pane still holds survives a focused-pane clear", () => {
+    // Switching focus clears the route session's claim. The pane that is still
+    // showing that session must keep the dot, or it goes quiet for a frame
+    // and stays quiet until the next view tick.
+    publishPaneBusy("held", true);
+    holdPane("held");
+    clearPaneBusy("held");
+    expect(paneStatus("held", idle)?.kind).toBe("running");
+    releasePane("held");
+    expect(paneStatus("held", idle)?.kind).toBe("done");
   });
 
   test("a claim expires with the pane that made it", () => {
@@ -186,7 +198,7 @@ describe("focus you can find without hunting", () => {
     expect(header).not.toContain("bg-primary");
     expect(header).not.toContain("inset-x-0 bottom-0");
     expect(header).not.toContain("left-1 top-1/2");
-    const section = stage.slice(stage.indexOf("data-pane-id={leaf.id}"));
+    const section = stage.slice(stage.indexOf("data-pane-id={props.leaf.id}"));
     expect(section).toContain("rounded-md border border-border bg-background");
     expect(section).not.toContain("border-primary");
     expect(section).not.toContain("bg-secondary/45");
