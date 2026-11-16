@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openStore } from "../src/index";
+import { Database } from "bun:sqlite";
 import { makeEvent, type EventInput } from "@agent-strata/schema";
 
 const mk = (session_id: string, type: string, data: object, ts?: string): EventInput =>
@@ -141,6 +142,85 @@ describe("store", () => {
     expect(onlyA[0]!.snippet).toContain("flux");
     expect(() => s.search('"foo" OR')).not.toThrow();
     expect(() => s.search("AND ( * ^ NEAR/5")).not.toThrow();
+    s.close();
+  });
+
+  /**
+   * `unicode61` splits on word boundaries, and Chinese has none — the whole
+   * sentence was a single token, so a search for `搜索` matched nothing at all.
+   * The index now separates each character, and the query is turned into a
+   * phrase so the characters still have to be adjacent.
+   */
+  test("search finds Chinese words of two characters", () => {
+    const s = openStore(":memory:");
+    s.append([
+      mk("a", "turn.assistant", {
+        turn_id: "t",
+        content: [{ type: "text", text: "当前的全文搜索不支持中文。" }],
+      }),
+    ]);
+    // Two characters is the shortest word that carries meaning in Chinese, and
+    // it is the length that a 3-gram index cannot answer at all.
+    expect(s.search("搜索").length).toBe(1);
+    expect(s.search("中文").length).toBe(1);
+    expect(s.search("全文").length).toBe(1);
+    expect(s.search("全文搜索").length).toBe(1);
+    // A substring that never appears.
+    expect(s.search("数据库").length).toBe(0);
+    s.close();
+  });
+
+  test("a Chinese phrase matches only adjacent characters", () => {
+    const s = openStore(":memory:");
+    s.append([
+      mk("a", "turn.assistant", {
+        turn_id: "t",
+        content: [{ type: "text", text: "中国文字很古老" }],
+      }),
+      mk("b", "turn.assistant", {
+        turn_id: "t",
+        content: [{ type: "text", text: "中文很好学" }],
+      }),
+    ]);
+    // Both documents contain 中 and 文, but only one has them together. An AND
+    // of the two characters would match both; the phrase matches one.
+    const hits = s.search("中文");
+    expect(hits.length).toBe(1);
+    expect(hits[0]!.event.session_id).toBe("b");
+    s.close();
+  });
+
+  test("the snippet of a Chinese hit reads without the index's spaces", () => {
+    const s = openStore(":memory:");
+    s.append([
+      mk("a", "turn.assistant", {
+        turn_id: "t",
+        content: [{ type: "text", text: "前言很长。当前的全文搜索不支持中文，需要修复。" }],
+      }),
+    ]);
+    const hit = s.search("搜索")[0]!;
+    expect(hit.snippet).toContain("搜索");
+    // The segmentation spaces are an indexing detail; the reader must not see
+    // them between characters that were written without any.
+    expect(hit.snippet).not.toMatch(/全\s+文/);
+    expect(hit.snippet).not.toMatch(/搜\s+索/);
+    s.close();
+  });
+
+  test("Chinese and English in one query both match, and English is unchanged", () => {
+    const s = openStore(":memory:");
+    s.append([
+      mk("a", "turn.assistant", {
+        turn_id: "t",
+        content: [{ type: "text", text: "FTS 全文搜索 uses unicode61 tokenizer" }],
+      }),
+    ]);
+    expect(s.search("全文").length).toBe(1);
+    expect(s.search("unicode61").length).toBe(1);
+    expect(s.search("tokenizer").length).toBe(1);
+    // Mixed: both halves have to be present in the same document.
+    expect(s.search("全文 tokenizer").length).toBe(1);
+    expect(s.search("全文 missing").length).toBe(0);
     s.close();
   });
 
@@ -366,6 +446,78 @@ describe("store.query", () => {
     expect(s.listSessions()).toHaveLength(0);
     expect(s.sessionRevision("a")).toBeNull();
     expect(s.search("needle")).toHaveLength(0);
+    s.close();
+  });
+
+  /**
+   * A store written before the segmentation change holds the old single-token
+   * Chinese text, and `CREATE TABLE IF NOT EXISTS` would leave it that way — the
+   * feature would work on a fresh database and be silently broken on every
+   * existing one.
+   *
+   * The rebuild is deliberately not in `openStore`: it took 14 s on a large
+   * store, and opening the database happens before the window is shown. Opening
+   * reports the work; `reindex` does it.
+   */
+  test("an old store reports pending work and gains Chinese search when reindexed", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agent-strata-fts-"));
+    const path = join(dir, "db.sqlite");
+    try {
+      const first = openStore(path);
+      first.append([
+        mk("a", "turn.assistant", {
+          turn_id: "t",
+          content: [{ type: "text", text: "当前的全文搜索不支持中文" }],
+        }),
+      ]);
+      first.close();
+
+      // Put the database back into the pre-change state: the unsegmented text
+      // and no marker saying otherwise. This is what every existing install has.
+      const raw = new Database(path);
+      raw.exec("DELETE FROM events_fts");
+      raw.exec("DELETE FROM store_meta");
+      const row = raw
+        .query("SELECT id, session_id, body FROM events")
+        .get() as { id: string; session_id: string; body: string };
+      raw
+        .query("INSERT INTO events_fts(event_id,session_id,text) VALUES(?,?,?)")
+        .run(row.id, row.session_id, "当前的全文搜索不支持中文");
+      // Prove the premise: the old index cannot answer a two-character word.
+      const before = raw
+        .query("SELECT count(*) c FROM events_fts WHERE events_fts MATCH ?")
+        .get('"搜索"') as { c: number };
+      expect(before.c).toBe(0);
+      raw.close();
+
+      const second = openStore(path);
+      // Opening must not have done the work — that is what keeps startup fast.
+      expect(second.reindexPending()).toBe(true);
+      expect(second.search("搜索").length).toBe(0);
+
+      second.reindex();
+      expect(second.reindexPending()).toBe(false);
+      expect(second.search("搜索").length).toBe(1);
+      expect(second.search("中文").length).toBe(1);
+      // A second call is a no-op, not a second rebuild.
+      second.reindex();
+      expect(second.search("搜索").length).toBe(1);
+      second.close();
+
+      // The marker is durable: reopening does not ask for the work again.
+      const third = openStore(path);
+      expect(third.reindexPending()).toBe(false);
+      expect(third.search("搜索").length).toBe(1);
+      third.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a fresh store needs no rebuild", () => {
+    const s = openStore(":memory:");
+    expect(s.reindexPending()).toBe(false);
+    s.reindex();
     s.close();
   });
 

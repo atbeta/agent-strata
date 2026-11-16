@@ -1002,6 +1002,23 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     },
   });
 
+  // The search index predates the CJK segmentation on an existing store, and
+  // rebuilding it measured 14 s on 110 MB of text. That must not sit in front
+  // of the window, so it runs here — after the port is open — and search keeps
+  // answering from the old rows until it finishes. A failure is not fatal: the
+  // index stays as it was and the next start tries again.
+  if (store.reindexPending()) {
+    setTimeout(() => {
+      try {
+        const started = Date.now();
+        store.reindex();
+        console.log(`search index rebuilt in ${Date.now() - started} ms`);
+      } catch (error) {
+        console.error("search index rebuild failed:", error);
+      }
+    }, 1000).unref?.();
+  }
+
   return {
     port: server.port ?? (opts.port ?? 0),
     store,

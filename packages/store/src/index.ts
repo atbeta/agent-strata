@@ -165,6 +165,16 @@ export interface Store {
   integrityCheck(): string[];
   /** Cheap housekeeping: query planner, FTS index, WAL checkpoint. */
   optimize(): void;
+  /**
+   * Rewrite the search index with the current segmentation.
+   *
+   * Called after startup rather than during it: on a large store this takes
+   * seconds, and the window must not wait for it. Cheap and safe to call when
+   * there is nothing to do — it checks the marker first.
+   */
+  reindex(): void;
+  /** Whether `reindex` still has work, i.e. this store predates the current scheme. */
+  reindexPending(): boolean;
   /** Rewrites the database file; can take a while on a large store. */
   vacuum(): void;
 }
@@ -184,9 +194,59 @@ function ftsText(e: Event): string {
   return parts.join("\n");
 }
 
-function ftsQuote(q: string): string {
-  const terms = q.match(/[\p{L}\p{N}_]+/gu) ?? [];
-  return terms.map((t) => `"${t.replace(/"/g, '""')}"`).join(" ");
+/**
+ * Letters and digits of the scripts that do not put spaces between words.
+ *
+ * FTS5's `unicode61` tokenizer splits on word boundaries, and these scripts
+ * have none: `全文搜索不支持中文` is one token to it, so a search for `搜索`
+ * matches nothing and a search for the whole sentence matches only itself.
+ * Splitting each character apart at index time gives the tokenizer the
+ * boundaries it expects.
+ */
+const CJK = "\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-\\uFAFF\\u3040-\\u30FF\\uAC00-\\uD7AF";
+const CJK_RE = new RegExp(`[${CJK}]`);
+const CJK_RUN_RE = new RegExp(`[${CJK}]+`, "gu");
+
+/** Split CJK characters apart; leave everything else as the tokenizer left it. */
+function ftsSegment(text: string): string {
+  return text.replace(CJK_RUN_RE, (run) => ` ${Array.from(run).join(" ")} `).replace(/\s+/g, " ").trim();
+}
+
+/**
+ * The MATCH expression for a search box's contents.
+ *
+ * Each run is a phrase, which is what keeps a two-character Chinese word from
+ * matching the same two characters scattered through a sentence: in the
+ * segmented index `中文` is stored as `中 文`, and the phrase `"中 文"`
+ * requires them adjacent, where `"中" "文"` would also match `中国文字`.
+ * A run of non-CJK text stays one word, so `FTS` and `performance` still match
+ * exactly what `unicode61` would have matched before.
+ *
+ * Everything is quoted, so no input can reach FTS5 as an operator.
+ */
+function ftsMatchQuery(q: string): string {
+  const phrases: string[] = [];
+  for (const run of q.match(new RegExp(`[${CJK}]+|[\\p{L}\\p{N}_]+`, "gu")) ?? []) {
+    const quoted =
+      CJK_RE.test(run) ? Array.from(run).join(" ") : run;
+    phrases.push(`"${quoted.replace(/"/g, '""')}"`);
+  }
+  return phrases.join(" ");
+}
+
+/**
+ * Undo the spacing segmentation added, for display.
+ *
+ * A snippet comes back with a space between every two Chinese characters,
+ * which is not how the text was written. Removing a space only when both
+ * neighbours are CJK (or a highlight bracket around one) leaves the spacing
+ * inside English text alone.
+ */
+function ftsTidySnippet(s: string): string {
+  return s.replace(
+    new RegExp(`(?<=[${CJK}\\]])\\s+(?=[${CJK}\\[\\]])`, "gu"),
+    "",
+  );
 }
 
 interface Parsed {
@@ -229,10 +289,38 @@ export function openStore(path: string | ":memory:"): Store {
       session_id TEXT PRIMARY KEY,
       rev REAL NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS store_meta(
+      k TEXT PRIMARY KEY,
+      v TEXT NOT NULL
+    );
   `);
   const sessionColumns = db.query("PRAGMA table_info(sessions)").all() as { name: string }[];
   if (!sessionColumns.some((c) => c.name === "mapper")) db.exec("ALTER TABLE sessions ADD COLUMN mapper TEXT");
   if (!sessionColumns.some((c) => c.name === "origin")) db.exec("ALTER TABLE sessions ADD COLUMN origin TEXT");
+
+  // The index's segmentation is a property of the rows already written, not of
+  // the schema: a store created before the CJK change holds the old single-token
+  // Chinese text, and `CREATE TABLE IF NOT EXISTS` leaves it untouched.
+  //
+  // It cannot be rebuilt here. On a store of 50k events carrying 110 MB of text
+  // the rebuild measured 14 s, and this runs before the window is shown — the
+  // same shape of freeze that made startup wait on the sync it was supposed to
+  // do in the background. So opening marks the work and returns; the caller
+  // runs `reindex` when it can (the service does, after it is listening), and
+  // until then search keeps answering from the rows already there, which are
+  // still correct for everything except Chinese.
+  const FTS_TEXT_SEGMENTED = "1";
+  const metaGet = (k: string): string | undefined =>
+    (db.query("SELECT v FROM store_meta WHERE k=?").get(k) as { v: string } | null)?.v;
+  const metaSet = (k: string, v: string): void => {
+    db.query("INSERT INTO store_meta(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v").run(k, v);
+  };
+  // A store with no events has nothing to re-index, so a fresh database is
+  // already current. Only an existing one can be behind.
+  if (metaGet("fts_seg") === undefined) {
+    const anyEvent = db.query("SELECT 1 AS x FROM events LIMIT 1").get();
+    if (!anyEvent) metaSet("fts_seg", FTS_TEXT_SEGMENTED);
+  }
 
   const listeners = new Set<(e: Event) => void>();
 
@@ -363,7 +451,7 @@ export function openStore(path: string | ":memory:"): Store {
       if (text.trim()) {
         db.query(
           "INSERT INTO events_fts(event_id,session_id,text) VALUES(?,?,?)",
-        ).run(event.id, event.session_id, text);
+        ).run(event.id, event.session_id, ftsSegment(text));
       }
       out.push(event);
       inserted.push(event);
@@ -429,7 +517,7 @@ export function openStore(path: string | ":memory:"): Store {
         ? "SELECT e.body FROM events e JOIN events_fts f ON f.event_id = e.id"
         : "SELECT e.body FROM events e";
       if (useFts) {
-        const terms = ftsQuote(q.text!);
+        const terms = ftsMatchQuery(q.text!);
         if (terms) {
           where.push("events_fts MATCH ?");
           params.push(terms);
@@ -628,7 +716,7 @@ export function openStore(path: string | ":memory:"): Store {
     },
 
     search(query, { session_id, limit } = {}) {
-      const q = ftsQuote(query);
+      const q = ftsMatchQuery(query);
       if (!q) return [];
       let sql = `SELECT e.body, snippet(events_fts,2,'[',']','…',16) AS snip
                  FROM events_fts f JOIN events e ON e.id=f.event_id
@@ -644,7 +732,10 @@ export function openStore(path: string | ":memory:"): Store {
         params.push(limit);
       }
       const rows = db.query(sql).all(...params) as { body: string; snip: string }[];
-      return rows.map((r) => ({ event: parseEvent(JSON.parse(r.body)), snippet: r.snip }));
+      return rows.map((r) => ({
+        event: parseEvent(JSON.parse(r.body)),
+        snippet: ftsTidySnippet(r.snip),
+      }));
     },
 
     stats() {
@@ -800,6 +891,37 @@ export function openStore(path: string | ":memory:"): Store {
     integrityCheck() {
       const rows = db.query("PRAGMA integrity_check").all() as Record<string, unknown>[];
       return rows.map((row) => String(Object.values(row)[0] ?? "")).filter(Boolean);
+    },
+
+    reindexPending() {
+      return metaGet("fts_seg") !== FTS_TEXT_SEGMENTED;
+    },
+
+    reindex() {
+      if (!this.reindexPending()) return;
+      db.transaction(() => {
+        db.exec("DELETE FROM events_fts");
+        // `ftsText` reads the stored body, so the rebuild sees exactly what the
+        // write path saw and cannot drift from it.
+        const rows = db.query("SELECT id, session_id, body FROM events").all() as {
+          id: string;
+          session_id: string;
+          body: string;
+        }[];
+        const ins = db.query("INSERT INTO events_fts(event_id,session_id,text) VALUES(?,?,?)");
+        for (const row of rows) {
+          let event: Event;
+          try {
+            event = parseEvent(JSON.parse(row.body));
+          } catch {
+            continue;
+          }
+          const text = ftsText(event);
+          if (text.trim()) ins.run(row.id, row.session_id, ftsSegment(text));
+        }
+        metaSet("fts_seg", FTS_TEXT_SEGMENTED);
+      })();
+      db.exec("INSERT INTO events_fts(events_fts) VALUES('optimize')");
     },
 
     optimize() {
