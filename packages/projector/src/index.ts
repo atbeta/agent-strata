@@ -208,6 +208,39 @@ export function countPatchLines(patch: string): { additions: number; deletions: 
   return { additions, deletions };
 }
 
+/**
+ * How much of an opening line may stand in as a title.
+ *
+ * The layout ellipsizes whatever does not fit the row, so this only has to be
+ * long enough that the cut lands at the edge of the header or the sidebar
+ * instead of in the middle of the sentence.
+ */
+const TITLE_EXCERPT = 80;
+
+/**
+ * How many characters OpenCode keeps when it names a session from the opening
+ * line. The stored title is that slice plus one ellipsis, and nothing else.
+ */
+const AUTO_TITLE_CHARS = 20;
+
+/**
+ * OpenCode names an untitled session by keeping the first twenty characters of
+ * the opening line and appending an ellipsis. That string is the whole title,
+ * so the row stops after a few words. Only a title that is exactly that clip
+ * — `opening.slice(0, 20) + "…"` — is widened back to the line. A name someone
+ * chose stays as written, including one that ends in an ellipsis but is a
+ * longer or shorter prefix than the automatic clip.
+ */
+function widenClippedTitle(title: string | undefined, opening: string | undefined): string | undefined {
+  const line = opening?.trim().replace(/\s+/g, " ");
+  if (!line) return title;
+  const excerpt = line.slice(0, TITLE_EXCERPT);
+  if (!title?.trim()) return excerpt;
+  const clip = `${line.slice(0, AUTO_TITLE_CHARS)}…`;
+  if (line.length > AUTO_TITLE_CHARS && title.trim() === clip) return excerpt;
+  return title;
+}
+
 /** One shape for a path: separators unified, and a Windows drive path compared without case. */
 function pathKey(path: string): string {
   const p = path.replace(/\\/g, "/");
@@ -603,18 +636,18 @@ export function projectSession(events: Event[]): SessionView {
     view.turns = kept;
   }
 
-  if (!view.title) {
-    for (const t of view.turns) {
-      const block = t.user?.find(
-        (b) => (b.type === "text" && b.text.trim()) || (b.type === "subtask" && b.prompt.trim()),
-      );
-      const text = block?.type === "subtask" ? block.prompt : block?.type === "text" ? block.text : undefined;
-      if (text?.trim()) {
-        view.title = text.trim().slice(0, 80);
-        break;
-      }
+  let opening: string | undefined;
+  for (const t of view.turns) {
+    const block = t.user?.find(
+      (b) => (b.type === "text" && b.text.trim()) || (b.type === "subtask" && b.prompt.trim()),
+    );
+    const text = block?.type === "subtask" ? block.prompt : block?.type === "text" ? block.text : undefined;
+    if (text?.trim()) {
+      opening = text;
+      break;
     }
   }
+  view.title = widenClippedTitle(view.title, opening);
 
   if (view.status !== "active") {
     for (const c of calls.values()) {

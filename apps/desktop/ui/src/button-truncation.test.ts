@@ -30,3 +30,14 @@ describe("a button never truncates its own label", () => {
     expect(offenders).toEqual([]);
   });
 });
+
+describe("the session title ellipsizes across the space it was given", () => {
+  test("the heading is a block inside the flex item, not the flex item", () => {
+    // `truncate` on the flex item, under `items-baseline`, left the heading
+    // at the width of a few words. The row stayed empty beside it.
+    const src = readFileSync(join(import.meta.dir, "session-header.tsx"), "utf8");
+    expect(src).toContain('class="min-w-24 flex-1"');
+    expect(src).not.toContain("min-w-24 flex-1 truncate");
+    expect(src).toContain('class="truncate text-sm font-medium"');
+  });
+});

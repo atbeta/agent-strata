@@ -143,8 +143,12 @@ export function SessionHeader(props: {
             );
           }}
         </Show>
-        {/* Identity first. `flex-1` on a zero basis takes the free space, and the
-            min-width floor means the title gives up its width last.
+        {/* Identity first. The wrapper takes the free space; the heading inside
+            it is an ordinary block, so the ellipsis lands at the end of that
+            space. Truncating the flex item itself, under `items-baseline`,
+            left the heading at the width of a few words and ellipsized there,
+            with the rest of the row empty. The min-width floor means the
+            title gives up its width last.
             The chips beside it stop being offered any width at all
             below 440px — a truncated chip renders one glyph and then
             reads as corruption, and both are on screen elsewhere (the
@@ -152,12 +156,14 @@ export function SessionHeader(props: {
             the sidebar). Before this the title reached 0px at the
             window's 960px minimum and the session you were reading
             had no name on screen. */}
-        <h1
-          class="min-w-24 flex-1 truncate text-sm font-medium"
-          title={displayTitle(props.view.title) ?? t("session.untitled")}
-        >
-          {displayTitle(props.view.title) ?? t("session.untitled")}
-        </h1>
+        <div class="min-w-24 flex-1">
+          <h1
+            class="truncate text-sm font-medium"
+            title={displayTitle(props.view.title) ?? t("session.untitled")}
+          >
+            {displayTitle(props.view.title) ?? t("session.untitled")}
+          </h1>
+        </div>
         <Show when={realWorkspace(props.view.workspace)}>
           {(ws) => (
             <span

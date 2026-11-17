@@ -793,4 +793,68 @@ export const flowF: Flow = async (ctx, s, record) => {
   );
 };
 
-export const FLOWS: Record<string, Flow> = { A: flowA, B: flowB, C: flowC, D: flowD, E: flowE, F: flowF, S: flowS };
+/**
+ * Z: zoom. Two panes are already open. Maximising one must not mount that
+ * pane's transcript a second time — the hidden tree and a covering copy used
+ * to both stay alive, so a long session paid twice and unpinning the cover
+ * dropped the pin the hidden copy still needed.
+ */
+export const flowZ: Flow = async (ctx, s, record) => {
+  const left = smallAt(s, 0);
+  const right = smallAt(s, 1);
+  await ctx.page.addInitScript((saved) => {
+    localStorage.setItem("strata.panes.v1", saved);
+  }, JSON.stringify({
+    mode: "multiplex",
+    focusedPaneId: "pane-2",
+    zoomedPaneId: null,
+    root: {
+      kind: "split",
+      id: "split-1",
+      dir: "row",
+      ratio: 0.5,
+      a: { kind: "leaf", id: "pane-1", sessionId: left },
+      b: { kind: "leaf", id: "pane-2", sessionId: right },
+    },
+  }));
+  record(await openCold(ctx, "open", right));
+
+  const b = bench(ctx.page);
+  const t0 = await b.now();
+  await ctx.page.getByRole("button", { name: /最大化当前窗格|Maximize pane/ }).first().click();
+  await ctx.page.waitForFunction(
+    () => document.querySelector('[data-pane-id="pane-1"]')?.className.includes("absolute")
+      || document.querySelector('[data-pane-id="pane-2"]')?.className.includes("absolute"),
+    undefined,
+    { timeout: 5_000 },
+  );
+  const panes = await ctx.page.evaluate(() => {
+    const ids = [...document.querySelectorAll("[data-pane-id]")].map((el) => el.getAttribute("data-pane-id") ?? "");
+    const seen = new Set<string>();
+    const duplicates: string[] = [];
+    for (const id of ids) {
+      if (seen.has(id)) duplicates.push(id);
+      seen.add(id);
+    }
+    return { count: ids.length, duplicates };
+  });
+  const failures: string[] = [];
+  if (panes.duplicates.length > 0) failures.push(`zoomed pane mounted again: ${panes.duplicates.join(", ")}`);
+  if (panes.count !== 2) failures.push(`expected both panes to stay mounted, saw ${panes.count}`);
+  const r = await b.settle(t0, 400, 10_000);
+  const rec = await b.take(t0);
+  record(
+    finish(ctx, "zoom", { ...common(rec, t0, r.at, r), panes: panes.count, duplicates: panes.duplicates.length }, failures),
+  );
+};
+
+export const FLOWS: Record<string, Flow> = {
+  A: flowA,
+  B: flowB,
+  C: flowC,
+  D: flowD,
+  E: flowE,
+  F: flowF,
+  S: flowS,
+  Z: flowZ,
+};

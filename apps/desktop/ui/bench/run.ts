@@ -10,6 +10,7 @@
  *   bun run bench --db ~/.agent-strata/events.db --long <id> --heavy <id> --small <id>,<id>,<id>
  *   bun run bench --flows E --giant <id> --giant-turns <turnId>,<turnId>   giant-turn ids flow E jumps between
  *   bun run bench --flows F             entrance: a turn arrives live and grows past a segment
+ *   bun run bench --flows Z             zoom: one transcript per pane, including the maximised one
  *
  * WebKit is the engine the desktop app ships in (Tauri on macOS is WKWebView),
  * so it is the one that decides. Chromium is there because that is where every

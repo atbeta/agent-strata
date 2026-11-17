@@ -28,7 +28,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   detectPreset,
-  findLeaf,
   listLeaves,
   RATIO_DEFAULT,
   RATIO_MAX,
@@ -493,8 +492,8 @@ function SplitDivider(props: {
       onDblClick={() => props.onResize(RATIO_DEFAULT)}
       class={
         props.dir === "row"
-          ? "group relative z-10 flex w-2.5 shrink-0 cursor-col-resize items-stretch justify-center select-none focus-visible:outline-none focus-visible:bg-ring/30"
-          : "group relative z-10 flex h-2.5 shrink-0 cursor-row-resize items-center justify-center select-none focus-visible:outline-none focus-visible:bg-ring/30"
+          ? "group relative z-10 flex w-2.5 shrink-0 cursor-col-resize items-stretch justify-center select-none focus-visible:outline-none focus-visible:bg-ring/30 group-data-[zoomed]/stage:hidden"
+          : "group relative z-10 flex h-2.5 shrink-0 cursor-row-resize items-center justify-center select-none focus-visible:outline-none focus-visible:bg-ring/30 group-data-[zoomed]/stage:hidden"
       }
     >
       {/* The gutter is the separator, not the line. It used to be four pixels
@@ -553,9 +552,17 @@ function TranscriptMount(props: { sessionId: string; paneId: string }) {
   return stage.renderTranscript(props.sessionId, props.paneId);
 }
 
-function PaneLeafView(props: { leaf: PaneLeaf; zoomed: boolean }) {
+function PaneLeafView(props: { leaf: PaneLeaf }) {
   const stage = useStage();
   const focused = () => stage.workspace().focusedPaneId === props.leaf.id;
+  // Zoom is this leaf covering the stage, not a second copy of it. The tree
+  // stays mounted either way: the other panes are only hidden, so leaving zoom
+  // does not build their transcripts again, and this one never has two.
+  const zoomed = () => stage.workspace().zoomedPaneId === props.leaf.id;
+  const covered = () => {
+    const id = stage.workspace().zoomedPaneId;
+    return id !== null && id !== props.leaf.id;
+  };
   const openIds = () => {
     const set = new Set<string>();
     for (const leaf of listLeaves(stage.workspace().root)) {
@@ -567,7 +574,13 @@ function PaneLeafView(props: { leaf: PaneLeaf; zoomed: boolean }) {
     <section
       data-pane-id={props.leaf.id}
       aria-current={focused() ? "true" : undefined}
-      class="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-md border border-border bg-background"
+      class={
+        covered()
+          ? "hidden"
+          : `flex min-h-0 min-w-0 flex-col overflow-hidden rounded-md border border-border bg-background ${
+              zoomed() ? "absolute inset-0 z-20" : "relative flex-1"
+            }`
+      }
       onPointerDown={() => {
         if (!focused()) stage.onFocusPane(props.leaf.id, props.leaf.sessionId);
       }}
@@ -575,7 +588,7 @@ function PaneLeafView(props: { leaf: PaneLeaf; zoomed: boolean }) {
       <PaneHeader
         leaf={props.leaf}
         focused={focused()}
-        zoomed={props.zoomed}
+        zoomed={zoomed()}
         sessions={stage.sessions()}
         onFocus={() => stage.onFocusPane(props.leaf.id, props.leaf.sessionId)}
         onSelectSession={(sid) => stage.onSelectPaneSession(props.leaf.id, sid)}
@@ -605,7 +618,10 @@ function PaneSplitView(props: { node: PaneSplit }) {
   const split = () => props.node;
   return (
     <div class={`flex min-h-0 min-w-0 flex-1 ${split().dir === "row" ? "flex-row" : "flex-col"}`}>
-      <div class="flex min-h-0 min-w-0 flex-col overflow-hidden" style={{ flex: `${split().ratio} 1 0%` }}>
+      <div
+        class="flex min-h-0 min-w-0 flex-col overflow-hidden group-data-[zoomed]/stage:overflow-visible"
+        style={{ flex: `${split().ratio} 1 0%` }}
+      >
         <PaneBranch node={split().a} />
       </div>
       <SplitDivider
@@ -615,7 +631,7 @@ function PaneSplitView(props: { node: PaneSplit }) {
         onResize={(ratio) => stage.onResizeSplit(split().id, ratio)}
       />
       <div
-        class="flex min-h-0 min-w-0 flex-col overflow-hidden"
+        class="flex min-h-0 min-w-0 flex-col overflow-hidden group-data-[zoomed]/stage:overflow-visible"
         style={{ flex: `${1 - split().ratio} 1 0%` }}
       >
         <PaneBranch node={split().b} />
@@ -638,7 +654,7 @@ function PaneBranch(props: { node: PaneNode }) {
   const leaf = () => (props.node.kind === "leaf" ? props.node : undefined);
   return (
     <Show when={leaf()} fallback={<PaneSplitView node={props.node as PaneSplit} />}>
-      {(item) => <PaneLeafView leaf={item()} zoomed={false} />}
+      {(item) => <PaneLeafView leaf={item()} />}
     </Show>
   );
 }
@@ -668,11 +684,6 @@ export function PaneStage(props: {
     onToggleZoom: (paneId) => props.onToggleZoom(paneId),
     onResizeSplit: (splitId, ratio) => props.onResizeSplit(splitId, ratio),
   };
-  const zoomedLeaf = () =>
-    props.workspace.zoomedPaneId
-      ? findLeaf(props.workspace.root, props.workspace.zoomedPaneId)
-      : undefined;
-
   return (
     <StageApiContext.Provider value={api}>
       <Show when={props.workspace.mode === "multiplex"} fallback={props.renderFocusedTranscript()}>
@@ -682,13 +693,16 @@ export function PaneStage(props: {
               had a channel between them. The same 2.5 padding all round puts the
               group of panes on one field, which is also what lets the corners be
               rounded: there is now background visible outside the corner for the
-              radius to be cut against. */}
-          <div class={props.workspace.zoomedPaneId ? "hidden" : "contents"}>
+              radius to be cut against.
+              Zoom does not mount a second leaf on top of this one. The zoomed
+              pane is the same section, taken out of the split and stretched
+              over this box; the others stay mounted and hidden. */}
+          <div
+            class="group/stage relative flex min-h-0 min-w-0 flex-1 flex-col"
+            data-zoomed={props.workspace.zoomedPaneId ? "" : undefined}
+          >
             <PaneBranch node={props.workspace.root} />
           </div>
-          <Show when={zoomedLeaf()}>
-            {(leaf) => <PaneLeafView leaf={leaf()} zoomed />}
-          </Show>
         </div>
       </Show>
     </StageApiContext.Provider>

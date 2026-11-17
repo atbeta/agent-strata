@@ -118,10 +118,12 @@ function updateLeaf(node: PaneNode, paneId: string, updater: (leaf: PaneLeaf) =>
  * - In `single` mode: the focused leaf takes `sessionId`.
  * - In `multiplex` mode:
  *   1. If the focused leaf already holds `sessionId`, no-op.
- *   2. If the focused leaf is empty (`null`), fill it with `sessionId`.
- *   3. Otherwise, if any other leaf is empty (`null`), fill the first empty leaf
+ *   2. If some leaf already shows `sessionId`, focus that leaf. Copying it
+ *      would cover the conversation the reader is still looking at.
+ *   3. If the focused leaf is empty (`null`), fill it with `sessionId`.
+ *   4. Otherwise, if any other leaf is empty (`null`), fill the first empty leaf
  *      and move focus to it.
- *   4. Otherwise, replace the focused leaf's `sessionId` in place.
+ *   5. Otherwise, replace the focused leaf's `sessionId` in place.
  */
 export function assignSessionToWorkspace(
   state: PaneWorkspaceState,

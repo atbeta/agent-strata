@@ -807,6 +807,72 @@ describe("projector", () => {
     expect(v.title).toBe("find the auth flow");
   });
 
+  test("a twenty-character clip of the opening line is widened back to the line", () => {
+    const text = "你下载一下pbeta.link/exam这个文件，是一个excel";
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w", title: "会话" }),
+      mk("s", "session.updated", { title: `${text.slice(0, 20)}…` }),
+      mk("s", "turn.user", { turn_id: "t1", content: [{ type: "text", text }] }),
+    ]);
+    expect(v.title).toBe(text);
+    expect(v.title?.endsWith("…")).toBe(false);
+  });
+
+  test("a shorter prefix that ends in an ellipsis is a name someone chose", () => {
+    const text = "你下载一下pbeta.link/exam这个文件，是一个excel";
+    const chosen = `${text.slice(0, 16)}…`;
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      mk("s", "session.updated", { title: chosen }),
+      mk("s", "turn.user", { turn_id: "t1", content: [{ type: "text", text }] }),
+    ]);
+    expect(v.title).toBe(chosen);
+  });
+
+  test("a longer prefix that ends in an ellipsis is a name someone chose", () => {
+    const text = "你下载一下pbeta.link/exam这个文件，是一个excel";
+    const chosen = `${text.slice(0, 24)}…`;
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      mk("s", "session.updated", { title: chosen }),
+      mk("s", "turn.user", { turn_id: "t1", content: [{ type: "text", text }] }),
+    ]);
+    expect(v.title).toBe(chosen);
+  });
+
+  test("an ascii ellipsis is not the automatic clip", () => {
+    const text = "hysteria2://c0b86c56deadbeef?peer=example.invalid&extra=1";
+    const chosen = `${text.slice(0, 20)}...`;
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      mk("s", "session.updated", { title: chosen }),
+      mk("s", "turn.user", { turn_id: "t1", content: [{ type: "text", text }] }),
+    ]);
+    expect(v.title).toBe(chosen);
+  });
+
+  test("a chosen title that is not the opening line stays", () => {
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w", title: "风险评估进展" }),
+      mk("s", "turn.user", {
+        turn_id: "t1",
+        content: [{ type: "text", text: "你下载一下pbeta.link/exam这个文件，是一个excel" }],
+      }),
+    ]);
+    expect(v.title).toBe("风险评估进展");
+  });
+
+  test("an ellipsis that is not a clip of the opening stays", () => {
+    const v = projectSession([
+      mk("s", "session.started", { workspace: "/w", title: "这是我另外起的一个会话标题…" }),
+      mk("s", "turn.user", {
+        turn_id: "t1",
+        content: [{ type: "text", text: "你下载一下pbeta.link/exam这个文件，是一个excel" }],
+      }),
+    ]);
+    expect(v.title).toBe("这是我另外起的一个会话标题…");
+  });
+
   test("retry state projects and a busy frame retires it", () => {
     const retry = { attempt: 2, message: "rate limited", next: 1760966430000 };
     const v = projectSession([
