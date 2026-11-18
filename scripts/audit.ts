@@ -6,10 +6,13 @@
 //
 // - low and moderate findings are printed but do not fail the run; they are
 //   recorded in the audit report and handled on their own schedule;
-// - a high finding may be listed below with a reason and an expiry. The only
-//   one today is the zod advisory: fixing it means Zod 4, which is a migration
-//   the project deliberately deferred. The request/collection caps added next
-//   to this script are the mitigation until that migration happens.
+// - a high finding may be listed below with a reason and an expiry. There are
+//   two today. The zod advisory: fixing it means Zod 4, which is a migration the
+//   project deliberately deferred, and the request/collection caps added next
+//   to this script are the mitigation until that migration happens. The
+//   picomatch advisory: 4.0.7 is the last release and every version is
+//   affected, so there is nothing to upgrade to — it reaches the build only
+//   through vite and vitest and ships in no bundle.
 import { join } from "node:path";
 
 type Advisory = {
@@ -28,6 +31,14 @@ const exceptions = new Map([
     {
       until: "2027-01-31",
       reason: "Zod 4 migration deferred; request/collection caps mitigate the memory cost",
+    },
+  ],
+  [
+    "GHSA-fc5q-39xc-vjpf",
+    {
+      until: "2027-01-31",
+      reason:
+        "picomatch 4.0.7 is the last release and every version is affected; it reaches the build only through vite/vitest and ships in no bundle",
     },
   ],
 ]);

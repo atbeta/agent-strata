@@ -184,6 +184,7 @@ export default {
   "session.search.prev": "Previous match",
   "session.search.next": "Next match",
   "session.search.empty": "Nothing in this session matches.",
+  "session.search.partial": "The search index is being rebuilt — results may be incomplete.",
   "session.search.turn": "turn #{n}",
 
   // The session side panel, and the plan strip under the composer.

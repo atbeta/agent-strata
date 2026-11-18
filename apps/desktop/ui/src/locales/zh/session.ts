@@ -184,6 +184,7 @@ export default {
   "session.search.prev": "上一个匹配",
   "session.search.next": "下一个匹配",
   "session.search.empty": "当前会话没有匹配内容。",
+  "session.search.partial": "搜索索引正在重建，结果可能不完整。",
   "session.search.turn": "第 {n} 轮",
 
   // The session side panel, and the plan strip under the composer.

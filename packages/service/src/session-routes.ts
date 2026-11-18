@@ -150,7 +150,11 @@ export async function sessionRoute(
         snippet,
       };
     });
-    return Response.json({ hits, more: found.length > limit });
+    // `partial` says the index is still filling: a rebuild drops the FTS
+    // table and refills it, and the rebuild yields between chunks, so a
+    // search that lands mid-rebuild would otherwise answer from a
+    // half-filled index and say nothing about it.
+    return Response.json({ hits, more: found.length > limit, partial: store.reindexing() });
   }
 
   if (path === "/sessions" && req.method === "POST") {

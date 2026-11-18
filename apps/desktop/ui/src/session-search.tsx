@@ -239,6 +239,14 @@ export function SearchPanel(props: {
         </Button>
       </div>
 
+      {/* The index is being rebuilt: the answers are real but incomplete,
+          and saying so beats an empty result that reads as "nothing here". */}
+      <Show when={s().result()?.partial}>
+        <p class="px-3 py-1 text-center text-xs text-muted-foreground">
+          {t("session.search.partial")}
+        </p>
+      </Show>
+
       <Show
         when={s().targets().length > 0}
         fallback={

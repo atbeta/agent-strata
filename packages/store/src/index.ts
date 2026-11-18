@@ -375,6 +375,34 @@ export function openStore(path: string | ":memory:"): Store {
     if (!anyEvent) metaSet("fts_seg", FTS_TEXT_SEGMENTED);
   }
 
+  // The parent of a subagent was always in the stored `session.started` body;
+  // only the column that holds it is new. On a store that predates the column
+  // every session's column is NULL — roots and subagents alike — so the
+  // roots-only filter cannot tell them apart: a page comes back full of
+  // subagents, the client drops them, and the sidebar renders empty over a
+  // store holding hundreds of sessions.
+  //
+  // A rebuild would fill the column, but it only runs when the mapper version
+  // changed, so without this the column stays NULL for good. Backfill once,
+  // from the bodies that are already there. A store that cannot be read this
+  // way keeps the column empty and is retried on the next open — the store
+  // must open either way.
+  const PARENT_BACKFILLED = "1";
+  if (metaGet("parent_seg") !== PARENT_BACKFILLED) {
+    try {
+      db.exec(
+        `UPDATE sessions SET parent_session_id = json_extract(
+           (SELECT e.body FROM events e
+             WHERE e.session_id = sessions.session_id AND e.type = 'session.started'
+             LIMIT 1), '$.data.parent_session_id')
+         WHERE parent_session_id IS NULL`,
+      );
+      metaSet("parent_seg", PARENT_BACKFILLED);
+    } catch (error) {
+      console.error("parent backfill failed:", error);
+    }
+  }
+
   const listeners = new Set<(e: Event) => void>();
 
   const notify = (events: Event[]) => {
@@ -689,7 +717,11 @@ export function openStore(path: string | ":memory:"): Store {
       }
       if (rootsOnly === true) where.push("parent_session_id IS NULL");
       if (where.length > 0) sql += ` WHERE ${where.join(" AND ")}`;
-      sql += " ORDER BY last_ts DESC";
+      // Ties are real: an import without clocks gives many sessions the same
+      // stamp, and SQLite does not promise an order for tied keys — which
+      // makes the page boundary move, so a session can show up on two pages
+      // or on none. The insertion order breaks the tie the same way every time.
+      sql += " ORDER BY last_ts DESC, rowid DESC";
       if (limit !== undefined) {
         sql += " LIMIT ?";
         params.push(limit);
@@ -1027,6 +1059,15 @@ export function openStore(path: string | ":memory:"): Store {
 
       const run = (async () => {
         try {
+          // The rows this run indexes are the ones that exist now. An event
+          // written while the rebuild runs is indexed by the write path — it
+          // inserts into the table this run recreates — so this run must not
+          // index it again, or the event would be found twice. The snapshot
+          // and the table swap sit together with no await between them, so no
+          // write can land in between and be lost with the old table.
+          const maxRowid =
+            (db.query("SELECT MAX(rowid) AS r FROM events").get() as { r: number | null }).r ?? 0;
+
           // Emptied by dropping the table, not by deleting its rows. Deleting
           // 300k FTS rows is a per-row unindex and measured 4.2 s of held
           // event loop — the single worst stall in the rebuild, and one no
@@ -1045,9 +1086,9 @@ export function openStore(path: string | ":memory:"): Store {
           for (;;) {
             const chunk = db
               .query(
-                "SELECT rowid AS rid, id, session_id, body FROM events WHERE rowid > ? ORDER BY rowid LIMIT ?",
+                "SELECT rowid AS rid, id, session_id, body FROM events WHERE rowid > ? AND rowid <= ? ORDER BY rowid LIMIT ?",
               )
-              .all(cursor, REINDEX_CHUNK) as {
+              .all(cursor, maxRowid, REINDEX_CHUNK) as {
               rid: number;
               id: string;
               session_id: string;
