@@ -375,12 +375,18 @@ export function openStore(path: string | ":memory:"): Store {
     if (!anyEvent) metaSet("fts_seg", FTS_TEXT_SEGMENTED);
   }
 
-  // The parent of a subagent was always in the stored `session.started` body;
-  // only the column that holds it is new. On a store that predates the column
-  // every session's column is NULL — roots and subagents alike — so the
-  // roots-only filter cannot tell them apart: a page comes back full of
-  // subagents, the client drops them, and the sidebar renders empty over a
-  // store holding hundreds of sessions.
+  // The parent of a subagent was always in the stored events; only the column
+  // that holds it is new. On a store that predates the column every session's
+  // column is NULL — roots and subagents alike — so the roots-only filter
+  // cannot tell them apart: a page comes back full of subagents, the client
+  // drops them, and the sidebar renders empty over a store holding hundreds
+  // of sessions.
+  //
+  // Both event types carry it. A session met through one of its messages
+  // first is stored with a parent-less `session.started`, and the parent lands
+  // on a later `session.updated` — which the projector reads too, so the
+  // client drops that session while the column says it is a root. Reading
+  // only the started body would leave exactly those children behind.
   //
   // A rebuild would fill the column, but it only runs when the mapper version
   // changed, so without this the column stays NULL for good. Backfill once,
@@ -391,10 +397,11 @@ export function openStore(path: string | ":memory:"): Store {
   if (metaGet("parent_seg") !== PARENT_BACKFILLED) {
     try {
       db.exec(
-        `UPDATE sessions SET parent_session_id = json_extract(
-           (SELECT e.body FROM events e
-             WHERE e.session_id = sessions.session_id AND e.type = 'session.started'
-             LIMIT 1), '$.data.parent_session_id')
+        `UPDATE sessions SET parent_session_id = (
+           SELECT MAX(json_extract(e.body, '$.data.parent_session_id'))
+           FROM events e
+           WHERE e.session_id = sessions.session_id
+             AND e.type IN ('session.started', 'session.updated'))
          WHERE parent_session_id IS NULL`,
       );
       metaSet("parent_seg", PARENT_BACKFILLED);
