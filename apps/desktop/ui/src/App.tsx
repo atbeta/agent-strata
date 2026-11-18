@@ -26,6 +26,9 @@ import { displayTitle } from "./session-title";
 import { isStreamingSnapshotMessage } from "./live";
 import { parseHash, sessionBackHref, type Route } from "./routes";
 import { explain } from "./errors";
+import { createFreshSessions } from "./fresh-session";
+import { listLeaves, setPaneSession } from "./pane-tree";
+import { paneWorkspace, updatePaneWorkspace } from "./session-chrome";
 import { useSessionList } from "./use-session-list";
 import { refreshPlugins } from "./plugin-registry";
 import { installProgressListener } from "./plugin-progress";
@@ -153,6 +156,70 @@ export function App() {
   };
   const openPalette = () => setPaletteOpen(true);
 
+  /**
+   * Sessions this window made and never heard a word from. One is reaped as
+   * it is left — a route change away, or the pane holding it closing — and
+   * any still standing are swept once the list is real at launch.
+   */
+  const fresh = createFreshSessions({
+    rows: () => list.library(),
+    onScreen: (id) => {
+      const r = route();
+      if (r.name === "session" && r.id === id) return true;
+      if (r.name === "compare" && (r.a === id || r.b === id)) return true;
+      if (compareSel().includes(id)) return true;
+      // The pane workspace only renders inside a session route; a leaf holding
+      // the id anywhere else is memory, not something on screen.
+      if (r.name !== "session") return false;
+      return listLeaves(paneWorkspace().root).some((leaf) => leaf.sessionId === id);
+    },
+    archived: (id) => list.archived().some((r) => r.summary.session_id === id),
+    removeWorktree: (dir) => removeWorktree(dir),
+    lastDir: () => ws.lastDir(),
+    rememberDir: (dir) => ws.rememberDir(dir),
+  });
+
+  /** Reap a watched session, then drop it from any pane leaf still holding it. */
+  const pruneFresh = async (id: string) => {
+    if ((await fresh.prune(id)) !== "deleted") return;
+    for (const leaf of listLeaves(paneWorkspace().root)) {
+      if (leaf.sessionId === id) {
+        updatePaneWorkspace((w) => setPaneSession(w, leaf.id, null));
+      }
+    }
+  };
+
+  // Leaving a fresh session without a word is what the watch is for.
+  createEffect(
+    on(route, (_next, prev) => {
+      if (prev?.name !== "session") return;
+      const left = prev.id;
+      queueMicrotask(() => void pruneFresh(left).catch(() => {}));
+    }),
+  );
+
+  // A pane close or a re-picked leaf vacates a session with no route change.
+  let paneLeafSessions = new Set<string>();
+  createEffect(
+    on(paneWorkspace, (workspace) => {
+      const next = new Set(
+        listLeaves(workspace.root).flatMap((leaf) => (leaf.sessionId ? [leaf.sessionId] : [])),
+      );
+      for (const id of paneLeafSessions) {
+        if (!next.has(id)) void pruneFresh(id).catch(() => {});
+      }
+      paneLeafSessions = next;
+    }),
+  );
+
+  // Sessions a closed window left behind: reap them once the list is real.
+  let freshSwept = false;
+  createEffect(() => {
+    if (freshSwept || !boot.ready() || !settled(list.data)) return;
+    freshSwept = true;
+    for (const id of fresh.ids()) void pruneFresh(id).catch(() => {});
+  });
+
   let chordHeld = false;
   const switcher = useSessionSwitcher({
     sessions: () => list.sessions(),
@@ -222,6 +289,7 @@ export function App() {
       try {
         const evt = JSON.parse(m.data) as {
           type?: string;
+          session_id?: string;
           connection_id?: string;
           done?: number;
           total?: number;
@@ -248,6 +316,19 @@ export function App() {
           return;
         }
         if (evt.type === "session.started" || evt.type === "session.updated" || evt.type === "session.deleted") wsStale = true;
+        // A session that is gone cannot stay on screen: the transcript behind
+        // it no longer exists, whether this window deleted it or another did.
+        if (evt.type === "session.deleted" && evt.session_id) {
+          fresh.unmark(evt.session_id);
+          setCompareSel((sel) => sel.filter((x) => x !== evt.session_id));
+          const r = route();
+          if (
+            (r.name === "session" && r.id === evt.session_id) ||
+            (r.name === "compare" && (r.a === evt.session_id || r.b === evt.session_id))
+          ) {
+            location.hash = "/";
+          }
+        }
       } catch {
         // heartbeats
       }
@@ -384,7 +465,7 @@ export function App() {
     });
   });
 
-  const newSession = async (dir?: string): Promise<string | undefined> => {
+  const newSession = async (dir?: string, worktreeOf?: string): Promise<string | undefined> => {
     list.setActionErr("");
     const directory = dir ?? defaultDir();
     try {
@@ -395,6 +476,8 @@ export function App() {
       });
       const body = (await res.json()) as { id?: string; error?: string };
       if (body.id) {
+        // Watched until it has content: leaving it empty reaps it.
+        fresh.mark(body.id, { dir: directory, worktreeOf });
         ws.rememberDir(directory);
         list.refetch();
         location.hash = `/session/${encodeURIComponent(body.id)}`;
@@ -435,7 +518,7 @@ export function App() {
     try {
       const wt = await createWorktree(base);
       setWorktreeJob({ dir: base, stage: "session" });
-      const id = await newSession(wt.directory);
+      const id = await newSession(wt.directory, base);
       if (!id) await removeWorktree(wt.directory, true).catch(() => {});
       else void ws.refetchWs();
     } catch (e) {

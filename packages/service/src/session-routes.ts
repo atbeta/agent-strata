@@ -28,6 +28,8 @@ export async function sessionRoute(
     live: LiveOverlay;
     plugins: PluginHost;
     createdDirs: Map<string, string>;
+    /** sessions an input route accepted — the event proving it has not landed yet */
+    touched: Set<string>;
     goalRunner: GoalRunner;
     sessionView(sessionId: string): SessionView;
     directoryOf(sessionId: string): string | undefined;
@@ -284,6 +286,9 @@ export async function sessionRoute(
         return Response.json({ error: "session has no workspace to read files from" }, { status: 400 });
       }
       deps.goalRunner.allow(sessionId);
+      // The request is accepted — its turn is only a store event away, but a
+      // conditional delete arriving first must already see the session used.
+      deps.touched.add(sessionId);
       try {
         await conn.prompt(native, parts, {
           model: body?.model,
@@ -293,6 +298,8 @@ export async function sessionRoute(
         });
         return Response.json({ ok: true });
       } catch (error) {
+        // A send the backend refused is not a used session.
+        deps.touched.delete(sessionId);
         return Response.json({ error: String(error) }, { status: 502 });
       }
     }
@@ -326,6 +333,7 @@ export async function sessionRoute(
         }
         parts = read;
       }
+      deps.touched.add(sessionId);
       try {
         await conn.command(native, body.command, typeof body.arguments === "string" ? body.arguments : "", {
           parts,
@@ -336,6 +344,7 @@ export async function sessionRoute(
         });
         return Response.json({ ok: true });
       } catch (error) {
+        deps.touched.delete(sessionId);
         return Response.json(
           { error: error instanceof Error ? error.message : String(error) },
           { status: error instanceof UnknownCommandError ? 400 : 502 },
@@ -364,6 +373,7 @@ export async function sessionRoute(
         return Response.json({ error: "agent must be a string" }, { status: 400 });
       }
       deps.goalRunner.allow(sessionId);
+      deps.touched.add(sessionId);
       try {
         await conn.shell(native, body.command, {
           model: body.model,
@@ -372,6 +382,7 @@ export async function sessionRoute(
         });
         return Response.json({ ok: true });
       } catch (error) {
+        deps.touched.delete(sessionId);
         return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 502 });
       }
     }
@@ -656,6 +667,31 @@ export async function sessionRoute(
   if (sessionDelete && req.method === "DELETE") {
     const sessionId = decodeURIComponent(sessionDelete[1]!);
     const localOnly = url.searchParams.get("local") === "1";
+    const ifEmpty = url.searchParams.get("if_empty") === "1";
+    // `if_empty` is the prune a reader asks for when it abandons a fresh
+    // session. Whatever it checked before asking is stale by the time this
+    // lands — a prompt may have arrived in between — so the emptiness verdict
+    // is taken again here, next to the store it is about.
+    if (ifEmpty) {
+      let occupied = deps.live.has(sessionId) || deps.touched.has(sessionId);
+      if (!occupied) {
+        try {
+          const view = deps.sessionView(sessionId);
+          occupied =
+            view.turns.length > 0 ||
+            view.busy ||
+            view.pending_permissions.length > 0 ||
+            view.pending_questions.length > 0 ||
+            Boolean(view.goal) ||
+            view.archived === true;
+        } catch {
+          // No events at all — pristine is the only state it could be in.
+        }
+      }
+      if (occupied) {
+        return Response.json({ error: "session is not empty", not_empty: true }, { status: 409 });
+      }
+    }
     const counts = store.classCounts([sessionId])[0];
     const conn = deps.driverFor(sessionId);
     const native = conn?.nativeId(sessionId);
@@ -668,17 +704,25 @@ export async function sessionRoute(
         return Response.json({ error: String(error) }, { status: 502 });
       }
     } else if (!localOnly) {
-      return Response.json(
-        {
-          error: "no connected backend can delete this session",
-          backend: false,
-          local: counts?.local ?? 0,
-          local_only: true,
-        },
-        { status: 409 },
-      );
+      // A backend that can neither delete nor resurrect a session — no import
+      // path, ACP being one — only ever held a runtime copy, so for a prune
+      // the local delete is the whole delete.
+      const forgettable = ifEmpty && conn !== undefined && conn.capabilities.import !== true;
+      if (!forgettable) {
+        return Response.json(
+          {
+            error: "no connected backend can delete this session",
+            backend: false,
+            local: counts?.local ?? 0,
+            local_only: true,
+          },
+          { status: 409 },
+        );
+      }
     }
     const deleted = store.deleteSessions([sessionId]);
+    deps.createdDirs.delete(sessionId);
+    deps.touched.delete(sessionId);
     deps.views.drop(sessionId);
     void deps.plugins.sessionEnded(sessionId);
     deps.broadcast({ type: "session.deleted", session_id: sessionId });

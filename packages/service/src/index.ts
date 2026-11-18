@@ -135,6 +135,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   let stopped = false;
   const conns = new ConnectionRegistry();
   const createdDirs = new Map<string, string>();
+  const touched = new Set<string>();
   const knownDirs = async (): Promise<Map<string, { directory: string; name?: string }>> => {
     const dirs = new Map<string, { directory: string; name?: string }>();
     for (const conn of conns.values()) {
@@ -279,6 +280,10 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     }
   };
   store.subscribe((event) => {
+    // A turn or a goal on disk is itself proof of use — the touched mark the
+    // session carried while that was in flight can go. Anything weaker (a
+    // bare status or title update) keeps it: still possibly mid-first-send.
+    if (event.type.startsWith("turn.") || event.type === "session.goal") touched.delete(event.session_id);
     live.settle(event);
     broadcast(event);
     goalRunner.handleEvent(event);
@@ -830,6 +835,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       live,
       plugins,
       createdDirs,
+      touched,
       goalRunner,
       sessionView,
       directoryOf,

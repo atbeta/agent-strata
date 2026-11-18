@@ -241,4 +241,84 @@ describe("session read and action routes", () => {
     restored.stop();
     svc3.stop();
   });
+
+  test("DELETE ?if_empty=1 reaps a pristine session and keeps one with content", async () => {
+    const oc = fakeOpencode({
+      "/session": (_url, req) =>
+        req.method === "POST"
+          ? Response.json({ id: "ses_new", directory: "/repo", title: "", time: { created: 1, updated: 1 } })
+          : Response.json([]),
+      "/session/ses_new": (_url, req) =>
+        req.method === "DELETE" ? Response.json(true) : Response.json({ error: "not found" }, { status: 404 }),
+      "/session/ses_meta": (_url, req) =>
+        req.method === "DELETE" ? Response.json(true) : Response.json({ error: "not found" }, { status: 404 }),
+      "/session/ses_full": (_url, req) =>
+        req.method === "DELETE" ? Response.json(true) : Response.json({ error: "not found" }, { status: 404 }),
+      "/session/ses_spoke/prompt_async": () => new Response(null, { status: 204 }),
+      "/session/ses_fail/prompt_async": () =>
+        Response.json({ name: "UnknownError", data: { message: "down" } }, { status: 500 }),
+      "/session/ses_fail": (_url, req) =>
+        req.method === "DELETE" ? Response.json(true) : Response.json({ error: "not found" }, { status: 404 }),
+    });
+    const svc = startService({ db: ":memory:", port: 0 });
+    const base = `http://127.0.0.1:${svc.port}`;
+    const post = (p: string, body?: unknown) =>
+      fetch(`${base}${p}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    await post("/connect", { baseUrl: oc.baseUrl, directory: "/repo" });
+    const del = (id: string, q = "") =>
+      fetch(`${base}/sessions/${encodeURIComponent(id)}${q}`, { method: "DELETE" });
+
+    // A session that exists only in the backend: no events have landed yet.
+    const created = (await post("/sessions", { directory: "/repo" }).then((r) => r.json())) as { id: string };
+    expect(created.id).toBe("opencode:ses_new");
+    const gone = await del(created.id, "?if_empty=1");
+    expect(gone.status).toBe(200);
+    expect(await gone.json()).toMatchObject({ ok: true, backend: true });
+    expect(oc.seen.some((s) => s.method === "DELETE" && s.path === "/session/ses_new")).toBe(true);
+
+    // Metadata alone — the started event and nothing said — is still empty.
+    svc.store.append([
+      ev("opencode:ses_meta", "session.started", { title: "New session - 2026-01-01T00:00:00Z", workspace: "/repo" }, "2026-01-01T00:00:00Z"),
+    ]);
+    expect((await del("opencode:ses_meta", "?if_empty=1")).status).toBe(200);
+    expect(oc.seen.some((s) => s.method === "DELETE" && s.path === "/session/ses_meta")).toBe(true);
+
+    // A turn, an archive, or a goal each mean content — the delete refuses.
+    svc.store.append([
+      ev("opencode:ses_full", "session.started", { title: "x", workspace: "/repo" }, "2026-01-01T00:00:00Z"),
+      ev("opencode:ses_full", "turn.user", { turn_id: "t1", content: [{ type: "text", text: "hi" }] }, "2026-01-01T00:00:01Z"),
+      ev("opencode:ses_boxed", "session.started", { title: "boxed", workspace: "/repo" }, "2026-01-02T00:00:00Z"),
+      ev("opencode:ses_boxed", "session.updated", { archived: true }, "2026-01-02T00:00:01Z"),
+      ev("opencode:ses_goal", "session.started", { title: "goal", workspace: "/repo" }, "2026-01-03T00:00:00Z"),
+      ev("opencode:ses_goal", "session.goal", { text: "finish it" }, "2026-01-03T00:00:01Z"),
+    ]);
+    for (const id of ["opencode:ses_full", "opencode:ses_boxed", "opencode:ses_goal"]) {
+      const res = await del(id, "?if_empty=1");
+      expect(res.status).toBe(409);
+      expect(await res.json()).toMatchObject({ not_empty: true });
+    }
+
+    // A prompt the route accepted counts as used even before its turn event
+    // lands — that is exactly the gap a plain event scan would leave open.
+    const spoke = `/sessions/${encodeURIComponent("opencode:ses_spoke")}`;
+    expect((await post(`${spoke}/prompt`, { text: "hi" })).status).toBe(200);
+    const spokeRes = await del("opencode:ses_spoke", "?if_empty=1");
+    expect(spokeRes.status).toBe(409);
+    expect(await spokeRes.json()).toMatchObject({ not_empty: true });
+
+    // A send the backend refused is not a used session — the mark is taken
+    // back and the conditional delete goes through.
+    const fail = `/sessions/${encodeURIComponent("opencode:ses_fail")}`;
+    expect((await post(`${fail}/prompt`, { text: "hi" })).status).toBe(502);
+    expect((await del("opencode:ses_fail", "?if_empty=1")).status).toBe(200);
+
+    // Without the flag the same delete goes through unconditionally.
+    expect((await del("opencode:ses_full")).status).toBe(200);
+    oc.stop();
+    svc.stop();
+  });
 });
