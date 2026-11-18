@@ -127,7 +127,12 @@ export function useSessionList(opts: {
   let opened = false;
   const [limit, setLimit] = createSignal(200);
   const [data, { refetch }] = createResource(limit, (n) => {
-    const path = `/sessions?limit=${n}`;
+    // `roots=1`: the sidebar renders roots only, so the limit has to count
+    // roots. Paging unfiltered and dropping children in the client meant a
+    // page could arrive filled with subagent sessions and render as an empty
+    // list — which is exactly what a full import produced once the replayed
+    // events all shared the import's clock.
+    const path = `/sessions?limit=${n}&roots=1`;
     const load = opened
       ? getJson<SessionsResponse>(path)
       : getJsonWhenUp<SessionsResponse>(path);

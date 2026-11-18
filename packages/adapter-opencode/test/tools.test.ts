@@ -4,7 +4,7 @@ import {
 } from "../src/index";
 import type { Event } from "@opencode-ai/sdk/v2";
 import { openStore } from "@agent-strata/store";
-import { type ContentBlock } from "@agent-strata/schema";
+import { type ContentBlock, type EventInput } from "@agent-strata/schema";
 import { sid, sessionCreated, msgUpdated, partUpdated } from "./helpers";
 
 describe("OpencodeMapper", () => {
@@ -184,23 +184,37 @@ describe("OpencodeMapper", () => {
     expect(fc[0]!.ts).toBe("2023-11-14T22:14:20.000Z");
   });
 
-  test("a patch with no message time keeps the ingest clock rather than inventing one", () => {
+  test("a patch with no message time takes the session's time, not the write clock", () => {
     const store = openStore(":memory:");
     const m = new OpencodeMapper();
+    // A session whose own clock is known and in the past.
+    const sessionAt = "2023-11-14T22:14:20.000Z";
+    store.append([
+      {
+        id: `opencode:${sid}:session.started`,
+        session_id: `opencode:${sid}`,
+        ts: sessionAt,
+        source: { backend: "opencode", native_id: sid },
+        type: "session.started",
+        data: { workspace: "/repo" },
+      } as unknown as EventInput,
+    ]);
     m.handle(sessionCreated());
     const fc = m.handle(partUpdated({
       id: "pp", sessionID: sid, messageID: "never-seen", type: "patch", hash: "h", files: ["x.ts"],
     }));
-    // No source clock means no clock: the event says nothing about when it
-    // happened. The write stamps it, and the store reads a clock on a
+    // No source clock means no clock: the event itself says nothing about when
+    // it happened. The write stamps it, and the store reads a clock on a
     // re-sent event as the source's own — a filled-in one here would rewrite
     // the stored timestamp with the moment of the re-send.
     expect(fc[0]!.ts).toBeUndefined();
     store.append(fc);
     const stored = store.read({ session_id: `opencode:${sid}` }).find((e) => e.type === "file.changed")!;
-    expect(stored.ts).toBeTruthy();
-    expect(Number.isNaN(Date.parse(stored.ts))).toBe(false);
-    // and it must not be a made-up epoch either
+    // Stamped with the session's own time: a replaying import would otherwise
+    // stamp every event with the moment of the replay, and the session list
+    // (ordered by this) would show import order instead of activity.
+    expect(stored.ts).toBe(sessionAt);
+    // Not an epoch placeholder: those tie at the bottom and lose their order.
     expect(Date.parse(stored.ts)).toBeGreaterThan(1_700_000_000_000);
     store.close();
   });

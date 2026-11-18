@@ -699,6 +699,70 @@ describe("store.query", () => {
     }
   });
 
+  /**
+   * An event whose writer supplied no timestamp must not claim the clock.
+   *
+   * An import replays a session's whole history at once. If each replayed
+   * event is stamped with the moment of the replay, every imported session
+   * reads as having been active at import time — and since the sidebar orders
+   * by that stamp, the list order becomes import order. Subagent sessions are
+   * imported after their roots, so they sort first; the page filled with them,
+   * the sidebar drops children, and a store with hundreds of sessions rendered
+   * as an empty list.
+   */
+  test("an event with no source clock does not take the wall clock", () => {
+    const s = openStore(":memory:");
+    const before = Date.now();
+    s.append([
+      {
+        id: "e1",
+        session_id: "a",
+        source: { backend: "test" },
+        type: "session.started",
+        data: { workspace: "/repo" },
+      } as unknown as EventInput,
+    ]);
+    const stored = s.read({ session_id: "a" })[0]!;
+    // Stamped, because the column is not nullable — but not with "now".
+    expect(stored.ts).toBeDefined();
+    expect(Date.parse(stored.ts)).toBeLessThan(before);
+    s.close();
+  });
+
+  /**
+   * The sidebar's query has to count roots, not all sessions.
+   *
+   * `rootsOnly` applies the filter before the limit. Without it a page can be
+   * entirely subagent sessions, which the client then drops — an empty list
+   * over a non-empty store.
+   */
+  test("listSessions can page over root sessions only", () => {
+    const s = openStore(":memory:");
+    const events: EventInput[] = [];
+    for (let r = 0; r < 5; r++) {
+      events.push(
+        mk(`root_${r}`, "session.started", { workspace: "/repo" }),
+      );
+      for (let k = 0; k < 10; k++) {
+        events.push(
+          mk(`sub_${r}_${k}`, "session.started", {
+            workspace: "/repo",
+            parent_session_id: `root_${r}`,
+          }),
+        );
+      }
+    }
+    s.append(events);
+
+    const all = s.listSessions({ limit: 10 });
+    expect(all.length).toBe(10);
+    const roots = s.listSessions({ limit: 10, rootsOnly: true });
+    // All five roots fit, and the limit counts them rather than the children.
+    expect(roots.length).toBe(5);
+    expect(roots.every((r) => !r.session_id.startsWith("sub_"))).toBe(true);
+    s.close();
+  });
+
   test("a fresh store needs no rebuild", async () => {
     const s = openStore(":memory:");
     expect(s.reindexPending()).toBe(false);

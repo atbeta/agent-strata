@@ -40,8 +40,16 @@ export async function sessionRoute(
 
   if (path === "/sessions" && req.method === "GET") {
     const requested = Math.min(Math.max(Number(url.searchParams.get("limit") ?? 200) || 200, 1), 2000);
+    // `roots=1` asks for the page the sidebar actually renders: sessions with
+    // no parent. Paging first and dropping children afterwards made the limit
+    // meaningless — a full import once produced a first page of 200 subagent
+    // sessions and no roots, which the UI turns into "no sessions yet" over a
+    // store holding hundreds. Default stays off so the endpoint remains a
+    // plain list for other callers.
+    const rootsOnly = url.searchParams.get("roots") === "1";
     const fetched = store.listSessions({
       backend: url.searchParams.get("backend") ?? undefined,
+      rootsOnly,
       limit: requested + 1,
     });
     const more = fetched.length > requested;

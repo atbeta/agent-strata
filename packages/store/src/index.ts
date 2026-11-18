@@ -91,7 +91,19 @@ export interface Store {
   replaceSession(session_id: string, inputs: EventInput[], opts: ReplaceOptions): number;
   read(opts: { session_id: string; after_seq?: number; limit?: number }): Event[];
   query(q: EventQuery): Event[];
-  listSessions(opts?: { limit?: number; backend?: string }): SessionSummary[];
+  /**
+   * Sessions, newest first.
+   *
+   * `rootsOnly` filters to sessions with no parent *before* the limit applies.
+   * Filtering after the fact is not the same query: the sidebar shows roots
+   * only, so a page taken without this can be filled entirely by subagent
+   * sessions and render as an empty list over a store that is full.
+   */
+  listSessions(opts?: {
+    limit?: number;
+    backend?: string;
+    rootsOnly?: boolean;
+  }): SessionSummary[];
   sessionMapper(session_id: string): string | null;
   /** record the mapping behind a session that has none yet; a recorded one is kept */
   markMapper(session_id: string, mapper: string): void;
@@ -309,6 +321,15 @@ export function openStore(path: string | ":memory:"): Store {
   const sessionColumns = db.query("PRAGMA table_info(sessions)").all() as { name: string }[];
   if (!sessionColumns.some((c) => c.name === "mapper")) db.exec("ALTER TABLE sessions ADD COLUMN mapper TEXT");
   if (!sessionColumns.some((c) => c.name === "origin")) db.exec("ALTER TABLE sessions ADD COLUMN origin TEXT");
+  // A subagent's session names its parent, and the sidebar shows roots only.
+  // Without the column the list had to page first and filter afterwards, so a
+  // page could come back entirely subagents — and once did: during a full
+  // import every replay carried the wall clock, subagent sessions were written
+  // last, and the first 200 rows were all children. Filtered, that is an empty
+  // sidebar over a non-empty store.
+  if (!sessionColumns.some((c) => c.name === "parent_session_id")) {
+    db.exec("ALTER TABLE sessions ADD COLUMN parent_session_id TEXT");
+  }
 
   // The index's segmentation is a property of the rows already written, not of
   // the schema: a store created before the CJK change holds the old single-token
@@ -374,7 +395,45 @@ export function openStore(path: string | ":memory:"): Store {
   const parseAll = (inputs: EventInput[]): Parsed[] =>
     inputs
       .filter((i) => !isStreamingSnapshot(i) && !isEphemeralEvent(i))
-      .map((i) => ({ event: makeEvent(i), clock: i.ts }));
+      // `clock: false` when the writer supplied no timestamp; otherwise
+      // `makeEvent` fills in *now*, and "now" is when the import ran. An
+      // import replays a session's whole history at once, so every replayed
+      // event would claim the moment of the replay — the ordering of a
+      // session list then reflects import order rather than anything that
+      // happened in the session.
+      .map((i) => ({ event: makeEvent(i, { clock: i.ts !== undefined }), clock: i.ts }));
+
+  /**
+   * A stamp for an event whose source carried none.
+   *
+   * Not the clock. An import replays a session's history in one burst, so the
+   * clock would report that every replayed event happened at import time —
+   * and the session list orders by it, which turns the sidebar into import
+   * order. Subagent sessions import after their roots, so they took the top
+   * of the list; the sidebar drops children, and a store with hundreds of
+   * sessions showed "no sessions yet".
+   *
+   * Not the epoch either. Every unstamped event would tie at the bottom,
+   * losing the order among them and dropping them below events years older
+   * than the session they belong to.
+   *
+   * The session's own last known time is the closest true statement: this
+   * event happened in this session, and everything else we know about the
+   * session happened around then. `MAX(ts)` is used rather than `MIN` so a
+   * replay continues the session's clock instead of predating its start.
+   */
+  const unstampedTs = (sessionId: string): string => {
+    const row = db
+      .query("SELECT MAX(ts) AS t FROM events WHERE session_id=?")
+      .get(sessionId) as { t: string | null } | null;
+    // A session with nothing stored yet — its very first event, unstamped —
+    // has no session time to borrow. Fall back to the store's newest, which
+    // keeps it near its contemporaries rather than in 1970.
+    const any = row?.t;
+    if (any) return any;
+    const newest = db.query("SELECT MAX(ts) AS t FROM events").get() as { t: string | null };
+    return newest.t ?? "1970-01-01T00:00:00.000Z";
+  };
 
   // Runs inside a caller's transaction.
   const insertAll = (parsed: Parsed[], opts: AppendOptions = {}): { out: Event[]; inserted: Event[] } => {
@@ -430,7 +489,12 @@ export function openStore(path: string | ":memory:"): Store {
           .query("SELECT last_seq FROM sessions WHERE session_id = ?")
           .get(sessionId) as { last_seq: number } | null)?.last_seq ?? 0;
       const seq = last + 1;
-      const candidate = { ...input, seq };
+      // The row needs a timestamp. An event whose source carried none gets one
+      // that sorts *below* everything already stored, not the clock: the
+      // clock is when this process wrote the row, which during an import is
+      // unrelated to when anything in the session happened. Claiming "now"
+      // made a fully-replayed session look like the most recent activity.
+      const candidate = { ...input, seq, ts: input.ts ?? unstampedTs(input.session_id) };
       const event = parseEvent(candidate); // throws -> rollback
       db.query(
         "INSERT INTO events(id,session_id,seq,ts,type,backend,body) VALUES(?,?,?,?,?,?,?)",
@@ -446,15 +510,25 @@ export function openStore(path: string | ":memory:"): Store {
       if (event.type === "session.started") {
         const d = event.data;
         db.query(
-          `INSERT INTO sessions(session_id,backend,workspace,title,started_at,last_seq,last_ts)
-           VALUES(?,?,?,?,?,?,?)
+          `INSERT INTO sessions(session_id,backend,workspace,title,started_at,last_seq,last_ts,parent_session_id)
+           VALUES(?,?,?,?,?,?,?,?)
            ON CONFLICT(session_id) DO UPDATE SET
              backend=excluded.backend, workspace=excluded.workspace,
              title=COALESCE(excluded.title, sessions.title),
              started_at=MIN(sessions.started_at, excluded.started_at),
              last_seq=MAX(sessions.last_seq, excluded.last_seq),
-             last_ts=MAX(sessions.last_ts, excluded.last_ts)`,
-        ).run(sessionId, event.source.backend, d.workspace, d.title ?? null, event.ts, seq, event.ts);
+             last_ts=MAX(sessions.last_ts, excluded.last_ts),
+             parent_session_id=COALESCE(excluded.parent_session_id, sessions.parent_session_id)`,
+        ).run(
+          sessionId,
+          event.source.backend,
+          d.workspace,
+          d.title ?? null,
+          event.ts,
+          seq,
+          event.ts,
+          d.parent_session_id ?? null,
+        );
       } else {
         db.query(
           `INSERT INTO sessions(session_id,backend,started_at,last_seq,last_ts)
@@ -471,6 +545,14 @@ export function openStore(path: string | ":memory:"): Store {
           }
           if (d.workspace !== undefined) {
             db.query("UPDATE sessions SET workspace=? WHERE session_id=?").run(d.workspace, sessionId);
+          }
+          // The started event may have gone out before the parent was known
+          // (a session met through one of its messages first).
+          if (d.parent_session_id !== undefined) {
+            db.query("UPDATE sessions SET parent_session_id=? WHERE session_id=?").run(
+              d.parent_session_id,
+              sessionId,
+            );
           }
         }
       }
@@ -596,14 +678,17 @@ export function openStore(path: string | ":memory:"): Store {
       return rows.map((r) => parseEvent(JSON.parse(r.body)));
     },
 
-    listSessions({ limit, backend } = {}) {
+    listSessions({ limit, backend, rootsOnly } = {}) {
       let sql =
-        "SELECT session_id,backend,workspace,title,started_at,last_seq,last_ts,mapper FROM sessions";
+        "SELECT session_id,backend,workspace,title,started_at,last_seq,last_ts,mapper,parent_session_id FROM sessions";
+      const where: string[] = [];
       const params: (string | number)[] = [];
       if (backend !== undefined) {
-        sql += " WHERE backend=?";
+        where.push("backend=?");
         params.push(backend);
       }
+      if (rootsOnly === true) where.push("parent_session_id IS NULL");
+      if (where.length > 0) sql += ` WHERE ${where.join(" AND ")}`;
       sql += " ORDER BY last_ts DESC";
       if (limit !== undefined) {
         sql += " LIMIT ?";
