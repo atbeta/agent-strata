@@ -1050,6 +1050,32 @@ describe("running sessions, asked of the whole store at once", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  test("a parent that arrived on session.updated is learned on open", () => {
+    const dir = mkdtempSync(join(tmpdir(), "store-parent-updated-"));
+    const file = join(dir, "s.db");
+    const first = openStore(file);
+    // A session met through one of its messages first: the started event
+    // carries no parent, and the parent lands on the later update. The
+    // projector reads it from there, so the client drops this session while
+    // a column that never heard of it calls it a root.
+    first.append([
+      mk("root", "session.started", { workspace: "/a", title: "root" }),
+      mk("child", "session.started", { workspace: "/a", title: "child" }),
+      mk("child", "session.updated", { title: "child", parent_session_id: "root" }),
+    ]);
+    first.close();
+
+    const raw = new Database(file);
+    raw.exec("UPDATE sessions SET parent_session_id = NULL");
+    raw.exec("DELETE FROM store_meta WHERE k='parent_seg'");
+    raw.close();
+
+    const again = openStore(file);
+    expect(again.listSessions({ rootsOnly: true }).map((x) => x.session_id)).toEqual(["root"]);
+    again.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   test("an event written while the index rebuilds is indexed once", async () => {
     const dir = mkdtempSync(join(tmpdir(), "store-reindex-"));
     const file = join(dir, "s.db");
