@@ -37,6 +37,13 @@ export interface SessionSummary {
   last_ts: string;
   /** mapping version that produced the session's rebuildable events; null until a rebuild records one */
   mapper: string | null;
+  /** the session this was forked or handed off from; roots have none */
+  parent_session_id: string | null;
+}
+
+export interface SearchHit {
+  event: Event;
+  snippet: string;
 }
 
 export interface AppendOptions {
@@ -103,6 +110,7 @@ export interface Store {
     limit?: number;
     backend?: string;
     rootsOnly?: boolean;
+    workspace?: string;
   }): SessionSummary[];
   sessionMapper(session_id: string): string | null;
   /** record the mapping behind a session that has none yet; a recorded one is kept */
@@ -154,8 +162,8 @@ export interface Store {
   }[];
   search(
     query: string,
-    opts?: { session_id?: string; limit?: number },
-  ): { event: Event; snippet: string }[];
+    opts?: { session_id?: string; workspace?: string; limit?: number },
+  ): SearchHit[];
   subscribe(fn: (e: Event) => void): () => void;
   close(): void;
 
@@ -713,7 +721,7 @@ export function openStore(path: string | ":memory:"): Store {
       return rows.map((r) => parseEvent(JSON.parse(r.body)));
     },
 
-    listSessions({ limit, backend, rootsOnly } = {}) {
+    listSessions({ limit, backend, rootsOnly, workspace } = {}) {
       let sql =
         "SELECT session_id,backend,workspace,title,started_at,last_seq,last_ts,mapper,parent_session_id FROM sessions";
       const where: string[] = [];
@@ -721,6 +729,10 @@ export function openStore(path: string | ":memory:"): Store {
       if (backend !== undefined) {
         where.push("backend=?");
         params.push(backend);
+      }
+      if (workspace !== undefined) {
+        where.push("workspace=?");
+        params.push(workspace);
       }
       if (rootsOnly === true) where.push("parent_session_id IS NULL");
       if (where.length > 0) sql += ` WHERE ${where.join(" AND ")}`;
@@ -871,7 +883,7 @@ export function openStore(path: string | ":memory:"): Store {
       return out;
     },
 
-    search(query, { session_id, limit } = {}) {
+    search(query, { session_id, workspace, limit } = {}) {
       const q = ftsMatchQuery(query);
       if (!q) return [];
       let sql = `SELECT e.body, snippet(events_fts,2,'[',']','…',16) AS snip
@@ -881,6 +893,10 @@ export function openStore(path: string | ":memory:"): Store {
       if (session_id !== undefined) {
         sql += " AND f.session_id=?";
         params.push(session_id);
+      }
+      if (workspace !== undefined) {
+        sql += " AND f.session_id IN (SELECT session_id FROM sessions WHERE workspace=?)";
+        params.push(workspace);
       }
       sql += " ORDER BY f.rank";
       if (limit !== undefined) {

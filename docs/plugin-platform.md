@@ -37,6 +37,7 @@
 4. **ABI 是 host API，不是 MCP。** 每个后端一个哑适配器，只做三件事：向 service 拉工具表、把工具注册进本后端、调用时附上 session 转发。适配器不认识任何具体能力，加能力永远不改适配器。MCP 只是 ACP 适配器的传输层，不是执行点。
 5. **UI 贡献是类型化的，且必须有 fallback。** 工具行拿渲染元数据，面板从少量参数化 kind 里选；没有 UI 声明的工具仍然渲染成通用工具行，面板贡献失败不能拖垮主界面。任意插件代码不进主窗口。
 6. **命名空间 + 最小权限。** 路由、工具名、资源 key 都以 `plugin_id` 为前缀；第三方落地时插件拿不到全局 token。
+7. **内置插件的能力上限就是工厂注入的那些。** `BuiltinOptions` 是唯一的注入面：`sessions` 只读（list / search / view），`sessionControl` 给与 HTTP 路由同路径的 create / prompt。第三方的 `PluginContext` 保持最小，不因此长出 session 能力。policy 管的是工具执行入口（`/plugins/:id/tools/:tool`），不是插件自己的自治代码——定时器、后台循环这类不经工具调用的动作不在它的射程内；所以自治型内置插件只能通过注入面行动，而注入面走的正是用户动作的同一条路径。
 
 ## 3. 分层与术语
 
@@ -133,7 +134,7 @@ dev-process 这类需要拦截与提示词贡献的插件，加 `hooks`：
 - `tools[].name` 在插件内唯一；对外暴露为 `<id>_<name>`，CASF 里同时保留 `plugin_id` 与原始 `tool`。
 - `tools[].guards`：执行前由宿主校验的输入约束，形如 `{ "<input 字段>": "net" | "workspace" }`。`net` 按 `permissions.net` 的 host 允许列表校验 URL；`workspace` 要求路径解析后仍在 session 工作区内。校验失败返回 403，不进插件。只约束声明的字段 —— 这是宿主真正能执行的安全面（见 4.8）。
 - `tools[].timeout_ms`：单次执行上限，缺省 120s；超时按 `interrupted` 收尾。
-- `panel`：v1 为单数，一个插件至多一个面板。
+- `panel`：v1 为单数，一个插件至多一个面板。`resource` 可选、非空：数据面板读的资源 key；缺省按 kind 取（`logs` → `console`，`status` → `tabs`）。
 - `provides` 与 manifest 段的一致性校验见 §3。
 - `entry.kind`：v1 只实现 `builtin`；`process` 为第三方预留，届时协议固定为 MCP over stdio（见 4.4）。
 - `hooks.beforeTool`：插件要参与判定的**内置**工具名列表，经 `POST /hooks/before-tool` 回调插件。v1 不允许拦截其他插件的工具。

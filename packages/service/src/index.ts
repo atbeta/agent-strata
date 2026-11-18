@@ -49,6 +49,7 @@ import { mcpRoute } from "./plugins/mcp";
 import { createMcpTickets } from "./plugins/tickets";
 import { SessionClaims } from "./identity";
 import { promptRoute } from "./prompt-routes";
+import { makeSessionControl } from "./session-ops";
 import { sessionRoute } from "./session-routes";
 import { eventRoute } from "./event-routes";
 import { desktopRoute } from "./desktop-routes";
@@ -136,6 +137,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   const conns = new ConnectionRegistry();
   const createdDirs = new Map<string, string>();
   const touched = new Set<string>();
+  const claims = new SessionClaims();
   const knownDirs = async (): Promise<Map<string, { directory: string; name?: string }>> => {
     const dirs = new Map<string, { directory: string; name?: string }>();
     for (const conn of conns.values()) {
@@ -241,6 +243,21 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   for (const builtin of builtinPlugins({
     dataDir: desktopDir,
     workspaceOf: (sessionId) => directoryOf(sessionId) ?? driverFor(sessionId)?.directory,
+    sessions: {
+      list: (opts) => store.listSessions(opts),
+      search: (query, opts) =>
+        store.search(query, { session_id: opts.sessionId, workspace: opts.workspace, limit: opts.limit }),
+      view: (sessionId) => sessionView(sessionId),
+    },
+    sessionControl: makeSessionControl({
+      connections: conns,
+      claims,
+      createdDirs,
+      touched,
+      goalRunner,
+      directoryOf: (sessionId) => directoryOf(sessionId),
+      driverFor: (sessionId) => driverFor(sessionId),
+    }),
   })) {
     plugins.register(builtin);
   }
@@ -288,7 +305,6 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     broadcast(event);
     goalRunner.handleEvent(event);
   });
-  const claims = new SessionClaims();
   const unshadowed = (events: EventInput[]) =>
     events.filter((event) => !claims.shadowed(event.source, event.session_id));
   const appendStored = (events: EventInput[], writeOpts?: AppendOptions) =>

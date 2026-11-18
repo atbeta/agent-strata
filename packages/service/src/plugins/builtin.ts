@@ -24,12 +24,32 @@
 
 import type { RegisteredPlugin } from "./host";
 import { manifest as devManifest, createDevPlugin } from "@agent-strata/plugin-dev-process";
+import type { SessionView } from "@agent-strata/projector";
+import type { SearchHit, SessionSummary } from "@agent-strata/store";
 
 export interface BuiltinOptions {
   /** The service data directory; plugin state and per-plugin data live under it. */
   dataDir: string;
   /** Where a session's workspace is, for `guards.workspace` and the dev plugin. */
   workspaceOf: (sessionId: string) => string | undefined;
+  /** Read access to the session store, for plugins that let an agent look at other sessions. */
+  sessions: {
+    list(opts: { workspace?: string; limit?: number; rootsOnly?: boolean }): SessionSummary[];
+    search(
+      query: string,
+      opts: { workspace?: string; sessionId?: string; limit?: number },
+    ): SearchHit[];
+    view(sessionId: string): SessionView;
+  };
+  /** Acting on sessions on the user's behalf — the same paths the HTTP routes take. */
+  sessionControl: {
+    connections(): { id: string; agent: string; canPrompt: boolean }[];
+    connectionOf(sessionId: string): string | undefined;
+    /** throws a readable Error on an unknown connection or one that cannot prompt */
+    create(opts: { connectionId: string; title?: string; directory?: string }): Promise<{ sessionId: string }>;
+    /** throws when no backend owns the session */
+    prompt(sessionId: string, text: string): Promise<void>;
+  };
 }
 
 export function builtinPlugins(options: BuiltinOptions): RegisteredPlugin[] {

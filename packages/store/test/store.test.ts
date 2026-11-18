@@ -145,6 +145,40 @@ describe("store", () => {
     s.close();
   });
 
+  test("search filters hits by workspace in SQL before the limit applies", () => {
+    const s = openStore(":memory:");
+    s.append([
+      mk("a", "session.started", { workspace: "/a" }),
+      mk("a", "turn.assistant", {
+        turn_id: "t",
+        content: [{ type: "text", text: "flux in workspace a" }],
+      }),
+      mk("b", "session.started", { workspace: "/b" }),
+      mk("b", "turn.assistant", {
+        turn_id: "t",
+        content: [{ type: "text", text: "flux in workspace b" }],
+      }),
+      mk("c", "session.started", { workspace: "/c" }),
+      mk("c", "turn.assistant", {
+        turn_id: "t",
+        content: [{ type: "text", text: "flux in workspace c" }],
+      }),
+    ]);
+    const all = s.search("flux");
+    expect(all.length).toBe(3);
+    const inA = s.search("flux", { workspace: "/a" });
+    expect(inA.length).toBe(1);
+    expect(inA[0]!.event.session_id).toBe("a");
+    // The limit counts matching hits only — the non-matching workspaces'
+    // hits cannot crowd /a's single hit out of a small page.
+    expect(s.search("flux", { workspace: "/a", limit: 1 })[0]!.event.session_id).toBe("a");
+    expect(s.search("flux", { workspace: "/nowhere" })).toEqual([]);
+    // session_id and workspace compose.
+    expect(s.search("flux", { session_id: "a", workspace: "/a" }).length).toBe(1);
+    expect(s.search("flux", { session_id: "a", workspace: "/b" })).toEqual([]);
+    s.close();
+  });
+
   /**
    * `unicode61` splits on word boundaries, and Chinese has none — the whole
    * sentence was a single token, so a search for `搜索` matched nothing at all.
@@ -293,6 +327,41 @@ describe("store", () => {
     expect(sessions[0]!.started_at).toBe("2025-01-01T00:00:00Z");
     expect(s.listSessions({ backend: "test" }).length).toBe(2);
     expect(s.listSessions({ backend: "nope" })).toEqual([]);
+    s.close();
+  });
+
+  test("listSessions filters by workspace in SQL before the limit applies", () => {
+    const s = openStore(":memory:");
+    s.append([
+      mk("a1", "session.started", { workspace: "/a" }, "2025-01-01T00:00:00Z"),
+      mk("a2", "session.started", { workspace: "/a" }, "2025-01-02T00:00:00Z"),
+      mk("a3", "session.started", { workspace: "/a" }, "2025-01-03T00:00:00Z"),
+      mk("b1", "session.started", { workspace: "/b" }, "2025-01-04T00:00:00Z"),
+      mk("b2", "session.started", { workspace: "/b" }, "2025-01-05T00:00:00Z"),
+      // No session.started: the row exists but workspace stays NULL, and an
+      // exact-match filter must not pull it in.
+      mk("c1", "turn.user", { turn_id: "t", content: [] }, "2025-01-06T00:00:00Z"),
+    ]);
+    expect(s.listSessions().map((x) => x.session_id)).toEqual([
+      "c1",
+      "b2",
+      "b1",
+      "a3",
+      "a2",
+      "a1",
+    ]);
+    expect(s.listSessions({ workspace: "/a" }).map((x) => x.session_id)).toEqual([
+      "a3",
+      "a2",
+      "a1",
+    ]);
+    // The limit counts matching rows only: the two newest sessions overall are
+    // not in /a, so an unfiltered page would never reach a1.
+    expect(s.listSessions({ workspace: "/a", limit: 2 }).map((x) => x.session_id)).toEqual([
+      "a3",
+      "a2",
+    ]);
+    expect(s.listSessions({ workspace: "/nowhere" })).toEqual([]);
     s.close();
   });
 });

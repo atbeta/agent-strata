@@ -76,6 +76,8 @@ export interface PanelContribution {
   title: string;
   kind: "logs" | "status" | "component";
   icon?: string;
+  /** the resource key the panel reads; the kind's default when absent */
+  resource?: string;
 }
 
 /**
@@ -116,6 +118,7 @@ export async function refreshPlugins(): Promise<void> {
         title: plugin.panel.title,
         kind: plugin.panel.kind,
         icon: plugin.panel.icon && ICONS.has(plugin.panel.icon) ? plugin.panel.icon : undefined,
+        resource: plugin.panel.resource,
       });
     }
   }

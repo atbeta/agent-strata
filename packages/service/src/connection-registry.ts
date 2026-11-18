@@ -57,6 +57,11 @@ export class ConnectionRegistry {
     return this.owners.has(sessionId);
   }
 
+  /** the connection that claimed this session, when one has */
+  connectionOf(sessionId: string): string | undefined {
+    return this.owners.get(sessionId);
+  }
+
   driverFor(sessionId: string): BackendDriver | undefined {
     const owned = this.owners.get(sessionId);
     if (owned) return this.conns.get(owned);

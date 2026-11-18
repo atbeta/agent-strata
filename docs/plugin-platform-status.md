@@ -9,6 +9,8 @@ M0–M3 全部落地并通过检查（typecheck / lint / 包测试 / UI 测试 /
 
 **浏览器插件不在主干。** 它是这套底座上的第二个真插件，也是 M1/M2 的验收对象，但它还没到能开的程度：右栏的帧路径会卡死（多因叠加，见下文"已知问题"），而一个没法从菜单里关掉的能力不该跟着出厂。它的完整实现、测试和这段期间的修复都在本地分支 `local/browser-plugin` 上，验证成熟后再合回来。主干保留插件底座和 dev 插件；面板契约里的帧面板 kind（`screencast`）也随它一起移出——这个构建只画数据面板（`logs` / `status`），声明了画不了的 kind 会在 manifest 校验时被拒，而不是变成一张空白 tab。
 
+**底座第一期（foundation）已落地**：只铺底座、不加插件——store 的 workspace 过滤、session 操作抽取为 `session-ops.ts`、内置插件注入面 `BuiltinOptions.sessions`（只读）/ `sessionControl`（与 HTTP 路由同路径的 create/prompt）、`panel.resource` 契约。
+
 方案里 M0–M3 的**验收条目**逐条都有对应用例，不只是"功能跑通了"：
 
 | 验收条目 | 用例 |

@@ -105,6 +105,7 @@ export const PluginManifestSchema = z
         title: z.string().min(1),
         kind: PanelKind,
         icon: z.string().optional(),
+        resource: z.string().min(1).optional(),
       })
       .optional(),
     hooks: z

@@ -89,6 +89,37 @@ describe("manifest defaults", () => {
     // manifest is a declaration, and "too new for this build" is not malformed.
     expect(satisfiesRange(STRATA_VERSION, ">=99.0.0").ok).toBe(false);
   });
+
+  test("a panel may name the resource it reads, but not an empty one", () => {
+    const panel = { id: "main", title: "Main", kind: "logs" as const };
+    const withResource = loadManifest({
+      id: "p",
+      name: "P",
+      version: "1",
+      entry: { kind: "builtin" },
+      provides: ["panel"],
+      panel: { ...panel, resource: "console" },
+    });
+    expect(withResource.panel?.resource).toBe("console");
+    expect(loadManifest({
+      id: "p",
+      name: "P",
+      version: "1",
+      entry: { kind: "builtin" },
+      provides: ["panel"],
+      panel,
+    }).panel?.resource).toBeUndefined();
+    expect(() =>
+      loadManifest({
+        id: "p",
+        name: "P",
+        version: "1",
+        entry: { kind: "builtin" },
+        provides: ["panel"],
+        panel: { ...panel, resource: "" },
+      }),
+    ).toThrow();
+  });
 });
 
 describe("the one reading of a URL", () => {

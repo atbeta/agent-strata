@@ -63,7 +63,7 @@ function DataPanel(props: { panel: PanelContribution; sessionId: () => string })
   const [text, setText] = createSignal("");
   const [error, setError] = createSignal<string>();
   const refresh = () => {
-    const resource = props.panel.kind === "logs" ? "console" : "tabs";
+    const resource = props.panel.resource ?? (props.panel.kind === "logs" ? "console" : "tabs");
     void fetchResource(props.panel.plugin, resource, props.sessionId())
       .then((body) => {
         setText(body);

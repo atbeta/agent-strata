@@ -14,6 +14,7 @@ import { mcpAuthCode, mcpAuthStartView } from "./mcp-auth";
 import type { PermissionRequests } from "./permission-requests";
 import type { PluginHost } from "./plugins/host";
 import { readPromptParts } from "./prompt-parts";
+import { adoptSession, sendPrompt } from "./session-ops";
 import { filesKeyOf, type ViewCache } from "./views";
 
 export async function sessionRoute(
@@ -173,9 +174,7 @@ export async function sessionRoute(
       return Response.json({ error: "backend cannot create sessions" }, { status: 400 });
     }
     const created = await conn.createSession({ title: body.title, directory: body.directory });
-    connections.own(created.casfId, conn.id);
-    if (body.directory) deps.createdDirs.set(created.casfId, body.directory);
-    deps.claims.claim(`${conn.agent}:${created.nativeId}`, created.casfId, conn.id);
+    adoptSession(deps, conn, created, body.directory);
     return Response.json({ id: created.casfId, native_id: created.nativeId });
   }
 
@@ -285,21 +284,14 @@ export async function sessionRoute(
       if (parts.some((part) => part.type === "file_ref") && !(directory ?? conn.directory)) {
         return Response.json({ error: "session has no workspace to read files from" }, { status: 400 });
       }
-      deps.goalRunner.allow(sessionId);
-      // The request is accepted — its turn is only a store event away, but a
-      // conditional delete arriving first must already see the session used.
-      deps.touched.add(sessionId);
       try {
-        await conn.prompt(native, parts, {
+        await sendPrompt(deps, sessionId, conn, native, parts, {
           model: body?.model,
           agent: body?.agent,
           variant: body?.variant,
-          directory,
         });
         return Response.json({ ok: true });
       } catch (error) {
-        // A send the backend refused is not a used session.
-        deps.touched.delete(sessionId);
         return Response.json({ error: String(error) }, { status: 502 });
       }
     }
@@ -537,8 +529,7 @@ export async function sessionRoute(
     const directory = deps.directoryOf(sessionId);
     try {
       const created = await conn.fork(native, cut.before, directory);
-      connections.own(created.casfId, conn.id);
-      deps.claims.claim(`${conn.agent}:${created.nativeId}`, created.casfId, conn.id);
+      adoptSession(deps, conn, created);
       const source = view.title?.trim();
       if (source && conn.capabilities.manage) {
         const title = forkTitle(source, store.listSessions().map((summary) => summary.title));
@@ -578,9 +569,7 @@ export async function sessionRoute(
     const directory = deps.directoryOf(sessionId);
     try {
       const created = await target.createSession({ title, directory });
-      connections.own(created.casfId, target.id);
-      if (directory) deps.createdDirs.set(created.casfId, directory);
-      deps.claims.claim(`${target.agent}:${created.nativeId}`, created.casfId, target.id);
+      adoptSession(deps, target, created, directory);
       await target.prompt(created.nativeId, [{ type: "text", text: sessionBriefing(view) }], {
         model: body?.model,
         agent: body?.agent,

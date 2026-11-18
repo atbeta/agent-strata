@@ -1356,7 +1356,7 @@ export interface PluginSummary {
   provides: string[];
   tools: { name: string; description: string }[];
   resources: { key: string; mime: string }[];
-  panel?: { id: string; title: string; kind: "logs" | "status" | "component"; icon?: string };
+  panel?: { id: string; title: string; kind: "logs" | "status" | "component"; icon?: string; resource?: string };
   hooks?: { beforeTool: string[]; systemPrompt: boolean };
   ui?: { toolRenderers: Record<string, { kind: string; icon?: string }> };
 }
