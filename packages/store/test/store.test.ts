@@ -1021,4 +1021,77 @@ describe("running sessions, asked of the whole store at once", () => {
     expect(s.runningSessions()).toEqual([]);
     s.close();
   });
+
+  test("a store that predates the parent column learns the parent on open", () => {
+    const dir = mkdtempSync(join(tmpdir(), "store-parent-"));
+    const file = join(dir, "s.db");
+    const first = openStore(file);
+    first.append([
+      mk("root", "session.started", { workspace: "/a", title: "root" }),
+      mk("child", "session.started", {
+        workspace: "/a",
+        title: "child",
+        parent_session_id: "root",
+      }),
+    ]);
+    first.close();
+
+    // What the column migration leaves behind: the column exists, but
+    // nothing ever filled it — the event carrying the parent is already
+    // stored, and the roots-only filter cannot see it.
+    const raw = new Database(file);
+    raw.exec("UPDATE sessions SET parent_session_id = NULL");
+    raw.exec("DELETE FROM store_meta WHERE k='parent_seg'");
+    raw.close();
+
+    const again = openStore(file);
+    expect(again.listSessions({ rootsOnly: true }).map((x) => x.session_id)).toEqual(["root"]);
+    again.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("an event written while the index rebuilds is indexed once", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "store-reindex-"));
+    const file = join(dir, "s.db");
+    const first = openStore(file);
+    first.append(
+      Array.from({ length: 1200 }, (_, i) =>
+        mk("a", "turn.user", {
+          turn_id: `t${i}`,
+          content: [{ type: "text", text: `message number ${i}` }],
+        }),
+      ),
+    );
+    first.close();
+
+    // An index written before the current segmentation owes a rebuild.
+    const raw = new Database(file);
+    raw.exec("DELETE FROM store_meta WHERE k='fts_seg'");
+    raw.close();
+
+    const s = openStore(file);
+    expect(s.reindexPending()).toBe(true);
+    const run = s.reindex();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    s.append([
+      mk("a", "turn.user", {
+        turn_id: "late",
+        content: [{ type: "text", text: "written during the rebuild" }],
+      }),
+    ]);
+    await run;
+    expect(s.search("rebuild")).toHaveLength(1);
+    s.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("sessions that share a stamp keep one order", () => {
+    const s = openStore(":memory:");
+    const stamp = "2026-01-01T00:00:00.000Z";
+    for (const id of ["a", "b", "c"]) {
+      s.append([mk(id, "session.started", { workspace: "/a" }, stamp)]);
+    }
+    expect(s.listSessions().map((x) => x.session_id)).toEqual(["c", "b", "a"]);
+    s.close();
+  });
 });

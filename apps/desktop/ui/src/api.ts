@@ -870,8 +870,8 @@ export async function searchSession(
   id: string,
   q: string,
   limit = 300,
-): Promise<{ hits: SearchHit[]; more: boolean }> {
-  return getJson<{ hits: SearchHit[]; more: boolean }>(
+): Promise<{ hits: SearchHit[]; more: boolean; partial: boolean }> {
+  return getJson<{ hits: SearchHit[]; more: boolean; partial: boolean }>(
     `/sessions/${encodeURIComponent(id)}/search?q=${encodeURIComponent(q)}&limit=${limit}`,
   );
 }
