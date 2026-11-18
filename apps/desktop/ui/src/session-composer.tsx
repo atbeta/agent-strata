@@ -48,10 +48,12 @@ import {
 } from "./composer-queue";
 import { withEcho, type PendingEcho } from "./prompt-echo";
 import {
+  flushDrafts,
   navigateHistory,
   readDraft,
   readHistory,
   rememberPrompt,
+  scheduleDraft,
   sessionContext,
   writeDraft,
   writeHistory,
@@ -689,7 +691,7 @@ export function useSessionComposer(args: {
     }
     void deliver(out);
   };
-  const canSend = () => writable() && connected() && (Boolean(draft().trim()) || attachments().length > 0);
+  const canSend = () => writable() && connected() && (/\S/.test(draft()) || attachments().length > 0);
 
   const runSlash = (name: string, slashArgs: string) => {
     setDraft(slashArgs ? `/${name} ${slashArgs}` : `/${name}`);
@@ -936,19 +938,35 @@ export function useSessionComposer(args: {
     });
   };
 
+  // Drafts persist lazily — a full-string storage write per keystroke is the
+  // composer's biggest per-key cost once the text is heavy. The shared writer
+  // answers readDraft with what is still queued, so readers like the
+  // fresh-session prune see the words before they land; flushing on unmount
+  // and pagehide keeps them on disk for the restart after that.
+  window.addEventListener("pagehide", flushDrafts);
+  onCleanup(() => {
+    window.removeEventListener("pagehide", flushDrafts);
+    flushDrafts();
+  });
+
+  /** What the field last showed — a keystroke's own text needs no DOM write. */
+  let domDraft: string | undefined;
+
   // Keyed on the draft alone: on a switch the new id lands before `resetFor`
   // reads the new draft, and writing then would give it the old session's text.
   // The field is not controlled. A keystroke already put the text in the DOM;
   // writing `value` again restarts an IME composition. Only a draft that
-  // arrived from outside, and only once composition is over, is copied in.
+  // arrived from outside, and only once composition is over, is copied in —
+  // which `domDraft` knows without reading the box back.
   createEffect(
     on(
       draft,
       (text) => {
-        writeDraft(untrack(args.sessionId), text);
+        scheduleDraft(untrack(args.sessionId), text);
         const el = draftEl;
-        if (!el || !composerValueWrite({ composing, domValue: el.value, draft: text })) return;
+        if (!el || text === domDraft || !composerValueWrite({ composing, domValue: el.value, draft: text })) return;
         el.value = text;
+        domDraft = text;
         queueMicrotask(autogrow);
       },
       { defer: true },
@@ -1146,6 +1164,7 @@ export function useSessionComposer(args: {
     // Background markdown parsing yields to a keystroke. A row that is only
     // being prepared for a scroll that may never come must not sit between
     // this key and the character it produces.
+    domDraft = e.currentTarget.value;
     setDraft(e.currentTarget.value);
     setHistIndex(-1);
     autogrow();
@@ -1160,7 +1179,10 @@ export function useSessionComposer(args: {
     // the field stays out of the box; once composition ends, the signal
     // follows the text that was actually committed.
     const el = draftEl;
-    if (el && el.value !== draft()) setDraft(el.value);
+    if (el && el.value !== draft()) {
+      domDraft = el.value;
+      setDraft(el.value);
+    }
     // The IME's committed text is a keystroke too.
     track();
     finishComposition();
@@ -1227,6 +1249,7 @@ export function useSessionComposer(args: {
     bindDraft: (el: HTMLTextAreaElement) => {
       draftEl = el;
       el.value = draft();
+      domDraft = el.value;
       seenChars = el.value.length;
     },
     focusDraft: () => {

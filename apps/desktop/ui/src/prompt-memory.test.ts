@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { navigateHistory, rememberPrompt, sessionContext } from "./prompt-memory";
+import {
+  createDraftWriter,
+  flushDrafts,
+  navigateHistory,
+  readDraft,
+  rememberPrompt,
+  scheduleDraft,
+  sessionContext,
+} from "./prompt-memory";
 
 const usage = (
   input: number,
@@ -121,5 +129,79 @@ describe("prompt history", () => {
   test("remembering moves a repeat to the front and caps the list", () => {
     expect(rememberPrompt(["a", "b"], "b")).toEqual(["b", "a"]);
     expect(rememberPrompt(["a", "b", "c"], "d", 2)).toEqual(["d", "a"]);
+  });
+});
+
+describe("createDraftWriter", () => {
+  const rig = () => {
+    const writes: [string, string][] = [];
+    const timers: (() => void)[] = [];
+    const writer = createDraftWriter({
+      write: (id, text) => writes.push([id, text]),
+      setTimeout: (fn) => {
+        timers.push(fn);
+        return fn;
+      },
+      clearTimeout: (t) => {
+        const i = timers.indexOf(t as () => void);
+        if (i >= 0) timers.splice(i, 1);
+      },
+    });
+    const fire = () => {
+      for (const f of timers.splice(0)) f();
+    };
+    return { writes, writer, fire };
+  };
+
+  test("writes are deferred and the newest text wins", () => {
+    const { writes, writer, fire } = rig();
+    writer.schedule("a", "one");
+    writer.schedule("a", "two");
+    expect(writes).toEqual([]);
+    fire();
+    expect(writes).toEqual([["a", "two"]]);
+    writer.schedule("a", "three");
+    fire();
+    expect(writes).toEqual([["a", "two"], ["a", "three"]]);
+  });
+
+  test("a clear lands at once and drops what was queued", () => {
+    const { writes, writer, fire } = rig();
+    writer.schedule("a", "draft");
+    writer.schedule("a", "");
+    expect(writes).toEqual([["a", ""]]);
+    fire();
+    expect(writes).toHaveLength(1);
+  });
+
+  test("a switch writes the old session before queuing the new one", () => {
+    const { writes, writer, fire } = rig();
+    writer.schedule("a", "old words");
+    writer.schedule("b", "new words");
+    expect(writes).toEqual([["a", "old words"]]);
+    fire();
+    expect(writes).toEqual([["a", "old words"], ["b", "new words"]]);
+  });
+
+  test("flush writes the queue now; pendingText sees it first", () => {
+    const { writes, writer } = rig();
+    writer.schedule("a", "typed");
+    expect(writer.pendingText("a")).toBe("typed");
+    expect(writer.pendingText("b")).toBeUndefined();
+    writer.flush();
+    expect(writes).toEqual([["a", "typed"]]);
+    expect(writer.pendingText("a")).toBeUndefined();
+    writer.flush();
+    expect(writes).toHaveLength(1);
+  });
+});
+
+describe("the shared draft writer", () => {
+  test("readDraft sees text still queued behind the throttle", () => {
+    scheduleDraft("shared-x", "half a thought");
+    expect(readDraft("shared-x")).toBe("half a thought");
+    expect(readDraft("other")).toBe("");
+    flushDrafts();
+    expect(readDraft("shared-x")).toBe("");
   });
 });

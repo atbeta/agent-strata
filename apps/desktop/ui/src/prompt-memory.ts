@@ -142,7 +142,7 @@ export function navigateHistory(input: {
   return { handled: true, index: next, text: input.entries[next] ?? "", cursor: "end" };
 }
 
-export function readDraft(sessionId: string): string {
+function readStoredDraft(sessionId: string): string {
   try {
     return localStorage.getItem(draftKey(sessionId)) ?? "";
   } catch {
@@ -150,7 +150,7 @@ export function readDraft(sessionId: string): string {
   }
 }
 
-export function writeDraft(sessionId: string, text: string): void {
+function writeStoredDraft(sessionId: string, text: string): void {
   try {
     const key = draftKey(sessionId);
     if (text) localStorage.setItem(key, text);
@@ -158,6 +158,98 @@ export function writeDraft(sessionId: string, text: string): void {
   } catch {
     // private mode
   }
+}
+
+export interface DraftWriter {
+  /** remember the newest draft; a clear lands at once, a write on the next tick */
+  schedule(sessionId: string, text: string): void;
+  /** the text still queued for this session, before storage has it */
+  pendingText(sessionId: string): string | undefined;
+  /** write whatever is queued — for unmount and the page going away */
+  flush(): void;
+}
+
+/**
+ * A draft is kept so a crash or a closed window does not eat it; it is not a
+ * keystroke log. Writing the whole string to storage on every input event is
+ * the composer's biggest per-key cost once the text is heavy, so writes are
+ * throttled: the newest text wins whenever the timer fires, and `flush` is
+ * the guarantee for the moment storage becomes the only copy. A clear is
+ * never deferred — a sent message dropping its draft has to beat whatever
+ * write is still queued.
+ */
+export function createDraftWriter(deps: {
+  write: (sessionId: string, text: string) => void;
+  delayMs?: number;
+  setTimeout?: (fn: () => void, ms: number) => unknown;
+  clearTimeout?: (timer: unknown) => void;
+}): DraftWriter {
+  const delay = deps.delayMs ?? 400;
+  const later = deps.setTimeout ?? ((fn: () => void, ms: number) => setTimeout(fn, ms) as unknown);
+  const cancel = deps.clearTimeout ?? ((t: unknown) => clearTimeout(t as Parameters<typeof clearTimeout>[0]));
+  let pending: { id: string; text: string } | undefined;
+  let timer: unknown;
+  const flush = (): void => {
+    if (timer !== undefined) {
+      cancel(timer);
+      timer = undefined;
+    }
+    if (!pending) return;
+    deps.write(pending.id, pending.text);
+    pending = undefined;
+  };
+  return {
+    schedule(sessionId, text) {
+      // A different session's words are not this write's to replace: on a
+      // switch the old session's text lands before the new one's queues.
+      if (pending && pending.id !== sessionId) flush();
+      if (!text) {
+        pending = undefined;
+        if (timer !== undefined) {
+          cancel(timer);
+          timer = undefined;
+        }
+        deps.write(sessionId, text);
+        return;
+      }
+      pending = { id: sessionId, text };
+      timer ??= later(() => {
+        timer = undefined;
+        flush();
+      }, delay);
+    },
+    pendingText(sessionId) {
+      return pending?.id === sessionId ? pending.text : undefined;
+    },
+    flush,
+  };
+}
+
+/**
+ * The one writer every reader shares. `readDraft` answers what the writer
+ * still holds, so a draft queued behind the throttle is as visible as one
+ * already on disk — anything deciding on the storage copy alone, like a
+ * fresh-session prune, would call a typed-but-unflushed session empty.
+ */
+const drafts = createDraftWriter({ write: writeStoredDraft });
+
+export function readDraft(sessionId: string): string {
+  return drafts.pendingText(sessionId) ?? readStoredDraft(sessionId);
+}
+
+/** Queue the session's draft — the per-keystroke path. */
+export function scheduleDraft(sessionId: string, text: string): void {
+  drafts.schedule(sessionId, text);
+}
+
+/** Land every queued draft now — before storage becomes the only copy. */
+export function flushDrafts(): void {
+  drafts.flush();
+}
+
+export function writeDraft(sessionId: string, text: string): void {
+  drafts.schedule(sessionId, text);
+  drafts.flush();
 }
 
 export function readHistory(): string[] {
