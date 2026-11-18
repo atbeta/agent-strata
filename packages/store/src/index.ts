@@ -169,12 +169,24 @@ export interface Store {
    * Rewrite the search index with the current segmentation.
    *
    * Called after startup rather than during it: on a large store this takes
-   * seconds, and the window must not wait for it. Cheap and safe to call when
-   * there is nothing to do — it checks the marker first.
+   * seconds, and the window must not wait for it.
+   *
+   * Asynchronous because the work is chunked and yields between chunks: a
+   * store of 300k events took 18.6 s to rebuild in one transaction, and a
+   * synchronous transaction stops the whole event loop — no request, no
+   * stream, no plugin callback — for its entire duration. Deferring the call
+   * with `setTimeout` did not help; it moved the start, not the work.
+   * Measured at that size, 500-row chunks hold the longest stall to ~31 ms
+   * while costing only 0.7 s over the single-transaction version.
+   *
+   * Cheap and safe to call when there is nothing to do — it checks the marker
+   * first. Safe to call twice; the second call awaits the same run.
    */
-  reindex(): void;
+  reindex(): Promise<void>;
   /** Whether `reindex` still has work, i.e. this store predates the current scheme. */
   reindexPending(): boolean;
+  /** True while a `reindex` is running, so search results can say they are partial. */
+  reindexing(): boolean;
   /** Rewrites the database file; can take a while on a large store. */
   vacuum(): void;
 }
@@ -310,6 +322,26 @@ export function openStore(path: string | ":memory:"): Store {
   // until then search keeps answering from the rows already there, which are
   // still correct for everything except Chinese.
   const FTS_TEXT_SEGMENTED = "1";
+
+  /**
+   * Rows converted per transaction during a rebuild.
+   *
+   * This is the knob that decides how long the event loop is held. Measured on
+   * a 300k-event store (189 MB): the whole rebuild in one transaction took
+   * 18.6 s with the loop stalled throughout; 2000-row chunks took 10.3 s but
+   * still stalled up to 458 ms; 500-row chunks took 11.0 s and stalled no more
+   * than 31 ms — one frame. Below 500 the total only gets worse (200 rows:
+   * 11.9 s, no better stall), because the per-transaction cost stops being
+   * amortised.
+   *
+   * With the empty-table step and the paged read in place (below), the same
+   * store rebuilds in 12.9 s with a worst stall of 53 ms.
+   */
+  const REINDEX_CHUNK = 500;
+
+  /** The rebuild in flight, so a second caller waits instead of starting one. */
+  let running: Promise<void> | undefined;
+
   const metaGet = (k: string): string | undefined =>
     (db.query("SELECT v FROM store_meta WHERE k=?").get(k) as { v: string } | null)?.v;
   const metaSet = (k: string, v: string): void => {
@@ -897,31 +929,90 @@ export function openStore(path: string | ":memory:"): Store {
       return metaGet("fts_seg") !== FTS_TEXT_SEGMENTED;
     },
 
+    reindexing() {
+      return running !== undefined;
+    },
+
     reindex() {
-      if (!this.reindexPending()) return;
-      db.transaction(() => {
-        db.exec("DELETE FROM events_fts");
-        // `ftsText` reads the stored body, so the rebuild sees exactly what the
-        // write path saw and cannot drift from it.
-        const rows = db.query("SELECT id, session_id, body FROM events").all() as {
-          id: string;
-          session_id: string;
-          body: string;
-        }[];
-        const ins = db.query("INSERT INTO events_fts(event_id,session_id,text) VALUES(?,?,?)");
-        for (const row of rows) {
-          let event: Event;
-          try {
-            event = parseEvent(JSON.parse(row.body));
-          } catch {
-            continue;
+      // Two callers must not rebuild at once. A second call joins the run in
+      // flight instead of starting a second one — the second would begin by
+      // deleting the rows the first is filling.
+      if (running) return running;
+      if (!this.reindexPending()) return Promise.resolve();
+
+      const run = (async () => {
+        try {
+          // Emptied by dropping the table, not by deleting its rows. Deleting
+          // 300k FTS rows is a per-row unindex and measured 4.2 s of held
+          // event loop — the single worst stall in the rebuild, and one no
+          // amount of chunking can help, because it is one statement. Dropping
+          // and recreating the virtual table is 38 ms and produces the same
+          // empty index.
+          db.exec("DROP TABLE IF EXISTS events_fts");
+          db.exec(
+            "CREATE VIRTUAL TABLE events_fts USING fts5(event_id UNINDEXED, session_id UNINDEXED, text)",
+          );
+
+          // Paged by `rowid`, never by `seq`: `seq` is per session, so a cursor
+          // on it silently skips rows (measured: 300k rows reduced to 75k
+          // indexed). `rowid` is the table's own insertion order.
+          let cursor = 0;
+          for (;;) {
+            const chunk = db
+              .query(
+                "SELECT rowid AS rid, id, session_id, body FROM events WHERE rowid > ? ORDER BY rowid LIMIT ?",
+              )
+              .all(cursor, REINDEX_CHUNK) as {
+              rid: number;
+              id: string;
+              session_id: string;
+              body: string;
+            }[];
+            if (chunk.length === 0) break;
+
+            db.transaction(() => {
+              const ins = db.query(
+                "INSERT INTO events_fts(event_id,session_id,text) VALUES(?,?,?)",
+              );
+              for (const row of chunk) {
+                let event: Event;
+                try {
+                  event = parseEvent(JSON.parse(row.body));
+                } catch {
+                  continue;
+                }
+                const text = ftsText(event);
+                if (text.trim()) ins.run(row.id, row.session_id, ftsSegment(text));
+              }
+            })();
+            cursor = chunk[chunk.length - 1]!.rid;
+
+            // The yield is the point of the chunking: without it this loop is
+            // one long synchronous run and the service answers nothing until
+            // it ends. `sleep(0)` releases the loop for whatever is waiting —
+            // an HTTP request, a stream frame — then resumes.
+            await Bun.sleep(0);
           }
-          const text = ftsText(event);
-          if (text.trim()) ins.run(row.id, row.session_id, ftsSegment(text));
+
+          // Written last, and only on success. A run killed halfway leaves the
+          // marker absent, so the next open asks for the work again rather
+          // than accepting a half-filled index as current.
+          metaSet("fts_seg", FTS_TEXT_SEGMENTED);
+
+          // Merging the b-tree fragments is worth a second on a large store.
+          // The index is correct and usable before this — only slower to
+          // search — so a failure here must not fail the rebuild.
+          try {
+            db.exec("INSERT INTO events_fts(events_fts) VALUES('optimize')");
+          } catch (error) {
+            console.error("search index optimize failed:", error);
+          }
+        } finally {
+          running = undefined;
         }
-        metaSet("fts_seg", FTS_TEXT_SEGMENTED);
       })();
-      db.exec("INSERT INTO events_fts(events_fts) VALUES('optimize')");
+      running = run;
+      return run;
     },
 
     optimize() {

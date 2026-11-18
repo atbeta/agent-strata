@@ -459,7 +459,7 @@ describe("store.query", () => {
    * store, and opening the database happens before the window is shown. Opening
    * reports the work; `reindex` does it.
    */
-  test("an old store reports pending work and gains Chinese search when reindexed", () => {
+  test("an old store reports pending work and gains Chinese search when reindexed", async () => {
     const dir = mkdtempSync(join(tmpdir(), "agent-strata-fts-"));
     const path = join(dir, "db.sqlite");
     try {
@@ -495,12 +495,13 @@ describe("store.query", () => {
       expect(second.reindexPending()).toBe(true);
       expect(second.search("搜索").length).toBe(0);
 
-      second.reindex();
+      await second.reindex();
       expect(second.reindexPending()).toBe(false);
+      expect(second.reindexing()).toBe(false);
       expect(second.search("搜索").length).toBe(1);
       expect(second.search("中文").length).toBe(1);
       // A second call is a no-op, not a second rebuild.
-      second.reindex();
+      await second.reindex();
       expect(second.search("搜索").length).toBe(1);
       second.close();
 
@@ -514,10 +515,196 @@ describe("store.query", () => {
     }
   });
 
-  test("a fresh store needs no rebuild", () => {
+  /**
+   * The rebuild must not stop the world.
+   *
+   * `reindex` used to be one synchronous transaction. On a 300k-event store
+   * that held the event loop for 18.6 s: no HTTP request, no stream frame, no
+   * plugin callback was served for the whole of it. Deferring the call with
+   * `setTimeout` moved the start, not the work.
+   *
+   * A timer is the witness. If the loop keeps turning, ticks keep arriving
+   * between chunks; if a single transaction swallows the whole rebuild, the
+   * tick count collapses. The threshold is loose on purpose — this asserts
+   * "the loop still runs", not a performance figure, so it cannot flake on a
+   * loaded CI machine.
+   */
+  test("a rebuild yields to the event loop instead of stalling it", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "agent-strata-yield-"));
+    const path = join(dir, "db.sqlite");
+    try {
+      const seed = openStore(path);
+      const batch: EventInput[] = [];
+      // Enough rows that a single unchunked transaction would be plainly
+      // visible; the chunk size is 500, so this spans several.
+      for (let i = 0; i < 2000; i++) {
+        batch.push(
+          mk("a", "turn.assistant", {
+            turn_id: `t${i}`,
+            content: [{ type: "text", text: "当前的全文搜索不支持中文，需要修复这个问题。" }],
+          }),
+        );
+      }
+      seed.append(batch);
+      seed.close();
+
+      const raw = new Database(path);
+      raw.exec("DELETE FROM store_meta");
+      raw.close();
+
+      const s = openStore(path);
+      expect(s.reindexPending()).toBe(true);
+
+      let ticks = 0;
+      const timer = setInterval(() => ticks++, 1);
+      await s.reindex();
+      clearInterval(timer);
+
+      expect(s.reindexPending()).toBe(false);
+      // Several chunks ran, so several yield points existed. At least some
+      // ticks must have been delivered — a single blocking transaction
+      // delivers none.
+      expect(ticks).toBeGreaterThan(0);
+      expect(s.search("搜索").length).toBeGreaterThan(0);
+      s.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  /**
+   * Every row must be indexed, including across many sessions.
+   *
+   * The first paged version of this walked the events by `seq`, which is not a
+   * global ordering — it counts within a session. On a store of 1000 sessions
+   * that cursor skipped whole swathes: 300k rows came out as 75k indexed, and
+   * the marker was written anyway, so the missing rows looked like "no match"
+   * rather than a broken index. The page is keyed on `rowid`.
+   */
+  test("a rebuild indexes every row across many sessions", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "agent-strata-many-"));
+    const path = join(dir, "db.sqlite");
+    try {
+      const seed = openStore(path);
+      const batch: EventInput[] = [];
+      // Enough sessions that per-session `seq` values repeat many times, which
+      // is what made the bad cursor skip rows.
+      for (let i = 0; i < 3000; i++) {
+        batch.push(
+          mk(`ses_${i % 120}`, "turn.assistant", {
+            turn_id: `t${i}`,
+            content: [{ type: "text", text: `第${i}条全文搜索的内容` }],
+          }),
+        );
+      }
+      seed.append(batch);
+      seed.close();
+
+      const raw = new Database(path);
+      const before = (raw.query("SELECT count(*) c FROM events").get() as { c: number }).c;
+      raw.exec("DELETE FROM store_meta");
+      raw.close();
+      expect(before).toBe(3000);
+
+      const s = openStore(path);
+      await s.reindex();
+
+      const check = new Database(path);
+      const indexed = (check.query("SELECT count(*) c FROM events_fts").get() as { c: number }).c;
+      check.close();
+      // One row per event, none skipped.
+      expect(indexed).toBe(before);
+      expect(s.reindexPending()).toBe(false);
+      s.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  /**
+   * A rebuild that is interrupted leaves the marker absent, so the next open
+   * tries again rather than trusting a half-filled index.
+   */
+  test("an interrupted rebuild is retried, not accepted", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "agent-strata-half-"));
+    const path = join(dir, "db.sqlite");
+    try {
+      const first = openStore(path);
+      first.append([
+        mk("a", "turn.assistant", {
+          turn_id: "t",
+          content: [{ type: "text", text: "当前的全文搜索不支持中文" }],
+        }),
+      ]);
+      first.close();
+
+      // A store whose rows are unsegmented and whose marker is missing, with a
+      // partly-filled index standing in for a run that was killed midway.
+      const raw = new Database(path);
+      raw.exec("DELETE FROM events_fts");
+      raw.exec("DELETE FROM store_meta");
+      raw.close();
+
+      const second = openStore(path);
+      expect(second.reindexPending()).toBe(true);
+      await second.reindex();
+      expect(second.reindexPending()).toBe(false);
+      expect(second.search("搜索").length).toBe(1);
+      second.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  /**
+   * Two callers must not rebuild at once: the second would start by deleting
+   * the rows the first is filling.
+   */
+  test("a second reindex joins the run in flight", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "agent-strata-join-"));
+    const path = join(dir, "db.sqlite");
+    try {
+      const seed = openStore(path);
+      const batch: EventInput[] = [];
+      for (let i = 0; i < 1200; i++) {
+        batch.push(
+          mk("a", "turn.assistant", {
+            turn_id: `t${i}`,
+            content: [{ type: "text", text: "全文搜索需要中文分词" }],
+          }),
+        );
+      }
+      seed.append(batch);
+      seed.close();
+
+      const raw = new Database(path);
+      raw.exec("DELETE FROM store_meta");
+      raw.close();
+
+      const s = openStore(path);
+      const first = s.reindex();
+      expect(s.reindexing()).toBe(true);
+      const second = s.reindex();
+      await Promise.all([first, second]);
+
+      expect(s.reindexing()).toBe(false);
+      expect(s.reindexPending()).toBe(false);
+      // Every row indexed exactly once — a second concurrent pass would have
+      // wiped the first one's work, and a doubled insert would show here.
+      const hits = s.search("分词", { limit: 5000 });
+      expect(hits.length).toBe(1200);
+      s.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a fresh store needs no rebuild", async () => {
     const s = openStore(":memory:");
     expect(s.reindexPending()).toBe(false);
-    s.reindex();
+    expect(s.reindexing()).toBe(false);
+    await s.reindex();
+    expect(s.reindexing()).toBe(false);
     s.close();
   });
 
