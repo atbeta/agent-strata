@@ -61,7 +61,24 @@ export function canonical(path: string): string {
   try {
     resolved = realpathSync(path);
   } catch {
-    return path;
+    // A path that does not exist yet cannot be realpath'd whole — resolve the
+    // nearest ancestor that does exist and re-append the tail. Without that a
+    // symlinked parent (macOS /var → /private/var) spells one directory two
+    // ways, and a root compare misses it.
+    const tail: string[] = [];
+    let probe = path;
+    for (;;) {
+      const parent = dirname(probe);
+      if (parent === probe) return path;
+      tail.unshift(basename(probe));
+      probe = parent;
+      try {
+        resolved = join(realpathSync(probe), ...tail);
+        break;
+      } catch {
+        // that ancestor does not exist either — keep climbing
+      }
+    }
   }
   if (process.platform !== "win32") return resolved;
   const parts = resolved.split(sep);
