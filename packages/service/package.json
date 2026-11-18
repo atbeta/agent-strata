@@ -15,6 +15,7 @@
     "@agent-strata/adapter-opencode": "workspace:*",
     "@agent-strata/core": "workspace:*",
     "@agent-strata/plugin-dev-process": "workspace:*",
+    "@agent-strata/plugin-schedule": "workspace:*",
     "@agent-strata/plugin-sdk": "workspace:*",
     "@agent-strata/plugin-sessions": "workspace:*",
     "@agent-strata/policy": "workspace:*",

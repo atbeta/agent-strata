@@ -11,6 +11,8 @@ M0–M3 全部落地并通过检查（typecheck / lint / 包测试 / UI 测试 /
 
 **底座第一期（foundation）已落地**：只铺底座、不加插件——store 的 workspace 过滤、session 操作抽取为 `session-ops.ts`、内置插件注入面 `BuiltinOptions.sessions`（只读）/ `sessionControl`（与 HTTP 路由同路径的 create/prompt）、`panel.resource` 契约。
 
+**底座之上已出厂两个插件。** `plugin-sessions`（`sessions_list`/`search`/`read`）给 agent 同工作区的跨后端会话记忆，范围就是 workspace——别处的会话一律答"不存在"；`plugin-schedule`（`schedule_create`/`list`/`view`/`update`/`delete` + Schedules 面板）是第一个自治型内置插件：定时器只经 `sessionControl` 投 prompt（`[scheduled: <name>]` 前缀），忙则跳过不排队，错过只在 30 分钟窗口内补一次，增删改默认 ask、仅创建者可改可删。
+
 方案里 M0–M3 的**验收条目**逐条都有对应用例，不只是"功能跑通了"：
 
 | 验收条目 | 用例 |

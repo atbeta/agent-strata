@@ -32,6 +32,7 @@ const projects = [
   "packages/plugin-sdk",
   "packages/plugin-dev-process",
   "packages/plugin-echo",
+  "packages/plugin-schedule",
   "packages/plugin-sessions",
   "packages/service",
   "apps/desktop/ui",

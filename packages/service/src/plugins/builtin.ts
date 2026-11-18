@@ -24,6 +24,7 @@
 
 import type { RegisteredPlugin } from "./host";
 import { manifest as devManifest, createDevPlugin } from "@agent-strata/plugin-dev-process";
+import { manifest as scheduleManifest, createSchedulePlugin } from "@agent-strata/plugin-schedule";
 import { manifest as sessionsManifest, createSessionsPlugin } from "@agent-strata/plugin-sessions";
 import type { SessionView } from "@agent-strata/projector";
 import type { SearchHit, SessionSummary } from "@agent-strata/store";
@@ -66,6 +67,17 @@ export function builtinPlugins(options: BuiltinOptions): RegisteredPlugin[] {
       // read-only store access plus the same workspace lookup every builtin
       // gets — a plugin that reads sessions cannot create one
       create: () => createSessionsPlugin({ ...options.sessions, workspaceOf: options.workspaceOf }),
+    },
+    {
+      manifest: scheduleManifest,
+      // the acting surface, not the read one — its timer may only do what a
+      // user prompt already does
+      create: () =>
+        createSchedulePlugin({
+          control: options.sessionControl,
+          view: options.sessions.view,
+          workspaceOf: options.workspaceOf,
+        }),
     },
   ];
 }
