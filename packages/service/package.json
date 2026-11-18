@@ -16,6 +16,7 @@
     "@agent-strata/core": "workspace:*",
     "@agent-strata/plugin-dev-process": "workspace:*",
     "@agent-strata/plugin-sdk": "workspace:*",
+    "@agent-strata/plugin-sessions": "workspace:*",
     "@agent-strata/policy": "workspace:*",
     "@agent-strata/projector": "workspace:*",
     "@agent-strata/schema": "workspace:*",

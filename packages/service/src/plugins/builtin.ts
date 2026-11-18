@@ -24,6 +24,7 @@
 
 import type { RegisteredPlugin } from "./host";
 import { manifest as devManifest, createDevPlugin } from "@agent-strata/plugin-dev-process";
+import { manifest as sessionsManifest, createSessionsPlugin } from "@agent-strata/plugin-sessions";
 import type { SessionView } from "@agent-strata/projector";
 import type { SearchHit, SessionSummary } from "@agent-strata/store";
 
@@ -59,6 +60,12 @@ export function builtinPlugins(options: BuiltinOptions): RegisteredPlugin[] {
       // dev servers are the app's own long-lived processes, so the pid table
       // sits where the old service-level manager kept it
       create: () => createDevPlugin({ pidFile: `${options.dataDir}/dev-processes.json`, workspaceOf: options.workspaceOf }),
+    },
+    {
+      manifest: sessionsManifest,
+      // read-only store access plus the same workspace lookup every builtin
+      // gets — a plugin that reads sessions cannot create one
+      create: () => createSessionsPlugin({ ...options.sessions, workspaceOf: options.workspaceOf }),
     },
   ];
 }
