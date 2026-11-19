@@ -201,6 +201,30 @@ describe("sessions_search", () => {
     expect(out.output).toContain("turn 1 (from_turn=0)");
   });
 
+  test("hits from one turn are one line", async () => {
+    // A query about a symbol often matches a dozen tool results inside
+    // the same turn, and a dozen lines that all say the same turn is a
+    // dozen lines of noise.
+    const p = await plugin(
+      host({
+        list: () => [summary("opencode:s1", { title: "fix the thing" } as Partial<SessionSummary>)],
+        search: () => [
+          anchored("opencode:s1", "2026-11-18T09:00:00Z", "first [guard] fails", { turn_id: "t1" }),
+          anchored("opencode:s1", "2026-11-18T09:00:01Z", "second [guard] fails", { turn_id: "t1" }),
+          anchored("opencode:s1", "2026-11-18T09:00:02Z", "elsewhere", { turn_id: "t2" }),
+        ],
+        view: () =>
+          view({ session_id: "opencode:s1", turns: [turn("t1", "a", "b"), turn("t2", "c", "d")] }),
+      }),
+    );
+    const out = await p.callTool(req("search", { query: "guard fails" }));
+    // Two hits in one turn fold into one line; another turn stands alone.
+    expect(out.output).toContain("turn 1 (from_turn=0) ×2");
+    expect(out.output).toContain("turn 2 (from_turn=1)");
+    expect(out.output).toContain("first [guard] fails");
+    expect(out.output).toContain("second [guard] fails");
+  });
+
   test("a hit whose session cannot be read is still shown", async () => {
     // The snippet is worth having even when the turn it came from is
     // out of reach.

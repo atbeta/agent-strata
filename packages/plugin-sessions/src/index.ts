@@ -216,11 +216,33 @@ export function createSessionsPlugin(host: SessionsHost): StrataPlugin {
     const hits = host.search(query, { workspace: ws, limit: offset + limit + 1 });
     const { shown, next } = pageOf(hits, offset, limit);
     const titles = new Map(host.list({ workspace: ws, limit: 2000 }).map((row) => [row.session_id, row.title]));
-    const anchors = turnAnchors(shown);
-    const lines = shown.map(
-      (hit) =>
-        `${hit.event.session_id} | ${titles.get(hit.event.session_id) ?? "(untitled)"} | ${hit.event.ts}${anchors.get(hit) ?? ""}\n   ${hit.snippet}`,
-    );
+    const turns = turnOf(hits);
+    // Hits from one turn are one place to look, so they are one line.
+    // A query about a symbol often matches a dozen tool results inside
+    // the same turn, and a dozen lines that all say the same turn is a
+    // dozen lines of noise.
+    const groups: { hit: SearchHit; members: SearchHit[] }[] = [];
+    const byKey = new Map<string, { hit: SearchHit; members: SearchHit[] }>();
+    for (const hit of shown) {
+      const turn = turns.get(hit);
+      // Without a turn there is nothing to fold into: these stay apart.
+      const key = turn === undefined ? undefined : `${hit.event.session_id}#${turn}`;
+      const group = key === undefined ? undefined : byKey.get(key);
+      if (group) {
+        group.members.push(hit);
+        continue;
+      }
+      const fresh = { hit, members: [hit] };
+      groups.push(fresh);
+      if (key !== undefined) byKey.set(key, fresh);
+    }
+    const lines = groups.map(({ hit, members }) => {
+      const turn = turns.get(hit);
+      const anchor = turn === undefined ? "" : ` | turn ${turn + 1} (from_turn=${turn})`;
+      const many = members.length > 1 ? ` ×${members.length}` : "";
+      const head = `${hit.event.session_id} | ${titles.get(hit.event.session_id) ?? "(untitled)"} | ${hit.event.ts}${anchor}${many}`;
+      return [head, ...members.map((m) => `   ${m.snippet}`)].join("\n");
+    });
     return {
       output: [
         `hits for "${query}" in ${ws ?? "every workspace"}:`,
@@ -243,8 +265,8 @@ export function createSessionsPlugin(host: SessionsHost): StrataPlugin {
    * for a turn numbers them from zero. So the anchor carries both, and
    * the reader pastes the second one without arithmetic.
    */
-  const turnAnchors = (hits: readonly SearchHit[]): Map<SearchHit, string> => {
-    const anchors = new Map<SearchHit, string>();
+  const turnOf = (hits: readonly SearchHit[]): Map<SearchHit, number> => {
+    const anchors = new Map<SearchHit, number>();
     const bySession = new Map<string, { turns: Map<string, number>; calls: Map<string, number> }>();
     for (const hit of hits) {
       const sessionId = hit.event.session_id;
@@ -273,7 +295,7 @@ export function createSessionsPlugin(host: SessionsHost): StrataPlugin {
       if (turnId !== undefined) at = maps.turns.get(turnId);
       if (at === undefined && callId !== undefined) at = maps.calls.get(callId);
       if (at === undefined) continue;
-      anchors.set(hit, ` | turn ${at + 1} (from_turn=${at})`);
+      anchors.set(hit, at);
     }
     return anchors;
   };
