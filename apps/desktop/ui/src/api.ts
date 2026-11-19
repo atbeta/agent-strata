@@ -1359,6 +1359,23 @@ export interface PluginSummary {
   panel?: { id: string; title: string; kind: "logs" | "status" | "component"; icon?: string; resource?: string };
   hooks?: { beforeTool: string[]; systemPrompt: boolean };
   ui?: { toolRenderers: Record<string, { kind: string; icon?: string }> };
+  /** The settings the reader may change, with the values in force. */
+  settings?: {
+    schema: {
+      type: "object";
+      properties: Record<
+        string,
+        {
+          type: "boolean" | "string" | "number" | "enum";
+          title?: string;
+          description?: string;
+          enum?: string[];
+          default?: unknown;
+        }
+      >;
+    };
+    values: Record<string, unknown>;
+  };
 }
 
 export function listPlugins(): Promise<PluginSummary[]> {
@@ -1374,6 +1391,21 @@ export async function setPluginLifecycle(id: string, action: PluginLifecycleActi
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ action }),
+  });
+  if (!res.ok) await throwOnError(res);
+}
+
+/**
+ * Record the reader's choices for a plugin's declared settings.
+ *
+ * The service restarts the plugin, so the new values are the ones in
+ * force by the time this resolves.
+ */
+export async function setPluginSettings(id: string, values: Record<string, unknown>): Promise<void> {
+  const res = await apiFetch(`/plugins/${encodeURIComponent(id)}/settings`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ values }),
   });
   if (!res.ok) await throwOnError(res);
 }

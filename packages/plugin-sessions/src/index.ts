@@ -47,6 +47,18 @@ export const manifest: PluginManifest = {
   provides: ["tools"],
   permissions: {},
   resources: [],
+  settings: {
+    type: "object",
+    properties: {
+      scope: {
+        type: "enum",
+        enum: ["workspace", "global"],
+        default: "workspace",
+        title: "Read scope",
+        description: "Which workspaces sessions_* may read",
+      },
+    },
+  },
   tools: [
     {
       name: "list",
@@ -127,10 +139,26 @@ function err(message: string): ToolCallResult {
 
 export function createSessionsPlugin(host: SessionsHost): StrataPlugin {
   let ctx: PluginContext;
+  /** The reader's choices: the manifest's defaults over the host's state. */
+  let settings: Record<string, unknown> = {};
 
-  const callerWorkspace = (req: ToolCallRequest): string | ToolCallResult => {
+  /**
+   * Where the reads may look.
+   *
+   * "workspace" - the caller's own workspace and nowhere else. A session
+   * with no workspace has none to confine them to, so the reads refuse.
+   * "global" - every workspace on this machine. The reader asked for
+   * that, so the other workspaces answer as they would to their own reader.
+   */
+  const readScope = (
+    req: ToolCallRequest,
+  ): { workspace?: string; error?: ToolCallResult } => {
+    if (settings.scope === "global") return {};
     const ws = host.workspaceOf(req.sessionId);
-    return ws ?? err("this session has no workspace; sessions_* reads are scoped to one");
+    if (!ws) {
+      return { error: err("this session has no workspace; sessions_* reads are scoped to one") };
+    }
+    return { workspace: ws };
   };
 
   const pageOf = <T>(rows: T[], offset: number, limit: number): { shown: T[]; next: number | null } => ({
@@ -139,8 +167,9 @@ export function createSessionsPlugin(host: SessionsHost): StrataPlugin {
   });
 
   const list = (req: ToolCallRequest): ToolCallResult => {
-    const ws = callerWorkspace(req);
-    if (typeof ws !== "string") return ws;
+    const scope = readScope(req);
+    if (scope.error) return scope.error;
+    const ws = scope.workspace;
     const limit = Math.min(Math.max(intOpt(req.input.limit) ?? 20, 1), 100);
     const offset = Math.max(intOpt(req.input.cursor) ?? 0, 0);
     const rows = host.list({ workspace: ws, limit: offset + limit + 1, rootsOnly: req.input.roots_only === true });
@@ -151,7 +180,7 @@ export function createSessionsPlugin(host: SessionsHost): StrataPlugin {
       return `${child}${row.session_id} | ${row.backend} | ${row.last_ts} | ${title}`;
     });
     const body = [
-      `sessions in ${ws}${req.input.roots_only === true ? " (roots only)" : ""}:`,
+      `sessions in ${ws ?? "every workspace"}${req.input.roots_only === true ? " (roots only)" : ""}:`,
       ...(lines.length > 0 ? lines : ["(none)"]),
       ...(next === null ? [] : [`next_cursor: ${next}`]),
     ];
@@ -159,8 +188,9 @@ export function createSessionsPlugin(host: SessionsHost): StrataPlugin {
   };
 
   const search = (req: ToolCallRequest): ToolCallResult => {
-    const ws = callerWorkspace(req);
-    if (typeof ws !== "string") return ws;
+    const scope = readScope(req);
+    if (scope.error) return scope.error;
+    const ws = scope.workspace;
     const query = typeof req.input.query === "string" ? req.input.query.trim() : "";
     if (!query) return err("query is required");
     const limit = Math.min(Math.max(intOpt(req.input.limit) ?? 10, 1), 50);
@@ -173,7 +203,7 @@ export function createSessionsPlugin(host: SessionsHost): StrataPlugin {
     );
     return {
       output: [
-        `hits for "${query}" in ${ws}:`,
+        `hits for "${query}" in ${ws ?? "every workspace"}:`,
         ...(lines.length > 0 ? lines : ["(none)"]),
         ...(next === null ? [] : [`next_cursor: ${next}`]),
       ].join("\n"),
@@ -181,8 +211,9 @@ export function createSessionsPlugin(host: SessionsHost): StrataPlugin {
   };
 
   const read = (req: ToolCallRequest): ToolCallResult => {
-    const ws = callerWorkspace(req);
-    if (typeof ws !== "string") return ws;
+    const scope = readScope(req);
+    if (scope.error) return scope.error;
+    const ws = scope.workspace;
     const raw = typeof req.input.session_id === "string" ? req.input.session_id.trim() : "";
     if (!raw) return err("session_id is required");
     let view: SessionView;
@@ -191,8 +222,10 @@ export function createSessionsPlugin(host: SessionsHost): StrataPlugin {
     } catch {
       return err(`no such session: ${raw}`);
     }
-    // Other workspaces answer exactly like a session that does not exist.
-    if (view.workspace !== ws) return err(`no such session: ${raw}`);
+    // Other workspaces answer exactly like a session that does not exist -
+    // unless the reader opened every workspace up, which is the whole of
+    // what the global scope means.
+    if (ws !== undefined && view.workspace !== ws) return err(`no such session: ${raw}`);
     const from = intOpt(req.input.from_turn);
     const page = digest(view, {
       from,
@@ -209,6 +242,7 @@ export function createSessionsPlugin(host: SessionsHost): StrataPlugin {
   return {
     async initialize(pluginCtx) {
       ctx = pluginCtx;
+      settings = pluginCtx.config;
     },
     listTools(): PluginTool[] {
       return manifest.tools.map((tool) => ({ name: tool.name, description: tool.description, input: tool.input }));

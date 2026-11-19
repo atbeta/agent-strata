@@ -32,6 +32,64 @@ const echoPlugin = () => [{ manifest: echoManifest, create: () => createEchoPlug
  * design: can a capability exist as a package and a line of registration,
  * with the service knowing nothing about it?
  */
+describe("plugin settings", () => {
+  test("the reader's choices reach the plugin, are checked, and are written down", async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "strata-settings-"));
+    const seen: Record<string, unknown>[] = [];
+    const host = new PluginHost({
+      dataDir,
+      logger: { info: () => {}, warn: () => {}, error: () => {} },
+      workspaceOf: () => undefined,
+      resolveSession: (id) => id,
+    });
+    host.register({
+      manifest: {
+        id: "knobs",
+        name: "Knobs",
+        version: "1.0.0",
+        entry: { kind: "builtin" },
+        provides: ["tools"],
+        permissions: {},
+        tools: [],
+        resources: [],
+        settings: {
+          type: "object",
+          properties: {
+            scope: { type: "enum", enum: ["workspace", "global"], default: "workspace" },
+          },
+        },
+      },
+      create: () => ({
+        async initialize(ctx) {
+          seen.push(ctx.config);
+        },
+        listTools() {
+          return [];
+        },
+        async callTool() {
+          return { output: "" };
+        },
+        async shutdown() {},
+      }),
+    });
+    await host.enable("knobs");
+    // The manifest's default is in force before anyone chooses anything.
+    expect(seen[0]).toEqual({ scope: "workspace" });
+
+    await host.setSettings("knobs", { scope: "global" });
+    // The plugin was started again, so the choice is the one in force.
+    expect(seen[1]).toEqual({ scope: "global" });
+    // And it is written down, so it survives the next start.
+    const state = JSON.parse(readFileSync(join(dataDir, "plugins-state.json"), "utf8"));
+    expect(state.settings).toEqual({ knobs: { scope: "global" } });
+
+    // A value the plugin never declared, or one of the wrong type, is refused
+    // rather than stored.
+    await expect(host.setSettings("knobs", { scope: "everywhere" })).rejects.toThrow();
+    await expect(host.setSettings("knobs", { other: true })).rejects.toThrow();
+  });
+});
+
 describe("the plugin platform", () => {
   let svc: ReturnType<typeof startService>;
   let base = "";
