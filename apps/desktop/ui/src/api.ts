@@ -1395,6 +1395,81 @@ export async function setPluginLifecycle(id: string, action: PluginLifecycleActi
   if (!res.ok) await throwOnError(res);
 }
 
+/** One timed prompt, as the schedule plugin holds it. */
+export interface ScheduleRow {
+  id: string;
+  name: string;
+  prompt: string;
+  created_by: string;
+  enabled: boolean;
+  /** the shape depends on the kind: at, every, daily, weekly */
+  when: { kind: string } & Record<string, unknown>;
+  target: { kind: string } & Record<string, unknown>;
+  next_at: string | null;
+  last_run_at?: string;
+  last_result?: string;
+  last_note?: string;
+}
+
+/** Every schedule the plugin holds. */
+export async function listSchedules(sessionId: string): Promise<ScheduleRow[]> {
+  const res = await apiFetch(
+    `/plugins/schedule/resources/schedules?session=${encodeURIComponent(sessionId)}`,
+  );
+  if (!res.ok) await throwOnError(res);
+  const parsed = (await res.json().catch(() => null)) as { schedules?: ScheduleRow[] } | null;
+  return parsed?.schedules ?? [];
+}
+
+/**
+ * Make a timed prompt. The session is named because a schedule belongs to
+ * the session that made it and may only reach that session's workspace.
+ */
+export async function createSchedule(
+  sessionId: string,
+  input: Record<string, unknown>,
+): Promise<void> {
+  const res = await apiFetch(`/plugins/schedule/schedules?session=${encodeURIComponent(sessionId)}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) await throwOnError(res);
+}
+
+/** Change a timed prompt's text, timing or target. */
+export async function updateSchedule(
+  sessionId: string,
+  id: string,
+  input: Record<string, unknown>,
+): Promise<void> {
+  const res = await apiFetch(
+    `/plugins/schedule/schedules/${encodeURIComponent(id)}?session=${encodeURIComponent(sessionId)}`,
+    {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    },
+  );
+  if (!res.ok) await throwOnError(res);
+}
+
+/** Pause a timed prompt, or let it run again. */
+export async function toggleSchedule(id: string): Promise<void> {
+  const res = await apiFetch(`/plugins/schedule/schedules/${encodeURIComponent(id)}/toggle`, {
+    method: "POST",
+  });
+  if (!res.ok) await throwOnError(res);
+}
+
+/** Remove a timed prompt. */
+export async function deleteSchedule(id: string): Promise<void> {
+  const res = await apiFetch(`/plugins/schedule/schedules/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) await throwOnError(res);
+}
+
 /**
  * Record the reader's choices for a plugin's declared settings.
  *

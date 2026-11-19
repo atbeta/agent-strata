@@ -139,7 +139,7 @@ export const manifest: PluginManifest = {
     },
   ],
   resources: [{ key: "schedules", mime: "application/json", description: "Every schedule and its last result." }],
-  panel: { id: "schedules", title: "Schedules", kind: "status", resource: "schedules" },
+  panel: { id: "schedules", title: "Schedules", kind: "component", resource: "schedules" },
 };
 
 function err(message: string): ToolCallResult {
@@ -238,104 +238,129 @@ export function createSchedulePlugin(host: ScheduleHost): StrataPlugin {
       .filter(Boolean)
       .join("\n");
 
-  const create = (req: ToolCallRequest): ToolCallResult => {
-    const name = str(req.input, "name");
-    const prompt = str(req.input, "prompt");
-    if (!name) return err("name is required");
-    if (!prompt) return err("prompt is required");
-    const when = parseWhen(req.input);
-    if (typeof when === "string") return err(when);
-    if (when.kind === "at" && when.at <= Date.now()) return err("at is in the past");
+  /**
+   * Build a schedule from an input.
+   *
+   * The tools and the reader's panel both make schedules, so the rules live
+   * here once: the same name, prompt, timing and target checks, and the
+   * same workspace boundary.
+   */
+  const makeSchedule = (
+    input: Record<string, unknown>,
+    sessionId: string,
+  ): { schedule?: Schedule; error?: string } => {
+    const name = str(input, "name");
+    const prompt = str(input, "prompt");
+    if (!name) return { error: "name is required" };
+    if (!prompt) return { error: "prompt is required" };
+    const when = parseWhen(input);
+    if (typeof when === "string") return { error: when };
+    if (when.kind === "at" && when.at <= Date.now()) return { error: "at is in the past" };
 
-    const newSession = req.input.new_session === true;
+    const newSession = input.new_session === true;
     let target: Schedule["target"];
     if (newSession) {
-      const connectionId = str(req.input, "connection_id");
+      const connectionId = str(input, "connection_id");
       if (connectionId && !host.control.connections().some((c) => c.id === connectionId && c.canPrompt)) {
-        return err(`connection ${connectionId} cannot prompt`);
+        return { error: `connection ${connectionId} cannot prompt` };
       }
       target = { kind: "new_session", connection_id: connectionId };
     } else {
-      let sessionId = req.sessionId;
-      const named = str(req.input, "session_id");
+      let targetSession = sessionId;
+      const named = str(input, "session_id");
       if (named) {
         try {
-          sessionId = ctx.resolveSession(named);
+          targetSession = ctx.resolveSession(named);
         } catch {
-          return err(`no such session: ${named}`);
+          return { error: `no such session: ${named}` };
         }
         try {
-          host.view(sessionId);
+          host.view(targetSession);
         } catch {
-          return err(`no such session: ${named}`);
+          return { error: `no such session: ${named}` };
         }
-        if (!inScope(req.sessionId, sessionId)) {
-          return err("that session is not in this workspace");
+        if (!inScope(sessionId, targetSession)) {
+          return { error: "that session is not in this workspace" };
         }
       }
-      target = { kind: "session", session_id: sessionId };
+      target = { kind: "session", session_id: targetSession };
     }
+
+    const clash = find({ name });
+    if (clash) return { error: `the name ${name} is taken by ${clash.id}` };
 
     const schedule: Schedule = {
       id: `sch_${randomBytes(4).toString("hex")}`,
       name,
       prompt,
-      created_by: req.sessionId,
+      created_by: sessionId,
       created_at: new Date().toISOString(),
-      enabled: req.input.enabled !== false,
+      enabled: input.enabled !== false,
       when,
       target,
       next_at: null,
     };
     schedule.next_at = isoOrNull(firstAt(when, Date.now()));
-    const clash = find({ name });
-    if (clash) return err(`the name ${name} is taken by ${clash.id}`);
     file.mutate((all) => {
       all.push(schedule);
     });
     engine.rearm();
     ctx.emit({ type: "changed" });
-    return { output: `created ${describe(schedule)}` };
+    return { schedule };
   };
 
-  const update = (req: ToolCallRequest): ToolCallResult => {
-    const target = owned(req.sessionId, { id: str(req.input, "id"), name: str(req.input, "name") });
-    if (typeof target === "string") return err(target);
+  const create = (req: ToolCallRequest): ToolCallResult => {
+    const made = makeSchedule(req.input, req.sessionId);
+    if (made.error) return err(made.error);
+    return { output: `created ${describe(made.schedule!)}` };
+  };
 
-    const whenTouched = WHEN_FIELDS.some((k) => req.input[k] !== undefined);
+  /**
+   * Apply an input to a schedule.
+   *
+   * The tools may only touch a schedule they created; the reader's panel
+   * owns them all. The rules are the same either way, so they live here
+   * once.
+   */
+  const applyTo = (
+    target: Schedule,
+    input: Record<string, unknown>,
+    sessionId: string,
+  ): { error?: string } => {
+    const whenTouched = WHEN_FIELDS.some((k) => input[k] !== undefined);
     let when = target.when;
     if (whenTouched) {
-      const parsed = parseWhen(req.input);
-      if (typeof parsed === "string") return err(parsed);
+      const parsed = parseWhen(input);
+      if (typeof parsed === "string") return { error: parsed };
       when = parsed;
     }
-    const prompt = str(req.input, "prompt") ?? target.prompt;
-    const enabled = typeof req.input.enabled === "boolean" ? req.input.enabled : target.enabled;
+    const prompt = str(input, "prompt") ?? target.prompt;
+    const enabled = typeof input.enabled === "boolean" ? input.enabled : target.enabled;
 
-    const newSession = req.input.new_session === true ? true : req.input.new_session === false ? false : target.target.kind === "new_session";
+    const newSession = input.new_session === true ? true : input.new_session === false ? false : target.target.kind === "new_session";
     let next: Schedule["target"] = target.target;
     if (newSession && target.target.kind !== "new_session") {
-      next = { kind: "new_session", connection_id: str(req.input, "connection_id") };
+      next = { kind: "new_session", connection_id: str(input, "connection_id") };
     } else if (!newSession) {
-      const named = str(req.input, "session_id");
+      const named = str(input, "session_id");
       if (named) {
         let resolved: string;
         try {
           resolved = ctx.resolveSession(named);
           host.view(resolved);
         } catch {
-          return err(`no such session: ${named}`);
+          return { error: `no such session: ${named}` };
         }
-        if (!inScope(req.sessionId, resolved)) {
-          return err("that session is not in this workspace");
+        if (!inScope(sessionId, resolved)) {
+          return { error: "that session is not in this workspace" };
         }
         next = { kind: "session", session_id: resolved };
       } else {
-        next = target.target.kind === "session" ? target.target : { kind: "session", session_id: req.sessionId };
+        next = target.target.kind === "session" ? target.target : { kind: "session", session_id: sessionId };
       }
     }
-    if (next.kind === "new_session" && req.input.connection_id !== undefined) {
-      next = { kind: "new_session", connection_id: str(req.input, "connection_id") };
+    if (next.kind === "new_session" && input.connection_id !== undefined) {
+      next = { kind: "new_session", connection_id: str(input, "connection_id") };
     }
 
     file.mutate((all) => {
@@ -349,6 +374,14 @@ export function createSchedulePlugin(host: ScheduleHost): StrataPlugin {
     });
     engine.rearm();
     ctx.emit({ type: "changed" });
+    return {};
+  };
+
+  const update = (req: ToolCallRequest): ToolCallResult => {
+    const target = owned(req.sessionId, { id: str(req.input, "id"), name: str(req.input, "name") });
+    if (typeof target === "string") return err(target);
+    const applied = applyTo(target, req.input, req.sessionId);
+    if (applied.error) return err(applied.error);
     const updated = find({ id: target.id });
     return { output: `updated ${updated ? describe(updated) : target.id}` };
   };
@@ -437,12 +470,43 @@ export function createSchedulePlugin(host: ScheduleHost): StrataPlugin {
     },
 
     async route(req, subpath) {
-      // The reader's panel: pause/resume/delete any schedule. Unlike the
-      // tools this is not owner-scoped — the person owns every schedule.
+      // The reader's panel: make, edit, pause and remove a schedule.
+      // Unlike the tools this is not owner-scoped — the person owns every
+      // schedule — but the session is still named, because a schedule is
+      // made by a session and may only reach that session's workspace.
+      const url = new URL(req.url);
+      const sessionOf = (): string | undefined => {
+        const requested = url.searchParams.get("session");
+        return requested === null ? undefined : ctx.resolveSession(requested);
+      };
+      const body = async (): Promise<Record<string, unknown> | undefined> => {
+        const parsed = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : undefined;
+      };
+
+      if (subpath === "/schedules" && req.method === "POST") {
+        const sessionId = sessionOf();
+        if (!sessionId) return Response.json({ error: "session is required" }, { status: 400 });
+        const input = await body();
+        if (!input) return Response.json({ error: "a body is required" }, { status: 400 });
+        const made = makeSchedule(input, sessionId);
+        if (made.error) return Response.json({ error: made.error }, { status: 400 });
+        return Response.json({ ok: true, schedule: made.schedule });
+      }
+
       const m = /^\/schedules\/(sch_[a-z0-9]+)(?:\/(toggle))?$/.exec(subpath);
       if (!m) return undefined;
       const s = find({ id: m[1] });
       if (!s) return Response.json({ error: "not found" }, { status: 404 });
+      if (req.method === "PUT") {
+        const sessionId = sessionOf();
+        if (!sessionId) return Response.json({ error: "session is required" }, { status: 400 });
+        const input = await body();
+        if (!input) return Response.json({ error: "a body is required" }, { status: 400 });
+        const applied = applyTo(s, input, sessionId);
+        if (applied.error) return Response.json({ error: applied.error }, { status: 400 });
+        return Response.json({ ok: true, schedule: find({ id: s.id }) });
+      }
       if (req.method === "DELETE") {
         file.mutate((all) => {
           const i = all.findIndex((x) => x.id === s.id);

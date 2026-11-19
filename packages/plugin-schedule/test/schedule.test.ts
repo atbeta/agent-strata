@@ -358,6 +358,53 @@ describe("tools", () => {
     await p.shutdown();
   });
 
+  test("the panel route makes a schedule and edits it", async () => {
+    const { p } = await plugin();
+    const made = await p.route!(
+      new Request(`http://x?session=${CALLER}`, {
+        method: "POST",
+        body: JSON.stringify({ name: "standup", prompt: "summarise", daily: "09:30" }),
+      }),
+      "/schedules",
+    );
+    expect(made!.status).toBe(200);
+    const body = (await made!.json()) as { schedule: Schedule };
+    expect(body.schedule.name).toBe("standup");
+    expect(body.schedule.created_by).toBe(CALLER);
+    expect(body.schedule.target).toEqual({ kind: "session", session_id: CALLER });
+
+    // The panel owns every schedule, so it may edit one it did not make.
+    const edited = await p.route!(
+      new Request(`http://x?session=${CALLER}`, {
+        method: "PUT",
+        body: JSON.stringify({ prompt: "summarise the week" }),
+      }),
+      `/schedules/${body.schedule.id}`,
+    );
+    expect(edited!.status).toBe(200);
+    const after = (await edited!.json()) as { schedule: Schedule };
+    expect(after.schedule.prompt).toBe("summarise the week");
+    await p.shutdown();
+  });
+
+  test("the panel route names the session it acts for", async () => {
+    const { p } = await plugin();
+    const noSession = await p.route!(
+      new Request("http://x", {
+        method: "POST",
+        body: JSON.stringify({ name: "x", prompt: "y", daily: "09:30" }),
+      }),
+      "/schedules",
+    );
+    expect(noSession!.status).toBe(400);
+    const noBody = await p.route!(
+      new Request(`http://x?session=${CALLER}`, { method: "POST" }),
+      "/schedules",
+    );
+    expect(noBody!.status).toBe(400);
+    await p.shutdown();
+  });
+
   test("readResource serves the schedules the panel asks for", async () => {
     const { p } = await plugin();
     await p.callTool(req("create", { name: "a", prompt: "p", daily: "08:00" }));

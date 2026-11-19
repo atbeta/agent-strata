@@ -1,7 +1,8 @@
-import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createSignal, onCleanup, onMount, Show, type Component } from "solid-js";
 import { apiFetch } from "./api";
 import { panelContributions, type PanelContribution } from "./plugin-registry";
 import { pluginDisplayName } from "./plugin-display";
+import { SchedulesPanel } from "./schedules-panel";
 import { t } from "./i18n";
 
 /**
@@ -36,13 +37,33 @@ export function panelForTab(tab: string): PanelContribution | undefined {
   return panelContributions().find((p) => p.plugin === plugin);
 }
 
+/**
+ * The panels this build can draw as components.
+ *
+ * A plugin cannot ship a component into this window - that would be arbitrary
+ * code here - so a panel is either a shape the app knows how to draw, or a
+ * component the app blesses for one capability. This table is where a
+ * capability gets its shape; a panel that names a component here and is not
+ * in it is not offered at all, because a tab that pointed at nothing would
+ * be blank.
+ */
+const COMPONENTS: Record<string, Component<{ sessionId: () => string }>> = {
+  "schedule:schedules": SchedulesPanel,
+};
+
+/** The component a panel is drawn with, when the app has one for it. */
+function panelComponent(panel: PanelContribution): Component<{ sessionId: () => string }> | undefined {
+  return COMPONENTS[`${panel.plugin}:${panel.id}`];
+}
+
 /** Whether a tab id is a plugin panel this build can draw. */
 export function isPluginPanelTab(tab: string): boolean {
   const panel = panelForTab(tab);
   if (!panel) return false;
-  // `component` is a compile-time registration and none exist in this build;
-  // `iframe` is third-party-only. A tab that pointed at either would be blank,
-  // so it is not offered at all.
+  // `component` is a compile-time registration: a panel that names one this
+  // build does not have would be blank, so it is not offered at all.
+  // `iframe` is third-party-only.
+  if (panel.kind === "component") return panelComponent(panel) !== undefined;
   return panel.kind === "logs" || panel.kind === "status";
 }
 
@@ -56,6 +77,8 @@ export function isPluginPanelTab(tab: string): boolean {
  * can wedge a rail is not.
  */
 export function PluginPanel(props: { panel: PanelContribution; sessionId: () => string }) {
+  const Component = panelComponent(props.panel);
+  if (Component) return <Component sessionId={props.sessionId} />;
   return <DataPanel panel={props.panel} sessionId={props.sessionId} />;
 }
 
