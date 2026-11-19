@@ -56,6 +56,7 @@ describe("plugin settings", () => {
           type: "object",
           properties: {
             scope: { type: "enum", enum: ["workspace", "global"], default: "workspace" },
+            label: { type: "string", default: "a" },
           },
         },
       },
@@ -73,15 +74,21 @@ describe("plugin settings", () => {
       }),
     });
     await host.enable("knobs");
-    // The manifest's default is in force before anyone chooses anything.
-    expect(seen[0]).toEqual({ scope: "workspace" });
+    // The manifest's defaults are in force before anyone chooses anything.
+    expect(seen[0]).toEqual({ scope: "workspace", label: "a" });
 
     await host.setSettings("knobs", { scope: "global" });
     // The plugin was started again, so the choice is the one in force.
-    expect(seen[1]).toEqual({ scope: "global" });
+    expect(seen[1]).toEqual({ scope: "global", label: "a" });
     // And it is written down, so it survives the next start.
     const state = JSON.parse(readFileSync(join(dataDir, "plugins-state.json"), "utf8"));
     expect(state.settings).toEqual({ knobs: { scope: "global" } });
+
+    // A save is a patch of what the reader changed: the page sends the
+    // fields it touched, so saving one control must not drop the choice
+    // behind the others.
+    await host.setSettings("knobs", { label: "b" });
+    expect(seen[2]).toEqual({ scope: "global", label: "b" });
 
     // A value the plugin never declared, or one of the wrong type, is refused
     // rather than stored.

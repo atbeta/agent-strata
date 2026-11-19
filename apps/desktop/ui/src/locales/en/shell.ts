@@ -317,6 +317,7 @@ export default {
   "settings.plugins.none": "None",
   "settings.plugins.settings": "Settings",
   "settings.plugins.settings.save": "Save and restart the plugin",
+  "settings.plugins.settings.notANumber": "\"{value}\" is not a number.",
   "settings.plugins.enable": "Enable {name}",
   "settings.plugins.disable": "Disable {name}",
   "settings.plugins.state.disabled": "Disabled",

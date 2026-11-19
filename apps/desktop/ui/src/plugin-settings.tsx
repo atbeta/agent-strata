@@ -50,14 +50,14 @@ export function PluginSettings() {
   const [feedback, setFeedback] = fadeKeyed();
   const [confirming, setConfirming] = createSignal("");
   /** The values the reader has picked but not yet saved, per plugin. */
-  const [draft, setDraft] = createSignal<Record<string, Record<string, unknown>>>({});
+  const [draft, setDraft] = createSignal<Record<string, Record<string, string>>>({});
   /** The plugin whose settings are being saved right now. */
   const [savingId, setSavingId] = createSignal("");
 
   const settingValue = (plugin: PluginSummary, key: string): unknown =>
     draft()[plugin.id]?.[key] ?? plugin.settings?.values[key];
 
-  const setSetting = (plugin: PluginSummary, key: string, value: unknown) => {
+  const setSetting = (plugin: PluginSummary, key: string, value: string) => {
     setDraft((current) => ({
       ...current,
       [plugin.id]: { ...current[plugin.id], [key]: value },
@@ -70,8 +70,36 @@ export function PluginSettings() {
    * restarted rather than told to reread them.
    */
   const saveSettings = async (plugin: PluginSummary) => {
-    const values = draft()[plugin.id];
-    if (!values) return;
+    const draftValues = draft()[plugin.id];
+    if (!draftValues) return;
+    const properties = plugin.settings?.schema.properties ?? {};
+    // A number is typed as text and turned into a number here, not on every
+    // keystroke: `Number` would eat the trailing dot of `1.` and turn an
+    // empty field into a zero, so the reader could not write a fraction.
+    const values: Record<string, unknown> = {};
+    for (const [key, text] of Object.entries(draftValues)) {
+      const setting = properties[key];
+      if (!setting) continue;
+      if (setting.type === "boolean") {
+        values[key] = text === "true";
+        continue;
+      }
+      if (setting.type !== "number") {
+        values[key] = text;
+        continue;
+      }
+      if (text.trim() === "") {
+        // An empty field means the setting's default, not zero.
+        if (setting.default !== undefined) values[key] = setting.default;
+        continue;
+      }
+      const parsed = Number(text);
+      if (!Number.isFinite(parsed)) {
+        setFeedback(plugin.id, t("settings.plugins.settings.notANumber", { value: text }));
+        return;
+      }
+      values[key] = parsed;
+    }
     setSavingId(plugin.id);
     try {
       await setPluginSettings(plugin.id, values);
@@ -339,9 +367,9 @@ export function PluginSettings() {
                                     </Show>
                                     <Show when={setting.type === "boolean"}>
                                       <Switch
-                                        checked={settingValue(plugin, key) === true}
+                                        checked={String(settingValue(plugin, key)) === "true"}
                                         aria-label={pluginSettingTitle(plugin.id, key, key)}
-                                        onChange={(next) => setSetting(plugin, key, next)}
+                                        onChange={(next) => setSetting(plugin, key, next ? "true" : "false")}
                                       />
                                     </Show>
                                     <Show when={setting.type === "enum"}>
@@ -360,15 +388,7 @@ export function PluginSettings() {
                                         type="text"
                                         inputmode={setting.type === "number" ? "numeric" : undefined}
                                         value={String(settingValue(plugin, key) ?? "")}
-                                        onInput={(e) =>
-                                          setSetting(
-                                            plugin,
-                                            key,
-                                            setting.type === "number"
-                                              ? Number(e.currentTarget.value)
-                                              : e.currentTarget.value,
-                                          )
-                                        }
+                                        onInput={(e) => setSetting(plugin, key, e.currentTarget.value)}
                                       />
                                     </Show>
                                   </div>

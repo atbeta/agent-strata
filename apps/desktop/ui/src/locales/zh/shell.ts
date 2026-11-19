@@ -309,6 +309,7 @@ export default {
   "settings.plugins.none": "无",
   "settings.plugins.settings": "设置",
   "settings.plugins.settings.save": "保存并重启插件",
+  "settings.plugins.settings.notANumber": "「{value}」不是数字。",
   "settings.plugins.enable": "启用 {name}",
   "settings.plugins.disable": "停用 {name}",
   "settings.plugins.state.disabled": "已停用",
