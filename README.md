@@ -52,18 +52,19 @@ On top of that, the desktop generates a **capability token** per launch (`STRATA
 
 The embedded OpenCode's basic-auth password is **not** stored in `connections.json` — that file keeps a reference (`credentials: "opencode-status"`) to the status file the shell writes it to instead. The files that hold a secret (`connections.json`, `opencode-status.json`, `desktop.json`, `policy.json`, `api-token`) are written with mode `0600`; `bun run scripts/check-secrets-perms.ts` reports the modes of the ones that are present.
 
-### Auto-accept, per session
+### Permissions
 
-The shield in a session's header puts **that one session** on auto (`GET/PUT/DELETE /sessions/:id/policy`, body `{ "mode": "auto" | "inherit" }`). It is not persisted and does not survive a service restart — it is a stance about a conversation in progress, so a session nobody switched back on should not come back unattended.
+The saved default is the posture for every session (`policy.json`, edited from Settings):
 
-What it changes is the **fallback only**. `autoAccept` derives from the live policy rather than replacing it, so:
+- **ask** — a call nobody wrote a rule for asks, including a shell construct the engine cannot analyse and a write through a redirect;
+- **allow** — that same call is allowed, and the engine floor is lifted with it. This is saved and still in force after a restart, including while you are not at the keyboard;
+- **deny** — that same call is denied. A session cannot open this.
 
-- a rule you wrote saying `deny` still denies, and one saying `ask` still asks — softening the default is declining to be a gate, not overriding your own rules;
-- a `default` of `deny` is left alone; inverting a deny-by-default posture is a decision you did not make;
-- edits to the shared policy keep reaching a session that is already on auto;
-- no policy document can turn the engine's floor off. A shell construct the engine cannot analyse, or one that writes through a redirect, is still asked about — including when the document says `default: "allow"`. The live auto stance is the exception: while this session is on auto, those checks are not asked either, because the switch exists to stop interrupting. That includes a document that already allows by default. A `default` of `deny` is left alone, floor included.
+A rule you wrote still wins in every posture. One that says `deny` denies, and one that says `ask` asks. A few tools declare an ask floor of their own (running script in a page); that floor also survives ask and allow until a rule allows that tool by name.
 
-Answering a permission card with **always** is a different thing and stays what it was: OpenCode's own memory of one `permission + pattern` for that session. It is narrower than the switch and survives a restart.
+The shield in a session's composer is the temporary form of **allow**, and only while the saved posture is still ask (`GET/PUT/DELETE /sessions/:id/policy`, body `{ "mode": "auto" | "inherit" }`). It is not persisted and does not survive a service restart. It does not appear when the saved posture is already allow, and it does not appear for deny, because it cannot invert one. `autoAccept` only moves the fallback: rules are untouched, and a deny default is returned as itself.
+
+Answering a permission card with **always** is narrower. For a tool the backend asked about, it is that backend's memory of one permission and pattern for the session. For a tool this service asked about, it writes an explicit allow rule for that tool into the shared policy, which is what makes the next call stop asking and what beats an ask floor.
 
 ## Run
 

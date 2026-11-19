@@ -38,6 +38,7 @@ function harness(options: {
     rejectQuestion?(requestId: string, directory?: string): Promise<unknown>;
   };
   pendingQuestionIds?: string[];
+  rememberAlways?: (tool: string) => void;
 }) {
   const store = openStore(":memory:");
   for (const requestId of options.pendingQuestionIds ?? []) {
@@ -58,6 +59,7 @@ function harness(options: {
       }) as SessionView,
     driverFor: () => options.driver,
     directoryOf: () => "/repo",
+    rememberAlways: options.rememberAlways,
   });
   for (const pending of options.asks ?? []) requests.pendingAsks.set(pending.request_id, pending);
   for (const pending of options.questions ?? []) requests.pendingQuestions.set(pending.request_id, pending);
@@ -135,6 +137,56 @@ describe("prompt response routes", () => {
     expect(ok!.status).toBe(200);
     expect(attempts).toBe(2);
     expect(store.query({ types: ["permission.resolved"] })).toHaveLength(1);
+    store.close();
+  });
+
+  test("always on a tool this service asked about remembers it, and once does not", async () => {
+    const remembered: string[] = [];
+    const local = ask();
+    local.local = true;
+    local.tool = "schedule_create";
+    const { requests, store } = harness({
+      asks: [local],
+      rememberAlways: (tool) => remembered.push(tool),
+    });
+
+    const once = await promptRoute(
+      post("/permissions/perm1/respond", { decision: "allow", scope: "once" }),
+      "/permissions/perm1/respond",
+      requests,
+    );
+    expect(once!.status).toBe(200);
+    expect(remembered).toEqual([]);
+
+    const again = ask();
+    again.local = true;
+    again.tool = "schedule_create";
+    again.request_id = "perm2";
+    requests.pendingAsks.set(again.request_id, again);
+    const always = await promptRoute(
+      post("/permissions/perm2/respond", { decision: "allow", scope: "always" }),
+      "/permissions/perm2/respond",
+      requests,
+    );
+    expect(always!.status).toBe(200);
+    expect(remembered).toEqual(["schedule_create"]);
+    store.close();
+  });
+
+  test("always for a backend ask is the backend's memory, not a policy rule", async () => {
+    const remembered: string[] = [];
+    const { requests, store } = harness({
+      asks: [ask()],
+      rememberAlways: (tool) => remembered.push(tool),
+      driver: { replyPermission: async () => {} },
+    });
+    const res = await promptRoute(
+      post("/permissions/perm1/respond", { decision: "allow", scope: "always" }),
+      "/permissions/perm1/respond",
+      requests,
+    );
+    expect(res!.status).toBe(200);
+    expect(remembered).toEqual([]);
     store.close();
   });
 

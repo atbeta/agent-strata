@@ -27,6 +27,15 @@ describe("tool authorization", () => {
     });
   });
 
+  test("an allow floor follows the posture, and ask floors do not", () => {
+    const write = tool({ name: "schedule_create", policy: { default: "allow" } });
+    expect(judgeToolCall(policy("ask"), write, {}).decision).toBe("ask");
+    expect(judgeToolCall(policy("allow"), write, {}).decision).toBe("allow");
+    expect(judgeToolCall(autoAccept(policy("ask")), write, {}).decision).toBe("allow");
+    const risky = tool({ name: "echo_risky", policy: { default: "ask" } });
+    expect(judgeToolCall(policy("allow"), risky, {}).decision).toBe("ask");
+  });
+
   test("auto does not lift a manifest floor, but an explicit allow does", () => {
     const risky = tool({ policy: { default: "ask" } });
     expect(judgeToolCall(autoAccept(policy()), risky, {}).decision).toBe("ask");

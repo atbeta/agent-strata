@@ -110,7 +110,7 @@ async function main() {
     await page.getByText(/sleep 30|dev_start/).first().waitFor({ timeout: 30_000 });
     await page.waitForTimeout(1500);
 
-    const toggle = page.getByLabel(/本会话自动接受|Auto-accept/).first();
+    const toggle = page.getByLabel(/本会话暂时不再询问|Don't ask in this session/).first();
     const buttons = await page.evaluate(() =>
       [...document.querySelectorAll("button")].map((b) => ({
         aria: b.getAttribute("aria-label"),
@@ -142,7 +142,7 @@ async function main() {
       const flipped = await Promise.race([
         page
           .waitForFunction(
-            () => document.querySelector('[aria-label="本会话自动接受"]')?.getAttribute("aria-pressed") === "true",
+            () => document.querySelector('[aria-label="本会话暂时不再询问"]')?.getAttribute("aria-pressed") === "true",
             undefined,
             { timeout: 15_000 },
           )

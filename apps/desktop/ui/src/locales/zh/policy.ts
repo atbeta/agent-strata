@@ -6,7 +6,7 @@
 export default {
   // 页头
   "policy.hint":
-    "建议性权限规则 —— 命中的规则中 拒绝 > 询问 > 允许，没有命中则回退到默认效果。这不是沙箱。",
+    "没写规则时按这里。不再询问会保存，重启后仍生效，看不懂的命令也不再问。默认拒绝不能在会话里放开。写过的规则优先。个别工具仍会询问，直到为它写一条允许。这不是沙箱。",
 
   // 规则卡字段
   "policy.field.ruleId": "规则 ID",
@@ -33,9 +33,12 @@ export default {
 
   // 默认效果与计数
   "policy.default.label": "默认效果",
+  "policy.posture.ask": "逐项确认",
+  "policy.posture.allow": "不再询问",
+  "policy.posture.deny": "默认拒绝",
   "policy.rules.count.one": "{n} 条规则",
   "policy.rules.count.other": "{n} 条规则",
-  "policy.rules.empty": "还没有规则，所有调用都按默认效果处理。",
+  "policy.rules.empty": "还没有规则。没写规则的调用按上面的姿态处理，写过的规则优先。",
 
   // 草稿测试
   "policy.test.title": "测试草稿",
@@ -48,6 +51,6 @@ export default {
 
   // 提示与校验
   "policy.notice.saved": "已保存 —— 实时连接会立即生效",
-  "policy.notice.cleared": "已清空 —— 全部回退为询问",
+  "policy.notice.cleared": "已清空 —— 回到逐项确认",
   "policy.err.invalidJson": "输入不是有效的 JSON",
 } as const;

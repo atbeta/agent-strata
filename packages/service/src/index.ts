@@ -8,7 +8,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { openStore, type AppendOptions, type Store } from "@agent-strata/store";
 import { emptySessionView, projectSession, type SessionView } from "@agent-strata/projector";
-import { loadPolicy, type Policy } from "@agent-strata/policy";
+import { allowTool, loadPolicy, type Policy } from "@agent-strata/policy";
 import { createAuthorizer } from "./authorization";
 import { createPolicyRuntime } from "./policy-runtime";
 import { policyRoute } from "./policy-routes";
@@ -182,11 +182,13 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     mkdirSync(dirname(opts.policyFile), { recursive: true });
     writeSecureJson(opts.policyFile, policyRuntime.shared);
   };
+  let rememberAlways = (_tool: string): void => {};
   const permissionRequests = new PermissionRequests({
     store,
     sessionView: (sessionId) => sessionView(sessionId),
     driverFor: (sessionId) => driverFor(sessionId),
     directoryOf: (sessionId) => directoryOf(sessionId),
+    rememberAlways: (tool) => rememberAlways(tool),
   });
   const goalRunner = new GoalRunner({
     store,
@@ -198,6 +200,13 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   const subscribers = new Set<(payload: unknown) => void>();
   const broadcast = (payload: unknown) => {
     for (const fn of subscribers) fn(payload);
+  };
+  rememberAlways = (tool) => {
+    const next = allowTool(policyRuntime.shared, tool);
+    if (next === policyRuntime.shared) return;
+    policyRuntime.setShared(next);
+    persistPolicy();
+    broadcast({ type: "policy.changed" });
   };
   const live = new LiveOverlay();
   const views = new ViewCache(store);

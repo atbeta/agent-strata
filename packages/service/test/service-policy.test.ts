@@ -156,6 +156,53 @@ describe("session and shared policy routes", () => {
     svc.stop();
   });
 
+  test("a saved allow lifts the engine floor without the session switch", async () => {
+    const oc = fakeOpencode({ "/permission/p-redirect/reply": () => Response.json(true) });
+    const dir = `${import.meta.dir}/.tmp-${Bun.randomUUIDv7()}`;
+    const svc = startService({ db: ":memory:", port: 0, policyFile: `${dir}/policy.json` });
+    const base = `http://127.0.0.1:${svc.port}`;
+    expect(
+      (
+        await fetch(`${base}/policy`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ version: 1, default: "allow", rules: [] }),
+        })
+      ).status,
+    ).toBe(200);
+    const posture = await fetch(`${base}/sessions/opencode%3Ases_saved/policy`).then((r) => r.json());
+    expect(posture).toMatchObject({ mode: "inherit", posture: "allow" });
+    await fetch(`${base}/connect`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ baseUrl: oc.baseUrl, directory: "/repo" }),
+    });
+    oc.push({
+      directory: "/repo",
+      payload: {
+        type: "permission.asked",
+        properties: {
+          id: "p-redirect",
+          sessionID: "ses_saved",
+          permission: "bash",
+          patterns: ["ls > /tmp/x"],
+          metadata: {},
+          always: [],
+        },
+      },
+    });
+    let reply: (typeof oc.seen)[number] | undefined;
+    for (let i = 0; i < 30 && !reply; i++) {
+      await Bun.sleep(50);
+      reply = oc.seen.find((s) => s.path === "/permission/p-redirect/reply");
+    }
+    expect(JSON.parse(reply!.body).reply).toBe("once");
+    const pending = (await fetch(`${base}/permissions`).then((r) => r.json())).pending as { request_id: string }[];
+    expect(pending.map((p) => p.request_id)).not.toContain("p-redirect");
+    oc.stop();
+    svc.stop();
+  });
+
   test("a session on auto is not stopped by the engine floor", async () => {
     const oc = fakeOpencode({ "/permission/p-heredoc/reply": () => Response.json(true) });
     const svc = startService({ db: ":memory:", port: 0 });

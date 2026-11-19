@@ -410,6 +410,55 @@ describe("the plugin platform", () => {
     expect(started.status).toBe(200);
   }, 30_000);
 
+  test("always on a plugin tool writes an allow rule the next call obeys", async () => {
+    const policyFile = join(desktop, "policy.json");
+    const before = readFileSync(policyFile, "utf8");
+    const restore = async () => {
+      writeFileSync(policyFile, before);
+      await fetch(`${base}/policy`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: before,
+      });
+    };
+    try {
+      expect(
+        (
+          await fetch(`${base}/policy`, {
+            method: "PUT",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ version: 1, default: "ask", rules: [] }),
+          })
+        ).status,
+      ).toBe(200);
+      const starting = call("echo", "risky", { why: "remember" });
+      let ask: { request_id: string } | undefined;
+      for (let i = 0; i < 40 && !ask; i++) {
+        const pending = (await (await get("/permissions")).json()) as { pending: { request_id: string; tool: string }[] };
+        ask = pending.pending.find((p) => p.tool === "echo_risky");
+        if (!ask) await Bun.sleep(50);
+      }
+      expect(ask).toBeDefined();
+      expect(
+        (await post(`/permissions/${encodeURIComponent(ask!.request_id)}/respond`, { decision: "allow", scope: "always" })).status,
+      ).toBe(200);
+      await starting;
+      const saved = (await (await get("/policy")).json()) as {
+        policy: { rules: { id: string; tool: string; effect: string; reason?: string }[] };
+      };
+      expect(saved.policy.rules).toContainEqual({
+        id: "always:echo_risky",
+        effect: "allow",
+        tool: "echo_risky",
+        reason: "allowed from the permission card",
+      });
+      const again = await call("echo", "risky", { why: "remembered" });
+      expect(again.status).toBe(200);
+    } finally {
+      await restore();
+    }
+  }, 30_000);
+
   test("guards refuse before the plugin runs, and the plugin never sees it", async () => {
     // The dev plugin guards `workdir` against leaving the session workspace.
     // A 403 here is the host's answer; the manager never gets a chance to

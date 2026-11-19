@@ -86,38 +86,44 @@ export function loadPolicy(json: unknown): Policy {
 }
 
 /**
- * Policies minted by {@link autoAccept}: the live "do not ask me" stance.
- * Membership is what lets the stance past the engine floor in `evaluate` —
- * a document can soften its own fallback, but only a stance the reader is
- * holding right now waives the checks no document may touch.
- */
-const autoDerived = new WeakSet<Policy>();
-
-/**
  * The same policy with the fallback allowed instead of asked — one session
- * stopping to ask about every call.
+ * stopping to ask about every call nobody wrote a rule about.
  *
  * Only the fallback moves. A rule that says `deny` still denies and a rule that
- * says `ask` still asks, because those were written deliberately and a reader
- * who wrote them meant them; what this answers is "I do not want to be
- * interrupted for the ones nobody wrote a rule about". A `default` of `deny` is
- * likewise left alone: softening `ask` to `allow` is declining to be a gate,
- * whereas inverting a deny posture would be a decision the reader never made.
- *
- * The stance also lifts the engine's own floor — an unanalysable construct or
- * a write through a redirect no longer asks — because interrupting the reader
- * is exactly what the switch declines to do. The floor survives everywhere
- * else, including a document that simply writes `default: "allow"`: nothing in
- * the policy document can turn it off. The switch still has to, so an
- * allow-by-default document is copied and marked rather than returned as
- * itself — returning it would leave the floor armed on the session the reader
- * just set to auto.
+ * says `ask` still asks, because those were written deliberately. A `default`
+ * of `deny` is left alone: softening `ask` to `allow` is declining to be a
+ * gate, whereas inverting a deny posture would be a decision the reader never
+ * made. A `default` of `allow` is already that posture — the saved "don't
+ * ask", which also lifts the engine floor — so the same document is returned.
  */
 export function autoAccept(policy: Policy): Policy {
-  if (policy.default === "deny") return policy;
-  const derived: Policy = { ...policy, default: "allow" };
-  autoDerived.add(derived);
-  return derived;
+  if (policy.default !== "ask") return policy;
+  return { ...policy, default: "allow" };
+}
+
+/**
+ * The policy plus an unconditional allow for one tool.
+ *
+ * This is what "always" on a permission card writes for a tool the service
+ * itself asked about. The rule is explicit, so it beats a manifest floor and
+ * the document default; a rule the reader already wrote for that tool is left
+ * in place, and a stricter one still wins. The same policy is returned when
+ * an unconditional allow is already there.
+ */
+export function allowTool(policy: Policy | undefined, tool: string): Policy {
+  const base: Policy = policy ?? { version: 1, default: "ask", rules: [] };
+  const covered = base.rules.some(
+    (rule) => rule.effect === "allow" && rule.tool === tool && rule.when === undefined && rule.plugin_id === undefined,
+  );
+  if (covered) return base;
+  const id = `always:${tool}`;
+  return {
+    ...base,
+    rules: [
+      ...base.rules.filter((rule) => rule.id !== id),
+      { id, effect: "allow", tool, reason: "allowed from the permission card" },
+    ],
+  };
 }
 
 /**
@@ -510,9 +516,11 @@ export function evaluate(
   }
   if (askDecision) return askDecision;
   // The engine floor — constructs it cannot analyse and writes through a
-  // redirect — cannot be switched off by any document, only by the live
-  // auto stance the reader is holding for this session.
-  if (!autoDerived.has(policy)) {
+  // redirect — holds while the posture is still ask. A saved default of
+  // allow, and a session temporarily on auto (that default, for this session
+  // only), both mean stop interrupting. An allow rule does not: the posture
+  // is still ask, and the rule only covered the command it named.
+  if (policy.default !== "allow") {
     if (unanalyzable) {
       return { decision: "ask", reason: "unanalyzable shell construct", overridable: true };
     }

@@ -45,6 +45,8 @@ export class PermissionRequests {
       sessionView(sessionId: string): SessionView;
       driverFor(sessionId: string): PromptDriver | undefined;
       directoryOf(sessionId: string): string | undefined;
+      /** Persist an explicit allow for a tool this service asked about. */
+      rememberAlways?(tool: string): void;
       timeoutMs?: number;
     },
   ) {
@@ -171,6 +173,13 @@ export class PermissionRequests {
       } catch (error) {
         ask.submitting = false;
         return { ok: false, status: 502, error: String(error) };
+      }
+    }
+    if (ask.local && decision === "allow" && scope === "always") {
+      try {
+        this.deps.rememberAlways?.(ask.tool);
+      } catch (error) {
+        return { ok: false, status: 500, error: String(error) };
       }
     }
     this.pendingAsks.delete(ask.request_id);

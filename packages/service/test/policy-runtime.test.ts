@@ -33,6 +33,21 @@ describe("session policy runtime", () => {
     expect(runtime.policyForSession("s0")?.default).toBe("ask");
   });
 
+  test("leaving ask clears a temporary switch so it cannot come back on its own", () => {
+    const runtime = createPolicyRuntime(policy("ask"), () => undefined);
+    runtime.setMode("s1", "auto");
+    runtime.setShared(policy("allow"));
+    expect(runtime.modeOf("s1")).toBe("inherit");
+    expect(runtime.policyForSession("s1")?.default).toBe("allow");
+
+    runtime.setShared(policy("ask"));
+    runtime.setMode("s1", "auto");
+    runtime.setShared(policy("ask", [{ id: "keep", effect: "deny", tool: "bash" }]));
+    expect(runtime.modeOf("s1")).toBe("auto");
+    runtime.setShared(undefined);
+    expect(runtime.modeOf("s1")).toBe("inherit");
+  });
+
   test("explicit deny and ask rules survive auto", () => {
     const runtime = createPolicyRuntime(
       policy("ask", [

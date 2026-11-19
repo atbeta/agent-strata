@@ -26,6 +26,7 @@ export function policyRoute(
         return Response.json({ error: String(error) }, { status: 400 });
       }
       deps.persist();
+      deps.broadcast({ type: "policy.changed" });
       return Response.json({ ok: true, policy: deps.runtime.shared });
     })();
   }
@@ -33,6 +34,7 @@ export function policyRoute(
   if (path === "/policy" && req.method === "DELETE") {
     deps.runtime.setShared(undefined);
     deps.persist();
+    deps.broadcast({ type: "policy.changed" });
     return Response.json({ ok: true });
   }
 
@@ -41,7 +43,12 @@ export function policyRoute(
     const sessionId = decodeURIComponent(sessionPolicyMatch[1]!);
     const known = deps.store.lastSeq(sessionId) > 0;
     if (req.method === "GET") {
-      return Response.json({ mode: deps.runtime.modeOf(sessionId), session_id: sessionId, known });
+      return Response.json({
+        mode: deps.runtime.modeOf(sessionId),
+        session_id: sessionId,
+        known,
+        posture: deps.runtime.shared?.default ?? "ask",
+      });
     }
     if (req.method === "PUT") {
       return (async () => {

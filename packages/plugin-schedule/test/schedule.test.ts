@@ -452,12 +452,12 @@ describe("tools", () => {
     await p.shutdown();
   });
 
-  test("manifest policy: mutations ask, reads allow; the panel names its resource", async () => {
+  test("manifest policy: writes follow the posture, reads allow; the panel names its resource", async () => {
     const { p } = await plugin();
     const policyOf = (n: string) => manifest.tools.find((t) => t.name === n)!.policy;
-    expect(policyOf("create")).toEqual({ default: "ask", risk: "write" });
-    expect(policyOf("update")).toEqual({ default: "ask", risk: "write" });
-    expect(policyOf("delete")).toEqual({ default: "ask", risk: "write" });
+    expect(policyOf("create")).toEqual({ default: "allow", risk: "write" });
+    expect(policyOf("update")).toEqual({ default: "allow", risk: "write" });
+    expect(policyOf("delete")).toEqual({ default: "allow", risk: "write" });
     expect(policyOf("list")).toEqual({ default: "allow", risk: "read" });
     expect(policyOf("view")).toEqual({ default: "allow", risk: "read" });
     expect(manifest.panel?.resource).toBe("schedules");

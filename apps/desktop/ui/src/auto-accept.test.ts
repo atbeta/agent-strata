@@ -37,7 +37,7 @@ describe("the per-session auto-accept switch", () => {
     const src = read("session-asks.tsx");
     const start = src.indexOf("const toggleAutoAccept");
     const body = src.slice(start, src.indexOf("\n  const ", start + 1));
-    expect(body.indexOf("refetchAutoAccept(next)")).toBeLessThan(body.indexOf("await setSessionPolicy"));
+    expect(body.indexOf("refetchAutoAccept({ mode: next")).toBeLessThan(body.indexOf("await setSessionPolicy"));
   });
 
   test("another pane or window moving it is not a stale read", () => {
@@ -74,8 +74,9 @@ describe("the per-session auto-accept switch", () => {
     // Pressing it then wrote to a route that did not exist, the catch undid
     // the flip, and the only symptom was a button that did nothing.
     const src = read("session-asks.tsx");
-    expect(src).toContain('readSessionPolicy(id).catch(() => "unknown"');
-    expect(src).toContain('autoAccept() === "unknown"');
+    expect(src).toContain('mode: "unknown"');
+    expect(src).toContain('autoAccept()?.mode === "unknown"');
+    expect(src).toContain('read.posture === "ask"');
     expect(src).not.toContain('readSessionPolicy(id).catch(() => "inherit"');
   });
 

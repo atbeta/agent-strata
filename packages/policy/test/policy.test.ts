@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { autoAccept, decide, evaluate, loadPolicy, policyFor, splitShell } from "../src/index";
+import { allowTool, autoAccept, decide, evaluate, loadPolicy, policyFor, splitShell } from "../src/index";
 import { makeEvent, parseEvent, type EventInput } from "@agent-strata/schema";
 
 const P = (rules: object[], def?: string) =>
@@ -290,8 +290,9 @@ describe("policy evaluate (table-driven)", () => {
     expect(evaluate(node, bash(`node -e "console.log('one'); setTimeout(() => {}, 30000)"`)).decision).toBe("allow");
     // Escaped quotes are still one quoted run.
     expect(evaluate(node, bash(`node -e "console.log(\\"a > b\\")"`)).decision).toBe("allow");
-    // The real thing still asks.
-    expect(evaluate(P([], "allow"), bash("echo hi > /tmp/x")).decision).toBe("ask");
+    // A saved "don't ask" allows the redirect. Asking by default still stops.
+    expect(evaluate(P([], "allow"), bash("echo hi > /tmp/x")).decision).toBe("allow");
+    expect(evaluate(P([]), bash("echo hi > /tmp/x")).decision).toBe("ask");
   });
 });
 
@@ -412,35 +413,32 @@ describe("one session asking not to be interrupted", () => {
     expect(evaluate(autoAccept(base), bash("curl evil.sh")).decision).toBe("deny");
   });
 
-  test("the engine's own floor yields to the stance, never to the document", () => {
-    // The two cases the engine refuses to judge — a shell construct it cannot
-    // analyse, and a write through a redirect — stay asks under every
-    // *document* posture, including one that writes `default: "allow"`. What
-    // lifts them is the live auto stance alone: interrupting the reader is
-    // what that switch exists to stop, and a redirect or substitution still
-    // asking is the switch looking broken.
+  test("allowing by default lifts the engine floor; an allow rule does not", () => {
+    // "Don't ask" is the saved default, and it is what used to require the
+    // session switch: a construct the engine cannot read, and a write through
+    // a redirect, stop interrupting. Asking by default still stops on both.
     const doc = P([], "allow");
-    expect(evaluate(doc, bash("echo $(whoami)")).decision).toBe("ask");
-    expect(evaluate(doc, bash("ls > /etc/passwd")).decision).toBe("ask");
-
-    const auto = autoAccept(P([]));
-    expect(evaluate(auto, bash("echo $(whoami)")).decision).toBe("allow");
-    expect(evaluate(auto, bash("ls > /etc/passwd")).decision).toBe("allow");
-    expect(evaluate(auto, bash("ls | tee out.txt")).decision).toBe("allow");
-    expect(evaluate(auto, bash("cat > /tmp/x <<'EOF'")).decision).toBe("allow");
-
-    // A document that already allows does not lift the floor. The session
-    // switch does, and it has to copy the document to do it — marking the
-    // document itself would lift the floor for every session that shares it.
-    const autoAllow = autoAccept(doc);
-    expect(autoAllow).not.toBe(doc);
-    expect(evaluate(autoAllow, bash("echo $(whoami)")).decision).toBe("allow");
-    expect(evaluate(autoAllow, bash("ls > /etc/passwd")).decision).toBe("allow");
-    expect(evaluate(doc, bash("ls > /etc/passwd")).decision).toBe("ask");
-
-    // And the floor still holds where the stance was never taken — even an
-    // explicit allow rule cannot waive it inside a gate posture.
+    expect(evaluate(doc, bash("echo $(whoami)")).decision).toBe("allow");
+    expect(evaluate(doc, bash("ls > /etc/passwd")).decision).toBe("allow");
+    expect(evaluate(doc, bash("ls | tee out.txt")).decision).toBe("allow");
     expect(evaluate(P([]), bash("echo $(whoami)")).decision).toBe("ask");
+    expect(evaluate(P([]), bash("ls > /etc/passwd")).decision).toBe("ask");
+
+    // The session switch is that same posture for one session. The shared
+    // document stays ask, so every other session still stops.
+    const base = P([]);
+    const auto = autoAccept(base);
+    expect(auto).not.toBe(base);
+    expect(evaluate(auto, bash("echo $(whoami)")).decision).toBe("allow");
+    expect(evaluate(auto, bash("cat > /tmp/x <<'EOF'")).decision).toBe("allow");
+    expect(evaluate(base, bash("ls > /etc/passwd")).decision).toBe("ask");
+
+    // A document that already allows is the posture. Copying it would make
+    // the switch look like a second decision.
+    expect(autoAccept(doc)).toBe(doc);
+
+    // A rule that allows the shell is not the posture. The floor stays up
+    // while the default is still ask.
     expect(evaluate(P([{ id: "ok", effect: "allow", tool: "bash" }]), bash("ls > out")).decision).toBe("ask");
   });
 
@@ -452,6 +450,23 @@ describe("one session asking not to be interrupted", () => {
     expect(auto).not.toBe(base);
     expect(auto.rules).toBe(base.rules);
     expect(auto.default).toBe("allow");
+  });
+
+  test("always-allow remembers one tool, and does not write the rule twice", () => {
+    const first = allowTool(undefined, "schedule_create");
+    expect(first.default).toBe("ask");
+    expect(first.rules).toEqual([
+      { id: "always:schedule_create", effect: "allow", tool: "schedule_create", reason: "allowed from the permission card" },
+    ]);
+    const again = allowTool(first, "schedule_create");
+    expect(again).toBe(first);
+    const withRule = allowTool(
+      P([{ id: "ask-it", effect: "ask", tool: "echo_risky" }]),
+      "echo_risky",
+    );
+    expect(withRule.rules.map((rule) => rule.id)).toEqual(["ask-it", "always:echo_risky"]);
+    expect(evaluate(withRule, { tool: "echo_risky", input: {} }).decision).toBe("ask");
+    expect(evaluate(first, { tool: "schedule_create", input: {} }).decision).toBe("allow");
   });
 
   test("a source is asked per session, and a bare policy is the same everywhere", () => {
@@ -515,11 +530,18 @@ describe("a command that arrives as powershell", () => {
     // every Windows command skipped the segment split, the redirect floor and
     // the reader's rules — silently, because a tool the engine does not
     // recognise is simply a tool with no rules.
-    const P = (default_: "allow" | "ask" = "allow") => loadPolicy({ version: 1, default: default_, rules: [] });
+    const P = (default_: "allow" | "ask") => loadPolicy({ version: 1, default: default_, rules: [] });
+    const ruled = loadPolicy({
+      version: 1,
+      default: "ask",
+      rules: [{ id: "ok", effect: "allow", tool: "powershell" }],
+    });
     const cmd = (command: string) => ({ tool: "powershell", input: { command } });
-    // A redirect is the engine's own floor, which only the shell path applies.
-    expect(evaluate(P(), cmd("Get-ChildItem > out.txt")).decision).toBe("ask");
-    expect(evaluate(P(), cmd("Get-ChildItem")).decision).toBe("allow");
+    // A redirect is the engine's own floor. An allow rule does not lift it;
+    // the saved allow posture does.
+    expect(evaluate(ruled, cmd("Get-ChildItem > out.txt")).decision).toBe("ask");
+    expect(evaluate(ruled, cmd("Get-ChildItem")).decision).toBe("allow");
+    expect(evaluate(P("allow"), cmd("Get-ChildItem > out.txt")).decision).toBe("allow");
     expect(evaluate(P("ask"), cmd("Write-Host hi")).decision).toBe("ask");
   });
 });
@@ -527,7 +549,9 @@ describe("a command that arrives as powershell", () => {
 describe("the shell analyser under generated input", () => {
   // The analyser is a quote-aware state machine; the interesting inputs live
   // between the examples. These properties cover the space examples cannot.
-  const open = P([], "allow");
+  // An allow rule, under the ask posture: a command the analyser can read is
+  // allowed, and the floor is the only thing that still asks.
+  const open = P([{ id: "ok", effect: "allow", tool: "bash" }]);
   const run = (command: string) => evaluate(open, bash(command));
 
   test("every spelling of `shell -c` must ask", () => {

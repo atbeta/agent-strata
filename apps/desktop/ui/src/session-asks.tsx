@@ -1,4 +1,4 @@
-import { createMemo, createResource, createSignal, type Resource } from "solid-js";
+import { createMemo, createResource, createSignal, Show, type Resource } from "solid-js";
 import {
   getJson,
   readSessionPolicy,
@@ -84,17 +84,29 @@ export function useSessionAsks(
    */
   const [autoAccept, { refetch: refetchAutoAccept }] = createResource(
     () => props.id,
-    (id) => readSessionPolicy(id).catch(() => "unknown" as const),
+    (id) => readSessionPolicy(id).catch(() => ({ mode: "unknown" as const, posture: "ask" as const })),
   );
   const [autoAcceptErr, setAutoAcceptErr] = fadeSignal("");
-  const autoAcceptOn = () => autoAccept() === "auto";
+  const autoAcceptOn = () => autoAccept()?.mode === "auto";
+  /**
+   * The switch is the temporary form of "don't ask", and only while the saved
+   * posture is still "ask". Allow already means that, and deny cannot be
+   * opened from here — showing a switch in either case asks the reader to
+   * press something that will not change what they think it changes.
+   */
+  const showAutoAccept = () => {
+    const read = autoAccept();
+    if (!read) return false;
+    if (read.mode === "unknown") return true;
+    return read.posture === "ask";
+  };
   const toggleAutoAccept = async () => {
     const next = autoAcceptOn() ? "inherit" : "auto";
     setAutoAcceptErr("");
     // Flip the reader's own read first. The route is a local POST and the
     // answer is already known; waiting for it would make the button sit there
     // not having moved, which is how a reader toggles it twice.
-    refetchAutoAccept(next);
+    refetchAutoAccept({ mode: next, posture: autoAccept()?.posture ?? "ask" });
     // What was already on screen has to follow. A card still waiting while the
     // header says the session is not waiting any more is the same disagreement
     // this whole switch is meant to remove, and it is the one a reader meets
@@ -176,32 +188,34 @@ export function useSessionAsks(
    * is the ordinary case and should not compete with the send button.
    */
   const autoAcceptToggle = () => (
-    <Tip
-      label={
-        autoAcceptErr() ||
-        (autoAccept() === "unknown"
-          ? t("header.autoAccept.broken")
-          : t(autoAcceptOn() ? "header.autoAccept.on" : "header.autoAccept.off"))
-      }
-    >
-      <Button
-        type="button"
-        size="icon-sm"
-        variant="icon"
-        aria-pressed={autoAcceptOn()}
-        aria-label={t("header.autoAccept")}
-        class={`shrink-0 transition-colors ${
-          autoAcceptErr() || autoAccept() === "unknown"
-            ? "text-destructive hover:text-destructive"
-            : autoAcceptOn()
-              ? "text-event-permission hover:text-event-permission"
-              : "text-muted-foreground"
-        }`}
-        onClick={() => void toggleAutoAccept()}
+    <Show when={showAutoAccept()}>
+      <Tip
+        label={
+          autoAcceptErr() ||
+          (autoAccept()?.mode === "unknown"
+            ? t("header.autoAccept.broken")
+            : t(autoAcceptOn() ? "header.autoAccept.on" : "header.autoAccept.off"))
+        }
       >
-        <Icon name="shield" class="size-4" />
-      </Button>
-    </Tip>
+        <Button
+          type="button"
+          size="icon-sm"
+          variant="icon"
+          aria-pressed={autoAcceptOn()}
+          aria-label={t("header.autoAccept")}
+          class={`shrink-0 transition-colors ${
+            autoAcceptErr() || autoAccept()?.mode === "unknown"
+              ? "text-destructive hover:text-destructive"
+              : autoAcceptOn()
+                ? "text-event-permission hover:text-event-permission"
+                : "text-muted-foreground"
+          }`}
+          onClick={() => void toggleAutoAccept()}
+        >
+          <Icon name="shield" class="size-4" />
+        </Button>
+      </Tip>
+    </Show>
   );
 
   return {

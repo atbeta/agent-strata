@@ -1012,11 +1012,17 @@ export async function respondPermission(
 /** Whether this session stops asking, or follows the shared policy. */
 export type SessionPolicyMode = "auto" | "inherit";
 
-export async function readSessionPolicy(id: string): Promise<SessionPolicyMode> {
+/** What happens to a call nobody wrote a rule about. */
+export type PolicyPosture = "ask" | "allow" | "deny";
+
+export async function readSessionPolicy(
+  id: string,
+): Promise<{ mode: SessionPolicyMode; posture: PolicyPosture }> {
   const res = await apiFetch(`/sessions/${encodeURIComponent(id)}/policy`);
   if (!res.ok) throw new Error(t("api.err.service", { status: res.status }));
-  const body = (await res.json()) as { mode?: string };
-  return body.mode === "auto" ? "auto" : "inherit";
+  const body = (await res.json()) as { mode?: string; posture?: string };
+  const posture: PolicyPosture = body.posture === "allow" || body.posture === "deny" ? body.posture : "ask";
+  return { mode: body.mode === "auto" ? "auto" : "inherit", posture };
 }
 
 export async function setSessionPolicy(id: string, mode: SessionPolicyMode): Promise<void> {

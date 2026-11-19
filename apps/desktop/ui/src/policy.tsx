@@ -330,9 +330,9 @@ export function PolicyEditor() {
               label={t("policy.default.label")}
               value={draft.default}
               options={[
-                { id: "ask", label: t("policy.rule.effect.ask") },
-                { id: "allow", label: t("policy.rule.effect.allow") },
-                { id: "deny", label: t("policy.rule.effect.deny") },
+                { id: "ask", label: t("policy.posture.ask") },
+                { id: "allow", label: t("policy.posture.allow") },
+                { id: "deny", label: t("policy.posture.deny") },
               ]}
               onChange={(id) => setDraftRaw("default", id as Draft["default"])}
             />

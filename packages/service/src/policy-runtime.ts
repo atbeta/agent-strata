@@ -38,6 +38,10 @@ export function createPolicyRuntime(
     },
     setShared(policy) {
       shared = policy;
+      // A posture other than "ask" already decides, and clearing the document
+      // puts every session back on ask. A temporary switch left set would
+      // turn itself back on the moment the document returned to ask.
+      if (policy === undefined || policy.default !== "ask") autoSessions.clear();
     },
     modeOf(sessionId) {
       return autoSessions.has(sessionId) ? "auto" : "inherit";

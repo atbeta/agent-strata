@@ -501,6 +501,10 @@ export function SessionDetail(props: {
           }
           return;
         }
+        if (evt.type === "policy.changed") {
+          refetchAutoAccept();
+          return;
+        }
         if (evt.type === "session.policy") {
           // Another window, or another pane of this one, moved the switch. A
           // read that is only correct because it happens not to be looking

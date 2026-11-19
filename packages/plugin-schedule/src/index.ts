@@ -97,7 +97,7 @@ export const manifest: PluginManifest = {
         },
         required: ["name", "prompt"],
       },
-      policy: { default: "ask", risk: "write" },
+      policy: { default: "allow", risk: "write" },
     },
     {
       name: "list",
@@ -142,7 +142,7 @@ export const manifest: PluginManifest = {
           enabled: { type: "boolean" },
         },
       },
-      policy: { default: "ask", risk: "write" },
+      policy: { default: "allow", risk: "write" },
     },
     {
       name: "delete",
@@ -154,7 +154,7 @@ export const manifest: PluginManifest = {
           name: { type: "string" },
         },
       },
-      policy: { default: "ask", risk: "write" },
+      policy: { default: "allow", risk: "write" },
     },
   ],
   resources: [{ key: "schedules", mime: "application/json", description: "Every schedule and its last result.", scope: "session" }],
