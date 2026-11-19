@@ -82,6 +82,44 @@ export function runResultText(result: string | undefined): string {
   }
 }
 
+/**
+ * How loud a run result should be.
+ *
+ * Succeeding is the ordinary case, so it stays the same gray as the rest of
+ * the line. A skip and a late catch-up are the schedule not doing what was
+ * asked, and a failure or a miss is the schedule not running at all — those
+ * two are different colours because they are different kinds of news.
+ */
+export function runResultTone(result: string | undefined): "neutral" | "warn" | "bad" {
+  switch (result) {
+    case "failed":
+    case "missed":
+      return "bad";
+    case "skipped-busy":
+    case "late":
+      return "warn";
+    default:
+      return "neutral";
+  }
+}
+
+/**
+ * "9:05" and "09:05" as a clock, or null when it is not one.
+ *
+ * The panel asks for a clock in the same 24-hour form the cards already
+ * speak. A native time control would redraw that as the machine's own
+ * clock — "09:00 AM" in the middle of a Chinese sentence — so the field
+ * is text, and this is what decides the text is a time.
+ */
+export function parseClock(value: string): { hour: number; minute: number } | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+  if (!m) return null;
+  const hour = Number(m[1]);
+  const minute = Number(m[2]);
+  if (hour > 23 || minute > 59) return null;
+  return { hour, minute };
+}
+
 /** "09:00" from an hour and a minute. */
 export function clockText(hour: unknown, minute: unknown): string {
   const h = Number(hour);
@@ -198,6 +236,56 @@ export function showsTargetLine(row: ScheduleLike, currentSessionId: string): bo
 /** Whether the target is the session the reader is looking at. */
 export function targetsThisSession(row: ScheduleLike, currentSessionId: string): boolean {
   return row.target.kind === "session" && row.target.session_id === currentSessionId;
+}
+
+/**
+ * The facts under a card: where it goes, when it fires next, how the last
+ * run went.
+ *
+ * A definition list gave each of those its own labelled row, and in a rail
+ * the label was longer than the fact. The target is left out when it is the
+ * session already on screen; the panel draws it on its own line when it is
+ * not, and puts the next fire beside the last result.
+ */
+export interface ScheduleFacts {
+  /** "发到 发布流水线", or the new-session sentence. Empty when it is this session. */
+  target: string;
+  /** "下次 2 小时后", "已暂停", or "" when there is no next fire. */
+  next: string;
+  /** "成功，20 小时前", or "还没运行过". */
+  last: string;
+  tone: "neutral" | "warn" | "bad";
+}
+
+export function scheduleFacts(
+  row: ScheduleLike,
+  currentSessionId: string,
+  now: number = Date.now(),
+): ScheduleFacts {
+  let target = "";
+  if (showsTargetLine(row, currentSessionId)) {
+    target =
+      row.target.kind === "new_session"
+        ? t("schedule.panel.target.newSession")
+        : t("schedule.panel.sendsTo", { target: targetText(row, currentSessionId) });
+  }
+  let next = "";
+  if (!row.enabled) next = t("schedule.panel.paused");
+  else if (row.next_at) {
+    const at = Date.parse(row.next_at);
+    if (Number.isFinite(at)) {
+      next = t("schedule.panel.nextShort", { when: relativeTimeText(at, now) });
+    }
+  }
+  const result = runResultText(row.last_result);
+  let last = t("schedule.panel.neverRan");
+  if (result) {
+    const at = row.last_run_at ? Date.parse(row.last_run_at) : NaN;
+    last = Number.isFinite(at)
+      ? t("schedule.panel.lastDetail", { result, when: relativeTimeText(at, now) })
+      : result;
+  }
+  return { target, next, last, tone: result ? runResultTone(row.last_result) : "neutral" };
 }
 
 /**

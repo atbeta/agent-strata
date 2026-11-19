@@ -2,10 +2,12 @@ import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
+import { fieldVariants } from "@/components/ui/field";
 import { MiniTabs } from "@/components/ui/mini-tabs";
 import { Switch } from "@/components/ui/switch";
 import { TextField, TextFieldInput, TextFieldLabel } from "@/components/ui/text-field";
 import { Icon } from "@/icons";
+import { cn } from "@/lib/utils";
 import { Tip } from "@/tip";
 import {
   createSchedule,
@@ -19,10 +21,8 @@ import { t } from "./i18n";
 import {
   clockText,
   fromLocalInputValue,
-  relativeTimeText,
-  runResultText,
-  showsTargetLine,
-  targetText,
+  parseClock,
+  scheduleFacts,
   toLocalInputValue,
   whenText,
   weekdayName,
@@ -44,6 +44,10 @@ import {
  * "skipped-busy" - are turned into words by ./schedule-format, and the
  * plugin sends a target session's title so "where does this go" is
  * answerable without reading an id.
+ *
+ * The list is the panel. The form that makes or edits one stays closed
+ * until the reader asks, because a rail that always shows both is a rail
+ * where neither fits.
  */
 
 /** What the reader is being asked to fill in. */
@@ -62,8 +66,11 @@ export function SchedulesPanel(props: { sessionId: () => string }) {
   const [error, setError] = createSignal<string>();
   const [busy, setBusy] = createSignal(false);
   const [editing, setEditing] = createSignal<string>();
+  /** the form is closed until the reader asks to make or change one */
+  const [composing, setComposing] = createSignal(false);
   /** the schedule a second click would remove, so a stray one cannot delete */
   const [confirming, setConfirming] = createSignal<string>();
+  let formEl: HTMLDivElement | undefined;
 
   const [name, setName] = createSignal("");
   const [prompt, setPrompt] = createSignal("");
@@ -96,15 +103,15 @@ export function SchedulesPanel(props: { sessionId: () => string }) {
   /** The timing and the target, in the shape the plugin reads. */
   const input = (): Record<string, unknown> => {
     const out: Record<string, unknown> = {};
+    const clock = parseClock(time());
     switch (kind()) {
       case "daily":
-        out.daily = time();
+        out.daily = clock ? clockText(clock.hour, clock.minute) : time();
         break;
       case "weekly": {
         // The panel holds the weekday as the number it is, and the clock as
-        // the two halves it was picked in. The plugin reads both.
-        const [h, m] = time().split(":").map((n) => Number(n));
-        out.weekly = { weekday: weekday(), hour: h || 0, minute: m || 0 };
+        // the two halves it was typed in. The plugin reads both.
+        out.weekly = { weekday: weekday(), hour: clock?.hour ?? 0, minute: clock?.minute ?? 0 };
         break;
       }
       case "every":
@@ -122,7 +129,7 @@ export function SchedulesPanel(props: { sessionId: () => string }) {
     return out;
   };
 
-  const reset = () => {
+  const clearFields = () => {
     setName("");
     setPrompt("");
     setKind("daily");
@@ -136,10 +143,28 @@ export function SchedulesPanel(props: { sessionId: () => string }) {
     setError(undefined);
   };
 
+  const reset = () => {
+    clearFields();
+    setComposing(false);
+  };
+
+  /** The form lives above the list; opening it should land the reader on it. */
+  const reveal = () => {
+    setComposing(true);
+    queueMicrotask(() => {
+      if (typeof formEl?.scrollIntoView === "function") {
+        formEl.scrollIntoView({ block: "nearest" });
+      }
+    });
+  };
+
   /** What the reader still has to say, said in their own words. */
   const validate = (): string | undefined => {
     if (!name().trim()) return t("schedule.panel.err.nameRequired");
     if (!prompt().trim()) return t("schedule.panel.err.promptRequired");
+    if ((kind() === "daily" || kind() === "weekly") && !parseClock(time())) {
+      return t("schedule.panel.err.timeInvalid");
+    }
     if (kind() === "at") {
       const ms = fromLocalInputValue(at());
       if (ms === null) return t("schedule.panel.err.atRequired");
@@ -176,6 +201,11 @@ export function SchedulesPanel(props: { sessionId: () => string }) {
     }
   };
 
+  const startCreate = () => {
+    clearFields();
+    reveal();
+  };
+
   const edit = (row: ScheduleRow) => {
     setEditing(row.id);
     setName(row.name);
@@ -203,6 +233,7 @@ export function SchedulesPanel(props: { sessionId: () => string }) {
       setTarget("here");
     }
     setError(undefined);
+    reveal();
   };
 
   const act = async (fn: () => Promise<void>) => {
@@ -229,25 +260,6 @@ export function SchedulesPanel(props: { sessionId: () => string }) {
     await act(() => deleteSchedule(row.id));
   };
 
-  /** The next moment this schedule fires, as the reader would say it. */
-  const nextText = (row: ScheduleRow): string => {
-    if (!row.enabled) return t("schedule.panel.paused");
-    if (!row.next_at) return "";
-    const at = Date.parse(row.next_at);
-    if (!Number.isFinite(at)) return "";
-    return relativeTimeText(at);
-  };
-
-  /** How the last run went, and when it was. */
-  const lastText = (row: ScheduleRow): string => {
-    const result = runResultText(row.last_result);
-    if (!result) return t("schedule.panel.neverRan");
-    if (!row.last_run_at) return result;
-    const at = Date.parse(row.last_run_at);
-    if (!Number.isFinite(at)) return result;
-    return result + " · " + relativeTimeText(at, Date.now());
-  };
-
   /** The session options the reader may aim a schedule at. */
   const targetOptions = () => {
     const options: Candidate[] = [{ session_id: props.sessionId() }];
@@ -271,234 +283,284 @@ export function SchedulesPanel(props: { sessionId: () => string }) {
         </p>
       </Show>
 
-      <Show
-        when={rows().length > 0}
-        fallback={
-          <EmptyState
-            icon="clock"
-            title={t("schedule.panel.empty")}
-            description={t("schedule.panel.emptyHint")}
-            layout="inline"
-          />
-        }
-      >
-        <div class="space-y-2">
-          <For each={rows()}>
-            {(row) => (
-              <Card class="p-3">
-                <div class="flex items-start justify-between gap-2">
-                  <div class="min-w-0 flex-1">
-                    <div class="flex items-center gap-1.5">
-                      <Icon name="clock" class="size-3.5 shrink-0 text-muted-foreground" />
-                      <p class="truncate text-sm font-medium">{row.name}</p>
-                    </div>
-                    <p class="mt-0.5 truncate text-2xs text-muted-foreground">
-                      {whenText(row.when)}
-                    </p>
-                  </div>
+      <Show when={composing()}>
+        <div ref={(el) => (formEl = el)}>
+          <Card class="mb-3 p-3">
+            <p class="mb-2 truncate text-sm font-medium">
+              {editing()
+                ? t("schedule.panel.editing", {
+                    name: rows().find((r) => r.id === editing())?.name || name(),
+                  })
+                : t("schedule.panel.creating")}
+            </p>
+            <TextField>
+              <TextFieldLabel>{t("schedule.panel.name")}</TextFieldLabel>
+              <TextFieldInput
+                size="sm"
+                value={name()}
+                placeholder={t("schedule.panel.namePlaceholder")}
+                onInput={(e) => setName(e.currentTarget.value)}
+              />
+            </TextField>
+            <TextField id="schedule-prompt" class="mt-2">
+              <TextFieldLabel>{t("schedule.panel.prompt")}</TextFieldLabel>
+              <textarea
+                id="schedule-prompt"
+                rows={2}
+                class={cn(
+                  fieldVariants({ size: "sm" }),
+                  "!h-auto min-h-16 resize-none py-1.5 leading-5",
+                )}
+                value={prompt()}
+                placeholder={t("schedule.panel.promptPlaceholder")}
+                onInput={(e) => setPrompt(e.currentTarget.value)}
+              />
+            </TextField>
 
-                  <div class="flex shrink-0 items-center gap-1">
-                    <Tip label={t("schedule.panel.edit")}>
-                      <Button
-                        type="button"
-                        variant="icon"
-                        size="icon-xs"
-                        aria-label={t("schedule.panel.edit")}
-                        onClick={() => edit(row)}
-                      >
-                        <Icon name="pencil" class="size-3.5" />
-                      </Button>
-                    </Tip>
-                    <Tip
-                      label={
-                        confirming() === row.id
-                          ? t("schedule.panel.confirmRemove")
-                          : t("schedule.panel.remove")
-                      }
-                    >
-                      <Button
-                        type="button"
-                        variant="icon"
-                        size="icon-xs"
-                        aria-label={t("schedule.panel.remove")}
-                        class={confirming() === row.id ? "text-destructive" : undefined}
-                        onClick={() => void remove(row)}
-                      >
-                        <Icon name="trash" class="size-3.5" />
-                      </Button>
-                    </Tip>
-                    <Switch
-                      checked={row.enabled}
-                      disabled={busy()}
-                      aria-label={
-                        row.enabled ? t("schedule.panel.pause") : t("schedule.panel.resume")
-                      }
-                      onChange={() => act(() => toggleSchedule(row.id))}
-                    />
-                  </div>
-                </div>
+            <div class="mt-3">
+              <MiniTabs
+                kind="radio"
+                class="flex-wrap"
+                label={t("schedule.panel.kind")}
+                value={kind()}
+                options={[
+                  { id: "daily", label: t("schedule.panel.daily") },
+                  { id: "weekly", label: t("schedule.panel.weekly") },
+                  { id: "every", label: t("schedule.panel.every") },
+                  { id: "at", label: t("schedule.panel.once") },
+                ]}
+                onChange={(id) => setKind(id as Kind)}
+              />
+            </div>
 
-                <p class="mt-2 truncate text-2xs text-muted-foreground">{row.prompt}</p>
+            <Show when={kind() === "daily" || kind() === "weekly"}>
+              <TextField class="mt-2">
+                <TextFieldLabel>{t("schedule.panel.time")}</TextFieldLabel>
+                <TextFieldInput
+                  size="sm"
+                  value={time()}
+                  inputMode="numeric"
+                  spellcheck={false}
+                  placeholder="09:30"
+                  onInput={(e) => setTime(e.currentTarget.value)}
+                />
+              </TextField>
+            </Show>
+            <Show when={kind() === "weekly"}>
+              <TextField class="mt-2">
+                <TextFieldLabel>{t("schedule.panel.weekday")}</TextFieldLabel>
+                <MiniTabs
+                  kind="radio"
+                  class="flex-wrap"
+                  label={t("schedule.panel.weekday")}
+                  value={String(weekday())}
+                  options={[0, 1, 2, 3, 4, 5, 6].map((d) => ({
+                    id: String(d),
+                    label: weekdayName(d),
+                  }))}
+                  onChange={(id) => setWeekday(Number(id))}
+                />
+              </TextField>
+            </Show>
+            <Show when={kind() === "every"}>
+              <TextField class="mt-2">
+                <TextFieldLabel>{t("schedule.panel.minutes")}</TextFieldLabel>
+                <TextFieldInput
+                  size="sm"
+                  type="number"
+                  min={5}
+                  step={5}
+                  value={minutes()}
+                  onInput={(e) => setMinutes(e.currentTarget.value)}
+                />
+              </TextField>
+            </Show>
+            <Show when={kind() === "at"}>
+              <TextField class="mt-2">
+                <TextFieldLabel>{t("schedule.panel.onceAtLabel")}</TextFieldLabel>
+                <TextFieldInput
+                  size="sm"
+                  type="datetime-local"
+                  value={at()}
+                  onInput={(e) => setAt(e.currentTarget.value)}
+                />
+              </TextField>
+            </Show>
 
-                <dl class="mt-2 space-y-1 border-t border-border pt-2 text-2xs">
-                  <Show when={showsTargetLine(row, props.sessionId())}>
-                    <div class="flex items-baseline gap-2">
-                      <dt class="shrink-0 text-faint-foreground">
-                        {t("schedule.panel.target.session")}
-                      </dt>
-                      <dd class="min-w-0 truncate text-muted-foreground">
-                        {targetText(row, props.sessionId())}
-                      </dd>
-                    </div>
-                  </Show>
-                  <Show when={nextText(row)}>
-                    <div class="flex items-baseline gap-2">
-                      <dt class="shrink-0 text-faint-foreground">
-                        {t("schedule.panel.nextRun")}
-                      </dt>
-                      <dd class="min-w-0 truncate text-muted-foreground">{nextText(row)}</dd>
-                    </div>
-                  </Show>
-                  <div class="flex items-baseline gap-2">
-                    <dt class="shrink-0 text-faint-foreground">
-                      {t("schedule.panel.lastRun")}
-                    </dt>
-                    <dd class="min-w-0 truncate text-muted-foreground">{lastText(row)}</dd>
-                  </div>
-                </dl>
-              </Card>
-            )}
-          </For>
+            <div class="mt-3">
+              <MiniTabs
+                kind="radio"
+                class="flex-wrap"
+                label={t("schedule.panel.target.session")}
+                value={target()}
+                options={[
+                  { id: "here", label: t("schedule.panel.target.thisSession") },
+                  { id: "named", label: t("schedule.panel.target.named") },
+                  { id: "new", label: t("schedule.panel.target.newSession") },
+                ]}
+                onChange={(id) => setTarget(id as Target)}
+              />
+            </div>
+            <Show when={target() === "named"}>
+              <TextField class="mt-2">
+                <TextFieldLabel>{t("schedule.panel.sessionId")}</TextFieldLabel>
+                <select
+                  class="h-8 w-full rounded-md border border-border bg-transparent px-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  value={sessionId()}
+                  onChange={(e) => setSessionId(e.currentTarget.value)}
+                >
+                  <option value="">{t("schedule.panel.sessionPick")}</option>
+                  <For each={targetOptions()}>
+                    {(c) => <option value={c.session_id}>{candidateLabel(c)}</option>}
+                  </For>
+                </select>
+              </TextField>
+              <p class="mt-1 text-2xs text-muted-foreground">{t("schedule.panel.workspaceOnly")}</p>
+            </Show>
+
+            <div class="mt-3 flex items-center gap-2">
+              <Button type="button" size="sm" disabled={busy()} onClick={() => void submit()}>
+                {editing() ? t("schedule.panel.save") : t("schedule.panel.create")}
+              </Button>
+              <Button type="button" size="sm" variant="quiet" onClick={reset}>
+                {t("schedule.panel.cancel")}
+              </Button>
+            </div>
+          </Card>
         </div>
       </Show>
 
-      <Card class="mt-3 p-3">
-        <TextField>
-          <TextFieldLabel>{t("schedule.panel.name")}</TextFieldLabel>
-          <TextFieldInput
-            size="sm"
-            value={name()}
-            placeholder={t("schedule.panel.namePlaceholder")}
-            onInput={(e) => setName(e.currentTarget.value)}
-          />
-        </TextField>
-        <TextField class="mt-2">
-          <TextFieldLabel>{t("schedule.panel.prompt")}</TextFieldLabel>
-          <TextFieldInput
-            size="sm"
-            value={prompt()}
-            placeholder={t("schedule.panel.promptPlaceholder")}
-            onInput={(e) => setPrompt(e.currentTarget.value)}
-          />
-        </TextField>
-
-        <div class="mt-3">
-          <MiniTabs
-            kind="radio"
-            label={t("schedule.panel.kind")}
-            value={kind()}
-            options={[
-              { id: "daily", label: t("schedule.panel.daily") },
-              { id: "weekly", label: t("schedule.panel.weekly") },
-              { id: "every", label: t("schedule.panel.every") },
-              { id: "at", label: t("schedule.panel.once") },
-            ]}
-            onChange={(id) => setKind(id as Kind)}
-          />
-        </div>
-
-        <Show when={kind() === "daily" || kind() === "weekly"}>
-          <TextField class="mt-2">
-            <TextFieldLabel>{t("schedule.panel.time")}</TextFieldLabel>
-            <TextFieldInput
-              size="sm"
-              type="time"
-              value={time()}
-              onInput={(e) => setTime(e.currentTarget.value)}
+      <Show
+        when={rows().length > 0}
+        fallback={
+          <Show when={!composing()}>
+            <EmptyState
+              icon="clock"
+              title={t("schedule.panel.empty")}
+              description={t("schedule.panel.emptyHint")}
+              action={
+                <Button type="button" size="sm" onClick={startCreate}>
+                  {t("schedule.panel.new")}
+                </Button>
+              }
             />
-          </TextField>
-        </Show>
-        <Show when={kind() === "weekly"}>
-          <TextField class="mt-2">
-            <TextFieldLabel>{t("schedule.panel.weekday")}</TextFieldLabel>
-            <MiniTabs
-              kind="radio"
-              label={t("schedule.panel.weekday")}
-              value={String(weekday())}
-              options={[0, 1, 2, 3, 4, 5, 6].map((d) => ({
-                id: String(d),
-                label: weekdayName(d),
-              }))}
-              onChange={(id) => setWeekday(Number(id))}
-            />
-          </TextField>
-        </Show>
-        <Show when={kind() === "every"}>
-          <TextField class="mt-2">
-            <TextFieldLabel>{t("schedule.panel.minutes")}</TextFieldLabel>
-            <TextFieldInput
-              size="sm"
-              type="number"
-              min={5}
-              step={5}
-              value={minutes()}
-              onInput={(e) => setMinutes(e.currentTarget.value)}
-            />
-          </TextField>
-        </Show>
-        <Show when={kind() === "at"}>
-          <TextField class="mt-2">
-            <TextFieldLabel>{t("schedule.panel.onceAtLabel")}</TextFieldLabel>
-            <TextFieldInput
-              size="sm"
-              type="datetime-local"
-              value={at()}
-              onInput={(e) => setAt(e.currentTarget.value)}
-            />
-          </TextField>
-        </Show>
-
-        <div class="mt-3">
-          <MiniTabs
-            kind="radio"
-            label={t("schedule.panel.target.session")}
-            value={target()}
-            options={[
-              { id: "here", label: t("schedule.panel.target.thisSession") },
-              { id: "named", label: t("schedule.panel.target.named") },
-              { id: "new", label: t("schedule.panel.target.newSession") },
-            ]}
-            onChange={(id) => setTarget(id as Target)}
-          />
-        </div>
-        <Show when={target() === "named"}>
-          <TextField class="mt-2">
-            <TextFieldLabel>{t("schedule.panel.sessionId")}</TextFieldLabel>
-            <select
-              class="h-8 w-full rounded-md border border-border bg-transparent px-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              value={sessionId()}
-              onChange={(e) => setSessionId(e.currentTarget.value)}
-            >
-              <option value="">{t("schedule.panel.sessionId")}</option>
-              <For each={targetOptions()}>
-                {(c) => <option value={c.session_id}>{candidateLabel(c)}</option>}
-              </For>
-            </select>
-          </TextField>
-          <p class="mt-1 text-2xs text-muted-foreground">{t("schedule.panel.workspaceOnly")}</p>
-        </Show>
-
-        <div class="mt-3 flex items-center gap-2">
-          <Button type="button" size="sm" disabled={busy()} onClick={() => void submit()}>
-            {editing() ? t("schedule.panel.save") : t("schedule.panel.create")}
-          </Button>
-          <Show when={editing()}>
-            <Button type="button" size="sm" variant="quiet" onClick={reset}>
-              {t("schedule.panel.cancel")}
-            </Button>
           </Show>
+        }
+      >
+        <Show when={!composing()}>
+          <div class="mb-2 flex justify-end">
+            <Button type="button" size="xs" variant="quiet" onClick={startCreate}>
+              <Icon name="plus" class="size-3.5" />
+              {t("schedule.panel.new")}
+            </Button>
+          </div>
+        </Show>
+        <div class="space-y-2">
+          <For each={rows()}>
+            {(row) => {
+              const facts = () => scheduleFacts(row, props.sessionId());
+              return (
+                <Card class={cn("p-2.5", editing() === row.id && "ring-1 ring-ring")}>
+                  <div class="flex items-start gap-1.5">
+                    <div class="min-w-0 flex-1">
+                      <p
+                        class={cn(
+                          "truncate text-sm font-medium",
+                          !row.enabled && "text-muted-foreground",
+                        )}
+                      >
+                        {row.name}
+                      </p>
+                      <p class="mt-0.5 text-2xs text-muted-foreground">{whenText(row.when)}</p>
+                      <p
+                        class={cn(
+                          "mt-1 line-clamp-2 break-words text-2xs leading-4",
+                          row.enabled ? "text-foreground/90" : "text-muted-foreground",
+                        )}
+                      >
+                        {row.prompt}
+                      </p>
+                      <Show when={facts().target}>
+                        <p class="mt-1 truncate text-2xs leading-4 text-faint-foreground">
+                          {facts().target}
+                        </p>
+                      </Show>
+                      <p
+                        class={cn(
+                          "text-2xs leading-4 text-faint-foreground",
+                          facts().target ? "mt-0.5" : "mt-1",
+                        )}
+                      >
+                        <Show when={facts().next}>
+                          {(text) => (
+                            <>
+                              {text()}
+                              <span> · </span>
+                            </>
+                          )}
+                        </Show>
+                        <span class={toneClass(facts().tone)}>{facts().last}</span>
+                      </p>
+                      <Show when={confirming() === row.id}>
+                        <p class="mt-1 text-2xs text-destructive">
+                          {t("schedule.panel.confirmRemove")}
+                        </p>
+                      </Show>
+                    </div>
+
+                    <div class="flex shrink-0 items-center gap-0.5">
+                      <Tip label={t("schedule.panel.edit")}>
+                        <Button
+                          type="button"
+                          variant="icon"
+                          size="icon-xs"
+                          aria-label={t("schedule.panel.edit")}
+                          onClick={() => edit(row)}
+                        >
+                          <Icon name="pencil" class="size-3.5" />
+                        </Button>
+                      </Tip>
+                      <Tip
+                        label={
+                          confirming() === row.id
+                            ? t("schedule.panel.confirmRemove")
+                            : t("schedule.panel.remove")
+                        }
+                      >
+                        <Button
+                          type="button"
+                          variant="icon"
+                          size="icon-xs"
+                          aria-label={t("schedule.panel.remove")}
+                          class={confirming() === row.id ? "text-destructive" : undefined}
+                          onClick={() => void remove(row)}
+                        >
+                          <Icon name="trash" class="size-3.5" />
+                        </Button>
+                      </Tip>
+                      <Switch
+                        checked={row.enabled}
+                        disabled={busy()}
+                        aria-label={
+                          row.enabled ? t("schedule.panel.pause") : t("schedule.panel.resume")
+                        }
+                        onChange={() => act(() => toggleSchedule(row.id))}
+                      />
+                    </div>
+                  </div>
+                </Card>
+              );
+            }}
+          </For>
         </div>
-      </Card>
+      </Show>
     </div>
   );
+}
+
+/** A failed or missed run is the line the eye should find; a success is not. */
+function toneClass(tone: "neutral" | "warn" | "bad"): string | undefined {
+  if (tone === "bad") return "text-status-error";
+  if (tone === "warn") return "text-status-cancelled";
+  return undefined;
 }

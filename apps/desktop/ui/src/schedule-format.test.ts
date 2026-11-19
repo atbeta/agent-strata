@@ -3,8 +3,11 @@ import {
   clockText,
   dateTimeText,
   fromLocalInputValue,
+  parseClock,
   relativeTimeText,
   runResultText,
+  runResultTone,
+  scheduleFacts,
   showsTargetLine,
   targetText,
   toLocalInputValue,
@@ -179,6 +182,78 @@ describe("a clock time", () => {
 
   test("a missing part is not a time", () => {
     expect(clockText(undefined, 0)).toBe("");
+  });
+
+  test("a typed clock is read as 24-hour, and a machine's AM is not", () => {
+    expect(parseClock("9:05")).toEqual({ hour: 9, minute: 5 });
+    expect(parseClock("18:00")).toEqual({ hour: 18, minute: 0 });
+    expect(parseClock("09:00 AM")).toBeNull();
+    expect(parseClock("24:00")).toBeNull();
+    expect(parseClock("")).toBeNull();
+  });
+});
+
+describe("the one line under a card", () => {
+  const now = Date.parse("2026-11-19T10:00:00");
+
+  test("this session drops the target, and the last run keeps its result", () => {
+    withLocale("zh", () => {
+      const facts = scheduleFacts(
+        row({
+          next_at: new Date(now + 2 * 3_600_000).toISOString(),
+          last_result: "ok",
+          last_run_at: new Date(now - 20 * 3_600_000).toISOString(),
+        }),
+        "opencode:me",
+        now,
+      );
+      expect(facts.target).toBe("");
+      expect(facts.next).toBe("下次 2 小时后");
+      expect(facts.last).toBe("成功，20 小时前");
+      expect(facts.tone).toBe("neutral");
+    });
+  });
+
+  test("another session is named, and a skip is not told as a success", () => {
+    withLocale("zh", () => {
+      const facts = scheduleFacts(
+        row({
+          target_title: "发布流水线",
+          next_at: new Date(now + 3 * 86_400_000).toISOString(),
+          last_result: "skipped-busy",
+          last_run_at: new Date(now - 4 * 86_400_000).toISOString(),
+        }),
+        "opencode:elsewhere",
+        now,
+      );
+      expect(facts.target).toBe("发到 发布流水线");
+      expect(facts.next).toContain("3 天后");
+      expect(facts.last).toContain("跳过");
+      expect(facts.tone).toBe("warn");
+    });
+  });
+
+  test("a paused schedule says so instead of inventing a next fire", () => {
+    withLocale("zh", () => {
+      const facts = scheduleFacts(
+        row({ enabled: false, last_result: "failed", last_run_at: new Date(now - 2 * 86_400_000).toISOString() }),
+        "opencode:me",
+        now,
+      );
+      expect(facts.next).toBe("已暂停");
+      expect(facts.last).toContain("失败");
+      expect(facts.tone).toBe("bad");
+    });
+  });
+
+  test("a schedule that has never fired says that, in either language", () => {
+    withLocale("en", () => {
+      const facts = scheduleFacts(row({ target: { kind: "new_session" } }), "opencode:me", now);
+      expect(facts.target).toContain("new session");
+      expect(facts.last).toContain("not run");
+      expect(runResultTone("missed")).toBe("bad");
+      expect(runResultTone("ok")).toBe("neutral");
+    });
   });
 });
 
