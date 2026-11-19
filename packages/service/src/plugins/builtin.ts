@@ -77,6 +77,15 @@ export function builtinPlugins(options: BuiltinOptions): RegisteredPlugin[] {
           control: options.sessionControl,
           view: options.sessions.view,
           workspaceOf: options.workspaceOf,
+          // The target picker lists sessions by name. The workspace is
+          // passed by the plugin, and the store filters on it, so the
+          // list holds one workspace's sessions and no others.
+          listSessions: (opts) =>
+            options.sessions.list(opts).map((s) => ({
+              session_id: s.session_id,
+              title: s.title,
+              workspace: s.workspace,
+            })),
         }),
     },
   ];

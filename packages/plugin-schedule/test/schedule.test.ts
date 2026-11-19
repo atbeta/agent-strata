@@ -30,6 +30,7 @@ function view(busy = false): SessionView {
     session_id: CALLER,
     backend: "opencode",
     workspace: WS,
+    title: "standup",
     status: "active",
     busy,
     turns: [],
@@ -268,6 +269,7 @@ describe("tools", () => {
       control: control(calls),
       view: () => view(false),
       workspaceOf: (id) => (id === CALLER || id === OTHER ? WS : undefined),
+      listSessions: () => [{ session_id: CALLER, title: "standup", workspace: WS }],
     });
     await p.initialize(ctxOf(dir));
     return { p, calls, dir };
@@ -305,6 +307,7 @@ describe("tools", () => {
         workspace: id === CALLER ? WS : "/other-repo",
       }),
       workspaceOf: (id: string) => (id === CALLER ? WS : id === OTHER ? "/other-repo" : undefined),
+      listSessions: () => [{ session_id: CALLER, title: "standup", workspace: WS }],
     });
     await p.initialize(ctxOf(dir));
     const out = await p.callTool(
@@ -437,4 +440,94 @@ describe("tools", () => {
     expect(manifest.panel?.resource).toBe("schedules");
     await p.shutdown();
   });
+
+  describe("the panel's shape of a schedule", () => {
+    test("a weekly timing may be given as a weekday and a clock, not as English", async () => {
+      // The panel holds a weekday as the number it is and a clock as two
+      // halves; it has no English weekday to give. The tool still spells it
+      // out, and both land on the same thing.
+      const { p } = await plugin();
+      const made = await p.callTool(
+        req("create", { name: "weekly", prompt: "p", weekly: { weekday: 5, hour: 18, minute: 30 } }),
+      );
+      expect(made.isError).toBeFalsy();
+      const seen = await p.callTool(req("view", { name: "weekly" }));
+      expect(seen.output).toContain("fri 18:30");
+      await p.shutdown();
+    });
+
+    test("a weekly timing with a bad weekday is refused", async () => {
+      const { p } = await plugin();
+      const made = await p.callTool(
+        req("create", { name: "weekly", prompt: "p", weekly: { weekday: 9, hour: 18, minute: 30 } }),
+      );
+      expect(made.isError).toBe(true);
+      expect(made.output).toContain("weekday");
+      await p.shutdown();
+    });
+
+    test("a rename takes effect", async () => {
+      // The update tool accepts a name and the tools say it may change one,
+      // so a renamed schedule has to answer to its new name.
+      const { p } = await plugin();
+      await p.callTool(req("create", { name: "old", prompt: "p", every_minutes: 30 }));
+      const list = await p.callTool(req("list"));
+      const id = list.output.split("\n")[0]!.split(" ")[0]!;
+      const updated = await p.callTool(req("update", { id, name: "new" }));
+      expect(updated.isError).toBeFalsy();
+      const after = await p.callTool(req("list"));
+      expect(after.output).toContain("new");
+      expect(after.output).not.toContain("old");
+      await p.shutdown();
+    });
+
+    test("a rename onto a taken name is refused", async () => {
+      const { p } = await plugin();
+      await p.callTool(req("create", { name: "first", prompt: "p", every_minutes: 30 }));
+      await p.callTool(req("create", { name: "second", prompt: "p", every_minutes: 30 }));
+      const list = await p.callTool(req("list"));
+      const id = list.output.split("\n")[0]!.split(" ")[0]!;
+      const clash = await p.callTool(req("update", { id, name: "second" }));
+      expect(clash.isError).toBe(true);
+      expect(clash.output).toContain("taken");
+      await p.shutdown();
+    });
+
+    test("the resource names the target session and offers the ones it may reach", async () => {
+      const { p } = await plugin();
+      await p.callTool(req("create", { name: "aimed", prompt: "p", every_minutes: 30 }));
+      const read = await p.readResource!({ key: "schedules", sessionId: CALLER });
+      const body = JSON.parse(String(read.body)) as {
+        schedules: { target_title?: string }[];
+        candidates: { session_id: string }[];
+      };
+      expect(body.schedules[0]!.target_title).toBe("standup");
+      expect(body.candidates.map((c) => c.session_id)).toContain(CALLER);
+      await p.shutdown();
+    });
+  });
 });
+
+
+describe("the engine's last run", () => {
+  test("carries a code beside the note, so a reader can be shown a sentence", async () => {
+    // The note is English prose for the log; the code is what a window
+    // can translate. A busy session says so in both.
+    const dir = mkdtempSync(join(tmpdir(), "sched-"));
+    const calls: ControlCalls = { created: [], prompted: [] };
+    const deps = engineDeps(dir, {
+      control: control(calls),
+      view: () => view(true),
+    });
+    const s = seed(dir, { when: { kind: "every", everyMs: 3600000 } });
+    const engine = new ScheduleEngine(deps);
+    await engine.runDue(false);
+    await engine.stop();
+
+    const saved = deps.file.load().find((x) => x.id === s.id)!;
+    expect(saved.last_result).toBe("skipped-busy");
+    expect(saved.last_code).toBe("busy");
+    expect(saved.last_note).toContain("busy");
+  });
+});
+

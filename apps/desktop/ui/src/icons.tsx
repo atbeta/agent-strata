@@ -76,7 +76,15 @@ export type Name =
   | "code"
   // Three bars: the numbers a message cost. Used where an "i" would read as
   // help rather than "what did this one use".
-  | "stats";
+  | "stats"
+  // A clock, a calendar, and the two states of a thing that runs on a
+  // timer. The schedules panel is the reason they exist: a time is not
+  // a word, and "暂停" written out is a label where a glyph says it
+  // faster.
+  | "clock"
+  | "calendar"
+  | "play"
+  | "pause";
 
 /**
  * `box` exists for the glyphs that are lifted from an icon library instead of
@@ -753,6 +761,41 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
           stroke="none"
           d="m20.97 17.172l-1.414 1.414l-3.535-3.535l-.073.074l-.707 3.536l-1.415 1.414l-4.242-4.243l-4.95 4.95l-1.414-1.414l4.95-4.95l-4.243-4.243L5.34 8.761l3.536-.707l.073-.074l-3.536-3.536L6.828 3.03zM10.365 9.394l-.502.502l-2.822.565l6.5 6.5l.564-2.822l.502-.502zm8.411.074l-1.34 1.34l1.414 1.415l1.34-1.34l.707.707l1.415-1.415l-8.486-8.485l-1.414 1.414l.707.707l-1.34 1.34l1.414 1.415l1.34-1.34z"
         />
+      </Glyph>
+    );
+  // A clock face with two hands — the hour one shorter, so the reading
+  // is a time and not a badge. Drawn on our 16 grid: the dial is a
+  // circle, the hands are two strokes that stop short of it.
+  if (name === "clock")
+    return (
+      <Glyph class={cls}>
+        <circle cx="8" cy="8" r="5.75" />
+        <path d="M8 4.6V8l2.4 1.5" />
+      </Glyph>
+    );
+  // A calendar: a box with a bar across the top and two tabs above it.
+  // The tabs are what make it a date rather than a window.
+  if (name === "calendar")
+    return (
+      <Glyph class={cls}>
+        <rect x="2.5" y="3.5" width="11" height="10" rx="1.5" />
+        <path d="M2.5 6.75h11" />
+        <path d="M5.5 2v3M10.5 2v3" />
+      </Glyph>
+    );
+  // A filled triangle: the one shape that means "go" without a word.
+  if (name === "play")
+    return (
+      <Glyph class={cls}>
+        <path d="M5.5 3.75v8.5l6.5-4.25z" fill="currentColor" stroke="none" />
+      </Glyph>
+    );
+  // Two bars. Paused is the state a schedule sits in while the reader
+  // has it switched off, so it is drawn solid like the play triangle.
+  if (name === "pause")
+    return (
+      <Glyph class={cls}>
+        <path d="M5.75 3.75v8.5M10.25 3.75v8.5" stroke-width="2" />
       </Glyph>
     );
   return (

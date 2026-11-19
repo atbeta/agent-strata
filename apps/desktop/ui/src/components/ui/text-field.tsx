@@ -39,7 +39,12 @@ function TextField(props: {
 
 type InputProps = Omit<JSX.InputHTMLAttributes<HTMLInputElement>, "class" | "type"> & {
   class?: string;
-  type?: "text" | "password" | "search" | "url" | "email";
+  // `datetime-local` and `time` are here so a reader picks a moment on a
+  // calendar rather than typing one. The native pickers are the only
+  // way to choose a date that is unambiguous across locales, and a
+  // free-text date field asks the reader to know a format the app
+  // should not be making them remember.
+  type?: "text" | "password" | "search" | "url" | "email" | "number" | "time" | "datetime-local";
   size?: FieldSize;
   bare?: boolean;
   mono?: boolean;

@@ -33,6 +33,12 @@ export interface Schedule {
   last_run_at?: string;
   last_result?: RunResult;
   last_note?: string;
+  /**
+   * A stable code for the note above. The note is prose for the log; the
+   * code is what a reader's window can show a translated sentence for,
+   * the way a service error carries a code beside its message.
+   */
+  last_code?: string;
   /** whether a missed fire may still run inside the catch-up window (default true) */
   catchup?: boolean;
 }

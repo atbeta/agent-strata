@@ -53,6 +53,10 @@ const ICONS = new Set([
   "image",
   "message",
   "code",
+  "clock",
+  "calendar",
+  "play",
+  "pause",
 ]);
 
 export interface ToolRenderer {

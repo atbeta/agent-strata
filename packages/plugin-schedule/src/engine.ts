@@ -98,7 +98,7 @@ export class ScheduleEngine {
       if (catchup && now - due > this.deps.catchupWindowMs) {
         this.deps.file.mutate((all) => {
           const cur = all.find((x) => x.id === s.id);
-          if (cur) this.settle(cur, now, "missed", "service was down past the catch-up window");
+          if (cur) this.settle(cur, now, "missed", "service was down past the catch-up window", "missed-window");
         });
         continue;
       }
@@ -107,10 +107,11 @@ export class ScheduleEngine {
   }
 
   /** Mark a schedule's last result and advance its next beat, atomically. */
-  private settle(s: Schedule, now: number, result: RunResult, note?: string): void {
+  private settle(s: Schedule, now: number, result: RunResult, note?: string, code?: string): void {
     s.last_run_at = new Date(now).toISOString();
     s.last_result = result;
     s.last_note = note;
+    s.last_code = code;
     if (s.when.kind === "at") {
       s.enabled = false;
       s.next_at = null;
@@ -136,7 +137,12 @@ export class ScheduleEngine {
             const cur = all.find((x) => x.id === id);
             if (cur) {
               cur.enabled = false;
-              this.settleDisabled(cur, "failed", `target session ${s.target.kind === "session" ? s.target.session_id : "?"} is not readable`);
+              this.settleDisabled(
+                cur,
+                "failed",
+                `target session ${s.target.kind === "session" ? s.target.session_id : "?"} is not readable`,
+                "target-unreadable",
+              );
             }
           });
           this.deps.emit({ type: "changed" });
@@ -155,6 +161,7 @@ export class ScheduleEngine {
                 cur,
                 "failed",
                 `target session ${targetId} is outside this schedule's workspace`,
+                "target-out-of-scope",
               );
             }
           });
@@ -164,7 +171,7 @@ export class ScheduleEngine {
         if (busy) {
           this.deps.file.mutate((all) => {
             const cur = all.find((x) => x.id === id);
-            if (cur) this.settle(cur, now, "skipped-busy", "session was busy; not queued");
+            if (cur) this.settle(cur, now, "skipped-busy", "session was busy; not queued", "busy");
           });
           this.deps.emit({ type: "changed" });
           return;
@@ -191,7 +198,7 @@ export class ScheduleEngine {
           if (this.busy(s.target.session_id)) {
             this.deps.file.mutate((all) => {
               const cur = all.find((x) => x.id === id);
-              if (cur) this.settle(cur, now, "skipped-busy", "session was busy; not queued");
+              if (cur) this.settle(cur, now, "skipped-busy", "session was busy; not queued", "busy");
             });
             this.deps.emit({ type: "changed" });
             return;
@@ -200,12 +207,12 @@ export class ScheduleEngine {
         }
         this.deps.file.mutate((all) => {
           const cur = all.find((x) => x.id === id);
-          if (cur) this.settle(cur, now, result, s.last_note);
+          if (cur) this.settle(cur, now, result, s.last_note, s.last_code);
         });
       } catch (error) {
         this.deps.file.mutate((all) => {
           const cur = all.find((x) => x.id === id);
-          if (cur) this.settle(cur, now, "failed", error instanceof Error ? error.message : String(error));
+          if (cur) this.settle(cur, now, "failed", error instanceof Error ? error.message : String(error), "failed");
         });
       }
       this.deps.emit({ type: "changed" });
@@ -215,10 +222,11 @@ export class ScheduleEngine {
   }
 
   /** A disabled schedule still reports what happened to it. */
-  private settleDisabled(s: Schedule, result: RunResult, note: string): void {
+  private settleDisabled(s: Schedule, result: RunResult, note: string, code: string): void {
     s.last_run_at = new Date(this.deps.now()).toISOString();
     s.last_result = result;
     s.last_note = note;
+    s.last_code = code;
     s.next_at = null;
   }
 

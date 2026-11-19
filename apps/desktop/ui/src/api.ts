@@ -1409,16 +1409,36 @@ export interface ScheduleRow {
   last_run_at?: string;
   last_result?: string;
   last_note?: string;
+  /** a stable code beside the note, so a reader can be shown a translated sentence */
+  last_code?: string;
+  /** the target session's name, when the plugin could resolve one */
+  target_title?: string;
 }
 
-/** Every schedule the plugin holds. */
-export async function listSchedules(sessionId: string): Promise<ScheduleRow[]> {
+/** One session the reader may aim a schedule at. */
+export interface ScheduleCandidate {
+  session_id: string;
+  title?: string;
+}
+
+/**
+ * Every schedule the plugin holds, and the sessions one may name.
+ *
+ * The candidates come with the schedules because the plugin is the side
+ * that knows the workspace boundary: it offers only sessions a schedule
+ * could actually reach.
+ */
+export async function listSchedules(
+  sessionId: string,
+): Promise<{ schedules: ScheduleRow[]; candidates: ScheduleCandidate[] }> {
   const res = await apiFetch(
     `/plugins/schedule/resources/schedules?session=${encodeURIComponent(sessionId)}`,
   );
   if (!res.ok) await throwOnError(res);
-  const parsed = (await res.json().catch(() => null)) as { schedules?: ScheduleRow[] } | null;
-  return parsed?.schedules ?? [];
+  const parsed = (await res.json().catch(() => null)) as
+    | { schedules?: ScheduleRow[]; candidates?: ScheduleCandidate[] }
+    | null;
+  return { schedules: parsed?.schedules ?? [], candidates: parsed?.candidates ?? [] };
 }
 
 /**

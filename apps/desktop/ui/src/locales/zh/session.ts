@@ -487,4 +487,54 @@ export default {
   "schedule.panel.weeklyAt": "每周 {weekday} {time}",
   "schedule.panel.everyMinutes": "每 {minutes} 分钟",
   "schedule.panel.onceAt": "一次：{at}",
+
+  // The panel reads a schedule back: when it next fires, when it last
+  // ran and how that went. The run result is a wire value the backend
+  // sends ("ok", "skipped-busy", …), so it needs a word here.
+  "schedule.panel.nextRun": "下次运行",
+  "schedule.panel.lastRun": "最近运行",
+  "schedule.panel.neverRan": "还没运行过",
+  "schedule.panel.result.ok": "成功",
+  "schedule.panel.result.skippedBusy": "会话忙，已跳过",
+  "schedule.panel.result.failed": "失败",
+  "schedule.panel.result.missed": "已错过",
+  "schedule.panel.result.late": "延迟后补跑",
+  "schedule.panel.paused": "已暂停",
+
+  // Which session the prompt lands in. "本会话" is the one the reader
+  // is looking at; anything else names the session it goes to.
+  "schedule.panel.target.session": "生效会话",
+  "schedule.panel.target.thisSession": "本会话",
+  "schedule.panel.target.newSession": "每次新建会话",
+  "schedule.panel.target.named": "指定会话",
+
+  // The weekday a weekly schedule fires on, in the reader's language.
+  // The backend stores a number; only the word is translated here.
+  "schedule.panel.weekday.sunday": "周日",
+  "schedule.panel.weekday.monday": "周一",
+  "schedule.panel.weekday.tuesday": "周二",
+  "schedule.panel.weekday.wednesday": "周三",
+  "schedule.panel.weekday.thursday": "周四",
+  "schedule.panel.weekday.friday": "周五",
+  "schedule.panel.weekday.saturday": "周六",
+
+  // A time relative to now: "3 分钟后" / "3 分钟后" — the unit is part of
+  // the phrase, so the two languages need their own wording.
+  "schedule.panel.inMinutes": "{minutes} 分钟后",
+  "schedule.panel.inHours": "{hours} 小时后",
+  "schedule.panel.inDays": "{days} 天后",
+  "schedule.panel.agoMinutes": "{minutes} 分钟前",
+  "schedule.panel.agoHours": "{hours} 小时前",
+  "schedule.panel.agoDays": "{days} 天前",
+
+  // Errors the panel itself can raise, before the service is asked.
+  "schedule.panel.kind": "触发方式",
+  "schedule.panel.err.nameRequired": "请给这个任务起个名字",
+  "schedule.panel.err.sessionRequired": "请选择要生效的会话",
+  "schedule.panel.err.promptRequired": "请填写到了时间要发的话",
+  "schedule.panel.err.atRequired": "请选择执行时间",
+  "schedule.panel.err.atPast": "执行时间不能在过去",
+  "schedule.panel.err.minutesInvalid": "间隔至少 5 分钟",
+  "schedule.panel.confirmRemove": "再次点击以删除",
+  "schedule.panel.emptyHint": "到点后，agent 会在生效会话里收到你写的话。",
 } as const;

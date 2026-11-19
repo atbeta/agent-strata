@@ -488,4 +488,54 @@ export default {
   "schedule.panel.weeklyAt": "Every {weekday} at {time}",
   "schedule.panel.everyMinutes": "Every {minutes} minutes",
   "schedule.panel.onceAt": "Once at {at}",
+
+  // The panel reads a schedule back: when it next fires, when it last
+  // ran and how that went. The run result is a wire value the backend
+  // sends ("ok", "skipped-busy", …), so it needs a word here.
+  "schedule.panel.nextRun": "Next run",
+  "schedule.panel.lastRun": "Last run",
+  "schedule.panel.neverRan": "Has not run yet",
+  "schedule.panel.result.ok": "Succeeded",
+  "schedule.panel.result.skippedBusy": "Skipped — session was busy",
+  "schedule.panel.result.failed": "Failed",
+  "schedule.panel.result.missed": "Missed",
+  "schedule.panel.result.late": "Ran late",
+  "schedule.panel.paused": "Paused",
+
+  // Which session the prompt lands in. "This session" is the one the
+  // reader is looking at; anything else names the session it goes to.
+  "schedule.panel.target.session": "Session",
+  "schedule.panel.target.thisSession": "This session",
+  "schedule.panel.target.newSession": "A new session each time",
+  "schedule.panel.target.named": "Another session",
+
+  // The weekday a weekly schedule fires on, in the reader's language.
+  // The backend stores a number; only the word is translated here.
+  "schedule.panel.weekday.sunday": "Sunday",
+  "schedule.panel.weekday.monday": "Monday",
+  "schedule.panel.weekday.tuesday": "Tuesday",
+  "schedule.panel.weekday.wednesday": "Wednesday",
+  "schedule.panel.weekday.thursday": "Thursday",
+  "schedule.panel.weekday.friday": "Friday",
+  "schedule.panel.weekday.saturday": "Saturday",
+
+  // A time relative to now: "in 3 minutes" / "3 分钟后" — the unit is
+  // part of the phrase, so the two languages need their own wording.
+  "schedule.panel.inMinutes": "in {minutes} min",
+  "schedule.panel.inHours": "in {hours} h",
+  "schedule.panel.inDays": "in {days} d",
+  "schedule.panel.agoMinutes": "{minutes} min ago",
+  "schedule.panel.agoHours": "{hours} h ago",
+  "schedule.panel.agoDays": "{days} d ago",
+
+  // Errors the panel itself can raise, before the service is asked.
+  "schedule.panel.kind": "When",
+  "schedule.panel.err.nameRequired": "Give this schedule a name",
+  "schedule.panel.err.sessionRequired": "Pick the session it applies to",
+  "schedule.panel.err.promptRequired": "Write what the agent should receive",
+  "schedule.panel.err.atRequired": "Pick a time to run at",
+  "schedule.panel.err.atPast": "The run time cannot be in the past",
+  "schedule.panel.err.minutesInvalid": "The interval must be at least 5 minutes",
+  "schedule.panel.confirmRemove": "Click again to remove",
+  "schedule.panel.emptyHint": "When the time comes, the agent receives your text in the target session.",
 } as const;

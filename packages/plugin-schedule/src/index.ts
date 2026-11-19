@@ -36,6 +36,19 @@ export interface ScheduleHost {
   control: ScheduleControl;
   view(sessionId: string): SessionView;
   workspaceOf(sessionId: string): string | undefined;
+  /**
+   * The sessions a schedule may name, in one workspace.
+   *
+   * The panel asks the reader to pick a target session by name. The
+   * list is deliberately one workspace's: a schedule may only reach a
+   * session in the creator's workspace, so offering one from elsewhere
+   * would be offering a save that is refused.
+   */
+  listSessions(opts: { workspace?: string; limit?: number }): {
+    session_id: string;
+    title?: string | null;
+    workspace?: string | null;
+  }[];
 }
 
 const WHEN_FIELDS = ["at", "every_minutes", "daily", "weekly"] as const;
@@ -151,7 +164,18 @@ function str(input: Record<string, unknown>, key: string): string | undefined {
   return typeof v === "string" && v.trim() !== "" ? v.trim() : undefined;
 }
 
-/** Parse the one timing field the caller gave — exactly one is required. */
+/**
+ * Parse the one timing field the caller gave — exactly one is required.
+ *
+ * The grammar is deliberately narrow: the agent's tool spells a weekly as
+ * `"fri 18:00"`, because a model writes English weekdays and a wall-clock
+ * string. A reader's panel has no such grammar — its weekday picker holds
+ * a number, and a locale it does not share with the agent. So the panel
+ * sends `{ weekday, hour, minute }` and both are read here.
+ *
+ * The two shapes land on the same {@link When}, so nothing downstream has
+ * to know which caller wrote it.
+ */
 function parseWhen(input: Record<string, unknown>): When | string {
   const given = WHEN_FIELDS.filter((k) => input[k] !== undefined);
   if (given.length === 0) return "one of at / every_minutes / daily / weekly is required";
@@ -172,8 +196,26 @@ function parseWhen(input: Record<string, unknown>): When | string {
       }
       case "daily":
         return { kind: "daily", ...parseClock(str(input, "daily")!) };
-      case "weekly":
+      case "weekly": {
+        const raw = input.weekly;
+        if (raw && typeof raw === "object") {
+          const parts = raw as { weekday?: unknown; hour?: unknown; minute?: unknown };
+          const weekday = Number(parts.weekday);
+          const hour = Number(parts.hour);
+          const minute = Number(parts.minute);
+          if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6) {
+            return `weekly.weekday must be 0-6, got ${JSON.stringify(parts.weekday)}`;
+          }
+          if (!Number.isInteger(hour) || hour < 0 || hour > 23) {
+            return `weekly.hour must be 0-23, got ${JSON.stringify(parts.hour)}`;
+          }
+          if (!Number.isInteger(minute) || minute < 0 || minute > 59) {
+            return `weekly.minute must be 0-59, got ${JSON.stringify(parts.minute)}`;
+          }
+          return { kind: "weekly", weekday, hour, minute };
+        }
         return { kind: "weekly", ...parseWeekly(str(input, "weekly")!) };
+      }
     }
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
@@ -335,6 +377,15 @@ export function createSchedulePlugin(host: ScheduleHost): StrataPlugin {
       when = parsed;
     }
     const prompt = str(input, "prompt") ?? target.prompt;
+    // The name is part of what an update may change, and the tools say so.
+    // It used to be accepted and then dropped, which left a reader who
+    // renamed a schedule looking at the old name with no error to explain
+    // it.
+    const name = str(input, "name") ?? target.name;
+    if (name !== target.name) {
+      const clash = find({ name });
+      if (clash) return { error: `the name ${name} is taken by ${clash.id}` };
+    }
     const enabled = typeof input.enabled === "boolean" ? input.enabled : target.enabled;
 
     const newSession = input.new_session === true ? true : input.new_session === false ? false : target.target.kind === "new_session";
@@ -366,6 +417,7 @@ export function createSchedulePlugin(host: ScheduleHost): StrataPlugin {
     file.mutate((all) => {
       const cur = all.find((s) => s.id === target.id);
       if (!cur) return;
+      cur.name = name;
       cur.prompt = prompt;
       cur.enabled = enabled;
       cur.when = when;
@@ -466,7 +518,35 @@ export function createSchedulePlugin(host: ScheduleHost): StrataPlugin {
 
     async readResource(req) {
       if (req.key !== "schedules") throw new Error(`no resource ${req.key}`);
-      return { mime: "application/json", body: JSON.stringify({ schedules: file.load() }, null, 2) };
+      // The reader's first question about a schedule is which session it
+      // lands in, and a session id answers nothing to a human. The title is
+      // looked up here, because the plugin is the only side that can see
+      // sessions the panel did not create.
+      const titleOf = (sessionId: string): string | undefined => {
+        try {
+          return host.view(sessionId).title;
+        } catch {
+          return undefined;
+        }
+      };
+      const schedules = file.load().map((s) => ({
+        ...s,
+        target_title: s.target.kind === "session" ? titleOf(s.target.session_id) : undefined,
+      }));
+      // The sessions a schedule may name, so the reader picks one by its
+      // name instead of by an id they cannot see. The list is one
+      // workspace's and no other: a target outside the creator's
+      // workspace is refused on save anyway, so offering it would only
+      // be offering an error.
+      const all = file.load();
+      const workspace = all.length > 0 ? host.workspaceOf(all[0]!.created_by) : undefined;
+      const candidates = host
+        .listSessions({ workspace, limit: 200 })
+        .map((s) => ({ session_id: s.session_id, title: s.title }));
+      return {
+        mime: "application/json",
+        body: JSON.stringify({ schedules, candidates }, null, 2),
+      };
     },
 
     async route(req, subpath) {
@@ -490,21 +570,21 @@ export function createSchedulePlugin(host: ScheduleHost): StrataPlugin {
         const input = await body();
         if (!input) return Response.json({ error: "a body is required" }, { status: 400 });
         const made = makeSchedule(input, sessionId);
-        if (made.error) return Response.json({ error: made.error }, { status: 400 });
+        if (made.error) return Response.json({ error: made.error, code: "schedule-invalid" }, { status: 400 });
         return Response.json({ ok: true, schedule: made.schedule });
       }
 
       const m = /^\/schedules\/(sch_[a-z0-9]+)(?:\/(toggle))?$/.exec(subpath);
       if (!m) return undefined;
       const s = find({ id: m[1] });
-      if (!s) return Response.json({ error: "not found" }, { status: 404 });
+      if (!s) return Response.json({ error: "not found", code: "schedule-not-found" }, { status: 404 });
       if (req.method === "PUT") {
         const sessionId = sessionOf();
-        if (!sessionId) return Response.json({ error: "session is required" }, { status: 400 });
+        if (!sessionId) return Response.json({ error: "session is required", code: "session-required" }, { status: 400 });
         const input = await body();
-        if (!input) return Response.json({ error: "a body is required" }, { status: 400 });
+        if (!input) return Response.json({ error: "a body is required", code: "body-required" }, { status: 400 });
         const applied = applyTo(s, input, sessionId);
-        if (applied.error) return Response.json({ error: applied.error }, { status: 400 });
+        if (applied.error) return Response.json({ error: applied.error, code: "schedule-invalid" }, { status: 400 });
         return Response.json({ ok: true, schedule: find({ id: s.id }) });
       }
       if (req.method === "DELETE") {
@@ -520,7 +600,7 @@ export function createSchedulePlugin(host: ScheduleHost): StrataPlugin {
           cur.next_at = cur.enabled ? isoOrNull(firstAt(cur.when, Date.now())) : null;
         });
       } else {
-        return Response.json({ error: "method not allowed" }, { status: 405 });
+        return Response.json({ error: "method not allowed", code: "method-not-allowed" }, { status: 405 });
       }
       engine.rearm();
       ctx.emit({ type: "changed" });
