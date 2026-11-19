@@ -12,6 +12,7 @@ export const SETTINGS_SECTIONS = [
   { id: "interface", label: "settings.section.interface", icon: "monitor" },
   { id: "models", label: "settings.section.models", icon: "cube" },
   { id: "opencode", label: "settings.section.opencode", icon: "opencode" },
+  { id: "skills", label: "settings.section.skills", icon: "spark" },
   { id: "backends", label: "settings.section.backends", icon: "server" },
   { id: "plugins", label: "settings.section.plugins", icon: "plug" },
   { id: "permission", label: "settings.section.permission", icon: "shield" },

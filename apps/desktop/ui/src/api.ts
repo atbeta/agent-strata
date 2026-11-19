@@ -648,6 +648,114 @@ export function readSkills(sessionId: string): Promise<SkillInfo[] | undefined> 
   return readOpencode<SkillInfo[]>(sessionId, "/skill");
 }
 
+export type SkillSource =
+  | "opencode-global"
+  | "opencode-project"
+  | "claude"
+  | "agents"
+  | "custom"
+  | "http"
+  | "console"
+  | "builtin"
+  | "unknown";
+
+export interface ManagedSkill {
+  key: string;
+  id: string;
+  name: string;
+  description: string;
+  content: string;
+  autoInvoke: boolean;
+  location: string;
+  source: SkillSource;
+  scope: "global" | "project" | "other";
+  status: "active" | "overridden" | "inactive";
+  writable: boolean;
+  readonlyReason?: "remote" | "compatibility" | "custom" | "builtin" | "symlink";
+  directoryForm: boolean;
+  files: string[];
+  error?: string;
+}
+
+export interface ManagedSkillsResponse {
+  skills: ManagedSkill[];
+  workspace: string;
+  connection: { id: string; name?: string; local: boolean };
+  globalAvailable: boolean;
+}
+
+export interface SkillDraft {
+  name: string;
+  description: string;
+  content: string;
+  autoInvoke: boolean;
+}
+
+export interface SkillTargetsResponse {
+  workspaces: WorkspaceInfo[];
+  connection: { id: string; name?: string; local: boolean };
+  globalAvailable: boolean;
+}
+
+export function listSkillWorkspaces(connection: string): Promise<SkillTargetsResponse> {
+  return getJson(`/skills?${new URLSearchParams({ connection })}`);
+}
+
+function skillsQuery(connection: string, workspace: string): string {
+  return new URLSearchParams({ connection, workspace }).toString();
+}
+
+export function listManagedSkills(
+  connection: string,
+  workspace: string,
+  signal?: AbortSignal,
+): Promise<ManagedSkillsResponse> {
+  return getJson(`/skills?${skillsQuery(connection, workspace)}`, { signal });
+}
+
+export async function createManagedSkill(
+  connection: string,
+  workspace: string,
+  scope: "global" | "project",
+  id: string,
+  draft: SkillDraft,
+): Promise<{ reloaded: boolean }> {
+  const res = await apiFetch("/skills", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ connection, workspace, scope, id, ...draft }),
+  });
+  await throwOnError(res);
+  return (await res.json()) as { reloaded: boolean };
+}
+
+export async function updateManagedSkill(
+  key: string,
+  connection: string,
+  workspace: string,
+  draft: SkillDraft,
+): Promise<{ reloaded: boolean }> {
+  const res = await apiFetch(`/skills/${encodeURIComponent(key)}?${skillsQuery(connection, workspace)}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(draft),
+  });
+  await throwOnError(res);
+  return (await res.json()) as { reloaded: boolean };
+}
+
+export async function deleteManagedSkill(
+  key: string,
+  connection: string,
+  workspace: string,
+): Promise<{ reloaded: boolean }> {
+  const res = await apiFetch(`/skills/${encodeURIComponent(key)}?${skillsQuery(connection, workspace)}`, {
+    method: "DELETE",
+  });
+  await throwOnError(res);
+  return (await res.json()) as { reloaded: boolean };
+}
+
 export async function addMcp(
   sessionId: string,
   server: { name: string; command?: string; url?: string },

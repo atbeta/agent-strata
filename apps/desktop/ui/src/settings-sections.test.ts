@@ -11,6 +11,7 @@ describe("settings sections", () => {
     expect(settingsPath("/settings/opencode")).toEqual({ section: "opencode" });
     expect(settingsSection("opencode")).toBe("opencode");
     expect(settingsSection("plugins")).toBe("plugins");
+    expect(settingsSection("skills")).toBe("skills");
     expect(settingsSection("permission")).toBe("permission");
   });
 

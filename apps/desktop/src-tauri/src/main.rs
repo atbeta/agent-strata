@@ -1059,6 +1059,12 @@ impl Sidecars {
             // builds overwrite each other's files.
             ("STRATA_DESKTOP_DIR", data.to_string_lossy().into_owned()),
         ];
+        if let Some(config) = plugin_install::opencode_config_dir() {
+            envs.push((
+                "STRATA_OPENCODE_CONFIG_DIR",
+                config.to_string_lossy().into_owned(),
+            ));
+        }
         for (key, value) in &extras {
             envs.push((key.as_str(), value.clone()));
         }

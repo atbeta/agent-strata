@@ -51,6 +51,7 @@ import { SessionClaims } from "./identity";
 import { promptRoute } from "./prompt-routes";
 import { makeSessionControl } from "./session-ops";
 import { sessionRoute } from "./session-routes";
+import { skillRoute } from "./skill-routes";
 import { eventRoute } from "./event-routes";
 import { desktopRoute } from "./desktop-routes";
 import { workspaceRoute } from "./workspace-routes";
@@ -93,6 +94,8 @@ export interface ServiceOpts {
   autoConnectGeneration?: string;
   // directory holding desktop.json and opencode-status.json; default ~/.agent-strata
   desktopDir?: string;
+  // the shell's resolved OpenCode config directory; global skills live below it
+  opencodeConfigDir?: string;
   /**
    * Plugins to register on top of the builtins.
    *
@@ -138,9 +141,12 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   const createdDirs = new Map<string, string>();
   const touched = new Set<string>();
   const claims = new SessionClaims();
-  const knownDirs = async (): Promise<Map<string, { directory: string; name?: string }>> => {
+  const knownDirs = async (connectionId?: string): Promise<Map<string, { directory: string; name?: string }>> => {
     const dirs = new Map<string, { directory: string; name?: string }>();
-    for (const conn of conns.values()) {
+    const selected = connectionId === undefined ? [...conns.values()] : [conns.get(connectionId)];
+    for (const conn of selected) {
+      if (!conn) continue;
+      if (conn.directory && !dirs.has(conn.directory)) dirs.set(conn.directory, { directory: conn.directory });
       try {
         for (const workspace of await conn.listWorkspaces()) {
           if (workspace.directory && !dirs.has(workspace.directory)) {
@@ -152,6 +158,13 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       }
     }
     for (const summary of store.listSessions()) {
+      if (connectionId !== undefined) {
+        const owner = conns.connectionOf(summary.session_id);
+        const belongs =
+          owner === connectionId ||
+          (owner === undefined && conns.size === 1 && summary.backend === selected[0]?.backend);
+        if (!belongs) continue;
+      }
       const workspace = summary.workspace;
       if (workspace && workspace !== "unknown" && workspace !== "no workspace" && !dirs.has(workspace)) {
         dirs.set(workspace, { directory: workspace });
@@ -909,6 +922,14 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     });
     if (connection) return connection;
 
+    const skills = await skillRoute(req, path, {
+      connections: conns,
+      desktopDir,
+      opencodeConfigDir: opts.opencodeConfigDir,
+      knownDirs,
+    });
+    if (skills) return skills;
+
     const policy = await policyRoute(req, path, {
       runtime: policyRuntime,
       store,
@@ -1090,6 +1111,7 @@ export function main(): void {
       port,
       policyFile,
       apiToken: process.env.STRATA_API_TOKEN,
+      opencodeConfigDir: process.env.STRATA_OPENCODE_CONFIG_DIR,
       autoConnect: process.env.STRATA_OPENCODE_URL,
       autoConnectUsername: process.env.STRATA_OPENCODE_USERNAME,
       autoConnectPassword: process.env.STRATA_OPENCODE_PASSWORD,

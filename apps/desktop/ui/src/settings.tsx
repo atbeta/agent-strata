@@ -67,6 +67,7 @@ import { PolicyEditor } from "./policy";
 import { ProviderSettings } from "./providers";
 import { MaintenanceSettings } from "./maintenance";
 import { PluginSettings } from "./plugin-settings";
+import { SkillSettings } from "./skill-settings";
 import { SETTINGS_SECTIONS, settingsSection } from "./settings-sections";
 import { Tip } from "./tip";
 import { handleRovingKey } from "./roving-key";
@@ -1113,6 +1114,10 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
         </Show>
       </Card>
       </Group>
+      </Show>
+
+      <Show when={section() === "skills"}>
+        <SkillSettings conns={props.conns} />
       </Show>
 
       <Show when={section() === "models"}>

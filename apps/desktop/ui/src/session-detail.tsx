@@ -427,6 +427,11 @@ export function SessionDetail(props: {
       refetchCommands();
     };
     window.addEventListener("strata-connections", onConns);
+    const onSkills = () => {
+      refetchCommands();
+      void tools.reloadSkills();
+    };
+    window.addEventListener("strata-skills-changed", onSkills);
     const onFocus = () => refetchVcs();
     window.addEventListener("focus", onFocus);
     const poll = setInterval(() => {
@@ -578,6 +583,7 @@ export function SessionDetail(props: {
       esClosed = true;
       es?.close();
       window.removeEventListener("strata-connections", onConns);
+      window.removeEventListener("strata-skills-changed", onSkills);
       window.removeEventListener("focus", onFocus);
     });
   });

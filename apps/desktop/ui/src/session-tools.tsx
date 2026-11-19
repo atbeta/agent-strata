@@ -290,6 +290,7 @@ export function useMcpTools(args: {
     attention: () => mcpAttention(mcpServers().map(([, server]) => server.status)),
     mcpServers,
     skills,
+    reloadSkills: () => loadTools(false),
     mcpBusy,
     mcpNote,
     mcpAddOpen,
