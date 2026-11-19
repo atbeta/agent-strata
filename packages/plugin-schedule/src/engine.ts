@@ -142,6 +142,25 @@ export class ScheduleEngine {
           this.deps.emit({ type: "changed" });
           return;
         }
+        // The scope is checked here too, not only where the target was
+        // named: the session may have moved out of the creator's
+        // workspace since, and a fire must not cross that line.
+        const targetId = s.target.session_id;
+        if (!this.inScope(s, targetId)) {
+          this.deps.file.mutate((all) => {
+            const cur = all.find((x) => x.id === id);
+            if (cur) {
+              cur.enabled = false;
+              this.settleDisabled(
+                cur,
+                "failed",
+                `target session ${targetId} is outside this schedule's workspace`,
+              );
+            }
+          });
+          this.deps.emit({ type: "changed" });
+          return;
+        }
         if (busy) {
           this.deps.file.mutate((all) => {
             const cur = all.find((x) => x.id === id);
@@ -165,6 +184,18 @@ export class ScheduleEngine {
           s.last_note = `new session ${created.sessionId}`;
           await this.deps.control.prompt(created.sessionId, this.text(s));
         } else {
+          // Re-checked: the session may have turned busy between the check
+          // above and this prompt. A prompt that lands on a running turn is
+          // what a human's own send does too, but the engine promised not
+          // to.
+          if (this.busy(s.target.session_id)) {
+            this.deps.file.mutate((all) => {
+              const cur = all.find((x) => x.id === id);
+              if (cur) this.settle(cur, now, "skipped-busy", "session was busy; not queued");
+            });
+            this.deps.emit({ type: "changed" });
+            return;
+          }
           await this.deps.control.prompt(s.target.session_id, this.text(s));
         }
         this.deps.file.mutate((all) => {
@@ -189,6 +220,33 @@ export class ScheduleEngine {
     s.last_result = result;
     s.last_note = note;
     s.next_at = null;
+  }
+
+  /**
+   * A target is in scope when it is the creator's own session or shares
+   * the creator's workspace - the rule the plugin applies when the
+   * target is named, checked again here because a session can change
+   * its workspace, and because the rule must hold at the moment the
+   * prompt actually goes out.
+   */
+  private inScope(s: Schedule, sessionId: string): boolean {
+    if (sessionId === s.created_by) return true;
+    const ws = this.deps.workspaceOf(s.created_by);
+    if (ws === undefined) return false;
+    try {
+      return this.deps.view(sessionId).workspace === ws;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Whether a session is running a turn right now. */
+  private busy(sessionId: string): boolean {
+    try {
+      return this.deps.view(sessionId).busy;
+    } catch {
+      return false;
+    }
   }
 
   private text(s: Schedule): string {
