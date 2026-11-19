@@ -207,6 +207,26 @@ export function createSchedulePlugin(host: ScheduleHost): StrataPlugin {
     return s ?? `no such schedule: ${idOrName.id ?? idOrName.name}`;
   };
 
+  /**
+   * A schedule may only reach a session in the creator's workspace.
+   *
+   * The resolver that turns a name into a session id is global, and the
+   * view reads any session, so without this a schedule made in one
+   * repository could prompt a session in another - the boundary the
+   * sessions plugin keeps for reads. The creator's own session is always
+   * in scope: that is the default target.
+   */
+  const inScope = (creatorId: string, sessionId: string): boolean => {
+    if (sessionId === creatorId) return true;
+    const ws = host.workspaceOf(creatorId);
+    if (ws === undefined) return false;
+    try {
+      return host.view(sessionId).workspace === ws;
+    } catch {
+      return false;
+    }
+  };
+
   const describe = (s: Schedule): string =>
     [
       `${s.id}  ${s.name}${s.enabled ? "" : "  (disabled)"}`,
@@ -248,6 +268,9 @@ export function createSchedulePlugin(host: ScheduleHost): StrataPlugin {
           host.view(sessionId);
         } catch {
           return err(`no such session: ${named}`);
+        }
+        if (!inScope(req.sessionId, sessionId)) {
+          return err("that session is not in this workspace");
         }
       }
       target = { kind: "session", session_id: sessionId };
@@ -296,12 +319,17 @@ export function createSchedulePlugin(host: ScheduleHost): StrataPlugin {
     } else if (!newSession) {
       const named = str(req.input, "session_id");
       if (named) {
+        let resolved: string;
         try {
-          next = { kind: "session", session_id: ctx.resolveSession(named) };
-          host.view(next.session_id);
+          resolved = ctx.resolveSession(named);
+          host.view(resolved);
         } catch {
           return err(`no such session: ${named}`);
         }
+        if (!inScope(req.sessionId, resolved)) {
+          return err("that session is not in this workspace");
+        }
+        next = { kind: "session", session_id: resolved };
       } else {
         next = target.target.kind === "session" ? target.target : { kind: "session", session_id: req.sessionId };
       }

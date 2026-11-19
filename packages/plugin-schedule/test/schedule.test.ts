@@ -161,6 +161,30 @@ describe("engine", () => {
     expect(Date.parse(saved.next_at!)).toBeGreaterThan(NOW);
   });
 
+  test("a fire does not prompt a target outside the creator's workspace", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "sched-"));
+    const calls: ControlCalls = { created: [], prompted: [] };
+    const deps = engineDeps(dir, {
+      control: control(calls),
+      // the caller sits in /repo; the target lives in another repository
+      view: (id: string) => ({
+        ...view(false),
+        session_id: id,
+        workspace: id === CALLER ? WS : "/other-repo",
+      }),
+      workspaceOf: (id: string) => (id === CALLER ? WS : undefined),
+    });
+    const s = seed(dir, { target: { kind: "session", session_id: OTHER } });
+    const engine = new ScheduleEngine(deps);
+    await engine.runDue(false);
+    await engine.stop();
+
+    expect(calls.prompted).toHaveLength(0);
+    const saved = deps.file.load().find((x) => x.id === s.id)!;
+    expect(saved.last_result).toBe("failed");
+    expect(saved.enabled).toBe(false);
+  });
+
   test("startup catch-up: inside the window it fires once late; past it, missed", async () => {
     const dir = mkdtempSync(join(tmpdir(), "sched-"));
     const calls: ControlCalls = { created: [], prompted: [] };
@@ -266,6 +290,28 @@ describe("tools", () => {
     expect(past.output).toContain("in the past");
     const tooFast = await p.callTool(req("create", { name: "x", prompt: "y", every_minutes: 1 }));
     expect(tooFast.output).toContain("≥ 5");
+    await p.shutdown();
+  });
+
+  test("a target outside the creator's workspace is refused", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "sched-"));
+    const calls: ControlCalls = { created: [], prompted: [] };
+    const p = createSchedulePlugin({
+      control: control(calls),
+      // the caller sits in /repo; the other session lives in another repository
+      view: (id: string) => ({
+        ...view(false),
+        session_id: id,
+        workspace: id === CALLER ? WS : "/other-repo",
+      }),
+      workspaceOf: (id: string) => (id === CALLER ? WS : id === OTHER ? "/other-repo" : undefined),
+    });
+    await p.initialize(ctxOf(dir));
+    const out = await p.callTool(
+      req("create", { name: "cross", prompt: "p", daily: "09:30", session_id: OTHER }),
+    );
+    expect(out.isError).toBe(true);
+    expect(out.output).toContain("not in this workspace");
     await p.shutdown();
   });
 
