@@ -123,6 +123,10 @@ export const manifest: PluginManifest = {
         "next_from_turn: 42 | earlier_from_turn: 25`. Pass `from_turn=40`",
         "back to reach the same page — the range reads 1-based and the",
         "parameter is 0-based, and the header says so.",
+        "",
+        "With `query`, it returns only the turns that mention it, and the",
+        "cursors point at the next and previous turn that matched —",
+        "paging by turn would land on an empty page.",
         "Sessions outside the caller's workspace answer \"no such session\".",
       ].join("\n"),
       input: {
@@ -133,6 +137,9 @@ export const manifest: PluginManifest = {
           max_turns: { type: "integer", description: "Turns to return, up to 50 (default 15)." },
           max_chars: { type: "integer", description: "Total size cap, 500-20000 (default 6000)." },
           raw: { type: "boolean", description: "Give the original text instead of a digest of it: per-field cuts are lifted, so a whole file or a whole tool output arrives whole. The page's own size cap still applies." },
+          query: { type: "string", description: "Read only the turns that mention this, instead of the whole session. The text is searched as written, not as digested, so a match is never lost to a cut. `next_from_turn` then points at the next turn that matched." },
+          context: { type: "integer", description: "Turns to show either side of a matched turn (default 0, max 5)." },
+          match: { type: "enum", enum: ["all", "any"], description: "Whether every word must appear (all, default) or one of them (any)." },
         },
         required: ["session_id"],
       },
@@ -293,6 +300,9 @@ export function createSessionsPlugin(host: SessionsHost): StrataPlugin {
       maxTurns: Math.min(Math.max(intOpt(req.input.max_turns) ?? 15, 1), 50),
       maxChars: intOpt(req.input.max_chars),
       raw: req.input.raw === true,
+      query: typeof req.input.query === "string" ? req.input.query : undefined,
+      context: intOpt(req.input.context),
+      match: req.input.match === "any" ? "any" : undefined,
     });
     // The cursors are in the digest's own header, beside the range they
     // belong to. A cursor at the foot of a long transcript is a cursor

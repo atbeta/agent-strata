@@ -354,6 +354,67 @@ describe("digest", () => {
     expect(raw.text).not.toContain("+1500 chars");
   });
 
+  test("a query returns only the turns that mention it", () => {
+    // A reader who knows what they are looking for does not want the
+    // whole session read back at them.
+    const turns = [
+      turn("t0", "about the deploy", "shipped"),
+      turn("t1", "nothing to see", "indeed"),
+      turn("t2", "the registry again", "yes"),
+    ];
+    const out = digest(view({ turns }), { query: "registry" });
+    expect(out.text).toContain("the registry again");
+    expect(out.text).not.toContain("nothing to see");
+    expect(out.text).toContain("turn 3 (from_turn=2)");
+    expect(out.matched).toEqual([2]);
+  });
+
+  test("the query cursor points at the next match, not the next turn", () => {
+    // Paging by turn would land the reader on a page with nothing in it.
+    const turns = [
+      turn("t0", "first hit", "a"),
+      turn("t1", "nothing", "b"),
+      turn("t2", "nothing", "c"),
+      turn("t3", "second hit", "d"),
+    ];
+    // One match a page, so there is a next page to point at.
+    const out = digest(view({ turns }), { query: "hit", maxTurns: 1 });
+    expect(out.nextFrom).toBe(3);
+    expect(out.text).toContain("next_from_turn: 3");
+  });
+
+  test("the back cursor starts the previous page of matches", () => {
+    const turns = [
+      turn("t0", "hit one", "a"),
+      turn("t1", "hit two", "b"),
+      turn("t2", "hit three", "c"),
+      turn("t3", "hit four", "d"),
+    ];
+    const page = digest(view({ turns }), { query: "hit", maxTurns: 2 });
+    expect(page.matched).toEqual([0, 1]);
+    expect(page.nextFrom).toBe(2);
+    // The next page starts at match 2, and going back from there lands
+    // on the page before this one.
+    const second = digest(view({ turns }), { query: "hit", maxTurns: 2, from: 2 });
+    expect(second.matched).toEqual([2, 3]);
+    expect(second.earlierFrom).toBe(0);
+  });
+
+  test("a match is found in the text as written, not as digested", () => {
+    // The digest cuts a long reply to 1500 characters. A match beyond
+    // that cut must still be found, or the hit is lost exactly where
+    // the detail is.
+    const long = "x".repeat(2000) + " needle " + "y".repeat(2000);
+    const out = digest(view({ turns: [turn("t0", long, "ok")] }), { query: "needle" });
+    expect(out.matched).toEqual([0]);
+  });
+
+  test("every word has to appear unless the reader says otherwise", () => {
+    const turns = [turn("t0", "alpha only", "a"), turn("t1", "alpha and beta", "b")];
+    expect(digest(view({ turns }), { query: "alpha beta" }).matched).toEqual([1]);
+    expect(digest(view({ turns }), { query: "alpha beta", match: "any" }).matched).toEqual([0, 1]);
+  });
+
   test("a turn that would exceed max_chars becomes the next page", () => {
     const turns = Array.from({ length: 4 }, (_, i) =>
       turn(`t${i}`, "q".repeat(2000), "a".repeat(2000)),
