@@ -72,6 +72,93 @@ export const PluginResourceManifest = z.object({
 export const PanelKind = z.enum(["logs", "status", "component"]);
 export type PanelKind = z.infer<typeof PanelKind>;
 
+/**
+ * One setting the reader may change, described well enough for the app to
+ * draw a control for it.
+ *
+ * Deliberately small: a boolean, a string, a number, or a choice among
+ * strings. A plugin cannot ship UI, so the shape the app knows how to
+ * draw is the whole of what a plugin can ask for.
+ */
+export const PluginSettingSchema = z.object({
+  type: z.enum(["boolean", "string", "number", "enum"]),
+  /** a short label; the app falls back to the key when absent */
+  title: z.string().optional(),
+  /** one line of help under the control */
+  description: z.string().optional(),
+  /** the values an enum offers */
+  enum: z.array(z.string()).optional(),
+  /** the value used when the reader has not chosen one */
+  default: z.unknown().optional(),
+});
+export type PluginSetting = z.infer<typeof PluginSettingSchema>;
+
+/** The settings a plugin declares, as a small JSON-Schema-like object. */
+export const PluginSettingsSchema = z.object({
+  type: z.literal("object"),
+  properties: z.record(PluginSettingSchema),
+});
+export type PluginSettings = z.infer<typeof PluginSettingsSchema>;
+
+/**
+ * The saved values a plugin's schema accepts.
+ *
+ * A value of the wrong type, or one for a key the plugin never declared, is
+ * dropped rather than passed on: a hand-edited state file cannot put a
+ * number where a boolean belongs, and a key nobody declared does not
+ * become a setting.
+ */
+export function acceptedSettings(
+  schema: PluginSettings,
+  saved: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, setting] of Object.entries(schema.properties)) {
+    const value = saved[key];
+    if (value !== undefined && matchesSetting(setting, value)) out[key] = value;
+  }
+  return out;
+}
+
+/**
+ * The values in force: what the reader chose, over what the plugin
+ * declared as its default.
+ *
+ * A default that does not match its own setting's type is left out rather
+ * than handed over wrong.
+ */
+export function settingsInForce(
+  schema: PluginSettings,
+  saved: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, setting] of Object.entries(schema.properties)) {
+    const value = saved[key];
+    if (value !== undefined && matchesSetting(setting, value)) {
+      out[key] = value;
+      continue;
+    }
+    if (setting.default !== undefined && matchesSetting(setting, setting.default)) {
+      out[key] = setting.default;
+    }
+  }
+  return out;
+}
+
+/** Whether a value is one this setting accepts. */
+function matchesSetting(setting: PluginSetting, value: unknown): boolean {
+  switch (setting.type) {
+    case "boolean":
+      return typeof value === "boolean";
+    case "string":
+      return typeof value === "string";
+    case "number":
+      return typeof value === "number" && Number.isFinite(value);
+    case "enum":
+      return typeof value === "string" && (setting.enum ?? []).includes(value);
+  }
+}
+
 export const PluginManifestSchema = z
   .object({
     id: PluginId,
@@ -127,6 +214,14 @@ export const PluginManifestSchema = z
       })
       .optional(),
     config: z.record(z.unknown()).optional(),
+    /**
+     * The settings the reader may change, described as a small schema.
+     *
+     * The values the reader picks are kept by the host and reach the plugin
+     * through ctx.config, over the manifest's own config defaults. A
+     * plugin that declares nothing here is unaffected.
+     */
+    settings: PluginSettingsSchema.optional(),
   })
   .superRefine((m, ctx) => {
     // `provides` is a claim and the sections are the content. Two sources of
@@ -249,6 +344,13 @@ export interface PluginSummary {
   panel?: PluginManifest["panel"];
   hooks?: PluginManifest["hooks"];
   ui?: PluginManifest["ui"];
+  /**
+   * The settings the reader may change, with the values in force.
+   *
+   * Absent when the plugin declares none - a plugin that asks for nothing
+   * shows nothing here.
+   */
+  settings?: { schema: PluginSettings; values: Record<string, unknown> };
 }
 
 // ---------------------------------------------------------------------------
@@ -274,7 +376,13 @@ export interface PluginContext {
   resolveSession(id: string): string;
   /** Per-plugin data directory, created before initialize. */
   dataDir: string;
-  /** The manifest's `config` defaults, if any. */
+  /**
+   * The plugin's effective config: the manifest's config defaults with
+   * the reader's saved choices over them.
+   *
+   * A plugin that declares settings reads its own knobs here; one that
+   * declares none sees exactly what it saw before.
+   */
   config: Record<string, unknown>;
   logger: Logger;
   /** Send an event to the host, which forwards it on the plugin's SSE stream. */

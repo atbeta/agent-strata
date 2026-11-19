@@ -17,11 +17,13 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
+  acceptedSettings,
   hostAllowed,
   loadManifest,
   parseHttpUrl,
   qualifiedToolName,
   satisfiesRange,
+  settingsInForce,
   splitToolName,
   STRATA_VERSION,
   type PluginContext,
@@ -115,6 +117,8 @@ export class PluginHost {
   /** Per-plugin tool tables, dropped when that plugin's instance changes. */
   private readonly toolCache = new Map<string, ToolEntry[]>();
   private readonly disabled = new Set<string>();
+  /** The reader's choices per plugin, from the state file. */
+  private readonly settings = new Map<string, Record<string, unknown>>();
   private readonly listeners = new Set<() => void>();
   private readonly stateFile: string;
   private stopping = false;
@@ -168,7 +172,10 @@ export class PluginHost {
       pluginId: id,
       dataDir: data,
       resolveSession: (sessionId) => this.options.resolveSession(sessionId),
-      config: (record.manifest.config as Record<string, unknown> | undefined) ?? {},
+      config: {
+        ...(record.manifest.config as Record<string, unknown> | undefined),
+        ...this.effectiveSettings(id),
+      },
       logger: {
         info: (m, d) => this.log(id, "info", m, d),
         warn: (m, d) => this.log(id, "warn", m, d),
@@ -280,11 +287,55 @@ export class PluginHost {
       panel: r.manifest.panel,
       hooks: r.manifest.hooks,
       ui: r.manifest.ui,
+      settings: r.manifest.settings
+        ? { schema: r.manifest.settings, values: this.effectiveSettings(r.manifest.id) }
+        : undefined,
     }));
   }
 
   get(id: string): PluginRecord | undefined {
     return this.records.get(id);
+  }
+
+  /**
+   * The values in force for a plugin's declared settings.
+   *
+   * A plugin that declares none gets nothing here, so its config is
+   * exactly what it was before this existed.
+   */
+  private effectiveSettings(id: string): Record<string, unknown> {
+    const schema = this.records.get(id)?.manifest.settings;
+    if (!schema) return {};
+    return settingsInForce(schema, this.settings.get(id) ?? {});
+  }
+
+  /**
+   * Record the reader's choices for a plugin and restart it so the new
+   * values reach it.
+   *
+   * The restart is not a nicety: `ctx.config` is read when the plugin is
+   * initialized, so a running instance keeps the old values until it is
+   * started again. Restarting is the only way the choice just made is the
+   * one in force.
+   *
+   * The values are checked against what the plugin declared before they
+   * are stored, so a request cannot introduce a key the plugin never
+   * asked for or a value of the wrong type.
+   */
+  async setSettings(id: string, values: Record<string, unknown>): Promise<void> {
+    const record = this.records.get(id);
+    if (!record) throw new Error(`no plugin "${id}"`);
+    const schema = record.manifest.settings;
+    if (!schema) throw new Error(`plugin "${id}" declares no settings`);
+    const accepted = acceptedSettings(schema, values);
+    const rejected = Object.keys(values).filter((k) => !(k in accepted));
+    if (rejected.length > 0) {
+      throw new Error(`not a setting of ${id}, or the wrong type: ${rejected.join(", ")}`);
+    }
+    this.settings.set(id, accepted);
+    this.persist();
+    if (record.state === "running" || record.state === "starting") await this.restart(id);
+    this.changed();
   }
 
   /**
@@ -677,6 +728,14 @@ export class PluginHost {
       if (Array.isArray(disabled)) {
         for (const id of disabled) if (typeof id === "string") this.disabled.add(id);
       }
+      const settings = (raw as { settings?: unknown }).settings;
+      if (settings && typeof settings === "object") {
+        for (const [id, values] of Object.entries(settings as Record<string, unknown>)) {
+          if (values && typeof values === "object") {
+            this.settings.set(id, values as Record<string, unknown>);
+          }
+        }
+      }
     } catch {
       // A corrupt state file must not stop the service: the default is
       // "everything enabled", which is what a missing file means too.
@@ -685,7 +744,14 @@ export class PluginHost {
 
   private persist(): void {
     try {
-      writeSecureJson(this.stateFile, { disabled: [...this.disabled].sort() });
+      // The settings key appears only once a plugin has some, so a file
+      // written before this existed stays byte for byte what it was.
+      const state: {
+        disabled: string[];
+        settings?: Record<string, Record<string, unknown>>;
+      } = { disabled: [...this.disabled].sort() };
+      if (this.settings.size > 0) state.settings = Object.fromEntries(this.settings);
+      writeSecureJson(this.stateFile, state);
     } catch (e) {
       this.options.logger.warn("could not write plugins-state.json", e);
     }

@@ -117,6 +117,28 @@ export async function pluginRoute(
     }
   }
 
+  // --- settings ----------------------------------------------------------
+  // The reader's choices for a plugin's declared settings. The host checks
+  // them against what the plugin declared, so a request cannot set a key
+  // the plugin never asked for or a value of the wrong type. The plugin is
+  // restarted afterwards, because its config is read when it starts.
+  const settings = /^([a-z][a-z0-9-]*)\/settings$/.exec(rest);
+  if (settings && req.method === "POST") {
+    const id = settings[1]!;
+    const body = (await req.json().catch(() => null)) as { values?: unknown } | null;
+    const values = body?.values;
+    if (!values || typeof values !== "object" || Array.isArray(values)) {
+      return json({ error: "values must be an object" }, 400);
+    }
+    if (!host.get(id)) return json({ error: "no such plugin" }, 404);
+    try {
+      await host.setSettings(id, values as Record<string, unknown>);
+      return json({ ok: true, plugin: host.get(id)?.state });
+    } catch (e) {
+      return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+    }
+  }
+
   // --- health ------------------------------------------------------------
   const health = /^([a-z][a-z0-9-]*)\/health$/.exec(rest);
   if (health && req.method === "GET") {

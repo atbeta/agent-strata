@@ -2,21 +2,28 @@ import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Switch } from "@/components/ui/switch";
+import { TextFieldInput } from "@/components/ui/text-field";
 import {
   setPluginLifecycle,
+  setPluginSettings,
   type PluginLifecycleAction,
   type PluginSummary,
 } from "./api";
 import { explain, fadeKeyed } from "./errors";
 import { num, t, type MessageKey } from "./i18n";
-import { pluginDisplayDescription, pluginDisplayName } from "./plugin-display";
+import {
+  pluginDisplayDescription,
+  pluginDisplayName,
+  pluginSettingTitle,
+  pluginSettingValueLabel,
+} from "./plugin-display";
 import {
   pluginSummaries,
   pluginsLoaded,
   pluginsReadFailed,
   refreshPlugins,
 } from "./plugin-registry";
-import { Card, Group } from "./settings-blocks";
+import { Card, Group, Segmented } from "./settings-blocks";
 
 const STATE_KEYS: Record<PluginSummary["state"], MessageKey> = {
   disabled: "settings.plugins.state.disabled",
@@ -42,6 +49,44 @@ export function PluginSettings() {
   const [expanded, setExpanded] = createSignal<Record<string, boolean>>({});
   const [feedback, setFeedback] = fadeKeyed();
   const [confirming, setConfirming] = createSignal("");
+  /** The values the reader has picked but not yet saved, per plugin. */
+  const [draft, setDraft] = createSignal<Record<string, Record<string, unknown>>>({});
+  /** The plugin whose settings are being saved right now. */
+  const [savingId, setSavingId] = createSignal("");
+
+  const settingValue = (plugin: PluginSummary, key: string): unknown =>
+    draft()[plugin.id]?.[key] ?? plugin.settings?.values[key];
+
+  const setSetting = (plugin: PluginSummary, key: string, value: unknown) => {
+    setDraft((current) => ({
+      ...current,
+      [plugin.id]: { ...current[plugin.id], [key]: value },
+    }));
+  };
+
+  /**
+   * Save the reader's choices. The service restarts the plugin, so the
+   * values are in force once this resolves - which is why the plugin is
+   * restarted rather than told to reread them.
+   */
+  const saveSettings = async (plugin: PluginSummary) => {
+    const values = draft()[plugin.id];
+    if (!values) return;
+    setSavingId(plugin.id);
+    try {
+      await setPluginSettings(plugin.id, values);
+      setDraft((current) => {
+        const next = { ...current };
+        delete next[plugin.id];
+        return next;
+      });
+      await refreshPlugins();
+    } catch (error) {
+      setFeedback(plugin.id, explain(error));
+    } finally {
+      setSavingId("");
+    }
+  };
   /**
    * Plugins disabled a moment ago, so the reader can take it back.
    *
@@ -276,6 +321,73 @@ export function PluginSettings() {
                             <dt class="text-muted-foreground">{t("settings.plugins.hooks")}</dt>
                             <dd>{hookSummary(plugin)}</dd>
                           </dl>
+                          <Show when={plugin.settings}>
+                            <div class="mt-3 border-t border-border pt-3">
+                              <p class="mb-2 font-medium text-foreground">
+                                {t("settings.plugins.settings")}
+                              </p>
+                              <For each={Object.entries(plugin.settings!.schema.properties)}>
+                                {([key, setting]) => (
+                                  <div class="mb-2 last:mb-0">
+                                    <p class="text-muted-foreground">
+                                      {pluginSettingTitle(plugin.id, key, setting.title ?? key)}
+                                    </p>
+                                    <Show when={setting.description}>
+                                      <p class="text-2xs text-muted-foreground">
+                                        {setting.description}
+                                      </p>
+                                    </Show>
+                                    <Show when={setting.type === "boolean"}>
+                                      <Switch
+                                        checked={settingValue(plugin, key) === true}
+                                        aria-label={pluginSettingTitle(plugin.id, key, key)}
+                                        onChange={(next) => setSetting(plugin, key, next)}
+                                      />
+                                    </Show>
+                                    <Show when={setting.type === "enum"}>
+                                      <Segmented
+                                        label={pluginSettingTitle(plugin.id, key, key)}
+                                        value={String(settingValue(plugin, key) ?? "")}
+                                        options={(setting.enum ?? []).map((value) => ({
+                                          id: value,
+                                          label: pluginSettingValueLabel(plugin.id, key, value),
+                                        }))}
+                                        onChange={(value) => setSetting(plugin, key, value)}
+                                      />
+                                    </Show>
+                                    <Show when={setting.type === "string" || setting.type === "number"}>
+                                      <TextFieldInput
+                                        type="text"
+                                        inputmode={setting.type === "number" ? "numeric" : undefined}
+                                        value={String(settingValue(plugin, key) ?? "")}
+                                        onInput={(e) =>
+                                          setSetting(
+                                            plugin,
+                                            key,
+                                            setting.type === "number"
+                                              ? Number(e.currentTarget.value)
+                                              : e.currentTarget.value,
+                                          )
+                                        }
+                                      />
+                                    </Show>
+                                  </div>
+                                )}
+                              </For>
+                              <Show when={draft()[plugin.id]}>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  class="mt-2"
+                                  disabled={savingId() === plugin.id}
+                                  onClick={() => saveSettings(plugin)}
+                                >
+                                  {t("settings.plugins.settings.save")}
+                                </Button>
+                              </Show>
+                            </div>
+                          </Show>
                         </div>
                       </Show>
                     </div>

@@ -77,9 +77,9 @@ const ctx: PluginContext = {
   emit: async () => {},
 } as unknown as PluginContext;
 
-async function plugin(h: SessionsHost): Promise<StrataPlugin> {
+async function plugin(h: SessionsHost, config: Record<string, unknown> = {}): Promise<StrataPlugin> {
   const p = createSessionsPlugin(h);
-  await p.initialize(ctx);
+  await p.initialize({ ...ctx, config } as unknown as PluginContext);
   return p;
 }
 
@@ -155,6 +155,47 @@ describe("sessions_search", () => {
     const p = await plugin(host());
     const out = await p.callTool(req("search", { query: "   " }));
     expect(out.isError).toBe(true);
+  });
+});
+
+describe("the read scope", () => {
+  test("the default scope keeps a read inside the caller's workspace", async () => {
+    const p = await plugin(
+      host({
+        view: (id) => view({ session_id: id, workspace: "/other-repo" }),
+      }),
+    );
+    const out = await p.callTool(req("read", { session_id: "opencode:ses1" }));
+    expect(out.isError).toBe(true);
+    expect(out.output).toContain("no such session");
+  });
+
+  test("the global scope reads a session in another workspace", async () => {
+    const p = await plugin(
+      host({
+        view: (id) => view({ session_id: id, workspace: "/other-repo" }),
+      }),
+      { scope: "global" },
+    );
+    const out = await p.callTool(req("read", { session_id: "opencode:ses1" }));
+    expect(out.isError).not.toBe(true);
+    expect(out.output).toContain("== session opencode:ses1 ==");
+  });
+
+  test("the global scope lists across workspaces", async () => {
+    const seen: Parameters<SessionsHost["list"]>[0][] = [];
+    const p = await plugin(
+      host({
+        list: (opts) => {
+          seen.push(opts);
+          return [summary("opencode:other", { workspace: "/other-repo" })];
+        },
+      }),
+      { scope: "global" },
+    );
+    const out = await p.callTool(req("list"));
+    expect(seen[0]!.workspace).toBeUndefined();
+    expect(out.output).toContain("sessions in every workspace:");
   });
 });
 
