@@ -4,6 +4,7 @@ import {
   pluginDisplayDescription,
   pluginDisplayName,
   pluginSettingDescription,
+  pluginSettingTitle,
 } from "./plugin-display";
 
 describe("plugin display names", () => {
@@ -20,6 +21,8 @@ describe("plugin display names", () => {
     expect(pluginDisplayName("dev", "Long-running commands")).toBe("后台进程");
     expect(pluginDisplayName("schedule", "Scheduled prompts")).toBe("定时任务");
     expect(pluginDisplayName("sessions", "Session memory")).toBe("会话记忆");
+    expect(pluginDisplayName("background", "Custom background")).toBe("自定义背景");
+    expect(pluginSettingTitle("background", "fit", "Image fit")).toBe("填充方式");
     expect(pluginDisplayDescription("browser")).toContain("浏览器");
     expect(pluginDisplayDescription("schedule")).toContain("发送消息");
     expect(pluginDisplayDescription("sessions")).toContain("历史会话");

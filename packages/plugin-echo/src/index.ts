@@ -57,7 +57,7 @@ export const manifest: PluginManifest = {
       policy: { default: "allow" },
     },
   ],
-  resources: [{ key: "count", mime: "application/json", description: "How many times say ran." }],
+  resources: [{ key: "count", mime: "application/json", description: "How many times say ran.", scope: "session" }],
   panel: { id: "echo", title: "Echo", kind: "status" },
   ui: { toolRenderers: { say: { kind: "read", icon: "message" } } },
 };

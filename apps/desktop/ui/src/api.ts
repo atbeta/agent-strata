@@ -1355,10 +1355,13 @@ export interface PluginSummary {
   error?: string;
   provides: string[];
   tools: { name: string; description: string }[];
-  resources: { key: string; mime: string }[];
+  resources: { key: string; mime: string; scope: "session" | "global" }[];
   panel?: { id: string; title: string; kind: "logs" | "status" | "component"; icon?: string; resource?: string };
   hooks?: { beforeTool: string[]; systemPrompt: boolean };
-  ui?: { toolRenderers: Record<string, { kind: string; icon?: string }> };
+  ui?: {
+    background?: { resource: string };
+    toolRenderers: Record<string, { kind: string; icon?: string }>;
+  };
   /** The settings the reader may change, with the values in force. */
   settings?: {
     schema: {
@@ -1371,6 +1374,10 @@ export interface PluginSummary {
           description?: string;
           enum?: string[];
           default?: unknown;
+          minimum?: number;
+          maximum?: number;
+          step?: number;
+          unit?: string;
         }
       >;
     };

@@ -136,4 +136,37 @@ describe("the plugin registry", () => {
     expect(registry.pluginSummaries().map((plugin) => plugin.id)).toEqual(["keep"]);
     expect(registry.pluginsReadFailed()).toBe(true);
   });
+
+  test("only a running plugin contributes a background", async () => {
+    const registry = await import("./plugin-registry");
+    servePlugins({
+      plugins: [{
+        id: "background",
+        name: "Background",
+        version: "1",
+        state: "running",
+        provides: ["resources"],
+        tools: [],
+        resources: [{ key: "background", mime: "application/json", scope: "global" }],
+        ui: { background: { resource: "background" }, toolRenderers: {} },
+      }],
+    });
+    await registry.refreshPlugins();
+    expect(registry.backgroundContribution()).toEqual({ plugin: "background", resource: "background" });
+
+    servePlugins({
+      plugins: [{
+        id: "background",
+        name: "Background",
+        version: "1",
+        state: "disabled",
+        provides: ["resources"],
+        tools: [],
+        resources: [],
+        ui: { background: { resource: "background" }, toolRenderers: {} },
+      }],
+    });
+    await registry.refreshPlugins();
+    expect(registry.backgroundContribution()).toBeUndefined();
+  });
 });

@@ -68,6 +68,7 @@ export interface ToolRenderer {
 
 const [renderers, setRenderers] = createSignal<Record<string, ToolRenderer>>({});
 const [panels, setPanels] = createSignal<PanelContribution[]>([]);
+const [backgrounds, setBackgrounds] = createSignal<BackgroundContribution[]>([]);
 const [plugins, setPlugins] = createSignal<PluginSummary[]>([]);
 const [allPlugins, setAllPlugins] = createSignal<PluginSummary[]>([]);
 const [loaded, setLoaded] = createSignal(false);
@@ -82,6 +83,11 @@ export interface PanelContribution {
   icon?: string;
   /** the resource key the panel reads; the kind's default when absent */
   resource?: string;
+}
+
+export interface BackgroundContribution {
+  plugin: string;
+  resource: string;
 }
 
 /**
@@ -102,8 +108,12 @@ export async function refreshPlugins(): Promise<void> {
   }
   const nextRenderers: Record<string, ToolRenderer> = {};
   const nextPanels: PanelContribution[] = [];
+  const nextBackgrounds: BackgroundContribution[] = [];
   for (const plugin of list) {
     if (plugin.state !== "running") continue;
+    if (plugin.ui?.background) {
+      nextBackgrounds.push({ plugin: plugin.id, resource: plugin.ui.background.resource });
+    }
     for (const [tool, declared] of Object.entries(plugin.ui?.toolRenderers ?? {})) {
       const kind = (RENDER_KINDS as readonly string[]).includes(declared.kind)
         ? (declared.kind as ToolRenderKind)
@@ -128,6 +138,7 @@ export async function refreshPlugins(): Promise<void> {
   }
   setRenderers(nextRenderers);
   setPanels(nextPanels);
+  setBackgrounds(nextBackgrounds);
   setPlugins(list.filter((p) => p.state === "running"));
   setAllPlugins(list);
   setLoaded(true);
@@ -151,6 +162,10 @@ export function pluginOfTool(tool: string): string | undefined {
 
 export function panelContributions(): PanelContribution[] {
   return panels();
+}
+
+export function backgroundContribution(): BackgroundContribution | undefined {
+  return backgrounds()[0];
 }
 
 export function runningPlugins(): PluginSummary[] {

@@ -283,7 +283,11 @@ export class PluginHost {
       description: r.manifest.description,
       provides: r.manifest.provides,
       tools: r.manifest.tools.map((t) => ({ name: t.name, description: t.description })),
-      resources: r.manifest.resources.map((r2) => ({ key: r2.key, mime: r2.mime })),
+      resources: r.manifest.resources.map((r2) => ({
+        key: r2.key,
+        mime: r2.mime,
+        scope: r2.scope ?? "session",
+      })),
       panel: r.manifest.panel,
       hooks: r.manifest.hooks,
       ui: r.manifest.ui,
@@ -518,11 +522,15 @@ export class PluginHost {
   async readResource(
     pluginId: string,
     key: string,
-    sessionId: string,
+    sessionId?: string,
   ): Promise<{ mime: string; body: Uint8Array | string }> {
     const record = this.records.get(pluginId);
     if (!record || record.state !== "running") throw new Error(`no plugin "${pluginId}"`);
-    if (!record.manifest.resources.some((r) => r.key === key)) throw new Error(`no resource ${key}`);
+    const resource = record.manifest.resources.find((r) => r.key === key);
+    if (!resource) throw new Error(`no resource ${key}`);
+    if ((resource.scope ?? "session") === "session" && !sessionId) {
+      throw new Error("session required");
+    }
     if (!record.plugin.readResource) throw new Error(`plugin "${pluginId}" has no resources`);
     const result = await record.plugin.readResource({ key, sessionId });
     return { mime: result.mime, body: result.body };

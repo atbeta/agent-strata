@@ -209,9 +209,17 @@ export async function pluginRoute(
   if (resource && req.method === "GET") {
     const pluginId = resource[1]!;
     const key = resource[2]!;
+    const declaration = host.get(pluginId)?.manifest.resources.find((item) => item.key === key);
     const requested = url.searchParams.get("session");
-    const sessionId = requested === null ? undefined : deps.resolveSession(requested);
-    if (!sessionId) return json({ error: "session required" }, 400);
+    const sessionId =
+      declaration?.scope === "global"
+        ? undefined
+        : requested === null
+          ? undefined
+          : deps.resolveSession(requested);
+    if ((declaration?.scope ?? "session") === "session" && !sessionId) {
+      return json({ error: "session required" }, 400);
+    }
     try {
       const read = await host.readResource(pluginId, key, sessionId);
       const body = read.body instanceof Uint8Array ? read.body : new TextEncoder().encode(read.body);

@@ -157,7 +157,7 @@ export const manifest: PluginManifest = {
       policy: { default: "ask", risk: "write" },
     },
   ],
-  resources: [{ key: "schedules", mime: "application/json", description: "Every schedule and its last result." }],
+  resources: [{ key: "schedules", mime: "application/json", description: "Every schedule and its last result.", scope: "session" }],
   panel: { id: "schedules", title: "Schedules", kind: "component", resource: "schedules" },
 };
 
@@ -541,6 +541,7 @@ export function createSchedulePlugin(host: ScheduleHost): StrataPlugin {
 
     async readResource(req) {
       if (req.key !== "schedules") throw new Error(`no resource ${req.key}`);
+      if (!req.sessionId) throw new Error("session required");
       // The reader's first question about a schedule is which session it
       // lands in, and a session id answers nothing to a human. The title is
       // looked up here, because the plugin is the only side that can see

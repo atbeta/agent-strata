@@ -23,6 +23,7 @@
 // through `ServiceOpts.plugins`.
 
 import type { RegisteredPlugin } from "./host";
+import { manifest as backgroundManifest, createBackgroundPlugin } from "@agent-strata/plugin-background";
 import { manifest as devManifest, createDevPlugin } from "@agent-strata/plugin-dev-process";
 import { manifest as scheduleManifest, createSchedulePlugin } from "@agent-strata/plugin-schedule";
 import { manifest as sessionsManifest, createSessionsPlugin } from "@agent-strata/plugin-sessions";
@@ -56,6 +57,10 @@ export interface BuiltinOptions {
 
 export function builtinPlugins(options: BuiltinOptions): RegisteredPlugin[] {
   return [
+    {
+      manifest: backgroundManifest,
+      create: () => createBackgroundPlugin(),
+    },
     {
       manifest: devManifest,
       // dev servers are the app's own long-lived processes, so the pid table

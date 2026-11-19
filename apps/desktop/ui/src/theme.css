@@ -1602,6 +1602,113 @@ html[data-theme="everforest"][data-scheme="light"] {
   }
 }
 
+/*
+ * A custom image sits behind the shell. The sidebar, the page and the cards
+ * paint with utilities, and a rule inside `@layer base` cannot beat those,
+ * so the image only showed in the gaps and the rest of the window stayed a
+ * solid colour. These sit outside the layer. The image's own scrim is not
+ * one of the surfaces: its opacity is the dimmer, and mixing it again would
+ * punch a hole through the tint.
+ */
+[data-custom-background="true"] .bg-sidebar {
+  background-color: color-mix(in srgb, var(--sidebar) 52%, transparent);
+}
+[data-custom-background="true"] .bg-background {
+  background-color: color-mix(in srgb, var(--background) 58%, transparent);
+}
+[data-custom-background="true"] .bg-card {
+  background-color: color-mix(in srgb, var(--card) 68%, transparent);
+}
+[data-custom-background="true"] .from-background {
+  --tw-gradient-from: color-mix(in srgb, var(--background) 58%, transparent);
+}
+[data-custom-background="true"] [data-plugin-background] .bg-background {
+  background-color: var(--background);
+}
+/* The user's own words sit in a solid secondary chip. Against a picture that
+   already shows through the page, that chip reads as a darker block than the
+   text around it. Only this bubble is opened up; other secondary surfaces
+   stay as they are. */
+[data-custom-background="true"] [data-message-role="user"] .bg-secondary {
+  background-color: color-mix(in srgb, var(--secondary) 55%, transparent);
+}
+@media (forced-colors: active) {
+  [data-plugin-background] {
+    display: none;
+  }
+  [data-custom-background="true"] .bg-sidebar {
+    background-color: var(--sidebar);
+  }
+  [data-custom-background="true"] .bg-background,
+  [data-custom-background="true"] .from-background {
+    background-color: var(--background);
+    --tw-gradient-from: var(--background);
+  }
+  [data-custom-background="true"] .bg-card {
+    background-color: var(--card);
+  }
+  [data-custom-background="true"] [data-message-role="user"] .bg-secondary {
+    background-color: var(--secondary);
+  }
+}
+
+/* The range thumb is drawn here because the native one ignores height.
+   Appearance has to be cleared on the input itself; clearing it only on the
+   thumb leaves WebKit's oversized control in place. 12px matches the switch
+   thumb in the same settings list, and the track is 3px so the thumb sits
+   just proud of it. */
+.range-field {
+  -webkit-appearance: none;
+  appearance: none;
+}
+.range-field::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--primary) var(--range-percent, 0%),
+    var(--input) var(--range-percent, 0%)
+  );
+}
+.range-field::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4.5px;
+  border-radius: 999px;
+  background: var(--card);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--foreground) 18%, transparent),
+    0 1px 2px color-mix(in srgb, var(--foreground) 16%, transparent);
+}
+.range-field:focus-visible::-webkit-slider-thumb {
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--ring) 35%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--foreground) 18%, transparent);
+}
+.range-field::-moz-range-track {
+  height: 3px;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--primary) var(--range-percent, 0%),
+    var(--input) var(--range-percent, 0%)
+  );
+}
+.range-field::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: none;
+  border-radius: 999px;
+  background: var(--card);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--foreground) 18%, transparent);
+}
+.range-field:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 35%, transparent);
+}
+
 /* Tailwind's preflight leaves buttons on the arrow cursor. Anything that
    receives a click should show a pointer, including inside a drag strip,
    where cursor: default would otherwise inherit. */

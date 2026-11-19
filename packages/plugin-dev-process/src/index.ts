@@ -171,7 +171,7 @@ export const manifest: PluginManifest = {
     },
   ],
   resources: [
-    { key: "processes", mime: "application/json", description: "Every command this session left running." },
+    { key: "processes", mime: "application/json", description: "Every command this session left running.", scope: "session" },
   ],
 };
 

@@ -30,6 +30,7 @@ const projects = [
   "packages/adapter-opencode",
   "packages/core",
   "packages/plugin-sdk",
+  "packages/plugin-background",
   "packages/plugin-dev-process",
   "packages/plugin-echo",
   "packages/plugin-schedule",

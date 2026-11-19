@@ -212,6 +212,27 @@ describe("the plugin platform", () => {
     expect((await get("/plugins/echo/resources/nope?session=opencode%3Ases_p")).status).toBe(404);
   }, 30_000);
 
+  test("a global resource needs no session and keeps the binary response guards", async () => {
+    let res: Response | undefined;
+    for (let i = 0; i < 240; i++) {
+      res = await get("/plugins/background/resources/background");
+      if (res.status === 200) break;
+      await Bun.sleep(50);
+    }
+    expect(res?.status).toBe(200);
+    expect(res?.headers.get("content-security-policy")).toBe("sandbox");
+    expect(res?.headers.get("x-content-type-options")).toBe("nosniff");
+    const spec = (await res?.json()) as { image: unknown; fit: string };
+    expect(spec.image).toBeNull();
+    expect(spec.fit).toBe("cover");
+    const listing = (await (await get("/plugins")).json()) as {
+      plugins: { id: string; resources: { key: string; scope: string }[]; ui?: unknown }[];
+    };
+    const background = listing.plugins.find((plugin) => plugin.id === "background");
+    expect(background?.resources.every((resource) => resource.scope === "global")).toBe(true);
+    expect(background?.ui).toMatchObject({ background: { resource: "background" } });
+  }, 30_000);
+
   test("a private route is reachable, and only within its namespace", async () => {
     const res = await get("/plugins/echo/panel/state");
     expect(res.status).toBe(200);
@@ -688,7 +709,7 @@ describe("what a fresh install ships", () => {
         listing = (await (await fetch(`http://127.0.0.1:${svc.port}/plugins`)).json()) as typeof listing;
         if (!listing.plugins.some((p) => p.id === "dev")) await Bun.sleep(50);
       }
-      expect(listing.plugins.map((p) => p.id).sort()).toEqual(["dev", "schedule", "sessions"]);
+      expect(listing.plugins.map((p) => p.id).sort()).toEqual(["background", "dev", "schedule", "sessions"]);
       const table = (await (await fetch(`http://127.0.0.1:${svc.port}/plugins/tools`)).json()) as {
         tools: { name: string }[];
       };

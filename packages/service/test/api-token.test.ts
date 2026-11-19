@@ -68,6 +68,20 @@ describe("the capability token", () => {
     expect(res.status).not.toBe(401);
   });
 
+  test("global plugin resources still require the bearer token", async () => {
+    const base = started("secret-test-token");
+    expect((await fetch(`${base}/plugins/background/resources/background`)).status).toBe(401);
+    let res: Response | undefined;
+    for (let i = 0; i < 240; i++) {
+      res = await fetch(`${base}/plugins/background/resources/background`, {
+        headers: { authorization: "Bearer secret-test-token" },
+      });
+      if (res.status === 200) break;
+      await Bun.sleep(50);
+    }
+    expect(res?.status).toBe(200);
+  });
+
   test("the token header is the way in too", async () => {
     const base = started("secret-test-token");
     const res = await fetch(`${base}/connect`, {

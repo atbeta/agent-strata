@@ -2,6 +2,8 @@ import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Switch } from "@/components/ui/switch";
+import { RangeField } from "@/components/ui/range-field";
+import { BackgroundImageSettings } from "./background-image-settings";
 import { TextFieldInput } from "@/components/ui/text-field";
 import {
   setPluginLifecycle,
@@ -355,6 +357,9 @@ export function PluginSettings() {
                               <p class="mb-2 font-medium text-foreground">
                                 {t("settings.plugins.settings")}
                               </p>
+                              <Show when={plugin.id === "background"}>
+                                <BackgroundImageSettings onChanged={refreshPlugins} />
+                              </Show>
                               <For each={Object.entries(plugin.settings!.schema.properties)}>
                                 {([key, setting]) => (
                                   <div class="mb-2 last:mb-0">
@@ -385,12 +390,35 @@ export function PluginSettings() {
                                       />
                                     </Show>
                                     <Show when={setting.type === "string" || setting.type === "number"}>
-                                      <TextFieldInput
-                                        type="text"
-                                        inputmode={setting.type === "number" ? "numeric" : undefined}
-                                        value={String(settingValue(plugin, key) ?? "")}
-                                        onInput={(e) => setSetting(plugin, key, e.currentTarget.value)}
-                                      />
+                                      <Show
+                                        when={
+                                          setting.type === "number" &&
+                                          setting.minimum !== undefined &&
+                                          setting.maximum !== undefined
+                                        }
+                                        fallback={
+                                          <TextFieldInput
+                                            type="text"
+                                            inputmode={setting.type === "number" ? "numeric" : undefined}
+                                            value={String(settingValue(plugin, key) ?? "")}
+                                            onInput={(e) => setSetting(plugin, key, e.currentTarget.value)}
+                                          />
+                                        }
+                                      >
+                                        <div class="mt-2 flex h-6 items-center gap-3">
+                                          <RangeField
+                                            min={setting.minimum}
+                                            max={setting.maximum}
+                                            step={setting.step ?? 1}
+                                            value={String(settingValue(plugin, key) ?? "")}
+                                            aria-label={pluginSettingTitle(plugin.id, key, key)}
+                                            onInput={(e) => setSetting(plugin, key, e.currentTarget.value)}
+                                          />
+                                          <span class="w-12 shrink-0 text-right text-2xs text-muted-foreground">
+                                            {String(settingValue(plugin, key) ?? "")}{setting.unit}
+                                          </span>
+                                        </div>
+                                      </Show>
                                     </Show>
                                   </div>
                                 )}

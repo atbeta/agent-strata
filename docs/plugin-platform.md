@@ -108,8 +108,8 @@ agent tool call
     }
   ],
   "resources": [
-    { "key": "screenshot", "mime": "image/png" },
-    { "key": "console", "mime": "application/json" }
+    { "key": "screenshot", "mime": "image/png", "scope": "session" },
+    { "key": "console", "mime": "application/json", "scope": "session" }
   ],
   "panel": { "id": "browser", "title": "Browser", "kind": "screencast" },
   "config": { "type": "object", "properties": {} }
@@ -135,6 +135,8 @@ dev-process 这类需要拦截与提示词贡献的插件，加 `hooks`：
 - `tools[].guards`：执行前由宿主校验的输入约束，形如 `{ "<input 字段>": "net" | "workspace" }`。`net` 按 `permissions.net` 的 host 允许列表校验 URL；`workspace` 要求路径解析后仍在 session 工作区内。校验失败返回 403，不进插件。只约束声明的字段 —— 这是宿主真正能执行的安全面（见 4.8）。
 - `tools[].timeout_ms`：单次执行上限，缺省 120s；超时按 `interrupted` 收尾。
 - `panel`：v1 为单数，一个插件至多一个面板。`resource` 可选、非空：数据面板读的资源 key；缺省按 kind 取（`logs` → `console`，`status` → `tabs`）。
+- `resources[].scope`：`session`（缺省）要求 `?session=`；`global` 用于应用级配置或资产，读取时 `sessionId` 为空。全局资源仍走相同的 Host/Origin/token、CSP sandbox 与 nosniff 守卫。
+- `ui.background`：声明应用级背景的 JSON 资源，且该资源必须是 `global`。宿主只接受类型化的背景参数与插件自有图片资源，不执行插件 CSS/JS；背景由 App 根的通用渲染层绘制。
 - `provides` 与 manifest 段的一致性校验见 §3。
 - `entry.kind`：v1 只实现 `builtin`；`process` 为第三方预留，届时协议固定为 MCP over stdio（见 4.4）。
 - `hooks.beforeTool`：插件要参与判定的**内置**工具名列表，经 `POST /hooks/before-tool` 回调插件。v1 不允许拦截其他插件的工具。
@@ -170,7 +172,7 @@ discovered -> disabled -> starting -> running -> stopping -> disabled
 | `GET /plugins/tools` | 全部已启用插件的工具表：`<id>_<tool>`、描述、input schema。与会话无关 —— session 相关判定全部在执行时的 policy 里，不在可见性里 |
 | `POST /plugins/:id/lifecycle` | `{ "action": "enable" \| "disable" \| "restart" }` |
 | `POST /plugins/:id/tools/:tool` | 执行工具；body `{ session_id, input, call_id? }`；内部做 guards 校验 + policy + ask。**唯一执行入口** |
-| `GET /plugins/:id/resources/:key` | 读资源；`?session=`；返回 bytes 或 JSON |
+| `GET /plugins/:id/resources/:key` | 读资源；session 资源要求 `?session=`，global 资源不需要；返回 bytes 或 JSON |
 | `GET /plugins/:id/events?session=` | SSE：进度、日志、面板事件；query token 放行 |
 | `GET /plugins/:id/health` | 存活与最近错误 |
 | `ANY /plugins/:id/<rest>` | 固定动词之外的路径交给插件的 `route()`：panel 输入、能力私有端点都走这里，不再为单个端点改 service |

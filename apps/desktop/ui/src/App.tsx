@@ -31,6 +31,7 @@ import { listLeaves, setPaneSession } from "./pane-tree";
 import { paneWorkspace, updatePaneWorkspace } from "./session-chrome";
 import { useSessionList } from "./use-session-list";
 import { refreshPlugins } from "./plugin-registry";
+import { PluginBackground } from "./plugin-background";
 import { installProgressListener } from "./plugin-progress";
 import { ConnectionEmpty, useConnections } from "./use-connections";
 import { useWorkspace } from "./use-workspace";
@@ -49,6 +50,7 @@ import { createDebouncer } from "./debounce";
 export function App() {
   const [route, setRoute] = createSignal<Route>(parseHash());
   const [clock, setClock] = createSignal(Date.now());
+  const [customBackground, setCustomBackground] = createSignal(false);
   /**
    * The route settings was entered from. Settings has no session of its own,
    * so a way back has to name one — and it is the route the reader actually
@@ -673,7 +675,12 @@ export function App() {
   );
 
   return (
-    <div class="flex h-full min-h-0 flex-col bg-background">
+    <div
+      class="relative isolate h-full min-h-0 bg-background"
+      data-custom-background={customBackground() ? "true" : undefined}
+    >
+      <PluginBackground onActive={setCustomBackground} />
+      <div class="relative z-10 flex h-full min-h-0 flex-col">
       <WindowCaptionBar
         sidebarOpen={sidebarOpen()}
         onToggleSidebar={toggleSidebar}
@@ -850,6 +857,7 @@ export function App() {
       <ImageViewerHost />
       </>
       </Show>
+      </div>
     </div>
   );
 }

@@ -39,7 +39,7 @@ function TextField(props: {
 
 type InputProps = Omit<JSX.InputHTMLAttributes<HTMLInputElement>, "class" | "type"> & {
   class?: string;
-  type?: "text" | "password" | "search" | "url" | "email" | "number";
+  type?: "text" | "password" | "search" | "url" | "email" | "number" | "file";
   size?: FieldSize;
   bare?: boolean;
   mono?: boolean;

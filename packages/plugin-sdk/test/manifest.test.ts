@@ -120,6 +120,38 @@ describe("manifest defaults", () => {
       }),
     ).toThrow();
   });
+
+  test("resources default to session scope and backgrounds require a global resource", () => {
+    const base = {
+      id: "p",
+      name: "P",
+      version: "1",
+      entry: { kind: "builtin" },
+      provides: ["resources"],
+      tools: [],
+    };
+    const session = loadManifest({
+      ...base,
+      resources: [{ key: "state", mime: "application/json" }],
+    });
+    expect(session.resources[0]?.scope).toBe("session");
+    const global = loadManifest({
+      ...base,
+      resources: [{ key: "state", mime: "application/json", scope: "global" }],
+      ui: { background: { resource: "state" } },
+    });
+    expect(global.ui?.background?.resource).toBe("state");
+    expect(() => loadManifest({
+      ...base,
+      resources: [{ key: "state", mime: "application/json" }],
+      ui: { background: { resource: "state" } },
+    })).toThrow(/global scope/);
+    expect(() => loadManifest({
+      ...base,
+      resources: [{ key: "other", mime: "application/json", scope: "global" }],
+      ui: { background: { resource: "state" } },
+    })).toThrow(/global scope/);
+  });
 });
 
 describe("the one reading of a URL", () => {

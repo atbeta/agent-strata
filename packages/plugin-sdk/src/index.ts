@@ -67,6 +67,7 @@ export const PluginResourceManifest = z.object({
   key: z.string().regex(/^[a-z][a-z0-9-]*$/),
   mime: z.string().min(1),
   description: z.string().optional(),
+  scope: z.enum(["session", "global"]).default("session"),
 });
 
 export const PanelKind = z.enum(["logs", "status", "component"]);
@@ -90,6 +91,11 @@ export const PluginSettingSchema = z.object({
   enum: z.array(z.string()).optional(),
   /** the value used when the reader has not chosen one */
   default: z.unknown().optional(),
+  minimum: z.number().finite().optional(),
+  maximum: z.number().finite().optional(),
+  step: z.number().positive().optional(),
+  /** A display suffix such as % or px; it does not change the stored number. */
+  unit: z.string().optional(),
 });
 export type PluginSetting = z.infer<typeof PluginSettingSchema>;
 
@@ -203,6 +209,7 @@ export const PluginManifestSchema = z
       .optional(),
     ui: z
       .object({
+        background: z.object({ resource: z.string().regex(/^[a-z][a-z0-9-]*$/) }).optional(),
         toolRenderers: z
           .record(
             z.object({
@@ -242,6 +249,17 @@ export const PluginManifestSchema = z
     claims(m.provides.includes("tools"), m.tools.length > 0, "tools");
     claims(m.provides.includes("resources"), m.resources.length > 0, "resources");
     claims(m.provides.includes("panel"), m.panel !== undefined, "panel");
+    const background = m.ui?.background;
+    if (background) {
+      const resource = m.resources.find((item) => item.key === background.resource);
+      if (!resource || resource.scope !== "global") {
+        ctx.addIssue({
+          code: "custom",
+          path: ["ui", "background", "resource"],
+          message: "background resource must be declared with global scope",
+        });
+      }
+    }
 
     const seen = new Set<string>();
     for (const tool of m.tools) {
@@ -340,7 +358,7 @@ export interface PluginSummary {
   description?: string;
   provides: PluginManifest["provides"];
   tools: { name: string; description: string }[];
-  resources: { key: string; mime: string }[];
+  resources: { key: string; mime: string; scope: "session" | "global" }[];
   panel?: PluginManifest["panel"];
   hooks?: PluginManifest["hooks"];
   ui?: PluginManifest["ui"];
@@ -422,7 +440,7 @@ export interface ToolCallResult {
 }
 
 export interface ResourceRequest {
-  sessionId: string;
+  sessionId?: string;
   key: string;
   signal?: AbortSignal;
 }
