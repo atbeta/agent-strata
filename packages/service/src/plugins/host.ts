@@ -332,7 +332,10 @@ export class PluginHost {
     if (rejected.length > 0) {
       throw new Error(`not a setting of ${id}, or the wrong type: ${rejected.join(", ")}`);
     }
-    this.settings.set(id, accepted);
+    // A save is a patch of what the reader changed, not a replacement of
+    // the whole table: the settings page sends the fields it touched, so
+    // saving one control must not drop the choices behind the others.
+    this.settings.set(id, { ...this.settings.get(id), ...accepted });
     this.persist();
     if (record.state === "running" || record.state === "starting") await this.restart(id);
     this.changed();
