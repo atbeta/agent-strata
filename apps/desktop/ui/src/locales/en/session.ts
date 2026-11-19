@@ -329,6 +329,8 @@ export default {
   "composer.attachments.other": "{n} attachments",
   "composer.background.one": "1 background process",
   "composer.background.other": "{n} background processes",
+  "composer.schedules.one": "1 scheduled prompt",
+  "composer.schedules.other": "{n} scheduled prompts",
 
   // Slash commands this app runs itself — the backend only lists its own.
   "cmd.compact": "Compact session context",
@@ -469,13 +471,24 @@ export default {
   "schedule.panel.time": "Time",
   "schedule.panel.weekday": "Weekday",
   "schedule.panel.minutes": "Minutes",
-  "schedule.panel.onceAtLabel": "When",
+  "schedule.panel.onceAtLabel": "Date and time",
+  "schedule.panel.dateTimePick": "Choose a date and time",
+  "schedule.panel.previousMonth": "Previous month",
+  "schedule.panel.nextMonth": "Next month",
+  "schedule.panel.today": "Today",
+  "schedule.panel.done": "Done",
   "schedule.panel.thisSession": "This session",
   "schedule.panel.namedSession": "Another session",
   "schedule.panel.newSession": "A new session",
-  "schedule.panel.sessionId": "Session id",
+  "schedule.panel.sessionId": "Target session",
   "schedule.panel.sessionPick": "Choose a session",
-  "schedule.panel.workspaceOnly": "A schedule may only reach a session in this workspace.",
+  "schedule.panel.sessionSearch": "Search session names or ids",
+  "schedule.panel.sessionNoMatch": "No session matches",
+  "schedule.panel.sessionMore": "Showing the first 30 matches. Keep typing to narrow the list.",
+  "schedule.panel.workspaceOnly": "Only sessions in the current workspace are available.",
+  "schedule.panel.loading": "Loading scheduled prompts…",
+  "schedule.panel.sectionTiming": "Schedule",
+  "schedule.panel.sectionTarget": "Destination",
   "schedule.panel.create": "Create",
   "schedule.panel.new": "New",
   "schedule.panel.creating": "New schedule",
@@ -508,12 +521,14 @@ export default {
   "schedule.panel.result.missed": "Missed",
   "schedule.panel.result.late": "Ran late",
   "schedule.panel.paused": "Paused",
+  "schedule.panel.noUpcoming": "Nothing upcoming",
 
   // Which session the prompt lands in. "This session" is the one the
   // reader is looking at; anything else names the session it goes to.
   "schedule.panel.target.session": "Session",
   "schedule.panel.target.thisSession": "This session",
   "schedule.panel.target.newSession": "A new session each time",
+  "schedule.panel.target.newSessionShort": "New session",
   "schedule.panel.target.named": "Another session",
 
   // The weekday a weekly schedule fires on, in the reader's language.
@@ -538,6 +553,8 @@ export default {
   // Errors the panel itself can raise, before the service is asked.
   "schedule.panel.kind": "When",
   "schedule.panel.err.nameRequired": "Give this schedule a name",
+  "schedule.panel.err.nameTaken": "The name \"{name}\" is already taken",
+  "schedule.panel.err.nameTakenBy": "The name \"{name}\" is already used by \"{session}\"",
   "schedule.panel.err.sessionRequired": "Pick the session it applies to",
   "schedule.panel.err.promptRequired": "Write what the agent should receive",
   "schedule.panel.err.atRequired": "Pick a time to run at",

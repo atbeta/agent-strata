@@ -64,6 +64,12 @@ export function weekdayName(weekday: number | undefined): string {
   return t(WEEKDAY_KEYS[n]!);
 }
 
+export function weekdayShortName(weekday: number): string {
+  if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6) return "";
+  const date = new Date(2023, 0, weekday + 1);
+  return new Intl.DateTimeFormat(LOCALE_TAG[locale()], { weekday: "short" }).format(date);
+}
+
 /** The word for a run result, or "" when the backend sent something new. */
 export function runResultText(result: string | undefined): string {
   switch (result) {
@@ -289,9 +295,9 @@ export function scheduleFacts(
 }
 
 /**
- * The one-shot's moment as the value a datetime-local input holds.
+ * The one-shot's moment as the local value the calendar editor holds.
  *
- * The input speaks "YYYY-MM-DDTHH:mm" in the reader's own wall time, which
+ * The editor speaks "YYYY-MM-DDTHH:mm" in the reader's own wall time, which
  * is what a person picks on a calendar. The backend wants an instant, so
  * the two ends of this conversion are kept apart on purpose.
  */
@@ -302,16 +308,32 @@ export function toLocalInputValue(ms: number): string {
 }
 
 /**
- * The instant a datetime-local input's value means.
+ * The instant the calendar editor's local value means.
  *
- * The input's text has no timezone on it, so it is read as the reader's own
+ * The value has no timezone on it, so it is read as the reader's own
  * wall time — which is the moment they picked on the calendar. A naive
  * `new Date(text)` would read it as UTC and shift the fire by the offset.
  */
 export function fromLocalInputValue(value: string): number | null {
-  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value.trim());
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value.trim());
   if (!m) return null;
   const [, y, mo, d, h, mi] = m;
-  const ms = new Date(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), 0, 0).getTime();
+  const year = Number(y);
+  const month = Number(mo);
+  const day = Number(d);
+  const hour = Number(h);
+  const minute = Number(mi);
+  if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59) return null;
+  const date = new Date(year, month - 1, day, hour, minute, 0, 0);
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day ||
+    date.getHours() !== hour ||
+    date.getMinutes() !== minute
+  ) {
+    return null;
+  }
+  const ms = date.getTime();
   return Number.isFinite(ms) ? ms : null;
 }

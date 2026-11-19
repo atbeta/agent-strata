@@ -7,7 +7,9 @@ import {
 } from "./api";
 import { BackgroundPanel } from "./background-panel";
 import { PluginPanel, isPluginPanelTab, panelForTab, pluginPanelTabs } from "./plugin-panel";
+import { pluginsLoaded, pluginsReadFailed } from "./plugin-registry";
 import type { DevProcesses } from "./dev-processes";
+import type { SchedulesController } from "./use-schedules";
 import { num, t, tn } from "./i18n";
 import { DiffBlock } from "./diff";
 import { FileBrowser } from "./files";
@@ -49,6 +51,8 @@ export function SessionRail(props: {
   pathFocus?: () => { path: string; n: number } | undefined;
   /** the session's background commands, shared with the composer's pill */
   dev: DevProcesses;
+  /** schedules shared with the composer, whether or not this rail is open */
+  schedules: SchedulesController;
   /** live repo state, read once by the parent for its branch chip */
   vcs: () => VcsInfo | undefined;
 }) {
@@ -128,7 +132,13 @@ export function SessionRail(props: {
     // A panel tab whose plugin was disabled since the reader picked it would
     // otherwise leave the rail blank; fall back to the builtin tab.
     const chosen = props.tab();
-    if (chosen.startsWith("plugin:") && !isPluginPanelTab(chosen)) return "changes";
+    if (
+      chosen.startsWith("plugin:") &&
+      !isPluginPanelTab(chosen) &&
+      (pluginsLoaded() || pluginsReadFailed())
+    ) {
+      return "changes";
+    }
     return chosen;
   };
 
@@ -235,6 +245,15 @@ export function SessionRail(props: {
             focus={props.pathFocus}
           />
         </Show>
+        <Show
+          when={
+            effectiveTab().startsWith("plugin:") && !pluginsLoaded() && !pluginsReadFailed()
+          }
+        >
+          <div class="flex flex-1 items-center justify-center p-6" role="status">
+            <p class="text-xs text-muted-foreground">{t("panel.plugin.waiting")}</p>
+          </div>
+        </Show>
         {/* A panel that throws must not take the rail with it: without a
             boundary an error inside one plugin's panel leaves the tabs beside
             it unable to change anything, which reads as the whole rail having
@@ -253,7 +272,13 @@ export function SessionRail(props: {
           )}
         >
           <Show when={panelForTab(effectiveTab())}>
-            {(panel) => <PluginPanel panel={panel()} sessionId={props.sessionId} />}
+            {(panel) => (
+              <PluginPanel
+                panel={panel()}
+                sessionId={props.sessionId}
+                schedules={props.schedules}
+              />
+            )}
           </Show>
         </ErrorBoundary>
         <Show when={effectiveTab() === "background"}>

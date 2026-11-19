@@ -12,6 +12,7 @@ import {
   targetText,
   toLocalInputValue,
   weekdayName,
+  weekdayShortName,
   whenText,
   type ScheduleLike,
 } from "./schedule-format";
@@ -48,6 +49,8 @@ describe("a weekly schedule's weekday", () => {
     withLocale("en", () => {
       expect(weekdayName(0)).toBe("Sunday");
       expect(weekdayName(5)).toBe("Friday");
+      expect(weekdayShortName(0)).toBe("Sun");
+      expect(weekdayShortName(5)).toBe("Fri");
     });
   });
 
@@ -55,6 +58,7 @@ describe("a weekly schedule's weekday", () => {
     expect(weekdayName(7)).toBe("");
     expect(weekdayName(undefined)).toBe("");
     expect(weekdayName(-1)).toBe("");
+    expect(weekdayShortName(7)).toBe("");
   });
 });
 
@@ -156,7 +160,7 @@ describe("a time relative to now", () => {
 });
 
 describe("the one-shot's moment", () => {
-  test("survives the round trip through a datetime-local value", () => {
+  test("survives the round trip through the calendar editor's value", () => {
     const ms = new Date(2026, 11, 1, 9, 0, 0, 0).getTime();
     const value = toLocalInputValue(ms);
     expect(value).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
@@ -171,6 +175,10 @@ describe("the one-shot's moment", () => {
   test("an empty or broken value is not a moment", () => {
     expect(fromLocalInputValue("")).toBeNull();
     expect(fromLocalInputValue("not a time")).toBeNull();
+    expect(fromLocalInputValue("2026-02-30T09:00")).toBeNull();
+    expect(fromLocalInputValue("2026-11-19T24:00")).toBeNull();
+    expect(fromLocalInputValue("2026-11-19T09:60")).toBeNull();
+    expect(fromLocalInputValue("2026-11-19T09:00 trailing")).toBeNull();
   });
 });
 

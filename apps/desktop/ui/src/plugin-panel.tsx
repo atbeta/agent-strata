@@ -3,6 +3,7 @@ import { apiFetch } from "./api";
 import { panelContributions, type PanelContribution } from "./plugin-registry";
 import { pluginDisplayName } from "./plugin-display";
 import { SchedulesPanel } from "./schedules-panel";
+import type { SchedulesController } from "./use-schedules";
 import { t } from "./i18n";
 
 /**
@@ -47,12 +48,19 @@ export function panelForTab(tab: string): PanelContribution | undefined {
  * in it is not offered at all, because a tab that pointed at nothing would
  * be blank.
  */
-const COMPONENTS: Record<string, Component<{ sessionId: () => string }>> = {
-  "schedule:schedules": SchedulesPanel,
+interface PluginComponentProps {
+  sessionId: () => string;
+  schedules?: SchedulesController;
+}
+
+const COMPONENTS: Record<string, Component<PluginComponentProps>> = {
+  "schedule:schedules": (props) => (
+    <SchedulesPanel sessionId={props.sessionId} controller={props.schedules!} />
+  ),
 };
 
 /** The component a panel is drawn with, when the app has one for it. */
-function panelComponent(panel: PanelContribution): Component<{ sessionId: () => string }> | undefined {
+function panelComponent(panel: PanelContribution): Component<PluginComponentProps> | undefined {
   return COMPONENTS[`${panel.plugin}:${panel.id}`];
 }
 
@@ -76,9 +84,9 @@ export function isPluginPanelTab(tab: string): boolean {
  * it is a platform capability, but shipping a renderer nothing uses and that
  * can wedge a rail is not.
  */
-export function PluginPanel(props: { panel: PanelContribution; sessionId: () => string }) {
+export function PluginPanel(props: PluginComponentProps & { panel: PanelContribution }) {
   const Component = panelComponent(props.panel);
-  if (Component) return <Component sessionId={props.sessionId} />;
+  if (Component) return <Component sessionId={props.sessionId} schedules={props.schedules} />;
   return <DataPanel panel={props.panel} sessionId={props.sessionId} />;
 }
 

@@ -2,6 +2,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { render } from "solid-js/web";
 import { setLocale } from "./i18n";
 import { SchedulesPanel } from "./schedules-panel";
+import { useSchedules } from "./use-schedules";
 
 /**
  * The panel's shape is the thing a reader sees, and the format tests never
@@ -78,7 +79,10 @@ test("a card is one sentence, and the form stays closed until asked", async () =
 
   const host = document.createElement("div");
   document.body.appendChild(host);
-  dispose = render(() => <SchedulesPanel sessionId={() => "opencode:me"} />, host);
+  dispose = render(() => {
+    const controller = useSchedules(() => "opencode:me");
+    return <SchedulesPanel sessionId={() => "opencode:me"} controller={controller} />;
+  }, host);
   await vi.waitFor(() => {
     expect(host.textContent).toContain("每日站会");
   });
@@ -94,6 +98,7 @@ test("a card is one sentence, and the form stays closed until asked", async () =
   expect(text).not.toContain("最近运行");
   expect(text).not.toContain("生效会话");
   expect(text).not.toContain("新建定时");
+  expect(text).not.toContain("任务内容");
 
   const prompt = [...host.querySelectorAll("p")].find((p) =>
     p.textContent?.includes("把今天的三件事"),
@@ -106,8 +111,68 @@ test("a card is one sentence, and the form stays closed until asked", async () =
   const open = [...host.querySelectorAll("button")].find((b) => b.textContent?.includes("新建"));
   expect(open).toBeTruthy();
   open!.click();
-  expect(host.textContent).toContain("新建定时");
+  expect(host.textContent).toContain("新建定时任务");
+  expect(host.textContent).not.toContain("任务内容");
   const clock = host.querySelector<HTMLInputElement>("input[placeholder='09:30']");
   expect(clock).toBeTruthy();
   expect(clock?.type).toBe("text");
+});
+
+test("a taken name names the session that already uses it", async () => {
+  setLocale("zh");
+  Element.prototype.scrollIntoView ??= () => {};
+  vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/plugins/schedule/resources/schedules")) {
+      return Promise.resolve(new Response(JSON.stringify(payload()), { status: 200 }));
+    }
+    return Promise.reject(new Error(`unexpected ${url}`));
+  });
+
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  dispose = render(() => {
+    const controller = useSchedules(() => "opencode:me");
+    return <SchedulesPanel sessionId={() => "opencode:me"} controller={controller} />;
+  }, host);
+  await vi.waitFor(() => expect(host.textContent).toContain("周五发布检查"));
+
+  const open = [...host.querySelectorAll("button")].find((b) => b.textContent?.includes("新建"));
+  open!.click();
+  const name = host.querySelector<HTMLInputElement>("input");
+  expect(name).toBeTruthy();
+  name!.value = "周五发布检查";
+  name!.dispatchEvent(new InputEvent("input", { bubbles: true }));
+  const create = [...host.querySelectorAll("button")].find((b) => b.textContent === "创建");
+  create!.click();
+
+  expect(host.textContent).toContain("名称「周五发布检查」已被会话「发布流水线」占用");
+  expect(host.textContent).not.toMatch(/sch_[a-z0-9]+/);
+});
+
+test("the first load never presents the empty state as settled content", async () => {
+  setLocale("zh");
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  vi.stubGlobal("fetch", () =>
+    pending.then(
+      () => new Response(JSON.stringify(payload()), { status: 200 }),
+    ),
+  );
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  dispose = render(() => {
+    const controller = useSchedules(() => "opencode:me");
+    return <SchedulesPanel sessionId={() => "opencode:me"} controller={controller} />;
+  }, host);
+
+  expect(host.textContent).toContain("正在读取定时任务");
+  expect(host.textContent).not.toContain("还没有定时任务");
+  expect(host.querySelector<HTMLButtonElement>("button[disabled]")?.textContent).toContain("新建");
+
+  release();
+  await vi.waitFor(() => expect(host.textContent).toContain("每日站会"));
+  expect(host.textContent).not.toContain("正在读取定时任务");
 });

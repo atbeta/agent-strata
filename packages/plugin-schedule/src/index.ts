@@ -67,7 +67,7 @@ export const manifest: PluginManifest = {
       name: "create",
       description: [
         "Schedule a prompt. Exactly one timing: `at` (ISO timestamp, one shot),",
-        "`every_minutes` (fixed interval), `daily` (\"HH:MM\" local time), or",
+        "`every_minutes` (digits, minimum 5, e.g. \"30\"), `daily` (\"HH:MM\" local time), or",
         "`weekly` (\"<weekday> HH:MM\" local time, e.g. \"fri 18:00\").",
         "",
         "By default the prompt lands in this session; pass `new_session: true`",
@@ -84,7 +84,10 @@ export const manifest: PluginManifest = {
           name: { type: "string", description: "A short label, unique among your schedules." },
           prompt: { type: "string", description: "The text sent when it fires." },
           at: { type: "string", description: "One shot: ISO-8601 timestamp." },
-          every_minutes: { type: "integer", description: "Repeating: minutes between fires, minimum 5." },
+          every_minutes: {
+            type: "string",
+            description: "Repeating: minutes between fires, minimum 5, written as digits (\"30\").",
+          },
           daily: { type: "string", description: "Repeating: \"HH:MM\" in local time." },
           weekly: { type: "string", description: "Repeating: \"<weekday> HH:MM\" in local time." },
           session_id: { type: "string", description: "Target session; defaults to this session." },
@@ -127,7 +130,10 @@ export const manifest: PluginManifest = {
           name: { type: "string" },
           prompt: { type: "string" },
           at: { type: "string" },
-          every_minutes: { type: "integer" },
+          every_minutes: {
+            type: "string",
+            description: "Repeating: minutes between fires, minimum 5, written as digits (\"30\").",
+          },
           daily: { type: "string" },
           weekly: { type: "string" },
           session_id: { type: "string" },
@@ -159,6 +165,17 @@ function err(message: string): ToolCallResult {
   return { output: `error: ${message}`, isError: true };
 }
 
+/**
+ * Minutes from a tool argument.
+ *
+ * `Number` reads the strings a session actually sends (`"30"`, `"60e0"`)
+ * and leaves a genuine number alone. Anything else is not a duration.
+ */
+function minutesOf(value: unknown): number | undefined {
+  const n = typeof value === "number" ? value : typeof value === "string" ? Number(value.trim()) : Number.NaN;
+  return Number.isFinite(n) ? n : undefined;
+}
+
 function str(input: Record<string, unknown>, key: string): string | undefined {
   const v = input[key];
   return typeof v === "string" && v.trim() !== "" ? v.trim() : undefined;
@@ -188,9 +205,13 @@ function parseWhen(input: Record<string, unknown>): When | string {
         return { kind: "at", at };
       }
       case "every_minutes": {
-        const mins = input.every_minutes;
-        if (typeof mins !== "number" || !Number.isFinite(mins) || mins < 5) {
-          return "every_minutes must be a number ≥ 5";
+        // A session's tool call does not deliver a JSON number — the same
+        // call writes `daily` and `weekly` as text and those land. Digits
+        // in a string are the form that arrives; a real number still does,
+        // from the panel and from a client that kept the type.
+        const mins = minutesOf(input.every_minutes);
+        if (mins === undefined || mins < 5) {
+          return `every_minutes must be a number ≥ 5, got ${JSON.stringify(input.every_minutes)}`;
         }
         return { kind: "every", everyMs: Math.round(mins * 60000) };
       }
@@ -329,7 +350,9 @@ export function createSchedulePlugin(host: ScheduleHost): StrataPlugin {
     }
 
     const clash = find({ name });
-    if (clash) return { error: `the name ${name} is taken by ${clash.id}` };
+    // The id is an internal handle. "taken by sch_…" does not say which
+    // schedule it is, so the sentence stops at the name.
+    if (clash) return { error: `the name ${name} is already taken` };
 
     const schedule: Schedule = {
       id: `sch_${randomBytes(4).toString("hex")}`,
@@ -384,7 +407,7 @@ export function createSchedulePlugin(host: ScheduleHost): StrataPlugin {
     const name = str(input, "name") ?? target.name;
     if (name !== target.name) {
       const clash = find({ name });
-      if (clash) return { error: `the name ${name} is taken by ${clash.id}` };
+      if (clash) return { error: `the name ${name} is already taken` };
     }
     const enabled = typeof input.enabled === "boolean" ? input.enabled : target.enabled;
 
@@ -538,8 +561,7 @@ export function createSchedulePlugin(host: ScheduleHost): StrataPlugin {
       // workspace's and no other: a target outside the creator's
       // workspace is refused on save anyway, so offering it would only
       // be offering an error.
-      const all = file.load();
-      const workspace = all.length > 0 ? host.workspaceOf(all[0]!.created_by) : undefined;
+      const workspace = host.workspaceOf(req.sessionId);
       const candidates = host
         .listSessions({ workspace, limit: 200 })
         .map((s) => ({ session_id: s.session_id, title: s.title }));

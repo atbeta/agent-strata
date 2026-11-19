@@ -292,6 +292,29 @@ describe("tools", () => {
     expect(past.output).toContain("in the past");
     const tooFast = await p.callTool(req("create", { name: "x", prompt: "y", every_minutes: 1 }));
     expect(tooFast.output).toContain("≥ 5");
+    const notANumber = await p.callTool(req("create", { name: "x", prompt: "y", every_minutes: "soon" }));
+    expect(notANumber.output).toContain("≥ 5");
+    await p.shutdown();
+  });
+
+  test("an interval arrives as digits, the way a session's tool call sends it", async () => {
+    const { p } = await plugin();
+    // The call does not deliver a JSON number. These are the shapes that
+    // were refused with the same "must be a number" line.
+    const digits = await p.callTool(req("create", { name: "digits", prompt: "p", every_minutes: "30" }));
+    expect(digits.isError).toBeFalsy();
+    expect(digits.output).toContain("every 30m");
+    const scientific = await p.callTool(req("create", { name: "scientific", prompt: "p", every_minutes: "60e0" }));
+    expect(scientific.isError).toBeFalsy();
+    expect(scientific.output).toContain("every 1h");
+    const five = await p.callTool(req("create", { name: "five", prompt: "p", every_minutes: "5" }));
+    expect(five.isError).toBeFalsy();
+    expect(five.output).toContain("every 5m");
+    const updated = await p.callTool(req("update", { name: "digits", every_minutes: "15" }));
+    expect(updated.isError).toBeFalsy();
+    expect(updated.output).toContain("every 15m");
+    const stillShort = await p.callTool(req("update", { name: "five", every_minutes: "4" }));
+    expect(stillShort.output).toContain("≥ 5");
     await p.shutdown();
   });
 
@@ -489,7 +512,8 @@ describe("tools", () => {
       const id = list.output.split("\n")[0]!.split(" ")[0]!;
       const clash = await p.callTool(req("update", { id, name: "second" }));
       expect(clash.isError).toBe(true);
-      expect(clash.output).toContain("taken");
+      expect(clash.output).toContain("already taken");
+      expect(clash.output).not.toMatch(/sch_[a-z0-9]+/);
       await p.shutdown();
     });
 
@@ -503,6 +527,25 @@ describe("tools", () => {
       };
       expect(body.schedules[0]!.target_title).toBe("standup");
       expect(body.candidates.map((c) => c.session_id)).toContain(CALLER);
+      await p.shutdown();
+    });
+
+    test("an empty workspace still scopes candidates by the requesting session", async () => {
+      const dir = mkdtempSync(join(tmpdir(), "sched-"));
+      const calls: ControlCalls = { created: [], prompted: [] };
+      const reads: { workspace?: string; limit?: number }[] = [];
+      const p = createSchedulePlugin({
+        control: control(calls),
+        view: () => view(false),
+        workspaceOf: (id) => (id === CALLER ? WS : undefined),
+        listSessions: (opts) => {
+          reads.push(opts);
+          return [];
+        },
+      });
+      await p.initialize(ctxOf(dir));
+      await p.readResource!({ key: "schedules", sessionId: CALLER });
+      expect(reads).toEqual([{ workspace: WS, limit: 200 }]);
       await p.shutdown();
     });
   });

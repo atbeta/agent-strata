@@ -30,6 +30,7 @@ import { fadeSignal } from "./errors";
 import { displayTitle } from "./session-title";
 import { Tip } from "./tip";
 import { DevRunningMark } from "./dev-mark";
+import { SchedulePill, type ScheduleSummary } from "./schedule-pill";
 import { planVisible } from "./plan-progress";
 import { PlanStrip } from "./plan-strip";
 import { GoalButton, GoalStrip, useGoal } from "./goal-bar";
@@ -1316,6 +1317,8 @@ export function SessionComposer(props: {
   readOnly?: () => string | undefined;
   /** Running background commands: the way into the rail's background tab. */
   background?: BackgroundSummary;
+  /** Timed prompts aimed at this session, even while the rail is closed. */
+  schedules?: ScheduleSummary;
 }) {
   const c = () => props.c;
   const g = useGoal(props.sessionId, () => props.goal, () => props.goalMet, () => props.goalPaused);
@@ -1343,41 +1346,45 @@ export function SessionComposer(props: {
             onHover={c().setMenuActive}
           />
         </Show>
-        {/* The rail hides the running commands behind one tab. A pill above
-            the composer is where a reader already looks, and it opens that tab
-            rather than duplicating the log well here. It appears only while
-            something is actually running; stopped rows keep their record in
-            the rail, not on the composer. */}
+        {/* Small ways into the rail stay above the composer even when the rail
+            is closed. The full records remain in their tabs, not duplicated here. */}
         <Show
-          when={props.background && props.background.count() > 0 ? props.background : undefined}
+          when={
+            (props.background?.count() ?? 0) > 0 || (props.schedules?.count() ?? 0) > 0
+          }
         >
-          {(background) => (
-            <div class="mb-2 flex">
-              {/* A background process is running, so the mark moves: the same
-                  breathing grid the sidebar uses for a busy session, which is
-                  what says "this is live" without a line of changing text.
-                  A static glyph read as a terminal button. */}
-              <Tip
-                label={background().commands().join("\n") || tn("composer.background", background().count())}
-              >
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="xs"
-                  class={`h-6 gap-1.5 rounded-full px-2.5 text-2xs font-normal ${
-                    background().active?.()
-                      ? "border-input bg-secondary text-foreground"
-                      : "border-border bg-secondary/60 text-muted-foreground hover:bg-secondary hover:text-foreground"
-                  }`}
-                  aria-label={tn("composer.background", background().count())}
-                  onClick={() => background().open()}
+          <div class="mb-2 flex flex-wrap items-center gap-1.5">
+            <Show
+              when={props.background && props.background.count() > 0 ? props.background : undefined}
+            >
+              {(background) => (
+                <Tip
+                  label={background().commands().join("\n") || tn("composer.background", background().count())}
                 >
-                  <DevRunningMark class="size-3.5" />
-                  {tn("composer.background", background().count())}
-                </Button>
-              </Tip>
-            </div>
-          )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="xs"
+                    class={`h-6 gap-1.5 rounded-full px-2.5 text-2xs font-normal ${
+                      background().active?.()
+                        ? "border-input bg-secondary text-foreground"
+                        : "border-border bg-secondary/60 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                    }`}
+                    aria-label={tn("composer.background", background().count())}
+                    onClick={() => background().open()}
+                  >
+                    <DevRunningMark class="size-3.5" />
+                    {tn("composer.background", background().count())}
+                  </Button>
+                </Tip>
+              )}
+            </Show>
+            <Show
+              when={props.schedules && props.schedules.count() > 0 ? props.schedules : undefined}
+            >
+              {(schedules) => <SchedulePill {...schedules()} />}
+            </Show>
+          </div>
         </Show>
         <GoalStrip g={g} />
         <Show when={planVisible(props.plan, c().generating())}>

@@ -6,6 +6,7 @@ import { writePlanChoice } from "./plan-progress";
 import { SessionRail } from "./session-rail";
 import { SessionDetail } from "./session-detail";
 import type { DevProcesses } from "./dev-processes";
+import type { SchedulesController } from "./use-schedules";
 import type { SessionRowSummary } from "./pane-stage";
 
 /**
@@ -55,6 +56,18 @@ const devStub = {
   refetch: async () => {},
 } as unknown as DevProcesses;
 
+const schedulesStub = {
+  rows: () => [],
+  candidates: () => [],
+  loadState: () => "ready",
+  error: () => undefined,
+  current: () => [],
+  count: () => 0,
+  names: () => [],
+  next: () => "",
+  reload: () => {},
+} as SchedulesController;
+
 test("PlanStrip mounts and draws a cancelled step as struck", () => {
   const host = document.createElement("div");
   // A plan with nothing in flight starts collapsed; pin it open the way a
@@ -103,6 +116,7 @@ const railProps = (view: ReturnType<typeof emptySessionView>, opencode: boolean)
   onJumpToTurn: () => {},
   onCite: () => {},
   dev: devStub,
+  schedules: schedulesStub,
   vcs: () => undefined,
 });
 

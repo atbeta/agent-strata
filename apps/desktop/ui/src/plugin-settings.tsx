@@ -14,6 +14,7 @@ import { num, t, type MessageKey } from "./i18n";
 import {
   pluginDisplayDescription,
   pluginDisplayName,
+  pluginSettingDescription,
   pluginSettingTitle,
   pluginSettingValueLabel,
 } from "./plugin-display";
@@ -362,7 +363,7 @@ export function PluginSettings() {
                                     </p>
                                     <Show when={setting.description}>
                                       <p class="text-2xs text-muted-foreground">
-                                        {setting.description}
+                                        {pluginSettingDescription(plugin.id, key, setting.description!)}
                                       </p>
                                     </Show>
                                     <Show when={setting.type === "boolean"}>

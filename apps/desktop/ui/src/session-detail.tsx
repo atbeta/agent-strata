@@ -47,6 +47,7 @@ import { usePaneActions } from "./pane-actions";
 import { paneWorkspace, panelOpen, panelTab, setPanelOpen, setPanelTab } from "./session-chrome";
 import { writePanelOpen, writePanelTab, type SidePanelTab } from "./right-pane";
 import { refreshPlugins } from "./plugin-registry";
+import { isPluginPanelTab } from "./plugin-panel";
 import { PeerSessionTranscript } from "./peer-transcript";
 import { LoadingTranscript } from "./content-sashes";
 import { useSessionSearch, SearchPanel } from "./session-search";
@@ -59,6 +60,7 @@ import { useSlashCommands } from "./slash-commands";
 import { useSessionView } from "./session-view";
 import { SessionRail } from "./session-rail";
 import { useDevProcesses } from "./dev-processes";
+import { useSchedules } from "./use-schedules";
 import { createEntranceLedger } from "./entrance";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -149,6 +151,8 @@ export function SessionDetail(props: {
   // The rail's background tab and the composer's pill read the same list; the
   // pill must keep working while the rail is closed.
   const dev = useDevProcesses(() => props.id, opencode);
+  const schedulesEnabled = () => opencode() && isPluginPanelTab("plugin:schedule");
+  const schedules = useSchedules(() => props.id, schedulesEnabled);
   const [lspServers] = createResource(
     () => (opencode() ? props.id : undefined),
     (id) => readLsp(id).catch(() => undefined),
@@ -905,6 +909,18 @@ export function SessionDetail(props: {
                           }
                         : undefined
                     }
+                    schedules={
+                      schedulesEnabled()
+                        ? {
+                            count: schedules.count,
+                            names: schedules.names,
+                            next: schedules.next,
+                            open: () => openPanel("plugin:schedule"),
+                            active: () =>
+                              panelOpen() && !traceBlock() && panelTab() === "plugin:schedule",
+                          }
+                        : undefined
+                    }
                   />
                 </SessionDock>
               </Show>
@@ -943,6 +959,7 @@ export function SessionDetail(props: {
             }}
             onCite={composer.citeLine}
             dev={dev}
+            schedules={schedules}
             vcs={() => settled(vcs)}
           />
         )}
