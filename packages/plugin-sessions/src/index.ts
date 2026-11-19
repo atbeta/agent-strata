@@ -90,6 +90,10 @@ export const manifest: PluginManifest = {
         "Returns matching snippets with the session and time each came from.",
         "Use this to recall where something was decided or built, then",
         "sessions_read to get the context around it.",
+        "",
+        "A hit that belongs to a known turn says so: `turn 41 (from_turn=40)`",
+        "is where to look, and `from_turn=40` is the value to pass to",
+        "sessions_read to land on it — no arithmetic needed.",
       ].join("\n"),
       input: {
         type: "object",
@@ -113,6 +117,12 @@ export const manifest: PluginManifest = {
         "turns; `earlier_from_turn` continues toward older context and",
         "`next_from_turn` toward newer. Only committed",
         "events are visible — a turn still streaming is not readable yet.",
+        "",
+        "The header names the range, both numberings, and where each",
+        "direction goes next: `showing 41-42 (1-based) | from_turn=40 |",
+        "next_from_turn: 42 | earlier_from_turn: 25`. Pass `from_turn=40`",
+        "back to reach the same page — the range reads 1-based and the",
+        "parameter is 0-based, and the header says so.",
         "Sessions outside the caller's workspace answer \"no such session\".",
       ].join("\n"),
       input: {
@@ -122,6 +132,7 @@ export const manifest: PluginManifest = {
           from_turn: { type: "integer", description: "First turn to include, 0-based (turns count from the session's start)." },
           max_turns: { type: "integer", description: "Turns to return, up to 50 (default 15)." },
           max_chars: { type: "integer", description: "Total size cap, 500-20000 (default 6000)." },
+          raw: { type: "boolean", description: "Give the original text instead of a digest of it: per-field cuts are lifted, so a whole file or a whole tool output arrives whole. The page's own size cap still applies." },
         },
         required: ["session_id"],
       },
@@ -198,8 +209,10 @@ export function createSessionsPlugin(host: SessionsHost): StrataPlugin {
     const hits = host.search(query, { workspace: ws, limit: offset + limit + 1 });
     const { shown, next } = pageOf(hits, offset, limit);
     const titles = new Map(host.list({ workspace: ws, limit: 2000 }).map((row) => [row.session_id, row.title]));
+    const anchors = turnAnchors(shown);
     const lines = shown.map(
-      (hit) => `${hit.event.session_id} | ${titles.get(hit.event.session_id) ?? "(untitled)"} | ${hit.event.ts}\n   ${hit.snippet}`,
+      (hit) =>
+        `${hit.event.session_id} | ${titles.get(hit.event.session_id) ?? "(untitled)"} | ${hit.event.ts}${anchors.get(hit) ?? ""}\n   ${hit.snippet}`,
     );
     return {
       output: [
@@ -208,6 +221,54 @@ export function createSessionsPlugin(host: SessionsHost): StrataPlugin {
         ...(next === null ? [] : [`next_cursor: ${next}`]),
       ].join("\n"),
     };
+  };
+
+  /**
+   * Where each hit sits, as a turn the reader can walk to.
+   *
+   * A tool result carries no turn of its own — the projector binds it to
+   * one through the call that produced it — so a match on tool output is
+   * traced back through that call, the way the desktop traces it.
+   * Without this a reader has a snippet and no way to reach the turn it
+   * came from, which is the whole cost of reading a session by paging.
+   *
+   * The transcript numbers its turns from one; the parameter that asks
+   * for a turn numbers them from zero. So the anchor carries both, and
+   * the reader pastes the second one without arithmetic.
+   */
+  const turnAnchors = (hits: readonly SearchHit[]): Map<SearchHit, string> => {
+    const anchors = new Map<SearchHit, string>();
+    const bySession = new Map<string, { turns: Map<string, number>; calls: Map<string, number> }>();
+    for (const hit of hits) {
+      const sessionId = hit.event.session_id;
+      let maps = bySession.get(sessionId);
+      if (!maps) {
+        const turns = new Map<string, number>();
+        const calls = new Map<string, number>();
+        try {
+          host.view(sessionId).turns.forEach((turn, i) => {
+            turns.set(turn.turn_id, i);
+            for (const call of turn.tool_calls) calls.set(call.call_id, i);
+          });
+        } catch {
+          // A session that is gone answers like one that never matched:
+          // the hit is still worth showing, it just cannot be walked to.
+        }
+        maps = { turns, calls };
+        bySession.set(sessionId, maps);
+      }
+      // The ids are only on the events that have them, and a hit's
+      // event may carry no data at all — so this reads them defensively.
+      const data = hit.event.data as { turn_id?: unknown; call_id?: unknown } | undefined;
+      const turnId = typeof data?.turn_id === "string" ? data.turn_id : undefined;
+      const callId = typeof data?.call_id === "string" ? data.call_id : undefined;
+      let at: number | undefined;
+      if (turnId !== undefined) at = maps.turns.get(turnId);
+      if (at === undefined && callId !== undefined) at = maps.calls.get(callId);
+      if (at === undefined) continue;
+      anchors.set(hit, ` | turn ${at + 1} (from_turn=${at})`);
+    }
+    return anchors;
   };
 
   const read = (req: ToolCallRequest): ToolCallResult => {
@@ -231,12 +292,12 @@ export function createSessionsPlugin(host: SessionsHost): StrataPlugin {
       from,
       maxTurns: Math.min(Math.max(intOpt(req.input.max_turns) ?? 15, 1), 50),
       maxChars: intOpt(req.input.max_chars),
+      raw: req.input.raw === true,
     });
-    const cursors = [
-      page.nextFrom === null ? [] : [`next_from_turn: ${page.nextFrom}`],
-      page.earlierFrom === null ? [] : [`earlier_from_turn: ${page.earlierFrom}`],
-    ].flat();
-    return { output: cursors.length > 0 ? `${page.text}\n\n${cursors.join("\n")}` : page.text };
+    // The cursors are in the digest's own header, beside the range they
+    // belong to. A cursor at the foot of a long transcript is a cursor
+    // nobody reads.
+    return { output: page.text };
   };
 
   return {

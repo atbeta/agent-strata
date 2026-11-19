@@ -135,6 +135,14 @@ describe("sessions_list", () => {
 describe("sessions_search", () => {
   const hit = (sessionId: string, ts: string, snippet: string): SearchHit =>
     ({ event: { session_id: sessionId, ts } as SearchHit["event"], snippet });
+  /** A hit that carries the ids an event really has. */
+  const anchored = (
+    sessionId: string,
+    ts: string,
+    snippet: string,
+    data: Record<string, unknown>,
+  ): SearchHit =>
+    ({ event: { session_id: sessionId, ts, data } as unknown as SearchHit["event"], snippet });
 
   test("searches the workspace and labels hits with session titles", async () => {
     const p = await plugin(
@@ -155,6 +163,58 @@ describe("sessions_search", () => {
     const p = await plugin(host());
     const out = await p.callTool(req("search", { query: "   " }));
     expect(out.isError).toBe(true);
+  });
+
+  test("a hit says which turn it is in, in both numberings", async () => {
+    // The transcript numbers its turns from one; `from_turn` from zero.
+    // A hit carrying only one of them made the reader do the arithmetic,
+    // and get it wrong a turn at a time.
+    const turns = [turn("t1", "one", "first"), turn("t2", "two", "second")];
+    const p = await plugin(
+      host({
+        list: () => [summary("opencode:s1", { title: "fix the thing" } as Partial<SessionSummary>)],
+        search: () => [
+          anchored("opencode:s1", "2026-11-18T09:00:00Z", "the [guard] fails", { turn_id: "t2" }),
+        ],
+        view: () => view({ session_id: "opencode:s1", turns }),
+      }),
+    );
+    const out = await p.callTool(req("search", { query: "guard fails" }));
+    expect(out.output).toContain("turn 2 (from_turn=1)");
+  });
+
+  test("a hit on tool output is traced back through the call that made it", async () => {
+    // A tool result carries no turn of its own; the projector binds it
+    // to one through the call that produced it.
+    const calls = [toolCall({ call_id: "c9" })];
+    const turns = [turn("t1", "one", "first", calls)];
+    const p = await plugin(
+      host({
+        list: () => [summary("opencode:s1", { title: "fix the thing" } as Partial<SessionSummary>)],
+        search: () => [
+          anchored("opencode:s1", "2026-11-18T09:00:00Z", "the [guard] fails", { call_id: "c9" }),
+        ],
+        view: () => view({ session_id: "opencode:s1", turns }),
+      }),
+    );
+    const out = await p.callTool(req("search", { query: "guard fails" }));
+    expect(out.output).toContain("turn 1 (from_turn=0)");
+  });
+
+  test("a hit whose session cannot be read is still shown", async () => {
+    // The snippet is worth having even when the turn it came from is
+    // out of reach.
+    const p = await plugin(
+      host({
+        list: () => [summary("opencode:s1", { title: "fix the thing" } as Partial<SessionSummary>)],
+        search: () => [
+          anchored("opencode:s1", "2026-11-18T09:00:00Z", "the [guard] fails", { turn_id: "t9" }),
+        ],
+      }),
+    );
+    const out = await p.callTool(req("search", { query: "guard fails" }));
+    expect(out.output).toContain("the [guard] fails");
+    expect(out.output).not.toContain("from_turn=");
   });
 });
 
@@ -273,6 +333,25 @@ describe("digest", () => {
     };
     const cut = digest(view({ turns: [long] }));
     expect(cut.text).toContain("+2500 chars");
+  });
+
+  test("raw gives the original text instead of a digest of it", () => {
+    // The digest cuts a long reply to 1500 characters, which is where a
+    // file listing or a token check disappears. Raw is the reader asking
+    // for the whole thing.
+    const body = "z".repeat(3000);
+    const long: Turn = {
+      turn_id: "t1",
+      assistant: [{ content: [{ type: "text", text: body } as ContentBlock] }],
+      tool_calls: [],
+    };
+    const digested = digest(view({ turns: [long] }));
+    expect(digested.text).toContain("+1500 chars");
+    expect(digested.text).not.toContain(body);
+
+    const raw = digest(view({ turns: [long] }), { raw: true });
+    expect(raw.text).toContain(body);
+    expect(raw.text).not.toContain("+1500 chars");
   });
 
   test("a turn that would exceed max_chars becomes the next page", () => {
