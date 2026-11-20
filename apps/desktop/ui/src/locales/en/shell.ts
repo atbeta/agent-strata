@@ -17,6 +17,7 @@ export default {
   "project.root": "Root",
   "sidebar.projects": "Projects",
   "sidebar.toggle": "Show or hide the session list",
+  "sidebar.resize": "Resize the session list",
   "sidebar.recent": "Recent",
   "sidebar.recent.empty": "No session matches.",
   "sidebar.project.none": "No project",

@@ -18,6 +18,7 @@ export default {
   "project.root": "根目录",
   "sidebar.projects": "项目",
   "sidebar.toggle": "显示或隐藏会话列表",
+  "sidebar.resize": "调整会话列表宽度",
   "sidebar.recent": "最近",
   "sidebar.recent.empty": "没有匹配的会话。",
   "sidebar.project.none": "无项目",

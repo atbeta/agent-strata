@@ -29,6 +29,13 @@ import type { ConnectionsCtl } from "./use-connections";
 import { endpointHost, endpointShort, ConnectionsFooter } from "./use-connections";
 import { sidebarEmptyKind } from "./connection-status";
 import { everyGroupFolded, foldGroups } from "./sidebar-visibility";
+import {
+  clampSidebarWidth,
+  readSidebarWidth,
+  SIDEBAR_WIDTH_MIN,
+  sidebarWidthLimit,
+  writeSidebarWidth,
+} from "./sidebar-width";
 import type { WorkspaceCtl } from "./use-workspace";
 import { SessionListItem } from "./sidebar-row";
 import { ArchivedSection } from "./archived-section";
@@ -556,8 +563,71 @@ export function Sidebar(props: {
     );
   };
 
+  let observer: ResizeObserver | undefined;
+  let container: HTMLElement | undefined;
+  const [availableWidth, setAvailableWidth] = createSignal(window.innerWidth);
+  const [preferredWidth, setPreferredWidth] = createSignal(readSidebarWidth(window.innerWidth));
+  const sidebarWidth = createMemo(() => clampSidebarWidth(preferredWidth(), availableWidth()));
+  const measure = () => setAvailableWidth(container?.clientWidth || window.innerWidth);
+  const bindSidebar = (el: HTMLElement) => {
+    container = el.parentElement ?? undefined;
+    if (!container) return;
+    measure();
+    observer?.disconnect();
+    observer = new ResizeObserver(measure);
+    observer.observe(container);
+  };
+  window.addEventListener("resize", measure);
+  onCleanup(() => {
+    observer?.disconnect();
+    window.removeEventListener("resize", measure);
+  });
+  const resizeSidebar = (px: number, remember: boolean) => {
+    setPreferredWidth(px);
+    if (remember) writeSidebarWidth(sidebarWidth());
+  };
+  const startSidebarDrag = (e: PointerEvent & { currentTarget: HTMLDivElement }) => {
+    e.preventDefault();
+    const handle = e.currentTarget;
+    const from = e.clientX;
+    const was = sidebarWidth();
+    handle.setPointerCapture(e.pointerId);
+    const move = (ev: PointerEvent) => resizeSidebar(was + (ev.clientX - from), false);
+    const done = () => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", done);
+      handle.removeEventListener("pointercancel", done);
+      writeSidebarWidth(sidebarWidth());
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", done);
+    handle.addEventListener("pointercancel", done);
+  };
+
   return (
-    <aside class="flex w-[300px] shrink-0 flex-col border-r border-border bg-sidebar">
+    <aside
+      ref={bindSidebar}
+      class="relative flex shrink-0 flex-col border-r border-border bg-sidebar"
+      style={{ width: `${sidebarWidth()}px` }}
+    >
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={t("sidebar.resize")}
+        aria-valuemin={SIDEBAR_WIDTH_MIN}
+        aria-valuemax={sidebarWidthLimit(availableWidth())}
+        aria-valuenow={sidebarWidth()}
+        tabindex={0}
+        class="absolute inset-y-0 -right-1 z-20 w-2 cursor-col-resize outline-none focus-visible:bg-ring/40"
+        onPointerDown={startSidebarDrag}
+        onKeyDown={(e) => {
+          const step = e.shiftKey ? 48 : 16;
+          if (e.key === "ArrowLeft") resizeSidebar(sidebarWidth() - step, true);
+          else if (e.key === "ArrowRight") resizeSidebar(sidebarWidth() + step, true);
+          else return;
+          e.preventDefault();
+        }}
+      />
       {/* The window's top-left corner. macOS hides its title bar and paints
           the traffic lights over the webview's top-left, so this band keeps
           their space clear and puts the window's switches beside them; on the
