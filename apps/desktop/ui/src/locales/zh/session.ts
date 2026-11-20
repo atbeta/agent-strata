@@ -560,6 +560,7 @@ export default {
   "schedule.panel.err.atPast": "执行时间不能在过去",
   "schedule.panel.err.timeInvalid": "时刻写成 09:30 这样",
   "schedule.panel.err.minutesInvalid": "间隔至少 5 分钟",
-  "schedule.panel.confirmRemove": "再次点击以删除",
+  "schedule.panel.removeTitle": "删除定时任务",
+  "schedule.panel.removeBody": "「{name}」会被删除，到点后不会再执行。",
   "schedule.panel.emptyHint": "到点后，agent 会在生效会话里收到你写的话。",
 } as const;

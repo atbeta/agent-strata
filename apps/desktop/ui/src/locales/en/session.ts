@@ -561,6 +561,7 @@ export default {
   "schedule.panel.err.atPast": "The run time cannot be in the past",
   "schedule.panel.err.timeInvalid": "Write the time as 09:30",
   "schedule.panel.err.minutesInvalid": "The interval must be at least 5 minutes",
-  "schedule.panel.confirmRemove": "Click again to remove",
+  "schedule.panel.removeTitle": "Delete schedule",
+  "schedule.panel.removeBody": "\"{name}\" will be deleted and will not run again.",
   "schedule.panel.emptyHint": "When the time comes, the agent receives your text in the target session.",
 } as const;

@@ -19,6 +19,7 @@ import { explain } from "./errors";
 import { date, num, stamp, t } from "./i18n";
 import { Card, Group, Row } from "./settings-blocks";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Switch } from "@/components/ui/switch";
 import { TextFieldInput } from "@/components/ui/text-field";
 import { Icon } from "./icons";
@@ -53,10 +54,12 @@ export function MaintenanceSettings() {
    */
   const [worktree, { refetch: refetchWorktree }] = createResource(readWorktreeRoot);
   const [worktreeText, setWorktreeText] = createSignal<string>();
-  // A second press confirms. Native `confirm()` is a browser sheet in a
-  // webview and reads as a different application; this keeps the decision on
-  // the control the reader is already looking at.
+  // Vacuum and a previewed clean stay a second press: the first rewrites a
+  // file it has already copied, the second applies a list the reader is
+  // looking at. Deleting a backup or an old snapshot is not that — the file
+  // is gone — so those ask in a dialog.
   const [confirming, setConfirming] = createSignal("");
+  const [fileDelete, setFileDelete] = createSignal<{ kind: "backup" | "legacy"; name: string }>();
   let confirmTimer: ReturnType<typeof setTimeout> | undefined;
   const confirmAction = (key: string, action: () => void) => {
     if (confirming() !== key) {
@@ -514,37 +517,16 @@ export function MaintenanceSettings() {
                         >
                           <Icon name="folder" class="size-3.5" />
                         </Button>
-                        <Show
-                          when={confirming() === `backup:${file.name}`}
-                          fallback={
-                            <Button
-                              type="button"
-                              size="icon-sm"
-                              variant="icon"
-                              class="shrink-0"
-                              aria-label={t("maintenance.backup.delete")}
-                              onClick={() =>
-                                confirmAction(`backup:${file.name}`, () =>
-                                  removeBackup(file.name),
-                                )
-                              }
-                            >
-                              <Icon name="x" class="size-3.5" />
-                            </Button>
-                          }
+                        <Button
+                          type="button"
+                          size="icon-sm"
+                          variant="icon"
+                          class="shrink-0"
+                          aria-label={t("maintenance.backup.delete")}
+                          onClick={() => setFileDelete({ kind: "backup", name: file.name })}
                         >
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="quiet"
-                            class="shrink-0 text-destructive hover:text-destructive"
-                            onClick={() =>
-                              confirmAction(`backup:${file.name}`, () => removeBackup(file.name))
-                            }
-                          >
-                            {t("maintenance.confirm.delete")}
-                          </Button>
-                        </Show>
+                          <Icon name="x" class="size-3.5" />
+                        </Button>
                       </div>
                     )}
                   </For>
@@ -570,37 +552,16 @@ export function MaintenanceSettings() {
                               {fmtBytes(file.bytes)} · {stamp(file.modified_at)}
                             </p>
                           </div>
-                          <Show
-                            when={confirming() === `legacy:${file.name}`}
-                            fallback={
-                              <Button
-                                type="button"
-                                size="icon-sm"
-                                variant="icon"
-                                class="shrink-0"
-                                aria-label={t("maintenance.legacy.delete")}
-                                onClick={() =>
-                                  confirmAction(`legacy:${file.name}`, () =>
-                                    removeLegacy(file.name),
-                                  )
-                                }
-                              >
-                                <Icon name="x" class="size-3.5" />
-                              </Button>
-                            }
+                          <Button
+                            type="button"
+                            size="icon-sm"
+                            variant="icon"
+                            class="shrink-0"
+                            aria-label={t("maintenance.legacy.delete")}
+                            onClick={() => setFileDelete({ kind: "legacy", name: file.name })}
                           >
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="quiet"
-                              class="shrink-0 text-destructive hover:text-destructive"
-                              onClick={() =>
-                                confirmAction(`legacy:${file.name}`, () => removeLegacy(file.name))
-                              }
-                            >
-                              {t("maintenance.confirm.delete")}
-                            </Button>
-                          </Show>
+                            <Icon name="x" class="size-3.5" />
+                          </Button>
                         </div>
                       )}
                     </For>
@@ -766,6 +727,25 @@ export function MaintenanceSettings() {
           </>
         )}
       </Show>
+      <ConfirmDialog
+        open={fileDelete() !== undefined}
+        title={t(fileDelete()?.kind === "legacy" ? "maintenance.legacy.delete" : "maintenance.backup.delete")}
+        description={t(
+          fileDelete()?.kind === "legacy" ? "maintenance.legacy.deleteBody" : "maintenance.backup.deleteBody",
+          { name: fileDelete()?.name ?? "" },
+        )}
+        confirmLabel={t(fileDelete()?.kind === "legacy" ? "maintenance.legacy.delete" : "maintenance.backup.delete")}
+        cancelLabel={t("confirm.cancel")}
+        pending={busy() === "delete-backup" || busy() === "delete-legacy"}
+        onConfirm={() => {
+          const target = fileDelete();
+          if (!target) return;
+          if (target.kind === "backup") removeBackup(target.name);
+          else removeLegacy(target.name);
+          setFileDelete(undefined);
+        }}
+        onCancel={() => setFileDelete(undefined)}
+      />
     </div>
   );
 }

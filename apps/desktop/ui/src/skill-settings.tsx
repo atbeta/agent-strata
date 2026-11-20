@@ -11,6 +11,7 @@ import {
   untrack,
 } from "solid-js";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -149,8 +150,7 @@ export function SkillSettings(props: { conns: ConnectionsCtl }) {
   const [busy, setBusy] = createSignal("");
   const [note, setNote] = fadeSignal("");
   const [error, setError] = fadeSignal("");
-  const [deleteArmed, setDeleteArmed] = createSignal("");
-  let deleteTimer: ReturnType<typeof setTimeout> | undefined;
+  const [pendingDelete, setPendingDelete] = createSignal<ManagedSkill>();
 
   // A connection poll replaces the snapshot object, and the open draft pins its own
   // connection and workspace. Only an actual switch of id or path discards the draft;
@@ -170,7 +170,6 @@ export function SkillSettings(props: { conns: ConnectionsCtl }) {
       if (prev === undefined || dir === prev || !dir || !prev) return;
       setSelected("");
       setEditor(undefined);
-      setDeleteArmed("");
     }),
   );
   onMount(() => {
@@ -182,8 +181,6 @@ export function SkillSettings(props: { conns: ConnectionsCtl }) {
     }, SKILL_REFRESH_MS);
     onCleanup(() => clearInterval(timer));
   });
-  onCleanup(() => clearTimeout(deleteTimer));
-
   const connectionName = (id: string) => {
     const item = connections().find((candidate) => candidate.id === id);
     return item?.name || `${item ? endpointShort(item.baseUrl) : id}`;
@@ -290,30 +287,24 @@ export function SkillSettings(props: { conns: ConnectionsCtl }) {
     }
   };
 
-  const requestDelete = (skill: ManagedSkill) => {
-    if (deleteArmed() !== skill.key) {
-      setDeleteArmed(skill.key);
-      clearTimeout(deleteTimer);
-      deleteTimer = setTimeout(() => setDeleteArmed(""), 5000);
-      return;
+  const confirmDelete = async () => {
+    const skill = pendingDelete();
+    if (!skill || busy()) return;
+    setBusy(`delete:${skill.key}`);
+    setError("");
+    try {
+      const result = await deleteManagedSkill(skill.key, connectionId(), workspace());
+      changed(result.reloaded, t("skills.deleted"));
+      setSelected("");
+      setPendingDelete(undefined);
+      setEditor(undefined);
+      await refetchSkills();
+    } catch (cause) {
+      setError(errorText(cause));
+      setPendingDelete(undefined);
+    } finally {
+      setBusy("");
     }
-    void (async () => {
-      setBusy(`delete:${skill.key}`);
-      setError("");
-      clearTimeout(deleteTimer);
-      try {
-        const result = await deleteManagedSkill(skill.key, connectionId(), workspace());
-        changed(result.reloaded, t("skills.deleted"));
-        setSelected("");
-        setDeleteArmed("");
-        setEditor(undefined);
-        await refetchSkills();
-      } catch (cause) {
-        setError(errorText(cause));
-      } finally {
-        setBusy("");
-      }
-    })();
   };
 
   const open = async (path: string, editor: boolean) => {
@@ -609,10 +600,7 @@ export function SkillSettings(props: { conns: ConnectionsCtl }) {
                           <RowButton
                             class="min-w-0 flex-1 rounded-none px-0 py-0 hover:bg-transparent"
                             aria-expanded={selected() === skill.key}
-                            onClick={() => {
-                              setSelected(selected() === skill.key ? "" : skill.key);
-                              setDeleteArmed("");
-                            }}
+                            onClick={() => setSelected(selected() === skill.key ? "" : skill.key)}
                           >
                             <div class="min-w-0 flex-1">
                               <div class="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
@@ -703,20 +691,16 @@ export function SkillSettings(props: { conns: ConnectionsCtl }) {
                                 <Button
                                   type="button"
                                   size="sm"
-                                  variant={deleteArmed() === skill.key ? "destructive" : "quiet"}
+                                  variant="quiet"
+                                  class="hover:text-destructive"
                                   disabled={busy() === `delete:${skill.key}`}
-                                  onClick={() => requestDelete(skill)}
+                                  onClick={() => setPendingDelete(skill)}
                                 >
                                   <Icon name="trash" class="size-3.5" />
-                                  {deleteArmed() === skill.key ? t("skills.deleteConfirm") : t("skills.delete")}
+                                  {t("skills.delete")}
                                 </Button>
                               </Show>
                             </div>
-                            <Show when={deleteArmed() === skill.key && skill.directoryForm}>
-                              <p class="mt-2 text-2xs leading-4 text-destructive">
-                                {t("skills.deleteWarning", { count: skill.files.length })}
-                              </p>
-                            </Show>
                           </div>
                         </Show>
                       </div>
@@ -729,6 +713,22 @@ export function SkillSettings(props: { conns: ConnectionsCtl }) {
         </Group>
         </Show>
       </Show>
+      <ConfirmDialog
+        open={pendingDelete() !== undefined}
+        title={t("skills.deleteTitle", { name: pendingDelete()?.name ?? "" })}
+        description={
+          pendingDelete()?.directoryForm
+            ? t("skills.deleteWarning", { count: pendingDelete()?.files.length ?? 0 })
+            : t("skills.deleteBody")
+        }
+        confirmLabel={t("skills.delete")}
+        cancelLabel={t("confirm.cancel")}
+        pending={busy().startsWith("delete:")}
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => {
+          if (!busy().startsWith("delete:")) setPendingDelete(undefined);
+        }}
+      />
     </>
   );
 }

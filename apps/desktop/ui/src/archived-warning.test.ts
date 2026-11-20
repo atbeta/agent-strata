@@ -17,24 +17,23 @@ const data = (over: Partial<SessionData> = {}): SessionData => ({
 });
 
 /**
- * Deleting an archived session is the one thing in the sidebar that cannot be
- * undone, so the line above the button has to say what goes with it. The line
- * used to end in "0 local-only rows cannot be rebuilt" — a count of zero
- * dressed as a loss, which reads like something went wrong rather than like
- * there is nothing there to lose.
+ * Deleting one session used to quote the store's local-row tally — status
+ * ticks plus both halves of every permission — so one session read as
+ * "85 items will be deleted". The line is about that one session.
  */
 describe("the delete line says what the delete takes", () => {
-  test("a session with nothing only this machine knows says nothing about a count", () => {
-    const text = archivedDeleteWarning(data({ local: 0 }));
-    expect(text).toBe("会删除后端会话和本地记录。");
-    expect(text).not.toContain("0");
-    expect(text).not.toContain("无法重建");
+  test("a session with nothing only this machine knows names the one session", () => {
+    const text = archivedDeleteWarning(data({ local: 0, rebuildable: 85 }));
+    expect(text).toBe("会删除这个会话的后端记录和本地记录。");
+    expect(text).not.toContain("85");
+    expect(text).not.toContain("条");
   });
 
-  test("a session with local-only rows says how many cannot be rebuilt", () => {
-    const text = archivedDeleteWarning(data({ local: 3 }));
-    expect(text).toContain("3 条");
-    expect(text).toContain("无法重建");
+  test("a session with dozens of local-only rows still names the one session", () => {
+    const text = archivedDeleteWarning(data({ local: 85, rebuildable: 1254 }));
+    expect(text).toBe("会删除这个会话的后端记录和本地记录。");
+    expect(text).not.toContain("85");
+    expect(text).not.toContain("条");
   });
 
   test("a session the backend cannot delete says the backend keeps its copy", () => {

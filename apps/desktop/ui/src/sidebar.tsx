@@ -18,6 +18,8 @@ import { openSessionInSplit } from "./session-chrome";
 import { hostsTrafficLights, inDesktopShell, usesCustomCaption } from "./shell";
 import { sessionStatus } from "./session-status";
 import { explain } from "./errors";
+import { archivedDeleteWarning } from "./archived-warning";
+import { deleteSession, readSessionData, type SessionData } from "./maintenance-api";
 import { TopLeftControls } from "./chrome";
 import type { SessionListCtl, SidebarGroup } from "./use-session-list";
 import { ProjectLensMenu } from "./project-lens";
@@ -31,6 +33,7 @@ import type { WorkspaceCtl } from "./use-workspace";
 import { SessionListItem } from "./sidebar-row";
 import { ArchivedSection } from "./archived-section";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { RowButton } from "@/components/ui/row-button";
 import { SectionHeader } from "@/components/ui/section-header";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -139,6 +142,31 @@ export function Sidebar(props: {
   clearFocusDir?: () => void;
 }) {
   const list = () => props.list;
+  const [sessionDelete, setSessionDelete] = createSignal<{ id: string; title: string; data: SessionData }>();
+  const [sessionDeleteBusy, setSessionDeleteBusy] = createSignal(false);
+  const askDeleteSession = (id: string, title: string) => {
+    void readSessionData(id).then(
+      (data) => setSessionDelete({ id, title, data }),
+      (error) => list().setActionErr(explain(error)),
+    );
+  };
+  const commitDeleteSession = () => {
+    const pending = sessionDelete();
+    if (!pending || sessionDeleteBusy()) return;
+    setSessionDeleteBusy(true);
+    void list()
+      .runAction(
+        pending.id,
+        async () => {
+          await deleteSession(pending.id, !pending.data.can_delete);
+        },
+        true,
+      )
+      .finally(() => {
+        setSessionDeleteBusy(false);
+        setSessionDelete(undefined);
+      });
+  };
 
   /**
    * The counts the window's own views answer with.
@@ -503,6 +531,7 @@ export function Sidebar(props: {
                   onOpen={() => props.onOpenSession(id)}
                   onRename={(title) => list().runAction(id, () => renameSession(id, title), false)}
                   onArchive={() => list().runAction(id, () => archiveSession(id), true)}
+                  onDelete={() => askDeleteSession(id, displayTitle(s().title ?? s().summary.title) ?? t("common.untitled"))}
                   pinned={list().pins().includes(id)}
                   onTogglePin={() => list().togglePinned(id)}
                   onCompare={() => props.onStartCompare(id)}
@@ -902,6 +931,22 @@ export function Sidebar(props: {
           </div>
         </Portal>
       </Show>
+      <ConfirmDialog
+        open={sessionDelete() !== undefined}
+        title={t("sidebar.session.deleteTitle", { name: sessionDelete()?.title ?? "" })}
+        description={sessionDelete() ? archivedDeleteWarning(sessionDelete()!.data) : ""}
+        confirmLabel={
+          sessionDelete()?.data.can_delete
+            ? t("sidebar.archived.confirm")
+            : t("sidebar.archived.localConfirm")
+        }
+        cancelLabel={t("confirm.cancel")}
+        pending={sessionDeleteBusy()}
+        onConfirm={commitDeleteSession}
+        onCancel={() => {
+          if (!sessionDeleteBusy()) setSessionDelete(undefined);
+        }}
+      />
     </aside>
   );
 }

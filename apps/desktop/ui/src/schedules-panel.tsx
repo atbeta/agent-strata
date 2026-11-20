@@ -1,5 +1,6 @@
 import { createSignal, For, Show } from "solid-js";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { fieldVariants } from "@/components/ui/field";
@@ -69,8 +70,8 @@ export function SchedulesPanel(props: {
   const [editing, setEditing] = createSignal<string>();
   /** the form is closed until the reader asks to make or change one */
   const [composing, setComposing] = createSignal(false);
-  /** the schedule a second click would remove, so a stray one cannot delete */
-  const [confirming, setConfirming] = createSignal<string>();
+  /** the schedule a dialog is asking to remove */
+  const [pendingRemove, setPendingRemove] = createSignal<ScheduleRow>();
   let formEl: HTMLDivElement | undefined;
 
   const [name, setName] = createSignal("");
@@ -275,15 +276,11 @@ export function SchedulesPanel(props: {
     }
   };
 
-  /** Two clicks to remove, so a stray one cannot. */
-  const remove = async (row: ScheduleRow) => {
-    if (confirming() !== row.id) {
-      setConfirming(row.id);
-      setTimeout(() => setConfirming((c) => (c === row.id ? "" : c)), 3_000);
-      return;
-    }
-    setConfirming("");
+  const confirmRemove = async () => {
+    const row = pendingRemove();
+    if (!row) return;
     await act(() => deleteSchedule(row.id));
+    setPendingRemove(undefined);
   };
 
   /** The session options the reader may aim a schedule at. */
@@ -400,20 +397,13 @@ export function SchedulesPanel(props: {
                                   <Icon name="pencil" class="size-3" />
                                 </Button>
                               </Tip>
-                              <Tip
-                                label={
-                                  confirming() === row.id
-                                    ? t("schedule.panel.confirmRemove")
-                                    : t("schedule.panel.remove")
-                                }
-                              >
+                              <Tip label={t("schedule.panel.remove")}>
                                 <Button
                                   type="button"
                                   variant="icon"
                                   size="icon-2xs"
                                   aria-label={t("schedule.panel.remove")}
-                                  class={confirming() === row.id ? "text-destructive" : undefined}
-                                  onClick={() => void remove(row)}
+                                  onClick={() => setPendingRemove(row)}
                                 >
                                   <Icon name="trash" class="size-3" />
                                 </Button>
@@ -455,11 +445,6 @@ export function SchedulesPanel(props: {
                             </Show>
                             <span class={toneClass(facts().tone)}>{facts().last}</span>
                           </p>
-                          <Show when={confirming() === row.id}>
-                            <p class="mt-2 text-2xs text-destructive">
-                              {t("schedule.panel.confirmRemove")}
-                            </p>
-                          </Show>
                         </Card>
                       );
                     }}
@@ -641,6 +626,16 @@ export function SchedulesPanel(props: {
           </Card>
         </div>
       </Show>
+      <ConfirmDialog
+        open={pendingRemove() !== undefined}
+        title={t("schedule.panel.removeTitle")}
+        description={t("schedule.panel.removeBody", { name: pendingRemove()?.name ?? "" })}
+        confirmLabel={t("schedule.panel.remove")}
+        cancelLabel={t("schedule.panel.cancel")}
+        pending={busy()}
+        onConfirm={() => void confirmRemove()}
+        onCancel={() => setPendingRemove(undefined)}
+      />
     </div>
   );
 }

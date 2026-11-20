@@ -8,6 +8,7 @@ import { explain, fadeSignal } from "./errors";
 import { t } from "./i18n";
 import { Icon } from "./icons";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { RowButton } from "@/components/ui/row-button";
 import { visibleArchiveNote } from "./archived-note";
 import { archivedDeleteWarning } from "./archived-warning";
@@ -80,6 +81,7 @@ export function ArchivedSection(props: {
       setNote({ id, text: t("sidebar.archived.deleted") });
       void props.list.refetch();
     } catch (e) {
+      setConfirm(undefined);
       setError(explain(e));
     } finally {
       setBusy("");
@@ -107,13 +109,12 @@ export function ArchivedSection(props: {
           <For each={rows()}>
             {(row) => {
               const id = row.summary.session_id;
-              const pending = () => confirm()?.row.summary.session_id === id;
               const title = () => displayTitle(row.title ?? row.summary.title) ?? t("common.untitled");
               const folder = () => folderLabel(row.workspace ?? row.summary.workspace);
               // Fifteen rows each spelling out two actions read as a form, not
               // a list. The date holds the slot until the row is pointed at or
-              // focused; a row awaiting its delete decision keeps them out.
-              const held = () => pending() || busy() === id;
+              // focused; a row in the middle of a request keeps them out.
+              const held = () => busy() === id;
               return (
                 <li>
                   <div class="group/arch relative flex items-center">
@@ -158,37 +159,6 @@ export function ArchivedSection(props: {
                       </Button>
                     </div>
                   </div>
-                  <Show when={pending() ? confirm() : undefined}>
-                    {(target) => (
-                      <div class="mx-1 mt-1 rounded-md border border-border bg-secondary/40 px-2 py-1.5">
-                        <p class="text-2xs leading-4 text-muted-foreground">
-                          {archivedDeleteWarning(target().data)}
-                        </p>
-                        <div class="mt-1 flex justify-end gap-1">
-                          <Button
-                            type="button"
-                            size="xs"
-                            variant="quiet"
-                            onClick={() => setConfirm(undefined)}
-                          >
-                            {t("sidebar.archived.cancel")}
-                          </Button>
-                          <Button
-                            type="button"
-                            size="xs"
-                            variant="quiet"
-                            class="text-destructive hover:text-destructive"
-                            disabled={busy() === id}
-                            onClick={() => void remove(row, target().data)}
-                          >
-                            {target().data.can_delete
-                              ? t("sidebar.archived.confirm")
-                              : t("sidebar.archived.localConfirm")}
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </Show>
                 </li>
               );
             }}
@@ -201,6 +171,27 @@ export function ArchivedSection(props: {
           <p class="px-1 pt-1 text-2xs text-destructive">{error()}</p>
         </Show>
       </Show>
+      <ConfirmDialog
+        open={confirm() !== undefined}
+        title={t("sidebar.session.deleteTitle", {
+          name: confirm()
+            ? (displayTitle(confirm()!.row.title ?? confirm()!.row.summary.title) ?? t("common.untitled"))
+            : "",
+        })}
+        description={confirm() ? archivedDeleteWarning(confirm()!.data) : ""}
+        confirmLabel={
+          confirm()?.data.can_delete ? t("sidebar.archived.confirm") : t("sidebar.archived.localConfirm")
+        }
+        cancelLabel={t("confirm.cancel")}
+        pending={busy() === confirm()?.row.summary.session_id}
+        onConfirm={() => {
+          const target = confirm();
+          if (target) void remove(target.row, target.data);
+        }}
+        onCancel={() => {
+          if (busy() !== confirm()?.row.summary.session_id) setConfirm(undefined);
+        }}
+      />
     </div>
   );
 }

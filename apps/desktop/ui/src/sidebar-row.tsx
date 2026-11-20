@@ -28,6 +28,7 @@ export function SessionListItem(props: {
   onOpen: () => void;
   onRename: (title: string) => Promise<void>;
   onArchive: () => Promise<void>;
+  onDelete: () => void;
   /** Whether the row sits in the pinned group; the menu reads one of two words. */
   pinned: boolean;
   onTogglePin: () => void;
@@ -101,6 +102,10 @@ export function SessionListItem(props: {
       <Item onSelect={() => void props.onArchive()}>
         <Icon name="archive" class="size-3.5 text-muted-foreground" />
         {t("sidebar.session.archive")}
+      </Item>
+      <Item class="text-destructive" onSelect={() => props.onDelete()}>
+        <Icon name="trash" class="size-3.5" />
+        {t("sidebar.session.delete")}
       </Item>
     </>
   );
