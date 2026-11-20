@@ -281,7 +281,7 @@ describe("connection lifecycle routes", () => {
       await connect(owner);
       await connect(other);
       const deadline = Date.now() + 4_000;
-      while (other.seen.filter((row) => row.path === "/session").length < 2 && Date.now() < deadline) {
+      while (other.seen.filter((row) => row.path === "/experimental/session").length < 2 && Date.now() < deadline) {
         await Bun.sleep(20);
       }
       expect(svc.store.runningSessions().find((row) => row.session_id === "opencode:ses_shared")?.origin).toBe(originA);

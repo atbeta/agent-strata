@@ -57,6 +57,9 @@ struct Sidecars {
     login: Arc<Mutex<Option<LoginPipe>>>,
     service: Mutex<Option<Child>>,
     supervise: Mutex<Option<JoinHandle<()>>>,
+    /// The live supervisor's connection plan. A service retry reuses it rather
+    /// than starting another server or reconstructing credentials from status.
+    opencode_plan: Mutex<Option<OpencodePlan>>,
     /// The handshake a globally loaded plugin reads to find this service. Removed
     /// on a clean exit so a plugin cannot hand work to a process that is gone.
     /// The path a plugin reads. The file itself is written only once the service
@@ -89,12 +92,21 @@ impl Sidecars {
             login: Arc::new(Mutex::new(None)),
             service: Mutex::new(None),
             supervise: Mutex::new(None),
+            opencode_plan: Mutex::new(None),
             handshake: Mutex::new(PathBuf::new()),
             data: data_dir(),
             log: None,
             service_port: 7700,
             api_token: String::new(),
         }
+    }
+
+    fn opencode_service_env(&self) -> Option<Vec<(String, String)>> {
+        self.opencode_plan
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .map(service_env)
     }
 
     /// Stop opencode and the service, and wait until their process groups are gone.
@@ -174,7 +186,8 @@ impl Sidecars {
             self.login.clone(),
         );
         match spawned {
-            Some((handle, _plan)) => {
+            Some((handle, plan)) => {
+                *self.opencode_plan.lock().unwrap_or_else(|e| e.into_inner()) = Some(plan);
                 *supervise = Some(handle);
                 Ok(())
             }
@@ -948,6 +961,7 @@ impl Sidecars {
             login,
             service: Mutex::new(None),
             supervise: Mutex::new(None),
+            opencode_plan: Mutex::new(None),
             handshake: Mutex::new(PathBuf::new()),
             data,
             log: Some(log),
@@ -1117,20 +1131,23 @@ impl Sidecars {
                     .unwrap_or_else(|e| e.into_inner())
                     .as_ref()
                     .is_some_and(|handle| !handle.is_finished());
-                if !already {
-                    if let Some((handle, planned)) = spawn_opencode_supervisor(
-                        &data,
-                        &log,
-                        port,
-                        &api_token,
-                        self.shutdown.clone(),
-                        self.restart.clone(),
-                        self.opencode.clone(),
-                        self.login.clone(),
-                    ) {
-                        extras.extend(service_env(&planned));
-                        *self.supervise.lock().unwrap_or_else(|e| e.into_inner()) = Some(handle);
+                if already {
+                    if let Some(env) = self.opencode_service_env() {
+                        extras.extend(env);
                     }
+                } else if let Some((handle, planned)) = spawn_opencode_supervisor(
+                    &data,
+                    &log,
+                    port,
+                    &api_token,
+                    self.shutdown.clone(),
+                    self.restart.clone(),
+                    self.opencode.clone(),
+                    self.login.clone(),
+                ) {
+                    extras.extend(service_env(&planned));
+                    *self.opencode_plan.lock().unwrap_or_else(|e| e.into_inner()) = Some(planned);
+                    *self.supervise.lock().unwrap_or_else(|e| e.into_inner()) = Some(handle);
                 }
             }
         }
@@ -1709,6 +1726,26 @@ mod tests {
 
     extern "C" {
         fn kill(pid: i32, sig: i32) -> i32;
+    }
+
+    #[test]
+    fn service_retry_reuses_the_live_supervisor_plan() {
+        let state = super::Sidecars::empty();
+        let plan = super::embed::OpencodePlan {
+            mode: super::embed::OpencodeMode::Embed,
+            port: 4096,
+            username: "opencode".into(),
+            password: "password".into(),
+            generation: "generation".into(),
+            url: "http://127.0.0.1:4096".into(),
+            service_port: 7700,
+            api_token: Some("token".into()),
+        };
+        *state.opencode_plan.lock().unwrap() = Some(plan.clone());
+        assert_eq!(
+            state.opencode_service_env(),
+            Some(super::embed::service_env(&plan))
+        );
     }
 
     #[test]

@@ -742,7 +742,7 @@ describe("sync stays off the live path", () => {
     const fakeFetch = async (input: Request | URL | string) => {
       const url = input instanceof Request ? input.url : String(input);
       const path = new URL(url).pathname;
-      if (path === "/session") {
+      if (path === "/experimental/session") {
         return Response.json([info("ses_a", 10), info("ses_b", 11)]);
       }
       if (path.endsWith("/message")) {
@@ -827,7 +827,7 @@ describe("sync reconciles local sessions", () => {
       const url = input instanceof Request ? input.url : String(input);
       const path = new URL(url).pathname;
       if (url.includes("/event")) return sse();
-      if (path === "/session") return Response.json([info("ses_a")]);
+      if (path === "/experimental/session") return Response.json([info("ses_a")]);
       const m = path.match(/^\/session\/([^/]+)/);
       if (m) {
         const id = decodeURIComponent(m[1]!);

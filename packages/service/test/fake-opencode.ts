@@ -54,9 +54,10 @@ export function fakeOpencode(
       if (url.pathname === "/global/event")
         return stream({ directory: "/repo", payload: { type: "server.connected", properties: {} } });
       if (url.pathname === "/event") return stream({ type: "server.connected", properties: {} });
-      const route = routes[url.pathname];
+      const routePath = url.pathname === "/experimental/session" ? "/session" : url.pathname;
+      const route = routes[routePath];
       if (route) return route(url, req);
-      if (url.pathname === "/session" || url.pathname === "/project") return Response.json([]);
+      if (routePath === "/session" || routePath === "/project") return Response.json([]);
       return Response.json({ error: "not found" }, { status: 404 });
     },
   });

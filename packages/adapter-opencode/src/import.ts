@@ -39,23 +39,29 @@ function oldestUpdated(rows: { time?: { updated?: number; created?: number } }[]
  * Every root session in one directory, newest first, past the first page
  * when that page comes back full.
  *
- * `session.list` has no backward cursor. Its `start` keeps sessions updated
- * *since* a time, which is the newer side of the page already in hand. The
- * experimental list's `cursor` is the other direction: update time strictly
- * before that value. A further page that fails, or a server that repeats the
- * page it was just given, leaves the roots already collected — a directory
- * over the page size must not fail the sync, and must not spin.
+ * All pages come from the experimental list: its `cursor` selects sessions
+ * updated strictly before that value, and a cursor always belongs to the same
+ * collection that produced it. A further page that fails, or a server that
+ * repeats the page it was just given, leaves the roots already collected — a
+ * directory over the page size must not fail the sync, and must not spin.
  *
- * Archived roots are included on the further pages. The first page already
- * returns them, and leaving them out of the rest would drop an old archived
- * session the archive fold is supposed to be able to show.
+ * Archived roots are included on every page so an old archived session remains
+ * reachable from the archive fold.
  */
 export async function listRootSessions(
   client: OpencodeClient,
   directory: string | undefined,
 ): Promise<Session[]> {
-  const first = await client.session.list({ directory, roots: true, limit: ROOT_PAGE });
-  const roots = (first.data ?? []).filter((row): row is Session => !!row?.id);
+  const list = (cursor?: number) =>
+    client.experimental.session.list({
+      directory,
+      roots: true,
+      limit: ROOT_PAGE,
+      cursor,
+      archived: true,
+    });
+  const first = await list();
+  const roots: Session[] = (first.data ?? []).filter((row) => !!row?.id);
   if (roots.length < ROOT_PAGE) return roots;
   let cursor = oldestUpdated(roots);
   if (cursor === undefined) return roots;
@@ -63,13 +69,7 @@ export async function listRootSessions(
   for (let page = 0; page < ROOT_FURTHER_PAGES; page++) {
     let more;
     try {
-      more = await client.experimental.session.list({
-        directory,
-        roots: true,
-        limit: ROOT_PAGE,
-        cursor,
-        archived: true,
-      });
+      more = await list(cursor);
     } catch (err) {
       console.error(`opencode session list page failed for ${directory ?? "(default)"}:`, err);
       return roots;
