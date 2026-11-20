@@ -383,17 +383,23 @@ export function SessionRail(props: {
                                   </span>
                                 </Show>
                               </span>
-                              {/* ≥ because a change nothing explained leaves its lines uncounted */}
-                              <span
-                                class="shrink-0 font-mono text-2xs"
-                                title={f.unexplained ? t("file.partial") : undefined}
-                              >
-                                <span class="text-diff-add-fg">
-                                  {f.unexplained ? "≥+" : "+"}
-                                  {num(f.additions)}
-                                </span>{" "}
-                                <span class="text-diff-del-fg">−{num(f.deletions)}</span>
-                              </span>
+                              {/* ≥ because a change nothing explained leaves its lines
+                                  uncounted, so a real count is only a lower bound.
+                                  Zero and zero is not a count: that is what an edit
+                                  with no diff reports, and printing it put "≥+0 −0"
+                                  on every such file. */}
+                              <Show when={f.additions > 0 || f.deletions > 0}>
+                                <span
+                                  class="shrink-0 font-mono text-2xs"
+                                  title={f.unexplained ? t("file.partial") : undefined}
+                                >
+                                  <span class="text-diff-add-fg">
+                                    {f.unexplained ? "≥+" : "+"}
+                                    {num(f.additions)}
+                                  </span>{" "}
+                                  <span class="text-diff-del-fg">−{num(f.deletions)}</span>
+                                </span>
+                              </Show>
                             </RowButton>
                           </li>
                         )}
@@ -431,10 +437,12 @@ export function SessionRail(props: {
                                 <span class="rounded-sm bg-secondary px-1.5 py-0.5 text-2xs text-muted-foreground">
                                   {edit.whole_file ? t("file.whole") : t("file.region")}
                                 </span>
-                                <span class="font-mono text-2xs">
-                                  <span class="text-diff-add-fg">+{num(edit.additions)}</span>{" "}
-                                  <span class="text-diff-del-fg">−{num(edit.deletions)}</span>
-                                </span>
+                                <Show when={edit.additions > 0 || edit.deletions > 0}>
+                                  <span class="font-mono text-2xs">
+                                    <span class="text-diff-add-fg">+{num(edit.additions)}</span>{" "}
+                                    <span class="text-diff-del-fg">−{num(edit.deletions)}</span>
+                                  </span>
+                                </Show>
                                 <Show when={edit.turn_index >= 0}>
                                   <Button
                                     type="button"

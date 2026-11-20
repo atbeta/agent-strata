@@ -128,6 +128,44 @@ test("SessionRail mounts the session pane for a non-OpenCode backend", () => {
   expect(host.textContent).toContain("alpha.ts");
 });
 
+test("a change with no counted lines does not print a zero stat", () => {
+  const view = emptySessionView("acp:zeros", "acp");
+  view.files_changed.push(
+    {
+      path: "src/collapse.vue",
+      change: "modify",
+      count: 1,
+      additions: 0,
+      deletions: 0,
+      unexplained: true,
+      edits: [{ change: "modify", additions: 0, deletions: 0, turn_index: -1 }],
+    },
+    {
+      path: "src/counted.vue",
+      change: "modify",
+      count: 2,
+      additions: 4,
+      deletions: 1,
+      unexplained: true,
+      edits: [
+        { change: "modify", additions: 4, deletions: 1, turn_index: -1 },
+        { change: "modify", additions: 0, deletions: 0, turn_index: -1 },
+      ],
+    },
+  );
+  const host = document.createElement("div");
+  render(() => <SessionRail {...railProps(view, false)} />, host);
+  const row = (name: string) =>
+    [...host.querySelectorAll("li")].find((el) => el.textContent?.includes(name));
+  // The file stays. The "≥+0 −0" that used to fill the list does not.
+  expect(row("collapse.vue")?.textContent).toContain("collapse.vue");
+  expect(row("collapse.vue")?.textContent).not.toContain("≥");
+  expect(row("collapse.vue")?.textContent).not.toContain("+0");
+  // A lower bound that actually counted something is still said.
+  expect(row("counted.vue")?.textContent).toContain("≥+");
+  expect(row("counted.vue")?.textContent).toContain("4");
+});
+
 test("SessionRail mounts for an OpenCode session on the default source", () => {
   const view = emptySessionView("opencode:s2", "opencode");
   view.files_changed.push(edit);
