@@ -23,7 +23,7 @@ import {
   type Connection,
   type OptionsResponse,
 } from "./api";
-import { messageText } from "./transcript-format";
+import { userMessageText } from "./transcript-format";
 import { isDevEvent } from "./sync-events";
 import { t } from "./i18n";
 import { SessionEmpty } from "./session-empty";
@@ -615,7 +615,7 @@ export function SessionDetail(props: {
 
   const revertTurn = (turnId: string) => {
     const turn = (settled(view)?.turns ?? []).find((item) => item.turn_id === turnId);
-    const text = turn?.user ? messageText(turn.user) : "";
+    const text = turn?.user ? userMessageText(turn.user) : "";
     void (async () => {
       // A busy session refuses the stage. Stop it first, the same way /undo does,
       // then hand the withdrawn prompt back so the reader can send it again.

@@ -18,7 +18,7 @@ import {
 } from "./api";
 import { builtinCommands, handoffTargets, resolveHandoff } from "./composer-input";
 import { copyText } from "./clipboard";
-import { messageText } from "./transcript-format";
+import { userMessageText } from "./transcript-format";
 import { settled } from "./resource";
 import { t } from "./i18n";
 import type { useSessionComposer } from "./session-composer";
@@ -124,11 +124,11 @@ export function useSlashCommands(
         // resending it — editing before resend is the whole point.
         const last = [...(settled(view)?.turns ?? [])]
           .reverse()
-          .find((turn) => !turn.reverted && turn.user && messageText(turn.user).trim() !== "");
+          .find((turn) => !turn.reverted && turn.user && userMessageText(turn.user).trim() !== "");
         if (!last) throw new Error(t("cmd.undo.none"));
         if (composer.generating()) await abortSession(props.id);
         await revertSession(props.id, last.turn_id);
-        composer.setDraft(messageText(last.user ?? []));
+        composer.setDraft(userMessageText(last.user ?? []));
         queueMicrotask(() => composer.autogrow());
         return;
       }

@@ -1,5 +1,5 @@
 import type { Turn } from "./api";
-import { messageText } from "./transcript-format";
+import { messageText, userMessageText } from "./transcript-format";
 
 export interface PromptEntry {
   /** Row identity in the session — turns are addressed by id, never position. */
@@ -106,7 +106,7 @@ export function promptEntries(turns: readonly Turn[], previous?: readonly Prompt
       out.push(cached);
       return;
     }
-    const text = compact(messageText(turn.user ?? []), PROMPT_MAX);
+    const text = compact(userMessageText(turn.user ?? []), PROMPT_MAX);
     const file = (turn.user ?? []).find((b) => b.type === "file_ref");
     const prompt = text || (file && file.type === "file_ref" ? fileBase(file.path) : "");
     const reverted = Boolean(turn.reverted);

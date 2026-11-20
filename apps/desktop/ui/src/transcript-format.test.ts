@@ -26,6 +26,8 @@ const {
   isStoppedStop,
   isLengthStop,
   messageText,
+  splitScheduledPrompt,
+  userMessageText,
   permissionLabel,
   permissionReason,
   permissionVerdict,
@@ -674,6 +676,38 @@ describe("messageText", () => {
   test("non-text and empty input yield an empty string", () => {
     expect(messageText([])).toBe("");
     expect(messageText([{ type: "thinking", text: "only thoughts" }])).toBe("");
+  });
+});
+
+describe("scheduled user prompts", () => {
+  test("splits provenance from public text without mutating the stored blocks", () => {
+    const blocks = [
+      { type: "text", text: "[scheduled: daily] review]\r\n\r\nReply with OK" },
+      { type: "file_ref", path: "src/a.ts" },
+    ] as const;
+    expect(splitScheduledPrompt(blocks)).toEqual({
+      name: "daily] review",
+      blocks: [
+        { type: "text", text: "Reply with OK" },
+        { type: "file_ref", path: "src/a.ts" },
+      ],
+    });
+    expect(userMessageText(blocks)).toBe("Reply with OK");
+    expect(messageText(blocks)).toBe("[scheduled: daily] review]\r\n\r\nReply with OK");
+    expect(blocks[0].text).toContain("[scheduled:");
+  });
+
+  test("ordinary and malformed messages keep their text exactly as written", () => {
+    const ordinary = [{ type: "text", text: "Explain [scheduled: demo]\n\nto me" }] as const;
+    const noBlankLine = [{ type: "text", text: "[scheduled: demo]\nnot a header" }] as const;
+    const notFirst = [
+      { type: "thinking", text: "private" },
+      { type: "text", text: "[scheduled: demo]\n\nnot the first block" },
+    ] as const;
+    expect(splitScheduledPrompt(ordinary)).toBeUndefined();
+    expect(splitScheduledPrompt(noBlankLine)).toBeUndefined();
+    expect(splitScheduledPrompt(notFirst)).toBeUndefined();
+    expect(userMessageText(ordinary)).toBe(ordinary[0].text);
   });
 });
 

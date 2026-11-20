@@ -1,7 +1,8 @@
 import { beforeAll, expect, test, vi } from "vitest";
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
-import { emptySessionView, type FileChangeView } from "@agent-strata/projector";
+import { emptySessionView, type FileChangeView, type Turn } from "@agent-strata/projector";
+import { TurnBlock } from "./transcript";
 import { PlanStrip } from "./plan-strip";
 import { writePlanChoice } from "./plan-progress";
 import { SessionRail } from "./session-rail";
@@ -192,6 +193,28 @@ test("SessionRail holds its mount for the exit, then leaves", async () => {
   expect(host.querySelector("aside")?.className).toContain("rail-out");
   await new Promise((r) => setTimeout(r, 200));
   expect(host.querySelector("aside")).toBeNull();
+  dispose();
+});
+
+test("a scheduled prompt keeps its source in the user bubble, not its wire text", () => {
+  const turn: Turn = {
+    turn_id: "scheduled",
+    user: [{ type: "text", text: "[scheduled: 测试定时任务]\n\n看到只需要回复一个 OK" }],
+    assistant: [],
+    tool_calls: [],
+  };
+  const host = document.createElement("div");
+  const dispose = render(() => <TurnBlock turn={turn} />, host);
+  const message = host.querySelector('[data-message-role="user"]');
+  const source = host.querySelector('[data-message-source="scheduled"]');
+  expect(source?.textContent).toContain("定时任务");
+  expect(source?.textContent).toContain("测试定时任务");
+  expect(message?.textContent).toContain("看到只需要回复一个 OK");
+  expect(message?.textContent).not.toContain("[scheduled:");
+  expect(turn.user?.[0]).toEqual({
+    type: "text",
+    text: "[scheduled: 测试定时任务]\n\n看到只需要回复一个 OK",
+  });
   dispose();
 });
 

@@ -53,6 +53,13 @@ describe("promptEntries", () => {
     expect(entry.prompt).toBe("public words");
   });
 
+  test("a schedule's wire prefix stays out of the prompt navigator", () => {
+    const [entry] = promptEntries([
+      turn("a", text("[scheduled: standup]\n\nSummarise the overnight work")),
+    ]);
+    expect(entry.prompt).toBe("Summarise the overnight work");
+  });
+
   test("text wins over attachments; basename fills in when there is no text", () => {
     const [both] = promptEntries([
       turn("a", [

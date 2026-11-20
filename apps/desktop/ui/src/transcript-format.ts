@@ -28,6 +28,32 @@ export function messageText(blocks: readonly ContentBlock[]): string {
     .join("\n");
 }
 
+const SCHEDULED_HEADER = /^\[scheduled: (.+)]\r?\n\r?\n/;
+
+/**
+ * The schedule plugin's wire prefix is context for the model, not prose the
+ * reader wrote. Split it only at the start of the first text block; the stored
+ * message remains untouched, and an ordinary message that mentions a schedule
+ * later in its body keeps every character.
+ */
+export function splitScheduledPrompt(
+  blocks: readonly ContentBlock[],
+): { name: string; blocks: ContentBlock[] } | undefined {
+  const first = blocks[0];
+  if (first?.type !== "text") return undefined;
+  const header = SCHEDULED_HEADER.exec(first.text);
+  if (!header) return undefined;
+  return {
+    name: header[1]!,
+    blocks: [{ ...first, text: first.text.slice(header[0].length) }, ...blocks.slice(1)],
+  };
+}
+
+/** Public user text, with transport-only provenance kept out of copies and edits. */
+export function userMessageText(blocks: readonly ContentBlock[]): string {
+  return messageText(splitScheduledPrompt(blocks)?.blocks ?? blocks);
+}
+
 /**
  * The model was told to answer with this line alone when the goal is done.
  * A reply that is exactly that line is a seam, not a sentence. Anything

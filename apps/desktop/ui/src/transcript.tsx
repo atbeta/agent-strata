@@ -39,6 +39,7 @@ import {
   interruptionNotice,
   waitingOnChild,
   messageText,
+  splitScheduledPrompt,
   silentEmptyReply,
   permissionLabel,
   permissionReason,
@@ -1441,47 +1442,65 @@ export function TurnBlock(props: {
       }`}
     >
       <Show when={firstPart() ? props.turn.user : undefined}>
-        {(blocks) => (
-          <MessageMenu
-            text={() => messageText(blocks())}
-            onEdit={
-              gesture().onEdit
-                ? () => gesture().onEdit!(props.turn.turn_id, messageText(blocks()))
-                : undefined
-            }
-            onRevert={gesture().onRevert ? () => gesture().onRevert!(props.turn.turn_id) : undefined}
-            onFork={gesture().onFork ? () => gesture().onFork!(props.turn.turn_id) : undefined}
-          >
-          <div class="transcript-message flex w-full flex-col items-end" data-message-role="user">
-            <Show when={props.turn.reverted}>
-              <p class="text-2xs text-muted-foreground">{t("message.reverted")}</p>
-            </Show>
-            <div class="max-w-[min(85%,36rem)] rounded-xl bg-secondary px-3.5 py-2 text-secondary-foreground">
-              <BlockText blocks={blocks()} tight plain />
-            </div>
-            <Show
-              when={
-                messageText(blocks()).trim() !== "" ||
-                gesture().onEdit ||
-                gesture().onRevert ||
-                gesture().onFork
+        {(blocks) => {
+          const scheduled = createMemo(() => splitScheduledPrompt(blocks()));
+          const content = () => scheduled()?.blocks ?? blocks();
+          const text = () => messageText(content());
+          return (
+            <MessageMenu
+              text={text}
+              onEdit={
+                gesture().onEdit
+                  ? () => gesture().onEdit!(props.turn.turn_id, text())
+                  : undefined
               }
+              onRevert={gesture().onRevert ? () => gesture().onRevert!(props.turn.turn_id) : undefined}
+              onFork={gesture().onFork ? () => gesture().onFork!(props.turn.turn_id) : undefined}
             >
-              <MessageActions
-                text={messageText(blocks())}
-                align="end"
-                onEdit={
-                  gesture().onEdit
-                    ? () => gesture().onEdit!(props.turn.turn_id, messageText(blocks()))
-                    : undefined
-                }
-                onRevert={gesture().onRevert ? () => gesture().onRevert!(props.turn.turn_id) : undefined}
-                onFork={gesture().onFork ? () => gesture().onFork!(props.turn.turn_id) : undefined}
-              />
-            </Show>
-          </div>
-          </MessageMenu>
-        )}
+              <div class="transcript-message flex w-full flex-col items-end" data-message-role="user">
+                <Show when={props.turn.reverted}>
+                  <p class="text-2xs text-muted-foreground">{t("message.reverted")}</p>
+                </Show>
+                <div class="max-w-[min(85%,36rem)] rounded-xl bg-secondary px-3.5 py-2 text-secondary-foreground">
+                  <Show when={scheduled()}>
+                    {(prompt) => (
+                      <p
+                        class="mb-1 flex items-center gap-1.5 text-2xs text-muted-foreground"
+                        data-message-source="scheduled"
+                      >
+                        <Icon name="clock" class="size-3 shrink-0" />
+                        <span class="min-w-0 truncate" title={prompt().name}>
+                          {t("plugin.schedule.name")} · {prompt().name}
+                        </span>
+                      </p>
+                    )}
+                  </Show>
+                  <BlockText blocks={content()} tight plain />
+                </div>
+                <Show
+                  when={
+                    text().trim() !== "" ||
+                    gesture().onEdit ||
+                    gesture().onRevert ||
+                    gesture().onFork
+                  }
+                >
+                  <MessageActions
+                    text={text()}
+                    align="end"
+                    onEdit={
+                      gesture().onEdit
+                        ? () => gesture().onEdit!(props.turn.turn_id, text())
+                        : undefined
+                    }
+                    onRevert={gesture().onRevert ? () => gesture().onRevert!(props.turn.turn_id) : undefined}
+                    onFork={gesture().onFork ? () => gesture().onFork!(props.turn.turn_id) : undefined}
+                  />
+                </Show>
+              </div>
+            </MessageMenu>
+          );
+        }}
       </Show>
       <For each={flowIds()}>
         {(id) => {
