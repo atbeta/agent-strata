@@ -152,6 +152,8 @@ export function useSessionAsks(
   };
 
   const openAsks = () => {
+    const pending = settled(asks) ?? [];
+    if (pending.length === 0) return [];
     const hidden = hiddenAsks();
     const decided = new Set<string>();
     const finished = new Set<string>();
@@ -161,7 +163,7 @@ export function useSessionAsks(
         if (call.call_id && call.status !== "pending") finished.add(call.call_id);
       }
     }
-    return (settled(asks) ?? []).filter((ask) => {
+    return pending.filter((ask) => {
       if (!mine(ask.session_id)) return false;
       if (hidden.has(ask.request_id) || decided.has(ask.request_id)) return false;
       if (ask.call_id && finished.has(ask.call_id)) return false;

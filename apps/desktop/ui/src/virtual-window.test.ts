@@ -131,6 +131,8 @@ describe("rows ahead of the view mount once they are warm", () => {
     expect(virtual).toContain("if (i >= r.visible.first && i <= r.visible.last) warmed.add(id);");
     const view = readFileSync(join(import.meta.dir, "transcript-view.tsx"), "utf8");
     expect(view).toContain("warm={warmSegment}");
+    expect(view).toContain("text(m.content)");
+    expect(view).not.toContain("text(seg.turn.user)");
   });
 });
 

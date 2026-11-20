@@ -477,8 +477,8 @@ describe("diff and labels", () => {
     withLocale("en", () => {
       expect(toolStatusLabel(pending, true)).toEqual({ text: "Running", tone: "live" });
       expect(toolStatusLabel(pending, false)).toEqual({ text: "Unfinished", tone: "muted" });
-      // A parked permission prompt is live waiting; orphaned, it is unfinished.
-      expect(toolStatusLabel(ask, true)).toEqual({ text: "Needs permission", tone: "live" });
+      // A parked permission prompt waits on the reader, not on the agent.
+      expect(toolStatusLabel(ask, true)).toEqual({ text: "Needs permission", tone: "permission" });
       expect(toolStatusLabel(ask, false)).toEqual({ text: "Unfinished", tone: "muted" });
       expect(toolStatusLabel({ status: "ok", permission: undefined }, true)).toBeUndefined();
       expect(toolStatusLabel({ status: "interrupted", permission: undefined }, true)).toEqual({
@@ -649,6 +649,12 @@ describe("transcript reading details", () => {
   test("user bubbles keep the space between paragraphs", () => {
     expect(theme).toContain(".md-bubble p + p { @apply mt-2.5; }");
     expect(theme).not.toContain(".md-bubble p { margin: 0; }");
+  });
+
+  test("split assistant parts keep the same rhythm and user text follows content size", () => {
+    expect(theme).toContain(".transcript-message .md + .md { @apply mt-3; }");
+    expect(transcript).toContain('class="user-message-text whitespace-pre-wrap break-words"');
+    expect(theme).toContain(":is(.md, .md code, .font-mono, .user-message-text)");
   });
 });
 

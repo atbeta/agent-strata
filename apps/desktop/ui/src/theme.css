@@ -1889,6 +1889,7 @@ textarea {
   }
   .md > :first-child { margin-top: 0; }
   .md > :last-child { margin-bottom: 0; }
+  .transcript-message .md + .md { @apply mt-3; }
   /* One block rhythm: siblings — paragraph, list, quote, table, code — share
      a single 12px step, and only a heading escapes it (20px above to open the
      section, half a step below to bind to its own text). Per-block margins
@@ -2261,7 +2262,7 @@ textarea {
 
 /* A chosen content size covers the transcript and monospaced content, not the
    application chrome. Unlayered so it beats per-element size utilities. */
-html[data-content-size] :is(.md, .md code, .font-mono) {
+html[data-content-size] :is(.md, .md code, .font-mono, .user-message-text) {
   font-size: var(--content-size);
 }
 html[data-code-leading] .font-mono {

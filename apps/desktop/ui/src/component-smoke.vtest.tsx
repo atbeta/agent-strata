@@ -218,6 +218,34 @@ test("a scheduled prompt keeps its source in the user bubble, not its wire text"
   dispose();
 });
 
+test("a permission wait is amber and still, while real work keeps its pulse", () => {
+  const waiting: Turn = {
+    turn_id: "waiting",
+    assistant: [],
+    tool_calls: [
+      {
+        call_id: "permission",
+        tool: "read",
+        input: { path: "a.ts" },
+        status: "pending",
+        permission: { request_id: "ask-permission" },
+      },
+    ],
+  };
+  const host = document.createElement("div");
+  const dispose = render(() => <TurnBlock turn={waiting} live={() => true} />, host);
+  expect(host.querySelector("span.text-event-permission")).not.toBeNull();
+  expect(host.querySelector('[class*="animate-pulse"]')).toBeNull();
+  expect(host.querySelector(".tool-dot")).toBeNull();
+  dispose();
+
+  waiting.tool_calls[0]!.permission = undefined;
+  const runningHost = document.createElement("div");
+  const disposeRunning = render(() => <TurnBlock turn={waiting} live={() => true} />, runningHost);
+  expect(runningHost.querySelector('[class*="animate-pulse"]')).not.toBeNull();
+  disposeRunning();
+});
+
 test("SessionDetail mounts — the view that crashed on a forward-referenced resource", () => {
   const row: SessionRowSummary = {
     summary: { session_id: "opencode:s3", title: "s", workspace: "/tmp/ws" },

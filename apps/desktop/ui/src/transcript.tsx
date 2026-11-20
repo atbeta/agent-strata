@@ -523,7 +523,7 @@ function TranscriptBlock(props: {
       <Match when={props.block.type === "text" ? props.block : undefined}>
         {(block) =>
           props.plain ? (
-            <div class="whitespace-pre-wrap break-words">{block().text}</div>
+            <div class="user-message-text whitespace-pre-wrap break-words">{block().text}</div>
           ) : (
             <Md class={props.tight ? "md-bubble" : ""} text={block().text} live={props.live} />
           )
@@ -724,6 +724,8 @@ function ToolCallCard(props: {
   };
   /** A pending call is only "running" while the session is. */
   const running = () => props.call.status === "pending" && props.live === true;
+  const awaitingPermission = () =>
+    running() && props.call.permission !== undefined && !props.call.permission.decision;
   const disclosure = useDisclosure();
   const choice = () => `call:${props.call.call_id}`;
   const [open, setOpen] = createSignal(disclosure.get(choice()) ?? (running() || props.call.status === "error"));
@@ -751,14 +753,12 @@ function ToolCallCard(props: {
    */
   const [now, setNow] = createSignal(Date.now());
   createEffect(() => {
-    if (!running()) return;
+    if (!running() || awaitingPermission() || isInteractiveTool(props.call.tool)) return;
     const id = setInterval(() => setNow(Date.now()), 1000);
     onCleanup(() => clearInterval(id));
   });
   const elapsed = () => {
-    if (!running()) return undefined;
-    if (props.call.permission && !props.call.permission.decision) return undefined;
-    if (isInteractiveTool(props.call.tool)) return undefined;
+    if (!running() || awaitingPermission() || isInteractiveTool(props.call.tool)) return undefined;
     return fmtElapsed(props.call.ts ?? "", now());
   };
   const todos = () => todoItems(props.call.input);
@@ -884,12 +884,14 @@ function ToolCallCard(props: {
               class={`shrink-0 text-2xs ${
                 childError() || status()?.tone === "danger"
                   ? "text-destructive"
-                  : childBusy() || status()?.tone === "live"
-                    ? "text-status-active"
-                    : "text-muted-foreground"
+                  : status()?.tone === "permission"
+                    ? "text-event-permission"
+                    : childBusy() || status()?.tone === "live"
+                      ? "text-status-active"
+                      : "text-muted-foreground"
               }`}
             >
-              <Show when={running() || childBusy()}>
+              <Show when={(running() && !awaitingPermission()) || childBusy()}>
                 <span class="mr-1 inline-block size-1.5 motion-safe:animate-pulse rounded-full bg-status-active align-middle" />
               </Show>
               {status()?.text}
@@ -970,7 +972,7 @@ function ToolCallCard(props: {
                   <Show
                     when={props.call.output}
                     fallback={
-                      <Show when={running()}>
+                      <Show when={running() && !awaitingPermission()}>
                         <PendingDots />
                       </Show>
                     }
@@ -1015,7 +1017,11 @@ function ToolCallCard(props: {
               </Show>
             }
           >
-            <ShellWell call={props.call} command={command()} running={running()} />
+            <ShellWell
+              call={props.call}
+              command={command()}
+              running={running() && !awaitingPermission()}
+            />
           </Show>
           {/* What the tool produced besides its text output — a screenshot,
               a generated file, a fetched page. */}

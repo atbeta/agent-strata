@@ -685,12 +685,12 @@ export function statusLabel(status: ToolCallView["status"]): string | undefined 
 export function toolStatusLabel(
   call: Pick<ToolCallView, "status" | "permission">,
   live: boolean,
-): { text: string; tone: "live" | "muted" | "danger" } | undefined {
+): { text: string; tone: "live" | "permission" | "muted" | "danger" } | undefined {
   if (call.permission?.decision === "deny") return { text: t("tool.status.denied"), tone: "danger" };
   if (call.status === "pending") {
     if (!live) return { text: t("status.unfinished"), tone: "muted" };
     if (call.permission && !call.permission.decision)
-      return { text: t("tool.status.needs_permission"), tone: "live" };
+      return { text: t("tool.status.needs_permission"), tone: "permission" };
     return { text: t("status.running"), tone: "live" };
   }
   const text = statusLabel(call.status);

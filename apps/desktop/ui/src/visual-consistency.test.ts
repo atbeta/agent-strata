@@ -103,7 +103,9 @@ describe("quiet visual consistency", () => {
     const settings = read("settings.tsx");
     expect(settings).toContain('hint={t("settings.font.size.hint")}');
     expect(settings).not.toContain('{ id: "", label: t("settings.font.system") },\n                ...CONTENT_SIZES');
-    expect(read("theme.css")).toContain("html[data-content-size] :is(.md, .md code, .font-mono)");
+    expect(read("theme.css")).toContain(
+      "html[data-content-size] :is(.md, .md code, .font-mono, .user-message-text)",
+    );
 
     const footer = read("use-connections.tsx");
     expect(footer).toContain('<Tip label={endpointHost(conn.baseUrl)}');

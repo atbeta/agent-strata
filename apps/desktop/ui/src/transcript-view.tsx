@@ -227,6 +227,7 @@ export function TranscriptView(props: {
            * The markdown a segment will draw, parsed ahead of it. A reply
            * still being written is skipped — it mounts on screen and is new on
            * every token — and a thought only when thoughts open by default.
+           * User prompts are plain text and never read the markdown cache.
            */
           const warmSegment = (seg: TurnSegment) => {
             const thoughts = readThinkingOpen();
@@ -235,7 +236,6 @@ export function TranscriptView(props: {
                 if (b.type === "text" || (thoughts && b.type === "thinking")) warmMarkdown(b.text);
               }
             };
-            if (seg.part === 0) text(seg.turn.user);
             for (let i = seg.msgFrom; i < seg.msgTo; i++) {
               const m = seg.turn.assistant[i];
               if (m && !m.partial) text(m.content);
