@@ -47,6 +47,16 @@ describe("archived sessions sit under the working list", () => {
     expect(src).not.toContain("rows().length > 0");
   });
 
+  test("row actions are named icons rather than repeated words", () => {
+    const src = read("archived-section.tsx");
+    const actions = src.slice(src.indexOf("const held"), src.indexOf("</li>"));
+    expect(actions.match(/size="icon-2xs"/g)).toHaveLength(2);
+    expect(actions).toContain('aria-label={t("sidebar.archived.restore")}');
+    expect(actions).toContain('aria-label={t("sidebar.archived.delete")}');
+    expect(actions).toContain('<Icon name="undo"');
+    expect(actions).toContain('<Icon name="trash"');
+  });
+
   test("a delete note leaves with the row it named", () => {
     const note = { id: "a", text: "已删除。" };
     expect(visibleArchiveNote(note, ["a", "b"])).toBe("已删除。");

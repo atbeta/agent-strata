@@ -28,6 +28,8 @@ import {
   shouldWarnFallback,
 } from "./terminal-shell";
 import { t } from "./i18n";
+import { Icon } from "./icons";
+import { Tip } from "@/tip";
 import { fadeSignal } from "./errors";
 import { createRequestOwner } from "./request-owner";
 
@@ -248,31 +250,30 @@ export function TerminalPane(props: { sessionId: string; onEmpty?: () => void })
               >
                 <span class="min-w-0 truncate">{tab.title}</span>
               </Button>
-              {/* Same bar, same 24px box, same hover — the close and the new-tab
-                  button used to disagree on whether hovering drew a fill. */}
-              <Button
-                type="button"
-                variant="icon"
-                size="icon-xs"
-                aria-label={t("terminal.close")}
-                onClick={() => void close(tab.id)}
-              >
-                ×
-              </Button>
+              <Tip label={t("terminal.close")}>
+                <Button
+                  type="button"
+                  variant="icon"
+                  size="icon-xs"
+                  aria-label={t("terminal.close")}
+                  onClick={() => void close(tab.id)}
+                >
+                  <Icon name="x" />
+                </Button>
+              </Tip>
             </div>
           )}
         </For>
-        {/* Same bar, same 24px box, same hover as the close button above — a
-            bare "+" that opened a menu now has to look like the × it sits next
-            to, not like a button that happens to be elsewhere. */}
         <DropdownMenu>
-          <DropdownMenuTrigger
-            variant="icon"
-            size="icon-xs"
-            aria-label={t("terminal.new")}
-          >
-            +
-          </DropdownMenuTrigger>
+          <Tip label={t("terminal.new")}>
+            <DropdownMenuTrigger
+              variant="icon"
+              size="icon-xs"
+              aria-label={t("terminal.new")}
+            >
+              <Icon name="plus" />
+            </DropdownMenuTrigger>
+          </Tip>
           <DropdownMenuContent>
             <DropdownMenuItem onSelect={() => void create(defaultShell())}>
               {defaultShell()
@@ -301,15 +302,18 @@ export function TerminalPane(props: { sessionId: string; onEmpty?: () => void })
       <Show when={notice()}>
         <div class="flex shrink-0 items-center gap-2 border-b border-border px-2 py-1">
           <p class="min-w-0 flex-1 truncate text-2xs text-muted-foreground">{notice()}</p>
-          <Button
-            type="button"
-            variant="quiet"
-            size="xs"
-            class="shrink-0 text-2xs"
-            onClick={() => setNotice("")}
-          >
-            {t("terminal.shellDismiss")}
-          </Button>
+          <Tip label={t("terminal.shellDismiss")}>
+            <Button
+              type="button"
+              variant="icon"
+              size="icon-2xs"
+              class="shrink-0"
+              aria-label={t("terminal.shellDismiss")}
+              onClick={() => setNotice("")}
+            >
+              <Icon name="x" />
+            </Button>
+          </Tip>
         </div>
       </Show>
       <div

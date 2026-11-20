@@ -525,7 +525,7 @@ export function MaintenanceSettings() {
                           aria-label={t("maintenance.backup.delete")}
                           onClick={() => setFileDelete({ kind: "backup", name: file.name })}
                         >
-                          <Icon name="x" class="size-3.5" />
+                          <Icon name="trash" class="size-3.5" />
                         </Button>
                       </div>
                     )}
@@ -560,7 +560,7 @@ export function MaintenanceSettings() {
                             aria-label={t("maintenance.legacy.delete")}
                             onClick={() => setFileDelete({ kind: "legacy", name: file.name })}
                           >
-                            <Icon name="x" class="size-3.5" />
+                            <Icon name="trash" class="size-3.5" />
                           </Button>
                         </div>
                       )}

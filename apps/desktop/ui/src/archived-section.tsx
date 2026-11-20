@@ -8,6 +8,7 @@ import { explain, fadeSignal } from "./errors";
 import { t } from "./i18n";
 import { Icon } from "./icons";
 import { Button } from "@/components/ui/button";
+import { Tip } from "@/tip";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { RowButton } from "@/components/ui/row-button";
 import { visibleArchiveNote } from "./archived-note";
@@ -111,9 +112,9 @@ export function ArchivedSection(props: {
               const id = row.summary.session_id;
               const title = () => displayTitle(row.title ?? row.summary.title) ?? t("common.untitled");
               const folder = () => folderLabel(row.workspace ?? row.summary.workspace);
-              // Fifteen rows each spelling out two actions read as a form, not
-              // a list. The date holds the slot until the row is pointed at or
-              // focused; a row in the middle of a request keeps them out.
+              // The date holds the slot until the row is pointed at or focused;
+              // a row in the middle of a request keeps the actions visible but
+              // disabled.
               const held = () => busy() === id;
               return (
                 <li>
@@ -137,26 +138,32 @@ export function ArchivedSection(props: {
                         held() ? "opacity-100" : "opacity-0"
                       }`}
                     >
-                      <Button
-                        type="button"
-                        size="xs"
-                        variant="quiet"
-                        class="shrink-0 px-1.5"
-                        disabled={busy() === id}
-                        onClick={() => void restore(row)}
-                      >
-                        {t("sidebar.archived.restore")}
-                      </Button>
-                      <Button
-                        type="button"
-                        size="xs"
-                        variant="quiet"
-                        class="shrink-0 px-1.5 text-muted-foreground hover:text-destructive"
-                        disabled={busy() === id}
-                        onClick={() => void askDelete(row)}
-                      >
-                        {t("sidebar.archived.delete")}
-                      </Button>
+                      <Tip label={t("sidebar.archived.restore")}>
+                        <Button
+                          type="button"
+                          size="icon-2xs"
+                          variant="icon"
+                          class="shrink-0"
+                          aria-label={t("sidebar.archived.restore")}
+                          disabled={busy() === id}
+                          onClick={() => void restore(row)}
+                        >
+                          <Icon name="undo" class="size-3" />
+                        </Button>
+                      </Tip>
+                      <Tip label={t("sidebar.archived.delete")}>
+                        <Button
+                          type="button"
+                          size="icon-2xs"
+                          variant="icon"
+                          class="shrink-0 hover:text-destructive"
+                          aria-label={t("sidebar.archived.delete")}
+                          disabled={busy() === id}
+                          onClick={() => void askDelete(row)}
+                        >
+                          <Icon name="trash" class="size-3" />
+                        </Button>
+                      </Tip>
                     </div>
                   </div>
                 </li>

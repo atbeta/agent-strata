@@ -18,6 +18,8 @@ import { clampRailWidth, railWidthLimit, readRailWidth, writeRailWidth, RAIL_MIN
 import { inDesktopShell } from "./shell";
 import type { SidePanelTab } from "./right-pane";
 import { Button } from "@/components/ui/button";
+import { Tip } from "@/tip";
+import { Icon } from "./icons";
 import { MiniTabs } from "@/components/ui/mini-tabs";
 import { RowButton } from "@/components/ui/row-button";
 
@@ -414,15 +416,18 @@ export function SessionRail(props: {
                         <span class="min-w-0 flex-1 font-mono text-2xs break-all text-muted-foreground">
                           {f().path}
                         </span>
-                        <Button
-                          type="button"
-                          variant="icon"
-                          size="xs"
-                          class="shrink-0 px-1.5"
-                          onClick={() => setOpenFile(null)}
-                        >
-                          {t("file.close")}
-                        </Button>
+                        <Tip label={t("file.close")}>
+                          <Button
+                            type="button"
+                            variant="icon"
+                            size="icon-xs"
+                            class="shrink-0"
+                            aria-label={t("file.close")}
+                            onClick={() => setOpenFile(null)}
+                          >
+                            <Icon name="x" />
+                          </Button>
+                        </Tip>
                       </div>
                       <div class="min-h-0 flex-1 overflow-x-auto overflow-y-auto px-3 py-2">
                         <Show when={f().unexplained}>
