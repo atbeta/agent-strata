@@ -59,6 +59,19 @@ export async function openOpencodeLog(): Promise<string> {
  * the page makes, and the only evidence is a line in the shell's own log. The
  * shell files it; this reads it so the launch screen can say which port.
  */
+/**
+ * Ask the shell to start the service again.
+ *
+ * The first launch already gave up when the port was taken, and probing
+ * `/health` cannot undo that: the occupant answers it, and this process was
+ * never spawned. A retry has to go back to the shell.
+ */
+export async function retryDesktopService(): Promise<void> {
+  if (!inDesktopShell()) return;
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("retry_service");
+}
+
 export async function readServiceError(): Promise<{ code?: string; port?: number } | undefined> {
   if (!inDesktopShell()) return undefined;
   const { invoke } = await import("@tauri-apps/api/core");

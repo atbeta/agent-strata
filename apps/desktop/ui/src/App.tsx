@@ -695,6 +695,8 @@ export function App() {
           >
             <StartupGate
               stage={boot.stage()}
+              retrying={boot.retrying()}
+              serviceFault={boot.serviceFault}
               attempts={conns.attempts()}
               slow={boot.slow()}
               canEnter={boot.canEnter()}

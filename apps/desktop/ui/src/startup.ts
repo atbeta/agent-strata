@@ -42,6 +42,14 @@ export interface StartupInput {
   connections: ViewPhase;
   /** Whether the first session list has answered. */
   sessions: "loading" | "ready" | "error";
+  /**
+   * The shell refused to start the service because its port is already taken.
+   *
+   * Whatever is holding the port may still answer `/health`. That is not this
+   * launch's service, and treating it as one leaves the screen on "connecting
+   * to OpenCode" for a backend it will never reach.
+   */
+  portBlocked?: boolean;
 }
 
 /**
@@ -53,7 +61,20 @@ export interface StartupInput {
  * "no backend" would put a failure on screen for a request that is about to be
  * repeated.
  */
+/**
+ * What the launch screen should paint while a retry is in flight.
+ *
+ * A taken port keeps the real stage on `service-error` for the whole attempt:
+ * the other program still answers `/health`, so nothing underneath moves. The
+ * click has to show the service starting again, or it looks like it did nothing.
+ */
+export function startupDisplayedStage(stage: StartupStage, retrying: boolean): StartupStage {
+  if (retrying && (stage === "service-error" || stage === "sessions-error")) return "service";
+  return stage;
+}
+
 export function startupStage(input: StartupInput): StartupStage {
+  if (input.portBlocked) return "service-error";
   if (input.health === "down") return "service-error";
   if (input.health === "checking") return "service";
   if (

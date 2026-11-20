@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { startupCanEnter, startupStage, syncProgress, type StartupInput } from "./startup";
+import {
+  startupCanEnter,
+  startupDisplayedStage,
+  startupStage,
+  syncProgress,
+  type StartupInput,
+} from "./startup";
 
 const base: StartupInput = {
   health: "up",
@@ -22,6 +28,24 @@ describe("startupStage", () => {
 
   test("a connection read that lost the race is retried as connecting", () => {
     expect(stage({ connections: "unreachable" })).toBe("opencode");
+  });
+
+  test("a retry shows the service starting again instead of the frozen failure", () => {
+    // Health stays up while another program holds the port, so the failure
+    // stage never moves on its own. The click has to change what is on screen.
+    expect(startupDisplayedStage("service-error", true)).toBe("service");
+    expect(startupDisplayedStage("sessions-error", true)).toBe("service");
+    expect(startupDisplayedStage("service-error", false)).toBe("service-error");
+  });
+
+  test("a taken port stays a service failure even when something answers health", () => {
+    // The program holding the port can answer /health. That used to look like
+    // this launch's service, and the screen then sat on "connecting to
+    // OpenCode", retrying a backend that belongs to the other process.
+    expect(
+      stage({ health: "up", connections: "unreachable", sessions: "loading", portBlocked: true }),
+    ).toBe("service-error");
+    expect(stage({ portBlocked: true })).toBe("service-error");
   });
 
   test("waits for the first session list once a backend is up", () => {

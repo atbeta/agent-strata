@@ -49,6 +49,8 @@ struct Sidecars {
     restart: Arc<AtomicBool>,
     /// First caller reaps. Exit and Drop can both arrive; the second finds nothing to stop.
     stopped: AtomicBool,
+    /// One start at a time. Retry and the first launch share the same path.
+    starting: AtomicBool,
     opencode: Arc<Mutex<Option<Child>>>,
     /// The current child's stdin while it sits at a domain login prompt. The
     /// login command answers through it; the kill path drops it with the child.
@@ -57,7 +59,10 @@ struct Sidecars {
     supervise: Mutex<Option<JoinHandle<()>>>,
     /// The handshake a globally loaded plugin reads to find this service. Removed
     /// on a clean exit so a plugin cannot hand work to a process that is gone.
-    handshake: PathBuf,
+    /// The path a plugin reads. The file itself is written only once the service
+    /// is actually up; the path has to be settable from a later retry, which is
+    /// why it sits behind a lock.
+    handshake: Mutex<PathBuf>,
     /// Kept for an on-demand start: switching to embed mid-run asks for a
     /// supervisor that launch never built.
     data: PathBuf,
@@ -79,11 +84,12 @@ impl Sidecars {
             shutdown: Arc::new(AtomicBool::new(false)),
             restart: Arc::new(AtomicBool::new(false)),
             stopped: AtomicBool::new(false),
+            starting: AtomicBool::new(false),
             opencode: Arc::new(Mutex::new(None)),
             login: Arc::new(Mutex::new(None)),
             service: Mutex::new(None),
             supervise: Mutex::new(None),
-            handshake: PathBuf::new(),
+            handshake: Mutex::new(PathBuf::new()),
             data: data_dir(),
             log: None,
             service_port: 7700,
@@ -126,8 +132,13 @@ impl Sidecars {
         // Last, and only after the service is gone: a handshake that outlived
         // its service would make every OpenCode on the machine probe a dead
         // port before falling back.
-        if !self.handshake.as_os_str().is_empty() {
-            let _ = fs::remove_file(&self.handshake);
+        let handshake = self
+            .handshake
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        if !handshake.as_os_str().is_empty() {
+            let _ = fs::remove_file(&handshake);
         }
     }
 
@@ -276,9 +287,8 @@ fn service_healthy(port: u16) -> bool {
     }
     // `/health` is the one route that asks for no token, by design: a probe
     // has to be able to ask before it knows anything else.
-    let request = format!(
-        "GET /health HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
-    );
+    let request =
+        format!("GET /health HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n");
     if stream.write_all(request.as_bytes()).is_err() {
         return false;
     }
@@ -650,7 +660,10 @@ fn spawn_opencode_supervisor(
         if !embed::port_is_free(port) {
             if let Some(pid) = reap_opencode_on_port(port) {
                 eprintln!("agent-strata: stopped opencode {pid} still holding port {port}");
-                log_note(log, &format!("stopped opencode {pid} still holding port {port}"));
+                log_note(
+                    log,
+                    &format!("stopped opencode {pid} still holding port {port}"),
+                );
             }
         }
     }
@@ -875,7 +888,6 @@ impl Sidecars {
         let restart = Arc::new(AtomicBool::new(false));
         let opencode = Arc::new(Mutex::new(None));
         let login = Arc::new(Mutex::new(None));
-        let mut supervisor = None;
         let data = data_dir();
         let log_path = data.join("service.log");
         let Some(log_file) = open_log(&log_path) else {
@@ -899,11 +911,6 @@ impl Sidecars {
             .ok()
             .and_then(|p| p.parse().ok())
             .unwrap_or(7700);
-        let policy = std::env::var("STRATA_POLICY")
-            .ok()
-            .filter(|v| !v.is_empty())
-            .unwrap_or_else(|| data.join("policy.json").to_string_lossy().into_owned());
-
         let env_embed = std::env::var("STRATA_OPENCODE_EMBED").ok();
         let file_mode = match read_mode(&data.join("desktop.json")) {
             OpencodeMode::External => "external",
@@ -932,6 +939,72 @@ impl Sidecars {
             }
         }
 
+        let sidecars = Sidecars {
+            shutdown,
+            restart,
+            stopped: AtomicBool::new(false),
+            starting: AtomicBool::new(false),
+            opencode,
+            login,
+            service: Mutex::new(None),
+            supervise: Mutex::new(None),
+            handshake: Mutex::new(PathBuf::new()),
+            data,
+            log: Some(log),
+            service_port: port,
+            api_token,
+        };
+        // Taken or not, the shell keeps this struct. A retry spawns into it;
+        // replacing the managed state is not something the shell can do.
+        let _ = sidecars.bring_up();
+        sidecars
+    }
+
+    fn service_alive(&self) -> bool {
+        let mut guard = self.service.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(child) = guard.as_mut() else {
+            return false;
+        };
+        matches!(child.try_wait(), Ok(None))
+    }
+
+    /// Spawn the service, or record why it still cannot.
+    ///
+    /// The launch and the screen's retry share this. A taken port used to end
+    /// in an empty shell, and the button then only re-read `/health` — which
+    /// the other program answers, so the click changed nothing on screen.
+    fn bring_up(&self) -> Result<(), String> {
+        if self.service_alive() {
+            return Ok(());
+        }
+        if self.starting.swap(true, Ordering::SeqCst) {
+            return Err("the service is already starting".into());
+        }
+        let result = self.bring_up_inner();
+        self.starting.store(false, Ordering::SeqCst);
+        result
+    }
+
+    fn bring_up_inner(&self) -> Result<(), String> {
+        let Some(log) = self.log.clone() else {
+            return Err("the service log is not open".into());
+        };
+        let data = self.data.clone();
+        let port = self.service_port;
+        let api_token = self.api_token.clone();
+        let db = std::env::var("STRATA_DB")
+            .unwrap_or_else(|_| data.join("events.db").to_string_lossy().into_owned());
+        let policy = std::env::var("STRATA_POLICY")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| data.join("policy.json").to_string_lossy().into_owned());
+        let env_embed = std::env::var("STRATA_OPENCODE_EMBED").ok();
+        let file_mode = match read_mode(&data.join("desktop.json")) {
+            OpencodeMode::External => "external",
+            OpencodeMode::Embed => "embed",
+        };
+        let mode = resolve_mode(env_embed.as_deref(), Some(file_mode));
+
         let mut extras: Vec<(String, String)> = Vec::new();
 
         if port_open(port) {
@@ -956,7 +1029,7 @@ impl Sidecars {
             // service, no token, and a page retrying a read that could never
             // succeed. Say it, in the log and on the screen.
             let detail = format!(
-                "port {port} is in use by another program; close it or set STRATA_PORT to a free port"
+                "port {port} is in use by another program; the service port is fixed, so close whatever is holding it"
             );
             eprintln!("agent-strata: {detail}");
             log_note(&log, &detail);
@@ -974,8 +1047,12 @@ impl Sidecars {
             } else {
                 owner_only(&path);
             }
-            return Sidecars::empty();
+            return Err("portInUse".into());
         }
+
+        // This attempt has the port. A note from the attempt that did not
+        // would keep the screen saying it is taken while this one starts.
+        let _ = fs::remove_file(data.join("service-error.json"));
 
         // A previous run may have left its embedded server behind (a crash, a
         // killed dev process, a rebuild). Reap it before planning, so the last
@@ -996,7 +1073,10 @@ impl Sidecars {
         if let Some(dir) = plugin_install::opencode_config_dir() {
             match plugin_install::install_plugin(&dir) {
                 Ok(path) => {
-                    log_note(&log, &format!("installed the plugin shim at {}", path.display()));
+                    log_note(
+                        &log,
+                        &format!("installed the plugin shim at {}", path.display()),
+                    );
                 }
                 Err(e) => {
                     eprintln!("agent-strata: could not install the plugin shim: {e}");
@@ -1029,18 +1109,28 @@ impl Sidecars {
                 // The placement says which server the address belongs to, not
                 // whether the binary was there to start it.
                 extras.push(("STRATA_OPENCODE_PLACEMENT".to_string(), "embed".to_string()));
-                if let Some((handle, planned)) = spawn_opencode_supervisor(
-                    &data,
-                    &log,
-                    port,
-                    &api_token,
-                    shutdown.clone(),
-                    restart.clone(),
-                    opencode.clone(),
-                    login.clone(),
-                ) {
-                    extras.extend(service_env(&planned));
-                    supervisor = Some(handle);
+                // A retry after the service failed must not start a second server
+                // beside the one this shell is already supervising.
+                let already = self
+                    .supervise
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .as_ref()
+                    .is_some_and(|handle| !handle.is_finished());
+                if !already {
+                    if let Some((handle, planned)) = spawn_opencode_supervisor(
+                        &data,
+                        &log,
+                        port,
+                        &api_token,
+                        self.shutdown.clone(),
+                        self.restart.clone(),
+                        self.opencode.clone(),
+                        self.login.clone(),
+                    ) {
+                        extras.extend(service_env(&planned));
+                        *self.supervise.lock().unwrap_or_else(|e| e.into_inner()) = Some(handle);
+                    }
                 }
             }
         }
@@ -1125,7 +1215,10 @@ impl Sidecars {
                     let log_for_pid = log.clone();
                     std::thread::spawn(move || {
                         if let Err(e) = write_pid(&pid_path, pid) {
-                            log_note(&log_for_pid, &format!("could not record service pid identity: {e}"));
+                            log_note(
+                                &log_for_pid,
+                                &format!("could not record service pid identity: {e}"),
+                            );
                         }
                     });
                     // A port that was taken on an earlier launch leaves a note
@@ -1186,25 +1279,21 @@ impl Sidecars {
         // without the shell: `curl -H "Authorization: Bearer $(cat ...)"`
         let token_path = data.join("api-token");
         if let Err(e) = fs::write(&token_path, format!("{api_token}\n")) {
-            eprintln!("agent-strata: could not write {}: {e}", token_path.display());
+            eprintln!(
+                "agent-strata: could not write {}: {e}",
+                token_path.display()
+            );
             log_note(&log, &format!("could not write api-token: {e}"));
         } else {
             owner_only(&token_path);
         }
-
-        Sidecars {
-            shutdown,
-            restart,
-            stopped: AtomicBool::new(false),
-            opencode,
-            login,
-            service: Mutex::new(service_child),
-            supervise: Mutex::new(supervisor),
-            handshake,
-            data,
-            log: Some(log),
-            service_port: port,
-            api_token,
+        let started = service_child.is_some();
+        *self.handshake.lock().unwrap_or_else(|e| e.into_inner()) = handshake;
+        *self.service.lock().unwrap_or_else(|e| e.into_inner()) = service_child;
+        if started {
+            Ok(())
+        } else {
+            Err("service did not start".into())
         }
     }
 }
@@ -1263,7 +1352,11 @@ fn answer_login(
     // prompt reads a line and wants LF. Handing LF to a TUI shows the typed
     // text and then waits forever, which reads exactly like a login button
     // that does nothing — the text appears, nothing is submitted.
-    let submit = if pipe.tui.load(Ordering::SeqCst) { "\r" } else { "\n" };
+    let submit = if pipe.tui.load(Ordering::SeqCst) {
+        "\r"
+    } else {
+        "\n"
+    };
     // Both halves go in with the same terminator: a raw-mode reader that never
     // sees CR leaves the field open and swallows the password into it.
     let write = |stdin: &mut ChildStdin, value: &str| -> Result<(), String> {
@@ -1314,6 +1407,16 @@ fn api_token(state: tauri::State<Sidecars>) -> String {
 #[tauri::command]
 fn service_url(state: tauri::State<Sidecars>) -> String {
     format!("http://127.0.0.1:{}", state.service_port)
+}
+
+/// Start the service again after the launch gave up.
+///
+/// The page's retry used to only re-read `/health`. When the port is taken,
+/// something else answers that, and this process was never spawned, so the
+/// click left the screen exactly as it was.
+#[tauri::command]
+fn retry_service(state: tauri::State<Sidecars>) -> Result<(), String> {
+    state.bring_up()
 }
 
 /// Why the service is not running, when the shell knows.
@@ -1524,6 +1627,7 @@ fn main() {
             api_token,
             service_url,
             service_error,
+            retry_service,
             open_log_file,
             open_notification_settings,
             opencode_runtime,

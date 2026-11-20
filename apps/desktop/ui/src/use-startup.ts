@@ -1,5 +1,6 @@
 import { createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { apiFetch, SERVICE_BOOT_MS } from "./api";
+import { readServiceError, retryDesktopService } from "./opencode-runtime";
 import { settled } from "./resource";
 import {
   STARTUP_SLOW_MS,
@@ -47,9 +48,15 @@ export function useStartup(opts: {
   ws: WorkspaceCtl;
 }) {
   const [health, setHealth] = createSignal<StartupHealth>("checking");
+  /** Why the shell did not start its service, once it has said so. */
+  const [serviceFault, setServiceFault] = createSignal<
+    { code?: string; port?: number } | undefined
+  >(undefined);
   const [elapsed, setElapsed] = createSignal(0);
   const [visible, setVisible] = createSignal(false);
   const [entered, setEntered] = createSignal(false);
+  /** A retry is on its way to the shell. The failure underneath does not move. */
+  const [retrying, setRetrying] = createSignal(false);
   /** Once launch is over it stays over, even when a later sync starts. */
   const [launched, setLaunched] = createSignal(false);
   const started = Date.now();
@@ -74,6 +81,26 @@ export function useStartup(opts: {
       if (mine !== generation) return;
     }
   };
+
+  // The shell writes the reason after the window is already up, and a listener
+  // on our port can answer health before that file exists. Read it until the
+  // launch is over, not once: a single miss is what left the screen connecting
+  // to OpenCode.
+  createEffect(() => {
+    if (launched() || entered()) return;
+    const read = () => {
+      // The attempt deletes the note once it has the port, then spends a few
+      // seconds actually starting. A poll in that window would drop the
+      // failure before the attempt has anything to show for it.
+      if (retrying()) return;
+      void readServiceError().then((value) => {
+        if (!retrying()) setServiceFault(value);
+      });
+    };
+    read();
+    const timer = setInterval(read, 2_000);
+    onCleanup(() => clearInterval(timer));
+  });
 
   onMount(() => {
     void probe();
@@ -105,6 +132,9 @@ export function useStartup(opts: {
   // request, not "there is no backend"; reread it until the real phase arrives.
   createEffect(() => {
     if (health() !== "up") return;
+    // The port's occupant is not ours to poll. Retrying it is what kept the
+    // launch on "connecting".
+    if (serviceFault()?.code === "portInUse") return;
     const phase = opts.conns.phase();
     if (phase !== "unreachable") return;
     const timer = setInterval(() => opts.conns.refetchConns(), 1_000);
@@ -134,6 +164,7 @@ export function useStartup(opts: {
       health: health(),
       connections: opts.conns.phase(),
       sessions: sessions(),
+      portBlocked: serviceFault()?.code === "portInUse",
     }),
   );
   // The launch is over as soon as there is something on screen to use. A sync
@@ -156,11 +187,42 @@ export function useStartup(opts: {
   };
 
   const retry = () => {
-    void probe();
-    opts.conns.refetchConns();
-    opts.list.refetch();
-    opts.ws.refetchWs();
+    if (retrying()) return;
+    setRetrying(true);
+    const started = Date.now();
+    void (async () => {
+      try {
+        await retryDesktopService();
+      } catch {
+        // Still taken, or the process exited again. The note says which.
+      }
+      const fault = await readServiceError();
+      // A port that is still taken comes back at once. Hold the "starting"
+      // screen long enough that the click is visible, then return to the note.
+      if (fault?.code === "portInUse") {
+        const wait = 600 - (Date.now() - started);
+        if (wait > 0) await sleep(wait);
+      } else {
+        void probe();
+        opts.conns.refetchConns();
+        opts.list.refetch();
+        opts.ws.refetchWs();
+      }
+      setServiceFault(fault);
+      setRetrying(false);
+    })();
   };
 
-  return { stage, ready, canEnter, slow, visible, elapsed, enter, retry };
+  return {
+    stage,
+    serviceFault,
+    retrying,
+    ready,
+    canEnter,
+    slow,
+    visible,
+    elapsed,
+    enter,
+    retry,
+  };
 }

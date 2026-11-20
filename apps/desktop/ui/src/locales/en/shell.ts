@@ -226,8 +226,7 @@ export default {
   "startup.serviceErrorHint":
     "The local service is not answering. Retry, or open the log to see why.",
   "startup.servicePortInUse": "The local service could not start: port {port} is already in use.",
-  "startup.servicePortInUseHint":
-    "Close whatever is holding that port and retry, or set STRATA_PORT to a free one.",
+  "startup.servicePortInUseHint": "Close whatever is holding that port, then retry.",
   "startup.sessionsErrorHint":
     "The local service is up, but the session list could not be read.",
   "startup.steps": "Startup steps",
@@ -240,6 +239,7 @@ export default {
   "startup.enter": "Enter the app",
   "startup.enterLocal": "Enter with local history only",
   "startup.retry": "Retry",
+  "startup.retrying": "Retrying",
   "startup.settings": "Open connection settings",
   "startup.login": "Sign in",
   "startup.authRequired": "OpenCode needs a domain login",

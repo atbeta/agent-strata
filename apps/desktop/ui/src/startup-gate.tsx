@@ -5,9 +5,9 @@ import { Button } from "./components/ui/button";
 import { Icon } from "./icons";
 import { t } from "./i18n";
 import { cn } from "./lib/utils";
-import { openOpencodeLog, readServiceError } from "./opencode-runtime";
+import { openOpencodeLog } from "./opencode-runtime";
 import { hostsTrafficLights, inDesktopShell } from "./shell";
-import type { StartupStage } from "./startup";
+import { startupDisplayedStage, type StartupStage } from "./startup";
 import { endpointHost } from "./use-connections";
 
 type StepState = "done" | "active" | "pending" | "error";
@@ -83,6 +83,10 @@ function StageRow(props: { label: string; state: StepState }) {
  */
 export function StartupGate(props: {
   stage: StartupStage;
+  /** True while a retry is in flight. The stage underneath may not move. */
+  retrying: boolean;
+  /** The shell's own note, when it could not start the service. */
+  serviceFault: () => { code?: string; port?: number } | undefined;
   attempts: readonly ConnectionAttempt[];
   slow: boolean;
   canEnter: boolean;
@@ -101,19 +105,12 @@ export function StartupGate(props: {
   const launchPoll = setInterval(() => void refetchLaunch(), 2_000);
   onCleanup(() => clearInterval(launchPoll));
 
-  /**
-   * Why the service is not up, when the shell knows.
-   *
-   * Read alongside the launch state and on the same cadence: both live in the
-   * shell's own files, and neither can be answered by the service — it is the
-   * thing that is missing.
-   */
-  const [serviceError] = createResource(() => readServiceError());
-
   const needsLogin = () => {
     const state = launch()?.state;
     return state === "authRequired" || state === "authFailed";
   };
+
+  const shown = createMemo(() => startupDisplayedStage(props.stage, props.retrying));
 
   const copy = createMemo(() => {
     if (
@@ -122,16 +119,16 @@ export function StartupGate(props: {
     ) {
       return { title: t("startup.authRequired"), hint: t("startup.authRequiredHint") };
     }
-    switch (props.stage) {
+    switch (shown()) {
       case "service":
         return { title: t("startup.service"), hint: t("startup.serviceHint") };
       case "service-error":
         // A taken port is the one failure with something to say beyond "it did
         // not start": it names the port, so the reader can find the program
         // holding it instead of guessing.
-        if (serviceError()?.code === "portInUse") {
+        if (props.serviceFault()?.code === "portInUse") {
           return {
-            title: t("startup.servicePortInUse", { port: serviceError()?.port ?? 0 }),
+            title: t("startup.servicePortInUse", { port: props.serviceFault()?.port ?? 0 }),
             hint: t("startup.servicePortInUseHint"),
           };
         }
@@ -179,9 +176,9 @@ export function StartupGate(props: {
           <p class="mt-1.5 text-sm leading-6 text-muted-foreground">{copy().hint}</p>
 
           <ol class="mt-7 space-y-3" aria-label={t("startup.steps")}>
-            <StageRow label={t("startup.step.service")} state={serviceStep(props.stage)} />
-            <StageRow label={t("startup.step.opencode")} state={opencodeStep(props.stage)} />
-            <StageRow label={t("startup.step.sessions")} state={sessionsStep(props.stage)} />
+            <StageRow label={t("startup.step.service")} state={serviceStep(shown())} />
+            <StageRow label={t("startup.step.opencode")} state={opencodeStep(shown())} />
+            <StageRow label={t("startup.step.sessions")} state={sessionsStep(shown())} />
           </ol>
 
           <Show when={props.stage === "degraded" && targets().length > 0}>
@@ -193,8 +190,8 @@ export function StartupGate(props: {
           <div class="mt-6 flex flex-wrap items-center gap-2">
             <Show when={props.stage === "service-error" || props.stage === "sessions-error"}>
               <>
-                <Button size="sm" onClick={props.onRetry}>
-                  {t("startup.retry")}
+                <Button size="sm" disabled={props.retrying} onClick={props.onRetry}>
+                  {props.retrying ? t("startup.retrying") : t("startup.retry")}
                 </Button>
                 <Show when={inDesktopShell()}>
                   <Button variant="ghost" size="sm" onClick={openLog}>

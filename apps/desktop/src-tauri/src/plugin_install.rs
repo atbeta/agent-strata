@@ -169,7 +169,11 @@ mod tests {
         std::fs::create_dir_all(stale.parent().unwrap()).unwrap();
         std::fs::write(&stale, "leftover browser plugin").unwrap();
         std::fs::write(&older, "leftover dev plugin").unwrap();
-        std::fs::write(&old_handshake, "{\"url\":\"http://127.0.0.1:1\",\"token\":\"stale\"}").unwrap();
+        std::fs::write(
+            &old_handshake,
+            "{\"url\":\"http://127.0.0.1:1\",\"token\":\"stale\"}",
+        )
+        .unwrap();
         let path = install_plugin(&dir).unwrap();
         assert!(path.is_file());
         assert_eq!(path.file_name().unwrap(), SHIM_FILE);
@@ -192,16 +196,23 @@ mod tests {
         // The shim finds it by walking up one directory from its own path.
         // Changing either side without the other breaks every global install.
         let dir = Path::new("/home/u/.config/opencode");
-        assert_eq!(handshake_path(dir), Path::new("/home/u/.config/opencode/strata-service.json"));
+        assert_eq!(
+            handshake_path(dir),
+            Path::new("/home/u/.config/opencode/strata-service.json")
+        );
         assert!(STRATA_SHIM.contains("strata-service.json"));
     }
 
     #[test]
     fn config_content_names_the_plugin_as_a_file_url() {
-        let unix = config_content(Path::new("/home/u/.local/share/strata/plugin/strata-shim.ts"));
+        let unix = config_content(Path::new(
+            "/home/u/.local/share/strata/plugin/strata-shim.ts",
+        ));
         assert!(unix.contains("file:///home/u/.local/share/strata/plugin/strata-shim.ts"));
 
-        let windows = config_content(Path::new("C:\\Users\\u\\AppData\\Roaming\\strata\\plugin\\strata-shim.ts"));
+        let windows = config_content(Path::new(
+            "C:\\Users\\u\\AppData\\Roaming\\strata\\plugin\\strata-shim.ts",
+        ));
         assert!(windows.contains("file:///C:/Users/u/AppData/Roaming/strata/plugin/strata-shim.ts"));
         // Backslashes would be read as escapes inside a JSON string.
         assert!(!windows.contains("\\\\"));
