@@ -376,6 +376,10 @@ export async function worktreeAdd(opts: {
  * `force`, and the branch stays either way: removing the checkout deletes the
  * directory, not the ref — removing `strata/<name>` would lose commits the
  * session made, and that is not ours to take.
+ *
+ * A directory that is already gone is still this function's to finish. The
+ * sidebar row comes from git's registration, not from the folder, so the
+ * registration is what has to be cleared.
  */
 export async function worktreeRemove(opts: {
   dir: string;
@@ -397,7 +401,13 @@ export async function worktreeRemove(opts: {
   release?: () => Promise<void>;
 }): Promise<void> {
   const dir = canonical(opts.dir);
-  if (!existsSync(dir)) throw new WorktreeError("worktree not found", 404);
+  // A missing folder is not a missing worktree. The directory can be gone —
+  // the reader deleted it, or something else finished a removal — while git
+  // still lists the checkout, and that listing is what keeps the row in the
+  // sidebar. Refusing here leaves the row up forever: every later click fails
+  // the same way, and nothing ever clears the registration. The lookup below
+  // is what an emptied folder already uses, and it does not need the
+  // directory to be there.
   const info = await worktreeInfo(dir);
   // An emptied folder cannot answer git — the `.git` file went with everything
   // else. git still lists the checkout by path, so the repositories the app

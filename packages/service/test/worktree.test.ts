@@ -255,6 +255,69 @@ describe("worktreeRemove", () => {
     expect(existsSync(first.directory)).toBe(true);
   });
 
+  test("a checkout whose folder was deleted is still removable", async () => {
+    // The folder is gone — the reader deleted it, or a removal emptied it and
+    // something else finished the job — but git still lists the checkout, and
+    // that listing is what puts the row in the sidebar. Refusing because the
+    // directory cannot be found leaves the row up, and every later click
+    // fails the same way.
+    const repo = makeRepo();
+    const state = tempDir();
+    const wt = await worktreeAdd({ dir: repo, stateDir: state });
+    rmSync(wt.directory, { recursive: true, force: true });
+    expect(existsSync(wt.directory)).toBe(false);
+
+    const marked = await withWorktrees([{ directory: repo }], state);
+    expect(marked.some((w) => w.directory === wt.directory)).toBe(true);
+
+    await worktreeRemove({
+      dir: wt.directory,
+      stateDir: state,
+      repos: async () => [repo],
+    });
+    const listed = git(repo, "worktree", "list", "--porcelain").stdout.replace(/\\/g, "/");
+    expect(listed).not.toContain(wt.directory.replace(/\\/g, "/"));
+    // The branch is not what was asked for.
+    expect(git(repo, "branch", "--list", wt.branch).stdout).toContain(wt.branch);
+    // The row came from the registration. With that gone, the row is gone.
+    const after = await withWorktrees([{ directory: repo }], state);
+    expect(after.some((w) => w.directory === wt.directory)).toBe(false);
+  });
+
+  test("a deleted locked checkout still asks, then the registration goes", async () => {
+    // The folder is already gone, so the lock is only protecting the row in
+    // git's list. The second click is what clears it — the same click a
+    // locked checkout that is still on disk asks for.
+    const repo = makeRepo();
+    const state = tempDir();
+    const wt = await worktreeAdd({ dir: repo, stateDir: state });
+    git(repo, "worktree", "lock", wt.directory);
+    rmSync(wt.directory, { recursive: true, force: true });
+    await expect(
+      worktreeRemove({ dir: wt.directory, stateDir: state, repos: async () => [repo] }),
+    ).rejects.toThrow("worktree locked");
+    await worktreeRemove({
+      dir: wt.directory,
+      force: true,
+      stateDir: state,
+      repos: async () => [repo],
+    });
+    const listed = git(repo, "worktree", "list", "--porcelain").stdout.replace(/\\/g, "/");
+    expect(listed).not.toContain(wt.directory.replace(/\\/g, "/"));
+  });
+
+  test("a deleted checkout is found through a sibling", async () => {
+    const repo = makeRepo();
+    const state = tempDir();
+    const first = await worktreeAdd({ dir: repo, stateDir: state });
+    const second = await worktreeAdd({ dir: repo, stateDir: state });
+    rmSync(second.directory, { recursive: true, force: true });
+    await worktreeRemove({ dir: second.directory, stateDir: state });
+    const listed = git(repo, "worktree", "list", "--porcelain").stdout.replace(/\\/g, "/");
+    expect(listed).not.toContain(second.directory.replace(/\\/g, "/"));
+    expect(existsSync(first.directory)).toBe(true);
+  });
+
   test("a checkout git gave up on is still ours to remove", async () => {
     // What an older removal left behind: git dropped the registration, so
     // nothing in git names the checkout — only the folder is left.
