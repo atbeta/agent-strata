@@ -176,6 +176,20 @@ function minutesOf(value: unknown): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+/**
+ * One instant, from either caller.
+ *
+ * The tool writes an ISO-8601 string. The panel already holds the moment
+ * it picked and sends that instant as epoch milliseconds — the same number
+ * a schedule stores. A digit string is neither of those, so it is refused.
+ */
+function instantOf(value: unknown): number | undefined {
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  if (typeof value !== "string" || value.trim() === "") return undefined;
+  const at = Date.parse(value.trim());
+  return Number.isFinite(at) ? at : undefined;
+}
+
 function str(input: Record<string, unknown>, key: string): string | undefined {
   const v = input[key];
   return typeof v === "string" && v.trim() !== "" ? v.trim() : undefined;
@@ -200,8 +214,8 @@ function parseWhen(input: Record<string, unknown>): When | string {
   try {
     switch (given[0]) {
       case "at": {
-        const at = Date.parse(str(input, "at") ?? "");
-        if (!Number.isFinite(at)) return `at must be an ISO-8601 timestamp, got ${JSON.stringify(input.at)}`;
+        const at = instantOf(input.at);
+        if (at === undefined) return `at must be an ISO-8601 timestamp, got ${JSON.stringify(input.at)}`;
         return { kind: "at", at };
       }
       case "every_minutes": {

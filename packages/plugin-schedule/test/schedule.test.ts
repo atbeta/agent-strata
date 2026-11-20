@@ -297,6 +297,17 @@ describe("tools", () => {
     await p.shutdown();
   });
 
+  test("a one-shot instant arrives as epoch milliseconds, the way the panel sends it", async () => {
+    const { p } = await plugin();
+    const at = Date.now() + 86_400_000;
+    const made = await p.callTool(req("create", { name: "once", prompt: "p", at }));
+    expect(made.isError).toBeFalsy();
+    expect(made.output).toContain(`once at ${new Date(at).toISOString()}`);
+    const digits = await p.callTool(req("create", { name: "digits", prompt: "p", at: String(at) }));
+    expect(digits.output).toContain("ISO-8601");
+    await p.shutdown();
+  });
+
   test("an interval arrives as digits, the way a session's tool call sends it", async () => {
     const { p } = await plugin();
     // The call does not deliver a JSON number. These are the shapes that
