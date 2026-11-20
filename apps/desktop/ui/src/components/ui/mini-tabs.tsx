@@ -11,8 +11,8 @@ type MiniTab = { id: string; label: string; count?: number };
  * with room for a swatch, this one has no container and reads as part of the
  * bar it sits in.
  *
- * Three call sites had it: the changes/files tab strip, the review source
- * picker, the MCP server kind picker. Two of them were missing the
+ * Three call sites had it: the review source and layout pickers, and the MCP
+ * server kind picker. Two of them were missing the
  * `hover:text-foreground` the third had, and none of them drew a focus ring,
  * so tabbing between the three gave an invisible cursor.
  *

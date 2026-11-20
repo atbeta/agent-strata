@@ -189,6 +189,11 @@ export default {
 
   // The session side panel, and the plan strip under the composer.
   "panel.show": "会话面板",
+  "panel.launcher": "从这里开始",
+  "panel.builtin": "会话工具",
+  "panel.plugins": "插件",
+  "panel.switch": "切换面板",
+  "panel.back": "返回当前面板",
   // Not "隐藏侧栏" — the sidebar has its own toggle two buttons away, and a
   // tooltip that names the wrong control sends the user to close the wrong one.
   "panel.hide": "隐藏会话面板",
@@ -198,11 +203,15 @@ export default {
   "panel.plugin.waiting": "等待插件画面…",
   "panel.plugin.crashed": "这个面板出错了",
   "panel.plugin.retry": "重试",
+  "panel.plugin.empty": "这个插件还没有输出。",
   "panel.plugin.address": "地址栏",
   "panel.plugin.input": "浏览器页面",
   "panel.plugin.noPage": "还没有页面。让 agent 打开一个网址后，这里会显示画面。",
   "panel.plugin.refresh": "重连",
-"dev.empty": "这个会话还没有后台进程。",
+  "dev.loading": "正在读取后台进程…",
+  "dev.loadFailed": "后台进程没有读出来。",
+  "dev.stale": "刷新失败，显示的是上次读取的结果。",
+  "dev.empty": "这个会话还没有后台进程。",
   "dev.empty.hint": "需要常驻的命令（如 npm run dev）会出现在这里，可以看日志、随时停掉。",
   "dev.running": "运行中",
   "dev.stopped": "已停止",
@@ -268,6 +277,7 @@ export default {
   "review.split": "并排",
   "review.layout": "排布方式",
   "review.loading": "正在读取改动。",
+  "review.failed": "改动没有读出来。",
   "review.empty.git": "工作区是干净的，没有未提交的改动。",
   "review.empty.branch": "相对 {branch} 没有改动。",
   "review.comment": "把这一行放进输入框",

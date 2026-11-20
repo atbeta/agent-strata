@@ -16,23 +16,26 @@ describe("the session rail's responsive and keyboard behavior", () => {
   });
 
   test("both diff layouts stack their file list in a narrow rail", () => {
-    for (const file of ["review.tsx", "session-rail.tsx"]) {
+    for (const file of ["review.tsx", "session-changes-panel.tsx"]) {
       const src = read(file);
-      expect(src, file).toContain("@container flex min-h-0 flex-1 flex-col @min-[560px]:flex-row");
+      expect(src, file).toContain("@container flex min-h-0 flex-1 flex-col");
+      expect(src, file).toContain("flex min-h-0 flex-1 flex-col @min-[560px]:flex-row");
       expect(src, file).toContain("max-h-[40%]");
       expect(src, file).toContain("@min-[560px]:border-r");
+      expect(src, file).toContain("@min-[560px]:w-[clamp(200px,30%,280px)]");
     }
   });
 
-  test("the tabs have one tab stop, shared arrow navigation, and a named panel", () => {
-    const tabs = read("components/ui/mini-tabs.tsx");
-    expect(tabs).toContain("tabIndex={selectedIndex() === index() ? 0 : -1}");
-    expect(tabs).toContain("handleRovingKey(event, index");
-
+  test("one current panel has a launcher instead of a growing tab strip", () => {
     const rail = read("session-rail.tsx");
-    expect(rail).toContain('panelId="session-rail-panel"');
-    expect(rail).toContain('role={props.opencode() ? "tabpanel" : undefined}');
-    expect(rail).toContain("session-rail-panel-tab-${effectiveTab()}");
+    expect(rail).toContain("<RailLauncher");
+    expect(rail).toContain("setLauncherOpen(false)");
+    expect(rail).toContain('role="region"');
+    expect(rail).not.toContain('panelId="session-rail-panel"');
+
+    const launcher = read("rail-launcher.tsx");
+    expect(launcher).toContain("item.running");
+    expect(launcher).toContain("item.count");
   });
 
   test("closing returns focus and trace does not leave a false pressed state", () => {

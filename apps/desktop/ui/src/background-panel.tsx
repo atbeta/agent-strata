@@ -1,5 +1,6 @@
-import { createEffect, createSignal, For, onCleanup, Show, type JSX } from "solid-js";
+import { createEffect, createSignal, For, onCleanup, Show, type JSX, type Resource } from "solid-js";
 import { readDevLogs, type DevLogLine, type DevProcess } from "./api";
+import { EmptyState } from "@/components/ui/empty-state";
 import { devLogLineClass, dotClass, devRunning, stableDevRows, stateClass, stateLabel } from "./dev-state";
 import { t } from "./i18n";
 import { Icon } from "./icons";
@@ -132,19 +133,21 @@ export function DevRowDetail(props: { process: DevProcess }) {
  * dev server started twenty minutes ago is not part of any one reply, and a
  * reader asking "what is on port 3000" should not have to scroll to find out.
  *
- * The list itself is owned by the rail, which also puts its count on the tab —
- * one read, one subscription, two places that need the same answer.
+ * The list itself is owned by the rail, which also puts its count in the panel
+ * header and launcher — one read, one subscription, two places that need the
+ * same answer.
  */
 export function BackgroundPanel(props: {
-  processes: () => DevProcess[];
+  processes: Resource<DevProcess[]>;
   onStop: (id: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  onRetry: () => void;
 }) {
   const [now, setNow] = createSignal(Date.now());
   const [openId, setOpenId] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal<string | null>(null);
   const [err, setErr] = fadeSignal("");
-  const rows = stableDevRows(props.processes);
+  const rows = stableDevRows(() => props.processes() ?? []);
 
   createEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), TICK_MS);
@@ -181,35 +184,61 @@ export function BackgroundPanel(props: {
         <p class="shrink-0 border-b border-border px-3 py-1.5 text-xs text-destructive">{err()}</p>
       </Show>
       <Show
-        when={props.processes().length > 0}
+        when={props.processes()}
         fallback={
-          <div class="px-3 py-4">
-            <p class="text-xs text-muted-foreground">{t("dev.empty")}</p>
-            <p class="mt-1 text-2xs text-muted-foreground">{t("dev.empty.hint")}</p>
-          </div>
+          <Show
+            when={props.processes.error}
+            fallback={<EmptyState icon="terminal" class="flex-1" title={t("dev.loading")} />}
+          >
+            <EmptyState
+              icon="alert"
+              tone="danger"
+              class="flex-1"
+              title={t("dev.loadFailed")}
+              action={<Button variant="outline" size="sm" onClick={props.onRetry}>{t("panel.plugin.retry")}</Button>}
+            />
+          </Show>
         }
       >
-        <ul class="min-h-0 flex-1 overflow-y-auto py-1">
-          <For each={rows()}>
-            {(row) => (
-              <li class="border-b border-border/60 last:border-b-0">
-                <DevRow
-                  process={row.process()}
-                  now={now()}
-                  open={openId() === row.id}
-                  onToggle={() => setOpenId(openId() === row.id ? null : row.id)}
-                  busy={busy() === row.id}
-                  onStop={() => void stop(row.id)}
-                  onDelete={() => void remove(row.id)}
-                />
-                <Show when={openId() === row.id}>
-                  <DevRowDetail process={row.process()} />
-                  <ProcessLogs processId={row.id} />
-                </Show>
-              </li>
-            )}
-          </For>
-        </ul>
+        <Show when={props.processes.error}>
+          <div class="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5 text-xs text-destructive">
+            <span class="min-w-0 flex-1">{t("dev.stale")}</span>
+            <Button variant="icon" size="xs" onClick={props.onRetry}>{t("panel.plugin.retry")}</Button>
+          </div>
+        </Show>
+        <Show
+          when={(props.processes() ?? []).length > 0}
+          fallback={
+            <EmptyState
+              icon="terminal"
+              class="flex-1"
+              title={t("dev.empty")}
+              description={t("dev.empty.hint")}
+            />
+          }
+        >
+          <ul class="min-h-0 flex-1 overflow-y-auto py-1">
+            <For each={rows()}>
+              {(row) => (
+                <li class="border-b border-border/60 last:border-b-0">
+                  <DevRow
+                    process={row.process()}
+                    now={now()}
+                    open={openId() === row.id}
+                    onToggle={() => setOpenId(openId() === row.id ? null : row.id)}
+                    busy={busy() === row.id}
+                    onStop={() => void stop(row.id)}
+                    onDelete={() => void remove(row.id)}
+                  />
+                  <Show when={openId() === row.id}>
+                    <DevRowDetail process={row.process()} />
+                    <ProcessLogs processId={row.id} />
+                  </Show>
+                </li>
+              )}
+            </For>
+          </ul>
+        </Show>
       </Show>
     </div>
   );

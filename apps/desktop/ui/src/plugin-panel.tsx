@@ -5,9 +5,11 @@ import { pluginDisplayName } from "./plugin-display";
 import { SchedulesPanel } from "./schedules-panel";
 import type { SchedulesController } from "./use-schedules";
 import { t } from "./i18n";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Button } from "@/components/ui/button";
 
 /**
- * Panels a plugin contributes, as tabs beside the builtin ones.
+ * Panels a plugin contributes, beside the builtin ones in the rail launcher.
  *
  * The kinds are deliberately few and each one is a component here. A plugin
  * cannot ship a component — that would be arbitrary code in this window — it
@@ -92,6 +94,7 @@ export function PluginPanel(props: PluginComponentProps & { panel: PanelContribu
 
 function DataPanel(props: { panel: PanelContribution; sessionId: () => string }) {
   const [text, setText] = createSignal("");
+  const [loaded, setLoaded] = createSignal(false);
   const [error, setError] = createSignal<string>();
   const refresh = () => {
     const resource = props.panel.resource ?? (props.panel.kind === "logs" ? "console" : "tabs");
@@ -100,7 +103,8 @@ function DataPanel(props: { panel: PanelContribution; sessionId: () => string })
         setText(body);
         setError(undefined);
       })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setLoaded(true));
   };
   onMount(() => {
     refresh();
@@ -108,9 +112,28 @@ function DataPanel(props: { panel: PanelContribution; sessionId: () => string })
     onCleanup(() => clearInterval(timer));
   });
   return (
-    <div class="min-h-0 flex-1 overflow-auto p-3">
-      <Show when={!error()} fallback={<p class="text-xs text-destructive">{error()}</p>}>
-        <pre class="whitespace-pre-wrap break-words font-mono text-2xs text-muted-foreground">{text()}</pre>
+    <div class="flex min-h-0 flex-1 flex-col overflow-auto">
+      <Show when={loaded()} fallback={<EmptyState icon="plug" class="flex-1" title={t("panel.plugin.waiting")} />}>
+        <Show
+          when={!error()}
+          fallback={
+            <EmptyState
+              icon="alert"
+              tone="danger"
+              class="flex-1"
+              title={t("panel.plugin.crashed")}
+              description={error()}
+              action={<Button variant="outline" size="sm" onClick={refresh}>{t("panel.plugin.retry")}</Button>}
+            />
+          }
+        >
+          <Show
+            when={text().trim().length > 0}
+            fallback={<EmptyState icon="plug" class="flex-1" title={t("panel.plugin.empty")} />}
+          >
+            <pre class="whitespace-pre-wrap break-words p-3 font-mono text-2xs text-muted-foreground">{text()}</pre>
+          </Show>
+        </Show>
       </Show>
     </div>
   );

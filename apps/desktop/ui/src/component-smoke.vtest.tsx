@@ -182,6 +182,59 @@ test("SessionRail mounts for an OpenCode session on the default source", () => {
   expect(host.textContent).toContain("alpha.ts");
 });
 
+test("SessionRail switches through the launcher and restores the last panel", async () => {
+  const view = emptySessionView("opencode:launcher", "opencode");
+  view.files_changed.push(edit);
+  const [tab, setTab] = createSignal<string>("changes");
+  const [open, setOpen] = createSignal(true);
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const dispose = render(
+    () => <SessionRail {...railProps(view, true)} tab={tab} open={open} onSelectTab={setTab} />,
+    host,
+  );
+  const panelButton = (label: string) =>
+    [...host.querySelectorAll("button")].find((button) => button.textContent?.includes(label));
+  const switcher = () => host.querySelector('[aria-label="切换面板"]') as HTMLButtonElement | null;
+
+  panelButton("alpha.ts")?.click();
+  expect(panelButton("alpha.ts")?.getAttribute("aria-current")).toBe("true");
+  switcher()?.click();
+  expect(host.textContent).toContain("从这里开始");
+  expect(panelButton("改动")?.textContent).toContain("1");
+  panelButton("后台")?.click();
+  expect(tab()).toBe("background");
+  expect(host.textContent).toContain("这个会话还没有后台进程");
+  expect(host.textContent).not.toContain("从这里开始");
+
+  setOpen(false);
+  await new Promise((resolve) => setTimeout(resolve, 160));
+  setOpen(true);
+  expect(host.textContent).toContain("这个会话还没有后台进程");
+  expect(host.textContent).not.toContain("从这里开始");
+
+  switcher()?.click();
+  panelButton("改动")?.click();
+  expect(tab()).toBe("changes");
+  expect(host.textContent).toContain("alpha.ts");
+  expect(panelButton("alpha.ts")?.getAttribute("aria-current")).toBe("true");
+  dispose();
+  host.remove();
+});
+
+test("SessionRail measures its mounted parent instead of the window", async () => {
+  const view = emptySessionView("acp:geometry", "acp");
+  const host = document.createElement("div");
+  Object.defineProperty(host, "clientWidth", { value: 660, configurable: true });
+  localStorage.setItem("strata.rail-width", "700");
+  const dispose = render(() => <SessionRail {...railProps(view, false)} />, host);
+  await Promise.resolve();
+  const rail = host.querySelector("aside")!;
+  expect(rail.style.width).toBe("409px");
+  expect(rail.querySelector('[role="separator"]')?.getAttribute("aria-valuemax")).toBe("409");
+  dispose();
+});
+
 test("SessionRail holds its mount for the exit, then leaves", async () => {
   const view = emptySessionView("acp:exit", "acp");
   const [open, setOpen] = createSignal(true);

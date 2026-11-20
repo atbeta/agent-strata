@@ -2,24 +2,12 @@ import { createEffect, createSignal, For, Show } from "solid-js";
 import type { ReviewDiff } from "./api";
 import { t } from "./i18n";
 import { splitPatch, type SplitCell, type SplitRow } from "./split-patch";
-import { RowButton } from "@/components/ui/row-button";
-import { MiniTabs } from "@/components/ui/mini-tabs";
+import { ChangeFileRow, type ChangeKind } from "./change-file-row";
 
-function baseName(path: string): string {
-  const i = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
-  return i >= 0 ? path.slice(i + 1) : path;
-}
-
-const STATUS_LABEL = {
-  added: "file.added",
-  deleted: "file.deleted",
-  modified: "file.edited",
-} as const;
-
-function statusClass(status: NonNullable<ReviewDiff["status"]>): string {
-  if (status === "added") return "text-diff-add-fg";
-  if (status === "deleted") return "text-diff-del-fg";
-  return "text-muted-foreground";
+function changeKind(status: NonNullable<ReviewDiff["status"]>): ChangeKind {
+  if (status === "added") return "add";
+  if (status === "deleted") return "delete";
+  return "modify";
 }
 
 function cellClass(kind: SplitCell["kind"]): string {
@@ -29,30 +17,19 @@ function cellClass(kind: SplitCell["kind"]): string {
   return "text-muted-foreground";
 }
 
-/**
- * One OpenCode diff (the session, one reply, or git) as a file list plus the
- * patch. A line click hands the composer a citation; the reader writes the
- * comment there.
- *
- * The unified/split switch lives here rather than in the rail's tab strip. It
- * used to render only on some tabs, so the strip grew from five controls to
- * seven and back on every click — a control bar that reshapes itself is worse
- * than one that does not. This way the tab strip never changes, and the switch
- * sits with the thing it controls.
- */
+/** One repo diff as a file list plus the patch. A line click cites it in the composer. */
 export function ReviewPane(props: {
   files: ReviewDiff[];
   layout: "unified" | "split";
-  onLayout: (next: "unified" | "split") => void;
   onComment: (note: string) => void;
 }) {
-  const named = () => props.files.filter((f) => f.file);
+  const named = () => props.files.filter((file) => file.file);
   const [selected, setSelected] = createSignal<string | null>(null);
   createEffect(() => {
     const files = named();
-    if (!files.some((f) => f.file === selected())) setSelected(files[0]?.file ?? null);
+    if (!files.some((file) => file.file === selected())) setSelected(files[0]?.file ?? null);
   });
-  const current = () => named().find((f) => f.file === selected()) ?? null;
+  const current = () => named().find((file) => file.file === selected()) ?? null;
 
   const cite = (file: string, cell: SplitCell) => {
     if (cell.line === undefined) return;
@@ -73,87 +50,69 @@ export function ReviewPane(props: {
   };
 
   return (
-    <div class="flex min-h-0 flex-1 flex-col">
-      {/* Mutually exclusive, so this is a radiogroup. It answered
-          `aria-pressed` on two buttons, which tells a screen reader that two
-          independent toggles exist here rather than one choice. */}
-      <MiniTabs
-        kind="radio"
-        label={t("review.layout")}
-        value={props.layout}
-        onChange={(id) => props.onLayout(id as "unified" | "split")}
-        options={[
-          { id: "unified", label: t("review.unified") },
-          { id: "split", label: t("review.split") },
-        ]}
-        class="shrink-0 gap-1 border-b border-border px-2 py-1.5"
-      />
-      <div class="@container flex min-h-0 flex-1 flex-col @min-[560px]:flex-row">
-      <ul class="max-h-[40%] shrink-0 space-y-0.5 overflow-y-auto border-b border-border px-2 py-2 @min-[560px]:max-h-none @min-[560px]:w-44 @min-[560px]:border-b-0 @min-[560px]:border-r">
+    <div class="@container flex min-h-0 flex-1 flex-col">
+      <div class="flex min-h-0 flex-1 flex-col @min-[560px]:flex-row">
+      <ul class="max-h-[40%] shrink-0 space-y-0.5 overflow-y-auto border-b border-border px-2 py-2 @min-[560px]:max-h-none @min-[560px]:w-[clamp(200px,30%,280px)] @min-[560px]:border-b-0 @min-[560px]:border-r">
         <For each={named()}>
-          {(f) => (
+          {(file) => (
             <li>
-              <RowButton
-                class={`items-baseline gap-2 px-1 py-1 ${
-                  selected() === f.file ? "bg-secondary" : ""
-                }`}
-                onClick={() => setSelected(f.file!)}
-              >
-                <span class="min-w-0 flex-1 truncate text-sm" title={f.file}>
-                  {baseName(f.file!)}
-                </span>
-                <Show when={f.status}>
-                  {(status) => (
-                    <span class={`shrink-0 text-2xs ${statusClass(status())}`}>
-                      {t(STATUS_LABEL[status()])}
-                    </span>
-                  )}
-                </Show>
-                <span class="shrink-0 font-mono text-2xs">
-                  <span class="text-diff-add-fg">+{f.additions}</span>{" "}
-                  <span class="text-diff-del-fg">−{f.deletions}</span>
-                </span>
-              </RowButton>
+              <ChangeFileRow
+                path={file.file!}
+                change={file.status ? changeKind(file.status) : undefined}
+                selected={selected() === file.file}
+                additions={file.additions}
+                deletions={file.deletions}
+                onClick={() => setSelected(file.file!)}
+              />
             </li>
           )}
         </For>
       </ul>
-      <div class="min-h-0 min-w-0 flex-1 overflow-auto px-3 py-2">
-        <Show
-          when={current()?.patch}
-          fallback={<p class="text-xs text-muted-foreground">{t("file.noDiff")}</p>}
-        >
-          {(patch) => (
-            <Show
-              when={props.layout === "split"}
-              fallback={
-                <div class="w-max font-mono text-2xs leading-relaxed">
-                  <For each={unified(splitPatch(patch()))}>
-                    {(cell) => <Line file={current()!.file!} cell={cell} onCite={cite} />}
-                  </For>
-                </div>
-              }
-            >
-              <div class="w-max font-mono text-2xs leading-relaxed">
-                <For each={splitPatch(patch())}>
-                  {(row) => (
-                    <Show
-                      when={row.kind === "pair" ? row : undefined}
-                      fallback={<div class="text-muted-foreground">{row.kind === "hunk" ? row.text : ""}</div>}
-                    >
-                      {(pair) => (
-                        <div class="grid grid-cols-2">
-                          <Line file={current()!.file!} cell={pair().left} onCite={cite} />
-                          <Line file={current()!.file!} cell={pair().right} onCite={cite} />
-                        </div>
-                      )}
-                    </Show>
-                  )}
-                </For>
-              </div>
-            </Show>
+      <div class="flex min-h-0 min-w-0 flex-1 flex-col">
+        <Show when={current()?.file}>
+          {(path) => (
+            <div class="shrink-0 border-b border-border px-3 py-2 font-mono text-2xs break-words text-muted-foreground">
+              {path()}
+            </div>
           )}
         </Show>
+        <div class="min-h-0 min-w-0 flex-1 overflow-auto px-3 py-2">
+          <Show
+            when={current()?.patch}
+            fallback={<p class="text-xs text-muted-foreground">{t("file.noDiff")}</p>}
+          >
+            {(patch) => (
+              <Show
+                when={props.layout === "split"}
+                fallback={
+                  <div class="w-max font-mono text-2xs leading-relaxed">
+                    <For each={unified(splitPatch(patch()))}>
+                      {(cell) => <Line file={current()!.file!} cell={cell} onCite={cite} />}
+                    </For>
+                  </div>
+                }
+              >
+                <div class="w-max font-mono text-2xs leading-relaxed">
+                  <For each={splitPatch(patch())}>
+                    {(row) => (
+                      <Show
+                        when={row.kind === "pair" ? row : undefined}
+                        fallback={<div class="text-muted-foreground">{row.kind === "hunk" ? row.text : ""}</div>}
+                      >
+                        {(pair) => (
+                          <div class="grid grid-cols-2">
+                            <Line file={current()!.file!} cell={pair().left} onCite={cite} />
+                            <Line file={current()!.file!} cell={pair().right} onCite={cite} />
+                          </div>
+                        )}
+                      </Show>
+                    )}
+                  </For>
+                </div>
+              </Show>
+            )}
+          </Show>
+        </div>
       </div>
       </div>
     </div>

@@ -27,12 +27,18 @@ describe("review file status", () => {
     });
   });
 
-  test("keeps the filename truncation and line counts beside the status", () => {
-    const src = readFileSync(join(import.meta.dir, "review.tsx"), "utf8");
-    expect(src).toContain('modified: "file.edited"');
-    expect(src).toContain("t(STATUS_LABEL[status()])");
-    expect(src).toContain("min-w-0 flex-1 truncate text-sm");
-    expect(src).toContain("+{f.additions}");
-    expect(src).toContain("−{f.deletions}");
+  test("shares the selected file row and its line counts with session changes", () => {
+    const review = readFileSync(join(import.meta.dir, "review.tsx"), "utf8");
+    expect(review).toContain("<ChangeFileRow");
+    expect(review).toContain("change={file.status ? changeKind(file.status) : undefined}");
+    expect(review).toContain("additions={file.additions}");
+    expect(review).toContain("deletions={file.deletions}");
+
+    const row = readFileSync(join(import.meta.dir, "change-file-row.tsx"), "utf8");
+    expect(row).toContain("min-w-0 flex-1");
+    expect(row).toContain("block truncate text-sm");
+    expect(row).toContain("num(props.additions)");
+    expect(row).toContain("num(props.deletions)");
+    expect(row).toContain("bg-accent");
   });
 });

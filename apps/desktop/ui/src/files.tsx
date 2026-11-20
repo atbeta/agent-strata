@@ -12,6 +12,7 @@ import { FileTypeIcon } from "./file-icon";
 import { filePreview } from "./file-preview";
 import { openImage } from "./image-viewer";
 import { Md } from "./md";
+import { EmptyState } from "@/components/ui/empty-state";
 
 const PREVIEW_LIMIT = 200_000;
 
@@ -273,13 +274,13 @@ export function FileBrowser(props: {
     <PathActions.Provider value={pathApi}>
     <div class="@container flex min-h-0 flex-1 flex-col" ref={(el) => (browserEl = el)}>
       <div class="flex min-h-0 min-w-0 flex-1 flex-col @min-[560px]:flex-row">
-        <div class="max-h-[40%] shrink-0 overflow-auto border-b border-border py-2 @min-[560px]:max-h-none @min-[560px]:w-56 @min-[560px]:border-b-0 @min-[560px]:border-r">
+        <div class="max-h-[40%] shrink-0 overflow-auto border-b border-border py-2 @min-[560px]:max-h-none @min-[560px]:w-[clamp(200px,32%,280px)] @min-[560px]:border-b-0 @min-[560px]:border-r">
           <Branch sessionId={props.sessionId} path="" depth={0} selected={() => selected()?.path ?? null} onOpen={choose} focus={treeFocus} />
         </div>
         <div class="flex min-h-0 min-w-0 flex-1 flex-col">
           <Show
             when={selected()}
-            fallback={<p class="px-3 py-3 text-xs text-muted-foreground">{t("files.pick")}</p>}
+            fallback={<EmptyState icon="files" class="flex-1" title={t("files.pick")} />}
           >
             {(node) => (
               <>

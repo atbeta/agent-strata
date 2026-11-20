@@ -148,7 +148,7 @@ export function SessionDetail(props: {
     () => (opencode() ? props.id : undefined),
     (id) => readVcs(id).catch(() => undefined),
   );
-  // The rail's background tab and the composer's pill read the same list; the
+  // The rail's background panel and the composer's pill read the same list; the
   // pill must keep working while the rail is closed.
   const dev = useDevProcesses(() => props.id, opencode);
   const schedulesEnabled = () => opencode() && isPluginPanelTab("plugin:schedule");
@@ -205,7 +205,7 @@ export function SessionDetail(props: {
   };
 
   /**
-   * A path clicked in the transcript asks for the files tab and a row in it.
+   * A path clicked in the transcript asks for the files panel and a row in it.
    * The nonce lets the same file be focused twice — the rail sees a new
    * request each time, not a value that compares equal and never fires.
    */

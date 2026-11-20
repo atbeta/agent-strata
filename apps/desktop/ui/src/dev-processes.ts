@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createResource, onCleanup } from "solid-js";
-import { deleteDevProcess, listDevProcesses, stopDevProcess, type DevProcess } from "./api";
+import { deleteDevProcess, listDevProcesses, stopDevProcess } from "./api";
 import { devRunning } from "./dev-state";
 
 export type DevProcesses = ReturnType<typeof useDevProcesses>;
@@ -7,9 +7,9 @@ export type DevProcesses = ReturnType<typeof useDevProcesses>;
 /**
  * The commands one session left running.
  *
- * One resource feeds two places: the rail's background tab, which is the full
+ * One resource feeds two places: the rail's background panel, which is the full
  * record (logs, pids, exit states), and the composer's pill, which is the way
- * in. Sharing it means the count on the pill, the count on the tab and the rows
+ * in. Sharing it means the count on the pill, the count in the rail and the rows
  * they open cannot disagree, and the stream listener stays alive while the rail
  * is closed.
  *
@@ -19,7 +19,7 @@ export type DevProcesses = ReturnType<typeof useDevProcesses>;
 export function useDevProcesses(sessionId: () => string, enabled: () => boolean = () => true) {
   const [processes, { refetch }] = createResource(
     () => (enabled() ? sessionId() : undefined),
-    (id) => listDevProcesses(id).then((r) => r.processes).catch(() => [] as DevProcess[]),
+    (id) => listDevProcesses(id).then((r) => r.processes),
   );
   const running = createMemo(() => (processes() ?? []).filter(devRunning));
   const count = createMemo(() => running().length);
