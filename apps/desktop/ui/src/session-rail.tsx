@@ -1,4 +1,4 @@
-import { createMemo, createResource, createSignal, ErrorBoundary, For, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createResource, createSignal, ErrorBoundary, For, onCleanup, Show } from "solid-js";
 import {
   readVcsDiff,
   realWorkspace,
@@ -166,11 +166,41 @@ export function SessionRail(props: {
   const open = () => files().find((f) => f.path === openFile()) ?? null;
   const toggleFile = (path: string) => setOpenFile(openFile() === path ? null : path);
 
+  // The exit animation needs the aside to outlive the close: `present` holds
+  // the mount for the fade while the chrome state already answers as closed.
+  // Reduced motion has no exit to wait for, so it unmounts at once.
+  const [present, setPresent] = createSignal(props.open());
+  const [leaving, setLeaving] = createSignal(false);
+  let exitTimer: ReturnType<typeof setTimeout> | undefined;
+  createEffect(() => {
+    if (props.open()) {
+      if (exitTimer !== undefined) clearTimeout(exitTimer);
+      exitTimer = undefined;
+      setLeaving(false);
+      setPresent(true);
+    } else if (present()) {
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        setPresent(false);
+        return;
+      }
+      setLeaving(true);
+      // A hair longer than the rail-out keyframe, so the fade lands first.
+      exitTimer = setTimeout(() => {
+        exitTimer = undefined;
+        setPresent(false);
+        setLeaving(false);
+      }, 130);
+    }
+  });
+  onCleanup(() => {
+    if (exitTimer !== undefined) clearTimeout(exitTimer);
+  });
+
   return (
-    <Show when={props.open()}>
+    <Show when={present()}>
       <aside
         ref={bindRail}
-        class="relative flex shrink-0 flex-col border-l border-border"
+        class={`relative flex shrink-0 flex-col border-l border-border ${leaving() ? "rail-out" : "rail-in"}`}
         style={{ width: `${railWidth()}px` }}
       >
         <div

@@ -1,4 +1,5 @@
 import { beforeAll, expect, test, vi } from "vitest";
+import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { emptySessionView, type FileChangeView } from "@agent-strata/projector";
 import { PlanStrip } from "./plan-strip";
@@ -33,6 +34,11 @@ beforeAll(() => {
     }
   } as unknown as typeof IntersectionObserver;
   Element.prototype.scrollIntoView ??= () => {};
+  // jsdom has no matchMedia; the rail asks it whether motion is welcome.
+  window.matchMedia ??= ((query: string) => ({
+    matches: false,
+    media: query,
+  })) as unknown as typeof window.matchMedia;
   // No service is listening: reads land as connection failures, the same
   // state the app itself boots through while the sidecar warms up.
   vi.stubGlobal("fetch", () => Promise.reject(new Error("offline")));
@@ -173,6 +179,20 @@ test("SessionRail mounts for an OpenCode session on the default source", () => {
   render(() => <SessionRail {...railProps(view, true)} />, host);
   // Default source is "session": the file record renders, not a git fetch.
   expect(host.textContent).toContain("alpha.ts");
+});
+
+test("SessionRail holds its mount for the exit, then leaves", async () => {
+  const view = emptySessionView("acp:exit", "acp");
+  const [open, setOpen] = createSignal(true);
+  const host = document.createElement("div");
+  const dispose = render(() => <SessionRail {...railProps(view, false)} open={open} />, host);
+  expect(host.querySelector("aside")?.className).toContain("rail-in");
+  setOpen(false);
+  // The close is answered at once in the class, but the aside stays for the fade.
+  expect(host.querySelector("aside")?.className).toContain("rail-out");
+  await new Promise((r) => setTimeout(r, 200));
+  expect(host.querySelector("aside")).toBeNull();
+  dispose();
 });
 
 test("SessionDetail mounts — the view that crashed on a forward-referenced resource", () => {

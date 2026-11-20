@@ -2122,6 +2122,29 @@ textarea {
       opacity: 0;
     }
   }
+  /* The session rail claims its column at once — animating the width would
+     re-wrap the transcript beside it on every frame — so only the surface
+     moves: a short slide with the fade, in and out. The exit holds the mount
+     for its duration (session-rail.tsx) before the column is released. */
+  .rail-in {
+    animation: rail-in 0.14s ease-out;
+  }
+  @keyframes rail-in {
+    from {
+      opacity: 0;
+      transform: translateX(8px);
+    }
+  }
+  .rail-out {
+    animation: rail-out 0.12s ease-in both;
+    pointer-events: none;
+  }
+  @keyframes rail-out {
+    to {
+      opacity: 0;
+      transform: translateX(8px);
+    }
+  }
   .message-actions {
     transition: opacity 0.12s ease;
   }

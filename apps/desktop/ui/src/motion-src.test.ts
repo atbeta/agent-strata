@@ -90,7 +90,7 @@ describe("the transcript's flow is keyed so motion is possible", () => {
       require("node:path").join(import.meta.dir, "theme.css"),
       "utf8",
     ) as string;
-    for (const name of ["rise-in", "tool-live-in"]) {
+    for (const name of ["rise-in", "tool-live-in", "rail-in", "rail-out"]) {
       const at = theme.indexOf(`@keyframes ${name}`);
       expect(at).toBeGreaterThan(-1);
       const body = theme.slice(at, theme.indexOf("}", at));

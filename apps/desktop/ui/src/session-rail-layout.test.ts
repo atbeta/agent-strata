@@ -48,4 +48,15 @@ describe("the session rail's responsive and keyboard behavior", () => {
     expect(read("locales/zh/session.ts")).toContain('"files.empty"');
     expect(read("locales/en/session.ts")).toContain('"files.empty"');
   });
+
+  test("the rail plays its exit before it unmounts", () => {
+    const rail = read("session-rail.tsx");
+    // The mount outlives the close so the fade can land; the chrome state
+    // flips at once, only the aside waits.
+    expect(rail).toContain("const [present, setPresent] = createSignal(props.open())");
+    expect(rail).toContain("<Show when={present()}>");
+    expect(rail).toContain('leaving() ? "rail-out" : "rail-in"');
+    // A reader who asked for less motion gets no hold — there is no exit.
+    expect(rail).toContain("prefers-reduced-motion: reduce");
+  });
 });
