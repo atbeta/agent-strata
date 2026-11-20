@@ -71,6 +71,20 @@ describe("the side panel is opened from the header, not from a strip on the edge
     expect(detail).toContain("run: () => togglePanel()");
   });
 
+  test("plugin panels join the palette as ordinary session commands", () => {
+    // The registry is asynchronous, so registration follows its signal and
+    // removes the previous commands before applying a changed set. Opening
+    // still goes through the session's own panel action, including trace and
+    // persistence; the palette needs no plugin-specific result kind.
+    expect(detail).toContain("for (const panel of pluginPanelTabs())");
+    expect(detail).toContain("id: `session.pluginPanel.${panel.panel.plugin}`");
+    expect(detail).toContain("title: () => panel.label");
+    expect(detail).toContain("enabled: () => opencode() && isPluginPanelTab(panel.id)");
+    expect(detail).toContain("run: () => openPanel(panel.id)");
+    expect(detail).toContain("onCleanup(registerCommand(command))");
+    expect(read("palette.tsx")).not.toContain("pluginPanelTabs");
+  });
+
   test("the close button inside the open panel is still there", () => {
     expect(rail).toContain('aria-label={t("panel.hide")}');
     expect(rail).toContain("onClick={props.onClose}");

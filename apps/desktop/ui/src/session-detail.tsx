@@ -47,7 +47,7 @@ import { usePaneActions } from "./pane-actions";
 import { paneWorkspace, panelOpen, panelTab, setPanelOpen, setPanelTab } from "./session-chrome";
 import { writePanelOpen, writePanelTab, type SidePanelTab } from "./right-pane";
 import { refreshPlugins } from "./plugin-registry";
-import { isPluginPanelTab } from "./plugin-panel";
+import { isPluginPanelTab, pluginPanelTabs } from "./plugin-panel";
 import { PeerSessionTranscript } from "./peer-transcript";
 import { LoadingTranscript } from "./content-sashes";
 import { useSessionSearch, SearchPanel } from "./session-search";
@@ -176,6 +176,17 @@ export function SessionDetail(props: {
     setPanelOpen(true);
     writePanelOpen(true);
   };
+  createEffect(() => {
+    for (const panel of pluginPanelTabs()) {
+      const command = {
+        id: `session.pluginPanel.${panel.panel.plugin}`,
+        title: () => panel.label,
+        enabled: () => opencode() && isPluginPanelTab(panel.id),
+        run: () => openPanel(panel.id),
+      };
+      onCleanup(registerCommand(command));
+    }
+  });
   const panelVisible = () => panelOpen() && !traceBlock();
   const closePanel = () => {
     setPanelOpen(false);
