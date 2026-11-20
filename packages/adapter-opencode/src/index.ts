@@ -5,7 +5,7 @@ import {
   type OpencodeClient,
 } from "@opencode-ai/sdk/v2";
 import type { PolicySource } from "@agent-strata/policy";
-import { createSessionImport } from "./import";
+import { createSessionImport, listRootSessions } from "./import";
 import { createIngestor } from "./ingest";
 import { OpencodeMapper } from "./map";
 import { runOpencodeStream } from "./stream";
@@ -732,8 +732,8 @@ export async function connectOpencode(opts: {
         .map((a) => ({ name: a.name, mode: a.mode }));
     },
     async listSessions() {
-      const r = await client.session.list({ directory: opts.directory, roots: true, limit: 80 });
-      return (r.data ?? []).map((s) => ({ id: s.id, title: s.title, directory: s.directory }));
+      const roots = await listRootSessions(client, opts.directory);
+      return roots.map((s) => ({ id: s.id, title: s.title, directory: s.directory }));
     },
     async listWorkspaces() {
       const r = await client.project.list();

@@ -3,6 +3,97 @@ import { OPENCODE_MAPPER_VERSION, OPENCODE_REBUILT_TYPES, rebuildEvents, snapsho
 import type { OpencodeSyncGuard, Sink } from "./types";
 
 /**
+ * Roots asked for in one list call. A short page is the end of the directory.
+ *
+ * Eighty is what a sync used to stop at. It stays the page size: a directory
+ * under it costs the one request it always did.
+ */
+export const ROOT_PAGE = 80;
+
+/**
+ * Further pages a full page may open, per directory.
+ *
+ * Twenty more is 1,600 older roots on top of the first 80. Past that, one
+ * sync would start walking every child's tree, and the cap is the point
+ * where that stops being a fallback and becomes the whole history.
+ */
+export const ROOT_FURTHER_PAGES = 20;
+
+function updatedAt(info: { time?: { updated?: number; created?: number } }): number | undefined {
+  const t = info.time?.updated ?? info.time?.created;
+  return typeof t === "number" ? t : undefined;
+}
+
+/** The oldest update time on a page. The next page asks for sessions strictly before it. */
+function oldestUpdated(rows: { time?: { updated?: number; created?: number } }[]): number | undefined {
+  let cursor: number | undefined;
+  for (const row of rows) {
+    const t = updatedAt(row);
+    if (t === undefined) continue;
+    if (cursor === undefined || t < cursor) cursor = t;
+  }
+  return cursor;
+}
+
+/**
+ * Every root session in one directory, newest first, past the first page
+ * when that page comes back full.
+ *
+ * `session.list` has no backward cursor. Its `start` keeps sessions updated
+ * *since* a time, which is the newer side of the page already in hand. The
+ * experimental list's `cursor` is the other direction: update time strictly
+ * before that value. A further page that fails, or a server that repeats the
+ * page it was just given, leaves the roots already collected — a directory
+ * over the page size must not fail the sync, and must not spin.
+ *
+ * Archived roots are included on the further pages. The first page already
+ * returns them, and leaving them out of the rest would drop an old archived
+ * session the archive fold is supposed to be able to show.
+ */
+export async function listRootSessions(
+  client: OpencodeClient,
+  directory: string | undefined,
+): Promise<Session[]> {
+  const first = await client.session.list({ directory, roots: true, limit: ROOT_PAGE });
+  const roots = (first.data ?? []).filter((row): row is Session => !!row?.id);
+  if (roots.length < ROOT_PAGE) return roots;
+  let cursor = oldestUpdated(roots);
+  if (cursor === undefined) return roots;
+  const seen = new Set(roots.map((row) => row.id));
+  for (let page = 0; page < ROOT_FURTHER_PAGES; page++) {
+    let more;
+    try {
+      more = await client.experimental.session.list({
+        directory,
+        roots: true,
+        limit: ROOT_PAGE,
+        cursor,
+        archived: true,
+      });
+    } catch (err) {
+      console.error(`opencode session list page failed for ${directory ?? "(default)"}:`, err);
+      return roots;
+    }
+    const batch = (more.data ?? []).filter((row) => !!row?.id);
+    let added = 0;
+    for (const info of batch) {
+      if (seen.has(info.id)) continue;
+      seen.add(info.id);
+      roots.push(info);
+      added += 1;
+    }
+    if (batch.length < ROOT_PAGE || added === 0) return roots;
+    const next = oldestUpdated(batch);
+    if (next === undefined || next >= cursor) return roots;
+    cursor = next;
+  }
+  console.error(
+    `opencode session list capped at ${roots.length} roots for ${directory ?? "(default)"}`,
+  );
+  return roots;
+}
+
+/**
  * A full import. One snapshot is one append, and the write for the next session
  * waits until the event loop has had a turn.
  */
@@ -197,8 +288,7 @@ export function createSessionImport(args: {
   };
 
   const indexSessions = async () => {
-    const sessions = await client.session.list({ directory: opts.directory, roots: true, limit: 80 });
-    const roots = (sessions.data ?? []).filter((i): i is Session => !!i?.id);
+    const roots = await listRootSessions(client, opts.directory);
     const ids: string[] = [];
     const visit = async (info: Session) => {
       ingestor.handle({
@@ -261,14 +351,13 @@ export function createSessionImport(args: {
       }
     };
     await mapLimit([...directories], SYNC_CONCURRENCY, async (directory) => {
-      let sessions;
+      let roots: Session[];
       try {
-        sessions = await client.session.list({ directory, roots: true, limit: 80 });
+        roots = await listRootSessions(client, directory);
       } catch (err) {
         console.error(`opencode session list failed for ${directory ?? "(default)"}:`, err);
         return;
       }
-      const roots = (sessions.data ?? []).filter((i): i is Session => !!i?.id);
       for (const info of roots) collect(info, directory);
       await walkChildren(
         roots.map((r) => ({ sessionID: r.id, directory: r.directory || directory })),
