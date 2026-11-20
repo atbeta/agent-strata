@@ -300,6 +300,7 @@ export default {
   "composer.placeholder.queue": "添加后续消息…",
   "composer.disconnected": "后端未连接，暂时不能发送。",
   "composer.childReadonly": "这是子会话，请在父会话中输入。",
+  "composer.archivedReadonly": "此会话已归档，恢复后才能继续输入。",
   "composer.placeholder.message": "输入消息…",
   "composer.running": "运行中",
   "composer.stopping": "停止中…",

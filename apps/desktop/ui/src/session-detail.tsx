@@ -227,8 +227,13 @@ export function SessionDetail(props: {
     sessionActivity: () =>
       props.sessions.map((row) => ({ id: row.summary.session_id, busy: row.busy === true })),
     // A child session is driven by its parent — nothing can be sent into it.
+    // An archived one is shelved: input waits until it is restored.
     readOnly: () =>
-      displayed()?.parent_session_id ? t("composer.childReadonly") : undefined,
+      displayed()?.parent_session_id
+        ? t("composer.childReadonly")
+        : displayed()?.archived
+          ? t("composer.archivedReadonly")
+          : undefined,
   });
 
   let tools: ReturnType<typeof useMcpTools>;
@@ -906,7 +911,11 @@ export function SessionDetail(props: {
                     goalMet={v().goal_met}
                     goalPaused={v().goal_paused}
                     readOnly={() =>
-                      v().parent_session_id ? t("composer.childReadonly") : undefined
+                      v().parent_session_id
+                        ? t("composer.childReadonly")
+                        : v().archived
+                          ? t("composer.archivedReadonly")
+                          : undefined
                     }
                     background={
                       opencode()

@@ -299,6 +299,7 @@ export default {
   "composer.placeholder.queue": "Queue a follow-up…",
   "composer.disconnected": "Backend not connected. Messages can't be sent right now.",
   "composer.childReadonly": "This is a child session — write in its parent instead.",
+  "composer.archivedReadonly": "This session is archived — restore it to write again.",
   "composer.placeholder.message": "Message…",
   "composer.running": "Running",
   "composer.stopping": "Stopping…",

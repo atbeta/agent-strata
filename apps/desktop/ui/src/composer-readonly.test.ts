@@ -32,7 +32,14 @@ describe("a read-only composer", () => {
   });
 
   test("a child session is what sets the reason", () => {
-    expect(detail).toContain("displayed()?.parent_session_id ? t(\"composer.childReadonly\")");
-    expect(detail).toContain("v().parent_session_id ? t(\"composer.childReadonly\")");
+    expect(detail).toContain("displayed()?.parent_session_id");
+    expect(detail).toContain("v().parent_session_id");
+    expect(detail).toContain('t("composer.childReadonly")');
+  });
+
+  test("an archived session refuses input until it is restored", () => {
+    expect(detail).toContain("displayed()?.archived");
+    expect(detail).toContain("v().archived");
+    expect(detail).toContain('t("composer.archivedReadonly")');
   });
 });
