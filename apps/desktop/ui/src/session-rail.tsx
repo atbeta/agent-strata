@@ -157,6 +157,13 @@ export function SessionRail(props: {
     if (effectiveTab() === "background") return props.dev.count();
     return undefined;
   };
+  const panelOptions = createMemo(() =>
+    [...builtinItems(), ...pluginItems()].map((item) => ({
+      id: item.id,
+      label: item.label,
+      count: item.count ?? item.running,
+    })),
+  );
   const selectPanel = (id: string) => {
     props.onSelectTab(id);
     setLauncherOpen(false);
@@ -257,11 +264,29 @@ export function SessionRail(props: {
             <Icon name="x" />
           </Button>
         </div>
+        <Show when={props.opencode() && !launcherOpen()}>
+          <div class="flex shrink-0 border-b border-border px-2 py-1">
+            <MiniTabs
+              kind="tabs"
+              label={t("panel.switch")}
+              panelId="session-rail-panel"
+              value={effectiveTab()}
+              onChange={selectPanel}
+              options={panelOptions()}
+              class="min-w-0 flex-1 overflow-x-auto"
+            />
+          </div>
+        </Show>
         <Show
           when={!launcherOpen() || !props.opencode()}
           fallback={<RailLauncher builtin={builtinItems()} plugins={pluginItems()} onSelect={selectPanel} />}
         >
-          <div id="session-rail-panel" role="region" aria-label={currentTitle()} class="flex min-h-0 flex-1 flex-col">
+          <div
+            id="session-rail-panel"
+            role={props.opencode() ? "tabpanel" : "region"}
+            aria-label={currentTitle()}
+            class="flex min-h-0 flex-1 flex-col"
+          >
             <Show when={props.sessionId()} keyed>
               <Show when={effectiveTab() === "files"}>
                 <FileBrowser

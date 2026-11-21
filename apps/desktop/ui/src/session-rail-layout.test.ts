@@ -26,16 +26,20 @@ describe("the session rail's responsive and keyboard behavior", () => {
     }
   });
 
-  test("one current panel has a launcher instead of a growing tab strip", () => {
+  test("panel tabs stay visible beside the all-panel launcher", () => {
     const rail = read("session-rail.tsx");
+    expect(rail).toContain("<MiniTabs");
+    expect(rail).toContain('kind="tabs"');
+    expect(rail).toContain('panelId="session-rail-panel"');
+    expect(rail).toContain("options={panelOptions()}");
     expect(rail).toContain("<RailLauncher");
     expect(rail).toContain("setLauncherOpen(false)");
-    expect(rail).toContain('role="region"');
-    expect(rail).not.toContain('panelId="session-rail-panel"');
 
     const launcher = read("rail-launcher.tsx");
     expect(launcher).toContain("item.running");
     expect(launcher).toContain("item.count");
+    expect(launcher).toContain("min-h-10");
+    expect(launcher).toContain("size-6");
   });
 
   test("closing returns focus and trace does not leave a false pressed state", () => {

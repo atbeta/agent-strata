@@ -182,7 +182,7 @@ test("SessionRail mounts for an OpenCode session on the default source", () => {
   expect(host.textContent).toContain("alpha.ts");
 });
 
-test("SessionRail switches through the launcher and restores the last panel", async () => {
+test("SessionRail keeps panel tabs visible and still offers the full launcher", async () => {
   const view = emptySessionView("opencode:launcher", "opencode");
   view.files_changed.push(edit);
   const [tab, setTab] = createSignal<string>("changes");
@@ -195,15 +195,21 @@ test("SessionRail switches through the launcher and restores the last panel", as
   );
   const panelButton = (label: string) =>
     [...host.querySelectorAll("button")].find((button) => button.textContent?.includes(label));
+  const tabList = () => host.querySelector('[role="tablist"][aria-label="切换面板"]');
+  const tabButton = (label: string) =>
+    [...(tabList()?.querySelectorAll("button") ?? [])].find((button) => button.textContent?.includes(label));
   const switcher = () => host.querySelector('[aria-label="切换面板"]') as HTMLButtonElement | null;
 
+  expect(tabList()?.textContent).toContain("改动");
+  expect(tabList()?.textContent).toContain("文件");
+  expect(tabList()?.textContent).toContain("后台");
+  expect(tabButton("改动")?.textContent).toContain("1");
   panelButton("alpha.ts")?.click();
   expect(panelButton("alpha.ts")?.getAttribute("aria-current")).toBe("true");
-  switcher()?.click();
-  expect(host.textContent).toContain("从这里开始");
-  expect(panelButton("改动")?.textContent).toContain("1");
-  panelButton("后台")?.click();
+
+  tabButton("后台")?.click();
   expect(tab()).toBe("background");
+  expect(tabButton("后台")?.getAttribute("aria-selected")).toBe("true");
   expect(host.textContent).toContain("这个会话还没有后台进程");
   expect(host.textContent).not.toContain("从这里开始");
 
@@ -214,6 +220,8 @@ test("SessionRail switches through the launcher and restores the last panel", as
   expect(host.textContent).not.toContain("从这里开始");
 
   switcher()?.click();
+  expect(host.textContent).toContain("从这里开始");
+  expect(panelButton("改动")?.textContent).toContain("1");
   panelButton("改动")?.click();
   expect(tab()).toBe("changes");
   expect(host.textContent).toContain("alpha.ts");
