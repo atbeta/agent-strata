@@ -106,6 +106,12 @@ export function createSessionImport(args: {
     handle: (evt: Event, source?: "live" | "history") => void;
     handleBatch: (events: Event[]) => void;
   };
+  /**
+   * The live stream is writing this session as it runs. A sync rereading it
+   * would fetch the whole transcript on every pass only to find events the
+   * stream already stored; it is imported once it stops instead.
+   */
+  following?: (sessionID: string) => boolean;
 }) {
   const { client, ingestor } = args;
   const opts = { directory: args.directory, sink: args.sink };
@@ -312,7 +318,7 @@ export function createSessionImport(args: {
    * not imported again. Two phases — a concurrent metadata crawl that makes
    * every session a row, then a concurrent import of only what moved.
    */
-  const refreshSessions = async (guard?: OpencodeSyncGuard) => {
+  const refreshSessions = async (guard?: OpencodeSyncGuard, { catchUp = false } = {}) => {
     const directories = knownDirectories;
     directories.clear();
     directories.add(opts.directory);
@@ -443,7 +449,7 @@ export function createSessionImport(args: {
     };
     await mapLimit(found, SYNC_CONCURRENCY, async ({ info, directory }) => {
       const updated = info.time?.updated ?? info.time?.created ?? 0;
-      if (knownRevision(info.id) === updated) {
+      if (knownRevision(info.id) === updated || (!catchUp && args.following?.(info.id))) {
         tick();
         return;
       }

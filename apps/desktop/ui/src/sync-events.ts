@@ -28,6 +28,17 @@ export function changesSessionList(type: string | undefined): boolean {
 }
 
 /**
+ * Whether the background pull may run now.
+ *
+ * A pull asks every backend for its whole project list and session tree. The
+ * timer and the focus listener both call it, and neither knows whether the
+ * window is on screen; a hidden window pulls again when it comes back.
+ */
+export function pullAllowed(state: { ready: boolean; syncing: boolean; hidden: boolean }): boolean {
+  return state.ready && !state.syncing && !state.hidden;
+}
+
+/**
  * Whether an event is about a background process rather than the session.
  *
  * `dev.*` events carry a `session_id`, because that is what owns the process,

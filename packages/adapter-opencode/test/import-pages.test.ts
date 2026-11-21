@@ -174,4 +174,34 @@ describe("refreshSessions", () => {
     expect(indexed).toContain("old-1");
     expect(children).toContain("old-1");
   });
+
+  test("a catch-up rereads a session the live stream is following", async () => {
+    const reads: string[] = [];
+    const client = {
+      project: { list: async () => ({ data: [] }) },
+      permission: { list: async () => ({ data: [] }) },
+      question: { list: async () => ({ data: [] }) },
+      session: {
+        children: async () => ({ data: [] }),
+        get: async (query: { sessionID: string }) => ({ data: root(query.sessionID, 20) }),
+        messages: async (query: { sessionID: string }) => {
+          reads.push(query.sessionID);
+          return { data: [] };
+        },
+        todo: async () => ({ data: [] }),
+      },
+      experimental: { session: { list: async () => ({ data: [root("live", 20)] }) } },
+    } as unknown as OpencodeClient;
+    const importer = createSessionImport({
+      client,
+      directory: "/repo",
+      sink: { append: () => [] },
+      ingestor: { handle: () => {}, handleBatch: () => {} },
+      following: () => true,
+    });
+    await importer.refreshSessions();
+    expect(reads).toEqual([]);
+    await importer.refreshSessions(undefined, { catchUp: true });
+    expect(reads).toEqual(["live"]);
+  });
 });

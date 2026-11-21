@@ -44,7 +44,7 @@ import { StartupGate } from "./startup-gate";
 import { useStartup } from "./use-startup";
 import { ImageViewerHost } from "./image-viewer";
 import { SyncLine } from "./sync-line";
-import { changesSessionList, isDevEvent } from "./sync-events";
+import { changesSessionList, isDevEvent, pullAllowed } from "./sync-events";
 import { createDebouncer } from "./debounce";
 
 export function App() {
@@ -257,7 +257,7 @@ export function App() {
       // connecting; a full project/session read every 12s would only add work
       // to the sync it is waiting for. A running sync rereads on its finish,
       // so a poll landing in the middle would only compete with it.
-      if (!boot.ready() || conns.syncTicks().size > 0) return;
+      if (!pullAllowed({ ready: boot.ready(), syncing: conns.syncTicks().size > 0, hidden: document.hidden })) return;
       void syncBackend()
         .catch(() => {})
         .finally(() => {

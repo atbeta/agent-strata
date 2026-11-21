@@ -715,6 +715,68 @@ describe("sync stays off the live path", () => {
     }
   });
 
+  test("a running session the live stream is following is left to it until it stops", async () => {
+    const { connectOpencode } = await import("../src/index");
+    const enc = new TextEncoder();
+    const info = (id: string) => ({ id, title: id, directory: "/repo", time: { created: 1, updated: 20 } });
+    const messageCalls = new Map<string, number>();
+    const fakeFetch = async (input: Request | URL | string) => {
+      const url = input instanceof Request ? input.url : String(input);
+      const path = new URL(url).pathname;
+      if (url.includes("/event")) {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(ctrl) {
+              ctrl.enqueue(enc.encode('data: {"type":"server.connected","properties":{}}\n\n'));
+              const frame = {
+                directory: "/repo",
+                payload: { id: "st1", type: "session.status", properties: { sessionID: "ses_live", status: { type: "busy" } } },
+              };
+              ctrl.enqueue(enc.encode(`data: ${JSON.stringify(frame)}\n\n`));
+            },
+          }),
+          { status: 200, headers: { "content-type": "text/event-stream" } },
+        );
+      }
+      if (path === "/experimental/session") return Response.json([info("ses_live"), info("ses_quiet")]);
+      if (path.endsWith("/children")) return Response.json([]);
+      if (path.endsWith("/message")) {
+        const id = path.split("/")[2]!;
+        messageCalls.set(id, (messageCalls.get(id) ?? 0) + 1);
+        return Response.json([]);
+      }
+      if (path.startsWith("/session/")) return Response.json(info(path.split("/")[2]!));
+      return Response.json([]);
+    };
+    const store = openStore(":memory:");
+    const running = new Set(["opencode:ses_live"]);
+    const conn = await connectOpencode({
+      baseUrl: "http://fake",
+      sink: {
+        append: (events) => store.append(events),
+        sessionRevision: (id) => store.sessionRevision(id),
+        markRevision: (id, rev) => store.markRevision(id, rev),
+        sessionRunning: (id) => ({ running: running.has(id), seq: 0 }),
+      },
+      fetch: fakeFetch as typeof fetch,
+      connectTimeoutMs: 5_000,
+    });
+    try {
+      await Bun.sleep(50);
+      await conn.refreshSessions();
+      expect(messageCalls.get("ses_live")).toBeUndefined();
+      expect(messageCalls.get("ses_quiet")).toBe(1);
+
+      running.delete("opencode:ses_live");
+      await conn.refreshSessions();
+      expect(messageCalls.get("ses_live")).toBe(1);
+      expect(messageCalls.get("ses_quiet")).toBe(1);
+    } finally {
+      conn.stop();
+      store.close();
+    }
+  });
+
   test("two changed sessions are written one at a time, with a turn of the event loop between them", async () => {
     const { connectOpencode } = await import("../src/index");
     const enc = new TextEncoder();

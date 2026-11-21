@@ -1,5 +1,20 @@
 import { describe, expect, test } from "bun:test";
-import { changesSessionList } from "./sync-events";
+import { changesSessionList, pullAllowed } from "./sync-events";
+
+describe("when the background pull may run", () => {
+  test("a visible, launched window with no sync in flight pulls", () => {
+    expect(pullAllowed({ ready: true, syncing: false, hidden: false })).toBe(true);
+  });
+
+  test("a hidden window does not, whatever woke the pull", () => {
+    expect(pullAllowed({ ready: true, syncing: false, hidden: true })).toBe(false);
+  });
+
+  test("launch and a running sync still hold it back", () => {
+    expect(pullAllowed({ ready: false, syncing: false, hidden: false })).toBe(false);
+    expect(pullAllowed({ ready: true, syncing: true, hidden: false })).toBe(false);
+  });
+});
 
 describe("what may move the list during a sync", () => {
   test("a session appearing, leaving, or changing status still gets through", () => {

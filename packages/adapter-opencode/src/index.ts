@@ -333,11 +333,15 @@ export async function connectOpencode(opts: {
   const connectTimeout = opts.connectTimeoutMs ?? 10_000;
   const promptAcceptMs = opts.promptAcceptMs ?? 20_000;
 
+  /** Sessions this stream has carried; forgotten once the store calls them idle. */
+  const followed = new Set<string>();
   const sessionImport = createSessionImport({
     client,
     directory: opts.directory,
     sink: opts.sink,
     ingestor,
+    following: (sessionID) =>
+      followed.has(sessionID) && opts.sink.sessionRunning?.(`opencode:${sessionID}`).running === true,
   });
   /**
    * When each session last said anything. The bus heartbeats keep the socket
@@ -352,11 +356,16 @@ export async function connectOpencode(opts: {
     onEvent: opts.onEvent,
     handle: (evt) => {
       const sid = (evt.properties as { sessionID?: unknown } | undefined)?.sessionID;
-      if (typeof sid === "string") lastEventAt.set(sid, Date.now());
+      if (typeof sid === "string") {
+        lastEventAt.set(sid, Date.now());
+        followed.add(sid);
+      }
       ingestor.handle(evt);
     },
     onReconnect: () => {
-      void sessionImport.refreshSessions().catch((err) =>
+      // A gap in the stream is a gap in what it wrote: the catch-up rereads
+      // followed sessions too.
+      void sessionImport.refreshSessions(undefined, { catchUp: true }).catch((err) =>
         console.error("opencode catch-up failed:", err),
       );
       void reconcileIdle();
@@ -523,6 +532,7 @@ export async function connectOpencode(opts: {
         // A session the store already calls idle keeps no clock of ours.
         lastEventAt.delete(id);
         lastProbeAt.delete(id);
+        followed.delete(id);
         continue;
       }
       if (now - at < QUIET_MS || now - (lastProbeAt.get(id) ?? 0) < REPROBE_MS) continue;
