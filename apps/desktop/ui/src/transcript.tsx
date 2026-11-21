@@ -29,7 +29,7 @@ import {
   assistantNotice,
   diffStat,
   fmtElapsed,
-  fmtLatency,
+  rowLatency,
   thinkingDuration,
   hasMessageContent,
   goalMetReply,
@@ -326,8 +326,8 @@ function ThinkingBlock(props: {
         {/* The body scrolls with the transcript like every other block; the
             pinned header above is what keeps the collapse at hand. A live
             thought just grows — nothing here fights the scroller's follow. */}
-        <div class="expand-in ml-[22px] py-1.5">
-          <Md class="text-sm leading-6 text-muted-foreground" text={props.text} />
+        <div class="expand-in ml-[22px] border-l border-border py-1.5 pl-3">
+          <Md class="text-xs leading-6 text-muted-foreground" text={props.text} />
         </div>
       </Show>
     </div>
@@ -899,10 +899,10 @@ function ToolCallCard(props: {
           </Show>
           {/* Interactive tools wait on the reader, so their latency is a
               person's pause, not a runtime — there is nothing to report. */}
-          <Show when={!status() && !isInteractiveTool(props.call.tool) && fmtLatency(props.call.latency_ms)}>
-            <span class="shrink-0 font-mono text-2xs text-faint-foreground tabular-nums">
-              {fmtLatency(props.call.latency_ms)}
-            </span>
+          <Show when={!status() && !isInteractiveTool(props.call.tool) && rowLatency(props.call.latency_ms)}>
+            {(latency) => (
+              <span class="shrink-0 font-mono text-2xs text-faint-foreground tabular-nums">{latency()}</span>
+            )}
           </Show>
           <Show when={props.call.child_session_id}>
             {(id) => (

@@ -329,6 +329,28 @@ export function firstLine(text: string, max = 96): string {
   return line.length > max ? `${line.slice(0, max - 1)}…` : line;
 }
 
+/**
+ * A command's headline: its first line, marked when more follows. `node -e "`
+ * on its own read as a command cut off mid-quote, so a first line that leaves
+ * a quote open closes it around the ellipsis — `node -e "…"` — and any other
+ * continuation trails a plain ` …`.
+ */
+export function commandLine(command: string, max = 96): string {
+  const lines = command.split("\n").filter((part) => part.trim());
+  const first = firstLine(command, max);
+  if (lines.length <= 1 || first.endsWith("…")) return first;
+  const open = (q: string) => (first.match(new RegExp(`(?<!\\\\)${q}`, "g"))?.length ?? 0) % 2 === 1;
+  if (open('"')) return `${first}…"`;
+  if (open("'")) return `${first}…'`;
+  return `${first} …`;
+}
+
+/** `browser_use` → `Browser use`: a backend identifier read as words. */
+function toolWords(tool: string): string {
+  const words = tool.replace(/[_-]+/g, " ").trim();
+  return words ? words[0]!.toUpperCase() + words.slice(1) : tool;
+}
+
 export interface ToolHeadline {
   kind: ToolKind;
   verb: string;
@@ -349,7 +371,7 @@ export function toolHeadline(call: Pick<ToolCallView, "tool" | "input">): ToolHe
   // tool takes no argument.
   const tool = call.tool.toLowerCase();
   if (tool === "dev_start") {
-    return { kind, verb: t("tool.verb.dev.start"), title: command ? firstLine(command) : call.tool };
+    return { kind, verb: t("tool.verb.dev.start"), title: command ? commandLine(command) : call.tool };
   }
   if (tool === "dev_logs") {
     return { kind, verb: t("tool.verb.dev.logs"), title: processId ?? call.tool };
@@ -362,7 +384,7 @@ export function toolHeadline(call: Pick<ToolCallView, "tool" | "input">): ToolHe
   }
 
   if (kind === "shell") {
-    return { kind, verb: t("tool.verb.bash"), title: command ? firstLine(command) : call.tool };
+    return { kind, verb: t("tool.verb.bash"), title: command ? commandLine(command) : call.tool };
   }
   if (kind === "read") {
     return { kind, verb: t("tool.verb.read"), title: path ?? call.tool };
@@ -409,8 +431,11 @@ export function toolHeadline(call: Pick<ToolCallView, "tool" | "input">): ToolHe
   }
   const description = field(input, ["description", "prompt", "title"]);
   // An unknown tool still gets the leading capital the named verbs carry.
-  const verb = call.tool ? call.tool[0]!.toUpperCase() + call.tool.slice(1) : "";
-  return { kind, verb, title: description ?? path ?? command ?? pattern ?? "" };
+  return {
+    kind,
+    verb: toolWords(call.tool),
+    title: description ?? path ?? (command ? commandLine(command) : undefined) ?? pattern ?? "",
+  };
 }
 
 export function isDiff(text: string): boolean {
@@ -497,7 +522,17 @@ export function thinkingDuration(startedMs?: number, endedMs?: number): string |
   if (!Number.isFinite(startedMs) || !Number.isFinite(endedMs)) return undefined;
   if (startedMs < REAL_INSTANT_MS || endedMs < REAL_INSTANT_MS) return undefined;
   if (endedMs < startedMs) return undefined;
-  return fmtLatency(endedMs - startedMs);
+  return rowLatency(endedMs - startedMs);
+}
+
+/**
+ * The figure a transcript row carries. A dozen calls at `2ms` `4ms` `138ms`
+ * down the right edge were a column of numbers nobody waited for; under a
+ * second the row is simply done, and only a wait the reader could feel
+ * earns a number.
+ */
+export function rowLatency(ms: number | undefined): string | undefined {
+  return ms != null && ms >= 1000 ? fmtLatency(ms) : undefined;
 }
 
 export interface AssistantMetrics {

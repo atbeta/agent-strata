@@ -322,6 +322,26 @@ describe("theme.css", () => {
     }
   });
 
+  test("a filled button's label keeps AA contrast against its fill", () => {
+    // The text test above never sees these pairs: the label is
+    // `primary-foreground`, and the fill is `primary`, which is also drawn as
+    // text on the page. White on the default dark blue was 3.4:1.
+    for (const theme of THEMES) {
+      for (const scheme of ["dark", "light"] as const) {
+        const values = valuesFor(theme.id, scheme);
+        const base = scheme === "light" ? light : dark;
+        const get = (token: string) => values.get(token) ?? base.get(token)!;
+        for (const pair of [
+          ["primary-foreground", "primary"],
+          ["destructive-foreground", "destructive"],
+        ] as const) {
+          const ratio = contrast(colorToHex(get(`--${pair[0]}`)), colorToHex(get(`--${pair[1]}`)));
+          expect(ratio, `${theme.id}/${scheme} ${pair[0]} on ${pair[1]}`).toBeGreaterThanOrEqual(4.45);
+        }
+      }
+    }
+  });
+
   test("the native window backdrop matches the page background", () => {
     // The inline script paints before any stylesheet is guaranteed to be
     // there, so it carries literals. They must be the same literals.

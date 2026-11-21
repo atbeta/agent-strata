@@ -3,6 +3,7 @@ import {
   HIDDEN_PROVIDERS_KEY,
   isProviderVisible,
   modelDisplayName,
+  modelIdLabel,
   modelPickerOptions,
   readHiddenProviders,
   serializeHiddenProviders,
@@ -116,6 +117,8 @@ describe("provider visibility", () => {
     expect(modelDisplayName({ modelID: "gpt-5-mini", name: "GPT-5 Mini" })).toBe("GPT-5 Mini");
     expect(modelDisplayName({ modelID: "gpt-5-mini", name: "  " })).toBe("gpt-5-mini");
     expect(modelDisplayName({ modelID: "gpt-5-mini" })).toBe("gpt-5-mini");
+    expect(modelIdLabel("deepseek-v4.1-flash")).toBe("Deepseek V4.1 Flash");
+    expect(modelIdLabel("gpt-5-mini")).toBe("GPT 5 Mini");
     expect(
       modelPickerOptions(
         [{ providerID: "openai", modelID: "gpt-5-mini", name: "GPT-5 Mini" }],

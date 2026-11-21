@@ -10,6 +10,7 @@ import {
 } from "./api";
 import { settled } from "./resource";
 import { FleetView } from "./fleet-view";
+import { fleetStatus } from "./fleet";
 import { SessionDetail } from "./session-detail";
 import { CompareView } from "./compare";
 import { SettingsPage } from "./settings";
@@ -674,6 +675,14 @@ export function App() {
     }),
   );
 
+  // The ordinary overview state. A session that is waiting or running gets a
+  // card in the page; when neither is true the title row says so, instead of
+  // a banner in the colour that means "running".
+  const fleetClear = () => {
+    const attention = fleetStatus(list.sessions());
+    return attention.waiting.length + attention.running.length === 0;
+  };
+
   return (
     <div
       class="relative isolate h-full min-h-0 bg-background"
@@ -761,7 +770,14 @@ export function App() {
       <main class="@container/main relative min-w-0 flex-1">
         <SyncLine ticks={conns.syncTicks()} show={conns.syncShown()} />
         <Show when={route().name === "fleet"}>
-          <PageShell title={t("fleet.scope.all")}>
+          <PageShell
+            title={t("fleet.nav")}
+            meta={
+              <Show when={conns.phase() === "connected" && fleetClear()}>
+                <span class="truncate text-xs text-muted-foreground">{t("fleet.status.clear")}</span>
+              </Show>
+            }
+          >
             <Show
               when={conns.phase() === "connected"}
               fallback={

@@ -165,6 +165,8 @@ export default {
   "fleet.overview.cacheHit": "缓存命中",
   "fleet.overview.estCost": "按标价估算",
   "fleet.overview.mix": "构成",
+  "fleet.overview.peak": "峰值 {n}",
+  "fleet.unit.tokens": "token",
   "fleet.overview.sessionCount.one": "{n} 个会话",
   "fleet.overview.sessionCount.other": "{n} 个会话",
   "fleet.overview.tileSessions.one": "{n} 个会话",

@@ -26,7 +26,9 @@
   --popover: hsl(240 5% 10%);
   --popover-foreground: hsl(240 10% 93%);
   --primary: hsl(222 72% 64%);
-  --primary-foreground: hsl(0 0% 100%);
+  /* White on this blue is 3.4:1. The fill stays; the label goes dark, which is
+     how the louder palettes already treat a bright primary. */
+  --primary-foreground: hsl(222 40% 12%);
   --secondary: hsl(240 4% 13%);
   --secondary-foreground: hsl(240 10% 93%);
   --muted: hsl(240 4% 12%);
@@ -41,7 +43,7 @@
   --accent: hsl(240 4% 15%);
   --accent-foreground: hsl(240 10% 93%);
   --destructive: hsl(0 72% 59%);
-  --destructive-foreground: hsl(0 0% 100%);
+  --destructive-foreground: hsl(0 40% 12%);
   --border: hsl(0 0% 100% / 0.07);
   --input: hsl(0 0% 100% / 0.09);
   --ring: hsl(222 72% 64%);
@@ -950,7 +952,7 @@ html[data-theme="tokyonight"][data-scheme="light"] {
   --card-foreground: #3760bf;
   --popover: #ffffff;
   --popover-foreground: #3760bf;
-  --primary: #2e7de9;
+  --primary: #2b5cbf;
   --primary-foreground: #ffffff;
   --secondary: #ccd0e4;
   --secondary-foreground: #3760bf;
@@ -1082,7 +1084,7 @@ html[data-theme="nord"][data-scheme="light"] {
   --card-foreground: #3b4252;
   --popover: #ffffff;
   --popover-foreground: #3b4252;
-  --primary: #5e81ac;
+  --primary: #4a6c94;
   --primary-foreground: #ffffff;
   --secondary: #dde3ec;
   --secondary-foreground: #3b4252;
@@ -1214,7 +1216,7 @@ html[data-theme="rosepine"][data-scheme="light"] {
   --card-foreground: #575279;
   --popover: #fffaf3;
   --popover-foreground: #575279;
-  --primary: #d7827e;
+  --primary: #9e5652;
   --primary-foreground: #fffaf3;
   --secondary: #f2e9e1;
   --secondary-foreground: #575279;
@@ -1346,7 +1348,7 @@ html[data-theme="everforest"][data-scheme="light"] {
   --card-foreground: #5c6a72;
   --popover: #fffaf0;
   --popover-foreground: #5c6a72;
-  --primary: #8da101;
+  --primary: #5c7400;
   --primary-foreground: #fdf6e3;
   --secondary: #ece7d0;
   --secondary-foreground: #5c6a72;
@@ -1476,7 +1478,11 @@ html[data-theme="everforest"][data-scheme="light"] {
      label beside it did not. Naming a CJK sans first stops the walk there. */
   --font-sans: ui-sans-serif, system-ui, "Segoe UI", "PingFang SC", "Hiragino Sans GB",
     "Microsoft YaHei", "Noto Sans SC", sans-serif;
-  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "Cascadia Mono", Consolas,
+  /* Menlo sits ahead of the CJK faces because Chromium does not resolve
+     `ui-monospace` or "SF Mono". Without a face it does resolve, the walk
+     reaches PingFang and Latin code stops being monospaced. Menlo is built
+     into macOS; Windows still hits Cascadia or Consolas first. */
+  --font-mono: ui-monospace, "SF Mono", Menlo, "Cascadia Code", "Cascadia Mono", Consolas,
     "PingFang SC", "Microsoft YaHei", "Noto Sans Mono CJK SC", monospace;
   --font-terminal: var(--font-mono);
   --text-2xs: 0.75rem;
@@ -1911,7 +1917,10 @@ textarea {
   .md li { @apply my-1; }
   .md li > p { @apply my-1; }
   .md code {
-    @apply rounded border border-border/60 bg-code-header px-1.5 py-0.5 font-mono text-xs text-foreground/90;
+    /* No border and almost no padding: an inline chip inside a Chinese
+       sentence was taller than the line, and the gap around a full-width
+       bracket read as a hole. */
+    @apply rounded bg-code-header px-1 py-px font-mono text-xs text-foreground/90;
   }
   .md pre {
     @apply my-3 overflow-x-auto rounded-lg border border-border bg-code-surface p-3;

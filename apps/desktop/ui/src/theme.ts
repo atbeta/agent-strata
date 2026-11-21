@@ -100,7 +100,7 @@ export const THEMES: readonly Theme[] = [
     name: "Tokyo Night",
     swatch: {
       dark: { background: "#1a1b26", surface: "#1f2033", accent: "#7aa2f7" },
-      light: { background: "#e1e2e7", surface: "#ffffff", accent: "#2e7de9" },
+      light: { background: "#e1e2e7", surface: "#ffffff", accent: "#2b5cbf" },
     },
   },
   {
@@ -108,7 +108,7 @@ export const THEMES: readonly Theme[] = [
     name: "Nord",
     swatch: {
       dark: { background: "#2e3440", surface: "#353c4a", accent: "#88c0d0" },
-      light: { background: "#eceff4", surface: "#ffffff", accent: "#5e81ac" },
+      light: { background: "#eceff4", surface: "#ffffff", accent: "#4a6c94" },
     },
   },
   {
@@ -116,7 +116,7 @@ export const THEMES: readonly Theme[] = [
     name: "Rosé Pine",
     swatch: {
       dark: { background: "#191724", surface: "#1f1d2e", accent: "#ebbcba" },
-      light: { background: "#faf4ed", surface: "#fffaf3", accent: "#d7827e" },
+      light: { background: "#faf4ed", surface: "#fffaf3", accent: "#9e5652" },
     },
   },
   {
@@ -124,7 +124,7 @@ export const THEMES: readonly Theme[] = [
     name: "Everforest",
     swatch: {
       dark: { background: "#2d353b", surface: "#343f44", accent: "#a7c080" },
-      light: { background: "#fdf6e3", surface: "#fffaf0", accent: "#8da101" },
+      light: { background: "#fdf6e3", surface: "#fffaf0", accent: "#5c7400" },
     },
   },
 ];

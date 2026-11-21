@@ -19,6 +19,7 @@ const {
   fmtElapsed,
   fmtLatency,
   goalMetReply,
+  rowLatency,
   thinkingDuration,
   hasMessageContent,
   isInteractiveTool,
@@ -63,7 +64,7 @@ describe("tool headlines", () => {
       expect(toolHeadline({ tool: "bash", input: { command: "bun test\n--watch" } })).toEqual({
         kind: "shell",
         verb: "Bash",
-        title: "bun test",
+        title: "bun test …",
       });
     });
   });
@@ -204,15 +205,32 @@ describe("tool headlines", () => {
     });
   });
 
-  test("an unrecognised tool keeps its name capitalised in both languages", () => {
+  test("an unrecognised tool reads its name as words in both languages", () => {
     // The fallback is the backend's identifier with the same leading capital
-    // the named verbs carry — `browser_use` next to `Bash` reads `Browser_use`.
+    // the named verbs carry, and its separators read as spaces — `Browser_use`
+    // next to `Bash` looked like an identifier that escaped, not a label.
     withLocale("en", () => {
-      expect(toolHeadline({ tool: "browser_use", input: {} }).verb).toBe("Browser_use");
+      expect(toolHeadline({ tool: "browser_use", input: {} }).verb).toBe("Browser use");
+      expect(toolHeadline({ tool: "schedule__view-all", input: {} }).verb).toBe("Schedule view all");
       expect(toolHeadline({ tool: "Foo", input: {} }).verb).toBe("Foo");
     });
     withLocale("zh", () => {
-      expect(toolHeadline({ tool: "browser_use", input: {} }).verb).toBe("Browser_use");
+      expect(toolHeadline({ tool: "browser_use", input: {} }).verb).toBe("Browser use");
+    });
+  });
+
+  test("a multi-line command says more follows instead of stopping mid-quote", () => {
+    withLocale("en", () => {
+      expect(toolHeadline({ tool: "bash", input: { command: 'node -e "\nconsole.log(1)\n"' } }).title).toBe(
+        'node -e "…"',
+      );
+      expect(toolHeadline({ tool: "bash", input: { command: "python3 -c '\nprint(1)\n'" } }).title).toBe(
+        "python3 -c '…'",
+      );
+      expect(toolHeadline({ tool: "bash", input: { command: "cd app &&\nbun test" } }).title).toBe("cd app && …");
+      // A balanced first line or a single line is left as it is.
+      expect(toolHeadline({ tool: "bash", input: { command: 'echo "a"' } }).title).toBe('echo "a"');
+      expect(toolHeadline({ tool: "bash", input: { command: 'echo \\" &&\nls' } }).title).toBe('echo \\" && …');
     });
   });
 });
@@ -358,6 +376,18 @@ describe("diff and labels", () => {
     expect(thinkingDuration(start)).toBeUndefined();
     expect(thinkingDuration(20, 2000)).toBeUndefined();
     expect(thinkingDuration(start, start - 1)).toBeUndefined();
+    // A thought that finished inside a second is done, not timed.
+    expect(thinkingDuration(start, start + 795)).toBeUndefined();
+  });
+
+  test("a row carries a figure only for a wait the reader could feel", () => {
+    withLocale("en", () => {
+      expect(rowLatency(4)).toBeUndefined();
+      expect(rowLatency(999)).toBeUndefined();
+      expect(rowLatency(1000)).toBe("1.0s");
+      expect(rowLatency(3400)).toBe("3.4s");
+    });
+    expect(rowLatency(undefined)).toBeUndefined();
   });
 
   test("an open thought pins its header instead of scrolling inside itself", () => {

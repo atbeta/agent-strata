@@ -330,6 +330,9 @@ export function TranscriptView(props: {
                 // owner — it moves scrollTop on its own when the content's
                 // height changes, and the owner would absorb that as a reader
                 // scroll and unpin them. The owner does the compensating now.
+                // The mask is as tall as the content's bottom padding (`py-4`),
+                // so at the tail nothing but padding fades; the dock below is a
+                // sibling, and a gradient painted on it has nothing under it.
                 class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto [overflow-anchor:none]"
                 data-transcript-scroller=""
                 onScroll={onScroll}
@@ -388,6 +391,15 @@ export function TranscriptView(props: {
                   </Show>
                 </div>
               </div>
+              {/* The edge above the dock fades instead of cutting a line in
+                  half. An overlay, not a mask on the scroller: masking the
+                  scroller re-composited it on every streamed frame (bench flow
+                  D, running-tail maxGap 15 → 61ms in WebKit). As tall as the
+                  content's bottom padding, so at the tail only padding fades. */}
+              <div
+                aria-hidden="true"
+                class="pointer-events-none absolute inset-x-0 bottom-0 h-4 bg-gradient-to-t from-background"
+              />
 
               <Show when={showNav()}>
                 <PromptNavigator

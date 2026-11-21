@@ -166,6 +166,8 @@ export default {
   "fleet.overview.cacheHit": "Cache hit",
   "fleet.overview.estCost": "List price",
   "fleet.overview.mix": "Mix",
+  "fleet.overview.peak": "peak {n}",
+  "fleet.unit.tokens": "tokens",
   "fleet.overview.sessionCount.one": "{n} session",
   "fleet.overview.sessionCount.other": "{n} sessions",
   "fleet.overview.tileSessions.one": "{n} session",

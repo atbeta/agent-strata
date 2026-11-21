@@ -108,6 +108,27 @@ export interface PickableModel {
 }
 
 /**
+ * An id read as a label when the catalog published no name.
+ *
+ * `deepseek-v4.1-flash` stays an identifier in a mono slot and a sentence
+ * everywhere else. Version-shaped pieces keep their digits; the words take a
+ * capital. The catalog name still wins wherever one exists.
+ */
+export function modelIdLabel(modelID: string): string {
+  return modelID
+    .split(/[-_\s]+/)
+    .filter((part) => part !== "")
+    .map((part) => {
+      if (/^v\d/i.test(part)) return `V${part.slice(1)}`;
+      if (/^\d/.test(part)) return part;
+      // `gpt`, `o1` already left; a short all-letter token is an acronym.
+      if (/^[a-z]{2,3}$/.test(part)) return part.toUpperCase();
+      return part[0]!.toUpperCase() + part.slice(1);
+    })
+    .join(" ");
+}
+
+/**
  * The name a person reads.
  *
  * Catalogs publish a display name beside the id (`GPT-5 Mini` beside
@@ -115,6 +136,8 @@ export interface PickableModel {
  */
 export function modelDisplayName(model: { modelID: string; name?: string }): string {
   const name = model.name?.trim();
+  // No catalog name means the id is the name. Dressing `gpt-5-mini` up as
+  // words would disagree with the request the composer actually sends.
   return name ? name : model.modelID;
 }
 

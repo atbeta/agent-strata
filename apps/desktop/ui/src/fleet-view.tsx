@@ -25,10 +25,10 @@ import {
   type TrendPoint,
 } from "./fleet";
 import { compactNum, num, t, tn } from "./i18n";
+import { modelIdLabel } from "./provider-visibility";
 import { FleetDevSection } from "./fleet-dev";
 import { displayTitle } from "./session-title";
 import { Tip } from "./tip";
-import { Icon } from "./icons";
 import { RowButton } from "@/components/ui/row-button";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -68,7 +68,11 @@ const TOKEN_ORDER: TokenKey[] = ["input", "cacheRead", "cacheWrite", "output", "
 
 const TREND_DAYS = 14;
 const STATUS_SHOWN = 5;
-const RECENT_SHOWN = 10;
+/* A recent row is two lines and a rank row is those two plus the share bar,
+   which measures 60px against 90px. 12 and 8 are the pair that lands both
+   cards on the same bottom edge; 10 and 8 left the rank card one bar-row
+   past the recent card. */
+const RECENT_SHOWN = 12;
 const RANK_SHOWN = 8;
 
 /**
@@ -144,12 +148,14 @@ export function FleetView(props: {
     <div class="flex h-full min-h-0 flex-col overflow-hidden">
       <div class="min-h-0 flex-1 overflow-y-auto">
         <div class="mx-auto flex w-full max-w-6xl flex-col gap-7 px-6 py-6">
-          <StatusCard
-            waiting={status().waiting}
-            running={status().running}
-            now={props.now}
-            onOpen={props.onOpen}
-          />
+          <Show when={status().waiting.length + status().running.length > 0}>
+            <StatusCard
+              waiting={status().waiting}
+              running={status().running}
+              now={props.now}
+              onOpen={props.onOpen}
+            />
+          </Show>
 
           {/* What every session left running. It answers "what is on this
               machine", which the per-session panel cannot: the reader does not
@@ -227,7 +233,7 @@ export function FleetView(props: {
                                 class="items-start gap-3 rounded-none px-4 py-2.5"
                                 onClick={() => props.onOpen(s.summary.session_id)}
                               >
-                                <SessionStatusMark status={sessionStatus(s)} class="mt-1" />
+                                <SessionStatusMark status={sessionStatus(s)} class="mt-1 w-3 justify-center" />
                                 <span class="min-w-0 flex-1">
                                   <span class="flex min-w-0 items-center gap-1.5">
                                     <span class="min-w-0 truncate text-sm text-foreground">
@@ -241,7 +247,7 @@ export function FleetView(props: {
                                     {projectLabel(s)}
                                     <Show when={modelId()}>
                                       <span class="text-faint-foreground">{" · "}</span>
-                                      <span class="font-mono">{modelId()}</span>
+                                      <span>{modelIdLabel(modelId()!)}</span>
                                     </Show>
                                   </span>
                                 </span>
@@ -383,8 +389,8 @@ function providerIdPart(model: string | null): string | null {
  * Waiting outranks running because a session stopped at a permission prompt
  * is going nowhere until a person answers it.
  *
- * When neither group has anything the section drops to a quiet line: "all
- * clear" is a fact worth one line, not a card.
+ * Nothing waiting renders no card. That ordinary case is a line on the page
+ * title, not a banner, and not in the green that means a session is running.
  */
 function StatusCard(props: {
   waiting: SessionRow[];
@@ -393,16 +399,7 @@ function StatusCard(props: {
   onOpen: (id: string) => void;
 }) {
   return (
-    <Show
-      when={props.waiting.length + props.running.length > 0}
-      fallback={
-        <p class="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Icon name="check" class="size-3.5 text-status-active" />
-          {t("fleet.status.clear")}
-        </p>
-      }
-    >
-      <Card as="section" class="divide-y divide-border overflow-hidden">
+    <Card as="section" class="divide-y divide-border overflow-hidden">
         <StatusGroup
           label={t("fleet.status.waiting")}
           rows={props.waiting}
@@ -411,8 +408,7 @@ function StatusCard(props: {
           onOpen={props.onOpen}
         />
         <StatusGroup label={t("fleet.status.running")} rows={props.running} now={props.now} onOpen={props.onOpen} />
-      </Card>
-    </Show>
+    </Card>
   );
 }
 
@@ -546,7 +542,14 @@ function PeriodTabs(props: {
                     : "text-muted-foreground group-hover/tab:text-foreground",
                 )}
               >
-                {w.totals ? compactNum(tokenTotal(w.totals)) : "—"}
+                {w.totals ? (
+                  <>
+                    {compactNum(tokenTotal(w.totals))}
+                    <span class="ml-1 text-2xs font-normal text-muted-foreground">{t("fleet.unit.tokens")}</span>
+                  </>
+                ) : (
+                  "—"
+                )}
               </span>
             </Tip>
             <span class="truncate text-2xs text-muted-foreground">
@@ -645,6 +648,18 @@ function UsageCard(props: {
             </span>
           </Tip>
         </div>
+        <Show when={parts().length > 0}>
+          <div class="flex flex-wrap items-center gap-x-2.5 gap-y-1 pb-0.5">
+            <For each={parts()}>
+              {(p) => (
+                <span class="inline-flex items-center gap-1 text-2xs text-muted-foreground">
+                  <span class={cn("size-1.5 shrink-0 rounded-full", TOKEN_TONE[p.key])} />
+                  {t(TOKEN_LABEL[p.key])}
+                </span>
+              )}
+            </For>
+          </div>
+        </Show>
       </div>
     </Card>
   );
@@ -693,18 +708,18 @@ function TrendChart(props: { points: TrendPoint[]; since: number; all: boolean }
   const total = () => props.points.reduce((sum, p) => sum + p.tokens, 0);
   const today = () => props.points.at(-1);
   return (
-    <div class="min-w-0 px-4 py-3">
+    <div class="flex h-full min-w-0 flex-col px-4 py-3">
       <div class="flex items-baseline justify-between gap-3">
         <span class="text-2xs text-muted-foreground">{t("fleet.overview.trend")}</span>
         <span class="text-2xs tabular-nums text-foreground">{compactNum(total())}</span>
       </div>
-      <div class="relative mt-3">
+      <div class="relative mt-3 min-h-14">
         {/* A faint ceiling so a bar's height has something to be measured
             against; the figure on it is the day that ceiling belongs to. */}
         <Show when={max() > 0}>
           <span class="absolute inset-x-0 top-0 flex items-center gap-1.5">
             <span class="text-2xs leading-none tabular-nums text-muted-foreground">
-              {compactNum(max())}
+              {t("fleet.overview.peak", { n: compactNum(max()) })}
             </span>
             <span class="h-px min-w-0 flex-1 bg-border/60" />
           </span>
@@ -746,7 +761,9 @@ function TrendChart(props: { points: TrendPoint[]; since: number; all: boolean }
           </For>
         </div>
       </div>
-      <div class="mt-1.5 flex gap-[3px]">
+      {/* The stats column is the taller of the two, so the dates take the
+          leftover and land on its bottom edge. */}
+      <div class="mt-auto flex gap-[3px] pt-1.5">
         <For each={props.points}>
           {(p, i) => (
             <span
@@ -880,8 +897,10 @@ function ModelBody(props: {
   return (
     <span class="flex min-w-0 flex-col">
       <span class="flex items-baseline gap-2">
-        <span class="min-w-0 flex-1 truncate font-mono text-sm text-foreground">
-          {modelIdPart(props.model.model) ?? t("fleet.model.unknown")}
+        <span class="min-w-0 flex-1 truncate text-sm text-foreground">
+          {modelIdPart(props.model.model)
+            ? modelIdLabel(modelIdPart(props.model.model)!)
+            : t("fleet.model.unknown")}
         </span>
         <span
           class="shrink-0 text-2xs tabular-nums text-muted-foreground"

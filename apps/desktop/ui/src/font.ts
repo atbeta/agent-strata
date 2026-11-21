@@ -26,7 +26,7 @@ export const DEFAULT_FONTS: FontChoice = {
 };
 
 const SANS_FALLBACK = "ui-sans-serif, system-ui, sans-serif";
-const MONO_FALLBACK = 'ui-monospace, "SF Mono", "Cascadia Code", monospace';
+const MONO_FALLBACK = 'ui-monospace, "SF Mono", Menlo, "Cascadia Code", monospace';
 
 const SIZE_PX: Record<ContentSize, string> = {
   "12": "12px",

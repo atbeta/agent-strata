@@ -408,8 +408,8 @@ const copiedTimers = new WeakMap<HTMLElement, ReturnType<typeof setTimeout>>();
  *
  * Every code block gets that strip, including the one whose language the
  * highlighter could not name: the label is drawn by `pre[data-lang]::before`,
- * so an empty `data-lang` is what gives an anonymous fence the same header the
- * labelled ones have. Without it the chip would sit over the first line of
+ * so a `data-lang` of `text` is what gives an anonymous fence the same header
+ * the labelled ones have. Without it the chip would sit over the first line of
  * code, and a long first line would be covered by the button meant to copy it.
  *
  * This runs on the nodes a paint produced, never inside `parsed()`. The HTML
@@ -434,7 +434,10 @@ function decorateCodeBlocks(host: ParentNode) {
     if (!(code instanceof HTMLElement) || code.tagName !== "CODE") continue;
     // An empty fence has nothing to take away.
     if ((code.textContent ?? "").trim() === "") continue;
-    if (!pre.hasAttribute("data-lang")) pre.setAttribute("data-lang", "");
+    // "text" rather than an empty label: the strip exists so the copy chip has
+    // a header to sit in, and a blank header reads as a block that failed to
+    // finish rendering.
+    if (!pre.hasAttribute("data-lang")) pre.setAttribute("data-lang", "text");
     const block = document.createElement("div");
     block.className = "code-block";
     pre.replaceWith(block);

@@ -42,10 +42,11 @@ describe("a fenced block can be taken away", () => {
   });
 
   test("an anonymous fence still gets the header the chip sits in", () => {
-    // The strip is drawn by `pre[data-lang]::before`. Without the empty
-    // attribute an unnamed fence has no strip, and the chip lands on top of its
-    // first line of code — over the text it exists to copy.
-    expect(md).toContain('pre.setAttribute("data-lang", "")');
+    // The strip is drawn by `pre[data-lang]::before`. Without the attribute an
+    // unnamed fence has no strip, and the chip lands on top of its first line
+    // of code — over the text it exists to copy. The label says what the block
+    // is; a blank one reads as a fence that never finished rendering.
+    expect(md).toContain('pre.setAttribute("data-lang", "text")');
   });
 
   test("the click is routed from the message root", () => {

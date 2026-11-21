@@ -57,7 +57,7 @@
           var sans = family(fonts.ui);
           var mono = family(fonts.code);
           var sansFallback = 'ui-sans-serif, system-ui, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif';
-          var monoFallback = 'ui-monospace, "SF Mono", "Cascadia Code", "Cascadia Mono", Consolas, "PingFang SC", "Microsoft YaHei", "Noto Sans Mono CJK SC", monospace';
+          var monoFallback = 'ui-monospace, "SF Mono", Menlo, "Cascadia Code", "Cascadia Mono", Consolas, "PingFang SC", "Microsoft YaHei", "Noto Sans Mono CJK SC", monospace';
           if (sans) root.style.setProperty("--font-sans", '"' + sans + '", ' + sansFallback);
           if (mono) root.style.setProperty("--font-mono", '"' + mono + '", ' + monoFallback);
           var sizes = { "12": "12px", "13": "13px", "14": "14px", "15": "15px", "16": "16px" };
