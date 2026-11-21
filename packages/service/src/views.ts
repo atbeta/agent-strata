@@ -16,29 +16,41 @@ interface Entry {
 /** Each session's stored events and projection, kept until the session moves. */
 export class ViewCache {
   private entries = new Map<string, Entry>();
+  /**
+   * Small values derived from a session's view, for every session rather than
+   * the few whose events fit in `entries`: a pass over the whole store would
+   * otherwise reread every session past the capacity each time it runs.
+   */
+  private summaries = new Map<string, { head: number; key: string; value: unknown }>();
 
-  constructor(private store: Store) {}
+  constructor(
+    private store: Store,
+    private capacity = CAPACITY,
+  ) {}
+
+  private catchUp(sessionId: string, entry: Entry): void {
+    const head = this.store.lastSeq(sessionId);
+    if (head <= entry.head) return;
+    entry.view = undefined;
+    entry.body = undefined;
+    while (entry.head < head) {
+      const more = this.store.read({ session_id: sessionId, after_seq: entry.head, limit: 20_000 });
+      if (more.length === 0) break;
+      entry.events = entry.events.concat(more);
+      entry.head = more.at(-1)!.seq;
+    }
+  }
 
   events(sessionId: string): Event[] {
-    const head = this.store.lastSeq(sessionId);
     let entry = this.entries.get(sessionId);
     if (entry) {
       this.entries.delete(sessionId);
     } else {
       entry = { events: [], head: 0 };
     }
-    if (head > entry.head) {
-      entry.view = undefined;
-      entry.body = undefined;
-      while (entry.head < head) {
-        const more = this.store.read({ session_id: sessionId, after_seq: entry.head, limit: 20_000 });
-        if (more.length === 0) break;
-        entry.events = entry.events.concat(more);
-        entry.head = more.at(-1)!.seq;
-      }
-    }
+    this.catchUp(sessionId, entry);
     this.entries.set(sessionId, entry);
-    while (this.entries.size > CAPACITY) {
+    while (this.entries.size > this.capacity) {
       const oldest = this.entries.keys().next().value;
       if (oldest === undefined) break;
       this.entries.delete(oldest);
@@ -51,6 +63,33 @@ export class ViewCache {
     const entry = this.entries.get(sessionId)!;
     entry.view ??= projectSession(events);
     return entry.view;
+  }
+
+  /**
+   * The settled view without touching the cache's order or admitting the
+   * session. For passes over every session, which would otherwise evict the
+   * sessions the sidebar is about to ask for.
+   */
+  peek(sessionId: string): SessionView {
+    const entry = this.entries.get(sessionId);
+    if (!entry) {
+      const cold: Entry = { events: [], head: 0 };
+      this.catchUp(sessionId, cold);
+      return projectSession(cold.events);
+    }
+    this.catchUp(sessionId, entry);
+    entry.view ??= projectSession(entry.events);
+    return entry.view;
+  }
+
+  /** `derive(view)` for this session, computed again only once the session moves or `key` changes. */
+  summary<T>(sessionId: string, key: string, derive: (view: SessionView) => T): T {
+    const head = this.store.lastSeq(sessionId);
+    const held = this.summaries.get(sessionId);
+    if (held && held.head === head && held.key === key) return held.value as T;
+    const value = derive(this.peek(sessionId));
+    this.summaries.set(sessionId, { head, key, value });
+    return value;
   }
 
   /**
@@ -69,6 +108,7 @@ export class ViewCache {
   /** a rebuild deletes rows, which an incremental read cannot see */
   drop(sessionId: string): void {
     this.entries.delete(sessionId);
+    this.summaries.delete(sessionId);
   }
 }
 

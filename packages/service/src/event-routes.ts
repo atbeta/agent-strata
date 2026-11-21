@@ -1,12 +1,81 @@
 import { compareSessions, exportEvents } from "@agent-strata/core";
 import type { SessionView } from "@agent-strata/projector";
 import type { EventQuery, Store } from "@agent-strata/store";
+import type { LiveOverlay } from "./live";
+import type { ViewCache } from "./views";
+
+interface DailyBucket {
+  session_id: string;
+  day: string;
+  model: string | null;
+  input: number;
+  output: number;
+  reasoning: number;
+  cache_read: number;
+  cache_write: number;
+  cost_usd: number;
+  messages: number;
+  tool_calls: number;
+  tool_errors: number;
+}
+
+/** One session's usage, by local day and model. */
+function sessionBuckets(sessionId: string, view: SessionView, dayOf: (iso: string) => string): DailyBucket[] {
+  const buckets = new Map<string, DailyBucket>();
+  const bucket = (day: string, model: string | null): DailyBucket => {
+    const key = `${day}\n${model ?? ""}`;
+    let found = buckets.get(key);
+    if (!found) {
+      found = {
+        session_id: sessionId,
+        day,
+        model,
+        input: 0,
+        output: 0,
+        reasoning: 0,
+        cache_read: 0,
+        cache_write: 0,
+        cost_usd: 0,
+        messages: 0,
+        tool_calls: 0,
+        tool_errors: 0,
+      };
+      buckets.set(key, found);
+    }
+    return found;
+  };
+  for (const turn of view.turns) {
+    const modelByMsg = new Map<string, string | null>();
+    for (const assistant of turn.assistant) {
+      if (assistant.msg_id) modelByMsg.set(assistant.msg_id, assistant.model ?? null);
+      if (!assistant.ts) continue;
+      const current = bucket(dayOf(assistant.ts), assistant.model ?? null);
+      current.input += assistant.usage?.input ?? 0;
+      current.output += assistant.usage?.output ?? 0;
+      current.reasoning += assistant.usage?.reasoning ?? 0;
+      current.cache_read += assistant.usage?.cache_read ?? 0;
+      current.cache_write += assistant.usage?.cache_write ?? 0;
+      current.cost_usd += assistant.cost_usd ?? 0;
+      current.messages += 1;
+    }
+    for (const call of turn.tool_calls) {
+      if (!call.ts) continue;
+      const model = call.msg_id ? (modelByMsg.get(call.msg_id) ?? null) : null;
+      const current = bucket(dayOf(call.ts), model);
+      current.tool_calls += 1;
+      if (call.status === "error" || call.status === "interrupted") current.tool_errors += 1;
+    }
+  }
+  return [...buckets.values()];
+}
 
 export async function eventRoute(
   req: Request,
   path: string,
   deps: {
     store: Store;
+    views: ViewCache;
+    live: LiveOverlay;
     sessionView(sessionId: string): SessionView;
     subscribers: Set<(payload: unknown) => void>;
     activeSyncs: Map<string, { done: number; total: number }>;
@@ -61,69 +130,19 @@ export async function eventRoute(
       const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
       return `${get("year")}-${get("month")}-${get("day")}`;
     };
-    interface DailyBucket {
-      session_id: string;
-      day: string;
-      model: string | null;
-      input: number;
-      output: number;
-      reasoning: number;
-      cache_read: number;
-      cache_write: number;
-      cost_usd: number;
-      messages: number;
-      tool_calls: number;
-      tool_errors: number;
-    }
-    const buckets = new Map<string, DailyBucket>();
-    const bucket = (sessionId: string, day: string, model: string | null): DailyBucket => {
-      const key = `${sessionId}\n${day}\n${model ?? ""}`;
-      let found = buckets.get(key);
-      if (!found) {
-        found = {
-          session_id: sessionId,
-          day,
-          model,
-          input: 0,
-          output: 0,
-          reasoning: 0,
-          cache_read: 0,
-          cache_write: 0,
-          cost_usd: 0,
-          messages: 0,
-          tool_calls: 0,
-          tool_errors: 0,
-        };
-        buckets.set(key, found);
-      }
-      return found;
-    };
+    // Every session, every time the overview refreshes — after each sync. A
+    // session that has not moved answers from its kept buckets, and one that
+    // has is read without displacing the views the sidebar holds.
+    const buckets: DailyBucket[] = [];
     for (const summary of deps.store.listSessions()) {
-      const view = deps.sessionView(summary.session_id);
-      for (const turn of view.turns) {
-        const modelByMsg = new Map<string, string | null>();
-        for (const assistant of turn.assistant) {
-          if (assistant.msg_id) modelByMsg.set(assistant.msg_id, assistant.model ?? null);
-          if (!assistant.ts) continue;
-          const current = bucket(summary.session_id, dayOf(assistant.ts), assistant.model ?? null);
-          current.input += assistant.usage?.input ?? 0;
-          current.output += assistant.usage?.output ?? 0;
-          current.reasoning += assistant.usage?.reasoning ?? 0;
-          current.cache_read += assistant.usage?.cache_read ?? 0;
-          current.cache_write += assistant.usage?.cache_write ?? 0;
-          current.cost_usd += assistant.cost_usd ?? 0;
-          current.messages += 1;
-        }
-        for (const call of turn.tool_calls) {
-          if (!call.ts) continue;
-          const model = call.msg_id ? (modelByMsg.get(call.msg_id) ?? null) : null;
-          const current = bucket(summary.session_id, dayOf(call.ts), model);
-          current.tool_calls += 1;
-          if (call.status === "error" || call.status === "interrupted") current.tool_errors += 1;
-        }
-      }
+      const id = summary.session_id;
+      buckets.push(
+        ...(deps.live.has(id)
+          ? sessionBuckets(id, deps.sessionView(id), dayOf)
+          : deps.views.summary(id, `usage:${tz}`, (view) => sessionBuckets(id, view, dayOf))),
+      );
     }
-    const rows = [...buckets.values()]
+    const rows = buckets
       .filter(
         (bucket) =>
           bucket.input + bucket.output + bucket.reasoning + bucket.cache_read + bucket.cache_write +

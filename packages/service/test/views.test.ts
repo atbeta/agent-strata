@@ -51,6 +51,52 @@ describe("view body cache", () => {
     store.close();
   });
 
+  test("a peek reads a session without pushing a cached one out", () => {
+    const store = openStore(":memory:");
+    for (const id of ["a", "b", "c"]) store.append([mk(id, "turn.user", { turn_id: `${id}1`, content: [] })]);
+    let reads = 0;
+    const counted = { ...store, read: (opts: Parameters<typeof store.read>[0]) => (reads++, store.read(opts)) };
+    const cache = new ViewCache(counted, 2);
+    cache.view("a");
+    cache.view("b");
+
+    expect(cache.peek("c").turns).toHaveLength(1);
+    reads = 0;
+    cache.view("a");
+    cache.view("b");
+    expect(reads).toBe(0);
+
+    store.append([mk("a", "turn.user", { turn_id: "a2", content: [] })]);
+    expect(cache.peek("a").turns).toHaveLength(2);
+    store.close();
+  });
+
+  test("a summary outlives the view cache and is recomputed once its session moves", () => {
+    const store = openStore(":memory:");
+    for (const id of ["a", "b", "c"]) store.append([mk(id, "turn.user", { turn_id: `${id}1`, content: [] })]);
+    const cache = new ViewCache(store, 1);
+    let derived = 0;
+    const turns = (id: string) =>
+      cache.summary(id, "turns", (view) => {
+        derived++;
+        return view.turns.length;
+      });
+
+    for (const id of ["a", "b", "c"]) turns(id);
+    for (const id of ["a", "b", "c"]) turns(id);
+    expect(derived).toBe(3);
+
+    store.append([mk("a", "turn.user", { turn_id: "a2", content: [] })]);
+    expect(turns("a")).toBe(2);
+    expect(derived).toBe(4);
+    expect(cache.summary("a", "other", () => "fresh")).toBe("fresh");
+
+    cache.drop("b");
+    turns("b");
+    expect(derived).toBe(5);
+    store.close();
+  });
+
   test("a bulk append invalidates the cached view and reads every page", () => {
     const store = openStore(":memory:");
     store.append([mk("a", "turn.user", { turn_id: "t0", content: [] })]);

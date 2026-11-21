@@ -893,7 +893,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     });
     if (maintenance) return maintenance;
 
-    const events = await eventRoute(req, path, { store, sessionView, subscribers, activeSyncs });
+    const events = await eventRoute(req, path, { store, views, live, sessionView, subscribers, activeSyncs });
     if (events) return events;
 
     const workspace = await workspaceRoute(req, path, {

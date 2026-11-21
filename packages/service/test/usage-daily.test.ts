@@ -143,6 +143,22 @@ describe("GET /usage/daily", () => {
     svc.stop();
   });
 
+  test("a session that moves between two reads is counted again", async () => {
+    const svc = startService({ db: ":memory:", port: 0 });
+    const sid = "opencode:s5";
+    seed(svc, sid);
+    svc.store.append([assistant(sid, "2026-01-01T10:00:00Z", { input: 10, output: 1 }, "m1")]);
+    const base = `http://127.0.0.1:${svc.port}`;
+    const read = () => fetch(`${base}/usage/daily?tz=UTC`).then((r) => r.json());
+    expect((await read()).rows[0]).toMatchObject({ input: 10, messages: 1 });
+    expect((await read()).rows[0]).toMatchObject({ input: 10, messages: 1 });
+    svc.store.append([assistant(sid, "2026-01-01T11:00:00Z", { input: 5, output: 1 }, "m2")]);
+    expect((await read()).rows[0]).toMatchObject({ input: 15, messages: 2 });
+    const shanghai = await fetch(`${base}/usage/daily?tz=Asia/Shanghai`).then((r) => r.json());
+    expect(shanghai.rows[0]).toMatchObject({ day: "2026-01-01", input: 15 });
+    svc.stop();
+  });
+
   test("a bad or missing tz is a 400", async () => {
     const svc = startService({ db: ":memory:", port: 0 });
     const base = `http://127.0.0.1:${svc.port}`;
