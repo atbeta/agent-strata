@@ -89,6 +89,39 @@ export class TurnsRuntime {
     return out;
   }
 
+  /**
+   * Let go of the parts of every message whose run is settled: a user message
+   * its turn resolved, an assistant message whose final went out uninterrupted.
+   * Their events are stored, and a re-delivered frame for them maps to nothing
+   * new, so the parts only grew with every session the connection ever saw.
+   * A message cut off mid-write keeps its parts — its completion may still
+   * arrive and has to carry them.
+   */
+  pruneSettled(sessionID: string): void {
+    const s = this.sessions.get(sessionID);
+    if (!s) return;
+    for (const [msgID, m] of s.messages) {
+      if (m.pruned) continue;
+      const settled =
+        m.role === "user"
+          ? (s.resolvedUsers?.has(msgID) ?? false) && !s.pendingUserMsgs.has(msgID)
+          : m.role === "assistant" && m.emittedAssistant && !m.interrupted;
+      if (!settled) continue;
+      this.held.delete(msgID);
+      s.messages.set(msgID, {
+        role: m.role,
+        parentID: m.parentID,
+        created: m.created,
+        completed: m.completed,
+        emittedAssistant: m.emittedAssistant,
+        streamRetired: true,
+        pruned: true,
+        parts: new Map(),
+        toolParts: new Map(),
+      });
+    }
+  }
+
   protected retireStreaming(s: SessionState): void {
     for (const [msgID, held] of this.held) if (held.s === s) this.held.delete(msgID);
     for (const m of s.messages.values()) if (m.role === "assistant") m.streamRetired = true;
@@ -377,6 +410,7 @@ export class TurnsRuntime {
   protected messagePartUpdated(evt: Extract<Event, { type: "message.part.updated" }>, s: SessionState, out: EventInput[]): EventInput[] {
     const part: Part = evt.properties.part;
     const m = this.ensureMsg(s, part.messageID);
+    if (m.pruned) return out;
     const streamContent = part.type === "text" || part.type === "reasoning" || part.type === "file" || part.type === "subtask";
     // Idle stops publishing partials. A part already on the message stays
     // as it was. A part that has not arrived yet is the reply itself:
@@ -651,6 +685,7 @@ export class TurnsRuntime {
     s.awaiting = undefined;
     this.closeOpenMessages(s, out, "idle");
     s.liveMsgs?.clear();
+    this.pruneSettled(s.sessionID);
     // The backend re-issues idle under fresh ids — a status-idle and a
     // session.idle for one transition, again on reconnect. Only the
     // busy→idle edge is a state worth announcing.

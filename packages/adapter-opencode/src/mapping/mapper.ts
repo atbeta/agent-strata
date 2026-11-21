@@ -221,6 +221,9 @@ export class OpencodeMapper extends TurnsRuntime {
         const { s, out: pre } = this.ensureSession(p.sessionID);
         out.push(...pre);
         for (const [msgID, held] of this.held) if (held.s === s) this.held.delete(msgID);
+        s.messages.clear();
+        s.liveMsgs?.clear();
+        s.pendingUserMsgs.clear();
         out.push(
           this.ev(
             s,

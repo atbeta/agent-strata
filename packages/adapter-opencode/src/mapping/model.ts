@@ -168,6 +168,12 @@ export interface MsgState {
    * word.
    */
   interrupted?: boolean;
+  /**
+   * Settled and already stored; its parts were let go to keep memory flat over
+   * a long connection. Later part frames are ignored: re-applying one to an
+   * empty part list would write a shorter version of what is stored.
+   */
+  pruned?: boolean;
 }
 
 export interface MapperOptions {

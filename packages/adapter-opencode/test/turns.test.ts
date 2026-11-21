@@ -9,7 +9,17 @@ import type { Event } from "@opencode-ai/sdk/v2";
 import { openStore } from "@agent-strata/store";
 import { projectSession } from "@agent-strata/projector";
 import { type AssistantStep } from "@agent-strata/schema";
-import { sid, sessionCreated, msgUpdated, partUpdated, basicFixture } from "./helpers";
+import {
+  sid,
+  sessionCreated,
+  msgUpdated,
+  partUpdated,
+  basicFixture,
+  freshId,
+  recordingSink,
+  snapshotFixture,
+} from "./helpers";
+import { createIngestor } from "../src/ingest";
 
 describe("OpencodeMapper", () => {
   test("each model call inside a message lands as a step, deduped by part id", () => {
@@ -520,4 +530,109 @@ describe("what the user sent", () => {
   });
 });
 
+});
+
+describe("what the mapper keeps once a run is over", () => {
+  const idle = () => ({ id: freshId("i"), type: "session.idle", properties: { sessionID: sid } }) as unknown as Event;
+  const textOf = (content: unknown) =>
+    (content as { type: string; text?: string }[]).map((b) => b.text ?? "").join("|");
+
+  test("an idle session holds no transcript text for its finished messages", () => {
+    const m = new OpencodeMapper();
+    for (const e of basicFixture()) m.handle(e);
+    m.handle(idle());
+    const kept = [...m.sessions.get(sid)!.messages.values()];
+    expect(kept.length).toBeGreaterThan(0);
+    expect(kept.every((msg) => msg.parts.size === 0 && msg.toolParts.size === 0)).toBe(true);
+  });
+
+  test("re-importing a session after it went idle adds nothing and changes nothing", () => {
+    const store = openStore(":memory:");
+    const m = new OpencodeMapper();
+    for (const e of [...basicFixture(), idle()]) {
+      const out = m.handle(e);
+      if (out.length) store.append(out);
+    }
+    const before = store.read({ session_id: `opencode:${sid}` });
+    const tokens = { input: 100, output: 40, reasoning: 5, cache: { read: 3, write: 2 } };
+    const replay = snapshotEvents(sid, { id: sid, directory: "/repo", title: "T", time: { created: 1, updated: 1 } }, [
+      {
+        info: { id: "u1", sessionID: sid, role: "user", time: { created: 10 } },
+        parts: [{ id: "pt1", sessionID: sid, messageID: "u1", type: "text", text: "hello", time: { start: 10 } }],
+      },
+      {
+        info: {
+          id: "a1", sessionID: sid, role: "assistant", parentID: "u1", time: { created: 20, completed: 50 },
+          providerID: "anthropic", modelID: "claude", cost: 0.25, tokens, finish: "stop",
+        },
+        parts: [
+          { id: "pt2", sessionID: sid, messageID: "a1", type: "reasoning", text: "hmm", time: { start: 20 } },
+          { id: "pt3", sessionID: sid, messageID: "a1", type: "text", text: "answer" },
+        ],
+      },
+    ] as never);
+    for (const e of replay) {
+      const out = m.handle(e);
+      if (out.length) store.append(out);
+    }
+    const after = store.read({ session_id: `opencode:${sid}` });
+    expect(after.length).toBe(before.length);
+    expect(projectSession(after).turns).toEqual(projectSession(before).turns);
+    store.close();
+  });
+
+  test("a reply cut off at idle still carries its words when its completion arrives", () => {
+    const m = new OpencodeMapper();
+    const assistant = { id: "a1", sessionID: sid, role: "assistant", parentID: "u1", providerID: "p", modelID: "m", cost: 0 };
+    const tokens = { input: 1, output: 1, reasoning: 0, cache: { read: 0, write: 0 } };
+    m.handle(sessionCreated());
+    m.handle(msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 10 } }));
+    m.handle(partUpdated({ id: "pu", sessionID: sid, messageID: "u1", type: "text", text: "go" }));
+    m.handle(msgUpdated({ ...assistant, time: { created: 20 }, tokens }));
+    m.handle(partUpdated({ id: "pa", sessionID: sid, messageID: "a1", type: "text", text: "half a reply" }));
+    m.handle(idle());
+    const late = m.handle(msgUpdated({ ...assistant, time: { created: 20, completed: 30 }, tokens, finish: "stop" }));
+    const final = late.find((e) => e.type === "turn.assistant")!;
+    expect(textOf((final.data as { content: unknown }).content)).toBe("half a reply");
+  });
+
+  test("a late part of a finished user message does not shorten what it said", () => {
+    const store = openStore(":memory:");
+    const m = new OpencodeMapper();
+    const write = (e: Event) => {
+      const out = m.handle(e);
+      if (out.length) store.append(out);
+    };
+    write(sessionCreated());
+    write(msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 10 } }));
+    write(partUpdated({ id: "p1", sessionID: sid, messageID: "u1", type: "text", text: "first" }));
+    write(partUpdated({ id: "p2", sessionID: sid, messageID: "u1", type: "text", text: "second" }));
+    write(idle());
+    const settled = store.read({ session_id: `opencode:${sid}` }).length;
+    write(partUpdated({ id: "p2", sessionID: sid, messageID: "u1", type: "text", text: "second" }));
+    write(msgUpdated({ id: "u1", sessionID: sid, role: "user", time: { created: 10 } }));
+    const events = store.read({ session_id: `opencode:${sid}` });
+    expect(events.length).toBe(settled);
+    expect(textOf(projectSession(events).turns[0]!.user)).toBe("first|second");
+    store.close();
+  });
+
+  test("an imported snapshot keeps only its open reply's text", () => {
+    const m = new OpencodeMapper();
+    const { sink } = recordingSink();
+    const ingestor = createIngestor({ mapper: m, sink, reply: async () => {} });
+    ingestor.handleBatch(snapshotFixture());
+    const messages = m.sessions.get(sid)!.messages;
+    expect(messages.get("u1")!.parts.size).toBe(0);
+    expect(messages.get("a1")!.parts.size).toBe(0);
+    expect(messages.get("a2")!.parts.size).toBe(1);
+    ingestor.stop();
+  });
+
+  test("a deleted session forgets its messages", () => {
+    const m = new OpencodeMapper();
+    for (const e of basicFixture()) m.handle(e);
+    m.handle({ id: freshId("d"), type: "session.deleted", properties: { sessionID: sid, info: { id: sid } } } as unknown as Event);
+    expect(m.sessions.get(sid)!.messages.size).toBe(0);
+  });
 });

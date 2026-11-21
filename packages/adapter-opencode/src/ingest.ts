@@ -228,6 +228,12 @@ export function createIngestor(opts: {
         batch = null;
         if (buf.length) sink.append(buf);
       }
+      const sessions = new Set<string>();
+      for (const evt of events) {
+        const id = (evt.properties as { sessionID?: unknown } | undefined)?.sessionID;
+        if (typeof id === "string") sessions.add(id);
+      }
+      for (const id of sessions) mapper.pruneSettled(id);
     },
     // Events the mapper produced outside a stream frame — a reconcile at
     // connect time. Same sink, same batching rules; there is simply no frame
