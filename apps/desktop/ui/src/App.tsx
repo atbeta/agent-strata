@@ -41,6 +41,7 @@ import { Sidebar } from "./sidebar";
 import { installExternalLinkHandler } from "./external-open";
 import { requestSearchTarget } from "./search-target";
 import { installNotifyActions } from "./notify";
+import { playSound, soundForEvent } from "./sound";
 import { StartupGate } from "./startup-gate";
 import { useStartup } from "./use-startup";
 import { ImageViewerHost } from "./image-viewer";
@@ -290,6 +291,18 @@ export function App() {
     };
     document.addEventListener("visibilitychange", onVisibility);
     let wsStale = false;
+    const errorSoundAt = new Map<string, number>();
+    const announceSound = (evt: { type?: string; session_id?: string; data?: unknown }) => {
+      if (conns.syncTicks().size > 0) return;
+      const kind = soundForEvent(evt);
+      if (!kind) return;
+      if (kind === "error" && evt.session_id) {
+        const now = Date.now();
+        if (now - (errorSoundAt.get(evt.session_id) ?? 0) < 2_000) return;
+        errorSoundAt.set(evt.session_id, now);
+      }
+      playSound(kind);
+    };
     const onStreamMessage = (m: MessageEvent) => {
       if (isStreamingSnapshotMessage(m.data)) return;
       let type: string | undefined;
@@ -302,6 +315,7 @@ export function App() {
           connection_id?: string;
           done?: number;
           total?: number;
+          data?: unknown;
         };
         type = evt.type;
         // Sync ticks update the progress strip and nothing else; the session.*
@@ -324,6 +338,7 @@ export function App() {
           }
           return;
         }
+        announceSound(evt);
         if (evt.type === "session.started" || evt.type === "session.updated" || evt.type === "session.deleted") wsStale = true;
         // A session that is gone cannot stay on screen: the transcript behind
         // it no longer exists, whether this window deleted it or another did.

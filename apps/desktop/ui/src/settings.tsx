@@ -68,6 +68,7 @@ import { ProviderSettings } from "./providers";
 import { MaintenanceSettings } from "./maintenance";
 import { PluginSettings } from "./plugin-settings";
 import { SkillSettings } from "./skill-settings";
+import { SoundSettings } from "./sound-settings";
 import { SETTINGS_SECTIONS, settingsSection } from "./settings-sections";
 import { Tip } from "./tip";
 import { handleRovingKey } from "./roving-key";
@@ -801,6 +802,8 @@ export function SettingsPage(props: { section?: string; conns: ConnectionsCtl })
         {notifyRow("question", notifyQuestion)}
       </Card>
       </Group>
+
+      <SoundSettings />
       </Show>
 
       <Show when={section() === "backends"}>

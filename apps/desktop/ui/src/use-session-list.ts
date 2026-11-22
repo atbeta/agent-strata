@@ -41,6 +41,7 @@ import {
   rememberWaiting,
   waitingSessions,
 } from "./notify";
+import { playSound } from "./sound";
 
 export type SidebarGroup = {
   key: string;
@@ -196,6 +197,7 @@ export function useSessionList(opts: {
         title: displayTitle(s.title || s.summary.title) ?? t("session.untitled"),
         busy: s.busy === true,
         needsInput: s.needs_input === true,
+        failed: s.session_error !== undefined || s.status === "error",
       }));
     if (!noticesReady) {
       rememberBusy(busySeen, next);
@@ -205,21 +207,17 @@ export function useSessionList(opts: {
     }
     const doneOn = readNotify("done");
     const questionOn = readNotify("question");
-    if (doneOn || questionOn) {
-      const waiting = waitingSessions(waitingSeen, next);
-      const waitingIds = new Set(waiting.map((row) => row.id));
-      if (doneOn) {
-        for (const row of finishedSessions(busySeen, next)) {
-          // A turn that stops on a question is waiting, not finished. Announcing
-          // both would put two notices on the same pause.
-          if (!waitingIds.has(row.id) && row.needsInput !== true) {
-            announceFinished(row.title, row.id);
-          }
-        }
-      }
-      if (questionOn) {
-        for (const row of waiting) announceNeedsInput(row.title, row.id);
-      }
+    const waiting = waitingSessions(waitingSeen, next);
+    const waitingIds = new Set(waiting.map((row) => row.id));
+    for (const row of finishedSessions(busySeen, next)) {
+      // A turn that stops on a question is waiting, not finished. Announcing
+      // both would put two notices on the same pause.
+      if (waitingIds.has(row.id) || row.needsInput === true) continue;
+      if (!row.failed) playSound("agent");
+      if (doneOn) announceFinished(row.title, row.id);
+    }
+    if (questionOn) {
+      for (const row of waiting) announceNeedsInput(row.title, row.id);
     }
     rememberBusy(busySeen, next);
     rememberWaiting(waitingSeen, next);

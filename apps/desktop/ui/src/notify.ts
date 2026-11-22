@@ -5,7 +5,7 @@ export const NOTIFY_DONE_KEY = "strata.notify.done";
 export const NOTIFY_QUESTION_KEY = "strata.notify.question";
 
 /** A finished turn and a request for a person are separate preferences:
- *  plenty of readers want the tap on the shoulder without the chime on every
+ *  plenty of readers want the tap on the shoulder without the sound on every
  *  completed turn, or the reverse. */
 export type NotifyKind = "done" | "question";
 
@@ -46,7 +46,7 @@ export function saveNotify(kind: NotifyKind, on: boolean, storage: NotifyStorage
   storage.setItem(NOTIFY_KEYS[kind], on ? "1" : "0");
 }
 
-export type BusyRow = { id: string; title: string; busy: boolean; needsInput?: boolean };
+export type BusyRow = { id: string; title: string; busy: boolean; needsInput?: boolean; failed?: boolean };
 
 /** Sessions that were running and have now stopped. The first sight of a list never counts. */
 export function finishedSessions(prev: ReadonlyMap<string, boolean>, next: readonly BusyRow[]): BusyRow[] {
@@ -210,22 +210,6 @@ function inBackground(): boolean {
   return document.hidden || !document.hasFocus();
 }
 
-/** A quiet chime — the caller decides when one is due. */
-function chime() {
-  const Ctx = window.AudioContext;
-  if (!Ctx) return;
-  const ctx = new Ctx();
-  const osc = ctx.createOscillator();
-  const gain = ctx.createGain();
-  osc.frequency.value = 660;
-  gain.gain.value = 0.04;
-  osc.connect(gain);
-  gain.connect(ctx.destination);
-  osc.start();
-  osc.stop(ctx.currentTime + 0.08);
-  osc.onended = () => void ctx.close();
-}
-
 /** Bring the window forward and land on the session a notice is about. */
 async function focusSession(sessionId: string | undefined) {
   if (sessionId) location.hash = `/session/${encodeURIComponent(sessionId)}`;
@@ -253,7 +237,7 @@ async function systemNotification(
       await sendDesktop(title, body, sessionId);
       void installNotifyActions().catch(() => {});
     } catch (e) {
-      // The chime still fires; a notification that cannot be delivered must
+      // The sound still fires; a notification that cannot be delivered must
       // not take the session state down with it. The About test surfaces the
       // same error to the reader.
       console.error("strata: notification failed", e);
@@ -271,12 +255,11 @@ async function systemNotification(
   };
 }
 
-/** A quiet chime plus a system notification, and only while this window is in
- *  the background and the reader has the kind switched on. */
+/** System notifications stay background-only; sound effects have their own
+ *  per-event settings and are triggered by the session events themselves. */
 function announce(kind: NotifyKind, title: string, body: string | undefined, sessionId?: string) {
   if (!readNotify(kind) || !inBackground()) return;
   void systemNotification(title, body, sessionId);
-  chime();
 }
 
 /** A session's turn ended. */

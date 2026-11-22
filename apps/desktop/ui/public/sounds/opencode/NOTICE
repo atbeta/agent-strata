@@ -1,0 +1,16 @@
+OpenCode sound effects
+
+Source: OpenCode Desktop 1.18.35 (bundle identifier ai.opencode.desktop)
+Upstream: https://github.com/anomalyco/opencode
+Upstream asset directory: packages/ui/src/assets/audio
+
+The 45 AAC files in this directory were extracted without modification from the
+official OpenCode Desktop 1.18.35 app.asar archive. Files stored as external
+AAC assets were copied directly; inline assets were decoded from their original
+base64 representation. Source ASAR integrity hashes were verified during
+extraction.
+
+app.asar SHA-256: a94495761061683b7c086eabe197f49cb8722d2d514326b146983e7464194dc4
+
+These assets are distributed under the MIT License reproduced in LICENSE.
+OpenCode is not affiliated with and does not endorse this application.
