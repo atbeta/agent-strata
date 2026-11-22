@@ -11,7 +11,7 @@ import type {
 import { PtyManager } from "./manager";
 import { terminalText } from "./output";
 import { listShells, shellArgv, shellByName, terminalSize, terminalTitle } from "./shells";
-import type { PtyInfo, PtyReadPage } from "./types";
+import type { PtyInfo, PtyReadPage, TerminalSignal, TerminalWaitReason } from "./types";
 import { pathInside, resolveWorkdir } from "./workspace";
 
 export const manifest: PluginManifest = {
@@ -47,31 +47,43 @@ export const manifest: PluginManifest = {
     },
     {
       name: "write",
-      description: "Write text or control keys to an interactive terminal. Use terminal_read afterwards for new output.",
+      description: [
+        "Write text or control keys to a shared interactive terminal, then collect new output.",
+        "For shell commands, set submit:true to press Enter after data; do not rely on a trailing",
+        "newline, which an upstream tool host may trim. data may be empty when only Enter is needed.",
+        "wait_ms defaults to 1000 and quiet_ms to 200; set wait_ms to 0 to return immediately.",
+        "The response includes output, next_offset, and wait_reason. output_idle is not command completion.",
+      ].join("\n"),
       input: {
         type: "object",
         properties: {
           terminal_id: { type: "string" },
-          data: { type: "string", description: "Raw terminal input; include a newline to submit a command." },
+          data: { type: "string", description: "Raw terminal input. Use submit:true rather than a trailing newline for commands." },
+          submit: { type: "boolean", description: "Press Enter after data. Safe for an empty data string." },
+          max_bytes: { type: "number" },
+          wait_ms: { type: "number", description: "Maximum wait for output; default 1000, maximum 30000." },
+          quiet_ms: { type: "number", description: "Quiet window after new output; default 200." },
         },
         required: ["terminal_id", "data"],
       },
       policy: { default: "allow", risk: "exec" },
-      timeout_ms: 30_000,
+      timeout_ms: 45_000,
     },
     {
       name: "read",
       description: [
-        "Read terminal output after a byte offset, with ANSI display controls removed.",
+        "Read a shared terminal after a byte offset, with ANSI display controls removed.",
         "For a process_id created by `dev_start`, use `dev_logs` instead.",
-        "Pass next_offset from the previous read. When no new output is available,",
-        "wait_ms waits for more and quiet_ms settles a burst. output_idle only means",
-        "no PTY output arrived in that window; it is not a command-completion signal.",
-        "An interactive shell has no portable command boundary. For a long command,",
-        "increase wait_ms; for process exit, inspect terminal.status and exit_code.",
-        "The result is a linear text stream, not a screen snapshot. Use non-interactive",
-        "batch modes for TUI programs and an explicit echo of $? when an exit code is",
-        "needed. Separate sections with printable markers, not the clear command.",
+        "Always pass the newest next_offset from the previous read or write; an older cursor repeats",
+        "output by design. A successful write already returns new output, so do not immediately",
+        "read it again. When no new output is available, wait_ms waits and quiet_ms settles a burst.",
+        "wait_reason reports output_idle,",
+        "timeout, session_exit, or aborted. output_idle only means no PTY output arrived in",
+        "that window; it is not a command-completion signal. An interactive shell has no",
+        "portable command boundary. For a long command, increase wait_ms; for process exit,",
+        "inspect terminal.status and exit_code. The result is a linear text stream, not a screen snapshot.",
+        "Use non-interactive batch modes for TUI programs and an explicit echo of $? when an exit",
+        "code is needed. Separate sections with printable markers, not clear.",
       ].join("\n"),
       input: {
         type: "object",
@@ -89,13 +101,31 @@ export const manifest: PluginManifest = {
     },
     {
       name: "list",
-      description: "List interactive terminals owned by this session.",
+      description: "List terminals shared with the agent. User-only terminals are private.",
       input: { type: "object", properties: {} },
       policy: { default: "allow", risk: "read" },
     },
     {
+      name: "signal",
+      description: [
+        "Signal the foreground process group of a shared terminal.",
+        "Supports SIGINT, SIGTERM, SIGKILL, SIGTSTP, and SIGHUP on POSIX; Windows supports SIGINT.",
+        "Refuses to signal the shell itself; use terminal_close for that.",
+      ].join("\n"),
+      input: {
+        type: "object",
+        properties: {
+          terminal_id: { type: "string" },
+          signal: { type: "string", enum: ["SIGINT", "SIGTERM", "SIGKILL", "SIGTSTP", "SIGHUP"] },
+        },
+        required: ["terminal_id", "signal"],
+      },
+      policy: { default: "allow", risk: "exec" },
+      timeout_ms: 30_000,
+    },
+    {
       name: "close",
-      description: "Close a terminal and terminate its process tree.",
+      description: "Close a shared terminal and report whether process-tree exit was confirmed.",
       input: {
         type: "object",
         properties: { terminal_id: { type: "string" } },
@@ -113,12 +143,13 @@ export const manifest: PluginManifest = {
       write: { kind: "terminal", icon: "terminal" },
       read: { kind: "terminal", icon: "terminal" },
       list: { kind: "terminal", icon: "terminal" },
+      signal: { kind: "terminal", icon: "terminal" },
       close: { kind: "terminal", icon: "terminal" },
     },
   },
 };
 
-const TOOLS = new Set(["create", "write", "read", "list", "close"]);
+const TOOLS = new Set(["create", "write", "read", "list", "signal", "close"]);
 
 export interface TerminalPluginOptions {
   workspaceOf(sessionId: string): string | undefined;
@@ -157,6 +188,7 @@ export function createTerminalPlugin(options: TerminalPluginOptions): StrataPlug
       argv: shellArgv(shell, command, process.platform, { profile: origin === "user" }),
       command: command ?? shell.path,
       cwd,
+      mode: origin === "agent" ? "shared" : "user",
       ...size,
       ...(origin === "agent" ? { env: { ENV: "" } } : {}),
     });
@@ -169,7 +201,12 @@ export function createTerminalPlugin(options: TerminalPluginOptions): StrataPlug
       terminals.onChange((info) => {
         context.emit({
           type: "terminal.changed",
-          data: { session_id: info.session_id, terminal_id: info.id, status: info.status },
+          data: {
+            session_id: info.session_id,
+            terminal_id: info.id,
+            status: info.status,
+            mode: info.mode,
+          },
         });
       });
     },
@@ -189,17 +226,27 @@ export function createTerminalPlugin(options: TerminalPluginOptions): StrataPlug
             rows: req.input.rows,
             cols: req.input.cols,
           }, "agent");
-          return { output: JSON.stringify({ terminal: info, next_offset: manager().read(req.sessionId, info.id).next_offset }) };
+          return { output: JSON.stringify({ terminal: info, next_offset: manager().readAgent(req.sessionId, info.id).next_offset }) };
         }
-        if (req.tool === "list") return { output: JSON.stringify({ terminals: manager().list(req.sessionId) }) };
+        if (req.tool === "list") return { output: JSON.stringify({ terminals: manager().listAgent(req.sessionId) }) };
         const id = typeof req.input.terminal_id === "string" ? req.input.terminal_id : "";
         if (!id) throw new Error("terminal_id is required");
-        manager().get(req.sessionId, id);
+        manager().getAgent(req.sessionId, id);
         if (req.tool === "write") {
           if (typeof req.input.data !== "string") throw new Error("data must be a string");
+          if (req.input.submit !== undefined && typeof req.input.submit !== "boolean") throw new Error("submit must be a boolean");
           if (req.input.data.length > 64 * 1024) throw new Error("terminal input is too large");
-          const written = manager().write(req.sessionId, id, req.input.data);
-          return { output: `Wrote ${written} bytes to ${id}.` };
+          const data = req.input.submit === true ? `${req.input.data}\r` : req.input.data;
+          const offset = manager().readAgent(req.sessionId, id).next_offset;
+          const written = manager().write(req.sessionId, id, data, "agent");
+          const maxBytes = optionalInteger(req.input.max_bytes, "max_bytes") ?? 16 * 1024;
+          const waitMs = Math.min(optionalInteger(req.input.wait_ms, "wait_ms") ?? 1000, 30_000);
+          const quietMs = Math.min(optionalInteger(req.input.quiet_ms, "quiet_ms") ?? 200, waitMs);
+          const page = await readWithWait(
+            manager(), req.sessionId, id, offset,
+            Math.min(Math.max(maxBytes, 1), 64 * 1024), waitMs, quietMs, req.signal,
+          );
+          return { output: JSON.stringify({ written, terminal: manager().getAgent(req.sessionId, id), ...pageOutput(page) }) };
         }
         if (req.tool === "read") {
           const offset = optionalInteger(req.input.offset, "offset");
@@ -207,30 +254,22 @@ export function createTerminalPlugin(options: TerminalPluginOptions): StrataPlug
           const waitMs = Math.min(optionalInteger(req.input.wait_ms, "wait_ms") ?? 1000, 30_000);
           const quietMs = Math.min(optionalInteger(req.input.quiet_ms, "quiet_ms") ?? 200, waitMs);
           const page = await readWithWait(
-            manager(),
-            req.sessionId,
-            id,
-            offset,
-            Math.min(Math.max(maxBytes, 1), 64 * 1024),
-            waitMs,
-            quietMs,
-            req.signal,
+            manager(), req.sessionId, id, offset,
+            Math.min(Math.max(maxBytes, 1), 64 * 1024), waitMs, quietMs, req.signal,
           );
-          return {
-            output: JSON.stringify({
-              terminal: manager().get(req.sessionId, id),
-              output: terminalText(page.data),
-              next_offset: page.next_offset,
-              dropped: page.dropped,
-              new_output: page.new_output,
-              output_idle: page.output_idle,
-              timed_out: page.timed_out,
-            }),
-          };
+          return { output: JSON.stringify({ terminal: manager().getAgent(req.sessionId, id), ...pageOutput(page) }) };
+        }
+        if (req.tool === "signal") {
+          const signal = req.input.signal;
+          if (typeof signal !== "string" || !["SIGINT", "SIGTERM", "SIGKILL", "SIGTSTP", "SIGHUP"].includes(signal)) {
+            throw new Error("unknown terminal signal");
+          }
+          await manager().signal(req.sessionId, id, signal as TerminalSignal, "agent");
+          return { output: JSON.stringify({ terminal: manager().getAgent(req.sessionId, id), signal }) };
         }
         if (req.tool === "close") {
-          await manager().close(req.sessionId, id);
-          return { output: `Closed ${id}.` };
+          const result = await manager().close(req.sessionId, id, "agent");
+          return { output: JSON.stringify({ terminal_id: id, ...result }) };
         }
         throw new Error(`unknown tool ${req.tool}`);
       } catch (error) {
@@ -248,7 +287,7 @@ export function createTerminalPlugin(options: TerminalPluginOptions): StrataPlug
       } catch {
         return Response.json({ error: "not found" }, { status: 404 });
       }
-      const one = /^\/terminals\/([\w.-]+)(?:\/size)?$/.exec(subpath);
+      const one = /^\/terminals\/([\w.-]+)(?:\/(size|mode))?$/.exec(subpath);
       try {
         if (subpath === "/terminals" && req.method === "GET") {
           return Response.json({ sessions: manager().list(sessionId), shells: listShells() });
@@ -260,14 +299,21 @@ export function createTerminalPlugin(options: TerminalPluginOptions): StrataPlug
         if (!one) return undefined;
         const id = one[1]!;
         if (subpath === `/terminals/${id}` && req.method === "DELETE") {
-          await manager().close(sessionId, id);
-          return Response.json({ ok: true });
+          const result = await manager().close(sessionId, id);
+          return Response.json(result);
         }
         if (subpath === `/terminals/${id}/size` && req.method === "POST") {
           const body = (await req.json().catch(() => ({}))) as { rows?: unknown; cols?: unknown };
           const size = terminalSize(body.rows, body.cols);
           manager().resize(sessionId, id, size.rows, size.cols);
           return Response.json({ ok: true });
+        }
+        if (subpath === `/terminals/${id}/mode` && req.method === "POST") {
+          const body = (await req.json().catch(() => ({}))) as { mode?: unknown };
+          if (body.mode !== "user" && body.mode !== "shared") {
+            return Response.json({ error: "invalid mode" }, { status: 400 });
+          }
+          return Response.json(manager().setMode(sessionId, id, body.mode));
         }
         return Response.json({ error: "method not allowed" }, { status: 405 });
       } catch (error) {
@@ -318,7 +364,7 @@ export function createTerminalPlugin(options: TerminalPluginOptions): StrataPlug
       if (req.key !== "terminals" || !req.sessionId) throw new Error("no such resource");
       return {
         mime: "application/json",
-        body: JSON.stringify({ sessions: manager().list(req.sessionId) }),
+        body: JSON.stringify({ sessions: manager().listAgent(req.sessionId) }),
       };
     },
 
@@ -345,6 +391,19 @@ interface ReadResult extends PtyReadPage {
   new_output: boolean;
   output_idle: boolean;
   timed_out: boolean;
+  wait_reason: TerminalWaitReason;
+}
+
+function pageOutput(page: ReadResult) {
+  return {
+    output: terminalText(page.data),
+    next_offset: page.next_offset,
+    dropped: page.dropped,
+    new_output: page.new_output,
+    output_idle: page.output_idle,
+    timed_out: page.timed_out,
+    wait_reason: page.wait_reason,
+  };
 }
 
 async function readWithWait(
@@ -357,14 +416,18 @@ async function readWithWait(
   quietMs: number,
   signal: AbortSignal,
 ): Promise<ReadResult> {
-  const info = manager.get(sessionId, id);
+  const info = manager.getAgent(sessionId, id);
   const immediate = manager.read(sessionId, id, offset, maxBytes);
   if (offset === undefined || waitMs === 0 || info.status === "exited") {
+    const waitReason: TerminalWaitReason = info.status === "exited"
+      ? "session_exit"
+      : signal.aborted ? "aborted" : "output_idle";
     return {
       ...immediate,
       new_output: immediate.data.byteLength > 0,
       output_idle: immediate.data.byteLength === 0 || info.status === "exited",
       timed_out: false,
+      wait_reason: waitReason,
     };
   }
 
@@ -376,7 +439,7 @@ async function readWithWait(
     let quiet: ReturnType<typeof setTimeout> | undefined;
     let unsubscribe = () => {};
 
-    const finish = (timedOut: boolean) => {
+    const finish = (waitReason: TerminalWaitReason) => {
       if (finished) return;
       finished = true;
       if (deadline) clearTimeout(deadline);
@@ -388,17 +451,18 @@ async function readWithWait(
         ...page,
         new_output: page.data.byteLength > 0,
         output_idle: !sawData || info.status === "exited" || Date.now() - lastDataAt >= quietMs,
-        timed_out: timedOut,
+        timed_out: waitReason === "timeout",
+        wait_reason: waitReason,
       });
     };
-    const onAbort = () => finish(false);
+    const onAbort = () => finish("aborted");
     const armQuiet = () => {
       if (quiet) clearTimeout(quiet);
-      quiet = setTimeout(() => finish(false), quietMs);
+      quiet = setTimeout(() => finish("output_idle"), quietMs);
     };
     const attached = manager.attach(sessionId, id, (event) => {
       if (event.type === "exit") {
-        finish(false);
+        finish("session_exit");
         return;
       }
       sawData = true;
@@ -408,7 +472,7 @@ async function readWithWait(
     unsubscribe = attached.unsubscribe;
     signal.addEventListener("abort", onAbort, { once: true });
     if (signal.aborted) {
-      finish(false);
+      finish("aborted");
       return;
     }
     const afterAttach = manager.read(sessionId, id, offset, maxBytes);
@@ -418,10 +482,10 @@ async function readWithWait(
       armQuiet();
     }
     if (attached.info.status === "exited") {
-      finish(false);
+      finish("session_exit");
       return;
     }
-    deadline = setTimeout(() => finish(true), waitMs);
+    deadline = setTimeout(() => finish("timeout"), waitMs);
   });
 }
 
@@ -441,6 +505,18 @@ function optionalInteger(value: unknown, name: string): number | undefined {
 export { PtyManager } from "./manager";
 export { OutputRing, terminalText } from "./output";
 export { listShells, shellArgv, shellByName, terminalSize, terminalTitle } from "./shells";
-export type { PtyEvent, PtyInfo, PtyProcess, PtyReadPage, PtyShell, PtySpawnInput } from "./types";
+export type {
+  PtyCloseResult,
+  PtyEvent,
+  PtyInfo,
+  PtyProcess,
+  PtyReadPage,
+  PtyShell,
+  PtySpawnInput,
+  TerminalActor,
+  TerminalMode,
+  TerminalSignal,
+  TerminalWaitReason,
+} from "./types";
 export { pathInside, resolveWorkdir } from "./workspace";
 export default createTerminalPlugin;

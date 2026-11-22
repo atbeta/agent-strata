@@ -8,10 +8,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
+import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import "@xterm/xterm/css/xterm.css";
 import {
   closeTerminal,
+  setTerminalMode,
   listTerminals,
   openTerminal,
   resizeTerminal,
@@ -126,6 +127,20 @@ export function TerminalPane(props: { sessionId: string; onEmpty?: () => void; l
     if (next.length === 0) props.onEmpty?.();
     try {
       await closeTerminal(sessionId, id);
+    } catch (e) {
+      if (requests.isCurrent(token)) fail(e);
+    }
+  };
+
+  const toggleMode = async (id: string, mode: PtySession["mode"]) => {
+    const sessionId = props.sessionId;
+    const token = requests.begin(sessionId);
+    setErr("");
+    const next = mode === "shared" ? "user" : "shared";
+    try {
+      const updated = await setTerminalMode(sessionId, id, next);
+      if (!requests.isCurrent(token)) return;
+      setTabs((rows) => rows.map((row) => row.id === id ? updated : row));
     } catch (e) {
       if (requests.isCurrent(token)) fail(e);
     }
@@ -270,14 +285,26 @@ export function TerminalPane(props: { sessionId: string; onEmpty?: () => void; l
                 active() === tab.id ? "bg-secondary text-foreground" : "text-muted-foreground"
               }`}
             >
+              <Tip label={t(tab.mode === "shared" ? "terminal.mode.sharedHint" : "terminal.mode.userHint")}>
+                <Button
+                  type="button"
+                  variant="icon"
+                  size="icon-2xs"
+                  data-terminal-mode={tab.mode}
+                  aria-label={t(tab.mode === "shared" ? "terminal.mode.sharedHint" : "terminal.mode.userHint")}
+                  onClick={() => void toggleMode(tab.id, tab.mode)}
+                >
+                  <Icon name={tab.mode === "shared" ? "user-agent" : "user"} class="h-3.5 w-3.5" />
+                </Button>
+              </Tip>
               <Button
                 type="button"
                 variant="quiet"
                 size="xs"
-                class="min-w-0 text-xs"
+                class="min-w-0 flex-1 gap-0 px-1 text-xs"
                 onClick={() => setActive(tab.id)}
               >
-                <span class="min-w-0 truncate">{tab.title}</span>
+                <TerminalTitle text={tab.title} />
               </Button>
               <Tip label={t("terminal.close")}>
                 <Button
@@ -353,6 +380,27 @@ export function TerminalPane(props: { sessionId: string; onEmpty?: () => void; l
         class="min-h-0 flex-1 px-1 py-1"
       />
     </div>
+  );
+}
+
+function TerminalTitle(props: { text: string }) {
+  let el: HTMLSpanElement | undefined;
+  const [cut, setCut] = createSignal(false);
+  onMount(() => {
+    const measure = () => {
+      if (el) setCut(el.scrollWidth > el.clientWidth + 1);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    if (el) observer.observe(el);
+    onCleanup(() => observer.disconnect());
+  });
+  return (
+    <Tip label={props.text} disabled={!cut()} class="min-w-0 flex-1">
+      <span ref={el} data-terminal-title={props.text} class="block w-full truncate text-left">
+        {props.text}
+      </span>
+    </Tip>
   );
 }
 

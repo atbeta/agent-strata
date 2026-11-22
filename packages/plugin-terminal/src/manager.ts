@@ -1,7 +1,19 @@
-import { spawnPty, terminatePty } from "./native";
+import { signalPty, spawnPty, terminatePty } from "./native";
 import { OutputRing } from "./output";
 import { terminalEnv } from "./shells";
-import type { PtyEvent, PtyInfo, PtyProcess, PtyReadPage, PtySpawn, PtyTerminate } from "./types";
+import type {
+  PtyCloseResult,
+  PtyEvent,
+  PtyInfo,
+  PtyProcess,
+  PtyReadPage,
+  PtySignal,
+  PtySpawn,
+  PtyTerminate,
+  TerminalActor,
+  TerminalMode,
+  TerminalSignal,
+} from "./types";
 
 interface Entry {
   info: PtyInfo;
@@ -20,12 +32,14 @@ export interface PtyCreateInput {
   cwd: string;
   rows: number;
   cols: number;
+  mode: TerminalMode;
   env?: Record<string, string>;
 }
 
 export interface PtyManagerOptions {
   spawn?: PtySpawn;
   terminate?: PtyTerminate;
+  signal?: PtySignal;
   platform?: NodeJS.Platform;
   maxProcesses?: number;
   maxPerSession?: number;
@@ -41,6 +55,7 @@ export class PtyManager {
   private readonly listeners = new Set<(info: PtyInfo) => void>();
   private readonly spawn: PtySpawn;
   private readonly terminate: PtyTerminate;
+  private readonly signalProcess: PtySignal;
   private readonly platform: NodeJS.Platform;
   private readonly maxProcesses: number;
   private readonly maxPerSession: number;
@@ -51,6 +66,7 @@ export class PtyManager {
   constructor(options: PtyManagerOptions = {}) {
     this.spawn = options.spawn ?? spawnPty;
     this.terminate = options.terminate ?? terminatePty;
+    this.signalProcess = options.signal ?? signalPty;
     this.platform = options.platform ?? process.platform;
     this.maxProcesses = options.maxProcesses ?? 32;
     this.maxPerSession = options.maxPerSession ?? 8;
@@ -81,6 +97,7 @@ export class PtyManager {
       started_at: Date.now(),
       status: "running",
       exit_code: null,
+      mode: input.mode,
     };
     const entry: Entry = {
       info,
@@ -123,16 +140,39 @@ export class PtyManager {
       .sort((a, b) => b.started_at - a.started_at);
   }
 
+  listAgent(sessionId: string): PtyInfo[] {
+    return this.list(sessionId).filter((info) => info.mode === "shared");
+  }
+
   get(sessionId: string, id: string): PtyInfo {
     const info = this.entries.get(id)?.info;
     if (!info || info.session_id !== sessionId) throw new Error(`there is no terminal called ${id}`);
     return info;
   }
 
-  write(sessionId: string, id: string, data: string | Uint8Array): number {
+  getAgent(sessionId: string, id: string): PtyInfo {
+    return this.agentEntry(sessionId, id).info;
+  }
+
+  setMode(sessionId: string, id: string, mode: TerminalMode): PtyInfo {
     const entry = this.ownedEntry(sessionId, id);
+    if (entry.info.mode !== mode) {
+      entry.info.mode = mode;
+      this.changed(entry.info);
+    }
+    return entry.info;
+  }
+
+  write(sessionId: string, id: string, data: string | Uint8Array, actor: TerminalActor = "user"): number {
+    const entry = actor === "agent" ? this.agentEntry(sessionId, id) : this.ownedEntry(sessionId, id);
     if (!entry.child || entry.info.status !== "running") throw new Error(`terminal ${id} has exited`);
     return entry.child.terminal.write(data);
+  }
+
+  async signal(sessionId: string, id: string, signal: TerminalSignal, actor: TerminalActor = "user"): Promise<void> {
+    const entry = actor === "agent" ? this.agentEntry(sessionId, id) : this.ownedEntry(sessionId, id);
+    if (!entry.child || entry.info.status !== "running") throw new Error(`terminal ${id} has exited`);
+    await this.signalProcess(entry.child, signal, this.platform);
   }
 
   resize(sessionId: string, id: string, rows: number, cols: number): void {
@@ -143,6 +183,10 @@ export class PtyManager {
 
   read(sessionId: string, id: string, offset?: number, maxBytes = 16 * 1024): PtyReadPage {
     return this.ownedEntry(sessionId, id).ring.read(offset, maxBytes);
+  }
+
+  readAgent(sessionId: string, id: string, offset?: number, maxBytes = 16 * 1024): PtyReadPage {
+    return this.agentEntry(sessionId, id).ring.read(offset, maxBytes);
   }
 
   attach(sessionId: string, id: string, listener: (event: PtyEvent) => void): {
@@ -159,11 +203,12 @@ export class PtyManager {
     };
   }
 
-  async close(sessionId: string, id: string): Promise<void> {
-    const entry = this.ownedEntry(sessionId, id);
-    await this.closeEntry(entry);
+  async close(sessionId: string, id: string, actor: TerminalActor = "user"): Promise<PtyCloseResult> {
+    const entry = actor === "agent" ? this.agentEntry(sessionId, id) : this.ownedEntry(sessionId, id);
+    const cleanup = await this.closeEntry(entry);
     this.entries.delete(id);
     this.changed(entry.info);
+    return { cleanup };
   }
 
   async closeSession(sessionId: string): Promise<void> {
@@ -187,13 +232,21 @@ export class PtyManager {
     return this.entries.get(id)!;
   }
 
-  private async closeEntry(entry: Entry): Promise<void> {
+  private agentEntry(sessionId: string, id: string): Entry {
+    const entry = this.ownedEntry(sessionId, id);
+    if (entry.info.mode !== "shared") throw new Error(`there is no terminal called ${id}`);
+    return entry;
+  }
+
+  private async closeEntry(entry: Entry): Promise<"exited" | "unconfirmed"> {
     if (entry.reaper) clearTimeout(entry.reaper);
     entry.reaper = undefined;
     for (const listener of entry.listeners) listener({ type: "exit", exitCode: entry.info.exit_code });
     entry.listeners.clear();
-    if (entry.child && entry.info.status === "running") await this.terminate(entry.child, this.platform);
+    let cleanup: "exited" | "unconfirmed" = "exited";
+    if (entry.child && entry.info.status === "running") cleanup = await this.terminate(entry.child, this.platform);
     this.settle(entry, entry.info.exit_code ?? 0);
+    return cleanup;
   }
 
   private settle(entry: Entry, exitCode: number | null): void {
@@ -216,7 +269,7 @@ export class PtyManager {
     const now = Date.now();
     const exited = [...this.entries.values()]
       .filter((entry) => entry.info.status === "exited")
-      .sort((a, b) => (a.exitedAt ?? a.info.started_at) - (b.exitedAt ?? b.info.started_at));
+      .sort((a, b) => (a.exitedAt ?? a.info.started_at) - (b.exitedAt ?? a.info.started_at));
     for (const entry of exited) {
       if ((entry.exitedAt ?? now) + this.exitTtlMs <= now) this.remove(entry);
     }

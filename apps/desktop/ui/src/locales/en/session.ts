@@ -263,6 +263,8 @@ export default {
   "terminal.close": "Close terminal",
   "terminal.closed": "Terminal disconnected",
   "terminal.failed": "The terminal could not be opened",
+  "terminal.mode.userHint": "User only; the agent cannot see it. Click to share.",
+  "terminal.mode.sharedHint": "You and the agent can both operate it. Click to make it user only.",
   // The "+" menu lists the shells this backend will actually run, not
   // everything that happens to be on PATH.
   "terminal.shellBackend": "Follow the backend",

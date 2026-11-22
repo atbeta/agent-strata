@@ -18,7 +18,9 @@ describe("execution tool guidance", () => {
     expect(GUIDANCE).toContain("process_id");
     expect(GUIDANCE).toContain("terminal_id");
     expect(GUIDANCE).toContain("output_idle");
-    expect(GUIDANCE).toContain("does not\nmean the command finished");
+    expect(GUIDANCE).toContain("submit:true");
+    expect(GUIDANCE).toContain("newest next_offset");
+    expect(GUIDANCE).toMatch(/neither\s+means the command finished/);
     expect(GUIDANCE).toContain("echo EXIT=$?");
     expect(GUIDANCE).toContain("top -b -n1");
     expect(GUIDANCE).toContain("=== STATUS ===");
@@ -31,10 +33,11 @@ describe("execution tool guidance", () => {
     expect(GUIDANCE).toContain("already served");
     expect(GUIDANCE).toContain("marked lost");
     expect(GUIDANCE).toContain("shell is not running");
-    // Port, workdir, `$`, offset, and restart stay on the tool descriptions.
+    expect(GUIDANCE).toContain("Development or test credentials");
+    expect(GUIDANCE).toContain("real or production passwords");
+    // Port, workdir, `$`, and restart stay on the tool descriptions.
     expect(GUIDANCE).not.toContain("Set-Location");
     expect(GUIDANCE).not.toContain("$true");
-    expect(GUIDANCE).not.toContain("next_offset");
-    expect(GUIDANCE.trim().length).toBeLessThan(1600);
+    expect(GUIDANCE.trim().length).toBeLessThan(1800);
   });
 });

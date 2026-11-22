@@ -265,6 +265,8 @@ export default {
   "terminal.close": "关闭终端",
   "terminal.closed": "终端已断开",
   "terminal.failed": "终端打不开",
+  "terminal.mode.userHint": "用户专用，Agent 不可见；点击共享给 Agent",
+  "terminal.mode.sharedHint": "你和 Agent 都可操作；点击改为用户专用",
   // "+" 列出的是这个会话真正能跑的 shell，不是 PATH 上能找到的一切。
   "terminal.shellBackend": "跟随后端",
   "terminal.shellDefault": "默认（{name}）",

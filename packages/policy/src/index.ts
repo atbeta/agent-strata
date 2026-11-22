@@ -480,9 +480,9 @@ function hasOutputRedirection(segment: string): boolean {
   return false;
 }
 
-function completedTerminalInput(data: unknown): string | undefined {
+function completedTerminalInput(data: unknown, submit: boolean): string | undefined {
   if (typeof data !== "string") return undefined;
-  const normalized = data.replace(/\r\n?/g, "\n");
+  const normalized = data.replace(/\r\n?/g, "\n") + (submit ? "\n" : "");
   const end = normalized.lastIndexOf("\n");
   if (end < 0) return undefined;
   const complete = normalized.slice(0, end);
@@ -503,7 +503,9 @@ export function evaluate(
   const { tool, input, plugin_id } = req;
   if (!SHELL_TOOLS.includes(tool)) return evalSingle(policy, [tool], input, plugin_id);
 
-  const raw = tool === "terminal_write" ? completedTerminalInput(input.data) : input.command ?? input.cmd;
+  const raw = tool === "terminal_write"
+    ? completedTerminalInput(input.data, input.submit === true)
+    : input.command ?? input.cmd;
   // A shell-shaped tool whose command is not a string has nothing to analyse,
   // but it is still that tool's call: a rule scoped to its plugin must reach
   // it, which is why `plugin_id` goes through here too.

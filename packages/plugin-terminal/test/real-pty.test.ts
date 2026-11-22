@@ -23,6 +23,7 @@ describe.skipIf(!posix)("native PTY", () => {
       argv: ["/bin/sh", "-c", "printf 'tty='; if [ -t 0 ]; then echo yes; else echo no; fi; read line; printf 'got=%s\\n' \"$line\"; sleep 30"],
       command: "probe",
       cwd: process.cwd(),
+      mode: "shared",
       rows: 24,
       cols: 80,
     });
@@ -40,5 +41,30 @@ describe.skipIf(!posix)("native PTY", () => {
       await manager.closeAll();
     }
     expect(manager.list("s")).toEqual([]);
+  }, 10_000);
+
+  test("signals reach the foreground job without killing the shell", async () => {
+    const manager = new PtyManager();
+    const info = manager.create({
+      sessionId: "s",
+      title: "signal",
+      argv: ["/bin/sh"],
+      command: "/bin/sh",
+      cwd: process.cwd(),
+      mode: "shared",
+      rows: 24,
+      cols: 80,
+    });
+    try {
+      manager.write("s", info.id, "sleep 30\n", "agent");
+      await Bun.sleep(100);
+      await manager.signal("s", info.id, "SIGTERM", "agent");
+      manager.write("s", info.id, "printf 'shell-alive=%s\\n' \"$?\"\n", "agent");
+      await waitFor(manager, info.id, "shell-alive=");
+      await expect(manager.signal("s", info.id, "SIGTERM", "agent")).rejects.toThrow("shell itself");
+      expect(await manager.close("s", info.id, "agent")).toEqual({ cleanup: "exited" });
+    } finally {
+      await manager.closeAll();
+    }
   }, 10_000);
 });

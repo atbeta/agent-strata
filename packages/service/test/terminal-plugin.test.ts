@@ -121,7 +121,21 @@ describe("native terminal plugin", () => {
 
     const write = await call("write", { terminal_id: terminalId, data: input("ready") });
     expect(write.is_error).toBe(false);
+    const written = JSON.parse(write.output) as { output: string; wait_reason: string; next_offset: number };
+    expect(written.output).toContain("ready");
+    expect(written.wait_reason).toBe("output_idle");
+    expect(written.next_offset).toBeGreaterThan(0);
     await read(terminalId, "ready");
+
+    const submitData = input("submitted").slice(0, -1);
+    const submitted = await call("write", { terminal_id: terminalId, data: submitData, submit: true });
+    expect(submitted.is_error).toBe(false);
+    expect(JSON.parse(submitted.output)).toMatchObject({ written: submitData.length + 1 });
+    expect(JSON.parse(submitted.output).output).toContain("submitted");
+    const enterOnly = await call("write", { terminal_id: terminalId, data: "", submit: true, wait_ms: 0 });
+    expect(JSON.parse(enterOnly.output)).toMatchObject({ written: 1 });
+    const rawNewline = await call("write", { terminal_id: terminalId, data: "\n", wait_ms: 0 });
+    expect(JSON.parse(rawNewline.output)).toMatchObject({ written: 1 });
 
     const stringCursor = await call("read", { terminal_id: terminalId, offset: "0", max_bytes: "65536" });
     expect(stringCursor.is_error).toBe(false);
@@ -156,32 +170,35 @@ describe("native terminal plugin", () => {
       new_output: boolean;
       output_idle: boolean;
       timed_out: boolean;
+      wait_reason: string;
     };
     expect(delayedPage.output).toContain("delayed");
     expect(delayedPage.new_output).toBe(true);
     expect(delayedPage.output_idle).toBe(true);
     expect(delayedPage.timed_out).toBe(false);
+    expect(delayedPage.wait_reason).toBe("output_idle");
 
     const quiet = await call("read", { terminal_id: terminalId, offset: delayedPage.next_offset, wait_ms: 30, quiet_ms: 5 });
-    const quietPage = JSON.parse(quiet.output) as { new_output: boolean; output_idle: boolean; timed_out: boolean };
-    expect(quietPage).toMatchObject({ new_output: false, output_idle: true, timed_out: true });
+    const quietPage = JSON.parse(quiet.output) as { new_output: boolean; output_idle: boolean; timed_out: boolean; wait_reason: string };
+    expect(quietPage).toMatchObject({ new_output: false, output_idle: true, timed_out: true, wait_reason: "timeout" });
 
     const first = await connect(base, terminalId);
     await first.contains("ready");
     first.send(input("from-ui"));
     await first.contains("from-ui");
     await read(terminalId, "from-ui");
+    expect(await call("write", { terminal_id: terminalId, data: input("after-user") })).toMatchObject({ is_error: false });
 
+    const query = new URLSearchParams({ session: SESSION });
     const second = await connect(base, terminalId);
     await second.contains("from-ui");
     first.ws.close();
     second.ws.close();
 
-    const query = new URLSearchParams({ session: SESSION });
     const listed = await fetch(`${base}/plugins/terminal/terminals?${query}`);
-    const listing = (await listed.json()) as { sessions: { id: string; status: string }[] };
+    const listing = (await listed.json()) as { sessions: { id: string; status: string; mode: string }[] };
     expect(listing.sessions).toHaveLength(1);
-    expect(listing.sessions[0]).toMatchObject({ id: terminalId, status: "running" });
+    expect(listing.sessions[0]).toMatchObject({ id: terminalId, status: "running", mode: "shared" });
 
     const badSize = await fetch(`${base}/plugins/terminal/terminals/${terminalId}/size?${query}`, {
       method: "POST",
@@ -195,12 +212,44 @@ describe("native terminal plugin", () => {
 
     const reconnected = await connect(base, terminalId);
     await reconnected.contains("from-ui");
-    reconnected.ws.close();
 
     const closed = await call("close", { terminal_id: terminalId });
     expect(closed.is_error).toBe(false);
+    expect(JSON.parse(closed.output)).toMatchObject({ cleanup: "exited" });
     const after = await call("list", {});
     expect(JSON.parse(after.output)).toEqual({ terminals: [] });
+    reconnected.ws.close();
     terminalId = "";
   }, 30_000);
+
+  test("a user-only terminal becomes visible only while shared", async () => {
+    const query = new URLSearchParams({ session: SESSION });
+    const response = await fetch(`${base}/plugins/terminal/terminals?${query}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "private" }),
+    });
+    const info = await response.json() as { id: string; mode: string };
+    expect(info).toMatchObject({ mode: "user" });
+    expect(JSON.parse((await call("list", {})).output)).toEqual({ terminals: [] });
+    expect((await call("read", { terminal_id: info.id })).is_error).toBe(true);
+
+    const modeUrl = `${base}/plugins/terminal/terminals/${info.id}/mode?${query}`;
+    const shared = await fetch(modeUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode: "shared" }),
+    });
+    expect(shared.status).toBe(200);
+    expect((await call("read", { terminal_id: info.id })).is_error).toBe(false);
+    expect(JSON.parse((await call("list", {})).output)).toMatchObject({ terminals: [{ id: info.id }] });
+
+    await fetch(modeUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode: "user" }),
+    });
+    expect((await call("read", { terminal_id: info.id })).is_error).toBe(true);
+    expect((await fetch(`${base}/plugins/terminal/terminals/${info.id}?${query}`, { method: "DELETE" })).status).toBe(200);
+  });
 });

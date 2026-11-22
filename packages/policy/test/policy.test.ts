@@ -52,6 +52,12 @@ describe("policy evaluate (table-driven)", () => {
       { decision: "deny", rule_id: "no-curl" },
     ],
     [
+      "terminal_write submit makes a command complete without a trailing newline",
+      P([{ id: "no-rm", effect: "deny", tool: "bash", when: { command: { matches: "rm\\s+-rf\\s+/" } } }]),
+      { tool: "terminal_write", input: { data: "rm -rf /tmp/x", submit: true }, plugin_id: "terminal" },
+      { decision: "deny", rule_id: "no-rm" },
+    ],
+    [
       "terminal_write does not judge an unfinished command as if it had run",
       P([{ id: "no-rm", effect: "deny", tool: "bash", when: { command: { matches: "rm\\s+-rf\\s+/" } } }], "allow"),
       { tool: "terminal_write", input: { data: "rm -rf /tmp/x" }, plugin_id: "terminal" },

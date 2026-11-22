@@ -8,6 +8,7 @@ const input: PtyCreateInput = {
   argv: ["/bin/sh"],
   command: "/bin/sh",
   cwd: "/work",
+  mode: "shared",
   rows: 24,
   cols: 80,
 };
@@ -35,6 +36,7 @@ function fixture(options: PtyManagerOptions) {
     },
     terminate: async (child) => {
       children.get(child.pid)?.(0);
+      return "exited";
     },
     platform: "darwin",
   });

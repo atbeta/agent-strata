@@ -4,6 +4,11 @@ export interface PtyShell {
   acceptable: boolean;
 }
 
+export type TerminalMode = "user" | "shared";
+export type TerminalActor = "agent" | "user";
+export type TerminalSignal = "SIGINT" | "SIGTERM" | "SIGKILL" | "SIGTSTP" | "SIGHUP";
+export type TerminalWaitReason = "output_idle" | "timeout" | "session_exit" | "aborted";
+
 export interface PtyInfo {
   id: string;
   session_id: string;
@@ -14,6 +19,7 @@ export interface PtyInfo {
   started_at: number;
   status: "running" | "exited";
   exit_code: number | null;
+  mode: TerminalMode;
 }
 
 export interface PtyProcess {
@@ -38,7 +44,16 @@ export interface PtySpawnInput {
 }
 
 export type PtySpawn = (input: PtySpawnInput) => PtyProcess;
-export type PtyTerminate = (child: PtyProcess, platform: NodeJS.Platform) => Promise<void>;
+export type PtyCleanup = "exited" | "unconfirmed";
+export type PtyTerminate = (child: PtyProcess, platform: NodeJS.Platform) => Promise<PtyCleanup>;
+export type PtySignal = (
+  child: PtyProcess,
+  signal: TerminalSignal,
+  platform: NodeJS.Platform,
+) => Promise<void>;
+export interface PtyCloseResult {
+  cleanup: PtyCleanup;
+}
 
 export type PtyEvent =
   | { type: "data"; data: Uint8Array }

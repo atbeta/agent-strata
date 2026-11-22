@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { PtyManager } from "../src/manager";
 import type { PtyProcess, PtySpawnInput } from "../src/types";
 
-function fixture() {
+function fixture(cleanup: "exited" | "unconfirmed" = "exited") {
   let input: PtySpawnInput | undefined;
   let resolveExit: (code: number) => void = () => {};
   const writes: (string | Uint8Array)[] = [];
@@ -31,7 +31,8 @@ function fixture() {
       return child;
     },
     terminate: async () => {
-      resolveExit(0);
+      if (cleanup === "exited") resolveExit(0);
+      return cleanup;
     },
     platform: "darwin",
   });
@@ -44,6 +45,7 @@ const createInput = {
   argv: ["/bin/sh"],
   command: "/bin/sh",
   cwd: "/work",
+  mode: "shared" as const,
   rows: 24,
   cols: 80,
 };
@@ -84,5 +86,36 @@ describe("PTY lifetime", () => {
     expect(f.manager.list("s1")).toEqual([]);
     expect(f.manager.list("s2")).toHaveLength(1);
     await f.manager.closeAll();
+  });
+
+  test("user-only terminals are private until the user shares them", async () => {
+    const f = fixture();
+    const info = f.manager.create({ ...createInput, mode: "user" });
+    expect(f.manager.listAgent("s1")).toEqual([]);
+    expect(() => f.manager.getAgent("s1", info.id)).toThrow("no terminal");
+    expect(() => f.manager.readAgent("s1", info.id)).toThrow("no terminal");
+    expect(() => f.manager.write("s1", info.id, "x", "agent")).toThrow("no terminal");
+    f.manager.write("s1", info.id, "user");
+    f.manager.setMode("s1", info.id, "shared");
+    f.manager.write("s1", info.id, "agent", "agent");
+    expect(f.manager.listAgent("s1").map((row) => row.id)).toEqual([info.id]);
+    expect(f.writes).toEqual(["user", "agent"]);
+    await f.manager.close("s1", info.id);
+  });
+
+  test("sharing never changes when either side writes", async () => {
+    const f = fixture();
+    const info = f.manager.create(createInput);
+    f.manager.write("s1", info.id, "agent", "agent");
+    f.manager.write("s1", info.id, "user");
+    expect(f.manager.getAgent("s1", info.id).mode).toBe("shared");
+    expect(f.writes).toEqual(["agent", "user"]);
+    expect(await f.manager.close("s1", info.id, "agent")).toEqual({ cleanup: "exited" });
+  });
+
+  test("close reports an unconfirmed process exit", async () => {
+    const f = fixture("unconfirmed");
+    const info = f.manager.create(createInput);
+    expect(await f.manager.close("s1", info.id, "agent")).toEqual({ cleanup: "unconfirmed" });
   });
 });

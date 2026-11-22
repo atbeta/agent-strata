@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { listTerminals, terminalSocket } from "./api";
+import { listTerminals, setTerminalMode, terminalSocket } from "./api";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -21,4 +21,19 @@ test("terminal sockets keep the session query when the token helper builds the U
   expect(url.protocol).toBe("ws:");
   expect(url.pathname).toBe("/api/plugins/terminal/terminals/pty%201/connect");
   expect(url.searchParams.get("session")).toBe("opencode:a b");
+});
+
+test("the terminal mode switch posts the requested sharing mode", async () => {
+  let requested = "";
+  let body = "";
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    requested = String(input);
+    body = String(init?.body);
+    return Response.json({ id: "pty 1", mode: "shared" });
+  });
+  await setTerminalMode("opencode:a b", "pty 1", "shared");
+  const url = new URL(requested, "http://localhost");
+  expect(url.pathname).toBe("/api/plugins/terminal/terminals/pty%201/mode");
+  expect(url.searchParams.get("session")).toBe("opencode:a b");
+  expect(JSON.parse(body)).toEqual({ mode: "shared" });
 });

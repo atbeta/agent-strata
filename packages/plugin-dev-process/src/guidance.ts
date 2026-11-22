@@ -17,14 +17,19 @@ Use \`dev_start\` for long-running, non-interactive servers and watchers. Use
 \`dev_logs\` with its process_id, \`dev_restart\` for the same id, and \`dev_stop\`.
 
 Use \`terminal_create\` only for TTY or interactive stdin (REPL, SSH, prompts). Use
-\`terminal_read\` with its terminal_id, \`terminal_write\` for input, and
-\`terminal_close\`. output_idle means no PTY output in that quiet window; it does not
-mean the command finished.
+\`terminal_write\` for input and new output, \`terminal_read\` with its terminal_id and
+next_offset for later output, and \`terminal_close\`. For shell input, use submit:true instead of
+a trailing newline. Read only with the newest next_offset; write already returns its new output.
+output_idle and a wait_reason of output_idle mean no PTY output in that quiet window; neither
+means the command finished. Only shared terminals are visible to you; both sides may write.
 
 For an exit code, append \`echo EXIT=$?\` (or the shell equivalent). Prefer batch
 output for machines (\`top -b -n1\`, \`docker ps\`, \`jq\`, \`grep\`). terminal_read is
 linear text, not a screen snapshot; do not read a full-screen TUI with it. Separate
 sections with \`=== STATUS ===\`, not clear. For slow SSH, wait_ms may be up to 30000.
+
+Ask the user to enter real or production passwords, one-time codes, and recovery codes.
+Development or test credentials explicitly supplied for the task may be entered when needed.
 
 Never use \`dev_logs\` for a terminal_id or \`terminal_read\` for a process_id.
 

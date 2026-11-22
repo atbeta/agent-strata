@@ -1,6 +1,8 @@
 import { createMemo, type JSX } from "solid-js";
 
 export type Name =
+  | "user"
+  | "user-agent"
   | "replay"
   | "files"
   | "page"
@@ -115,6 +117,22 @@ function Glyph(props: { class?: string; box?: string; weight?: string; children:
 }
 
 function glyphFor(name: Name, cls: string | undefined): JSX.Element {
+  if (name === "user")
+    return (
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+        <circle cx="12" cy="7" r="4" />
+      </Glyph>
+    );
+  if (name === "user-agent")
+    return (
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M13 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+        <circle cx="7" cy="8" r="3" />
+        <circle cx="18" cy="7" r="2.5" />
+        <path d="M18 2v1.5M18 10.5v1.5M13 7h1.5M21.5 7h1.5" />
+      </Glyph>
+    );
   // A clock hand inside a counter-clockwise arrow: replaying what already
   // happened, which is what the trace drawer it opens shows.
   if (name === "replay")
