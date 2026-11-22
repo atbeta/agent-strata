@@ -1,5 +1,8 @@
 import { realWorkspace } from "./api";
 import type { SessionRowSummary } from "./pane-stage";
+import { isGeneratedTitle } from "./generated-title";
+
+export { isGeneratedTitle };
 
 /**
  * Which sessions a pane's session switcher offers, and in what order.
@@ -26,10 +29,6 @@ import type { SessionRowSummary } from "./pane-stage";
  * when it has no title of its own *and* its name is the backend's generated
  * one. A session a human is looking at and has not renamed yet keeps its place.
  */
-export function isGeneratedTitle(title: string): boolean {
-  return /^new session\s*-\s*\d{4}-\d{2}-\d{2}t/i.test(title.trim());
-}
-
 /** The name shown in the list, matching what `PaneHeader` puts on the trigger. */
 export function pickerLabel(s: SessionRowSummary, untitled: string): string {
   return s.title || s.summary.title || untitled;

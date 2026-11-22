@@ -104,7 +104,7 @@ export function SessionHeader(props: {
   bindPanelTrigger: Bind;
 }) {
   const exportSession = () =>
-    void downloadExport(props.view.session_id).catch((err) =>
+    void downloadExport(props.view.session_id, props.view.title).catch((err) =>
       props.onError(err instanceof Error ? err.message : t("err.network")),
     );
 

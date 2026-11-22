@@ -1,5 +1,5 @@
 import { apiFetch, type SessionRow } from "./api";
-import { isGeneratedTitle } from "./pane-session-picker";
+import { isGeneratedTitle } from "./generated-title";
 import { readDraft, readQueuedText } from "./prompt-memory";
 import { readPins } from "./pins";
 

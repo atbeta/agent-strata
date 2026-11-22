@@ -1,5 +1,5 @@
 import { t } from "./i18n";
-import { isGeneratedTitle } from "./pane-session-picker";
+import { isGeneratedTitle } from "./generated-title";
 
 /**
  * The name a session wears on screen.

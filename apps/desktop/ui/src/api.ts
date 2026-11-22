@@ -20,6 +20,7 @@ export type {
 } from "@agent-strata/api";
 import { inDesktopShell } from "./shell";
 import { t } from "./i18n";
+import { displayTitle } from "./session-title";
 import { ServiceError } from "./errors";
 import type { MessageKey } from "./locales/zh";
 import type {
@@ -870,8 +871,33 @@ export async function runShell(sessionId: string, command: string, choice: Promp
   );
 }
 
-export function exportFileName(sessionId: string): string {
-  return `strata-${sessionId.replace(/[^\w.-]+/g, "_")}.ndjson`;
+/**
+ * The name an exported session is saved under.
+ *
+ * A product prefix travels with the file: the export leaves this app and lands
+ * in a Downloads folder, where "strata-" says nothing about what the file is
+ * and something about who made it. The session's own name says both — so the
+ * title leads, and the id is the fallback for a session that never got one.
+ */
+export function exportFileName(sessionId: string, title?: string | null): string {
+  const slug = fileSlug(displayTitle(title));
+  if (slug) return `${slug}.ndjson`;
+  return `session-${sessionId.replace(/[^\w.-]+/g, "_")}.ndjson`;
+}
+
+/**
+ * A name a file system takes and a person can still read: letters and digits
+ * from any script, dashes between words, nothing a path would mind.
+ */
+function fileSlug(label: string | undefined): string {
+  if (!label) return "";
+  return label
+    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, " ")
+    .replace(/\s+/g, "-")
+    .replace(/[^\p{L}\p{N}._-]+/gu, "")
+    .replace(/-{2,}/g, "-")
+    .replace(/^[.-]+|[.-]+$/g, "")
+    .slice(0, 60);
 }
 
 /** One session's usage on one local day — the grain the overview's windows
@@ -926,14 +952,18 @@ export async function attachmentUrl(id: string): Promise<string> {
  * drops into ~/Downloads without asking, so the save goes through a native
  * panel — and its answer comes back so the button can say where it went.
  */
-export async function downloadExport(sessionId: string): Promise<string | undefined> {
+export async function downloadExport(
+  sessionId: string,
+  title?: string | null,
+): Promise<string | undefined> {
   const res = await apiFetch(`/export?session_id=${encodeURIComponent(sessionId)}`);
   await throwOnError(res);
   const blob = await res.blob();
+  const fileName = exportFileName(sessionId, title);
   if (inDesktopShell()) {
     const { invoke } = await import("@tauri-apps/api/core");
     const saved = await invoke<string | null>("save_export", {
-      fileName: exportFileName(sessionId),
+      fileName,
       contents: new Uint8Array(await blob.arrayBuffer()),
     });
     return saved ?? undefined;
@@ -941,7 +971,7 @@ export async function downloadExport(sessionId: string): Promise<string | undefi
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = exportFileName(sessionId);
+  a.download = fileName;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
   return undefined;

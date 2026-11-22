@@ -86,9 +86,19 @@ describe("a duration", () => {
 });
 
 describe("an exported session", () => {
+  test("is named after the session, not after the product", () => {
+    expect(exportFileName("opencode:ses_1", "Fix the flaky sidebar test")).toBe(
+      "Fix-the-flaky-sidebar-test.ndjson",
+    );
+    expect(exportFileName("opencode:ses_1", "评估三套皮肤")).toBe("评估三套皮肤.ndjson");
+    expect(exportFileName("opencode:ses_1")).toBe("session-opencode_ses_1.ndjson");
+    expect(exportFileName("opencode:ses_1", "   ")).toBe("session-opencode_ses_1.ndjson");
+  });
+
   test("is saved under a name any file system takes", () => {
-    expect(exportFileName("opencode:ses_1")).toBe("strata-opencode_ses_1.ndjson");
-    expect(exportFileName("acp:claude-code:a/b")).toBe("strata-acp_claude-code_a_b.ndjson");
+    expect(exportFileName("acp:claude-code:a/b")).toBe("session-acp_claude-code_a_b.ndjson");
+    expect(exportFileName("opencode:ses_1", 'a/b:c*d?"<>|')).toBe("a-b-c-d.ndjson");
+    expect(exportFileName("opencode:ses_1", "...")).toBe("session-opencode_ses_1.ndjson");
   });
 });
 

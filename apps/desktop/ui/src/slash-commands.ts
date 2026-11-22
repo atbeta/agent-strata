@@ -174,7 +174,7 @@ export function useSlashCommands(
         composer.setNotice(t("cmd.share.removed"));
         return;
       case "export":
-        await downloadExport(props.id);
+        await downloadExport(props.id, view()?.title);
         return;
       case "terminal":
         deps.toggleTerminal();
