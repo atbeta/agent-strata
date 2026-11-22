@@ -71,8 +71,8 @@ export function MessageActions(props: {
    * put there. Each button floats on its own with the lightest shadow the set
    * has; the distance between them is what groups them.
    */
-  const btn = "size-5 rounded-md bg-card/95 text-muted-foreground shadow-sm [&_svg]:size-3";
-  const quiet = "size-5 rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground [&_svg]:size-3.5";
+  const btn = "size-5 rounded-md bg-card/95 text-muted-foreground shadow-sm";
+  const quiet = "size-5 rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground";
   return (
     <div
       class={`message-actions mt-1 flex h-7 items-center gap-1.5 ${

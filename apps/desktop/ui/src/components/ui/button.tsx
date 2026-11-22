@@ -6,7 +6,12 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+  /* The icon size is a fallback, not an override: `[&_svg]:size-4` beat the
+     class on the svg itself, so every `<Icon>` inside a button rendered at
+     16px no matter what it asked for. Restricting the rule to classless
+     svgs keeps it covering raw `<svg>` children (Icon always sets a class)
+     while letting an explicit `size-*`/`h-* w-*` do its job. */
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40 [&_svg]:pointer-events-none [&_svg:not([class])]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
