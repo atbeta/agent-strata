@@ -216,7 +216,7 @@ describe("the shim with a service", () => {
     const plugin: Shim = await loadShim();
     const system: string[] = [];
     await plugin["experimental.chat.system.transform"]({ sessionID: "opencode:ses_shim" }, { system });
-    expect(system.join("\n")).toContain("## Long-running commands");
+    expect(system.join("\n")).toContain("## Choose the execution tool");
 
     const afterFirst = [...system];
     await plugin["experimental.chat.system.transform"]({ sessionID: "opencode:ses_shim" }, { system });

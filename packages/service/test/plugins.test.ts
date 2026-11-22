@@ -335,7 +335,7 @@ describe("the plugin platform", () => {
 
   test("the system prompt is the concatenation of the contributors", async () => {
     const res = await (await get("/hooks/system-prompt?session=opencode%3Ases_p")).json() as { text: string };
-    expect(res.text).toContain("## Long-running commands");
+    expect(res.text).toContain("## Choose the execution tool");
     expect(res.text).toContain("echo plugin is installed");
   }, 30_000);
 

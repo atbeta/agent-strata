@@ -20,4 +20,17 @@ describe("execution tool guidance", () => {
     expect(GUIDANCE).toContain("output_idle");
     expect(GUIDANCE).toContain("does not\nmean the command finished");
   });
+
+  test("the system prompt names the detach habit and stays shorter than a tool manual", () => {
+    expect(GUIDANCE).toContain("Start-Process");
+    expect(GUIDANCE).toContain("nohup");
+    expect(GUIDANCE).toContain("already served");
+    expect(GUIDANCE).toContain("marked lost");
+    expect(GUIDANCE).toContain("shell is not running");
+    // Port, workdir, `$`, offset, and restart stay on the tool descriptions.
+    expect(GUIDANCE).not.toContain("Set-Location");
+    expect(GUIDANCE).not.toContain("$true");
+    expect(GUIDANCE).not.toContain("next_offset");
+    expect(GUIDANCE.trim().length).toBeLessThan(1600);
+  });
 });
