@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import {
   applyAppearance,
@@ -18,6 +18,24 @@ import {
 } from "./theme";
 
 const read = (...parts: string[]) => readFileSync(join(import.meta.dir, ...parts), "utf8");
+
+/** Every source file under a directory, tests excluded: a test that mentions
+ *  a token is not a consumer of it. */
+function sourceFiles(dir: string): string[] {
+  const found: string[] = [];
+  for (const name of readdirSync(dir)) {
+    const path = join(dir, name);
+    if (statSync(path).isDirectory()) {
+      if (name === "node_modules" || name === "dist") continue;
+      found.push(...sourceFiles(path));
+      continue;
+    }
+    if (!/\.(tsx?|css)$/.test(name)) continue;
+    if (/\.test\.|\.vtest\./.test(name)) continue;
+    found.push(path);
+  }
+  return found;
+}
 
 const globals = globalThis as unknown as Record<string, unknown>;
 const originals = {
@@ -380,5 +398,53 @@ describe("theme.css", () => {
     }
     expect(src).not.toMatch(/hsl\(/);
     expect(src).toContain('attributeFilter: ["data-theme", "data-scheme"]');
+  });
+
+  test("every palette token has a consumer", () => {
+    // A token nobody reads is a promise the UI never keeps: the cost deltas
+    // were defined in all twenty-six blocks and drawn in none, so the compare
+    // view showed every change in the same grey. The palette is where a
+    // colour is declared; this is where it has to be spent.
+    const css = read("theme.css");
+    const root = /:root\s*\{([\s\S]*?)\n\}/.exec(css)?.[1] ?? "";
+    const tokens = [...root.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((match) => match[1]!);
+    expect(tokens.length).toBeGreaterThan(50);
+
+    // The declarations themselves are not consumers: strip every block that
+    // defines a token, and keep what the stylesheet spends.
+    const spends = css
+      .replace(/:root\s*\{[^}]*\}/g, "")
+      .replace(/html\[[^\]]*\](?:\[[^\]]*\])?\s*\{[^}]*\}/g, "")
+      .replace(/@theme inline\s*\{[^}]*\}/g, "");
+
+    const sources = [spends];
+    for (const file of sourceFiles(import.meta.dir)) {
+      if (file.endsWith("theme.css") || file.endsWith("theme.test.ts")) continue;
+      sources.push(readFileSync(file, "utf8"));
+    }
+    const code = sources.join("\n");
+
+    const spent = (token: string) => {
+      const name = token.slice(2);
+      return (
+        code.includes(`var(${token})`) ||
+        code.includes(`"${token}"`) ||
+        code.includes(`'${token}'`) ||
+        new RegExp(
+          `(?:bg|text|border|ring|fill|shadow|outline|decoration|from|to|via|caret|accent|divide)-${name}(?![a-z0-9-])`,
+        ).test(code)
+      );
+    };
+    expect(tokens.filter((token) => !spent(token))).toEqual([]);
+  });
+
+  test("a dark theme's focus ring is its accent", () => {
+    // --ring draws the keyboard focus ring and the terminal's bright blue.
+    // Every dark theme in the file uses the accent there; a ring in another
+    // hue puts a cyan ring on a violet theme and a pink one on an amber one.
+    for (const theme of THEMES) {
+      const values = valuesFor(theme.id, "dark");
+      expect(values.get("--ring"), theme.id).toBe(values.get("--primary"));
+    }
   });
 });

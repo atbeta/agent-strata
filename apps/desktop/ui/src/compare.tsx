@@ -29,7 +29,16 @@ function Delta(props: { value: number | null; unit?: string; money?: boolean; du
     const sign = props.value > 0 ? "+" : props.value < 0 ? "-" : "";
     return `${sign}${props.money ? "$" : ""}${v}${props.unit ?? ""}`;
   };
-  return <span class="font-mono tabular-nums text-muted-foreground">{text()}</span>;
+  // Only the money delta is a cost, so only it takes the cost colours. More
+  // tokens or more time is not a loss, and painting those red would claim it
+  // was — the sign already says which way the number moved.
+  const tone = () => {
+    if (!props.money || props.value == null) return "text-muted-foreground";
+    if (props.value > 0) return "text-cost-up";
+    if (props.value < 0) return "text-cost-down";
+    return "text-cost-flat";
+  };
+  return <span class={`font-mono tabular-nums ${tone()}`}>{text()}</span>;
 }
 
 function TurnPairRow(props: { pair: TurnPair; i: number; diverged: boolean }) {

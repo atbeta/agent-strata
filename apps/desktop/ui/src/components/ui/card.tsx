@@ -12,7 +12,7 @@ export function Card(raw: CardProps) {
   return (
     <Dynamic
       component={local.as ?? "div"}
-      class={cn("rounded-lg border border-border bg-card", local.class)}
+      class={cn("rounded-lg border border-border bg-card text-card-foreground", local.class)}
       {...rest}
     />
   );
