@@ -504,7 +504,7 @@ export function Sidebar(props: {
                     >
                       <Icon
                         name={props.worktreeJob()?.dir === group().dir ? "activity" : "branch"}
-                        class={cn("size-2.5", props.worktreeJob()?.dir === group().dir && "animate-pulse")}
+                        class={cn("size-3.5", props.worktreeJob()?.dir === group().dir && "animate-pulse")}
                       />
                     </Button>
                   </Tip>
@@ -517,7 +517,7 @@ export function Sidebar(props: {
                     aria-label={t("action.newSession")}
                     onClick={() => props.onNewSession(group().dir)}
                   >
-                    <Icon name="plus" class="size-2.5" />
+                    <Icon name="plus" class="size-3.5" />
                   </Button>
                 </Tip>
               </div>

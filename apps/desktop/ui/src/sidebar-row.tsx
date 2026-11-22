@@ -9,12 +9,14 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 
@@ -70,7 +72,7 @@ export function SessionListItem(props: {
    * on the row itself. Both menus draw the same items — a row's actions should
    * not depend on which gesture found them.
    */
-  const menuItems = (Item: typeof DropdownMenuItem) => (
+  const menuItems = (Item: typeof DropdownMenuItem, Separator: typeof DropdownMenuSeparator) => (
     <>
       <Item
         onSelect={() => {
@@ -78,13 +80,13 @@ export function SessionListItem(props: {
           setEditing(true);
         }}
       >
-        <Icon name="pencil" class="size-3.5 text-muted-foreground" />
+        <Icon name="square-pen" class="size-3.5 text-muted-foreground" />
         {t("sidebar.session.rename")}
       </Item>
       <Item onSelect={() => props.onTogglePin()}>
         {/* The item is one action, so the icon says which action: a pin that
             is already in means the click takes it out. */}
-        <Icon name={props.pinned ? "unpin" : "pin"} class="size-3.5 text-muted-foreground" />
+        <Icon name={props.pinned ? "unpin" : "pin"} class="size-3.5 rotate-45 text-muted-foreground" />
         {t(props.pinned ? "sidebar.session.unpin" : "sidebar.session.pin")}
       </Item>
       <Show when={props.onSplitOpen}>
@@ -93,10 +95,6 @@ export function SessionListItem(props: {
           {t("pane.split.right")}
         </Item>
       </Show>
-      <Item onSelect={() => void props.onArchive()}>
-        <Icon name="archive" class="size-3.5 text-muted-foreground" />
-        {t("sidebar.session.archive")}
-      </Item>
       {/* Usage compare stays behind the session, and only once another
           session exists. It used to be a mode of the whole list. */}
       <Show when={props.onCompare}>
@@ -105,6 +103,11 @@ export function SessionListItem(props: {
           {t("sidebar.session.compare")}
         </Item>
       </Show>
+      <Separator />
+      <Item onSelect={() => void props.onArchive()}>
+        <Icon name="archive" class="size-3.5 text-muted-foreground" />
+        {t("sidebar.session.archive")}
+      </Item>
       <Item class="text-destructive" onSelect={() => props.onDelete()}>
         <Icon name="trash" class="size-3.5" />
         {t("sidebar.session.delete")}
@@ -149,7 +152,7 @@ export function SessionListItem(props: {
             </span>
           </Show>
           <Show when={props.pinned && !editing()}>
-            <Icon name="pin" class="size-3 shrink-0 text-muted-foreground" />
+            <Icon name="pin" class="size-3 shrink-0 rotate-45 text-muted-foreground" />
           </Show>
           <Show
             when={editing()}
@@ -200,14 +203,17 @@ export function SessionListItem(props: {
                 <Icon name="more" class="size-3.5" />
               </DropdownMenuTrigger>
               <DropdownMenuContent class="min-w-40">
-                {menuItems(DropdownMenuItem)}
+                {menuItems(DropdownMenuItem, DropdownMenuSeparator)}
               </DropdownMenuContent>
             </DropdownMenu>
           </Show>
         </ListRow>
       </ContextMenuTrigger>
       <ContextMenuContent class="min-w-40">
-        {menuItems(ContextMenuItem as unknown as typeof DropdownMenuItem)}
+        {menuItems(
+          ContextMenuItem as unknown as typeof DropdownMenuItem,
+          ContextMenuSeparator as unknown as typeof DropdownMenuSeparator,
+        )}
       </ContextMenuContent>
     </ContextMenu>
   );
