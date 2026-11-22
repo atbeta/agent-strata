@@ -1,6 +1,6 @@
 # Agent Strata design system v0.3
 
-The shell is a dark, quiet desktop app. Visual references are Linear (one neutral surface, hairline borders, compact UI type, accent used sparingly) and OpenCode Desktop (session sidebar, conversation, composer, custom window chrome). Tokens live in `ui/src/theme.css`. Interactive controls come from a small Solid component set in `ui/src/components/ui`, styled with those tokens. Appearance is two independent choices: a **color scheme** (dark, light, or the OS's answer) and a **theme** (the palette: Strata, Catppuccin, Dracula, Gruvbox, One, Solarized). Every theme has a rendering for both schemes, so changing one never throws the other away. The native window backdrop is the theme's `--background`; `theme.test.ts` keeps the registry, `index.html` and `tauri.conf.json` in step with it.
+The shell is a dark, quiet desktop app. Visual references are Linear (one neutral surface, hairline borders, compact UI type, accent used sparingly) and OpenCode Desktop (session sidebar, conversation, composer, custom window chrome). Tokens live in `ui/src/theme.css`. Interactive controls come from a small Solid component set in `ui/src/components/ui`, styled with those tokens. Appearance is two independent choices: a **color scheme** (dark, light, or the OS's answer) and a **theme** (the palette: Strata, Catppuccin, Dracula, Gruvbox, One, Solarized, Tokyo Night, Nord, Rosé Pine, Everforest, and the Aurora, Sunset and Ocean Vivid variants). Every theme has a rendering for both schemes, so changing one never throws the other away. The native window backdrop is the theme's `--background`; `theme.test.ts` keeps the registry, `index.html` and `tauri.conf.json` in step with it.
 
 ## Components
 
@@ -100,6 +100,8 @@ macOS already overlays the traffic lights in that strip (`pl-[76px]`). Windows i
 | `syntax-comment` / `string` / `number` / `keyword` / `function` / `property` / `type` / `punctuation` | code and structured values; never session state |
 | `code-surface` / `code-header` | code blocks, terminal commands and output |
 | `diagram-*` | mermaid's baked SVG palette; `mermaid.ts` reads it from the theme at render time |
+
+In the main transcript, category colour marks the start of an item rather than painting its body: the user bubble has a low-alpha `event-user` fill and hairline, a tool's icon and verb use `event-tool`, and recognised local paths use `event-file`. Assistant prose stays at `foreground`. A failed tool's `destructive` treatment overrides its category colour; running and permission states keep their green and amber status signals. This makes the workflow scannable without turning every paragraph, card or border into a coloured surface.
 
 ### Elevation, motion and responsive layout
 

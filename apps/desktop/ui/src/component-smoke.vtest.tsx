@@ -279,6 +279,31 @@ test("a scheduled prompt keeps its source in the user bubble, not its wire text"
   dispose();
 });
 
+test("the main transcript uses category colour without hiding a failed tool", () => {
+  const turn: Turn = {
+    turn_id: "semantic-colour",
+    user: [{ type: "text", text: "read the file" }],
+    assistant: [],
+    tool_calls: [
+      { call_id: "read-ok", tool: "read", input: { path: "a.ts" }, status: "ok" },
+    ],
+  };
+  const host = document.createElement("div");
+  const dispose = render(() => <TurnBlock turn={turn} />, host);
+  const bubble = host.querySelector('[data-message-role="user"] > div.rounded-xl');
+  expect(bubble?.className).toContain("border-event-user/25");
+  expect(bubble?.className).toContain("bg-event-user/10");
+  expect(host.querySelectorAll(".text-event-tool")).toHaveLength(2);
+  dispose();
+
+  turn.tool_calls[0]!.status = "error";
+  const failedHost = document.createElement("div");
+  const disposeFailed = render(() => <TurnBlock turn={turn} />, failedHost);
+  expect(failedHost.querySelectorAll(".text-event-tool")).toHaveLength(0);
+  expect(failedHost.querySelectorAll(".text-destructive").length).toBeGreaterThanOrEqual(2);
+  disposeFailed();
+});
+
 test("a permission wait is amber and still, while real work keeps its pulse", () => {
   const waiting: Turn = {
     turn_id: "waiting",

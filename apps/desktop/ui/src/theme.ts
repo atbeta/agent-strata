@@ -25,7 +25,10 @@ export type ThemeId =
   | "tokyonight"
   | "nord"
   | "rosepine"
-  | "everforest";
+  | "everforest"
+  | "aurora-vivid"
+  | "sunset-vivid"
+  | "ocean-vivid";
 
 /** Three marks that identify a palette in a picker: page, surface, accent. */
 export type ThemeSwatch = {
@@ -125,6 +128,30 @@ export const THEMES: readonly Theme[] = [
     swatch: {
       dark: { background: "#2d353b", surface: "#343f44", accent: "#a7c080" },
       light: { background: "#fdf6e3", surface: "#fffaf0", accent: "#5c7400" },
+    },
+  },
+  {
+    id: "aurora-vivid",
+    name: "Aurora Vivid",
+    swatch: {
+      dark: { background: "#151126", surface: "#1d1733", accent: "#c4a0ff" },
+      light: { background: "#faf7ff", surface: "#ffffff", accent: "#7540c8" },
+    },
+  },
+  {
+    id: "sunset-vivid",
+    name: "Sunset Vivid",
+    swatch: {
+      dark: { background: "#211216", surface: "#2b181d", accent: "#ffb26b" },
+      light: { background: "#fff9f5", surface: "#ffffff", accent: "#b44218" },
+    },
+  },
+  {
+    id: "ocean-vivid",
+    name: "Ocean Vivid",
+    swatch: {
+      dark: { background: "#071b2a", surface: "#0c2638", accent: "#64d9ff" },
+      light: { background: "#f4fbff", surface: "#ffffff", accent: "#006eaa" },
     },
   },
 ];

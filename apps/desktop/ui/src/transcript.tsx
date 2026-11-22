@@ -799,9 +799,9 @@ function ToolCallCard(props: {
         >
           <Icon
             name={toolIcon(props.call.tool, props.call.input)}
-            class={`size-3.5 shrink-0 ${denied() ? "text-destructive" : "text-muted-foreground"}`}
+            class={`size-3.5 shrink-0 ${denied() ? "text-destructive" : "text-event-tool"}`}
           />
-          <span class={`shrink-0 text-xs font-medium ${denied() ? "text-destructive" : "text-muted-foreground"}`}>
+          <span class={`shrink-0 text-xs font-medium ${denied() ? "text-destructive" : "text-event-tool"}`}>
             {headline().verb}
           </span>
           {/* One line, always. Wrapping a long command was tried and is worse
@@ -1324,8 +1324,8 @@ function ToolRun(props: {
           aria-expanded={open()}
           onClick={toggle}
         >
-          <Icon name="wrench" class="size-3.5 shrink-0 text-muted-foreground" />
-          <span class="min-w-0 truncate text-xs font-medium text-muted-foreground">
+          <Icon name="wrench" class="size-3.5 shrink-0 text-event-tool" />
+          <span class="min-w-0 truncate text-xs font-medium text-event-tool">
             {tn("transcript.toolRun", props.calls.length)}
           </span>
           <span
@@ -1467,7 +1467,7 @@ export function TurnBlock(props: {
                 <Show when={props.turn.reverted}>
                   <p class="text-2xs text-muted-foreground">{t("message.reverted")}</p>
                 </Show>
-                <div class="max-w-[min(85%,36rem)] rounded-xl bg-secondary px-3.5 py-2 text-secondary-foreground">
+                <div class="max-w-[min(85%,36rem)] rounded-xl border border-event-user/25 bg-event-user/10 px-3.5 py-2 text-foreground">
                   <Show when={scheduled()}>
                     {(prompt) => (
                       <p
