@@ -30,6 +30,7 @@ import {
   type PluginEvent,
   type PluginManifest,
   type PluginSummary,
+  type PluginUpgradeResult,
   type StrataPlugin,
   type ToolCallResult,
   type ToolEntry,
@@ -542,6 +543,16 @@ export class PluginHost {
     if (!record || record.state !== "running") return undefined;
     if (!record.plugin.route) return undefined;
     return record.plugin.route(req, subpath);
+  }
+
+  async upgrade(
+    pluginId: string,
+    req: Request,
+    subpath: string,
+  ): Promise<PluginUpgradeResult | Response | undefined> {
+    const record = this.records.get(pluginId);
+    if (!record || record.state !== "running" || !record.plugin.upgrade) return undefined;
+    return record.plugin.upgrade(req, subpath);
   }
 
   // -------------------------------------------------------------------------

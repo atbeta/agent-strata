@@ -22,6 +22,8 @@ describe("plugin display names", () => {
     expect(pluginDisplayName("schedule", "Scheduled prompts")).toBe("定时任务");
     expect(pluginDisplayName("sessions", "Session memory")).toBe("会话记忆");
     expect(pluginDisplayName("background", "Custom background")).toBe("自定义背景");
+    expect(pluginDisplayName("terminal", "Interactive terminals")).toBe("交互终端");
+    expect(pluginDisplayDescription("terminal")).toContain("重新连接");
     expect(pluginSettingTitle("background", "fit", "Image fit")).toBe("填充方式");
     expect(pluginDisplayDescription("browser")).toContain("浏览器");
     expect(pluginDisplayDescription("schedule")).toContain("发送消息");
@@ -32,6 +34,8 @@ describe("plugin display names", () => {
     expect(pluginDisplayName("dev", "Long-running commands")).toBe("Background Processes");
     expect(pluginDisplayName("schedule", "Scheduled prompts")).toBe("Scheduled Prompts");
     expect(pluginDisplayName("sessions", "Session memory")).toBe("Session Memory");
+    expect(pluginDisplayName("terminal", "Interactive terminals")).toBe("Interactive Terminals");
+    expect(pluginDisplayDescription("terminal")).toContain("reconnect");
     expect(pluginSettingDescription("sessions", "scope", "Read scope")).toContain("workspaces");
   });
 

@@ -13,6 +13,8 @@ M0–M3 全部落地并通过检查（typecheck / lint / 包测试 / UI 测试 /
 
 **底座之上已出厂两个插件。** `plugin-sessions`（`sessions_list`/`search`/`read`）给 agent 同工作区的跨后端会话记忆，范围就是 workspace——别处的会话一律答"不存在"；`plugin-schedule`（`schedule_create`/`list`/`view`/`update`/`delete` + Schedules 面板）是第一个自治型内置插件：定时器只经 `sessionControl` 投 prompt（`[scheduled: <name>]` 前缀），忙则跳过不排队，错过只在 30 分钟窗口内补一次，增删改默认 ask、仅创建者可改可删。
 
+**原生交互终端已落地。** `plugin-terminal` 用 Bun 原生 PTY（POSIX `openpty` / Windows ConPTY）提供 `terminal_create/list/read/write/close`，agent 与用户底部 dock、右栏 Terminal 面板共享 terminal id。`service/src/plugins/upgrade.ts` 提供通用插件 WS 分发；有界 byte ring 支持 attach 重放，WS/panel 关闭只退订，显式 close、session/目录/插件清理才终止进程。create/write 与 `dev_start` 一样使用 `allow` floor：普通默认策略询问，session auto 放行；create 的 command 与 write 的换行完整命令行走 bash policy，auto 不覆盖 deny。配额只计 running，exited 保留 5 分钟且最多 32 条后回收。`terminal-plugin.test.ts` 跑真实工具 + WS 重连、cursor 分页、延迟输出 wait/quiet，`lifecycle.test.ts` 验证 running 配额、退出 TTL 与 exited 上限；agent 默认及带 command 的 shell 均不加载 zsh/bash/fish 用户配置，面板 shell 保持不变。`terminal-policy.test.ts` 验证普通模式询问、auto 下 create/write 放行及 deny 仍生效，`plugin-websocket.test.ts` 验证通用分发与 query token。跨 service/app 重启接管没有做，需要独立 supervisor；旧 OpenCode `/pty` 代理仍保留。
+
 方案里 M0–M3 的**验收条目**逐条都有对应用例，不只是"功能跑通了"：
 
 | 验收条目 | 用例 |
@@ -32,12 +34,12 @@ M0–M3 全部落地并通过检查（typecheck / lint / 包测试 / UI 测试 /
 | 面板关闭/崩溃不影响主界面 | `plugin-panel.tsx` 的 fallback + `plugin-registry` 失败保留旧值 |
 
 ```
-bun run typecheck     # 15 projects
+bun run typecheck     # 18 projects
 bun run lint          # 0 warnings
-bun test packages     # 730 tests
-bun run test:ui       # 1157 tests
+bun test packages     # 926 tests
+bun run test:ui       # 1339 tests
 cargo test --locked   # 70 tests (apps/desktop/src-tauri)
-bun run sidecar       # 64.7 MB, includes every builtin plugin
+bun run sidecar       # 64.8 MB, includes every builtin plugin
 ```
 
 ## 代码落点
@@ -45,8 +47,9 @@ bun run sidecar       # 64.7 MB, includes every builtin plugin
 | 方案里的位置 | 实际文件 |
 | --- | --- |
 | `packages/plugin-sdk` | `src/index.ts`（manifest zod + `StrataPlugin` + 名字拆分）、`src/version.ts`（`engines.strata` 区间） |
-| `packages/service/src/plugins/` | `host.ts`（registry/生命周期/guards/timeout/hooks）、`routes.ts`（HTTP 面）、`call.ts`（请求解析）、`builtin.ts`（一行一个）、`mcp.ts`（ACP 的 MCP 面）、`tickets.ts`（per-session endpoint） |
+| `packages/service/src/plugins/` | `host.ts`（registry/生命周期/guards/timeout/hooks）、`routes.ts`（HTTP 面）、`upgrade.ts`（插件 WS）、`call.ts`（请求解析）、`builtin.ts`（一行一个）、`mcp.ts`（ACP 的 MCP 面）、`tickets.ts`（per-session endpoint） |
 | `packages/plugin-dev-process` | `src/index.ts`（manifest + 工具 + 面板路由）、`src/dev-process.ts`（原管理器整体搬入）、`src/guidance.ts`（GUIDANCE + `detaches`） |
+| `packages/plugin-terminal` | `src/index.ts`（工具/HTTP/WS）、`manager.ts`（PTY 生命周期）、`output.ts`（byte ring）、`native.ts`（Bun PTY 与进程树清理） |
 | `packages/plugin-browser` | `src/index.ts`（15 个工具 + 资源 + panel 路由）、`src/manager.ts`（BrowserManager）、`src/cdp.ts`（自写 CDP 客户端）、`src/snapshot.ts`（页面内快照/动作表达式） |
 | `packages/plugin-echo` | 参考插件：每类贡献各一份，用来证明"一个包 + 一行" |
 | `plugins/strata-shim.ts` | 唯一安装的 OpenCode 插件（取代 `dev-process.ts`） |
@@ -160,4 +163,4 @@ curl -s localhost:7791/plugins | jq -r '.plugins[] | "\(.id) \(.state)"'
 - **OpenCode v2 shim 分支**：方案 §4.5 的"v2 变体（预留）"没有写。v2 的插件 API 未发布，写一个猜的适配层只会变成要维护的猜测。`strata-shim.ts` 里留了探测点。
 - **`tool.progress` 的最后一跳**：插件 emit → 宿主 → `/stream` → UI 的 store → 行内文本，前四段都有自动化用例（`progress-stream.test.ts` + `plugin-progress.test.ts`）；缺的是"行内真的渲染出百分比"那一段 DOM 断言，因为 `test:ui` 没有挂载整套 transcript 的 harness。
 - **面板的进一步交互**：主干的面板契约只有数据面板在用；帧面板的输入（点击、滚轮、键盘、输入法、拖拽、光标）随浏览器插件一起放在 `local/browser-plugin`。
-- **`component` / `logs` panel kind**：`logs` 有 `DataPanel` 实现但 browser 用不到；`component` 只留了类型，没有编译期注册表。
+- **PTY 的跨 service/app 重启接管**：当前只保证断线、面板卸载和 session/tab 切换后的重连；真正的重启接管需要独立 supervisor。

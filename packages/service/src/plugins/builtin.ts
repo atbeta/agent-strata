@@ -27,6 +27,7 @@ import { manifest as backgroundManifest, createBackgroundPlugin } from "@agent-s
 import { manifest as devManifest, createDevPlugin } from "@agent-strata/plugin-dev-process";
 import { manifest as scheduleManifest, createSchedulePlugin } from "@agent-strata/plugin-schedule";
 import { manifest as sessionsManifest, createSessionsPlugin } from "@agent-strata/plugin-sessions";
+import { manifest as terminalManifest, createTerminalPlugin } from "@agent-strata/plugin-terminal";
 import type { SessionView } from "@agent-strata/projector";
 import type { SearchHit, SessionSummary } from "@agent-strata/store";
 
@@ -66,6 +67,10 @@ export function builtinPlugins(options: BuiltinOptions): RegisteredPlugin[] {
       // dev servers are the app's own long-lived processes, so the pid table
       // sits where the old service-level manager kept it
       create: () => createDevPlugin({ pidFile: `${options.dataDir}/dev-processes.json`, workspaceOf: options.workspaceOf }),
+    },
+    {
+      manifest: terminalManifest,
+      create: () => createTerminalPlugin({ workspaceOf: options.workspaceOf }),
     },
     {
       manifest: sessionsManifest,

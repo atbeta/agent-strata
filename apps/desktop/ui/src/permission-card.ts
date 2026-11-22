@@ -116,6 +116,9 @@ export function permissionView(ask: { tool: string; input: Record<string, unknow
   if (typeof input.command === "string" && input.command) {
     return { kind: "command", command: input.command };
   }
+  if (ask.tool === "terminal_write" && typeof input.data === "string" && input.data) {
+    return { kind: "command", command: input.data };
+  }
   if (ask.tool === "webfetch") {
     const url = typeof input.url === "string" && input.url ? input.url : patterns(input);
     if (url) return { kind: "url", url };

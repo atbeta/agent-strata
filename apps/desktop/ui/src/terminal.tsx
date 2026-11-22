@@ -15,6 +15,7 @@ import {
   listTerminals,
   openTerminal,
   resizeTerminal,
+  streamUrlFor,
   terminalSocket,
   type PtySession,
   type PtyShell,
@@ -33,7 +34,7 @@ import { Tip } from "@/tip";
 import { fadeSignal } from "./errors";
 import { createRequestOwner } from "./request-owner";
 
-export function TerminalPane(props: { sessionId: string; onEmpty?: () => void }) {
+export function TerminalPane(props: { sessionId: string; onEmpty?: () => void; layout?: "dock" | "panel" }) {
   const [tabs, setTabs] = createSignal<PtySession[]>([]);
   const [active, setActive] = createSignal<string | undefined>();
   const [shells, setShells] = createSignal<PtyShell[]>([]);
@@ -146,6 +147,32 @@ export function TerminalPane(props: { sessionId: string; onEmpty?: () => void })
   });
 
   createEffect(() => {
+    const session = props.sessionId;
+    let source: EventSource | undefined;
+    let closed = false;
+    void streamUrlFor(`/plugins/terminal/events?session=${encodeURIComponent(session)}`).then((url) => {
+      if (closed) return;
+      source = new EventSource(url);
+      source.onmessage = (event) => {
+        if (opening) return;
+        const data = JSON.parse(String(event.data)) as { type?: string };
+        if (data.type !== "terminal.changed") return;
+        void listTerminals(session).then((listed) => {
+          if (closed || session !== props.sessionId) return;
+          setTabs(listed.sessions);
+          setShells(listed.shells ?? []);
+          if (listed.sessions.some((row) => row.id === active())) return;
+          setActive(listed.sessions[0]?.id);
+        }).catch(() => {});
+      };
+    }).catch(() => {});
+    onCleanup(() => {
+      closed = true;
+      source?.close();
+    });
+  });
+
+  createEffect(() => {
     if (!ready()) return;
     const id = active();
     const el = host;
@@ -232,7 +259,9 @@ export function TerminalPane(props: { sessionId: string; onEmpty?: () => void })
   });
 
   return (
-    <div class="flex h-64 shrink-0 flex-col border-t border-border bg-background">
+    <div class={`flex min-h-0 flex-col border-border bg-background ${
+      props.layout === "panel" ? "flex-1" : "h-64 shrink-0 border-t"
+    }`}>
       <div class="flex h-8 shrink-0 items-center gap-1 border-b border-border px-2">
         <For each={tabs()}>
           {(tab) => (

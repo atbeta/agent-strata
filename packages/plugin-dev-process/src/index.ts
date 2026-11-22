@@ -52,7 +52,9 @@ export const manifest: PluginManifest = {
     {
       name: "start",
       description: [
-        "Start a long-running command (a dev server, a watcher) under the shell's supervision.",
+        "Start a non-interactive long-running command (a dev server, a watcher) under supervision.",
+        "For a one-shot non-interactive command, use the regular shell. If the program needs",
+        "stdin, a TTY, a REPL, SSH, or an interactive prompt, use `terminal_create` instead.",
         "",
         "Use this instead of `Start-Process`, `&`, `nohup`, or any other way of detaching a",
         "process. The shell owns it: the output reaches this transcript, the process appears in",
@@ -104,6 +106,7 @@ export const manifest: PluginManifest = {
       name: "logs",
       description: [
         "Read the output of a process started with `dev_start`.",
+        "For a terminal_id created by `terminal_create`, use `terminal_read` instead.",
         "",
         "Pass `offset` from the previous reply's `next_offset` to read only lines written",
         "since then. Omit it the first time. `since` is a timestamp in milliseconds for the",

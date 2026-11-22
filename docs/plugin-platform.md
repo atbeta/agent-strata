@@ -176,6 +176,7 @@ discovered -> disabled -> starting -> running -> stopping -> disabled
 | `GET /plugins/:id/events?session=` | SSE：进度、日志、面板事件；query token 放行 |
 | `GET /plugins/:id/health` | 存活与最近错误 |
 | `ANY /plugins/:id/<rest>` | 固定动词之外的路径交给插件的 `route()`：panel 输入、能力私有端点都走这里，不再为单个端点改 service |
+| `WS /plugins/:id/<rest>` | 同一命名空间内的 WebSocket 交给插件的 `upgrade()`；宿主只做鉴权、running 状态与 upgrade 分发，open/message/close 由插件处理 |
 | `POST /hooks/before-tool` | `{ session_id, tool, input }` -> `{ allow, message? }`；按 manifest `hooks.beforeTool` fan-out，首个 deny 生效 |
 | `GET /hooks/system-prompt?session=` | 各插件 `systemPrompt` 贡献的拼接结果 |
 
@@ -203,6 +204,8 @@ export interface StrataPlugin {
   readResource?(req: ResourceRequest): Promise<ResourceResult>;
   /** /plugins/:id/<rest> 的私有端点；返回 undefined 则 404 */
   route?(req: Request, subpath: string): Promise<Response | undefined>;
+  /** WebSocket upgrade；返回 Response 拒绝，否则给出 open/message/close handlers */
+  upgrade?(req: Request, subpath: string): Promise<PluginUpgradeResult | Response | undefined>;
   /** hooks.beforeTool 声明的工具被调用前回调；deny 时 message 原样回给模型 */
   beforeToolCall?(req: { tool: string; input: Record<string, unknown>; sessionId: string }):
     Promise<{ allow: true } | { allow: false; message: string }>;
@@ -215,6 +218,8 @@ export interface StrataPlugin {
 ```
 
 `PluginContext` 提供：`pluginId`、数据目录、manifest `config`、logger、`emit`。
+
+`terminal` 是 WS 通路的第一个租户：agent 的 `terminal_create/list/read/write/close` 与用户底部 dock、右栏面板共享原生 PTY。socket 关闭只退订，不杀进程；重连时从有界 byte ring 重放。这里的持久是**断线与面板卸载后重连**，不是 service 重启接管——后者需要独立 PTY supervisor，PID 记录本身不能恢复 master fd。`terminal_create` 与 `terminal_write` 和 `dev_start` 一样以 `allow` 为 manifest floor，由 policy 文档与 session auto 决定：普通默认策略仍询问，开启“不再询问所有权限”后放行；create 的 command 同时受 bash 规则分析，显式 allow/deny 规则始终优先。`terminal_read` 的 offset/max_bytes 接受 number 及其合法字符串表示；显式 cursor 读取支持 `wait_ms` 与 `quiet_ms`，即使有 prompt 输出也会先收完当前批次。返回的 `output_idle` 只表示 quiet 窗口内没有新 PTY 输出，不是命令完成信号。agent 创建的默认 shell 与带 command 的 zsh/bash/fish 都使用 profile-free argv，用户面板创建仍加载个人配置，避免 autosuggestions/starship 等噪声误导模型。全局与单 session 配额只计算 running；exited 记录保留 5 分钟供读取且最多 32 条，超时或超额才回收。`terminal_write` 只把换行结尾的完整命令行交给 shell policy 分析，尾随半行不分析；session auto 不覆盖用户的 deny 规则。
 
 第三方协议预留：`entry.kind: "process"` 落地时**直接用 MCP over stdio**，不发明第二套 JSON-RPC —— 所需的 `tools/list`、`tools/call`、`resources/read`、进度通知与 MCP 一一同构，插件同时是一个可独立运行的 MCP server；`panel/input`、`beforeToolCall` 等扩展作为同一信封上的自定义方法。届时宿主侧只多一个“spawn + 握手”的实现，`StrataPlugin` 的方法集不变。
 

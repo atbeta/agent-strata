@@ -1348,7 +1348,8 @@ export interface PtyListing {
 }
 
 export function listTerminals(sessionId: string): Promise<PtyListing> {
-  return getJson(`/sessions/${encodeURIComponent(sessionId)}/terminal`, { signal: AbortSignal.timeout(10_000) });
+  const query = new URLSearchParams({ session: sessionId });
+  return getJson(`/plugins/terminal/terminals?${query}`, { signal: AbortSignal.timeout(10_000) });
 }
 
 /**
@@ -1363,9 +1364,8 @@ export async function openTerminal(
   const body: { title?: string; shell?: string } = {};
   if (opts.title) body.title = opts.title;
   if (opts.shell) body.shell = opts.shell;
-  // No timeout meant a stuck spawn pinned the pane's `opening` latch forever
-  // and every later "+" press silently no-oped.
-  const res = await apiFetch(`/sessions/${encodeURIComponent(sessionId)}/terminal`, {
+  const query = new URLSearchParams({ session: sessionId });
+  const res = await apiFetch(`/plugins/terminal/terminals?${query}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -1377,16 +1377,18 @@ export async function openTerminal(
 }
 
 export async function closeTerminal(sessionId: string, ptyId: string): Promise<void> {
+  const query = new URLSearchParams({ session: sessionId });
   await throwOnError(
-    await apiFetch(`/sessions/${encodeURIComponent(sessionId)}/terminal/${encodeURIComponent(ptyId)}`, {
+    await apiFetch(`/plugins/terminal/terminals/${encodeURIComponent(ptyId)}?${query}`, {
       method: "DELETE",
     }),
   );
 }
 
 export async function resizeTerminal(sessionId: string, ptyId: string, rows: number, cols: number): Promise<void> {
+  const query = new URLSearchParams({ session: sessionId });
   await throwOnError(
-    await apiFetch(`/sessions/${encodeURIComponent(sessionId)}/terminal/${encodeURIComponent(ptyId)}/size`, {
+    await apiFetch(`/plugins/terminal/terminals/${encodeURIComponent(ptyId)}/size?${query}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ rows, cols }),
@@ -1394,22 +1396,11 @@ export async function resizeTerminal(sessionId: string, ptyId: string, rows: num
   );
 }
 
-/**
- * The page socket. Strata dials OpenCode; this URL has neither the password nor the ticket.
- *
- * A WebSocket cannot carry a header either, so the token the service expects
- * rides in the query — the same place the event stream puts it.
- */
+/** The native plugin owns the PTY; closing this socket only detaches the page. */
 export async function terminalSocket(sessionId: string, ptyId: string): Promise<string> {
-  const path = `/sessions/${encodeURIComponent(sessionId)}/terminal/${encodeURIComponent(ptyId)}/connect`;
-  const base = inDesktopShell()
-    ? // The shell may have moved the service, so the socket follows the same
-      // answer the HTTP calls use rather than repeating the port.
-      `${desktopService.replace(/^http:/, "ws:")}${path}`
-    : `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/api${path}`;
-  const token = await apiToken();
-  if (!token) return base;
-  return `${base}?${new URLSearchParams({ token }).toString()}`;
+  const query = new URLSearchParams({ session: sessionId });
+  const path = `/plugins/terminal/terminals/${encodeURIComponent(ptyId)}/connect?${query}`;
+  return (await streamUrlFor(path)).replace(/^http/, "ws");
 }
 
 /**

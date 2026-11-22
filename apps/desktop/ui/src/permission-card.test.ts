@@ -46,6 +46,10 @@ describe("permission card body", () => {
       kind: "command",
       command: "npm run dev",
     });
+    expect(permissionView({ tool: "terminal_write", input: { terminal_id: "pty_1", data: "python\n" } })).toEqual({
+      kind: "command",
+      command: "python\n",
+    });
   });
 
   test("an ask about folders shows the folders, and any command as context", () => {

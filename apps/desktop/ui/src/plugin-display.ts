@@ -6,6 +6,7 @@ const NAME_KEYS: Record<string, MessageKey> = {
   dev: "plugin.dev.name",
   schedule: "plugin.schedule.name",
   sessions: "plugin.sessions.name",
+  terminal: "plugin.terminal.name",
 };
 
 const DESCRIPTION_KEYS: Record<string, MessageKey> = {
@@ -14,6 +15,7 @@ const DESCRIPTION_KEYS: Record<string, MessageKey> = {
   dev: "plugin.dev.description",
   schedule: "plugin.schedule.description",
   sessions: "plugin.sessions.description",
+  terminal: "plugin.terminal.description",
 };
 
 export function pluginDisplayName(id: string, fallback: string): string {

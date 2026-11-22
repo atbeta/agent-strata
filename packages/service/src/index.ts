@@ -40,11 +40,12 @@ import { maintenanceRoute } from "./maintenance-routes";
 import { refused, shellCors } from "./shell-origin";
 import { queryTokenOk, readApiToken, tokenOk } from "./api-token";
 import { writeSecureJson } from "./secure-write";
-import { terminalClose, terminalMessage, terminalOpen, terminalRoute, terminalUpgrade } from "./terminal";
+import { terminalClose, terminalMessage, terminalOpen, terminalRoute, terminalUpgrade, type TerminalLink } from "./terminal";
 import { pathInside } from "./path-inside";
 import { PluginHost, type RegisteredPlugin } from "./plugins/host";
 import { builtinPlugins } from "./plugins/builtin";
 import { pluginRoute } from "./plugins/routes";
+import { isPluginSocketLink, pluginUpgrade, type PluginSocketLink } from "./plugins/upgrade";
 import { mcpRoute } from "./plugins/mcp";
 import { createMcpTickets } from "./plugins/tickets";
 import { SessionClaims } from "./identity";
@@ -999,15 +1000,43 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     console.error("plugins failed to start:", error);
   });
 
-  const server = Bun.serve({
+  const server = Bun.serve<TerminalLink | PluginSocketLink>({
     hostname: "127.0.0.1",
     port: opts.port ?? 0,
     idleTimeout: 0,
     maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
     websocket: {
-      open: terminalOpen,
-      message: terminalMessage,
-      close: terminalClose,
+      open(ws) {
+        if (isPluginSocketLink(ws.data)) {
+          try {
+            ws.data.handlers.open?.(ws);
+          } catch {
+            ws.close();
+          }
+          return;
+        }
+        terminalOpen(ws as unknown as Parameters<typeof terminalOpen>[0]);
+      },
+      message(ws, message) {
+        if (isPluginSocketLink(ws.data)) {
+          try {
+            ws.data.handlers.message?.(ws, message);
+          } catch {
+            ws.close();
+          }
+          return;
+        }
+        terminalMessage(ws as unknown as Parameters<typeof terminalMessage>[0], message);
+      },
+      close(ws) {
+        if (isPluginSocketLink(ws.data)) {
+          try {
+            ws.data.handlers.close?.(ws);
+          } catch {}
+          return;
+        }
+        terminalClose(ws as unknown as Parameters<typeof terminalClose>[0]);
+      },
     },
     async fetch(req, server) {
       const allow = {
@@ -1041,11 +1070,13 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       if (Number.isFinite(declared) && declared > MAX_REQUEST_BODY_BYTES) {
         return Response.json({ error: "request body too large" }, { status: 413, headers: allow });
       }
-      const upgraded = terminalUpgrade(req, url, server, ownedTerminal);
-      if (upgraded === "upgraded") return undefined;
       let res: Response;
       try {
-        res = upgraded ?? (await route(req));
+        const upgraded = terminalUpgrade(req, url, server as Parameters<typeof terminalUpgrade>[2], ownedTerminal);
+        if (upgraded === "upgraded") return undefined;
+        const plugin = upgraded ? undefined : await pluginUpgrade(req, url, server as Parameters<typeof pluginUpgrade>[2], plugins);
+        if (plugin === "upgraded") return undefined;
+        res = upgraded ?? plugin ?? (await route(req));
       } catch (error) {
         res = json({ error: String(error) }, 500);
       }

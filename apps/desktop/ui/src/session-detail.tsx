@@ -152,6 +152,7 @@ export function SessionDetail(props: {
   // pill must keep working while the rail is closed.
   const dev = useDevProcesses(() => props.id, opencode);
   const schedulesEnabled = () => opencode() && isPluginPanelTab("plugin:schedule");
+  const terminalEnabled = () => opencode() && isPluginPanelTab("plugin:terminal");
   const schedules = useSchedules(() => props.id, schedulesEnabled);
   const [lspServers] = createResource(
     () => (opencode() ? props.id : undefined),
@@ -644,7 +645,7 @@ export function SessionDetail(props: {
       id: "session.terminal",
       title: () => (terminalOn() ? t("terminal.hide") : t("terminal.show")),
       chord: { key: "`" },
-      enabled: () => opencode(),
+      enabled: terminalEnabled,
       run: toggleTerminal,
     },
     {
@@ -735,6 +736,7 @@ export function SessionDetail(props: {
                 opencode={opencode()}
                 search={search}
                 tools={tools}
+                terminalAvailable={terminalEnabled()}
                 terminalOn={terminalOn()}
                 onToggleTerminal={toggleTerminal}
                 traceOn={traceOn()}
@@ -957,7 +959,7 @@ export function SessionDetail(props: {
             </>
           )}
         </Show>
-        <Show when={terminalOn() && opencode()}>
+        <Show when={terminalOn() && terminalEnabled()}>
           <TerminalPane sessionId={props.id} onEmpty={() => setTerminalOn(false)} />
         </Show>
       </div>

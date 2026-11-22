@@ -40,7 +40,16 @@ type Rule = Policy["rules"][number];
  * command on that platform skipped the shell analysis entirely — the split
  * into segments, the redirect floor, the rules a reader wrote for the shell.
  */
-export const SHELL_TOOLS = ["bash", "powershell", "shell", "execute", "terminal", "dev_start"];
+export const SHELL_TOOLS = [
+  "bash",
+  "powershell",
+  "shell",
+  "execute",
+  "terminal",
+  "dev_start",
+  "terminal_create",
+  "terminal_write",
+];
 
 /**
  * Whether a decision came from a rule the reader wrote.
@@ -471,6 +480,15 @@ function hasOutputRedirection(segment: string): boolean {
   return false;
 }
 
+function completedTerminalInput(data: unknown): string | undefined {
+  if (typeof data !== "string") return undefined;
+  const normalized = data.replace(/\r\n?/g, "\n");
+  const end = normalized.lastIndexOf("\n");
+  if (end < 0) return undefined;
+  const complete = normalized.slice(0, end);
+  return complete.trim() ? complete : undefined;
+}
+
 /**
  * Judge one tool call.
  *
@@ -485,19 +503,15 @@ export function evaluate(
   const { tool, input, plugin_id } = req;
   if (!SHELL_TOOLS.includes(tool)) return evalSingle(policy, [tool], input, plugin_id);
 
-  const raw = input.command ?? input.cmd;
+  const raw = tool === "terminal_write" ? completedTerminalInput(input.data) : input.command ?? input.cmd;
   // A shell-shaped tool whose command is not a string has nothing to analyse,
   // but it is still that tool's call: a rule scoped to its plugin must reach
   // it, which is why `plugin_id` goes through here too.
   if (typeof raw !== "string") return evalSingle(policy, [tool], input, plugin_id);
 
-  // The names a rule about this command may be written under. A background
-  // command answers to two: the rules for the shell reach it, and the rules
-  // for `dev_start` are about background commands — where both have something
-  // to say, the stricter wins, the same way two rules about one tool are
-  // resolved. A rule written for `dev_start` does not reach a foreground
-  // command, and a rule written for another shell's name does not either.
-  const tools = tool === "dev_start" ? ["dev_start", "bash"] : [tool];
+  // Supervised background commands and interactive PTYs answer to both their
+  // own tool rules and the shell rules for the command they carry.
+  const tools = ["dev_start", "terminal_create", "terminal_write"].includes(tool) ? [tool, "bash"] : [tool];
 
   const split = splitShell(raw);
   const segments = split.length ? split : [raw.trim()];

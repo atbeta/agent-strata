@@ -35,6 +35,7 @@ const projects = [
   "packages/plugin-echo",
   "packages/plugin-schedule",
   "packages/plugin-sessions",
+  "packages/plugin-terminal",
   "packages/service",
   "apps/desktop/ui",
   "apps/desktop/ui/bench",

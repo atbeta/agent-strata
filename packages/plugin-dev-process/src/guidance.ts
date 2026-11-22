@@ -8,6 +8,22 @@
 
 /** What the model is told before it reads the request. */
 export const GUIDANCE = `
+## Choose the execution tool
+
+Use the regular shell for a one-shot, non-interactive command.
+
+Use \`dev_start\` for a long-running, non-interactive command such as a development
+server or watcher. Use \`dev_logs\` with its process_id, \`dev_restart\` to run it
+again under the same id, and \`dev_stop\` to stop it.
+
+Use \`terminal_create\` only when the program needs a TTY or interactive stdin, such
+as a REPL, SSH, or an interactive prompt. Use \`terminal_read\` with its terminal_id,
+\`terminal_write\` to send input, and \`terminal_close\` to close it. A terminal's
+output_idle only means no PTY output arrived during that quiet window; it does not
+mean the command finished.
+
+Do not use \`dev_logs\` for a terminal_id or \`terminal_read\` for a process_id.
+
 ## Long-running commands
 
 A development server, a watcher, or anything else meant to keep running must be

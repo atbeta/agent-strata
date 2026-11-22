@@ -86,6 +86,7 @@ export function SessionHeader(props: {
   opencode: boolean;
   search: ReturnType<typeof useSessionSearch>;
   tools: ReturnType<typeof useMcpTools>;
+  terminalAvailable: boolean;
   terminalOn: boolean;
   onToggleTerminal: () => void;
   traceOn: boolean;
@@ -211,7 +212,7 @@ export function SessionHeader(props: {
           </PanelToggle>
         </Tip>
         <span class="flex items-center gap-0.5 @max-[719px]:hidden">
-          <Show when={props.opencode}>
+          <Show when={props.terminalAvailable}>
             <Tip label={props.terminalOn ? t("terminal.hide") : t("terminal.show")}>
               <PanelToggle
                 label={props.terminalOn ? t("terminal.hide") : t("terminal.show")}
@@ -282,7 +283,7 @@ export function SessionHeader(props: {
             <McpAttentionMark tone={props.tools.attention()} />
           </DropdownMenuTrigger>
           <DropdownMenuContent class="min-w-48">
-            <Show when={props.opencode}>
+            <Show when={props.terminalAvailable}>
               <DropdownMenuItem onSelect={props.onToggleTerminal}>
                 <Icon name="terminal" class="size-3.5 text-muted-foreground" />
                 <span class="flex-1">{props.terminalOn ? t("terminal.hide") : t("terminal.show")}</span>

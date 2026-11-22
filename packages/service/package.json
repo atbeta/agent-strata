@@ -19,6 +19,7 @@
     "@agent-strata/plugin-schedule": "workspace:*",
     "@agent-strata/plugin-sdk": "workspace:*",
     "@agent-strata/plugin-sessions": "workspace:*",
+    "@agent-strata/plugin-terminal": "workspace:*",
     "@agent-strata/policy": "workspace:*",
     "@agent-strata/projector": "workspace:*",
     "@agent-strata/schema": "workspace:*",

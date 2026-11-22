@@ -320,6 +320,8 @@ export default {
   "plugin.schedule.description": "Send a prompt to this session, another session, or a fresh one at the time you choose.",
   "plugin.sessions.name": "Session Memory",
   "plugin.sessions.description": "Let the agent list, search, and read other sessions to recover earlier context.",
+  "plugin.terminal.name": "Interactive Terminals",
+  "plugin.terminal.description": "Share interactive terminals with the agent for REPLs, SSH, and other programs that need input; reconnect after closing the panel.",
   "plugin.sessions.scope": "Read scope",
   "plugin.sessions.scope.description": "Which workspaces the sessions_* tools may read.",
   "plugin.sessions.scope.workspace": "This workspace only",

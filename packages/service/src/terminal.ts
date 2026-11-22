@@ -105,7 +105,7 @@ export function ptyShells(value: unknown): PtyShell[] {
   return out;
 }
 
-interface TerminalLink {
+export interface TerminalLink {
   upstream?: WebSocket;
   /** keystrokes that arrive before the upstream socket is open */
   queue: string[];

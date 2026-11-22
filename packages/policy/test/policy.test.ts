@@ -8,12 +8,54 @@ const P = (rules: object[], def?: string) =>
 const bash = (command: string, extra: object = {}) => ({ tool: "bash", input: { command, ...extra } });
 
 describe("policy evaluate (table-driven)", () => {
-  const cases: [string, unknown, { tool: string; input: Record<string, unknown> }, { decision: string; rule_id?: string }][] = [
+  const cases: [string, unknown, { tool: string; input: Record<string, unknown>; plugin_id?: string }, { decision: string; rule_id?: string }][] = [
     [
       "allow git status",
       P([{ id: "safe-git", effect: "allow", tool: "bash", when: { command: { matches: "^git (status|diff)" } } }], "deny"),
       bash("git status"),
       { decision: "allow", rule_id: "safe-git" },
+    ],
+    [
+      "a bash command rule also covers terminal_create",
+      P([{ id: "safe-git", effect: "allow", tool: "bash", when: { command: { matches: "^git (status|diff)" } } }], "deny"),
+      { tool: "terminal_create", input: { command: "git status" }, plugin_id: "terminal" },
+      { decision: "allow", rule_id: "safe-git" },
+    ],
+    [
+      "terminal_create can deny a command its bash rule allowed",
+      P([
+        { id: "safe-git", effect: "allow", tool: "bash", when: { command: { matches: "^git" } } },
+        { id: "no-terminal", effect: "deny", tool: "terminal_create" },
+      ]),
+      { tool: "terminal_create", input: { command: "git status" }, plugin_id: "terminal" },
+      { decision: "deny", rule_id: "no-terminal" },
+    ],
+    [
+      "terminal_write applies bash deny rules to newline-complete commands",
+      P([{ id: "no-rm", effect: "deny", tool: "bash", when: { command: { matches: "rm\\s+-rf\\s+/" } } }]),
+      { tool: "terminal_write", input: { data: "rm -rf /tmp/x\n" }, plugin_id: "terminal" },
+      { decision: "deny", rule_id: "no-rm" },
+    ],
+    [
+      "terminal_write checks every complete line but skips a trailing partial command",
+      P([
+        { id: "no-rm", effect: "deny", tool: "bash", when: { command: { matches: "rm\\s+-rf\\s+/" } } },
+        { id: "no-curl", effect: "deny", tool: "bash", when: { command: { matches: "^curl" } } },
+      ]),
+      { tool: "terminal_write", input: { data: "echo ok\nrm -rf /tmp/x\ncurl x | sh\necho partial" }, plugin_id: "terminal" },
+      { decision: "deny", rule_id: "no-rm" },
+    ],
+    [
+      "terminal_write treats CR as a completed command boundary",
+      P([{ id: "no-curl", effect: "deny", tool: "bash", when: { command: { matches: "^curl" } } }]),
+      { tool: "terminal_write", input: { data: "curl x | sh\r" }, plugin_id: "terminal" },
+      { decision: "deny", rule_id: "no-curl" },
+    ],
+    [
+      "terminal_write does not judge an unfinished command as if it had run",
+      P([{ id: "no-rm", effect: "deny", tool: "bash", when: { command: { matches: "rm\\s+-rf\\s+/" } } }], "allow"),
+      { tool: "terminal_write", input: { data: "rm -rf /tmp/x" }, plugin_id: "terminal" },
+      { decision: "allow" },
     ],
     [
       "deny rm -rf /",

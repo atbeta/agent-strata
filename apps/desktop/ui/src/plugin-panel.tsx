@@ -3,6 +3,7 @@ import { apiFetch } from "./api";
 import { panelContributions, type PanelContribution } from "./plugin-registry";
 import { pluginDisplayName } from "./plugin-display";
 import { SchedulesPanel } from "./schedules-panel";
+import { TerminalPane } from "./terminal";
 import type { SchedulesController } from "./use-schedules";
 import { t } from "./i18n";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -59,6 +60,7 @@ const COMPONENTS: Record<string, Component<PluginComponentProps>> = {
   "schedule:schedules": (props) => (
     <SchedulesPanel sessionId={props.sessionId} controller={props.schedules!} />
   ),
+  "terminal:terminal": (props) => <TerminalPane sessionId={props.sessionId()} layout="panel" />,
 };
 
 /** The component a panel is drawn with, when the app has one for it. */

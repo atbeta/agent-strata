@@ -465,6 +465,21 @@ export interface ToolCallDenied {
   message: string;
 }
 
+export interface PluginSocket {
+  send(data: string | Uint8Array): void;
+  close(code?: number, reason?: string): void;
+}
+
+export interface PluginSocketHandlers {
+  open?(ws: PluginSocket): void;
+  message?(ws: PluginSocket, message: string | Uint8Array): void;
+  close?(ws: PluginSocket): void;
+}
+
+export interface PluginUpgradeResult {
+  handlers: PluginSocketHandlers;
+}
+
 /**
  * The methods a builtin plugin may implement.
  *
@@ -482,6 +497,8 @@ export interface StrataPlugin {
   readResource?(req: ResourceRequest): Promise<ResourceResult>;
   /** `/plugins/:id/<rest>`; returning undefined leaves it a 404 */
   route?(req: Request, subpath: string): Promise<Response | undefined>;
+  /** `/plugins/:id/<rest>` WebSocket upgrade; a Response refuses the upgrade. */
+  upgrade?(req: Request, subpath: string): Promise<PluginUpgradeResult | Response | undefined>;
   /** hooks.beforeTool: called before one of the tools it named runs */
   beforeToolCall?(req: {
     tool: string;

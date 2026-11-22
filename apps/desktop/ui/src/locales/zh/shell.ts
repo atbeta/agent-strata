@@ -313,6 +313,8 @@ export default {
   "plugin.schedule.description": "按你设定的时间，向当前会话、指定会话或新会话发送消息。",
   "plugin.sessions.name": "会话记忆",
   "plugin.sessions.description": "让 agent 列出、搜索和读取本会话之外的历史会话，找回之前的内容。",
+  "plugin.terminal.name": "交互终端",
+  "plugin.terminal.description": "让 agent 和你共享同一个交互终端，运行 REPL、SSH 等需要输入的程序；关闭面板后仍可重新连接。",
   "plugin.sessions.scope": "读取范围",
   "plugin.sessions.scope.description": "允许 sessions_* 工具读取哪些工作区的会话。",
   "plugin.sessions.scope.workspace": "仅当前工作区",
