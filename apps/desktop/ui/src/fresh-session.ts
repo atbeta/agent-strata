@@ -104,7 +104,7 @@ const FRESH_TRIES_MAX = 5;
 export function createFreshSessions(deps: {
   /** the session list's rows */
   rows: () => SessionRow[];
-  /** the session is on the route, in a visible pane, or in the compare pick */
+  /** the session is on the route, in a visible pane, or held by the usage-compare picker */
   onScreen: (id: string) => boolean;
   /** archived rows sit outside `rows`; one the reader shelved is theirs */
   archived?: (id: string) => boolean;

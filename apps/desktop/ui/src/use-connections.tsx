@@ -267,11 +267,7 @@ const HEADLINE_KEY = {
  * the two doors that change what this window may do: the permission policy,
  * which decides what an agent can run without asking, and the settings gear.
  */
-export function ConnectionsFooter(props: {
-  conns: ConnectionsCtl;
-  compareReady: boolean;
-  onCompareOpen: () => void;
-}) {
+export function ConnectionsFooter(props: { conns: ConnectionsCtl }) {
   const c = () => props.conns;
   const headline = () => backendHeadline(c().phase());
   const headlineTone = () =>
@@ -327,13 +323,6 @@ export function ConnectionsFooter(props: {
             </For>
           </Show>
         </div>
-        <Show when={props.compareReady}>
-          <Tip label={t("sidebar.compare.openTip")}>
-            <Button size="sm" onClick={() => props.onCompareOpen()}>
-              {t("sidebar.compare.open")}
-            </Button>
-          </Tip>
-        </Show>
         <Tip label={t("sidebar.permission.policy")}>
           <Button
             variant="icon"

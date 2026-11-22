@@ -24,7 +24,6 @@ export function SessionListItem(props: {
   active: boolean;
   status: SessionStatus;
   time: string;
-  actions: boolean;
   onOpen: () => void;
   onRename: (title: string) => Promise<void>;
   onArchive: () => Promise<void>;
@@ -32,8 +31,11 @@ export function SessionListItem(props: {
   /** Whether the row sits in the pinned group; the menu reads one of two words. */
   pinned: boolean;
   onTogglePin: () => void;
-  /** Start a comparison with this session already picked. */
-  onCompare: () => void;
+  /**
+   * Open the usage-compare picker with this session already chosen.
+   * Absent when there is no second session to pick.
+   */
+  onCompare?: () => void;
   /** Open this session in a side-by-side split pane. */
   onSplitOpen?: () => void;
   /**
@@ -50,7 +52,7 @@ export function SessionListItem(props: {
   const [menuOpen, setMenuOpen] = createSignal(false);
   // Pointer hover is immediate; group-focus-within below offers the same control
   // to keyboard navigation. An open portal menu also counts as staying on the row.
-  const reveal = () => props.actions && (hot() || menuOpen());
+  const reveal = () => hot() || menuOpen();
 
   createEffect(() => {
     if (!editing()) setDraft(props.title);
@@ -85,24 +87,24 @@ export function SessionListItem(props: {
         <Icon name={props.pinned ? "unpin" : "pin"} class="size-3.5 text-muted-foreground" />
         {t(props.pinned ? "sidebar.session.unpin" : "sidebar.session.pin")}
       </Item>
-      {/* Compare belongs on the session rather than behind a global
-          toggle: a comparison always starts from one of the two, so
-          asking the list to enter a mode first made the user name a
-          session before they could start. */}
       <Show when={props.onSplitOpen}>
         <Item onSelect={() => props.onSplitOpen?.()}>
           <Icon name="split-row" class="size-3.5 text-muted-foreground" />
           {t("pane.split.right")}
         </Item>
       </Show>
-      <Item onSelect={props.onCompare}>
-        <Icon name="compare" class="size-3.5 text-muted-foreground" />
-        {t("sidebar.session.compare")}
-      </Item>
       <Item onSelect={() => void props.onArchive()}>
         <Icon name="archive" class="size-3.5 text-muted-foreground" />
         {t("sidebar.session.archive")}
       </Item>
+      {/* Usage compare stays behind the session, and only once another
+          session exists. It used to be a mode of the whole list. */}
+      <Show when={props.onCompare}>
+        <Item onSelect={() => props.onCompare?.()}>
+          <Icon name="compare" class="size-3.5 text-muted-foreground" />
+          {t("sidebar.session.compare")}
+        </Item>
+      </Show>
       <Item class="text-destructive" onSelect={() => props.onDelete()}>
         <Icon name="trash" class="size-3.5" />
         {t("sidebar.session.delete")}
@@ -174,9 +176,9 @@ export function SessionListItem(props: {
             {/* No title here: the span is pointer-events-none, so a native tooltip
                 could never surface. The row's own hover covers it. */}
             <span
-              class={`pointer-events-none absolute right-2 top-1/2 w-[4.5rem] -translate-y-1/2 text-right text-2xs text-faint-foreground tabular-nums ${
+              class={`pointer-events-none absolute right-2 top-1/2 w-[4.5rem] -translate-y-1/2 text-right text-2xs text-faint-foreground tabular-nums group-focus-within:invisible ${
                 reveal() ? "invisible" : ""
-              } ${props.actions ? "group-focus-within:invisible" : ""}`}
+              }`}
             >
               {props.time}
             </span>
@@ -191,7 +193,7 @@ export function SessionListItem(props: {
                 }`}
                 aria-label={t("sidebar.session.actions")}
                 data-row-menu=""
-                tabIndex={props.actions ? 0 : -1}
+                tabIndex={0}
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => e.stopPropagation()}
               >

@@ -96,7 +96,7 @@ describe("quiet visual consistency", () => {
     const row = read("sidebar-row.tsx");
     expect(row).toContain("group-focus-within:visible");
     expect(row).toContain("group-focus-within:invisible");
-    expect(row).toContain("tabIndex={props.actions ? 0 : -1}");
+    expect(row).toContain("tabIndex={0}");
   });
 
   test("content preferences cover prose and mono, and the footer keeps addresses on demand", () => {

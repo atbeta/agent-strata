@@ -38,6 +38,7 @@ import {
 } from "./sidebar-width";
 import type { WorkspaceCtl } from "./use-workspace";
 import { SessionListItem } from "./sidebar-row";
+import { ComparePick } from "./compare-pick";
 import { ArchivedSection } from "./archived-section";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -132,11 +133,11 @@ export function Sidebar(props: {
   onToggleSidebar: () => void;
   onOpenPalette: () => void;
   fleetActive: boolean;
-  compareOn: boolean;
-  compareSel: string[];
-  onStartCompare: (id?: string) => void;
-  onCancelCompare: () => void;
-  onOpenCompare: () => void;
+  /** Set while the usage-compare picker is open, naming the session it started from. */
+  compareWith: string | undefined;
+  onCompare: (id: string) => void;
+  onCloseCompare: () => void;
+  onPickCompare: (id: string) => void;
   activeId: () => string | undefined;
   clock: () => number;
   onOpenSession: (id: string) => void;
@@ -531,17 +532,18 @@ export function Sidebar(props: {
                 <SessionListItem
                   id={id}
                   title={displayTitle(s().title ?? s().summary.title) ?? t("common.untitled")}
-                  active={props.activeId() === id || props.compareSel.includes(id)}
+                  active={props.activeId() === id}
                   status={sessionStatus(s())}
                   time={relTime(s().summary.last_ts, props.clock())}
-                  actions={!props.compareOn}
                   onOpen={() => props.onOpenSession(id)}
                   onRename={(title) => list().runAction(id, () => renameSession(id, title), false)}
                   onArchive={() => list().runAction(id, () => archiveSession(id), true)}
                   onDelete={() => askDeleteSession(id, displayTitle(s().title ?? s().summary.title) ?? t("common.untitled"))}
                   pinned={list().pins().includes(id)}
                   onTogglePin={() => list().togglePinned(id)}
-                  onCompare={() => props.onStartCompare(id)}
+                  onCompare={
+                    list().sessions().length >= 2 ? () => props.onCompare(id) : undefined
+                  }
                   onSplitOpen={() => openSessionInSplit(id, "row")}
                   instance={instanceOf(s())}
                   shell={s().shell}
@@ -717,29 +719,6 @@ export function Sidebar(props: {
         </p>
       </Show>
       <div class="min-h-0 flex-1 overflow-y-auto px-1.5 pb-4 pt-1 [mask-image:linear-gradient(to_bottom,black_calc(100%-16px),transparent)]">
-        {/* Compare is a mode of the list and it says so at the top of the
-            list. The hint used to live inside the connect panel, so entering
-            compare mode from anywhere else showed nothing at all: the rows
-            simply stopped opening, with no sign of what had changed. */}
-        <Show when={props.compareOn}>
-          <div class="mb-1.5 flex items-center gap-2 rounded-md bg-secondary/40 px-2 py-1.5">
-            <Icon name="columns" class="size-3.5 shrink-0 text-muted-foreground" />
-            <span class="min-w-0 flex-1 text-2xs text-muted-foreground">
-              {props.compareSel.length < 2
-                ? t("sidebar.compare.pick", { n: 2 - props.compareSel.length })
-                : t("sidebar.compare.openTip")}
-            </span>
-            <Button
-              type="button"
-              variant="quiet"
-              size="xs"
-              class="shrink-0"
-              onClick={() => props.onCancelCompare()}
-            >
-              {t("sidebar.compare.cancel")}
-            </Button>
-          </div>
-        </Show>
         <For each={metaKeys()}>{renderGroup}</For>
         {/* The label of the list below, and the tools that decide what the
             list shows. They stay in sight: a control that hides until it is
@@ -970,11 +949,7 @@ export function Sidebar(props: {
           and the only way back to it was to scroll to the very end. A place
           you have to look for is not a place. */}
       <ArchivedSection list={props.list} now={props.clock} onOpen={props.onOpenSession} />
-      <ConnectionsFooter
-        conns={props.conns}
-        compareReady={props.compareSel.length === 2}
-        onCompareOpen={props.onOpenCompare}
-      />
+      <ConnectionsFooter conns={props.conns} />
       {/* An action's failure belongs where the action happened, not in a
           caption under the filters where it reads as part of the list and
           is clipped to one line. A toast is seen wherever the reader is
@@ -1001,6 +976,12 @@ export function Sidebar(props: {
           </div>
         </Portal>
       </Show>
+      <ComparePick
+        anchorId={props.compareWith}
+        sessions={list().sessions()}
+        onClose={() => props.onCloseCompare()}
+        onPick={(id) => props.onPickCompare(id)}
+      />
       <ConfirmDialog
         open={sessionDelete() !== undefined}
         title={t("sidebar.session.deleteTitle", { name: sessionDelete()?.title ?? "" })}

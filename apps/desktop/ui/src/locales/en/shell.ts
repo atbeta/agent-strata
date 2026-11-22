@@ -54,7 +54,7 @@ export default {
   "sidebar.session.rename": "Rename",
   "sidebar.session.pin": "Pin to top",
   "sidebar.session.unpin": "Unpin",
-  "sidebar.session.compare": "Compare this session",
+  "sidebar.session.compare": "Compare usage",
   "sidebar.session.archive": "Archive",
   "sidebar.session.delete": "Delete",
   "sidebar.session.deleteTitle": "Delete \"{name}\"",
@@ -138,13 +138,6 @@ export default {
   "connect.form.command": "command, e.g. opencode acp",
   "sidebar.backend.newTarget": "new sessions",
 
-  // Compare
-  "sidebar.compare.pick": "Pick {n} more",
-  "sidebar.compare.open": "Open",
-  "sidebar.compare.openTip": "Open the comparison",
-  "sidebar.compare.start": "Compare two sessions",
-  "sidebar.compare.cancel": "Cancel compare",
-
   // Overflow menu
   "sidebar.menu.more": "More",
   "sidebar.menu.disconnect": "Disconnect {host}",
@@ -155,7 +148,7 @@ export default {
   // Routes
   "nav.backToFleet": "fleet",
   "nav.backToSession": "back to session",
-  "nav.compare": "Compare",
+  "nav.compare": "Usage compare",
 
   // Fleet page
   "fleet.nav": "Overview",

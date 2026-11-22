@@ -73,11 +73,10 @@ function mountSidebar() {
         onToggleSidebar={() => {}}
         onOpenPalette={() => {}}
         fleetActive={true}
-        compareOn={false}
-        compareSel={[]}
-        onStartCompare={() => {}}
-        onCancelCompare={() => {}}
-        onOpenCompare={() => {}}
+        compareWith={undefined}
+        onCompare={() => {}}
+        onCloseCompare={() => {}}
+        onPickCompare={() => {}}
         activeId={() => undefined}
         clock={() => 0}
         onOpenSession={() => {}}

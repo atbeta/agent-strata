@@ -138,8 +138,14 @@ export function App() {
       )
     ).events,
   );
-  const [compareOn, setCompareOn] = createSignal(false);
-  const [compareSel, setCompareSel] = createSignal<string[]>([]);
+  /**
+   * The session a usage comparison starts from. Choosing the other one opens
+   * the compare page directly. There is no list mode: that one took over every
+   * row click, sent the reader home, and hid the way out in the connection strip.
+   */
+  const [compareWith, setCompareWith] = createSignal<string | undefined>();
+  // Choosing is a moment, not a mode that follows the reader into the next page.
+  createEffect(on(route, () => setCompareWith(undefined)));
 
   /**
    * Whether the left column is on screen.
@@ -170,7 +176,7 @@ export function App() {
       const r = route();
       if (r.name === "session" && r.id === id) return true;
       if (r.name === "compare" && (r.a === id || r.b === id)) return true;
-      if (compareSel().includes(id)) return true;
+      if (compareWith() === id) return true;
       // The pane workspace only renders inside a session route; a leaf holding
       // the id anywhere else is memory, not something on screen.
       if (r.name !== "session") return false;
@@ -323,7 +329,7 @@ export function App() {
         // it no longer exists, whether this window deleted it or another did.
         if (evt.type === "session.deleted" && evt.session_id) {
           fresh.unmark(evt.session_id);
-          setCompareSel((sel) => sel.filter((x) => x !== evt.session_id));
+          if (compareWith() === evt.session_id) setCompareWith(undefined);
           const r = route();
           if (
             (r.name === "session" && r.id === evt.session_id) ||
@@ -546,12 +552,6 @@ export function App() {
   };
 
   const openSession = (id: string) => {
-    if (compareOn()) {
-      setCompareSel((sel) =>
-        sel.includes(id) ? sel.filter((x) => x !== id) : [...sel.slice(-1), id],
-      );
-      return;
-    }
     const row = list.library().find((s) => s.summary.session_id === id);
     ws.rememberDir(row ? list.sessionWorkspace(row) : undefined);
     location.hash = `/session/${encodeURIComponent(id)}`;
@@ -559,28 +559,15 @@ export function App() {
 
   /** The overview is a place, not a moment before the first click. */
   const openFleet = () => {
-    setCompareOn(false);
-    setCompareSel([]);
+    setCompareWith(undefined);
     location.hash = "/";
   };
 
-  /** Enter compare mode with one session already chosen. With no id the user
-   *  picks both, which is what the palette command does. */
-  const startCompare = (id?: string) => {
-    setCompareOn(true);
-    setCompareSel(id ? [id] : []);
-    if (id && location.hash !== "/") location.hash = "/";
-  };
-
-  const cancelCompare = () => {
-    setCompareOn(false);
-    setCompareSel([]);
-  };
-
-  const openCompare = () => {
-    const [a, b] = compareSel();
-    location.hash = `/compare/${encodeURIComponent(a!)}/${encodeURIComponent(b!)}`;
-    cancelCompare();
+  const openUsageCompare = (otherId: string) => {
+    const anchor = compareWith();
+    setCompareWith(undefined);
+    if (!anchor || anchor === otherId) return;
+    location.hash = `/compare/${encodeURIComponent(anchor)}/${encodeURIComponent(otherId)}`;
   };
 
   onCleanup(
@@ -647,13 +634,6 @@ export function App() {
       run: () => {
         location.hash = "/settings/permission";
       },
-    }),
-  );
-  onCleanup(
-    registerCommand({
-      id: "app.compare",
-      title: () => t("sidebar.compare.start"),
-      run: () => startCompare(),
     }),
   );
   onCleanup(
@@ -734,11 +714,10 @@ export function App() {
           onToggleSidebar={toggleSidebar}
           onOpenPalette={openPalette}
           fleetActive={route().name === "fleet"}
-          compareOn={compareOn()}
-          compareSel={compareSel()}
-          onStartCompare={startCompare}
-          onCancelCompare={cancelCompare}
-          onOpenCompare={openCompare}
+          compareWith={compareWith()}
+          onCompare={setCompareWith}
+          onCloseCompare={() => setCompareWith(undefined)}
+          onPickCompare={openUsageCompare}
           activeId={activeId}
           clock={clock}
           onOpenSession={openSession}
@@ -804,16 +783,25 @@ export function App() {
             onNewSession={requestNewSession}
           />
         </Show>
-        <Show when={route().name === "compare"}>
-          <PageShell
-            title={t("nav.compare")}
-            back={{ href: "/", label: t("nav.backToFleet") }}
-          >
-            <CompareView
-              a={(route() as { a: string }).a}
-              b={(route() as { b: string }).b}
-            />
-          </PageShell>
+        <Show when={route().name === "compare" ? (route() as { name: "compare"; a: string; b: string }) : undefined}>
+          {(r) => {
+            const known = () => list.library().some((s) => s.summary.session_id === r().a);
+            return (
+              <PageShell
+                title={t("nav.compare")}
+                back={
+                  known()
+                    ? {
+                        href: `/session/${encodeURIComponent(r().a)}`,
+                        label: t("nav.backToSession"),
+                      }
+                    : { href: "/", label: t("nav.backToFleet") }
+                }
+              >
+                <CompareView a={r().a} b={r().b} sessions={list.sessions()} />
+              </PageShell>
+            );
+          }}
         </Show>
         <Show when={route().name === "settings"}>
           <PageShell

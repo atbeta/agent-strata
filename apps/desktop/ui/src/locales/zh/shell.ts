@@ -55,7 +55,7 @@ export default {
   "sidebar.session.rename": "重命名",
   "sidebar.session.pin": "置顶",
   "sidebar.session.unpin": "取消置顶",
-  "sidebar.session.compare": "对比这个会话",
+  "sidebar.session.compare": "对比用量",
   "sidebar.session.archive": "归档",
   "sidebar.session.delete": "删除",
   "sidebar.session.deleteTitle": "删除「{name}」",
@@ -137,13 +137,6 @@ export default {
   "connect.form.command": "启动命令，如 opencode acp",
   "sidebar.backend.newTarget": "新会话",
 
-  // Compare
-  "sidebar.compare.pick": "还需选择 {n} 个会话",
-  "sidebar.compare.open": "打开对比",
-  "sidebar.compare.openTip": "打开对比视图",
-  "sidebar.compare.start": "对比两个会话",
-  "sidebar.compare.cancel": "取消对比",
-
   // Overflow menu
   "sidebar.menu.more": "更多",
   "sidebar.menu.disconnect": "断开 {host}",
@@ -154,7 +147,7 @@ export default {
   // Routes
   "nav.backToFleet": "会话列表",
   "nav.backToSession": "返回会话",
-  "nav.compare": "对比",
+  "nav.compare": "用量对比",
 
   // Fleet page
   "fleet.nav": "概览",
