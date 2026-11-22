@@ -19,6 +19,10 @@ describe("execution tool guidance", () => {
     expect(GUIDANCE).toContain("terminal_id");
     expect(GUIDANCE).toContain("output_idle");
     expect(GUIDANCE).toContain("does not\nmean the command finished");
+    expect(GUIDANCE).toContain("echo EXIT=$?");
+    expect(GUIDANCE).toContain("top -b -n1");
+    expect(GUIDANCE).toContain("=== STATUS ===");
+    expect(GUIDANCE).toContain("30000");
   });
 
   test("the system prompt names the detach habit and stays shorter than a tool manual", () => {

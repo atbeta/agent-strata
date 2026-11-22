@@ -13,5 +13,9 @@ describe("terminal tool guidance", () => {
     const read = manifest.tools.find((tool) => tool.name === "read")!;
     expect(read.description).toContain("dev_logs");
     expect(read.description).toContain("not a command-completion signal");
+    expect(read.description).toContain("linear text stream, not a screen snapshot");
+    expect(read.timeout_ms).toBe(45_000);
+    const wait = read.input.properties as { wait_ms: { description: string } };
+    expect(wait.wait_ms.description).toContain("30000");
   });
 });

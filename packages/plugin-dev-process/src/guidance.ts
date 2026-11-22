@@ -11,31 +11,29 @@
 export const GUIDANCE = `
 ## Choose the execution tool
 
-Use the regular shell for a one-shot, non-interactive command.
+Use the regular shell for one-shot, non-interactive commands.
 
-Use \`dev_start\` for a long-running, non-interactive command such as a development
-server or watcher. Use \`dev_logs\` with its process_id, \`dev_restart\` to run it
-again under the same id, and \`dev_stop\` to stop it.
+Use \`dev_start\` for long-running, non-interactive servers and watchers. Use
+\`dev_logs\` with its process_id, \`dev_restart\` for the same id, and \`dev_stop\`.
 
-Use \`terminal_create\` only when the program needs a TTY or interactive stdin, such
-as a REPL, SSH, or an interactive prompt. Use \`terminal_read\` with its terminal_id,
-\`terminal_write\` to send input, and \`terminal_close\` to close it. A terminal's
-output_idle only means no PTY output arrived during that quiet window; it does not
+Use \`terminal_create\` only for TTY or interactive stdin (REPL, SSH, prompts). Use
+\`terminal_read\` with its terminal_id, \`terminal_write\` for input, and
+\`terminal_close\`. output_idle means no PTY output in that quiet window; it does not
 mean the command finished.
 
-Do not use \`dev_logs\` for a terminal_id or \`terminal_read\` for a process_id.
+For an exit code, append \`echo EXIT=$?\` (or the shell equivalent). Prefer batch
+output for machines (\`top -b -n1\`, \`docker ps\`, \`jq\`, \`grep\`). terminal_read is
+linear text, not a screen snapshot; do not read a full-screen TUI with it. Separate
+sections with \`=== STATUS ===\`, not clear. For slow SSH, wait_ms may be up to 30000.
 
-Do not use \`Start-Process\` (PowerShell), \`&\` (bash), \`nohup\`, or \`start /b\`.
-A detached process never reaches the transcript and keeps its port after the
-app closes. If \`dev_start\` reports that the shell is not running, say so and
-ask — do not fall back to \`Start-Process\`.
+Never use \`dev_logs\` for a terminal_id or \`terminal_read\` for a process_id.
 
-A port that is already served is refused, with the reason. Stop what holds it
-first; starting a second command on the same port only produces a failure that
-looks like it belongs to the new command.
+Do not use \`Start-Process\`, \`&\`, \`nohup\`, or \`start /b\`: detached processes lose
+their output and keep their port. If \`dev_start\` says the shell is not running, ask;
+do not fall back to \`Start-Process\`.
 
-A row marked lost says whether the process is still the one that was started
-and whether its port is still held. Read that sentence.
+A port already served is refused; stop its holder first. A row marked lost says
+whether the process and its port are still present.
 `;
 
 /**

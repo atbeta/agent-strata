@@ -69,6 +69,9 @@ export const manifest: PluginManifest = {
         "no PTY output arrived in that window; it is not a command-completion signal.",
         "An interactive shell has no portable command boundary. For a long command,",
         "increase wait_ms; for process exit, inspect terminal.status and exit_code.",
+        "The result is a linear text stream, not a screen snapshot. Use non-interactive",
+        "batch modes for TUI programs and an explicit echo of $? when an exit code is",
+        "needed. Separate sections with printable markers, not the clear command.",
       ].join("\n"),
       input: {
         type: "object",
@@ -76,13 +79,13 @@ export const manifest: PluginManifest = {
           terminal_id: { type: "string" },
           offset: { type: "number", description: "Pass next_offset from the previous read." },
           max_bytes: { type: "number" },
-          wait_ms: { type: "number", description: "Maximum wait for new output; default 1000, maximum 10000." },
+          wait_ms: { type: "number", description: "Maximum wait for new output; default 1000, maximum 30000." },
           quiet_ms: { type: "number", description: "Quiet window after new output; default 200." },
         },
         required: ["terminal_id"],
       },
       policy: { default: "allow", risk: "read" },
-      timeout_ms: 30_000,
+      timeout_ms: 45_000,
     },
     {
       name: "list",
@@ -201,7 +204,7 @@ export function createTerminalPlugin(options: TerminalPluginOptions): StrataPlug
         if (req.tool === "read") {
           const offset = optionalInteger(req.input.offset, "offset");
           const maxBytes = optionalInteger(req.input.max_bytes, "max_bytes") ?? 16 * 1024;
-          const waitMs = Math.min(optionalInteger(req.input.wait_ms, "wait_ms") ?? 1000, 10_000);
+          const waitMs = Math.min(optionalInteger(req.input.wait_ms, "wait_ms") ?? 1000, 30_000);
           const quietMs = Math.min(optionalInteger(req.input.quiet_ms, "quiet_ms") ?? 200, waitMs);
           const page = await readWithWait(
             manager(),

@@ -140,6 +140,8 @@ describe("native terminal plugin", () => {
     expect(decimalCursor.is_error).toBe(false);
     const exponentCursor = await call("read", { terminal_id: terminalId, offset: `${baseline}e0`, max_bytes: null });
     expect(exponentCursor.is_error).toBe(false);
+    const longWait = await call("read", { terminal_id: terminalId, offset: baseline, wait_ms: 30000, quiet_ms: 0 });
+    expect(longWait.is_error).toBe(false);
 
     const waitBaseline = (JSON.parse(decimalCursor.output) as { next_offset: number }).next_offset;
     const waiting = call("read", { terminal_id: terminalId, offset: waitBaseline, wait_ms: 1000, quiet_ms: 100 });

@@ -13,7 +13,7 @@ M0–M3 全部落地并通过检查（typecheck / lint / 包测试 / UI 测试 /
 
 **底座之上已出厂两个插件。** `plugin-sessions`（`sessions_list`/`search`/`read`）给 agent 同工作区的跨后端会话记忆，范围就是 workspace——别处的会话一律答"不存在"；`plugin-schedule`（`schedule_create`/`list`/`view`/`update`/`delete` + Schedules 面板）是第一个自治型内置插件：定时器只经 `sessionControl` 投 prompt（`[scheduled: <name>]` 前缀），忙则跳过不排队，错过只在 30 分钟窗口内补一次，增删改默认 ask、仅创建者可改可删。
 
-**原生交互终端已落地。** `plugin-terminal` 用 Bun 原生 PTY（POSIX `openpty` / Windows ConPTY）提供 `terminal_create/list/read/write/close`，agent 与用户底部 dock、右栏 Terminal 面板共享 terminal id。`service/src/plugins/upgrade.ts` 提供通用插件 WS 分发；有界 byte ring 支持 attach 重放，WS/panel 关闭只退订，显式 close、session/目录/插件清理才终止进程。create/write 与 `dev_start` 一样使用 `allow` floor：普通默认策略询问，session auto 放行；create 的 command 与 write 的换行完整命令行走 bash policy，auto 不覆盖 deny。配额只计 running，exited 保留 5 分钟且最多 32 条后回收。`terminal-plugin.test.ts` 跑真实工具 + WS 重连、cursor 分页、延迟输出 wait/quiet，`lifecycle.test.ts` 验证 running 配额、退出 TTL 与 exited 上限；agent 默认及带 command 的 shell 均不加载 zsh/bash/fish 用户配置，面板 shell 保持不变。`terminal-policy.test.ts` 验证普通模式询问、auto 下 create/write 放行及 deny 仍生效，`plugin-websocket.test.ts` 验证通用分发与 query token。跨 service/app 重启接管没有做，需要独立 supervisor；旧 OpenCode `/pty` 代理仍保留。
+**原生交互终端已落地。** `plugin-terminal` 用 Bun 原生 PTY（POSIX `openpty` / Windows ConPTY）提供 `terminal_create/list/read/write/close`，agent 与用户底部 dock、右栏 Terminal 面板共享 terminal id。`service/src/plugins/upgrade.ts` 提供通用插件 WS 分发；有界 byte ring 支持 attach 重放，WS/panel 关闭只退订，显式 close、session/目录/插件清理才终止进程。create/write 与 `dev_start` 一样使用 `allow` floor：普通默认策略询问，session auto 放行；create 的 command 与 write 的换行完整命令行走 bash policy，auto 不覆盖 deny。配额只计 running，exited 保留 5 分钟且最多 32 条后回收。`terminal-plugin.test.ts` 跑真实工具 + WS 重连、cursor 分页、延迟输出 wait/quiet（wait_ms 上限 30000、read timeout 45000），并明确退出码包装、批处理优先、线性文本而非 TUI 屏幕快照；`lifecycle.test.ts` 验证 running 配额、退出 TTL 与 exited 上限；agent 默认及带 command 的 shell 均不加载 zsh/bash/fish 用户配置，面板 shell 保持不变。`terminal-policy.test.ts` 验证普通模式询问、auto 下 create/write 放行及 deny 仍生效，`plugin-websocket.test.ts` 验证通用分发与 query token。跨 service/app 重启接管没有做，需要独立 supervisor；旧 OpenCode `/pty` 代理仍保留。
 
 方案里 M0–M3 的**验收条目**逐条都有对应用例，不只是"功能跑通了"：
 
@@ -36,7 +36,7 @@ M0–M3 全部落地并通过检查（typecheck / lint / 包测试 / UI 测试 /
 ```
 bun run typecheck     # 18 projects
 bun run lint          # 0 warnings
-bun test packages     # 926 tests
+bun test packages     # 927 tests
 bun run test:ui       # 1339 tests
 cargo test --locked   # 70 tests (apps/desktop/src-tauri)
 bun run sidecar       # 64.8 MB, includes every builtin plugin
