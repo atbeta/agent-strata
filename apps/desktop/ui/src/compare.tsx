@@ -19,6 +19,7 @@ import { ComparePick } from "./compare-pick";
 import { num, t, tn } from "./i18n";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { RowButton } from "@/components/ui/row-button";
 
 function Delta(props: { value: number | null; unit?: string; money?: boolean; duration?: boolean }) {
   const text = () => {
@@ -121,9 +122,8 @@ function SideCard(props: {
 }) {
   const row = () => findSession(props.sessions, props.id);
   return (
-    <button
-      type="button"
-      class="min-w-0 rounded-lg border border-border bg-card p-4 text-left hover:bg-secondary/40"
+    <RowButton
+      class="min-w-0 flex-col items-stretch gap-0 rounded-lg border border-border bg-card p-4 text-foreground hover:bg-secondary/40"
       onClick={() => {
         location.hash = `/session/${encodeURIComponent(props.id)}`;
       }}
@@ -147,7 +147,7 @@ function SideCard(props: {
       <div class="mt-2 break-words font-mono text-xs text-muted-foreground tabular-nums">
         {tn("compare.totals.tools", props.tools)} · {num(props.tokens)} tok · {fmtUsd(props.cost)}
       </div>
-    </button>
+    </RowButton>
   );
 }
 

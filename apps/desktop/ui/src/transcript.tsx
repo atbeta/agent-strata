@@ -50,6 +50,7 @@ import {
   todoItems,
   toolHeadline,
   toolIcon,
+  terminalResult,
   type ToolKind,
 } from "./transcript-format";
 import { MessageActions } from "./message-actions";
@@ -613,11 +614,20 @@ function PendingDots() {
  * the output: the answer is the thing worth keeping, the command only when
  * there is no answer yet.
  */
-function ShellWell(props: { call: ToolCallView; command?: string; running: boolean }) {
-  const output = () => props.call.output;
+function ShellWell(props: {
+  call: ToolCallView;
+  command?: string;
+  running: boolean;
+  /** A settled call's answer when the raw output is not what should show —
+      terminal tools unwrap their JSON envelope before it gets here. */
+  output?: string;
+  /** The line a terminal result with no new output shows instead of a well. */
+  emptyNote?: string;
+}) {
+  const output = () => props.output ?? props.call.output;
   const copy = () => (output() ? stripAnsi(output()!) : (props.command ?? ""));
   return (
-    <Show when={props.command || output() || props.running}>
+    <Show when={props.command || output() || props.running || props.emptyNote}>
       <div class="group relative overflow-hidden rounded-md border border-border bg-code-surface">
         <Show when={props.command}>
           <p class="whitespace-pre-wrap break-words bg-code-header px-3 py-2.5 pr-16 font-mono text-2xs leading-5 text-foreground/90">
@@ -632,6 +642,11 @@ function ShellWell(props: { call: ToolCallView; command?: string; running: boole
         </Show>
         <Show when={!output() && props.running}>
           <PendingDots />
+        </Show>
+        <Show when={!output() && !props.running && props.emptyNote}>
+          <div class={props.command ? "border-t border-border" : undefined}>
+            <p class="px-3 py-2 font-mono text-2xs text-muted-foreground">{props.emptyNote}</p>
+          </div>
         </Show>
         <Show when={copy()}>
           <div class="absolute right-1.5 top-1.5">
@@ -722,6 +737,9 @@ function ToolCallCard(props: {
     const c = props.call.input?.command ?? props.call.input?.cmd;
     return typeof c === "string" ? c : undefined;
   };
+  // Terminal tools answer with a JSON envelope; the well wants the PTY text
+  // and the keystrokes inside it, not the wrapper.
+  const terminal = createMemo(() => terminalResult(props.call));
   /** A pending call is only "running" while the session is. */
   const running = () => props.call.status === "pending" && props.live === true;
   const awaitingPermission = () =>
@@ -1019,8 +1037,10 @@ function ToolCallCard(props: {
           >
             <ShellWell
               call={props.call}
-              command={command()}
+              command={terminal()?.typed ?? command()}
+              output={terminal()?.output}
               running={running() && !awaitingPermission()}
+              emptyNote={terminal() ? t("tool.terminal.noOutput") : undefined}
             />
           </Show>
           {/* What the tool produced besides its text output — a screenshot,
@@ -1256,6 +1276,8 @@ function AssistantMessage(props: {
             align="start"
             details={props.message}
             disabled={props.message.partial === true}
+            time={props.message.ts}
+            persistent
             onFork={forkable() ? () => props.onFork!(props.message.msg_id!) : undefined}
           />
         </Show>

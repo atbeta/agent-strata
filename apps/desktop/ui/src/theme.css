@@ -2417,24 +2417,26 @@ textarea {
   .md img { @apply max-w-full cursor-zoom-in rounded-lg; }
 }
 
-/* Transcript message footers: hidden until the message they belong to is
-   hovered or focused within. The .transcript-message wrapper — not a shared
-   group class — scopes the reveal so one message never exposes another's
-   buttons, and the footer is inside that region so moving onto it keeps the
-   controls open. Buttons stay focusable either way; on touch devices there is
-   no hover to wait for, so they are always reachable. */
-.message-actions {
+/* Transcript message footers. User messages keep their action buttons hidden
+   until the message is hovered or focused within; assistant replies pass
+   `persistent` and keep theirs, with the time, on screen. The
+   .transcript-message wrapper — not a shared group class — scopes the reveal
+   so one message never exposes another's buttons, and the footer is inside
+   that region so moving onto it keeps the controls open. Buttons stay
+   focusable either way; on touch devices there is no hover to wait for, so
+   they are always reachable. */
+.message-actions-tools {
   opacity: 0;
   pointer-events: none;
 }
-.transcript-message:hover > .message-actions,
-.transcript-message:focus-within > .message-actions,
-.message-actions[data-copied] {
+.transcript-message:hover > .message-actions .message-actions-tools,
+.transcript-message:focus-within > .message-actions .message-actions-tools,
+.message-actions[data-copied] .message-actions-tools {
   opacity: 1;
   pointer-events: auto;
 }
 @media (hover: none) {
-  .message-actions {
+  .message-actions-tools {
     opacity: 1;
     pointer-events: auto;
   }
@@ -2553,7 +2555,7 @@ textarea {
       transform: translateX(8px);
     }
   }
-  .message-actions {
+  .message-actions-tools {
     transition: opacity 0.12s ease;
   }
 

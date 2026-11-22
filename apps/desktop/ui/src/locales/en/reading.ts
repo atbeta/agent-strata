@@ -18,6 +18,7 @@ export default {
   "tool.verb.dev.logs": "Logs",
   "tool.verb.dev.stop": "Stop",
   "tool.verb.dev.list": "List",
+  "tool.terminal.noOutput": "No new output",
 
   "tool.search.in": "in {path}",
   "plan.items.one": "{n} item",

@@ -54,6 +54,9 @@ const numFormats = new Map<Locale, Intl.NumberFormat>();
 const compactFormats = new Map<Locale, Intl.NumberFormat>();
 const dateFormats = new Map<Locale, Intl.DateTimeFormat>();
 const stampFormats = new Map<Locale, Intl.DateTimeFormat>();
+const shortStampDayFormats = new Map<Locale, Intl.DateTimeFormat>();
+const shortStampYearFormats = new Map<Locale, Intl.DateTimeFormat>();
+const shortStampFullFormats = new Map<Locale, Intl.DateTimeFormat>();
 
 const cached = <F>(map: Map<Locale, F>, make: (tag: string) => F): F => {
   const loc = current();
@@ -105,6 +108,38 @@ export function stamp(d: number | Date | string): string {
       second: "2-digit",
     }),
   ).format(new Date(d));
+}
+
+/**
+ * The glance answer to "when was this": a bare time for today, day and time
+ * for the rest of this year, the full date past that. Seconds stay out — the
+ * full `stamp` with them is what a `title` attribute carries.
+ */
+export function shortStamp(d: number | Date | string, now: number | Date = Date.now()): string {
+  const date = new Date(d);
+  const ref = new Date(now);
+  if (date.toDateString() === ref.toDateString())
+    return cached(shortStampDayFormats, (tag) =>
+      new Intl.DateTimeFormat(tag, { hour: "2-digit", minute: "2-digit" }),
+    ).format(date);
+  if (date.getFullYear() === ref.getFullYear())
+    return cached(shortStampYearFormats, (tag) =>
+      new Intl.DateTimeFormat(tag, {
+        month: "numeric",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+    ).format(date);
+  return cached(shortStampFullFormats, (tag) =>
+    new Intl.DateTimeFormat(tag, {
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
+  ).format(date);
 }
 
 function readStored(): Locale {

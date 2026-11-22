@@ -213,6 +213,15 @@ const KINDS: Record<string, ToolKind> = {
   dev_logs: "shell",
   dev_stop: "shell",
   dev_list: "shell",
+  // The interactive-terminal plugin's family: the registry maps its
+  // `terminal` renderer to shell once loaded, but a row can paint before the
+  // registry arrives — and tests never load it.
+  terminal_create: "shell",
+  terminal_write: "shell",
+  terminal_read: "shell",
+  terminal_list: "shell",
+  terminal_signal: "shell",
+  terminal_close: "shell",
   read: "read",
   view: "read",
   edit: "edit",
@@ -351,6 +360,59 @@ function toolWords(tool: string): string {
   return words ? words[0]!.toUpperCase() + words.slice(1) : tool;
 }
 
+/**
+ * Terminal input shown the way a terminal shows it: the line breaks a write
+ * sends become `⏎`, and the control bytes a keystroke carries become their
+ * caret names — `\x03` reads `^C`, `\x1b` reads `^[`, DEL reads `^?`.
+ */
+function terminalKeys(data: string): string {
+  return [...data]
+    .map((ch) => {
+      const code = ch.charCodeAt(0);
+      if (ch === "\r" || ch === "\n") return "⏎";
+      if (code === 0x7f) return "^?";
+      if (code < 0x20) return `^${String.fromCharCode(code + 64)}`;
+      return ch;
+    })
+    .join("");
+}
+
+/**
+ * What a terminal tool's JSON result shows in the well: the PTY text, and
+ * what was typed. The plugin answers every call with one JSON envelope —
+ * `{ output, next_offset, … }` for reads, `{ written, output, … }` for
+ * writes — and the well only wants the text inside it. Anything that is not
+ * that envelope (errors, the small metadata objects the other calls return)
+ * stays raw, which is what the caller falls back to.
+ */
+export function terminalResult(
+  call: Pick<ToolCallView, "tool" | "input" | "output">,
+): { typed?: string; output: string } | undefined {
+  const tool = call.tool.toLowerCase();
+  if (tool !== "terminal_read" && tool !== "terminal_write") return undefined;
+  if (!call.output) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(call.output);
+  } catch {
+    return undefined;
+  }
+  if (!parsed || typeof parsed !== "object") return undefined;
+  const output = (parsed as Record<string, unknown>).output;
+  if (typeof output !== "string") return undefined;
+  let typed: string | undefined;
+  if (tool === "terminal_write") {
+    const data = call.input?.data;
+    typed =
+      typeof data === "string" && data
+        ? terminalKeys(data)
+        : call.input?.submit === true
+          ? "⏎"
+          : undefined;
+  }
+  return { typed, output };
+}
+
 export interface ToolHeadline {
   kind: ToolKind;
   verb: string;
@@ -383,7 +445,25 @@ export function toolHeadline(call: Pick<ToolCallView, "tool" | "input">): ToolHe
     return { kind, verb: t("tool.verb.dev.list"), title: "" };
   }
 
+  // The plugin terminal family follows the same rule as dev_*: shell work,
+  // but the payload arrives as `data`, not `command`. The verb is the tool's
+  // own name — "Terminal write" — in every locale; only the title differs.
+  if (tool.startsWith("terminal_")) {
+    let title = "";
+    if (tool === "terminal_create") title = command ? commandLine(command) : "";
+    else if (tool === "terminal_write") {
+      const data = typeof input.data === "string" ? input.data : "";
+      title = data ? commandLine(terminalKeys(data)) : input.submit === true ? "⏎" : "";
+    } else if (tool === "terminal_signal") title = field(input, ["signal"]) ?? "";
+    return { kind, verb: toolWords(call.tool), title };
+  }
+
   if (kind === "shell") {
+    // A plugin's shell-kind tool with no command is not a `Bash <name>` row —
+    // the name reads as words, like any tool the builtin table does not own.
+    if (!command && !["bash", "shell", "exec", "execute"].includes(tool)) {
+      return { kind, verb: toolWords(call.tool), title: "" };
+    }
     return { kind, verb: t("tool.verb.bash"), title: command ? commandLine(command) : call.tool };
   }
   if (kind === "read") {

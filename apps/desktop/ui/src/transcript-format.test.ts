@@ -44,6 +44,7 @@ const {
   toolHeadline,
   toolIcon,
   toolKind,
+  terminalResult,
 } = await import("./transcript-format");
 
 /** Run `body` in `lang`, then hand the window back the language it had. */
@@ -168,6 +169,79 @@ describe("tool headlines", () => {
     withLocale("zh", () => {
       expect(toolHeadline({ tool: "dev_start", input: { command: "pnpm dev" } }).verb).toBe("启动");
     });
+  });
+
+  test("a plugin terminal tool reads as the terminal action it is", () => {
+    // `Bash terminal_write` was the fallback — a shell-kind plugin tool with
+    // no `command` fell through to the generic shell row and titled itself
+    // with the raw tool name. The verb is the tool's own name in every
+    // locale, and `write` shows the keystrokes the way a terminal does.
+    withLocale("en", () => {
+      expect(
+        toolHeadline({ tool: "terminal_write", input: { terminal_id: "t", data: "ls -la", submit: true } }),
+      ).toEqual({ kind: "shell", verb: "Terminal write", title: "ls -la" });
+      expect(toolHeadline({ tool: "terminal_write", input: { data: "\u0003" } }).title).toBe("^C");
+      expect(toolHeadline({ tool: "terminal_write", input: { data: "", submit: true } }).title).toBe("\u23ce");
+      expect(toolHeadline({ tool: "terminal_read", input: { terminal_id: "t" } })).toEqual({
+        kind: "shell",
+        verb: "Terminal read",
+        title: "",
+      });
+      expect(toolHeadline({ tool: "terminal_signal", input: { signal: "SIGINT" } }).title).toBe("SIGINT");
+      expect(toolHeadline({ tool: "terminal_create", input: { command: "zsh" } }).verb).toBe("Terminal create");
+      expect(toolHeadline({ tool: "terminal_list", input: {} }).verb).toBe("Terminal list");
+      expect(toolHeadline({ tool: "terminal_close", input: {} }).verb).toBe("Terminal close");
+      expect(toolIcon("terminal_write")).toBe("terminal");
+      // The builtin shell tools keep their `Bash` row — `exec` with no
+      // command still titles itself, unchanged.
+      expect(toolHeadline({ tool: "exec", input: {} })).toEqual({
+        kind: "shell",
+        verb: "Bash",
+        title: "exec",
+      });
+    });
+    withLocale("zh", () => {
+      // The verb comes from the tool name, so it reads the same either way.
+      expect(toolHeadline({ tool: "terminal_write", input: { data: "ls" } }).verb).toBe("Terminal write");
+      expect(toolHeadline({ tool: "terminal_read", input: {} }).verb).toBe("Terminal read");
+      expect(toolHeadline({ tool: "terminal_signal", input: { signal: "SIGINT" } }).verb).toBe("Terminal signal");
+    });
+  });
+
+  test("a terminal tool result unwraps the JSON envelope to the PTY text", () => {
+    // Every plugin-terminal call answers `{ output, next_offset, … }`; the
+    // well wants the text inside, not the wrapper. Errors and the metadata-
+    // only calls keep the raw rendering.
+    const read = terminalResult({
+      tool: "terminal_read",
+      input: { terminal_id: "t" },
+      output: JSON.stringify({ terminal: { id: "t" }, output: "hello\n", next_offset: 6 }),
+    });
+    expect(read?.output).toBe("hello\n");
+    expect(read?.typed).toBeUndefined();
+
+    const write = terminalResult({
+      tool: "terminal_write",
+      input: { terminal_id: "t", data: "ls", submit: true },
+      output: JSON.stringify({ written: 3, output: "ls\r\nfile\r\n" }),
+    });
+    expect(write?.typed).toBe("ls");
+    expect(write?.output).toBe("ls\r\nfile\r\n");
+
+    expect(
+      terminalResult({
+        tool: "terminal_write",
+        input: { data: "", submit: true },
+        output: JSON.stringify({ written: 0, output: "" }),
+      })?.typed,
+    ).toBe("⏎");
+
+    // Not the envelope: a plain error, a metadata-only tool, a builtin call.
+    expect(terminalResult({ tool: "terminal_read", input: {}, output: "terminal not found" })).toBeUndefined();
+    expect(
+      terminalResult({ tool: "terminal_list", input: {}, output: JSON.stringify({ terminals: [] }) }),
+    ).toBeUndefined();
+    expect(terminalResult({ tool: "bash", input: { command: "ls" }, output: "{}" })).toBeUndefined();
   });
 
   test("a question tool reads as a question and titles from its first entry", () => {
