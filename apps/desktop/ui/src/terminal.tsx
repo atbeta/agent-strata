@@ -294,7 +294,7 @@ export function TerminalPane(props: { sessionId: string; onEmpty?: () => void; l
                   aria-label={t(tab.mode === "shared" ? "terminal.mode.sharedHint" : "terminal.mode.userHint")}
                   onClick={() => void toggleMode(tab.id, tab.mode)}
                 >
-                  <Icon name={tab.mode === "shared" ? "user-agent" : "user"} class="h-3.5 w-3.5" />
+                  <Icon name={tab.mode === "shared" ? "bot" : "bot-off"} class="h-3.5 w-3.5" />
                 </Button>
               </Tip>
               <Button

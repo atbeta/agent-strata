@@ -35,18 +35,18 @@ describe("the two fold buttons are one pair", () => {
     const right = branch(icons, "panel-right");
     expect(left).not.toContain('fill="currentColor"');
     expect(right).not.toContain('fill="currentColor"');
-    expect(left).toContain("M6.4 3v10");
-    expect(right).toContain("M9.6 3v10");
+    expect(left).toContain("M9 3v18");
+    expect(right).toContain("M15 3v18");
   });
 
   test("the right one is the left one mirrored", () => {
     const left = branch(icons, "panel-left");
     const right = branch(icons, "panel-right");
     // The same window, drawn twice.
-    expect(left).toContain('x="2.5" y="3" width="11" height="10"');
-    expect(right).toContain('x="2.5" y="3" width="11" height="10"');
-    // The column is the same width on both sides: 3.9px from the near edge.
-    expect(6.4 - 2.5).toBeCloseTo(13.5 - 9.6, 5);
+    expect(left).toContain('width="18" height="18" x="3" y="3" rx="2"');
+    expect(right).toContain('width="18" height="18" x="3" y="3" rx="2"');
+    // The column is the same width on both sides: 6 units from the near edge.
+    expect(9 - 3).toBeCloseTo(21 - 15, 5);
   });
 
   test("they are drawn at the same size", () => {

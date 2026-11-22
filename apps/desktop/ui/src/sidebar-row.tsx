@@ -96,7 +96,7 @@ export function SessionListItem(props: {
         </Item>
       </Show>
       <Item onSelect={props.onCompare}>
-        <Icon name="columns" class="size-3.5 text-muted-foreground" />
+        <Icon name="compare" class="size-3.5 text-muted-foreground" />
         {t("sidebar.session.compare")}
       </Item>
       <Item onSelect={() => void props.onArchive()}>

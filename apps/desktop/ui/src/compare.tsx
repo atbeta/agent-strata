@@ -129,7 +129,7 @@ export function CompareView(props: { a: string; b: string }) {
                 <section class="mt-5 space-y-3">
                   <Show
                     when={c().turn_pairs.length > 0}
-                    fallback={<EmptyState icon="columns" title={t("palette.empty")} class="py-10" />}
+                    fallback={<EmptyState icon="compare" title={t("palette.empty")} class="py-10" />}
                   >
                     <For each={c().turn_pairs}>{(p, i) => <TurnPairRow pair={p} i={i()} />}</For>
                   </Show>

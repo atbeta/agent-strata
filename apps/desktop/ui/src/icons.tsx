@@ -1,8 +1,8 @@
 import { createMemo, type JSX } from "solid-js";
 
 export type Name =
-  | "user"
-  | "user-agent"
+  | "bot"
+  | "bot-off"
   | "replay"
   | "files"
   | "page"
@@ -11,6 +11,7 @@ export type Name =
   | "shield"
   | "shield-check"
   | "columns"
+  | "compare"
   | "search"
   | "image"
   | "folder"
@@ -98,7 +99,8 @@ export type Name =
  * the same rendered size, so a `stroke-width` kept at ours thins to two thirds
  * and the glyph reads lighter than every mark drawn on the 16 grid beside it.
  * Widening it by the same factor puts it back: the library drew it for its own
- * box, so the pen is scaled with the drawing.
+ * box, so the pen is scaled with the drawing. 24-grid glyphs without their own
+ * note are Lucide (lucide-static 1.77.0) verbatim.
  */
 function Glyph(props: { class?: string; box?: string; weight?: string; children: JSX.Element }) {
   return (
@@ -117,20 +119,30 @@ function Glyph(props: { class?: string; box?: string; weight?: string; children:
 }
 
 function glyphFor(name: Name, cls: string | undefined): JSX.Element {
-  if (name === "user")
+  // Lucide `bot` (24 grid, verbatim): the agent can operate this terminal.
+  if (name === "bot")
     return (
       <Glyph class={cls} box="0 0 24 24" weight="2.25">
-        <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
-        <circle cx="12" cy="7" r="4" />
+        <path d="M12 8V4H8" />
+        <rect width="16" height="12" x="4" y="8" rx="2" />
+        <path d="M2 14h2" />
+        <path d="M20 14h2" />
+        <path d="M15 13v2" />
+        <path d="M9 13v2" />
       </Glyph>
     );
-  if (name === "user-agent")
+  // Lucide `bot-off` (24 grid, verbatim): the agent can neither see nor
+  // operate it.
+  if (name === "bot-off")
     return (
       <Glyph class={cls} box="0 0 24 24" weight="2.25">
-        <path d="M13 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-        <circle cx="7" cy="8" r="3" />
-        <circle cx="18" cy="7" r="2.5" />
-        <path d="M18 2v1.5M18 10.5v1.5M13 7h1.5M21.5 7h1.5" />
+        <path d="M13.67 8H18a2 2 0 0 1 2 2v4.33" />
+        <path d="M2 14h2" />
+        <path d="M20 14h2" />
+        <path d="M22 22 2 2" />
+        <path d="M8 8H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 1.414-.586" />
+        <path d="M9 13v2" />
+        <path d="M9.67 4H12v2.33" />
       </Glyph>
     );
   // A clock hand inside a counter-clockwise arrow: replaying what already
@@ -143,14 +155,15 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
         <path d="M12 7v5l4 2" />
       </Glyph>
     );
-  // A panel with a rail — the drawer of files. The header's own switch for that
-  // drawer is `panel-right`, which says which side it opens on; this one says
-  // what is in it, and stays with the places that mean files.
+  // Lucide `files` (24 grid, verbatim): the drawer of files — the header's
+  // own switch for that drawer is `panel-right`, which says which side it
+  // opens on; this one says what is in it.
   if (name === "files")
     return (
-      <Glyph class={cls}>
-        <rect x="2.5" y="3" width="11" height="10" rx="1.5" />
-        <path d="M9.5 3v10" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M15 2h-4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V8" />
+        <path d="M16.706 2.706A2.4 2.4 0 0 0 15 2v5a1 1 0 0 0 1 1h5a2.4 2.4 0 0 0-.706-1.706z" />
+        <path d="M5 7a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h8a2 2 0 0 0 1.732-1" />
       </Glyph>
     );
   // Lucide `file-text` on its own 24 grid, with the short metadata line left
@@ -166,10 +179,10 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
     );
   if (name === "download")
     return (
-      <Glyph class={cls}>
-        <path d="M8 2.5v7" />
-        <path d="M5.2 7.2 8 10l2.8-2.8" />
-        <path d="M3.5 13.5h9" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M12 15V3" />
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+        <path d="m7 10 5 5 5-5" />
       </Glyph>
     );
   /**
@@ -200,77 +213,88 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
         <path d="M14 6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2V6" />
       </Glyph>
     );
-  // A speech bubble: a plugin answering with words.
+  // Lucide `message-square` (24 grid, verbatim): a plugin answering with words.
   if (name === "message")
     return (
-      <Glyph class={cls}>
-        <path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z" />
       </Glyph>
     );
-  // Three bars of different heights: measurements, not a question mark.
+  // Lucide `chart-no-axes-column` (24 grid, verbatim): measurements, not a
+  // question mark.
   if (name === "stats")
     return (
-      <Glyph class={cls}>
-        <path d="M4 13V9.5" />
-        <path d="M8 13V4.5" />
-        <path d="M12 13V7.5" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M5 21v-6" />
+        <path d="M12 21V3" />
+        <path d="M19 21V9" />
       </Glyph>
     );
-  // Angle brackets: a plugin running code.
+  // Lucide `code` (24 grid, verbatim): a plugin running code.
   if (name === "code")
     return (
-      <Glyph class={cls}>
-        <path d="M6 4.5 2 8l4 3.5" />
-        <path d="M10 4.5 14 8l-4 3.5" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="m16 18 6-6-6-6" />
+        <path d="m8 6-6 6 6 6" />
       </Glyph>
     );
   /**
-   * An open eye and the same eye struck through: whether a provider is offered
-   * in the model picker. The eye is a display toggle, not a permission lock —
-   * the struck-through version still means the provider can run a session that
-   * already named it.
+   * Lucide `eye` and `eye-off` (24 grid, verbatim): whether a provider is
+   * offered in the model picker. The eye is a display toggle, not a
+   * permission lock — the struck-through version still means the provider can
+   * run a session that already named it.
    */
   if (name === "eye")
     return (
-      <Glyph class={cls}>
-        <path d="M1.8 8s2.4-4.2 6.2-4.2S14.2 8 14.2 8s-2.4 4.2-6.2 4.2S1.8 8 1.8 8Z" />
-        <circle cx="8" cy="8" r="2.1" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" />
+        <circle cx="12" cy="12" r="3" />
       </Glyph>
     );
   if (name === "eye-off")
     return (
-      <Glyph class={cls}>
-        <path d="M6.4 3.9c.5-.1 1-.2 1.6-.2 3.8 0 6.2 4.3 6.2 4.3a10 10 0 0 1-2 2.4" />
-        <path d="M4.1 4.9A10.6 10.6 0 0 0 1.8 8s2.4 4.2 6.2 4.2c.7 0 1.4-.1 2-.4" />
-        <path d="M2.2 2.2 13.8 13.8" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49" />
+        <path d="M14.084 14.158a3 3 0 0 1-4.242-4.242" />
+        <path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143" />
+        <path d="m2 2 20 20" />
       </Glyph>
     );
   if (name === "link")
     return (
-      <Glyph class={cls}>
-        <path d="M6.5 9.5 9.5 6.5" />
-        <path d="M7 4.5 8.2 3.3a2.5 2.5 0 0 1 3.5 3.5L10.5 8" />
-        <path d="M9 11.5 7.8 12.7a2.5 2.5 0 0 1-3.5-3.5L5.5 8" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
       </Glyph>
     );
   if (name === "shield")
     return (
-      <Glyph class={cls}>
-        <path d="M8 2.2 12.5 4v3.6c0 2.6-1.8 4.4-4.5 5.7C5.3 12 3.5 10.2 3.5 7.6V4z" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
       </Glyph>
     );
   if (name === "shield-check")
     return (
-      <Glyph class={cls}>
-        <path d="M8 2.2 12.5 4v3.6c0 2.6-1.8 4.4-4.5 5.7C5.3 12 3.5 10.2 3.5 7.6V4z" />
-        <path d="M6 7.9 7.4 9.3 10.1 6.6" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
+        <path d="m9 12 2 2 4-4" />
       </Glyph>
     );
   if (name === "columns")
     return (
-      <Glyph class={cls}>
-        <rect x="2.5" y="3" width="4.2" height="10" rx="1" />
-        <rect x="9.3" y="3" width="4.2" height="10" rx="1" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <rect width="18" height="18" x="3" y="3" rx="2" />
+        <path d="M12 3v18" />
+      </Glyph>
+    );
+  // Lucide `chart-column` (24 grid, verbatim): the usage compare.
+  if (name === "compare")
+    return (
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M3 3v16a2 2 0 0 0 2 2h16" />
+        <path d="M18 17V9" />
+        <path d="M13 17V5" />
+        <path d="M8 17v-3" />
       </Glyph>
     );
   if (name === "search")
@@ -292,70 +316,56 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
     );
   if (name === "folder")
     return (
-      <Glyph class={cls}>
-        <path d="M2 4.4c0-.8.6-1.4 1.4-1.4h2.5l1.4 1.5h5.3c.8 0 1.4.6 1.4 1.4v6.8c0 .8-.6 1.4-1.4 1.4H3.4c-.8 0-1.4-.6-1.4-1.4z" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
       </Glyph>
     );
   if (name === "folder-open")
     return (
-      <Glyph class={cls}>
-        {/* The closed folder's back half, cut where the flap covers it. */}
-        <path d="M2 12.5V4.4c0-.8.6-1.4 1.4-1.4h2.5l1.4 1.5h5.3c.8 0 1.4.6 1.4 1.4v1" />
-        {/* The front flap: a parallelogram leaning right, its slant is what
-            reads as "open" at 16px. */}
-        <path d="M2 12.5l1.4-4.2c.2-.7.8-1 1.5-1h7.5c.8 0 1.4.8 1.1 1.6l-1.3 4c-.2.7-.8 1-1.5 1H3.5c-.8 0-1.4-.7-1.3-1.4z" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2" />
       </Glyph>
     );
   if (name === "folder-plus")
     return (
-      <Glyph class={cls}>
-        <path d="M2 4.4c0-.8.6-1.4 1.4-1.4h2.5l1.4 1.5h5.3c.8 0 1.4.6 1.4 1.4v6.8c0 .8-.6 1.4-1.4 1.4H3.4c-.8 0-1.4-.6-1.4-1.4z" />
-        <path d="M8 7v4.6M5.7 9.3h4.6" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M12 10v6" />
+        <path d="M9 13h6" />
+        <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
       </Glyph>
     );
   if (name === "filter")
     return (
-      <Glyph class={cls}>
-        {/* A funnel, drawn open: the wide mouth at the top and the stem that
-            narrows to a point. The mouth is the part that has to read first —
-            it is the shape the eye recognises as "narrowing this down". */}
-        <path d="M2.6 3.4h10.8L9.5 7.9v4.2l-3 1.5V7.9z" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M10 20a1 1 0 0 0 .553.895l2 1A1 1 0 0 0 14 21v-7a2 2 0 0 1 .517-1.341L21.74 4.67A1 1 0 0 0 21 3H3a1 1 0 0 0-.742 1.67l7.225 7.989A2 2 0 0 1 10 14z" />
       </Glyph>
     );
   if (name === "sliders")
     return (
-      <Glyph class={cls}>
-        {/* The two-rail mark, with a third rail in the same hand: the same
-            open ring, the same gap where the line stops. Not the filled knobs. */}
-        <path d="M2.2 3.2h3.2" />
-        <circle cx="7.4" cy="3.2" r="1.15" />
-        <path d="M8.7 3.2H13.8" />
-        <path d="M2.2 8h6.2" />
-        <circle cx="10.5" cy="8" r="1.15" />
-        <path d="M11.8 8h2" />
-        <path d="M2.2 12.8h3.2" />
-        <circle cx="7.4" cy="12.8" r="1.15" />
-        <path d="M8.7 12.8H13.8" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M10 5H3" />
+        <path d="M12 19H3" />
+        <path d="M14 3v4" />
+        <path d="M16 17v4" />
+        <path d="M21 12h-9" />
+        <path d="M21 19h-5" />
+        <path d="M21 5h-7" />
+        <path d="M8 10v4" />
+        <path d="M8 12H3" />
       </Glyph>
     );
   if (name === "collapse-all")
     return (
-      <Glyph class={cls}>
-        {/* The project-tree collapse: a bar, and two marks folding into it. */}
-        <path d="M4.6 2.6 8 5.4l3.4-2.8" />
-        <path d="M2.4 8h11.2" />
-        <path d="M4.6 13.4 8 10.6l3.4 2.8" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="m7 20 5-5 5 5" />
+        <path d="m7 4 5 5 5-5" />
       </Glyph>
     );
   if (name === "expand-all")
     return (
-      <Glyph class={cls}>
-        {/* The same tree, opening: the bar stays, and both marks move away
-            from it. A reader who folds everything is one press from the list
-            they had. */}
-        <path d="M4.6 5.4 8 2.6l3.4 2.8" />
-        <path d="M2.4 8h11.2" />
-        <path d="M4.6 10.6 8 13.4l3.4-2.8" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="m7 15 5 5 5-5" />
+        <path d="m7 9 5-5 5 5" />
       </Glyph>
     );
   if (name === "arrow-left")
@@ -389,30 +399,23 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
     );
   if (name === "pencil")
     return (
-      <Glyph class={cls}>
-        <path d="M9.2 3.2 12.8 6.8 5.5 14.1 2 14.5 2.4 11z" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+        <path d="m15 5 4 4" />
       </Glyph>
     );
   if (name === "archive")
     return (
-      <Glyph class={cls}>
-        <path d="M2.5 3.5h11v2h-11z" />
-        <path d="M3.5 5.5v7h9v-7" />
-        <path d="M6.5 8.5h3" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <rect width="20" height="5" x="2" y="3" rx="1" />
+        <path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" />
+        <path d="M10 12h4" />
       </Glyph>
     );
   if (name === "spark")
     return (
-      <Glyph class={cls}>
-        <path d="M8 1.8v2.2" />
-        <path d="M8 12v2.2" />
-        <path d="M1.8 8h2.2" />
-        <path d="M12 8h2.2" />
-        <path d="M3.6 3.6 5.2 5.2" />
-        <path d="M10.8 10.8l1.6 1.6" />
-        <path d="M12.4 3.6 10.8 5.2" />
-        <path d="M5.2 10.8 3.6 12.4" />
-        <circle cx="8" cy="8" r="1.4" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z" />
       </Glyph>
     );
   /**
@@ -429,10 +432,10 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
     );
   if (name === "more")
     return (
-      <Glyph class={cls}>
-        <circle cx="3.5" cy="8" r="1" fill="currentColor" stroke="none" />
-        <circle cx="8" cy="8" r="1" fill="currentColor" stroke="none" />
-        <circle cx="12.5" cy="8" r="1" fill="currentColor" stroke="none" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <circle cx="12" cy="12" r="1" />
+        <circle cx="19" cy="12" r="1" />
+        <circle cx="5" cy="12" r="1" />
       </Glyph>
     );
   if (name === "terminal")
@@ -445,86 +448,82 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
     );
   if (name === "globe")
     return (
-      <Glyph class={cls}>
-        <circle cx="8" cy="8" r="5.8" />
-        <path d="M2.2 8h11.6" />
-        <path d="M8 2.2c1.6 1.7 2.5 3.6 2.5 5.8s-.9 4.1-2.5 5.8c-1.6-1.7-2.5-3.6-2.5-5.8s.9-4.1 2.5-5.8z" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <circle cx="12" cy="12" r="10" />
+        <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
+        <path d="M2 12h20" />
       </Glyph>
     );
   if (name === "list")
     return (
-      <Glyph class={cls}>
-        <path d="M6 2.5h7.2" />
-        <path d="M6 8h7.2" />
-        <path d="M6 13.5h7.2" />
-        <circle cx="3.4" cy="2.5" r="0.7" fill="currentColor" stroke="none" />
-        <circle cx="3.4" cy="8" r="0.7" fill="currentColor" stroke="none" />
-        <circle cx="3.4" cy="13.5" r="0.7" fill="currentColor" stroke="none" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M3 5h.01" />
+        <path d="M3 12h.01" />
+        <path d="M3 19h.01" />
+        <path d="M8 5h13" />
+        <path d="M8 12h13" />
+        <path d="M8 19h13" />
       </Glyph>
     );
-  // Four panes on one board: the fleet page, where every project and session
-  // is in frame at once. Square on purpose — the two status marks under it
-  // hold the same box, and the three-bars-with-dots list this replaces read
-  // as scattered specks at row size.
+  // Tabler `layout-grid` (24 grid, verbatim): four panes on one board — the
+  // fleet page, where every project and session is in frame at once. Tabler's
+  // smaller tiles keep the 2×2 grid, which carries roughly twice the ink of
+  // the bell and ring beside it, reading at the same size at 14px.
   if (name === "overview")
     return (
-      <Glyph class={cls}>
-        <rect x="2.5" y="2.5" width="5" height="5" rx="1.3" />
-        <rect x="8.5" y="2.5" width="5" height="5" rx="1.3" />
-        <rect x="2.5" y="8.5" width="5" height="5" rx="1.3" />
-        <rect x="8.5" y="8.5" width="5" height="5" rx="1.3" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M4 5a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4" />
+        <path d="M14 5a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4" />
+        <path d="M4 15a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4" />
+        <path d="M14 15a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4" />
       </Glyph>
     );
   if (name === "wrench")
     return (
-      <Glyph class={cls}>
-        <g transform="translate(-0.8 -0.8) scale(1.1)" stroke-width="1.36">
-          <path d="M9.6 2.6a2.3 2.3 0 0 0-2.4 3.2L3.2 9.8 6.2 12.8l4-4a2.3 2.3 0 0 0 3.2-2.4L11.2 6.6 9.4 4.8z" />
-        </g>
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.106-3.105c.32-.322.863-.22.983.218a6 6 0 0 1-8.259 7.057l-7.91 7.91a1 1 0 0 1-2.999-3l7.91-7.91a6 6 0 0 1 7.057-8.259c.438.12.54.662.219.984z" />
       </Glyph>
     );
   if (name === "branch")
     return (
-      <Glyph class={cls}>
-        <circle cx="5" cy="3.8" r="1.4" />
-        <circle cx="5" cy="12.2" r="1.4" />
-        <circle cx="11" cy="5.8" r="1.4" />
-        <path d="M5 5.2v5.6" />
-        <path d="M11 7.2c0 2.4-2.2 3-6 3.6" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M15 6a9 9 0 0 0-9 9V3" />
+        <circle cx="18" cy="6" r="3" />
+        <circle cx="6" cy="18" r="3" />
       </Glyph>
     );
   // Forking a conversation reads as one stem splitting two ways — not a git
   // branch, which is why "branch" stays for the VCS glyph in the header.
   if (name === "fork")
     return (
-      <Glyph class={cls}>
-        <path d="M8 14V9.4a2.7 2.7 0 0 0-.8-1.9L2.5 2.5" />
-        <path d="M10 6l3.5-3.5" />
-        <path d="M10 2.5h3.5V6" />
-        <path d="M6 2.5H2.5V6" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M16 3h5v5" />
+        <path d="M8 3H3v5" />
+        <path d="M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3" />
+        <path d="m15 9 6-6" />
       </Glyph>
     );
   if (name === "attach")
     return (
-      <Glyph class={cls}>
-        <path d="M10.5 4.5 5.6 9.4a1.6 1.6 0 0 0 2.3 2.3l5-5a3 3 0 0 0-4.3-4.3l-5 5a4.4 4.4 0 0 0 6.2 6.2l4.2-4.2" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551" />
       </Glyph>
     );
   if (name === "copy")
     return (
-      <Glyph class={cls}>
-        <rect x="6" y="6" width="6.6" height="6.6" rx="1.2" />
-        <path d="M4.2 10.2V4.2c0-.6.5-1.1 1.1-1.1H10" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
+        <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
       </Glyph>
     );
-  // A box: the model as something you hold and configure, rather than the
-  // eight-point spark that reads as "generate". Lucide's box, re-fitted.
+  // Lucide `box` (24 grid, verbatim): the model as something you hold and
+  // configure, rather than the spark that reads as "generate".
   if (name === "cube")
     return (
-      <Glyph class={cls}>
-        <path d="M2.5 5.2 8 2.2l5.5 3v5.6L8 13.8l-5.5-3Z" />
-        <path d="M2.5 5.2 8 8.2l5.5-3" />
-        <path d="M8 8.2v5.6" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
+        <path d="m3.3 7 8.7 5 8.7-5" />
+        <path d="M12 22V12" />
       </Glyph>
     );
   if (name === "check")
@@ -535,9 +534,9 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
     );
   if (name === "undo")
     return (
-      <Glyph class={cls}>
-        <path d="M6.2 4.2 3.4 7l2.8 2.8" />
-        <path d="M3.8 7h6.4a2.8 2.8 0 0 1 0 5.6H7.5" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M9 14 4 9l5-5" />
+        <path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11" />
       </Glyph>
     );
   if (name === "plug")
@@ -603,98 +602,96 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
     );
   if (name === "trash")
     return (
-      <Glyph class={cls}>
-        <path d="M2.8 4.3h10.4" />
-        <path d="M6.3 4.3V2.8h3.4v1.5" />
-        <path d="m4.3 4.3.55 8.1a1 1 0 0 0 1 .94h4.3a1 1 0 0 0 1-.94l.55-8.1" />
-        <path d="M6.6 6.8v4.1M9.4 6.8v4.1" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M10 11v6" />
+        <path d="M14 11v6" />
+        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+        <path d="M3 6h18" />
+        <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
       </Glyph>
     );
   if (name === "single-pane")
     return (
-      <Glyph class={cls}>
-        <rect x="2.5" y="3" width="11" height="10" rx="1.4" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <rect width="18" height="18" x="3" y="3" rx="2" />
       </Glyph>
     );
   if (name === "split-row")
     return (
-      <Glyph class={cls}>
-        <rect x="2.5" y="3" width="11" height="10" rx="1.4" />
-        <path d="M8 3v10" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <rect width="18" height="18" x="3" y="3" rx="2" />
+        <path d="M12 3v18" />
       </Glyph>
     );
   if (name === "split-col")
     return (
-      <Glyph class={cls}>
-        <rect x="2.5" y="3" width="11" height="10" rx="1.4" />
-        <path d="M2.5 8h11" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <rect width="18" height="18" x="3" y="3" rx="2" />
+        <path d="M3 12h18" />
       </Glyph>
     );
   if (name === "grid")
     return (
-      <Glyph class={cls}>
-        <rect x="2.5" y="3" width="11" height="10" rx="1.4" />
-        <path d="M8 3v10M2.5 8h11" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M12 3v18" />
+        <path d="M3 12h18" />
+        <rect x="3" y="3" width="18" height="18" rx="2" />
       </Glyph>
     );
   /**
-   * A window with a column on its left, and the mirror of `panel-right`.
-   *
-   * The column used to be a solid block, and that fill was the reason the two
-   * buttons that fold the window's two sides did not match: one was a heavy
-   * shape with a bright stripe, the other a thin outline, and at a glance they
-   * were not a pair at all. Both are outlines now, one divider each, so the
-   * pair reads as the same mark turned around.
+   * Lucide `panel-left` (24 grid, verbatim): a window with a column on its
+   * left — the mirror of `panel-right`, so the two fold buttons read as one
+   * drawing and its reflection.
    */
   if (name === "panel-left")
     return (
-      <Glyph class={cls}>
-        <rect x="2.5" y="3" width="11" height="10" rx="1.5" />
-        <path d="M6.4 3v10" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <rect width="18" height="18" x="3" y="3" rx="2" />
+        <path d="M9 3v18" />
       </Glyph>
     );
   /**
-   * A window with a column on its right: the drawer that opens beside the
-   * session. The divider sits where the left one mirrors it, so the two fold
-   * buttons are one drawing and its reflection.
+   * Lucide `panel-right` (24 grid, verbatim): a window with a column on its
+   * right — the drawer that opens beside the session, and the mirror of
+   * `panel-left`.
    */
   if (name === "panel-right")
     return (
-      <Glyph class={cls}>
-        <rect x="2.5" y="3" width="11" height="10" rx="1.5" />
-        <path d="M9.6 3v10" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <rect width="18" height="18" x="3" y="3" rx="2" />
+        <path d="M15 3v18" />
       </Glyph>
     );
   /**
-   * An open ring: work in progress. The gap is what makes it read as motion
-   * rather than a plain circle, and the ring fills the same optical box the
-   * nav's other marks hold — the heartbeat line it replaced read as a squiggle
-   * at 14px.
+   * Lucide `loader-circle` (24 grid, verbatim): an open ring — work in
+   * progress. The gap is what makes it read as motion rather than a plain
+   * circle.
    */
   if (name === "activity")
     return (
-      <Glyph class={cls}>
-        <path d="M13.2 8A5.2 5.2 0 1 1 8 2.8" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M21 12a9 9 0 1 1-6.219-8.56" />
       </Glyph>
     );
-  // The window's own look — theme, language, type. A display with its stand:
-  // Lucide's monitor geometry, re-fitted to this grid and weight.
+  // Lucide `monitor` (24 grid, verbatim): the window's own look — theme,
+  // language, type. A display with its stand.
   if (name === "monitor")
     return (
-      <Glyph class={cls}>
-        <rect x="2.5" y="3.5" width="11" height="8" rx="1.2" />
-        <path d="M8 11.5v2.5" />
-        <path d="M5.5 14h5" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <rect width="20" height="14" x="2" y="3" rx="2" />
+        <line x1="8" x2="16" y1="21" y2="21" />
+        <line x1="12" x2="12" y1="17" y2="21" />
       </Glyph>
     );
-  // A stacked pair of machines: the places a session can run.
+  // Lucide `server` (24 grid, verbatim): a stacked pair of machines — the
+  // places a session can run.
   if (name === "server")
     return (
-      <Glyph class={cls}>
-        <rect x="2.5" y="2.5" width="11" height="4.5" rx="1.2" />
-        <rect x="2.5" y="9" width="11" height="4.5" rx="1.2" />
-        <circle cx="5.5" cy="4.75" r="0.7" fill="currentColor" stroke="none" />
-        <circle cx="5.5" cy="11.25" r="0.7" fill="currentColor" stroke="none" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <rect width="20" height="8" x="2" y="2" rx="2" ry="2" />
+        <rect width="20" height="8" x="2" y="14" rx="2" ry="2" />
+        <line x1="6" x2="6.01" y1="6" y2="6" />
+        <line x1="6" x2="6.01" y1="18" y2="18" />
       </Glyph>
     );
   // OpenCode's own mark — the square ring with the inset block — adapted from
@@ -709,43 +706,47 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
     );
   if (name === "maximize")
     return (
-      <Glyph class={cls}>
-        <path d="M9.8 2.8h3.4v3.4M6.2 13.2H2.8V9.8M13.2 2.8 9.2 6.8M2.8 13.2l4-4" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M15 3h6v6" />
+        <path d="m21 3-7 7" />
+        <path d="m3 21 7-7" />
+        <path d="M9 21H3v-6" />
       </Glyph>
     );
   if (name === "minimize")
     return (
-      <Glyph class={cls}>
-        <path d="M13 6.2H9.8V3M3 9.8h3.2V13M9.8 6.2 13.5 2.5M6.2 9.8 2.5 13.5" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="m14 10 7-7" />
+        <path d="M20 10h-6V4" />
+        <path d="m3 21 7-7" />
+        <path d="M4 14h6v6" />
       </Glyph>
     );
   /**
-   * A bell: something is waiting on a person. Dome, rim and clapper, three
-   * strokes on the nav's grid; the clapper is an arc rather than a dot so the
-   * mark keeps its weight next to the ring and the window marks at 14px.
+   * Lucide `bell` (24 grid, verbatim): something is waiting on a person —
+   * dome, skirt and clapper in two strokes.
    */
   if (name === "bell")
     return (
-      <Glyph class={cls}>
-        <path d="M5.2 11V6.9a2.8 2.8 0 0 1 5.6 0V11" />
-        <path d="M3.7 11h8.6" />
-        <path d="M6.7 13.2a1.4 1.4 0 0 0 2.6 0" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M10.268 21a2 2 0 0 0 3.464 0" />
+        <path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326" />
       </Glyph>
     );
   if (name === "alert")
     return (
-      <Glyph class={cls}>
-        <circle cx="8" cy="8" r="5.5" />
-        <path d="M8 4.5v4" />
-        <circle cx="8" cy="11" r=".6" fill="currentColor" stroke="none" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <circle cx="12" cy="12" r="10" />
+        <line x1="12" x2="12" y1="8" y2="12" />
+        <line x1="12" x2="12.01" y1="16" y2="16" />
       </Glyph>
     );
   if (name === "info")
     return (
-      <Glyph class={cls}>
-        <circle cx="8" cy="8" r="5.5" />
-        <path d="M8 7.5v4" />
-        <circle cx="8" cy="5" r=".6" fill="currentColor" stroke="none" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <circle cx="12" cy="12" r="10" />
+        <path d="M12 16v-4" />
+        <path d="M12 8h.01" />
       </Glyph>
     );
   // Concentric rings with a filled centre: the mark a session goal is aimed at.
@@ -757,48 +758,41 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
         <circle cx="8" cy="8" r="0.6" fill="currentColor" stroke="none" />
       </Glyph>
     );
-  // Tabler `pin`, moved onto our 16 grid at 2/3 of its 24. It was drawn here
-  // before, as a diamond with a hairline needle — which at 12px is a smudge.
-  // The library's shape has a head with real width and a needle you can see.
+  // Lucide `pin` (24 grid, verbatim): a session kept in reach.
   if (name === "pin")
     return (
-      <Glyph class={cls}>
-        <path d="M10 3l-2.67 2.67l-2.67 1l-1 1l4.67 4.67l1-1l1-2.67l2.67-2.67" />
-        <path d="M6 10l-3 3" />
-        <path d="M9.67 2.67l3.67 3.67" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M12 17v5" />
+        <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
       </Glyph>
     );
-  // Remix `unpin-line`, verbatim on its own 24 grid. A pin crossed out says
-  // "currently pinned, this undoes it" in a way the same pin again does not.
-  // It is a fill icon, so the child overrides the stroke Glyph would set.
+  // Lucide `pin-off` (24 grid, verbatim): a pin crossed out — currently
+  // pinned, and this takes it out.
   if (name === "unpin")
     return (
       <Glyph class={cls} box="0 0 24 24" weight="2.25">
-        <path
-          fill="currentColor"
-          stroke="none"
-          d="m20.97 17.172l-1.414 1.414l-3.535-3.535l-.073.074l-.707 3.536l-1.415 1.414l-4.242-4.243l-4.95 4.95l-1.414-1.414l4.95-4.95l-4.243-4.243L5.34 8.761l3.536-.707l.073-.074l-3.536-3.536L6.828 3.03zM10.365 9.394l-.502.502l-2.822.565l6.5 6.5l.564-2.822l.502-.502zm8.411.074l-1.34 1.34l1.414 1.415l1.34-1.34l.707.707l1.415-1.415l-8.486-8.485l-1.414 1.414l.707.707l-1.34 1.34l1.414 1.415l1.34-1.34z"
-        />
+        <path d="M12 17v5" />
+        <path d="M15 9.34V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H7.89" />
+        <path d="m2 2 20 20" />
+        <path d="M9 9v1.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h11" />
       </Glyph>
     );
-  // A clock face with two hands — the hour one shorter, so the reading
-  // is a time and not a badge. Drawn on our 16 grid: the dial is a
-  // circle, the hands are two strokes that stop short of it.
+  // Lucide `clock` (24 grid, verbatim): a time, not a badge.
   if (name === "clock")
     return (
-      <Glyph class={cls}>
-        <circle cx="8" cy="8" r="5.75" />
-        <path d="M8 4.6V8l2.4 1.5" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <circle cx="12" cy="12" r="10" />
+        <path d="M12 6v6l4 2" />
       </Glyph>
     );
-  // A calendar: a box with a bar across the top and two tabs above it.
-  // The tabs are what make it a date rather than a window.
+  // Lucide `calendar` (24 grid, verbatim): a date rather than a window.
   if (name === "calendar")
     return (
-      <Glyph class={cls}>
-        <rect x="2.5" y="3.5" width="11" height="10" rx="1.5" />
-        <path d="M2.5 6.75h11" />
-        <path d="M5.5 2v3M10.5 2v3" />
+      <Glyph class={cls} box="0 0 24 24" weight="2.25">
+        <path d="M8 2v3" />
+        <path d="M16 2v3" />
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <path d="M3 9h18" />
       </Glyph>
     );
   // A filled triangle: the one shape that means "go" without a word.

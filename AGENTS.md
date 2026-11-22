@@ -31,3 +31,8 @@ Replays a reader's journeys (cold open, scroll up, wheel, outline jump, session 
 - Chromium dies on the long session's cold open — the 1,600-turn view is ~13MB of JSON that lands as one ~800k-pixel tree, and the renderer goes with it (`Target page, context or browser has been closed`). It happens on an unmodified checkout too, and it hits the first Chromium flow of a run, so a Chromium failure is a machine, not a change: judge in WebKit and say so rather than chasing it.
 - A cold open that never gets its full view leaves the tail preview standing, and the outline rail never appears — the jump step then waits 30s for a locator that will not come. That is what an aborted Chromium flow looks like from the outside.
 - Results and caches are gitignored: `bench/results/`, `bench/.cache/`.
+
+## Icons (`apps/desktop/ui/src/icons.tsx`)
+- New or replaced glyphs come from Lucide (`lucide-static`) verbatim: `<Glyph box="0 0 24 24" weight="2.25">`, upstream elements unchanged. Don't hand-draw or re-fit; that is how the old marks ended up mismatched in size and weight.
+- Exceptions on purpose: brand marks (`mcp`, `opencode`), Tabler `overview`/`layout`, the small filled media marks (`stop`, `play`, `pause`), `target`, and hand-drawn primitives identical to Lucide's (chevrons, arrows, `plus`, `x`, `check`).
+- Judge a change at real size (12–16px) in WebKit against its neighbours; matching bounding boxes is not enough — compare ink and centroid.
