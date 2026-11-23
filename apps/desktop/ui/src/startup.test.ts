@@ -3,7 +3,6 @@ import {
   startupCanEnter,
   startupDisplayedStage,
   startupStage,
-  syncProgress,
   type StartupInput,
 } from "./startup";
 
@@ -96,27 +95,5 @@ describe("startupCanEnter", () => {
   test("does not offer a door before the local list exists", () => {
     expect(startupCanEnter("sessions", { elapsedMs: 30_000, sessionsReady: false })).toBe(false);
     expect(startupCanEnter("service-error", { elapsedMs: 30_000, sessionsReady: false })).toBe(false);
-  });
-});
-
-describe("syncProgress", () => {
-  test("is absent until a sync starts", () => {
-    expect(syncProgress(new Map())).toBeUndefined();
-  });
-
-  test("sums every connection still syncing", () => {
-    const ticks = new Map([
-      ["a", { done: 3, total: 10 }],
-      ["b", { done: 1, total: 5 }],
-    ]);
-    expect(syncProgress(ticks)).toEqual({ done: 4, total: 15, indeterminate: false });
-  });
-
-  test("a scan without a total is indeterminate", () => {
-    const ticks = new Map([
-      ["a", { done: 0, total: 0 }],
-      ["b", { done: 1, total: 5 }],
-    ]);
-    expect(syncProgress(ticks)).toEqual({ done: 1, total: 5, indeterminate: true });
   });
 });

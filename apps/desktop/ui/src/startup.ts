@@ -116,26 +116,3 @@ export function startupCanEnter(
   if (stage !== "opencode") return false;
   return input.sessionsReady && input.elapsedMs >= STARTUP_ENTER_AFTER_MS;
 }
-
-export interface SyncProgress {
-  done: number;
-  total: number;
-  /** At least one connection is still scanning and has no total yet. */
-  indeterminate: boolean;
-}
-
-/** Sum the per-connection sync counters the stream reports. */
-export function syncProgress(
-  ticks: ReadonlyMap<string, { done: number; total: number }>,
-): SyncProgress | undefined {
-  if (ticks.size === 0) return undefined;
-  let done = 0;
-  let total = 0;
-  let indeterminate = false;
-  for (const tick of ticks.values()) {
-    done += tick.done;
-    total += tick.total;
-    if (tick.total <= 0) indeterminate = true;
-  }
-  return { done, total, indeterminate };
-}

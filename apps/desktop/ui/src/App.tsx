@@ -45,7 +45,6 @@ import { playSound, soundForEvent } from "./sound";
 import { StartupGate } from "./startup-gate";
 import { useStartup } from "./use-startup";
 import { ImageViewerHost } from "./image-viewer";
-import { SyncLine } from "./sync-line";
 import { changesSessionList, isDevEvent, pullAllowed } from "./sync-events";
 import { createDebouncer } from "./debounce";
 
@@ -762,7 +761,6 @@ export function App() {
       </Show>
 
       <main class="@container/main relative min-w-0 flex-1">
-        <SyncLine ticks={conns.syncTicks()} show={conns.syncShown()} />
         <Show when={route().name === "fleet"}>
           <PageShell
             title={t("fleet.nav")}
