@@ -97,11 +97,19 @@ export class MemoryStore {
   mutate(scope: MemoryScope, key: string | undefined, change: (file: MemoryFile) => void): MemoryFile {
     const path = this.pathFor(scope, key);
     const loaded = this.load(path);
-    change(loaded.file);
-    loaded.file.revision += 1;
+    // The change is applied to a copy, never to the cached object. If the
+    // write then fails, the cache must still hold what is on disk: otherwise
+    // the next read — which sees an unchanged stamp and takes the cache —
+    // would show a save that never landed.
+    const next: MemoryFile = {
+      ...loaded.file,
+      memories: loaded.file.memories.map((entry) => ({ ...entry })),
+    };
+    change(next);
+    next.revision += 1;
     this.assertUnchanged(path, loaded.stamp);
-    this.writeFile(path, loaded.file);
-    return loaded.file;
+    this.writeFile(path, next);
+    return next;
   }
 
   /** The workspaces the plugin has seen, newest first. */

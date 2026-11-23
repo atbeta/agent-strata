@@ -237,18 +237,39 @@ export function createMemoryPlugin(options: MemoryPluginOptions): StrataPlugin {
     memory().read(scope, key).memories;
 
   /**
+   * Read one scope for the prompt, and treat an unreadable file as an empty
+   * scope rather than as the end of the prompt.
+   *
+   * The two scopes live in two files. A hand edit that went wrong in one of
+   * them — or a file that lost permission — must not cost the reader the
+   * other: the facts that still hold would vanish from every session, and the
+   * only sign would be a warning nobody reads.
+   */
+  const safeEntries = (scope: MemoryScope, key?: string): MemoryEntry[] => {
+    try {
+      return [...entriesOf(scope, key)].reverse();
+    } catch (error) {
+      context?.logger.warn(`memory could not be read for the ${scope} scope`, error);
+      return [];
+    }
+  };
+
+  /**
    * The two scopes a session sees, each newest first.
    *
    * The newest first because a stale memory is the dangerous kind: when the
    * budget is tight, the ones most likely to still be true are the ones that
    * must survive.
+   *
+   * A scope whose file cannot be read comes back empty instead of taking the
+   * other one with it: the two live in two files, and one of them going wrong
+   * must not cost the facts that are still there.
    */
   const visibleTo = (sessionId: string): { workspace: MemoryEntry[]; global: MemoryEntry[] } => {
     const where = workspaceOf(sessionId);
-    const workspace = where.scope === "workspace" ? entriesOf("workspace", where.key) : [];
     return {
-      workspace: [...workspace].reverse(),
-      global: [...entriesOf("global")].reverse(),
+      workspace: where.scope === "workspace" ? safeEntries("workspace", where.key) : [],
+      global: safeEntries("global"),
     };
   };
 
@@ -426,12 +447,18 @@ export function createMemoryPlugin(options: MemoryPluginOptions): StrataPlugin {
      * cache misses on every turn.
      */
     async systemPrompt(sessionId: string): Promise<string | undefined> {
-      try {
-        const path = pathOf(sessionId);
-        if (path) {
-          const key = workspaceKey(path);
-          memory().touchWorkspace(key, path, now());
+      const path = pathOf(sessionId);
+      if (path) {
+        // Recording the workspace is a side effect, not a requirement: if it
+        // fails, the settings page loses a tab — but the session still gets
+        // its memories.
+        try {
+          memory().touchWorkspace(workspaceKey(path), path, now());
+        } catch (error) {
+          context?.logger.warn("memory could not record the workspace", error);
         }
+      }
+      try {
         const rendered = renderPrompt({
           ...visibleTo(sessionId),
           budget: number("maxPromptChars", DEFAULT_PROMPT_BUDGET),

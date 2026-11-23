@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PluginContext, ToolCallRequest } from "@agent-strata/plugin-sdk";
@@ -85,6 +85,60 @@ describe("memory plugin", () => {
       const prompt = await plugin.systemPrompt!("opencode:two");
       expect(prompt).toContain("User prefers Traditional Chinese.");
       expect(prompt).not.toContain("make deploy");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a broken workspace file does not cost the global memories", async () => {
+    const { dir, plugin, context, store } = fixture();
+    try {
+      await plugin.initialize!(context);
+      await call(plugin, "add", "opencode:one", { text: "User prefers Traditional Chinese.", scope: "global" });
+      await call(plugin, "add", "opencode:one", { text: "This repo deploys with make deploy." });
+
+      // The workspace file is hand-edited into something that is not JSON.
+      // The global facts live in another file and must survive it.
+      writeFileSync(store.workspacePath(workspaceKey(join(dir, "work-one"))), "{ not json");
+
+      const prompt = await plugin.systemPrompt!("opencode:one");
+      expect(prompt).toContain("User prefers Traditional Chinese.");
+      expect(prompt).not.toContain("make deploy");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a broken global file does not cost the workspace memories", async () => {
+    const { dir, plugin, context, store } = fixture();
+    try {
+      await plugin.initialize!(context);
+      await call(plugin, "add", "opencode:one", { text: "User prefers Traditional Chinese.", scope: "global" });
+      await call(plugin, "add", "opencode:one", { text: "This repo deploys with make deploy." });
+
+      writeFileSync(store.globalPath(), "{ not json");
+
+      const prompt = await plugin.systemPrompt!("opencode:one");
+      expect(prompt).toContain("This repo deploys with make deploy.");
+      expect(prompt).not.toContain("Traditional Chinese");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("the resource a session reads survives a broken workspace file", async () => {
+    const { dir, plugin, context, store } = fixture();
+    try {
+      await plugin.initialize!(context);
+      await call(plugin, "add", "opencode:one", { text: "User prefers Traditional Chinese.", scope: "global" });
+      await call(plugin, "add", "opencode:one", { text: "This repo deploys with make deploy." });
+
+      writeFileSync(store.workspacePath(workspaceKey(join(dir, "work-one"))), "{ not json");
+
+      const resource = await plugin.readResource!({ key: "memories", sessionId: "opencode:one" });
+      const body = String(resource.body);
+      expect(body).toContain("User prefers Traditional Chinese.");
+      expect(body).not.toContain("make deploy");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
