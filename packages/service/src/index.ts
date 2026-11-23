@@ -203,6 +203,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     driverFor: (sessionId) => driverFor(sessionId),
     directoryOf: (sessionId) => directoryOf(sessionId),
     rememberAlways: (tool) => rememberAlways(tool),
+    waiting: (ask) => broadcast({ type: "permission.waiting", ...ask }),
   });
   const goalRunner = new GoalRunner({
     store,

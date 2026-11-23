@@ -65,8 +65,13 @@ describe("the bundled OpenCode sound library", () => {
 
 describe("session event sounds", () => {
   test("separates permission requests from questions", () => {
-    expect(soundForEvent({ type: "permission.requested" })).toBe("permission");
+    expect(soundForEvent({ type: "permission.waiting" })).toBe("permission");
     expect(soundForEvent({ type: "question.asked" })).toBe("agent");
+  });
+
+  test("an ask a policy settles on its own stays quiet; only one left waiting sounds", () => {
+    expect(soundForEvent({ type: "permission.requested" })).toBeUndefined();
+    expect(soundForEvent({ type: "permission.resolved", data: { by: "policy" } })).toBeUndefined();
   });
 
   test("plays for real errors, not an error clear", () => {

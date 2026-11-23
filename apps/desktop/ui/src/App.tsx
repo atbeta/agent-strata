@@ -351,7 +351,10 @@ export function App() {
     document.addEventListener("visibilitychange", onVisibility);
     const errorSoundAt = new Map<string, number>();
     const announceSound = (evt: { type?: string; session_id?: string; data?: unknown }) => {
-      if (conns.syncTicks().size > 0) return;
+      // A sync replays history, and old errors should stay quiet. A waiting
+      // permission is never replayed: it is only sent when an ask starts
+      // blocking, so it still sounds in the middle of a sync.
+      if (evt.type !== "permission.waiting" && conns.syncTicks().size > 0) return;
       const kind = soundForEvent(evt);
       if (!kind) return;
       if (kind === "error" && evt.session_id) {
@@ -425,6 +428,7 @@ export function App() {
       // so the list never refreshes at all and every row sits at whatever state
       // it had when the server started.
       if (isDevEvent(type)) return;
+      if (type === "permission.waiting") return;
       if (type === "tool.progress") {
         // Live-only: a tool row may want it, the session list never does. The
         // payload was parsed above, so the raw string is re-read here rather

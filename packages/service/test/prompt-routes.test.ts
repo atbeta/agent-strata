@@ -39,6 +39,7 @@ function harness(options: {
   };
   pendingQuestionIds?: string[];
   rememberAlways?: (tool: string) => void;
+  waiting?: (ask: { session_id: string; request_id: string }) => void;
 }) {
   const store = openStore(":memory:");
   for (const requestId of options.pendingQuestionIds ?? []) {
@@ -60,11 +61,43 @@ function harness(options: {
     driverFor: () => options.driver,
     directoryOf: () => "/repo",
     rememberAlways: options.rememberAlways,
+    waiting: options.waiting,
   });
   for (const pending of options.asks ?? []) requests.pendingAsks.set(pending.request_id, pending);
   for (const pending of options.questions ?? []) requests.pendingQuestions.set(pending.request_id, pending);
   return { requests, store };
 }
+
+describe("an ask that waits on the reader", () => {
+  const requested = (request_id: string) =>
+    makeEvent({
+      id: `opencode:${request_id}:permission.requested`,
+      session_id: "opencode:s1",
+      source: { backend: "opencode" },
+      type: "permission.requested",
+      data: { request_id, tool: "bash", input: {} },
+    }) as Extract<EventInput, { type: "permission.requested" }>;
+
+  test("is announced once, when it starts to block", () => {
+    const waiting: { session_id: string; request_id: string }[] = [];
+    const { requests, store } = harness({ waiting: (a) => waiting.push(a) });
+    void requests.onAsk(requested("perm1"));
+    expect(waiting).toEqual([{ session_id: "opencode:s1", request_id: "perm1" }]);
+    // A replay of the same ask, as a reconnect restores it, is not a second one.
+    void requests.onAsk(requested("perm1"));
+    expect(waiting).toHaveLength(1);
+    store.close();
+  });
+
+  test("an ask already answered elsewhere is not announced", () => {
+    const waiting: string[] = [];
+    const { requests, store } = harness({ waiting: (a) => waiting.push(a.request_id) });
+    requests.settleAsk("perm2", "allow");
+    void requests.onAsk(requested("perm2"));
+    expect(waiting).toEqual([]);
+    store.close();
+  });
+});
 
 describe("prompt response routes", () => {
   test("invalid permission responses fail closed and leave the ask pending", async () => {

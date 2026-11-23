@@ -51,6 +51,29 @@ describe("createIngestor seam", () => {
     store.close();
   });
 
+  test("an ask the policy settles is recorded but never handed to the reader", async () => {
+    const store = openStore(":memory:");
+    const handed: string[] = [];
+    const ing = createIngestor({
+      mapper: new OpencodeMapper(),
+      sink: store,
+      policy: loadPolicy({ version: 1, default: "allow", rules: [] }),
+      onAsk: async (req) => {
+        handed.push(req.data.request_id);
+        return { decision: "allow" };
+      },
+      reply: async () => {},
+    });
+    ing.handle(sessionCreated());
+    ing.handle(asked("bash", ["ls"], "permAuto"));
+    await Bun.sleep(20);
+    expect(handed).toEqual([]);
+    const types = store.read({ session_id: `opencode:${sid}` }).map((e) => e.type);
+    expect(types).toContain("permission.requested");
+    expect(types).toContain("permission.resolved");
+    store.close();
+  });
+
   test("a user's always allow is replied always", async () => {
     const replies: { requestID: string; reply: string }[] = [];
     const store = openStore(":memory:");

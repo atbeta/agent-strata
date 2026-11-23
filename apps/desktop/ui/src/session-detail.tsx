@@ -538,6 +538,9 @@ export function SessionDetail(props: {
           if (evt.session_id === props.id) refetchAutoAccept();
           return;
         }
+        // A sound cue only. The card was already drawn from the
+        // permission.requested that came before it.
+        if (evt.type === "permission.waiting") return;
         if (evt.session_id === props.id || evt.type === "permission.requested" || evt.type === "question.asked") {
           if (replayPos() === null) {
             const ask = evt.type === "permission.requested" || evt.type === "question.asked";

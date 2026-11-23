@@ -67,7 +67,9 @@ export function soundForEvent(event: {
   type?: string;
   data?: unknown;
 }): SoundKind | undefined {
-  if (event.type === "permission.requested") return "permission";
+  // Not permission.requested: that is recorded for every ask, the ones a
+  // policy or the session's auto-accept settles without anyone included.
+  if (event.type === "permission.waiting") return "permission";
   if (event.type === "question.asked") return "agent";
   const data = event.data && typeof event.data === "object"
     ? event.data as Record<string, unknown>

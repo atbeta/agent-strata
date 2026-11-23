@@ -47,6 +47,12 @@ export class PermissionRequests {
       directoryOf(sessionId: string): string | undefined;
       /** Persist an explicit allow for a tool this service asked about. */
       rememberAlways?(tool: string): void;
+      /**
+       * An ask now blocks on the reader. Every ask is recorded as
+       * permission.requested, including the ones a policy settles a moment
+       * later; this is only the ones nothing else will answer.
+       */
+      waiting?(ask: { session_id: string; request_id: string }): void;
       timeoutMs?: number;
     },
   ) {
@@ -63,7 +69,7 @@ export class PermissionRequests {
     if (known || this.pendingAsks.has(data.request_id)) {
       return Promise.resolve({ decision: known ?? "allow", external: true as const });
     }
-    return new Promise((resolve) =>
+    return new Promise((resolve) => {
       this.pendingAsks.set(data.request_id, {
         request_id: data.request_id,
         session_id: req.session_id,
@@ -73,8 +79,9 @@ export class PermissionRequests {
         asked_at: req.ts,
         local,
         resolve,
-      }),
-    );
+      });
+      this.deps.waiting?.({ session_id: req.session_id, request_id: data.request_id });
+    });
   };
 
   readonly onQuestion = (

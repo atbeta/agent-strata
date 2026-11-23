@@ -227,6 +227,7 @@ export function PeerSessionTranscript(props: {
       // a long session the refetch it would otherwise trigger is the slowest
       // thing on screen.
       if (evt.type === "session.policy") return;
+      if (evt.type === "permission.waiting") return;
       if (evt.type === "session.rebuilt") rebuilt = true;
       if (holdingWrites()) {
         scrollDeferral.noteRefresh(rebuilt);
