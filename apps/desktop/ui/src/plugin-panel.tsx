@@ -89,9 +89,27 @@ export function isPluginPanelTab(tab: string): boolean {
  * can wedge a rail is not.
  */
 export function PluginPanel(props: PluginComponentProps & { panel: PanelContribution }) {
-  const Component = panelComponent(props.panel);
-  if (Component) return <Component sessionId={props.sessionId} schedules={props.schedules} />;
-  return <DataPanel panel={props.panel} sessionId={props.sessionId} />;
+  // The rail leaves this mounted while the reader moves between plugin tabs.
+  // Both tabs are present, so the rail's own check — which only asks whether
+  // a panel exists — never swaps the body, and the component chosen on the
+  // first render would stay on screen. The key is the panel's identity: a
+  // registry refresh that rebuilds the same panel does not tear it down.
+  return (
+    <Show when={`${props.panel.plugin}:${props.panel.id}`} keyed>
+      {(id) => {
+        const Component = panelComponent(props.panel);
+        return (
+          <div data-plugin-panel={id} class="flex min-h-0 flex-1 flex-col">
+            {Component ? (
+              <Component sessionId={props.sessionId} schedules={props.schedules} />
+            ) : (
+              <DataPanel panel={props.panel} sessionId={props.sessionId} />
+            )}
+          </div>
+        );
+      }}
+    </Show>
+  );
 }
 
 function DataPanel(props: { panel: PanelContribution; sessionId: () => string }) {
