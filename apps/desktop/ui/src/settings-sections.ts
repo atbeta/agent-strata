@@ -24,13 +24,18 @@ export type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number]["id"];
 
 export function settingsPath(
   hashPath: string,
-): { section: string | undefined; plugin?: string } | undefined {
+): { section: string | undefined; plugin?: string; skill?: string } | undefined {
   const match = /^\/settings(?:\/([^/]+))?(?:\/([^/]+))?$/.exec(hashPath);
   if (!match) return undefined;
   const section = match[1];
-  const plugin = match[2];
-  if (plugin && section !== "plugins") return undefined;
-  return { section, plugin: plugin ? decodeURIComponent(plugin) : undefined };
+  const detail = match[2];
+  if (detail && section !== "plugins" && section !== "skills") return undefined;
+  const decoded = detail ? decodeURIComponent(detail) : undefined;
+  return {
+    section,
+    plugin: section === "plugins" ? decoded : undefined,
+    skill: section === "skills" ? decoded : undefined,
+  };
 }
 
 export function settingsSection(segment: string | undefined): SettingsSectionId {

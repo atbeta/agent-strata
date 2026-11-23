@@ -19,9 +19,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { EmptyState } from "@/components/ui/empty-state";
-import { RowButton } from "@/components/ui/row-button";
-import { Switch } from "@/components/ui/switch";
-import { TextField, TextFieldInput, TextFieldLabel } from "@/components/ui/text-field";
+import { TextFieldInput } from "@/components/ui/text-field";
 import {
   createManagedSkill,
   deleteManagedSkill,
@@ -32,7 +30,6 @@ import {
   revealPath,
   updateManagedSkill,
   type ManagedSkill,
-  type SkillSource,
 } from "./api";
 import { explain as errorText, fadeSignal } from "./errors";
 import { t } from "./i18n";
@@ -40,57 +37,24 @@ import { Icon } from "./icons";
 import { Tip } from "./tip";
 import { endpointShort, type ConnectionsCtl } from "./use-connections";
 import { Card, Group, Row, Segmented, pickerTrigger } from "./settings-blocks";
+import { SkillDetail } from "./skill-detail";
+import { SKILL_SOURCE_LABEL, skillStatusLabel } from "./skill-display";
+import { SkillEditor, validSkillId, type SkillEditorState } from "./skill-editor";
 
-interface EditorState {
-  mode: "create" | "edit";
-  key?: string;
-  scope: "global" | "project";
-  id: string;
-  name: string;
-  description: string;
-  content: string;
-  autoInvoke: boolean;
-  /** Connection and workspace this draft was opened against. A later poll must not retarget the save. */
-  connectionId: string;
-  workspace: string;
-}
+type EditorState = SkillEditorState;
+type ScopeFilter = "all" | "global" | "project";
 
-/** How often the open page rereads workspaces and skills. Independent of the connection snapshot. */
 export const SKILL_REFRESH_MS = 5_000;
 
-const SOURCE_LABEL: Record<SkillSource, Parameters<typeof t>[0]> = {
-  "opencode-global": "skills.source.global",
-  "opencode-project": "skills.source.project",
-  claude: "skills.source.claude",
-  agents: "skills.source.agents",
-  custom: "skills.source.custom",
-  http: "skills.source.http",
-  console: "skills.source.console",
-  builtin: "skills.source.builtin",
-  unknown: "skills.source.unknown",
-};
-
-function statusLabel(status: ManagedSkill["status"]): string {
-  return t(`skills.status.${status}`);
-}
-
-function readonlyLabel(skill: ManagedSkill): string {
-  if (!skill.readonlyReason) return t("skills.readonly.custom");
-  return t(`skills.readonly.${skill.readonlyReason}`);
-}
-
-function validId(id: string): boolean {
-  return /^[a-z0-9]+(-[a-z0-9]+)*$/.test(id) && id.length <= 64;
-}
-
-export function SkillSettings(props: { conns: ConnectionsCtl }) {
+export function SkillSettings(props: { conns: ConnectionsCtl; skillId?: string }) {
   const connections = () =>
     (props.conns.conns.latest?.connections ?? []).filter(
       (connection) => connection.backend === "opencode" && connection.capabilities?.extension === "opencode",
     );
   const [connectionChoice, setConnectionChoice] = createSignal("");
   const [editor, setEditor] = createSignal<EditorState>();
-  // While a draft is open, keep its connection even if a poll reorders or briefly drops the snapshot.
+  const [editorOriginal, setEditorOriginal] = createSignal("");
+  const [pendingEditorAction, setPendingEditorAction] = createSignal<() => void>();
   const connectionId = createMemo(() => {
     const pinned = editor()?.connectionId;
     if (pinned) return pinned;
@@ -109,7 +73,6 @@ export function SkillSettings(props: { conns: ConnectionsCtl }) {
       ),
     ),
   );
-  // Same for the workspace: follow the live directory only when nothing is being edited.
   const workspace = createMemo(() => {
     const pinned = editor()?.workspace;
     if (pinned) return pinned;
@@ -136,40 +99,72 @@ export function SkillSettings(props: { conns: ConnectionsCtl }) {
   const local = () => currentListing()?.connection.local ?? currentTargets()?.connection.local ?? false;
   const globalAvailable = () => currentListing()?.globalAvailable ?? currentTargets()?.globalAvailable ?? false;
   const [query, setQuery] = createSignal("");
+  const [scopeFilter, setScopeFilter] = createSignal<ScopeFilter>("all");
   const filtered = createMemo(() => {
     const needle = query().trim().toLocaleLowerCase();
-    if (!needle) return skills();
-    return skills().filter((skill) =>
-      `${skill.name}\n${skill.id}\n${skill.description}\n${skill.location}`.toLocaleLowerCase().includes(needle),
-    );
+    return skills().filter((skill) => {
+      if (scopeFilter() !== "all" && skill.scope !== scopeFilter()) return false;
+      if (!needle) return true;
+      return `${skill.name}\n${skill.id}\n${skill.description}\n${skill.location}`
+        .toLocaleLowerCase()
+        .includes(needle);
+    });
   });
-  const [selected, setSelected] = createSignal("");
-  const selectedSkill = () => skills().find((skill) => skill.key === selected());
-  const draft = () => editor()!;
+  const selectedKey = () => props.skillId ?? filtered()[0]?.key;
+  const selectedSkill = () => skills().find((skill) => skill.key === selectedKey());
   const [saving, setSaving] = createSignal(false);
   const [busy, setBusy] = createSignal("");
   const [note, setNote] = fadeSignal("");
   const [error, setError] = fadeSignal("");
   const [pendingDelete, setPendingDelete] = createSignal<ManagedSkill>();
+  const editorDirty = createMemo(() => Boolean(editor()) && JSON.stringify(editor()) !== editorOriginal());
 
-  // A connection poll replaces the snapshot object, and the open draft pins its own
-  // connection and workspace. Only an actual switch of id or path discards the draft;
-  // the list itself refreshes on a timer without leaving the editor.
+  const withDraftGuard = (action: () => void) => {
+    if (!editorDirty()) {
+      action();
+      return;
+    }
+    setPendingEditorAction(() => action);
+  };
+  const discardDraft = () => {
+    const action = pendingEditorAction();
+    setPendingEditorAction(undefined);
+    setEditor(undefined);
+    setEditorOriginal("");
+    action?.();
+  };
+  const openEditor = (next: EditorState) => {
+    setEditor(next);
+    setEditorOriginal(JSON.stringify(next));
+  };
+  const closeDetail = () => withDraftGuard(() => {
+    setEditor(undefined);
+    setEditorOriginal("");
+    location.hash = "/settings/skills";
+  });
+  const selectSkill = (key: string) => withDraftGuard(() => {
+    setEditor(undefined);
+    setEditorOriginal("");
+    location.hash = `/settings/skills/${encodeURIComponent(key)}`;
+  });
+
   createEffect(
     on(connectionId, (id, prev) => {
       if (prev === undefined || id === prev || !id || !prev) return;
       setWorkspaceChoice("");
-      setSelected("");
       setEditor(undefined);
+      setEditorOriginal("");
       setError("");
       setNote("");
+      if (props.skillId) location.hash = "/settings/skills";
     }),
   );
   createEffect(
     on(workspace, (dir, prev) => {
       if (prev === undefined || dir === prev || !dir || !prev) return;
-      setSelected("");
       setEditor(undefined);
+      setEditorOriginal("");
+      if (props.skillId) location.hash = "/settings/skills";
     }),
   );
   onMount(() => {
@@ -193,10 +188,11 @@ export function SkillSettings(props: { conns: ConnectionsCtl }) {
     if (workspace()) await refetchSkills();
   };
 
-  const beginCreate = () => {
+  const beginCreate = () => withDraftGuard(() => {
     setError("");
     setNote("");
-    setEditor({
+    location.hash = "/settings/skills";
+    openEditor({
       mode: "create",
       scope: "project",
       id: "",
@@ -207,12 +203,13 @@ export function SkillSettings(props: { conns: ConnectionsCtl }) {
       connectionId: connectionId(),
       workspace: workspace(),
     });
-  };
+  });
 
-  const beginEdit = (skill: ManagedSkill) => {
+  const beginEdit = (skill: ManagedSkill) => withDraftGuard(() => {
     setError("");
     setNote("");
-    setEditor({
+    location.hash = `/settings/skills/${encodeURIComponent(skill.key)}`;
+    openEditor({
       mode: "edit",
       key: skill.key,
       scope: skill.scope === "global" ? "global" : "project",
@@ -224,7 +221,7 @@ export function SkillSettings(props: { conns: ConnectionsCtl }) {
       connectionId: connectionId(),
       workspace: workspace(),
     });
-  };
+  });
 
   const patchEditor = (patch: Partial<EditorState>) => {
     const current = editor();
@@ -239,7 +236,7 @@ export function SkillSettings(props: { conns: ConnectionsCtl }) {
   const save = async () => {
     const draft = editor();
     if (!draft || saving()) return;
-    if (draft.mode === "create" && !validId(draft.id.trim())) {
+    if (draft.mode === "create" && !validSkillId(draft.id.trim())) {
       setError(t("skills.form.id.invalid"));
       return;
     }
@@ -259,6 +256,7 @@ export function SkillSettings(props: { conns: ConnectionsCtl }) {
           : await updateManagedSkill(draft.key!, draft.connectionId, draft.workspace, body);
       changed(result.reloaded, t(draft.mode === "create" ? "skills.created" : "skills.saved"));
       setEditor(undefined);
+      setEditorOriginal("");
       await refetchSkills();
     } catch (cause) {
       setError(errorText(cause));
@@ -295,9 +293,10 @@ export function SkillSettings(props: { conns: ConnectionsCtl }) {
     try {
       const result = await deleteManagedSkill(skill.key, connectionId(), workspace());
       changed(result.reloaded, t("skills.deleted"));
-      setSelected("");
+      location.hash = "/settings/skills";
       setPendingDelete(undefined);
       setEditor(undefined);
+      setEditorOriginal("");
       await refetchSkills();
     } catch (cause) {
       setError(errorText(cause));
@@ -307,18 +306,15 @@ export function SkillSettings(props: { conns: ConnectionsCtl }) {
     }
   };
 
-  const open = async (path: string, editor: boolean) => {
+  const open = async (path: string, inEditor: boolean) => {
     setError("");
     try {
-      if (editor) await openInEditor("vscode", path);
+      if (inEditor) await openInEditor("vscode", path);
       else await revealPath(path);
     } catch (cause) {
       setError(errorText(cause));
     }
   };
-
-  const supportPath = (skill: ManagedSkill, file: string) =>
-    `${skill.location.replace(/[\\/]SKILL\.md$/, "")}/${file}`;
 
   return (
     <>
@@ -421,126 +417,15 @@ export function SkillSettings(props: { conns: ConnectionsCtl }) {
       </Group>
 
       <Show when={connectionId() && workspace()}>
-        <Show when={editor()}>
-          <Group label={t(draft().mode === "create" ? "skills.new" : "skills.edit")}>
-            <Card>
-              <div class="space-y-4 py-4">
-                <Show when={draft().mode === "create"}>
-                  <Row label={t("skills.form.scope")} hint={t("skills.form.scopeHint")}>
-                    <Segmented
-                      label={t("skills.form.scope")}
-                      value={draft().scope}
-                      options={[
-                        { id: "project", label: t("skills.source.project") },
-                        ...(globalAvailable() ? [{ id: "global", label: t("skills.source.global") }] : []),
-                      ]}
-                      onChange={(scope) => patchEditor({ scope: scope as "global" | "project" })}
-                    />
-                  </Row>
-                  <TextField>
-                    <TextFieldLabel>{t("skills.form.id")}</TextFieldLabel>
-                    <TextFieldInput
-                      size="sm"
-                      mono
-                      value={draft().id}
-                      onInput={(event) => patchEditor({ id: event.currentTarget.value })}
-                      placeholder="git-release"
-                      autocomplete="off"
-                      spellcheck={false}
-                    />
-                    <TextFieldLabel variant="description">{t("skills.form.idHint")}</TextFieldLabel>
-                  </TextField>
-                </Show>
-                <Show when={draft().mode === "edit"}>
-                  <div>
-                    <div class="text-sm font-medium">{t("skills.form.id")}</div>
-                    <code class="mt-1 block font-mono text-xs text-muted-foreground">{draft().id}</code>
-                    <p class="mt-1 text-2xs text-muted-foreground">{t("skills.form.idLocked")}</p>
-                  </div>
-                </Show>
-                <TextField>
-                  <TextFieldLabel>{t("skills.form.name")}</TextFieldLabel>
-                  <TextFieldInput
-                    size="sm"
-                    value={draft().name}
-                    onInput={(event) => patchEditor({ name: event.currentTarget.value })}
-                    placeholder={draft().id || t("skills.form.namePlaceholder")}
-                  />
-                </TextField>
-                <TextField>
-                  <TextFieldLabel>{t("skills.form.description")}</TextFieldLabel>
-                  <TextFieldInput
-                    size="sm"
-                    value={draft().description}
-                    onInput={(event) => patchEditor({ description: event.currentTarget.value })}
-                    placeholder={t("skills.form.descriptionPlaceholder")}
-                  />
-                  <TextFieldLabel variant="description">{t("skills.form.descriptionHint")}</TextFieldLabel>
-                </TextField>
-                <div>
-                  <label class="text-sm font-medium" for="skill-content">
-                    {t("skills.form.content")}
-                  </label>
-                  <textarea
-                    id="skill-content"
-                    rows={12}
-                    class="mt-1 min-h-56 w-full resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-xs leading-5 text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none"
-                    value={draft().content}
-                    onInput={(event) => patchEditor({ content: event.currentTarget.value })}
-                    placeholder={t("skills.form.contentPlaceholder")}
-                    spellcheck={false}
-                  />
-                </div>
-                <div class="flex items-center justify-between gap-4">
-                  <div>
-                    <div class="text-sm font-medium">{t("skills.autoinvoke")}</div>
-                    <p class="mt-1 text-2xs leading-4 text-muted-foreground">{t("skills.autoinvokeHint")}</p>
-                  </div>
-                  <Switch
-                    checked={draft().autoInvoke}
-                    aria-label={t("skills.autoinvoke")}
-                    onChange={(autoInvoke) => patchEditor({ autoInvoke })}
-                  />
-                </div>
-                <Show when={error()}>
-                  <p class="text-2xs leading-4 text-destructive">{error()}</p>
-                </Show>
-                <div class="flex items-center gap-2 border-t border-border pt-3">
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={saving() || (draft().mode === "create" && !validId(draft().id.trim()))}
-                    onClick={() => void save()}
-                  >
-                    {t(saving() ? "skills.saving" : "skills.save")}
-                  </Button>
-                  <Button type="button" size="sm" variant="quiet" disabled={saving()} onClick={() => setEditor(undefined)}>
-                    {t("skills.cancel")}
-                  </Button>
-                </div>
-              </div>
-            </Card>
-          </Group>
-        </Show>
-        <Show when={!editor()}>
         <Group
           label={t("skills.installed")}
           aside={<span class="text-2xs text-muted-foreground">{filtered().length}</span>}
         >
-          <TextFieldInput
-            type="search"
-            size="sm"
-            value={query()}
-            onInput={(event) => setQuery(event.currentTarget.value)}
-            placeholder={t("skills.search")}
-            aria-label={t("skills.search")}
-            class="mb-2 bg-card"
-          />
           <Show when={error()}>
             <p class="mb-2 text-2xs leading-4 text-destructive">{error()}</p>
           </Show>
           <Show when={note()}>
-            <p class="mb-2 flex items-center gap-1.5 text-2xs text-muted-foreground">
+            <p role="status" class="mb-2 flex items-center gap-1.5 text-2xs text-muted-foreground">
               <Icon name="check" class="size-3" />
               {note()}
             </p>
@@ -570,149 +455,142 @@ export function SkillSettings(props: { conns: ConnectionsCtl }) {
                 </Card>
               }
             >
-              <Card class="px-0">
-                <Show
-                  when={filtered().length > 0}
-                  fallback={
-                    <div class="px-4 py-4">
-                      <EmptyState
-                        icon="spark"
-                        layout="inline"
-                        title={t(query() ? "skills.noMatches" : "skills.empty")}
-                        description={t(query() ? "skills.noMatchesHint" : "skills.emptyHint")}
-                      />
-                    </div>
-                  }
-                >
-                  <For each={filtered()}>
-                    {(skill) => (
-                      <div class="px-4 py-3">
-                        <div class="flex items-start gap-3">
+              <div class="grid items-start gap-5 @min-[1100px]/main:grid-cols-[16rem_minmax(0,1fr)] @min-[1100px]/main:gap-6">
+                <div class={editor() || props.skillId ? "hidden @min-[1100px]/main:block" : ""}>
+                  <div class="mb-2 flex flex-col gap-2">
+                    <TextFieldInput
+                      type="search"
+                      size="sm"
+                      value={query()}
+                      onInput={(event) => setQuery(event.currentTarget.value)}
+                      placeholder={t("skills.search")}
+                      aria-label={t("skills.search")}
+                      class="min-w-0 flex-1 bg-card"
+                    />
+                    <Segmented
+                      label={t("skills.filter.scope")}
+                      value={scopeFilter()}
+                      options={[
+                        { id: "all", label: t("skills.filter.all") },
+                        { id: "global", label: t("skills.scope.global") },
+                        { id: "project", label: t("skills.scope.project") },
+                      ]}
+                      onChange={(next) => setScopeFilter(next as ScopeFilter)}
+                    />
+                  </div>
+                  <nav aria-label={t("skills.installed")} class="max-h-[36rem] space-y-1 overflow-y-auto pr-1">
+                    <For each={filtered()}>
+                      {(skill) => (
+                        <Button
+                          type="button"
+                          variant="quiet"
+                          aria-current={selectedKey() === skill.key ? "true" : undefined}
+                          class={`h-auto min-h-14 w-full items-center justify-start gap-2.5 whitespace-normal rounded-lg border p-2.5 text-left ${
+                            selectedKey() === skill.key
+                              ? "border-ring/30 bg-accent/60"
+                              : "border-transparent hover:bg-secondary/50"
+                          }`}
+                          onClick={() => selectSkill(skill.key)}
+                        >
                           <span
-                            class={`mt-1.5 size-1.5 shrink-0 rounded-full ${
+                            class={`size-1.5 shrink-0 rounded-full ${
                               skill.status === "active"
                                 ? "bg-status-active"
                                 : skill.status === "overridden"
                                   ? "bg-status-cancelled"
                                   : "bg-muted-foreground/35"
                             }`}
+                            title={skillStatusLabel(skill.status)}
                           />
-                          <RowButton
-                            class="min-w-0 flex-1 rounded-none px-0 py-0 hover:bg-transparent"
-                            aria-expanded={selected() === skill.key}
-                            onClick={() => setSelected(selected() === skill.key ? "" : skill.key)}
-                          >
-                            <div class="min-w-0 flex-1">
-                              <div class="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
-                                <span class="truncate text-sm font-medium text-foreground">{skill.name}</span>
-                                <code class="font-mono text-2xs text-muted-foreground">{skill.id}</code>
-                              </div>
-                              <Show when={skill.description}>
-                                <p class="mt-1 line-clamp-2 text-xs leading-4 text-muted-foreground">
-                                  {skill.description}
-                                </p>
-                              </Show>
-                              <div class="mt-1.5 flex flex-wrap gap-1.5 text-2xs text-muted-foreground">
-                                <span>{t(SOURCE_LABEL[skill.source])}</span>
-                                <span aria-hidden="true">·</span>
-                                <span>{statusLabel(skill.status)}</span>
-                                <Show when={!skill.autoInvoke}>
-                                  <span aria-hidden="true">·</span>
-                                  <span>{t("skills.manualOnly")}</span>
-                                </Show>
-                              </div>
-                            </div>
-                          </RowButton>
-                          <Show when={skill.writable}>
-                            <Tip label={t("skills.edit")}>
-                              <Button
-                                type="button"
-                                size="icon-sm"
-                                variant="icon"
-                                aria-label={t("skills.editSkill", { name: skill.name })}
-                                onClick={() => beginEdit(skill)}
-                              >
-                                <Icon name="pencil" class="size-3.5" />
-                              </Button>
-                            </Tip>
-                          </Show>
-                        </div>
-                        <Show when={selectedSkill()?.key === skill.key}>
-                          <div class="mt-3 rounded-md border border-border bg-muted/20 p-3">
-                            <div class="flex flex-wrap items-center justify-between gap-2">
-                              <span class="text-xs font-medium">{t("skills.autoinvoke")}</span>
-                              <Switch
-                                checked={skill.autoInvoke}
-                                disabled={!skill.writable || busy() === `auto:${skill.key}`}
-                                aria-label={t("skills.autoinvokeFor", { name: skill.name })}
-                                onChange={(next) => void toggleAutoInvoke(skill, next)}
+                          <span class="min-w-0 flex-1">
+                            <span class="block truncate text-sm font-medium text-foreground">{skill.name}</span>
+                            <span class="mt-0.5 block truncate text-2xs text-muted-foreground">
+                              {t(SKILL_SOURCE_LABEL[skill.source])}
+                              {skill.name.toLocaleLowerCase() !== skill.id.toLocaleLowerCase() ? ` · ${skill.id}` : ""}
+                            </span>
+                          </span>
+                        </Button>
+                      )}
+                    </For>
+                    <Show when={filtered().length === 0}>
+                      <EmptyState
+                        icon="spark"
+                        title={t(query() || scopeFilter() !== "all" ? "skills.noMatches" : "skills.empty")}
+                        description={t(query() || scopeFilter() !== "all" ? "skills.noMatchesHint" : "skills.emptyHint")}
+                      />
+                    </Show>
+                  </nav>
+                </div>
+
+                <div class={editor() || props.skillId ? "min-w-0" : "hidden @min-[1100px]/main:block"}>
+                  <Show when={editor() || props.skillId}>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="quiet"
+                      class="-ml-2 mb-4 @min-[1100px]/main:hidden"
+                      onClick={closeDetail}
+                    >
+                      <Icon name="arrow-left" class="size-3.5" />
+                      {t("skills.back")}
+                    </Button>
+                  </Show>
+                  <Show
+                    when={editor()}
+                    fallback={
+                      <Show when={selectedKey()}>
+                        <Show
+                          when={selectedSkill()?.key}
+                          keyed
+                          fallback={
+                            <EmptyState
+                              icon="spark"
+                              layout="inline"
+                              title={t("skills.notFound")}
+                              description={t("skills.notFoundHint")}
+                              action={
+                                <Button type="button" size="sm" variant="outline" onClick={closeDetail}>
+                                  {t("skills.back")}
+                                </Button>
+                              }
+                            />
+                          }
+                        >
+                          {(key) => (
+                            <div data-skill-key={key} class="min-w-0">
+                              <SkillDetail
+                                skill={selectedSkill()!}
+                                busy={busy()}
+                                onToggle={(next) => void toggleAutoInvoke(selectedSkill()!, next)}
+                                onEdit={() => beginEdit(selectedSkill()!)}
+                                onOpen={(path, inEditor) => void open(path, inEditor)}
+                                onDelete={() => setPendingDelete(selectedSkill()!)}
                               />
                             </div>
-                            <p class="mt-1 text-2xs leading-4 text-muted-foreground">{t("skills.autoinvokeHint")}</p>
-                            <Show when={!skill.writable}>
-                              <p class="mt-2 text-2xs text-muted-foreground">{readonlyLabel(skill)}</p>
-                            </Show>
-                            <Show when={skill.error}>
-                              <p class="mt-2 text-2xs text-destructive">{skill.error}</p>
-                            </Show>
-                            <pre class="mt-3 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/70 p-2.5 font-mono text-2xs leading-5 text-foreground">
-                              {skill.content || t("skills.emptyBody")}
-                            </pre>
-                            <code class="mt-3 block truncate font-mono text-2xs text-muted-foreground" title={skill.location}>
-                              {skill.location}
-                            </code>
-                            <Show when={skill.files.length > 0}>
-                              <div class="mt-3 border-t border-border pt-2">
-                                <p class="text-2xs font-medium text-muted-foreground">
-                                  {t("skills.supportFiles", { count: skill.files.length })}
-                                </p>
-                                <For each={skill.files}>
-                                  {(file) => (
-                                    <RowButton
-                                      class="mt-1 block max-w-full truncate rounded-none px-0 py-0 font-mono text-2xs text-muted-foreground hover:bg-transparent"
-                                      onClick={() => void open(supportPath(skill, file), true)}
-                                    >
-                                      {file}
-                                    </RowButton>
-                                  )}
-                                </For>
-                              </div>
-                            </Show>
-                            <div class="mt-3 flex flex-wrap items-center gap-2">
-                              <Button type="button" size="sm" variant="outline" onClick={() => void open(skill.location, true)}>
-                                <Icon name="page" class="size-3.5" />
-                                {t("skills.openFile")}
-                              </Button>
-                              <Button type="button" size="sm" variant="quiet" onClick={() => void open(skill.location, false)}>
-                                <Icon name="folder-open" class="size-3.5" />
-                                {t("skills.reveal")}
-                              </Button>
-                              <Show when={skill.writable}>
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="quiet"
-                                  class="hover:text-destructive"
-                                  disabled={busy() === `delete:${skill.key}`}
-                                  onClick={() => setPendingDelete(skill)}
-                                >
-                                  <Icon name="trash" class="size-3.5" />
-                                  {t("skills.delete")}
-                                </Button>
-                              </Show>
-                            </div>
-                          </div>
+                          )}
                         </Show>
-                      </div>
+                      </Show>
+                    }
+                  >
+                    {(current) => (
+                      <SkillEditor
+                        draft={current()}
+                        globalAvailable={globalAvailable()}
+                        saving={saving()}
+                        error={error()}
+                        onPatch={patchEditor}
+                        onSave={() => void save()}
+                        onCancel={() => withDraftGuard(() => setEditor(undefined))}
+                      />
                     )}
-                  </For>
-                </Show>
-              </Card>
+                  </Show>
+                </div>
+              </div>
             </Show>
           </Show>
         </Group>
-        </Show>
       </Show>
+
       <ConfirmDialog
         open={pendingDelete() !== undefined}
         title={t("skills.deleteTitle", { name: pendingDelete()?.name ?? "" })}
@@ -728,6 +606,15 @@ export function SkillSettings(props: { conns: ConnectionsCtl }) {
         onCancel={() => {
           if (!busy().startsWith("delete:")) setPendingDelete(undefined);
         }}
+      />
+      <ConfirmDialog
+        open={pendingEditorAction() !== undefined}
+        title={t("skills.unsaved.title")}
+        description={t("skills.unsaved.description")}
+        confirmLabel={t("skills.unsaved.discard")}
+        cancelLabel={t("confirm.cancel")}
+        onConfirm={discardDraft}
+        onCancel={() => setPendingEditorAction(undefined)}
       />
     </>
   );

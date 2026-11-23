@@ -1,4 +1,4 @@
-import { createEffect, createResource, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createResource, createSignal, For, Show, type JSX } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import {
   clearPolicy,
@@ -12,9 +12,12 @@ import {
 } from "./api";
 import { t, tn } from "./i18n";
 import { fadeSignal } from "./errors";
+import { copyText } from "./clipboard";
 import type { MessageKey } from "./locales/zh";
 import { Icon } from "./icons";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { EmptyState } from "@/components/ui/empty-state";
 import { TextFieldInput } from "@/components/ui/text-field";
 import { Picker } from "@/components/ui/picker";
 import { Card, Group, Row, Segmented } from "./settings-blocks";
@@ -250,50 +253,81 @@ function RuleCard(props: { index: number; draft: Draft; setDraft: (fn: (d: Draft
 }
 
 export function PolicyEditor() {
-  const [saved] = createResource(() => getJson<PolicyResponse>("/policy"));
+  const [saved, { refetch }] = createResource(() => getJson<PolicyResponse>("/policy"));
   const [draft, setDraftRaw] = createStore<Draft>({ default: "ask", rules: [] });
   const setDraft = (fn: (d: Draft) => void) => setDraftRaw(produce(fn));
   const [err, setErr] = fadeSignal("");
   const [notice, setNotice] = fadeSignal("");
+  const [fileNotice, setFileNotice] = fadeSignal("");
+  const [saving, setSaving] = createSignal(false);
+  const [clearing, setClearing] = createSignal(false);
+  const [confirmClear, setConfirmClear] = createSignal(false);
   const [testTool, setTestTool] = createSignal("bash");
   const [testInput, setTestInput] = createSignal('{"command": "ls -la"}');
   const [testResult, setTestResult] = createSignal<PolicyDecision | null>(null);
   const [testErr, setTestErr] = fadeSignal("");
 
+  const dirty = createMemo(() => {
+    const response = saved();
+    if (!response) return false;
+    const baseline = response.policy ? fromPolicy(response.policy) : { default: "ask", rules: [] };
+    return JSON.stringify(draft) !== JSON.stringify(baseline);
+  });
+  const postureHint = (): MessageKey => `policy.posture.${draft.default}.hint`;
+
   createEffect(() => {
-    const p = saved()?.policy;
-    if (p) setDraftRaw(fromPolicy(p));
+    const policy = saved()?.policy;
+    if (policy) setDraftRaw(fromPolicy(policy));
   });
 
+  const addRule = () => {
+    setErr("");
+    setNotice("");
+    setDraft((d) => d.rules.push({ id: "", effect: "allow", tool: "", reason: "", conds: [] }));
+  };
+
+  const reset = () => {
+    const policy = saved()?.policy;
+    setDraftRaw(policy ? fromPolicy(policy) : { default: "ask", rules: [] });
+    setErr("");
+    setNotice("");
+  };
+
   const save = async () => {
+    setSaving(true);
     setErr("");
     setNotice("");
     try {
       await savePolicy(toPolicy(draft));
+      await refetch();
       setNotice("policy.notice.saved");
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
     }
   };
 
-  /**
-   * The rules that keep running are the ones the server still holds, so a
-   * delete that did not land has to say so instead of announcing a clear that
-   * did not happen — and the draft is only forgotten once it has. Clearing it
-   * on failure told the reader their permissions were gone while every rule
-   * they had just listed was still deciding what the agent was allowed to do.
-   */
   const clear = async () => {
+    setClearing(true);
     setErr("");
     setNotice("");
     try {
       await clearPolicy();
+      await refetch();
+      setDraftRaw({ default: "ask", rules: [] });
+      setNotice("policy.notice.cleared");
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
-      return;
+    } finally {
+      setClearing(false);
+      setConfirmClear(false);
     }
-    setDraftRaw({ default: "ask", rules: [] });
-    setNotice("policy.notice.cleared");
+  };
+
+  const copyFile = async () => {
+    const file = saved()?.file;
+    if (file && (await copyText(file))) setFileNotice("policy.file.copied");
   };
 
   const runTest = async () => {
@@ -307,25 +341,24 @@ export function PolicyEditor() {
       return;
     }
     try {
-      setTestResult(
-        await testPolicy({ tool: testTool(), input, policy: toPolicy(draft) }),
-      );
+      setTestResult(await testPolicy({ tool: testTool(), input, policy: toPolicy(draft) }));
     } catch (e) {
       setTestErr(e instanceof Error ? e.message : String(e));
     }
   };
 
   return (
-    // No page wrapper and no heading of its own: this lives in the settings
-    // page's permission section, which already names itself. A second <h1>
-    // under a section label reads as two pages stacked in one.
-    <>
+    <Show
+      when={saved()}
+      fallback={
+        <Group label={t("settings.permission.title")} hint={t("policy.hint")}>
+          <Card><p class="py-3 text-sm text-muted-foreground">{t("policy.loading")}</p></Card>
+        </Group>
+      }
+    >
       <Group label={t("settings.permission.title")} hint={t("policy.hint")}>
         <Card>
-          <Row
-            label={t("policy.default.label")}
-            hint={tn("policy.rules.count", draft.rules.length)}
-          >
+          <Row label={t("policy.default.label")} hint={t(postureHint())}>
             <Segmented
               label={t("policy.default.label")}
               value={draft.default}
@@ -334,19 +367,46 @@ export function PolicyEditor() {
                 { id: "allow", label: t("policy.posture.allow") },
                 { id: "deny", label: t("policy.posture.deny") },
               ]}
-              onChange={(id) => setDraftRaw("default", id as Draft["default"])}
+              onChange={(id) => {
+                setDraftRaw("default", id as Draft["default"]);
+                setNotice("");
+              }}
             />
           </Row>
+        </Card>
+      </Group>
 
+      <Group
+        label={t("policy.rules.title")}
+        hint={tn("policy.rules.count", draft.rules.length)}
+        aside={
+          <Button type="button" size="sm" variant="outline" onClick={addRule}>
+            <Icon name="plus" class="size-3.5" />
+            {t("policy.action.addRule")}
+          </Button>
+        }
+      >
+        <Card>
           <Show
             when={draft.rules.length > 0}
             fallback={
-              <p class="py-2.5 text-2xs text-muted-foreground">{t("policy.rules.empty")}</p>
+              <EmptyState
+                icon="shield"
+                class="py-10"
+                title={t("policy.rules.emptyTitle")}
+                description={t("policy.rules.empty")}
+                action={
+                  <Button type="button" size="sm" onClick={addRule}>
+                    <Icon name="plus" class="size-3.5" />
+                    {t("policy.action.addRule")}
+                  </Button>
+                }
+              />
             }
           >
             <For each={draft.rules}>
               {(_r, i) => (
-                <div class="px-0 py-2.5">
+                <div class="py-2.5">
                   <RuleCard
                     index={i()}
                     draft={draft}
@@ -357,72 +417,29 @@ export function PolicyEditor() {
               )}
             </For>
           </Show>
-
-          <div class="py-2.5">
-            <Button
-              type="button"
-              size="sm"
-              variant="quiet"
-              class="shrink-0 gap-1.5"
-              onClick={() =>
-                setDraft((d) =>
-                  d.rules.push({ id: "", effect: "allow", tool: "", reason: "", conds: [] }),
-                )
-              }
-            >
-              <Icon name="plus" class="size-3.5" />
-              {t("policy.action.addRule")}
-            </Button>
-          </div>
-
-          <div class="flex items-center justify-between gap-3 py-2.5">
-            <div class="min-w-0">
-              {/* Its own line, truncated: run inline after a sentence and the
-                  wrap lands wherever the path happens to be wide, which on a
-                  Windows profile directory breaks mid-component and reads as
-                  a typo. */}
-              <Show when={saved()?.file}>
-                <p
-                  class="truncate font-mono text-2xs text-muted-foreground"
-                  title={saved()!.file ?? undefined}
-                >
-                  {saved()!.file}
-                </p>
-              </Show>
-              <Show when={err()}>
-                <p class="mt-1 flex items-center gap-1.5 text-2xs text-destructive">
-                  <Icon name="alert" class="size-3 shrink-0" />
-                  {err()}
-                </p>
-              </Show>
-              {/*
-                `notice` and `testErr` carry a dictionary key when the words are
-                ours and whatever the backend said otherwise. `t()` hands an
-                unknown key back verbatim, so one render site covers both and
-                nothing is translated twice.
-              */}
-              <Show when={notice()}>
-                <p class="mt-1 flex items-center gap-1.5 text-2xs text-muted-foreground">
-                  <Icon name="check" class="size-3 shrink-0" />
-                  {t(notice() as MessageKey)}
-                </p>
-              </Show>
-            </div>
-            <div class="flex shrink-0 items-center gap-2">
-              <Button variant="quiet" size="sm" onClick={() => void clear()}>
-                {t("policy.action.clear")}
-              </Button>
-              <Button size="sm" onClick={() => void save()}>
-                {t("policy.action.save")}
-              </Button>
-            </div>
-          </div>
         </Card>
       </Group>
 
-      <Group label={t("policy.test.title")} hint={t("policy.test.hint")}>
-        <Card>
-          <div class="flex items-end gap-2 py-3">
+      <Show when={err() || notice()}>
+        <div class="mt-3">
+          <Show when={err()}>
+            <p class="flex items-center gap-1.5 text-2xs text-destructive">
+              <Icon name="alert" class="size-3 shrink-0" />
+              {err()}
+            </p>
+          </Show>
+          <Show when={notice()}>
+            <p role="status" class="flex items-center gap-1.5 text-2xs text-muted-foreground">
+              <Icon name="check" class="size-3 shrink-0" />
+              {t(notice() as MessageKey)}
+            </p>
+          </Show>
+        </div>
+      </Show>
+
+      <div class="mt-6 space-y-3">
+        <Disclosure title={t("policy.test.title")} hint={t("policy.test.hint")}>
+          <div class="flex flex-col gap-3 @min-[560px]/main:flex-row @min-[560px]/main:items-end">
             <div>
               <label class="mb-1 block text-2xs text-muted-foreground" for="policy-test-tool">
                 {t("policy.test.tool")}
@@ -456,7 +473,7 @@ export function PolicyEditor() {
           </div>
 
           <Show when={testResult() || testErr()}>
-            <div class="py-3">
+            <div class="mt-3 border-t border-border pt-3">
               <Show when={testResult()}>
                 {(d) => (
                   <div class="text-xs">
@@ -483,8 +500,97 @@ export function PolicyEditor() {
               </Show>
             </div>
           </Show>
-        </Card>
-      </Group>
-    </>
+        </Disclosure>
+
+        <Disclosure title={t("policy.advanced.title")} hint={t("policy.advanced.hint")}>
+          <div class="flex flex-col gap-3 @min-[560px]/main:flex-row @min-[560px]/main:items-center @min-[560px]/main:justify-between">
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-foreground">{t("policy.file.title")}</p>
+              <p class="mt-0.5 text-2xs leading-4 text-muted-foreground">{t("policy.file.hint")}</p>
+            </div>
+            <div class="flex shrink-0 items-center gap-2">
+              <Show when={saved()?.file}>
+                <code class="max-w-40 truncate font-mono text-2xs text-muted-foreground" title={saved()!.file!}>
+                  policy.json
+                </code>
+                <Button type="button" size="sm" variant="outline" onClick={() => void copyFile()}>
+                  {fileNotice() ? t(fileNotice() as MessageKey) : t("policy.file.copy")}
+                </Button>
+              </Show>
+            </div>
+          </div>
+
+          <Show when={draft.rules.length > 0 || draft.default !== "ask"}>
+            <div class="mt-4 flex flex-col gap-3 rounded-lg border border-destructive/20 bg-destructive/5 p-3 @min-[560px]/main:flex-row @min-[560px]/main:items-center @min-[560px]/main:justify-between">
+              <div>
+                <p class="text-sm font-medium text-foreground">{t("policy.danger.title")}</p>
+                <p class="mt-0.5 text-2xs leading-4 text-muted-foreground">{t("policy.danger.hint")}</p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="destructive"
+                class="shrink-0"
+                onClick={() => setConfirmClear(true)}
+              >
+                {t("policy.action.clear")}
+              </Button>
+            </div>
+          </Show>
+        </Disclosure>
+      </div>
+
+      <Show when={dirty()}>
+        <div class="sticky bottom-0 z-10 -mx-1 mt-4 flex items-center justify-between gap-3 border-t border-border bg-background/95 px-1 py-3 backdrop-blur">
+          <span class="text-2xs text-muted-foreground">{t("policy.dirty")}</span>
+          <div class="flex shrink-0 items-center gap-2">
+            <Button type="button" size="sm" variant="quiet" disabled={saving()} onClick={reset}>
+              {t("confirm.cancel")}
+            </Button>
+            <Button type="button" size="sm" disabled={saving()} aria-busy={saving()} onClick={() => void save()}>
+              {saving() ? t("policy.action.saving") : t("policy.action.save")}
+            </Button>
+          </div>
+        </div>
+      </Show>
+
+      <ConfirmDialog
+        open={confirmClear()}
+        title={t("policy.clear.title")}
+        description={t("policy.clear.description")}
+        confirmLabel={clearing() ? t("policy.action.clearing") : t("policy.action.clear")}
+        cancelLabel={t("confirm.cancel")}
+        pending={clearing()}
+        onConfirm={() => void clear()}
+        onCancel={() => setConfirmClear(false)}
+      />
+    </Show>
+  );
+}
+
+function Disclosure(props: { title: string; hint: string; children: JSX.Element }) {
+  const [open, setOpen] = createSignal(false);
+  return (
+    <div class="rounded-lg border border-border bg-card">
+      <Button
+        type="button"
+        variant="quiet"
+        class="h-auto w-full items-start justify-between gap-4 whitespace-normal p-4 text-left"
+        aria-expanded={open()}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span>
+          <span class="block text-sm font-medium text-foreground">{props.title}</span>
+          <span class="mt-0.5 block text-2xs leading-4 text-muted-foreground">{props.hint}</span>
+        </span>
+        <Icon
+          name="chevron-right"
+          class={`mt-0.5 size-3.5 shrink-0 transition-transform ${open() ? "rotate-90" : ""}`}
+        />
+      </Button>
+      <Show when={open()}>
+        <div class="border-t border-border p-4">{props.children}</div>
+      </Show>
+    </div>
   );
 }

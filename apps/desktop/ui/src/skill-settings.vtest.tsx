@@ -12,6 +12,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
   document.body.innerHTML = "";
+  window.location.hash = "";
 });
 
 test("the skills page mounts, updates a skill, and keeps the editor stable while creating one", async () => {
@@ -90,14 +91,17 @@ test("the skills page mounts, updates a skill, and keeps the editor stable while
   const host = document.createElement("div");
   document.body.appendChild(host);
   const changed = vi.fn();
+  const [skillId, setSkillId] = createSignal<string>();
   window.addEventListener("strata-skills-changed", changed);
-  dispose = render(() => <SkillSettings conns={conns} />, host);
+  dispose = render(() => <SkillSettings conns={conns} skillId={skillId()} />, host);
   await vi.waitFor(() => expect(host.textContent).toContain("Release"));
-  const row = [...host.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")].find((button) =>
+  const row = [...host.querySelectorAll<HTMLButtonElement>("nav[aria-label] button")].find((button) =>
     button.textContent?.includes("Release"),
   );
   expect(row).toBeTruthy();
   row!.click();
+  expect(window.location.hash).toBe("#/settings/skills/0123456789abcdef0123456789abcdef");
+  setSkillId("0123456789abcdef0123456789abcdef");
   const toggle = await vi.waitFor(() => {
     const value = host.querySelector<HTMLButtonElement>(
       `[aria-label="${t("skills.autoinvokeFor", { name: "Release" })}"]`,
@@ -114,7 +118,7 @@ test("the skills page mounts, updates a skill, and keeps the editor stable while
   const button = (label: string) =>
     [...host.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent?.includes(label));
   button(t("skills.new"))!.click();
-  expect(host.textContent).not.toContain(t("skills.installed"));
+  expect(host.textContent).toContain(t("skills.installed"));
   expect(host.querySelector("#skill-content")).toBeTruthy();
   const field = (label: string) => {
     const caption = [...host.querySelectorAll("label")].find((item) => item.textContent === label);
@@ -196,17 +200,17 @@ test("a connection refresh and the list poll keep an open draft", async () => {
   await vi.waitFor(() => expect(button(t("skills.new"))?.disabled).toBe(false));
   button(t("skills.new"))!.click();
   expect(host.querySelector("#skill-content")).toBeTruthy();
-  expect(host.textContent).not.toContain(t("skills.installed"));
+  expect(host.textContent).toContain(t("skills.installed"));
 
   setSnapshot({ connections: [{ ...conn, directory: "/elsewhere" }] });
   expect(host.querySelector("#skill-content")).toBeTruthy();
-  expect(host.textContent).not.toContain(t("skills.installed"));
+  expect(host.textContent).toContain(t("skills.installed"));
 
   const before = lists;
   await vi.advanceTimersByTimeAsync(SKILL_REFRESH_MS);
   await vi.waitFor(() => expect(lists).toBeGreaterThan(before));
   expect(host.querySelector("#skill-content")).toBeTruthy();
-  expect(host.textContent).not.toContain(t("skills.installed"));
+  expect(host.textContent).toContain(t("skills.installed"));
 
   const field = (label: string) => {
     const caption = [...host.querySelectorAll("label")].find((item) => item.textContent === label);
@@ -220,4 +224,132 @@ test("a connection refresh and the list poll keep an open draft", async () => {
   button(t("skills.save"))!.click();
   await vi.waitFor(() => expect(writes).toHaveLength(1));
   expect(writes[0]!.body).toMatchObject({ id: "kept-skill", workspace, scope: "project" });
+});
+
+
+test("the compact directory filters scopes, opens details, and guards an unsaved draft", async () => {
+  const workspace = "/repo";
+  const globalKey = "global-skill-key";
+  const projectKey = "project-skill-key";
+  const skills = [
+    {
+      key: globalKey,
+      id: "global-skill",
+      name: "Global Skill",
+      description: "A global description that belongs only in detail",
+      content: "Global instructions",
+      autoInvoke: true,
+      location: "/global/SKILL.md",
+      source: "opencode-global",
+      scope: "global",
+      status: "active",
+      writable: true,
+      directoryForm: false,
+      files: [],
+    },
+    {
+      key: projectKey,
+      id: "project-skill",
+      name: "Project Skill",
+      description: "A project description that belongs only in detail",
+      content: "Project instructions",
+      autoInvoke: true,
+      location: "/repo/.opencode/skills/project/SKILL.md",
+      source: "opencode-project",
+      scope: "project",
+      status: "active",
+      writable: true,
+      directoryForm: true,
+      files: [],
+    },
+  ];
+  vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/skills?connection=conn") {
+      return Promise.resolve(Response.json({
+        workspaces: [{ directory: workspace, name: "Repo" }],
+        connection: { id: "conn", local: true },
+        globalAvailable: true,
+      }));
+    }
+    if (url.startsWith("/api/skills?")) {
+      return Promise.resolve(Response.json({
+        workspace,
+        connection: { id: "conn", local: true },
+        globalAvailable: true,
+        skills,
+      }));
+    }
+    return Promise.reject(new Error(`unexpected ${url}`));
+  });
+  const conns = {
+    conns: {
+      latest: {
+        connections: [{
+          id: "conn",
+          backend: "opencode",
+          baseUrl: "http://127.0.0.1:4096",
+          directory: workspace,
+          capabilities: { extension: "opencode" },
+        }],
+      },
+    },
+  } as unknown as ConnectionsCtl;
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const [skillId, setSkillId] = createSignal<string>();
+  dispose = render(() => <SkillSettings conns={conns} skillId={skillId()} />, host);
+  await vi.waitFor(() => expect(host.textContent).toContain("Global Skill"));
+  expect(host.querySelector("nav[aria-label]")?.textContent).not.toContain("belongs only in detail");
+  expect(host.textContent).toContain("A global description that belongs only in detail");
+  expect(host.textContent).not.toContain("A project description that belongs only in detail");
+
+  const globalFilter = [...host.querySelectorAll<HTMLButtonElement>("button[role='radio']")].find(
+    (item) => item.textContent === t("skills.scope.global"),
+  );
+  globalFilter!.click();
+  expect(host.textContent).toContain("Global Skill");
+  expect(host.textContent).not.toContain("Project Skill");
+  const globalRow = [...host.querySelectorAll<HTMLButtonElement>("nav[aria-label] button")].find(
+    (item) => item.textContent?.includes("Global Skill"),
+  );
+  globalRow!.click();
+  expect(window.location.hash).toBe(`#/settings/skills/${globalKey}`);
+  setSkillId(globalKey);
+  await vi.waitFor(() => expect(host.textContent).toContain("A global description that belongs only in detail"));
+  expect(host.textContent).toContain("Global instructions");
+
+  const allFilter = [...host.querySelectorAll<HTMLButtonElement>("button[role='radio']")].find(
+    (item) => item.textContent === t("skills.filter.all"),
+  );
+  allFilter!.click();
+  const edit = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+    (item) => item.textContent === t("skills.edit"),
+  );
+  edit!.click();
+  const nameLabel = [...host.querySelectorAll("label")].find(
+    (item) => item.textContent === t("skills.form.name"),
+  );
+  const nameInput = document.getElementById(nameLabel!.htmlFor) as HTMLInputElement;
+  nameInput.value = "Changed name";
+  nameInput.dispatchEvent(new Event("input", { bubbles: true }));
+  const projectRow = [...host.querySelectorAll<HTMLButtonElement>("nav[aria-label] button")].find(
+    (item) => item.textContent?.includes("Project Skill"),
+  );
+  projectRow!.click();
+  const dialog = await vi.waitFor(() => {
+    const value = document.body.querySelector(`[aria-label='${t("skills.unsaved.title")}']`);
+    expect(value).toBeTruthy();
+    return value!;
+  });
+  expect(window.location.hash).toBe(`#/settings/skills/${globalKey}`);
+  const cancel = [...dialog.querySelectorAll("button")].find((item) => item.textContent === t("confirm.cancel"));
+  cancel!.click();
+  projectRow!.click();
+  const confirmDialog = document.body.querySelector(`[aria-label='${t("skills.unsaved.title")}']`)!;
+  const discard = [...confirmDialog.querySelectorAll("button")].find(
+    (item) => item.textContent === t("skills.unsaved.discard"),
+  );
+  discard!.click();
+  expect(window.location.hash).toBe(`#/settings/skills/${projectKey}`);
 });

@@ -25,9 +25,15 @@ describe("settings sections", () => {
     expect(settingsPath("/settings/plugins/a%2Fb")).toEqual({ section: "plugins", plugin: "a/b" });
   });
 
-  test("only plugins have a detail segment", () => {
+  test("a skill detail has its own decodable address", () => {
+    expect(settingsPath("/settings/skills/skill-key")).toEqual({ section: "skills", skill: "skill-key" });
+    expect(settingsPath("/settings/skills/a%2Fb")).toEqual({ section: "skills", skill: "a/b" });
+  });
+
+  test("only plugins and skills have a detail segment", () => {
     expect(settingsPath("/settings/opencode/extra")).toBeUndefined();
     expect(settingsPath("/settings/plugins/memory/extra")).toBeUndefined();
+    expect(settingsPath("/settings/skills/skill-key/extra")).toBeUndefined();
     expect(settingsPath("/session/1")).toBeUndefined();
   });
 });

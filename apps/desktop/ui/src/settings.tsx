@@ -240,7 +240,7 @@ const SCHEMES = (): { id: ColorScheme; label: string }[] => [
   { id: "system", label: t("settings.scheme.system") },
 ];
 
-export function SettingsPage(props: { section?: string; plugin?: string; conns: ConnectionsCtl }) {
+export function SettingsPage(props: { section?: string; plugin?: string; skill?: string; conns: ConnectionsCtl }) {
   const section = () => settingsSection(props.section);
   const [scheme, setScheme] = createSignal<ColorScheme>(readScheme());
   const [theme, setTheme] = createSignal<ThemeId>(readTheme());
@@ -654,7 +654,7 @@ export function SettingsPage(props: { section?: string; plugin?: string; conns: 
         </nav>
       </div>
 
-      <div class={`w-full min-w-0 flex-1 ${section() === "plugins" ? "max-w-5xl" : "max-w-2xl"}`}>
+      <div class={`w-full min-w-0 flex-1 ${section() === "plugins" ? "max-w-5xl" : section() === "skills" ? "max-w-4xl" : "max-w-2xl"}`}>
         {/* The page's visible name is the caption bar's. This keeps the
             document outline intact without a second one on screen. */}
         <h1 class="sr-only">{t("settings.title")}</h1>
@@ -1120,7 +1120,7 @@ export function SettingsPage(props: { section?: string; plugin?: string; conns: 
       </Show>
 
       <Show when={section() === "skills"}>
-        <SkillSettings conns={props.conns} />
+        <SkillSettings conns={props.conns} skillId={props.skill} />
       </Show>
 
       <Show when={section() === "models"}>

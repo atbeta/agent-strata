@@ -934,6 +934,7 @@ export function App() {
             <SettingsPage
               section={(route() as { section?: string }).section}
               plugin={(route() as { plugin?: string }).plugin}
+              skill={(route() as { skill?: string }).skill}
               conns={conns}
             />
           </PageShell>
