@@ -459,6 +459,8 @@ export default {
   "path.err.notAbsolute": "这个路径不是绝对路径。",
   "path.err.notAString": "这个路径的格式不对。",
   "path.err.notLocal": "这个路径不在本机上。",
+  "files.err.vscodeMissing": "这台电脑上没有找到 VS Code，所以没法用它打开。",
+  "files.err.cursorMissing": "这台电脑上没有找到 Cursor，所以没法用它打开。",
 
   // The prompt outline on the transcript's left edge.
   "nav.outline": "提问导航，共 {n} 条",

@@ -1,7 +1,7 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
-import { editorLaunch } from "./editor";
+import { editorCommand } from "./editor";
 import { checkPaths } from "./paths";
 import {
   isOpencodeMode,
@@ -60,12 +60,29 @@ export async function desktopRoute(
 
   if (path === "/desktop/editor" && req.method === "POST") {
     const body = (await req.json().catch(() => null)) as { editor?: unknown; path?: unknown } | null;
-    const target = editorLaunch(body?.editor, body?.path);
-    if ("error" in target) return Response.json({ error: target.error }, { status: 400 });
-    const bin = Bun.which(target.bin);
-    if (!bin) return Response.json({ error: "editor is not installed" }, { status: 400 });
+    const target = editorCommand(body?.editor, body?.path, {
+      which: (name) => Bun.which(name) || undefined,
+      exists: existsSync,
+      platform: process.platform,
+      env: process.env,
+    });
+    if ("error" in target) {
+      return Response.json(
+        target.code ? { error: target.error, code: target.code } : { error: target.error },
+        { status: 400 },
+      );
+    }
     try {
-      Bun.spawn({ cmd: [bin, target.file], stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+      // windowsHide keeps a console-subsystem launcher from opening its own
+      // black window. The command itself already prefers Code.exe / Cursor.exe
+      // so the usual path never starts a console at all.
+      Bun.spawn({
+        cmd: target.cmd,
+        stdin: "ignore",
+        stdout: "ignore",
+        stderr: "ignore",
+        windowsHide: true,
+      });
     } catch (error) {
       return Response.json({ error: String(error) }, { status: 500 });
     }

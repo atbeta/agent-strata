@@ -460,6 +460,8 @@ export default {
   "path.err.notAbsolute": "This path is not an absolute path.",
   "path.err.notAString": "This path is malformed.",
   "path.err.notLocal": "This path is not on this machine.",
+  "files.err.vscodeMissing": "VS Code is not installed on this computer, so this file cannot be opened in it.",
+  "files.err.cursorMissing": "Cursor is not installed on this computer, so this file cannot be opened in it.",
 
   // The prompt outline on the transcript's left edge.
   "nav.outline": "Prompt outline, {n} prompts",

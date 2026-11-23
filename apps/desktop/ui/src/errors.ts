@@ -31,6 +31,8 @@ const CODE_TEXT: Record<string, MessageKey> = {
   "not-absolute": "path.err.notAbsolute",
   "not-a-string": "path.err.notAString",
   "not-local": "path.err.notLocal",
+  "vscode-missing": "files.err.vscodeMissing",
+  "cursor-missing": "files.err.cursorMissing",
 };
 
 /** The browser's fetch failure is "Load failed" — say what is actually unreachable. */
