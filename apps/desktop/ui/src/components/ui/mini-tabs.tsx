@@ -2,7 +2,7 @@ import { For, onCleanup, Show, splitProps, type JSX } from "solid-js";
 import { cn } from "@/lib/utils";
 import { handleRovingKey } from "@/roving-key";
 
-type MiniTab = { id: string; label: string; count?: number };
+type MiniTab = { id: string; label: string; count?: number; title?: string };
 
 /**
  * The compact switcher — two or three words where one of them is on, at panel
@@ -81,6 +81,7 @@ export function MiniTabs(raw: {
                       ? "bg-secondary text-foreground"
                       : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
                   }`}
+                  title={item().title}
                   onClick={() => local.onChange(id)}
                   onKeyDown={(e) => navigate(e, id)}
                 >

@@ -10,10 +10,18 @@
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { MiniTabs } from "@/components/ui/mini-tabs";
 import { Switch } from "@/components/ui/switch";
 import { TextFieldInput } from "@/components/ui/text-field";
 import { t } from "./i18n";
+import { Tip } from "./tip";
 import {
   createMemory,
   deleteMemory,
@@ -28,6 +36,12 @@ import {
 import { registryVersion } from "./plugin-registry";
 
 const GLOBAL = "global";
+/**
+ * A row of scopes is a switch you can see. Past this many it stops fitting the
+ * card and becomes a list you open: the current scope stays on the button,
+ * and the rest are a scrolling menu that names the directory and its path.
+ */
+const SCOPES_ON_A_ROW = 4;
 
 export function MemorySettings(props: { disabled?: boolean; onEnable?: () => void }) {  const [workspaces, setWorkspaces] = createSignal<MemoryWorkspace[]>([]);
   const [scope, setScope] = createSignal<string>(GLOBAL);
@@ -57,13 +71,20 @@ export function MemorySettings(props: { disabled?: boolean; onEnable?: () => voi
     return parts[parts.length - 1] ?? path;
   };
 
-  const tabs = () => [
+  const options = () => [
     { id: GLOBAL, label: t("plugin.memory.scope.global") },
     ...workspaces().map((workspace) => ({
       id: workspace.key,
       label: label(workspace.path),
+      detail: workspace.path,
     })),
   ];
+
+  const selectScope = (id: string) => {
+    setScope(id);
+    setEditing("");
+    setAdding(false);
+  };
 
   const load = async () => {
     const where = target();
@@ -213,18 +234,24 @@ export function MemorySettings(props: { disabled?: boolean; onEnable?: () => voi
 
   return (
     <div class="mb-3 rounded-md border border-border bg-muted/20 p-2.5">
-      <div class="flex flex-wrap items-center justify-between gap-2">
+      <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
         <p class="text-muted-foreground">{t("plugin.memory.title")}</p>
-        <MiniTabs
-          value={scope()}
-          options={tabs()}
-          onChange={(id) => {
-            setScope(id);
-            setEditing("");
-            setAdding(false);
-          }}
-          label={t("plugin.memory.scope.label")}
-        />
+        <div class="min-w-0 max-w-full">
+          <Show
+            when={options().length > SCOPES_ON_A_ROW}
+            fallback={
+              <MiniTabs
+                value={scope()}
+                options={options().map((option) => ({ ...option, title: option.detail }))}
+                onChange={selectScope}
+                label={t("plugin.memory.scope.label")}
+                class="max-w-full flex-wrap"
+              />
+            }
+          >
+            <ScopeMenu value={scope()} options={options()} onChange={selectScope} />
+          </Show>
+        </div>
       </div>
 
       {/* A disabled plugin answers no route. Saying so is better than a list
@@ -423,5 +450,89 @@ export function MemorySettings(props: { disabled?: boolean; onEnable?: () => voi
         onCancel={() => setClearing("")}
       />
     </div>
+  );
+}
+
+function ScopeMenu(props: {
+  value: string;
+  options: { id: string; label: string; detail?: string }[];
+  onChange: (id: string) => void;
+}) {
+  const [open, setOpen] = createSignal(false);
+  const current = () => props.options.find((option) => option.id === props.value) ?? props.options[0];
+  const projects = () => props.options.slice(1);
+  return (
+    <DropdownMenu open={open()} onOpenChange={setOpen} gutter={6}>
+      <Tip label={current()?.detail ?? ""} disabled={open() || !current()?.detail}>
+        <DropdownMenuTrigger
+          class="flex h-7 max-w-full items-center gap-1 rounded-md px-1.5 text-xs text-foreground hover:bg-secondary"
+          aria-label={t("plugin.memory.scope.label")}
+        >
+          <span class="truncate">{current()?.label}</span>
+          <svg
+            viewBox="0 0 12 12"
+            class="size-3 shrink-0 opacity-60"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.3"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M3 4.75 6 7.75l3-3" />
+          </svg>
+        </DropdownMenuTrigger>
+      </Tip>
+      <DropdownMenuContent class="max-h-80 w-72 overflow-y-auto">
+        <ScopeRow
+          option={props.options[0]!}
+          selected={props.value === props.options[0]?.id}
+          onSelect={() => props.onChange(props.options[0]!.id)}
+        />
+        <Show when={projects().length > 0}>
+          <DropdownMenuSeparator />
+        </Show>
+        <For each={projects()}>
+          {(option) => (
+            <ScopeRow
+              option={option}
+              selected={props.value === option.id}
+              onSelect={() => props.onChange(option.id)}
+            />
+          )}
+        </For>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function ScopeRow(props: {
+  option: { id: string; label: string; detail?: string };
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <DropdownMenuItem onSelect={props.onSelect} class="items-start justify-between gap-3">
+      <span class="min-w-0">
+        <span class={`block truncate text-xs ${props.selected ? "text-foreground" : ""}`}>{props.option.label}</span>
+        <Show when={props.option.detail}>
+          <span class="block truncate text-2xs text-muted-foreground" title={props.option.detail}>
+            {props.option.detail}
+          </span>
+        </Show>
+      </span>
+      <Show when={props.selected}>
+        <svg
+          viewBox="0 0 12 12"
+          class="mt-0.5 size-3 shrink-0 text-foreground"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M2.5 6.2 5 8.6l4.5-5" />
+        </svg>
+      </Show>
+    </DropdownMenuItem>
   );
 }

@@ -50,7 +50,12 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function stubApi(seen: string[] = []) {
+function stubApi(
+  seen: string[] = [],
+  workspaces: { key: string; path: string; last_used: string }[] = [
+    { key: "w1", path: "/work/one", last_used: "2026-01-01T00:00:00.000Z" },
+  ],
+) {
   vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = init?.method ?? "GET";
@@ -60,7 +65,7 @@ function stubApi(seen: string[] = []) {
         new Response(
           JSON.stringify({
             version: 1,
-            workspaces: [{ key: "w1", path: "/work/one", last_used: "2026-01-01T00:00:00.000Z" }],
+            workspaces,
           }),
           { status: 200 },
         ),
@@ -304,4 +309,60 @@ test("forgetting everything asks first, and names what it will do", async () => 
   await vi.waitFor(() => expect(document.body.textContent).toContain("忘掉这个范围的全部记忆？"));
   // Nothing is cleared until the reader answers.
   expect(seen.some((line) => line.startsWith("DELETE"))).toBe(false);
+});
+
+test("a few workspaces stay on the row, and the path is on the tab", async () => {
+  setLocale("zh");
+  stubApi();
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  dispose = render(() => <MemorySettings />, host);
+
+  await vi.waitFor(() => expect(host.textContent).toContain("one"));
+  const tab = [...host.querySelectorAll("button")].find((button) => button.textContent === "one");
+  expect(tab?.getAttribute("title")).toBe("/work/one");
+  expect(host.querySelector("[aria-label='记忆范围'][aria-haspopup]")).toBeNull();
+});
+
+test("many workspaces collapse to a menu that names each path", async () => {
+  setLocale("zh");
+  const seen: string[] = [];
+  stubApi(
+    seen,
+    ["alpha", "beta", "gamma", "delta", "epsilon"].map((name, index) => ({
+      key: `w${index}`,
+      path: `/repos/${name}/web`,
+      last_used: `2026-01-0${index + 1}T00:00:00.000Z`,
+    })),
+  );
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  window.scrollTo = () => {};
+  Element.prototype.scrollTo = () => {};
+  Element.prototype.scrollIntoView = () => {};
+  dispose = render(() => <MemorySettings />, host);
+
+  await vi.waitFor(() => {
+    expect(host.querySelector("[role='tablist']")).toBeNull();
+    expect(host.querySelector("button[aria-label='记忆范围']")).toBeTruthy();
+  });
+  // Closed, the row is the current scope. The other projects are not painted
+  // across the page.
+  expect(host.textContent).toContain("全局");
+  expect(host.textContent).not.toContain("alpha");
+  expect(host.textContent).not.toContain("/repos/epsilon/web");
+
+  const trigger = host.querySelector<HTMLButtonElement>("button[aria-label='记忆范围']");
+  trigger!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+  await vi.waitFor(() => expect(document.body.textContent).toContain("/repos/alpha/web"));
+  expect(document.body.textContent).toContain("/repos/epsilon/web");
+
+  const row = [...document.body.querySelectorAll("[role='menuitem']")].find((item) =>
+    item.textContent?.includes("/repos/delta/web"),
+  );
+  expect(row).toBeTruthy();
+  row!.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+  await vi.waitFor(() => expect(seen.some((line) => line.includes("workspace=w3"))).toBe(true));
+  expect(host.textContent).toContain("web");
+  expect(host.textContent).not.toContain("alpha");
 });
