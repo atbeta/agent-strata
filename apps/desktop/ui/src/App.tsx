@@ -45,7 +45,14 @@ import { playSound, soundForEvent } from "./sound";
 import { StartupGate } from "./startup-gate";
 import { useStartup } from "./use-startup";
 import { ImageViewerHost } from "./image-viewer";
-import { changesSessionList, isDevEvent, pullAllowed } from "./sync-events";
+import {
+  changesSessionList,
+  isDevEvent,
+  PULL_TICK_MS,
+  pullAllowed,
+  pullDue,
+  type PullReason,
+} from "./sync-events";
 import { createDebouncer } from "./debounce";
 
 export function App() {
@@ -278,34 +285,68 @@ export function App() {
     let es: EventSource | undefined;
     let esClosed = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const pull = () => {
+    /** Set when a turn ends; the overview's usage buckets are read again with the list. */
+    let usageStale = false;
+    /** The pull in flight. A second one would only queue another crawl behind it. */
+    let pulling: Promise<{ imported: number }> | undefined;
+    const pull = (reason: PullReason) => {
+      const manual = reason === "manual";
+      if (pulling) {
+        // The reader asked while a quiet pull was already out: answer with that one.
+        if (manual) {
+          conns.startManualSync();
+          void pulling.then(
+            (r) => conns.settleManualSync({ phase: "done", imported: r.imported }),
+            () => conns.settleManualSync({ phase: "failed" }),
+          );
+        }
+        return;
+      }
       // During launch the gate owns the wait and the service is already
-      // connecting; a full project/session read every 12s would only add work
-      // to the sync it is waiting for. A running sync rereads on its finish,
-      // so a poll landing in the middle would only compete with it.
+      // connecting; a full project/session read would only add work to the
+      // sync it is waiting for. A running sync rereads on its finish, so a
+      // poll landing in the middle would only compete with it.
       if (!pullAllowed({ ready: boot.ready(), syncing: conns.syncTicks().size > 0, hidden: document.hidden })) return;
-      void syncBackend()
-        .catch(() => {})
+      const last = conns.lastPullAt();
+      const sinceLast = last === undefined ? undefined : Date.now() - last;
+      if (!pullDue({ reason, connected: conns.connected(), sinceLast })) return;
+      // Any pull restarts the pace, the reader's own included: a click is not
+      // followed by a timer pull a moment later.
+      conns.setLastPullAt(Date.now());
+      if (manual) conns.startManualSync();
+      const job = syncBackend();
+      pulling = job;
+      void job
+        .then(
+          (r) => {
+            if (manual) conns.settleManualSync({ phase: "done", imported: r.imported });
+          },
+          () => {
+            if (manual) conns.settleManualSync({ phase: "failed" });
+          },
+        )
         .finally(() => {
+          pulling = undefined;
           list.refetch();
           conns.refetchConns();
           void ws.refetchWs();
         });
     };
-    pull();
+    conns.bindSyncNow(() => pull("manual"));
+    pull("timer");
     // The plugin registry is loaded once here and refreshed by the stream:
     // the transcript asks it which renderer a tool row gets, and the rail asks
     // it which panels to offer. A failed read is not fatal — both fall back.
     void refreshPlugins();
     const uninstallProgress = installProgressListener();
-    const syncTimer = setInterval(pull, 12_000);
-    const onFocus = () => pull();
+    const syncTimer = setInterval(() => pull("timer"), PULL_TICK_MS);
+    const onFocus = () => pull("return");
     window.addEventListener("focus", onFocus);
     // A hidden window is not a window. `pull` asks every backend for its whole
     // project list and rereads all four resources, and none of it reaches an
     // eye until the window comes back — which is when it runs again anyway.
     const onVisibility = () => {
-      if (document.visibilityState === "visible") pull();
+      if (document.visibilityState === "visible") pull("return");
     };
     document.addEventListener("visibilitychange", onVisibility);
     const errorSoundAt = new Map<string, number>();
@@ -347,6 +388,14 @@ export function App() {
         }
         announceSound(evt);
         if (evt.type === "session.started" || evt.type === "session.updated" || evt.type === "session.deleted") wsStale = true;
+        // A finished turn is when the usage buckets move. They were read
+        // again after every sync, and a sync is no longer every few seconds.
+        if (
+          evt.type === "session.ended" ||
+          (evt.type === "session.status" && (evt.data as { state?: string } | undefined)?.state === "idle")
+        ) {
+          usageStale = true;
+        }
         // A session that is gone cannot stay on screen: the transcript behind
         // it no longer exists, whether this window deleted it or another did.
         if (evt.type === "session.deleted" && evt.session_id) {
@@ -402,6 +451,10 @@ export function App() {
             wsStale = false;
             void ws.refetchWs();
           }
+          if (usageStale) {
+            usageStale = false;
+            setUsageKey((n) => n + 1);
+          }
         },
         behindSync ? 900 : 200,
       );
@@ -410,6 +463,7 @@ export function App() {
       if (esClosed) return;
       es = new EventSource(url);
       es.onmessage = onStreamMessage;
+      let opened = false;
       // A socket that breaks in the middle of a sync never delivers
       // sync.finished, and the tick it left behind holds the list still for
       // good. The browser reconnects on its own; ask the service who is
@@ -419,6 +473,15 @@ export function App() {
       };
       es.onopen = () => {
         void conns.reconcileTicks();
+        // Whatever the stream said while it was down never arrived, and the
+        // pull that used to cover for it is minutes away now.
+        if (opened) {
+          list.refetch();
+          conns.refetchConns();
+          void ws.refetchWs();
+          setUsageKey((n) => n + 1);
+        }
+        opened = true;
       };
     });
     const onKey = (e: KeyboardEvent) => {

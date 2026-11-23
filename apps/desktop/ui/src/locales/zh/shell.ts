@@ -143,6 +143,11 @@ export default {
   "sidebar.sync.busy": "同步中",
   "sidebar.sync.scanning": "正在扫描会话…",
   "sidebar.sync.progress": "正在同步会话 {done}/{total}",
+  "sidebar.sync.now": "立即同步",
+  "sidebar.sync.last": "上次同步 {time}",
+  "sidebar.sync.done": "已同步，更新 {count} 个会话",
+  "sidebar.sync.upToDate": "已是最新",
+  "sidebar.sync.failed": "同步失败",
 
   // Routes
   "nav.backToFleet": "会话列表",

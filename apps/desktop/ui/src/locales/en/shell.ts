@@ -144,6 +144,11 @@ export default {
   "sidebar.sync.busy": "Syncing",
   "sidebar.sync.scanning": "Scanning sessions…",
   "sidebar.sync.progress": "Syncing sessions {done}/{total}",
+  "sidebar.sync.now": "Sync now",
+  "sidebar.sync.last": "last synced {time}",
+  "sidebar.sync.done": "Synced, {count} sessions updated",
+  "sidebar.sync.upToDate": "Up to date",
+  "sidebar.sync.failed": "Sync failed",
 
   // Routes
   "nav.backToFleet": "fleet",

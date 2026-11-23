@@ -251,6 +251,34 @@ export function useConnections(opts: {
   const clearSyncGrace = () => clearTimeout(syncGrace);
 
   /**
+   * A sync the reader asked for from the footer.
+   *
+   * The background pull is slow on purpose, so the dot is a way to have one
+   * now. It answers on its own: a sync that finds nothing new is no longer
+   * announced over the stream, and a click that changed nothing on screen
+   * reads as a click that did not land. The pull itself lives with the
+   * window, which owns the lists it rereads, and binds itself here.
+   */
+  const [lastPullAt, setLastPullAt] = createSignal<number>();
+  const [manualSync, setManualSync] = createSignal<ManualSync>();
+  let manualFade: ReturnType<typeof setTimeout> | undefined;
+  const startManualSync = () => {
+    clearTimeout(manualFade);
+    setManualSync({ phase: "running" });
+  };
+  const settleManualSync = (result: Exclude<ManualSync, { phase: "running" }>) => {
+    clearTimeout(manualFade);
+    setManualSync(result);
+    manualFade = setTimeout(() => setManualSync(undefined), 4_000);
+  };
+  onCleanup(() => clearTimeout(manualFade));
+  let pullNow: (() => void) | undefined;
+  const bindSyncNow = (fn: () => void) => {
+    pullNow = fn;
+  };
+  const syncNow = () => pullNow?.();
+
+  /**
    * The snapshot's own sync flag, for the gap the stream cannot cover.
    * `syncTicks` is fed by `sync.*` events, but a conn is listed before its
    * sync starts and the socket attaches later still — a sync that fires in
@@ -298,15 +326,41 @@ export function useConnections(opts: {
     onSyncEvent,
     clearSyncGrace,
     reconcileTicks,
+    lastPullAt,
+    setLastPullAt,
+    manualSync,
+    startManualSync,
+    settleManualSync,
+    bindSyncNow,
+    syncNow,
   };
 }
 
 export type ConnectionsCtl = ReturnType<typeof useConnections>;
 
+export type ManualSync = { phase: "running" } | { phase: "done"; imported: number } | { phase: "failed" };
+
 function placementWord(placement: ConnectionPlacement | undefined): string {
   if (placement === "embed") return t("connect.placement.embed");
   if (placement === "external") return t("connect.placement.external");
   return "";
+}
+
+/** What the footer's dot says: the sync that is running, the answer to a click, or the offer of one. */
+export function syncDotLabel(
+  syncText: string | undefined,
+  manual: ManualSync | undefined,
+  lastPullAt: number | undefined,
+): string {
+  if (syncText) return syncText;
+  if (manual?.phase === "running") return t("sidebar.sync.busy");
+  if (manual?.phase === "failed") return t("sidebar.sync.failed");
+  if (manual?.phase === "done") {
+    return manual.imported > 0 ? t("sidebar.sync.done", { count: manual.imported }) : t("sidebar.sync.upToDate");
+  }
+  if (lastPullAt === undefined) return t("sidebar.sync.now");
+  const time = new Date(lastPullAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return `${t("sidebar.sync.now")} · ${t("sidebar.sync.last", { time })}`;
 }
 
 function attemptLine(attempt: ConnectionAttempt): string {
@@ -360,21 +414,25 @@ export function ConnectionsFooter(props: { conns: ConnectionsCtl }) {
                       ? t("sidebar.sync.progress", { done: tick()!.done, total: tick()!.total })
                       : t("sidebar.sync.scanning")
                     : undefined;
+                const spinning = () => tick() !== undefined || c().manualSync()?.phase === "running";
                 return (
-                  <div
-                    class="flex min-w-0 items-center gap-2 px-1.5 py-0 text-xs"
-                    title={syncText()}
-                  >
-                    <Show
-                      when={tick()}
-                      fallback={<span class="h-1.5 w-1.5 shrink-0 rounded-full bg-status-active" />}
-                    >
-                      <span
-                        class="size-3 shrink-0 rounded-full border-2 border-muted-foreground/25 border-t-foreground motion-safe:animate-spin"
-                        role="img"
-                        aria-label={syncText() ?? t("sidebar.sync.busy")}
-                      />
-                    </Show>
+                  <div class="flex min-w-0 items-center gap-0.5 py-0 text-xs">
+                    <Tip label={syncDotLabel(syncText(), c().manualSync(), c().lastPullAt())}>
+                      <Button
+                        variant="icon"
+                        size="icon-2xs"
+                        aria-label={syncDotLabel(syncText(), c().manualSync(), c().lastPullAt())}
+                        aria-busy={spinning()}
+                        onClick={() => c().syncNow()}
+                      >
+                        <Show
+                          when={spinning()}
+                          fallback={<span class="h-1.5 w-1.5 shrink-0 rounded-full bg-status-active" />}
+                        >
+                          <span class="size-3 shrink-0 rounded-full border-2 border-muted-foreground/25 border-t-foreground motion-safe:animate-spin" />
+                        </Show>
+                      </Button>
+                    </Tip>
                     <Tip label={endpointHost(conn.baseUrl)} class="min-w-0">
                       <span class="truncate">
                         {backendLabel(conn.backend)}

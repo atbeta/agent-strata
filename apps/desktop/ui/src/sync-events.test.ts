@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { changesSessionList, pullAllowed, staleSyncTicks } from "./sync-events";
+import {
+  changesSessionList,
+  PULL_EVERY_MS,
+  PULL_ON_RETURN_MS,
+  PULL_TICK_MS,
+  pullAllowed,
+  pullDue,
+  staleSyncTicks,
+} from "./sync-events";
 
 describe("when the background pull may run", () => {
   test("a visible, launched window with no sync in flight pulls", () => {
@@ -13,6 +21,37 @@ describe("when the background pull may run", () => {
   test("launch and a running sync still hold it back", () => {
     expect(pullAllowed({ ready: false, syncing: false, hidden: false })).toBe(false);
     expect(pullAllowed({ ready: true, syncing: true, hidden: false })).toBe(false);
+  });
+});
+
+describe("when a pull is due", () => {
+  const due = (reason: "timer" | "return" | "manual", sinceLast: number | undefined, connected = true) =>
+    pullDue({ reason, connected, sinceLast });
+
+  test("the first pull is always due", () => {
+    expect(due("timer", undefined)).toBe(true);
+    expect(due("return", undefined)).toBe(true);
+  });
+
+  test("with a backend connected, the timer waits out the slow pace", () => {
+    expect(due("timer", PULL_TICK_MS)).toBe(false);
+    expect(due("timer", PULL_EVERY_MS - 1)).toBe(false);
+    expect(due("timer", PULL_EVERY_MS)).toBe(true);
+  });
+
+  test("coming back to the window pulls only after a while", () => {
+    expect(due("return", 1_000)).toBe(false);
+    expect(due("return", PULL_ON_RETURN_MS - 1)).toBe(false);
+    expect(due("return", PULL_ON_RETURN_MS)).toBe(true);
+  });
+
+  test("the reader's own ask is always due", () => {
+    expect(due("manual", 0)).toBe(true);
+  });
+
+  test("with nothing connected the pull is the reconnect, so every tick pulls", () => {
+    expect(due("timer", PULL_TICK_MS, false)).toBe(true);
+    expect(due("return", 1_000, false)).toBe(true);
   });
 });
 

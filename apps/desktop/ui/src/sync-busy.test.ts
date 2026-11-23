@@ -68,6 +68,22 @@ describe("the snapshot's sync flag", () => {
     expect(app).toContain("void ws.refetchWs();");
   });
 
+  test("the slow pull is covered: a click, a reconnect and a finished turn each refresh on their own", () => {
+    const app = read("App.tsx");
+    // The footer's dot reaches the window's own pull, and any pull restarts the pace.
+    expect(app).toContain('conns.bindSyncNow(() => pull("manual"));');
+    expect(app).toContain("if (!pullDue({ reason, connected: conns.connected(), sinceLast })) return;");
+    expect(app).toContain("conns.setLastPullAt(Date.now());");
+    expect(app).toContain("setInterval(() => pull(\"timer\"), PULL_TICK_MS)");
+    // A stream that comes back missed what was said while it was down.
+    const reopen = app.slice(app.indexOf("es.onopen = () => {"), app.indexOf("opened = true;"));
+    expect(reopen).toContain("if (opened) {");
+    expect(reopen).toContain("list.refetch();");
+    // The usage buckets move when a turn ends, not only when a sync does.
+    expect(app).toContain("usageStale = true;");
+    expect(app).toContain("if (usageStale) {");
+  });
+
   test("the startup gate does not wait on a sync at all", () => {
     // The list is read from the local store, so an import adds to a window
     // that is already usable. Making the launch wait on it kept the window on

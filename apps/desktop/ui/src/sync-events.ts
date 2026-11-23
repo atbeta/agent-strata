@@ -67,6 +67,30 @@ export function pullAllowed(state: { ready: boolean; syncing: boolean; hidden: b
   return state.ready && !state.syncing && !state.hidden;
 }
 
+/** How often the pull timer wakes; also the pace while nothing is connected. */
+export const PULL_TICK_MS = 12_000;
+/** The pace once a backend is connected. */
+export const PULL_EVERY_MS = 5 * 60_000;
+/** Coming back to the window pulls only if the last pull is at least this old. */
+export const PULL_ON_RETURN_MS = 2 * 60_000;
+
+export type PullReason = "timer" | "return" | "manual";
+
+/**
+ * Whether a pull is due.
+ *
+ * With a backend connected, the live stream carries everything this window
+ * writes, and the pull is only a net for what happens elsewhere — another
+ * client on another server, a delete nobody was listening for. That can wait
+ * minutes, and every pull used to land in the middle of whatever the reader
+ * was doing. With nothing connected the pull is also the reconnect to a
+ * remembered backend, so it keeps the short pace. The reader can always ask.
+ */
+export function pullDue(state: { reason: PullReason; connected: boolean; sinceLast: number | undefined }): boolean {
+  if (state.reason === "manual" || !state.connected || state.sinceLast === undefined) return true;
+  return state.sinceLast >= (state.reason === "timer" ? PULL_EVERY_MS : PULL_ON_RETURN_MS);
+}
+
 /**
  * Whether an event is about a background process rather than the session.
  *
