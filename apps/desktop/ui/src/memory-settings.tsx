@@ -7,7 +7,7 @@
 // The point of the page is trust: a memory the reader cannot see is a memory
 // they cannot correct, and a stale one is worse than none.
 
-import { createEffect, createSignal, For, onMount, Show } from "solid-js";
+import { createEffect, createSignal, For, Show } from "solid-js";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { MiniTabs } from "@/components/ui/mini-tabs";
@@ -79,9 +79,12 @@ export function MemorySettings(props: { disabled?: boolean; onEnable?: () => voi
     }
   };
 
-  onMount(() => {
-    // A disabled plugin answers no route, so asking it a question would only
-    // produce an error where a plain statement belongs.
+  // The workspaces come from the plugin, so they can only be read while it is
+  // running — and the reader may turn it on from this very page. Reading them
+  // once on mount would leave a page that was opened while the plugin was off
+  // showing nothing but the Global tab, with the workspace memories unreachable
+  // until it was reopened.
+  createEffect(() => {
     if (props.disabled) return;
     void listMemoryWorkspaces()
       .then(setWorkspaces)

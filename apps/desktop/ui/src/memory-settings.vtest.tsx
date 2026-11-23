@@ -1,4 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
+import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { setLocale } from "./i18n";
 import { MemorySettings } from "./memory-settings";
@@ -220,6 +221,33 @@ test("a disabled plugin offers a way back", async () => {
   expect(button).toBeTruthy();
   button!.click();
   expect(turnedOn).toBe(true);
+});
+
+test("turning the plugin on loads the workspaces it has seen", async () => {
+  // A page that was opened while the plugin was off must catch up when the
+  // reader turns it on: the workspace memories live behind a tab, and a tab
+  // that never appears is a memory the reader cannot reach.
+  setLocale("zh");
+  const seen: string[] = [];
+  stubApi(seen);
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const [disabled, setDisabled] = createSignal(true);
+  dispose = render(
+    () => <MemorySettings disabled={disabled()} onEnable={() => setDisabled(false)} />,
+    host,
+  );
+
+  await vi.waitFor(() => expect(host.textContent).toContain("插件没有运行"));
+  // The plugin was off, so the page asked it nothing.
+  expect(seen).toHaveLength(0);
+
+  const button = [...host.querySelectorAll("button")].find((b) => b.textContent === "重新启用");
+  expect(button).toBeTruthy();
+  button!.click();
+
+  await vi.waitFor(() => expect(host.textContent).toContain("one"));
+  expect(seen.some((line) => line.includes("/plugins/memory/workspaces"))).toBe(true);
 });
 
 test("forgetting everything asks first, and names what it will do", async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MemoryStore, MemoryStoreError } from "../src/store";
@@ -75,6 +75,50 @@ describe("memory store", () => {
       });
       writeFileSync(path, JSON.stringify(parsed, null, 2));
       expect(store.read("global").memories.map((entry) => entry.id)).toEqual(["m_hand"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a write that fails does not leave the store claiming it happened", () => {
+    const { dir, store } = fixture();
+    try {
+      store.mutate("global", undefined, (file) => {
+        file.memories.push({
+          id: "m_1",
+          text: "keep me",
+          enabled: true,
+          source: "agent",
+          created_at: "2026-01-01T00:00:00.000Z",
+          updated_at: "2026-01-01T00:00:00.000Z",
+        });
+      });
+      const memoryDir = join(dir, "memory");
+
+      // The disk refuses the write: the directory is not writable, so the
+      // temporary file cannot be created and the rename never happens.
+      chmodSync(memoryDir, 0o500);
+      try {
+        expect(() =>
+          store.mutate("global", undefined, (file) => {
+            file.memories.push({
+              id: "m_2",
+              text: "never landed",
+              enabled: true,
+              source: "agent",
+              created_at: "2026-01-01T00:00:00.000Z",
+              updated_at: "2026-01-01T00:00:00.000Z",
+            });
+          }),
+        ).toThrow();
+      } finally {
+        chmodSync(memoryDir, 0o700);
+      }
+
+      // A save that did not happen is not a memory. The next read must not
+      // find the entry the failed write put in the cache.
+      expect(store.read("global").memories.map((entry) => entry.id)).toEqual(["m_1"]);
+      expect(store.read("global").revision).toBe(1);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
