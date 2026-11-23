@@ -261,6 +261,7 @@ export default {
   "terminal.show": "终端",
   "terminal.hide": "隐藏终端",
   "terminal.new": "新建终端",
+  "terminal.empty": "还没有终端。",
   "terminal.tab": "终端 {n}",
   "terminal.close": "关闭终端",
   "terminal.closed": "终端已断开",
@@ -345,6 +346,8 @@ export default {
   "composer.background.other": "{n} 个后台进程",
   "composer.schedules.one": "1 个定时任务",
   "composer.schedules.other": "{n} 个定时任务",
+  "composer.terminals.one": "1 个终端",
+  "composer.terminals.other": "{n} 个终端",
 
   // Slash commands this app runs itself — the backend only lists its own.
   "cmd.compact": "压缩会话上下文",

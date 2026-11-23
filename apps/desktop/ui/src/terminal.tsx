@@ -34,6 +34,7 @@ import { Icon } from "./icons";
 import { Tip } from "@/tip";
 import { fadeSignal } from "./errors";
 import { createRequestOwner } from "./request-owner";
+import { EmptyState } from "@/components/ui/empty-state";
 
 export function TerminalPane(props: { sessionId: string; onEmpty?: () => void; layout?: "dock" | "panel" }) {
   const [tabs, setTabs] = createSignal<PtySession[]>([]);
@@ -157,7 +158,11 @@ export function TerminalPane(props: { sessionId: string; onEmpty?: () => void; l
       const current = rows.find((row) => row.id === active());
       if (current) return;
       if (rows[0]) setActive(rows[0].id);
-      else void create(defaultShell());
+      // The rail tab is a place to look, not a request for a shell. Creating
+      // one on arrival would make "a terminal is open" true of every glance,
+      // and the composer capsule would then stay on. The dock toggle is that
+      // request, so only it starts a shell when the list is empty.
+      else if (props.layout !== "panel") void create(defaultShell());
     });
   });
 
@@ -372,13 +377,29 @@ export function TerminalPane(props: { sessionId: string; onEmpty?: () => void; l
           </Tip>
         </div>
       </Show>
-      <div
-        ref={(el) => {
-          host = el;
-          setReady(true);
-        }}
-        class="min-h-0 flex-1 px-1 py-1"
-      />
+      <Show
+        when={props.layout === "panel" && tabs().length === 0}
+        fallback={
+          <div
+            ref={(el) => {
+              host = el;
+              setReady(true);
+            }}
+            class="min-h-0 flex-1 px-1 py-1"
+          />
+        }
+      >
+        <EmptyState
+          icon="terminal"
+          class="flex-1"
+          title={t("terminal.empty")}
+          action={
+            <Button type="button" variant="outline" size="sm" onClick={() => void create(defaultShell())}>
+              {t("terminal.new")}
+            </Button>
+          }
+        />
+      </Show>
     </div>
   );
 }

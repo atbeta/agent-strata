@@ -31,6 +31,7 @@ import { displayTitle } from "./session-title";
 import { Tip } from "./tip";
 import { DevRunningMark } from "./dev-mark";
 import { SchedulePill, type ScheduleSummary } from "./schedule-pill";
+import { TerminalPill, type TerminalSummary } from "./terminal-pill";
 import { planVisible } from "./plan-progress";
 import { PlanStrip } from "./plan-strip";
 import { GoalButton, GoalStrip, useGoal } from "./goal-bar";
@@ -1319,6 +1320,8 @@ export function SessionComposer(props: {
   background?: BackgroundSummary;
   /** Timed prompts aimed at this session, even while the rail is closed. */
   schedules?: ScheduleSummary;
+  /** Interactive terminals someone started, even while the rail is closed. */
+  terminals?: TerminalSummary;
 }) {
   const c = () => props.c;
   const g = useGoal(props.sessionId, () => props.goal, () => props.goalMet, () => props.goalPaused);
@@ -1350,7 +1353,9 @@ export function SessionComposer(props: {
             is closed. The full records remain in their tabs, not duplicated here. */}
         <Show
           when={
-            (props.background?.count() ?? 0) > 0 || (props.schedules?.count() ?? 0) > 0
+            (props.background?.count() ?? 0) > 0 ||
+            (props.schedules?.count() ?? 0) > 0 ||
+            (props.terminals?.count() ?? 0) > 0
           }
         >
           <div class="mb-2 flex flex-wrap items-center gap-1.5">
@@ -1383,6 +1388,11 @@ export function SessionComposer(props: {
               when={props.schedules && props.schedules.count() > 0 ? props.schedules : undefined}
             >
               {(schedules) => <SchedulePill {...schedules()} />}
+            </Show>
+            <Show
+              when={props.terminals && props.terminals.count() > 0 ? props.terminals : undefined}
+            >
+              {(terminals) => <TerminalPill {...terminals()} />}
             </Show>
           </div>
         </Show>

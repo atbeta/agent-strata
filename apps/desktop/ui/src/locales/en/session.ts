@@ -259,6 +259,7 @@ export default {
   "terminal.show": "Terminal",
   "terminal.hide": "Hide terminal",
   "terminal.new": "New terminal",
+  "terminal.empty": "No terminal yet.",
   "terminal.tab": "Terminal {n}",
   "terminal.close": "Close terminal",
   "terminal.closed": "Terminal disconnected",
@@ -344,6 +345,8 @@ export default {
   "composer.background.other": "{n} background processes",
   "composer.schedules.one": "1 scheduled prompt",
   "composer.schedules.other": "{n} scheduled prompts",
+  "composer.terminals.one": "1 terminal",
+  "composer.terminals.other": "{n} terminals",
 
   // Slash commands this app runs itself — the backend only lists its own.
   "cmd.compact": "Compact session context",

@@ -61,6 +61,7 @@ import { useSessionView } from "./session-view";
 import { SessionRail } from "./session-rail";
 import { useDevProcesses } from "./dev-processes";
 import { useSchedules } from "./use-schedules";
+import { useTerminals } from "./use-terminals";
 import { createEntranceLedger } from "./entrance";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -154,6 +155,7 @@ export function SessionDetail(props: {
   const schedulesEnabled = () => opencode() && isPluginPanelTab("plugin:schedule");
   const terminalEnabled = () => opencode() && isPluginPanelTab("plugin:terminal");
   const schedules = useSchedules(() => props.id, schedulesEnabled);
+  const terminals = useTerminals(() => props.id, terminalEnabled);
   const [lspServers] = createResource(
     () => (opencode() ? props.id : undefined),
     (id) => readLsp(id).catch(() => undefined),
@@ -950,6 +952,17 @@ export function SessionDetail(props: {
                             open: () => openPanel("plugin:schedule"),
                             active: () =>
                               panelOpen() && !traceBlock() && panelTab() === "plugin:schedule",
+                          }
+                        : undefined
+                    }
+                    terminals={
+                      terminalEnabled()
+                        ? {
+                            count: terminals.count,
+                            titles: terminals.titles,
+                            open: () => openPanel("plugin:terminal"),
+                            active: () =>
+                              panelOpen() && !traceBlock() && panelTab() === "plugin:terminal",
                           }
                         : undefined
                     }

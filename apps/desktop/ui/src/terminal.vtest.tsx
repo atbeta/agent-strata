@@ -1,7 +1,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { render } from "solid-js/web";
 import { setLocale } from "./i18n";
-import { setTerminalMode } from "./api";
+import { listTerminals, openTerminal, setTerminalMode } from "./api";
 import { TerminalPane } from "./terminal";
 
 vi.mock("@xterm/xterm", () => ({
@@ -24,13 +24,13 @@ vi.mock("@xterm/addon-fit", () => ({
 }));
 
 vi.mock("./api", () => ({
-  listTerminals: async () => ({
+  listTerminals: vi.fn(async () => ({
     shells: [],
     sessions: [
       { id: "shared", title: "构建", command: "", cwd: "", status: "running", mode: "shared" },
       { id: "user", title: "本地", command: "", cwd: "", status: "running", mode: "user" },
     ],
-  }),
+  })),
   openTerminal: vi.fn(),
   closeTerminal: vi.fn(),
   setTerminalMode: vi.fn(),
@@ -94,4 +94,17 @@ test("terminal tabs have compact mode icons, sharing toggles, and cut-title tips
   await vi.waitFor(() => {
     expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe("本地");
   });
+});
+
+test("opening the rail tab does not start a terminal", async () => {
+  setLocale("zh");
+  vi.mocked(listTerminals).mockResolvedValue({ shells: [], sessions: [] });
+  host = document.createElement("div");
+  document.body.append(host);
+  dispose = render(() => <TerminalPane sessionId="opencode:s" layout="panel" />, host);
+
+  await vi.waitFor(() => {
+    expect(host?.textContent).toContain("还没有终端");
+  });
+  expect(openTerminal).not.toHaveBeenCalled();
 });
