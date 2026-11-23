@@ -1,4 +1,22 @@
 import { t, type MessageKey } from "./i18n";
+import type { Name } from "./icons";
+
+const PLUGIN_ICONS: Record<string, Name> = {
+  background: "image",
+  browser: "globe",
+  dev: "activity",
+  schedule: "clock",
+  sessions: "message",
+  terminal: "terminal",
+  memory: "brain",
+};
+
+const DECLARED_ICONS = new Set<Name>(Object.values(PLUGIN_ICONS));
+
+export function pluginDisplayIcon(id: string, declared?: string): Name {
+  if (declared && DECLARED_ICONS.has(declared as Name)) return declared as Name;
+  return PLUGIN_ICONS[id] ?? "plug";
+}
 
 const NAME_KEYS: Record<string, MessageKey> = {
   background: "plugin.background.name",
@@ -20,6 +38,16 @@ const DESCRIPTION_KEYS: Record<string, MessageKey> = {
   memory: "plugin.memory.description",
 };
 
+const SUMMARY_KEYS: Record<string, MessageKey> = {
+  background: "plugin.background.summary",
+  browser: "plugin.browser.summary",
+  dev: "plugin.dev.summary",
+  schedule: "plugin.schedule.summary",
+  sessions: "plugin.sessions.summary",
+  terminal: "plugin.terminal.summary",
+  memory: "plugin.memory.summary",
+};
+
 export function pluginDisplayName(id: string, fallback: string): string {
   const key = NAME_KEYS[id];
   return key ? t(key) : fallback;
@@ -27,6 +55,11 @@ export function pluginDisplayName(id: string, fallback: string): string {
 
 export function pluginDisplayDescription(id: string, fallback = ""): string {
   const key = DESCRIPTION_KEYS[id];
+  return key ? t(key) : fallback;
+}
+
+export function pluginDisplaySummary(id: string, fallback = ""): string {
+  const key = SUMMARY_KEYS[id];
   return key ? t(key) : fallback;
 }
 

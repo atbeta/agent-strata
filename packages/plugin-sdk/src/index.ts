@@ -171,6 +171,10 @@ export const PluginManifestSchema = z
     name: z.string().min(1),
     version: z.string().min(1),
     description: z.string().optional(),
+    /** One short line for the directory; the full description stays in detail. */
+    summary: z.string().min(1).optional(),
+    /** A name from the host's fixed icon vocabulary; unknown names fall back. */
+    icon: z.string().min(1).optional(),
     /**
      * Whether the plugin runs unless the reader says otherwise.
      *
@@ -221,6 +225,12 @@ export const PluginManifestSchema = z
     ui: z
       .object({
         background: z.object({ resource: z.string().regex(/^[a-z][a-z0-9-]*$/) }).optional(),
+        /**
+         * A compile-time Solid component for a builtin's rich settings UI.
+         * Declarative `settings` remain available beside it. Process plugins
+         * cannot use this: arbitrary third-party code never enters the window.
+         */
+        settings: z.object({ component: z.string().regex(/^[a-z][a-z0-9-]*$/) }).optional(),
         toolRenderers: z
           .record(
             z.object({
@@ -260,6 +270,13 @@ export const PluginManifestSchema = z
     claims(m.provides.includes("tools"), m.tools.length > 0, "tools");
     claims(m.provides.includes("resources"), m.resources.length > 0, "resources");
     claims(m.provides.includes("panel"), m.panel !== undefined, "panel");
+    if (m.ui?.settings && m.entry.kind !== "builtin") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["ui", "settings", "component"],
+        message: "settings components are only available to builtin plugins",
+      });
+    }
     const background = m.ui?.background;
     if (background) {
       const resource = m.resources.find((item) => item.key === background.resource);
@@ -367,6 +384,8 @@ export interface PluginSummary {
   name: string;
   version: string;
   description?: string;
+  summary?: string;
+  icon?: string;
   provides: PluginManifest["provides"];
   tools: { name: string; description: string }[];
   resources: { key: string; mime: string; scope: "session" | "global" }[];

@@ -152,6 +152,21 @@ describe("manifest defaults", () => {
       ui: { background: { resource: "state" } },
     })).toThrow(/global scope/);
   });
+
+  test("rich settings components are a builtin-only escape hatch", () => {
+    const base = { id: "p", name: "P", version: "1" };
+    const builtin = loadManifest({
+      ...base,
+      entry: { kind: "builtin" },
+      ui: { settings: { component: "memory" } },
+    });
+    expect(builtin.ui?.settings?.component).toBe("memory");
+    expect(() => loadManifest({
+      ...base,
+      entry: { kind: "process", command: ["plugin"], protocol: "mcp" },
+      ui: { settings: { component: "memory" } },
+    })).toThrow(/only available to builtin/);
+  });
 });
 
 describe("the one reading of a URL", () => {

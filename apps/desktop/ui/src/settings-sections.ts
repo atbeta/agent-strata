@@ -22,10 +22,15 @@ export const SETTINGS_SECTIONS = [
 
 export type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number]["id"];
 
-export function settingsPath(hashPath: string): { section: string | undefined } | undefined {
-  const match = /^\/settings(?:\/([^/]+))?$/.exec(hashPath);
+export function settingsPath(
+  hashPath: string,
+): { section: string | undefined; plugin?: string } | undefined {
+  const match = /^\/settings(?:\/([^/]+))?(?:\/([^/]+))?$/.exec(hashPath);
   if (!match) return undefined;
-  return { section: match[1] };
+  const section = match[1];
+  const plugin = match[2];
+  if (plugin && section !== "plugins") return undefined;
+  return { section, plugin: plugin ? decodeURIComponent(plugin) : undefined };
 }
 
 export function settingsSection(segment: string | undefined): SettingsSectionId {

@@ -931,7 +931,11 @@ export function App() {
               return href ? { href, label: t("nav.backToSession") } : undefined;
             })()}
           >
-            <SettingsPage section={(route() as { section?: string }).section} conns={conns} />
+            <SettingsPage
+              section={(route() as { section?: string }).section}
+              plugin={(route() as { plugin?: string }).plugin}
+              conns={conns}
+            />
           </PageShell>
         </Show>
       </main>

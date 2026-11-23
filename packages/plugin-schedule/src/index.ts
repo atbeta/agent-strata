@@ -58,6 +58,8 @@ export const manifest: PluginManifest = {
   name: "Scheduled prompts",
   version: "1.0.0",
   description: "Send a prompt to this session — or a fresh one — on a clock you set.",
+  summary: "Send prompts to sessions on a schedule",
+  icon: "clock",
   entry: { kind: "builtin" },
   provides: ["tools", "resources", "panel"],
   permissions: {},

@@ -44,6 +44,8 @@ export const manifest: PluginManifest = {
   name: "Long-running commands",
   version: "1.0.0",
   description: "Owns dev servers and watchers a session started, instead of detaching them.",
+  summary: "Manage development servers and watchers",
+  icon: "activity",
   entry: { kind: "builtin" },
   provides: ["tools", "resources"],
   permissions: { shell: false },

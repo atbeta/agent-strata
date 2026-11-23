@@ -60,7 +60,7 @@ export function BackgroundImageSettings(props: { onChanged: () => void | Promise
   };
 
   return (
-    <div class="mb-3 rounded-md border border-border bg-muted/20 p-2.5">
+    <div class="rounded-lg border border-border bg-muted/20 p-4">
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
           <p class="text-muted-foreground">{t("plugin.background.image")}</p>

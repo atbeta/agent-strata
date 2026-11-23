@@ -43,6 +43,8 @@ export const manifest: PluginManifest = {
   name: "Session memory",
   version: "1.0.0",
   description: "Read other sessions in this workspace — list, search, and read transcripts the store holds.",
+  summary: "Search and read earlier sessions",
+  icon: "message",
   entry: { kind: "builtin" },
   provides: ["tools"],
   permissions: {},

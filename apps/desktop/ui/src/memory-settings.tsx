@@ -235,7 +235,7 @@ export function MemorySettings(props: { disabled?: boolean; onEnable?: () => voi
   };
 
   return (
-    <div class="mb-3 rounded-md border border-border bg-muted/20 p-2.5">
+    <div class="rounded-lg border border-border bg-muted/20 p-4">
       <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
         <p class="text-muted-foreground">{t("plugin.memory.title")}</p>
         <div class="min-w-0 max-w-full">

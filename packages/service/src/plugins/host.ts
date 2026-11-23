@@ -313,6 +313,8 @@ export class PluginHost {
       name: r.manifest.name,
       version: r.manifest.version,
       description: r.manifest.description,
+      summary: r.manifest.summary,
+      icon: r.manifest.icon,
       provides: r.manifest.provides,
       tools: r.manifest.tools.map((t) => ({ name: t.name, description: t.description })),
       resources: r.manifest.resources.map((r2) => ({

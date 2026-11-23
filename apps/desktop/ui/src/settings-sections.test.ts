@@ -20,8 +20,14 @@ describe("settings sections", () => {
     expect(settingsSection("later")).toBe(SETTINGS_SECTIONS[0].id);
   });
 
-  test("anything deeper than one block is not the settings page", () => {
+  test("a plugin detail has its own decodable address", () => {
+    expect(settingsPath("/settings/plugins/memory")).toEqual({ section: "plugins", plugin: "memory" });
+    expect(settingsPath("/settings/plugins/a%2Fb")).toEqual({ section: "plugins", plugin: "a/b" });
+  });
+
+  test("only plugins have a detail segment", () => {
     expect(settingsPath("/settings/opencode/extra")).toBeUndefined();
+    expect(settingsPath("/settings/plugins/memory/extra")).toBeUndefined();
     expect(settingsPath("/session/1")).toBeUndefined();
   });
 });

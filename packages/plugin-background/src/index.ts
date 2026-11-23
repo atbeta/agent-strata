@@ -15,6 +15,8 @@ export const manifest: PluginManifest = {
   name: "Custom background",
   version: "1.0.0",
   description: "Use a local image as the app background, with fit, opacity, blur, and contrast controls.",
+  summary: "Set the app background and its readability",
+  icon: "image",
   entry: { kind: "builtin" },
   provides: ["resources"],
   permissions: {},
@@ -23,7 +25,11 @@ export const manifest: PluginManifest = {
     { key: "background", mime: "application/json", scope: "global" },
     { key: "image", mime: "image/*", scope: "global" },
   ],
-  ui: { background: { resource: "background" }, toolRenderers: {} },
+  ui: {
+    background: { resource: "background" },
+    settings: { component: "background" },
+    toolRenderers: {},
+  },
   settings: {
     type: "object",
     properties: {

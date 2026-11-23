@@ -19,6 +19,8 @@ export const manifest: PluginManifest = {
   name: "Interactive terminals",
   version: "1.0.0",
   description: "Persistent interactive PTYs shared by the agent and the user panel.",
+  summary: "Share interactive terminals with the agent",
+  icon: "terminal",
   entry: { kind: "builtin" },
   provides: ["tools", "resources", "panel"],
   permissions: { shell: true },

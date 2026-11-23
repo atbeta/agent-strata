@@ -3,6 +3,7 @@ import { setLocale } from "./i18n";
 import {
   pluginDisplayDescription,
   pluginDisplayName,
+  pluginDisplaySummary,
   pluginSettingDescription,
   pluginSettingTitle,
 } from "./plugin-display";
@@ -28,6 +29,7 @@ describe("plugin display names", () => {
     expect(pluginDisplayDescription("browser")).toContain("浏览器");
     expect(pluginDisplayDescription("schedule")).toContain("发送消息");
     expect(pluginDisplayDescription("sessions")).toContain("历史会话");
+    expect(pluginDisplaySummary("sessions")).toBe("检索历史会话内容");
     expect(pluginSettingDescription("sessions", "scope", "Read scope")).toContain("工作区");
     setLocale("en");
     expect(pluginDisplayName("browser", "Browser")).toBe("Browser");
@@ -42,6 +44,7 @@ describe("plugin display names", () => {
   test("keeps an unknown plugin's manifest text", () => {
     expect(pluginDisplayName("other", "Other plugin")).toBe("Other plugin");
     expect(pluginDisplayDescription("other", "Manifest description")).toBe("Manifest description");
+    expect(pluginDisplaySummary("other", "Manifest summary")).toBe("Manifest summary");
     expect(pluginSettingDescription("other", "scope", "Manifest setting")).toBe("Manifest setting");
   });
 

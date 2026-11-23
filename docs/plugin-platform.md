@@ -137,6 +137,9 @@ dev-process 这类需要拦截与提示词贡献的插件，加 `hooks`：
 - `panel`：v1 为单数，一个插件至多一个面板。`resource` 可选、非空：数据面板读的资源 key；缺省按 kind 取（`logs` → `console`，`status` → `tabs`）。
 - `resources[].scope`：`session`（缺省）要求 `?session=`；`global` 用于应用级配置或资产，读取时 `sessionId` 为空。全局资源仍走相同的 Host/Origin/token、CSP sandbox 与 nosniff 守卫。
 - `ui.background`：声明应用级背景的 JSON 资源，且该资源必须是 `global`。宿主只接受类型化的背景参数与插件自有图片资源，不执行插件 CSS/JS；背景由 App 根的通用渲染层绘制。
+- `icon`：目录中的图标名，只能从宿主的固定图标词汇里选；未知名称回退到通用插件图标。
+- `summary`：目录里的一行短摘要；`description` 保留给详情。未提供摘要的插件回退到描述，目录只对这一行做防御性截断，完整内容仍可在详情阅读。
+- `ui.settings.component`：一方内置插件的专属设置组件名，由 UI 编译期注册；它与 `settings` 的声明式字段可以并存。`process` 插件声明该字段会被 manifest 校验拒绝，未注册名称显示可读的回退而不是空白。
 - `provides` 与 manifest 段的一致性校验见 §3。
 - `entry.kind`：v1 只实现 `builtin`；`process` 为第三方预留，届时协议固定为 MCP over stdio（见 4.4）。
 - `hooks.beforeTool`：插件要参与判定的**内置**工具名列表，经 `POST /hooks/before-tool` 回调插件。v1 不允许拦截其他插件的工具。
@@ -294,6 +297,8 @@ manifest 可以声明 `default: "disabled"`：**出厂即关，等读者打开**
 - 新 kind = 显式改 UI 的例外路径，只发生在能力真有新交互形态时；`iframe` kind 与第三方一起落地（sandbox + postMessage + scoped token，不给 iframe 全局 token）。
 - `SidePanelTab` 从固定 union 改为 `string` + 注册表；内置的 `changes/files/background` 仍是默认项。
 - 面板事件走 `/plugins/:id/events`；用户输入走插件自己的 `route()`，天然按 plugin 命名空间隔离。
+
+**设置页：Schema 优先，组件是一方逃生舱。** 插件管理采用目录—详情结构，`#/settings/plugins/<id>` 深链接到某个插件；宽屏同栏展示目录与详情，窄屏变成列表与详情两级导航。普通设置仍由 `settings` 的 boolean/string/number/enum Schema 自动绘制，第三方不需要也不能提交主窗口代码。背景、记忆这类有上传、列表编辑等复杂交互的一方插件，用 `ui.settings.component` 选择 UI 编译期注册的 Solid 组件，声明式字段仍可跟在组件后面。未来第三方需要同等级自由度的设置或面板时，只能新增经过 sandbox、postMessage 与 scoped token 隔离的 `iframe` 贡献，不能放宽 `component` 的 builtin-only 边界。
 
 **进度。** 工具行可以订阅 `tool.progress`，显示分步状态；没有进度就保持现有行为。
 

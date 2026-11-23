@@ -1,10 +1,8 @@
-import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Switch } from "@/components/ui/switch";
 import { RangeField } from "@/components/ui/range-field";
-import { BackgroundImageSettings } from "./background-image-settings";
-import { MemorySettings } from "./memory-settings";
 import { TextFieldInput } from "@/components/ui/text-field";
 import {
   setPluginLifecycle,
@@ -14,9 +12,12 @@ import {
 } from "./api";
 import { explain, fadeKeyed } from "./errors";
 import { num, t, type MessageKey } from "./i18n";
+import { Icon } from "./icons";
 import {
   pluginDisplayDescription,
+  pluginDisplayIcon,
   pluginDisplayName,
+  pluginDisplaySummary,
   pluginSettingDescription,
   pluginSettingTitle,
   pluginSettingValueLabel,
@@ -27,7 +28,9 @@ import {
   pluginsReadFailed,
   refreshPlugins,
 } from "./plugin-registry";
-import { Card, Group, Segmented } from "./settings-blocks";
+import { PluginSettingsComponent } from "./plugin-settings-registry";
+import { handleRovingKey } from "./roving-key";
+import { Card, Group, Row, Segmented } from "./settings-blocks";
 
 const STATE_KEYS: Record<PluginSummary["state"], MessageKey> = {
   disabled: "settings.plugins.state.disabled",
@@ -45,21 +48,33 @@ const STATE_TONES: Record<PluginSummary["state"], string> = {
   failed: "bg-destructive",
 };
 
-/** How long the undo line stays after a disable. */
 const UNDO_MS = 10_000;
+type DetailTab = "settings" | "capabilities" | "about";
 
-export function PluginSettings() {
+export function PluginSettings(props: { pluginId?: string }) {
   const [busyId, setBusyId] = createSignal("");
-  const [expanded, setExpanded] = createSignal<Record<string, boolean>>({});
   const [feedback, setFeedback] = fadeKeyed();
+  const [savedFeedback, setSavedFeedback] = fadeKeyed();
   const [confirming, setConfirming] = createSignal("");
-  /** The values the reader has picked but not yet saved, per plugin. */
   const [draft, setDraft] = createSignal<Record<string, Record<string, string>>>({});
-  /** The plugin whose settings are being saved right now. */
   const [savingId, setSavingId] = createSignal("");
+  const [detailTab, setDetailTab] = createSignal<DetailTab>("capabilities");
+  const [justDisabled, setJustDisabled] = createSignal<Record<string, boolean>>({});
+  let confirmTimer: ReturnType<typeof setTimeout> | undefined;
+  const undoTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+  const selected = () => pluginSummaries().find((plugin) => plugin.id === props.pluginId);
+  const hasSettings = (plugin: PluginSummary) => Boolean(plugin.settings || plugin.ui?.settings?.component);
   const settingValue = (plugin: PluginSummary, key: string): unknown =>
     draft()[plugin.id]?.[key] ?? plugin.settings?.values[key];
+
+  let detailPluginId = "";
+  createEffect(() => {
+    const plugin = selected();
+    if (!plugin || plugin.id === detailPluginId) return;
+    detailPluginId = plugin.id;
+    setDetailTab(hasSettings(plugin) ? "settings" : "capabilities");
+  });
 
   const setSetting = (plugin: PluginSummary, key: string, value: string) => {
     setDraft((current) => ({
@@ -68,18 +83,20 @@ export function PluginSettings() {
     }));
   };
 
-  /**
-   * Save the reader's choices. The service restarts the plugin, so the
-   * values are in force once this resolves - which is why the plugin is
-   * restarted rather than told to reread them.
-   */
+  const discardSettings = (plugin: PluginSummary) => {
+    setDraft((current) => {
+      const next = { ...current };
+      delete next[plugin.id];
+      return next;
+    });
+    setFeedback(plugin.id, "");
+    setSavedFeedback(plugin.id, "");
+  };
+
   const saveSettings = async (plugin: PluginSummary) => {
     const draftValues = draft()[plugin.id];
     if (!draftValues) return;
     const properties = plugin.settings?.schema.properties ?? {};
-    // A number is typed as text and turned into a number here, not on every
-    // keystroke: `Number` would eat the trailing dot of `1.` and turn an
-    // empty field into a zero, so the reader could not write a fraction.
     const values: Record<string, unknown> = {};
     for (const [key, text] of Object.entries(draftValues)) {
       const setting = properties[key];
@@ -93,7 +110,6 @@ export function PluginSettings() {
         continue;
       }
       if (text.trim() === "") {
-        // An empty field means the setting's default, not zero.
         if (setting.default !== undefined) values[key] = setting.default;
         continue;
       }
@@ -104,34 +120,24 @@ export function PluginSettings() {
       }
       values[key] = parsed;
     }
+    const restarting = plugin.state === "running" || plugin.state === "starting";
     setSavingId(plugin.id);
+    setFeedback(plugin.id, "");
+    setSavedFeedback(plugin.id, "");
     try {
       await setPluginSettings(plugin.id, values);
-      setDraft((current) => {
-        const next = { ...current };
-        delete next[plugin.id];
-        return next;
-      });
+      discardSettings(plugin);
       await refreshPlugins();
+      setSavedFeedback(
+        plugin.id,
+        t(restarting ? "settings.plugins.settings.savedRestarted" : "settings.plugins.settings.saved"),
+      );
     } catch (error) {
       setFeedback(plugin.id, explain(error));
     } finally {
       setSavingId("");
     }
   };
-  /**
-   * Plugins disabled a moment ago, so the reader can take it back.
-   *
-   * A switch states a fact about the present, not a request to be confirmed.
-   * It used to ask twice, and the second ask was invisible: the switch is
-   * driven by the service's state, so the first click moved nothing at all and
-   * the confirmation was a line of text under a control that had not budged.
-   * Disabling is now immediate, and a mistake is undone from the line that
-   * reports it — the same place the reader is already looking.
-   */
-  const [justDisabled, setJustDisabled] = createSignal<Record<string, boolean>>({});
-  let confirmTimer: ReturnType<typeof setTimeout> | undefined;
-  const undoTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   const markJustDisabled = (id: string, on: boolean) => {
     clearTimeout(undoTimers.get(id));
@@ -158,7 +164,6 @@ export function PluginSettings() {
     setConfirming("");
     clearTimeout(confirmTimer);
     setFeedback(id, "");
-    // Any attempt settles the question the undo line was asking.
     markJustDisabled(id, false);
     try {
       await setPluginLifecycle(id, action);
@@ -172,9 +177,6 @@ export function PluginSettings() {
   };
 
   const request = (plugin: PluginSummary, action: PluginLifecycleAction) => {
-    // Only restart asks twice: it throws away the running instance and
-    // whatever it was in the middle of. Turning a switch on or off is not
-    // that kind of act, and the reader is looking right at the result.
     if (action !== "restart") {
       void run(plugin.id, action);
       return;
@@ -198,6 +200,38 @@ export function PluginSettings() {
     ];
     return items.length ? items.join(" · ") : t("settings.plugins.none");
   };
+
+  const openPlugin = (id: string) => {
+    location.hash = `/settings/plugins/${encodeURIComponent(id)}`;
+  };
+
+  const messages = (plugin: PluginSummary) => (
+    <>
+      <Show when={plugin.error}>
+        <p class="mt-2 whitespace-pre-wrap break-words text-2xs leading-4 text-destructive">
+          {plugin.error}
+        </p>
+      </Show>
+      <Show when={feedback()[plugin.id]}>
+        <p class="mt-2 text-2xs leading-4 text-destructive">{feedback()[plugin.id]}</p>
+      </Show>
+      <Show when={justDisabled()[plugin.id] && plugin.state === "disabled"}>
+        <div class="mt-2 flex items-center gap-2 text-2xs leading-4 text-muted-foreground">
+          <span>{t("settings.plugins.justDisabled")}</span>
+          <Button
+            type="button"
+            variant="link"
+            size="xs"
+            class="text-2xs"
+            disabled={busyId() === plugin.id || plugin.state === "starting" || plugin.state === "stopping"}
+            onClick={() => request(plugin, "enable")}
+          >
+            {t("settings.plugins.undo")}
+          </Button>
+        </div>
+      </Show>
+    </>
+  );
 
   return (
     <Group label={t("settings.section.plugins")} hint={t("settings.plugins.hint")}>
@@ -229,52 +263,52 @@ export function PluginSettings() {
             when={pluginSummaries().length > 0}
             fallback={<EmptyState icon="plug" layout="inline" title={t("settings.plugins.empty")} />}
           >
-            <Card class="px-0">
-              <For each={pluginSummaries()}>
-                {(plugin) => {
-                  const name = () => pluginDisplayName(plugin.id, plugin.name);
-                  const busy = () => busyId() === plugin.id;
-                  const transitional = () => plugin.state === "starting" || plugin.state === "stopping";
-                  const restartConfirming = () => confirming() === `${plugin.id}:restart`;
-                  return (
-                    <div class="px-4 py-3">
-                      <div class="flex flex-col gap-3 @min-[560px]/main:flex-row @min-[560px]/main:items-center @min-[560px]/main:justify-between">
-                        <div class="min-w-0">
-                          <div class="flex min-w-0 items-baseline gap-2">
-                            <span class="truncate text-sm font-medium text-foreground">{name()}</span>
-                            <span class="shrink-0 font-mono text-2xs text-muted-foreground">v{plugin.version}</span>
-                          </div>
-                          <div class="mt-1 flex items-center gap-1.5 text-2xs text-muted-foreground">
-                            <span class={`size-1.5 shrink-0 rounded-full ${STATE_TONES[plugin.state]}`} />
-                            {t(STATE_KEYS[plugin.state])}
-                          </div>
-                        </div>
-                        <div class="flex shrink-0 flex-wrap items-center gap-2">
+            <div class="grid items-start gap-5 @min-[1100px]/main:grid-cols-[22rem_minmax(0,1fr)] @min-[1100px]/main:gap-6">
+              <nav
+                aria-label={t("settings.plugins.list")}
+                class={`flex flex-col gap-1 ${props.pluginId ? "hidden @min-[1100px]/main:flex" : ""}`}
+              >
+                <For each={pluginSummaries()}>
+                  {(plugin) => {
+                    const name = () => pluginDisplayName(plugin.id, plugin.name);
+                    const busy = () => busyId() === plugin.id;
+                    const transitional = () => plugin.state === "starting" || plugin.state === "stopping";
+                    return (
+                      <div>
+                        <div
+                          class={`flex items-center gap-2 rounded-lg border p-2.5 transition-colors ${
+                            props.pluginId === plugin.id
+                              ? "border-ring/30 bg-accent/60"
+                              : "border-transparent hover:bg-secondary/50"
+                          }`}
+                        >
                           <Button
                             type="button"
-                            size="sm"
                             variant="quiet"
-                            onClick={() =>
-                              setExpanded((current) => ({ ...current, [plugin.id]: !current[plugin.id] }))
-                            }
+                            aria-current={props.pluginId === plugin.id ? "true" : undefined}
+                            class="h-auto min-w-0 flex-1 items-center justify-start gap-3 whitespace-normal p-0 text-left"
+                            onClick={() => openPlugin(plugin.id)}
                           >
-                            {expanded()[plugin.id]
-                              ? t("settings.plugins.collapse")
-                              : t("settings.plugins.details")}
+                            <span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-secondary/70 text-muted-foreground">
+                              <Icon name={pluginDisplayIcon(plugin.id, plugin.icon)} class="size-4" />
+                            </span>
+                            <span class="min-w-0 flex-1">
+                              <span class="flex items-center gap-1.5">
+                                <span class="truncate text-sm font-medium text-foreground">{name()}</span>
+                                <span
+                                  class={`size-1.5 shrink-0 rounded-full ${STATE_TONES[plugin.state]}`}
+                                  title={t(STATE_KEYS[plugin.state])}
+                                />
+                                <span class="sr-only">{t(STATE_KEYS[plugin.state])}</span>
+                              </span>
+                              <span
+                                class="mt-0.5 block truncate text-2xs leading-4 text-muted-foreground"
+                                title={pluginDisplaySummary(plugin.id, plugin.summary ?? plugin.description)}
+                              >
+                                {pluginDisplaySummary(plugin.id, plugin.summary ?? plugin.description)}
+                              </span>
+                            </span>
                           </Button>
-                          <Show when={plugin.state !== "disabled"}>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant={restartConfirming() ? "destructive" : "outline"}
-                              disabled={busy() || transitional()}
-                              onClick={() => request(plugin, "restart")}
-                            >
-                              {restartConfirming()
-                                ? t("settings.plugins.restartConfirm")
-                                : t("settings.plugins.restart")}
-                            </Button>
-                          </Show>
                           <Switch
                             checked={plugin.state !== "disabled"}
                             disabled={busy() || transitional()}
@@ -285,175 +319,354 @@ export function PluginSettings() {
                             onChange={(next) => request(plugin, next ? "enable" : "disable")}
                           />
                         </div>
+                        <div class="px-2.5 @min-[1100px]/main:hidden">{messages(plugin)}</div>
                       </div>
-                      <Show when={restartConfirming()}>
-                        <p class="mt-2 text-2xs leading-4 text-muted-foreground">
-                          {t("settings.plugins.restartHint")}
-                        </p>
-                      </Show>
-                      <Show when={justDisabled()[plugin.id] && plugin.state === "disabled"}>
-                        <div class="mt-2 flex items-center gap-2 text-2xs leading-4 text-muted-foreground">
-                          <span>{t("settings.plugins.justDisabled")}</span>
-                          <Button
-                            type="button"
-                            variant="link"
-                            size="xs"
-                            class="text-2xs"
-                            disabled={busy() || transitional()}
-                            onClick={() => request(plugin, "enable")}
-                          >
-                            {t("settings.plugins.undo")}
-                          </Button>
-                        </div>
-                      </Show>
-                      <Show when={plugin.error}>
-                        <p class="mt-2 whitespace-pre-wrap break-words text-2xs leading-4 text-destructive">
-                          {plugin.error}
-                        </p>
-                      </Show>
-                      <Show when={feedback()[plugin.id]}>
-                        <p class="mt-2 text-2xs leading-4 text-destructive">{feedback()[plugin.id]}</p>
-                      </Show>
-                      <Show when={expanded()[plugin.id]}>
-                        <div class="mt-3 rounded-md border border-border bg-muted/20 p-3 text-xs">
-                          <Show when={pluginDisplayDescription(plugin.id, plugin.description)}>
-                            <p class="leading-5 text-muted-foreground">
-                              {pluginDisplayDescription(plugin.id, plugin.description)}
-                            </p>
-                          </Show>
-                          <dl class="mt-3 grid grid-cols-[5rem_minmax(0,1fr)] gap-x-3 gap-y-2">
-                            <dt class="text-muted-foreground">{t("settings.plugins.id")}</dt>
-                            <dd><code class="font-mono text-2xs">{plugin.id}</code></dd>
-                            <dt class="text-muted-foreground">{t("settings.plugins.tools")}</dt>
-                            <dd>
-                              <Show when={plugin.tools.length > 0} fallback={t("settings.plugins.none")}>
-                                <div class="flex flex-wrap gap-1">
-                                  <For each={plugin.tools}>
-                                    {(tool) => (
-                                      <code class="rounded bg-secondary/70 px-1.5 py-0.5 font-mono text-2xs">
-                                        {plugin.id}_{tool.name}
-                                      </code>
+                    );
+                  }}
+                </For>
+              </nav>
+
+              <Show
+                when={props.pluginId}
+                fallback={
+                  <div class="hidden min-h-64 items-center justify-center rounded-xl border border-dashed border-border @min-[1100px]/main:flex">
+                    <EmptyState
+                      icon="plug"
+                      title={t("settings.plugins.select")}
+                      description={t("settings.plugins.selectHint")}
+                    />
+                  </div>
+                }
+              >
+                <Show
+                  when={selected()?.id}
+                  keyed
+                  fallback={
+                    <EmptyState
+                      icon="plug"
+                      layout="inline"
+                      title={t("settings.plugins.notFound")}
+                      description={t("settings.plugins.notFoundHint")}
+                      action={
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => { location.hash = "/settings/plugins"; }}
+                        >
+                          {t("settings.plugins.back")}
+                        </Button>
+                      }
+                    />
+                  }
+                >
+                  {(id) => {
+                    const plugin = () => selected()!;
+                    const name = () => pluginDisplayName(plugin().id, plugin().name);
+                    const busy = () => busyId() === plugin().id;
+                    const transitional = () => plugin().state === "starting" || plugin().state === "stopping";
+                    const restartConfirming = () => confirming() === `${plugin().id}:restart`;
+                    return (
+                      <section data-plugin-detail={id} class="min-w-0">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="quiet"
+                          class="-ml-2 mb-4 @min-[1100px]/main:hidden"
+                          onClick={() => { location.hash = "/settings/plugins"; }}
+                        >
+                          <Icon name="arrow-left" class="size-3.5" />
+                          {t("settings.plugins.back")}
+                        </Button>
+
+                        <header class="flex items-start gap-3.5">
+                          <span class="flex size-11 shrink-0 items-center justify-center rounded-xl bg-secondary/70 text-foreground/80">
+                            <Icon name={pluginDisplayIcon(plugin().id, plugin().icon)} class="size-5" />
+                          </span>
+                          <div class="min-w-0 flex-1">
+                            <div class="flex items-start justify-between gap-4">
+                              <div class="min-w-0">
+                                <h3 class="truncate text-lg font-semibold tracking-tight text-foreground">{name()}</h3>
+                                <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-2xs text-muted-foreground">
+                                  <span class="font-mono">v{plugin().version}</span>
+                                  <span aria-hidden="true">·</span>
+                                  <span class="flex items-center gap-1.5">
+                                    <span class={`size-1.5 rounded-full ${STATE_TONES[plugin().state]}`} />
+                                    {t(STATE_KEYS[plugin().state])}
+                                  </span>
+                                </div>
+                              </div>
+                              <Switch
+                                checked={plugin().state !== "disabled"}
+                                disabled={busy() || transitional()}
+                                aria-label={t(
+                                  plugin().state === "disabled" ? "settings.plugins.enable" : "settings.plugins.disable",
+                                  { name: name() },
+                                )}
+                                onChange={(next) => request(plugin(), next ? "enable" : "disable")}
+                              />
+                            </div>
+                            <Show when={pluginDisplayDescription(plugin().id, plugin().description)}>
+                              <p class="mt-3 max-w-2xl text-xs leading-5 text-muted-foreground">
+                                {pluginDisplayDescription(plugin().id, plugin().description)}
+                              </p>
+                            </Show>
+                          </div>
+                        </header>
+
+                        {messages(plugin())}
+
+                        <DetailTabs
+                          value={detailTab()}
+                          settings={hasSettings(plugin())}
+                          onChange={setDetailTab}
+                        />
+
+                        <div id="plugin-detail-panel" role="tabpanel" class="mt-5">
+                          <Show when={detailTab() === "settings"}>
+                            <Show when={plugin().ui?.settings?.component}>
+                              <PluginSettingsComponent
+                                name={plugin().ui!.settings!.component}
+                                disabled={plugin().state !== "running"}
+                                onEnable={() => request(plugin(), "enable")}
+                                onChanged={refreshPlugins}
+                              />
+                            </Show>
+                            <Show when={plugin().settings}>
+                              <div class={plugin().ui?.settings?.component ? "mt-6" : ""}>
+                                <Show when={plugin().ui?.settings?.component}>
+                                  <h4 class="mb-2 text-xs font-medium text-foreground">
+                                    {t("settings.plugins.settings")}
+                                  </h4>
+                                </Show>
+                                <Card>
+                                  <For each={Object.entries(plugin().settings!.schema.properties)}>
+                                    {([key, setting]) => (
+                                      <Row
+                                        label={pluginSettingTitle(plugin().id, key, setting.title ?? key)}
+                                        hint={setting.description
+                                          ? pluginSettingDescription(plugin().id, key, setting.description)
+                                          : undefined}
+                                      >
+                                        <Show when={setting.type === "boolean"}>
+                                          <Switch
+                                            checked={String(settingValue(plugin(), key)) === "true"}
+                                            aria-label={pluginSettingTitle(plugin().id, key, key)}
+                                            onChange={(next) => setSetting(plugin(), key, next ? "true" : "false")}
+                                          />
+                                        </Show>
+                                        <Show when={setting.type === "enum"}>
+                                          <Segmented
+                                            label={pluginSettingTitle(plugin().id, key, key)}
+                                            value={String(settingValue(plugin(), key) ?? "")}
+                                            options={(setting.enum ?? []).map((value) => ({
+                                              id: value,
+                                              label: pluginSettingValueLabel(plugin().id, key, value),
+                                            }))}
+                                            onChange={(value) => setSetting(plugin(), key, value)}
+                                          />
+                                        </Show>
+                                        <Show when={setting.type === "string" || setting.type === "number"}>
+                                          <Show
+                                            when={
+                                              setting.type === "number" &&
+                                              setting.minimum !== undefined &&
+                                              setting.maximum !== undefined
+                                            }
+                                            fallback={
+                                              <TextFieldInput
+                                                type="text"
+                                                inputmode={setting.type === "number" ? "numeric" : undefined}
+                                                value={String(settingValue(plugin(), key) ?? "")}
+                                                onInput={(e) => setSetting(plugin(), key, e.currentTarget.value)}
+                                              />
+                                            }
+                                          >
+                                            <div class="flex h-8 w-full items-center gap-3">
+                                              <RangeField
+                                                min={setting.minimum}
+                                                max={setting.maximum}
+                                                step={setting.step ?? 1}
+                                                value={String(settingValue(plugin(), key) ?? "")}
+                                                aria-label={pluginSettingTitle(plugin().id, key, key)}
+                                                onInput={(e) => setSetting(plugin(), key, e.currentTarget.value)}
+                                              />
+                                              <span class="w-14 shrink-0 text-right text-2xs text-muted-foreground">
+                                                {String(settingValue(plugin(), key) ?? "")}{setting.unit}
+                                              </span>
+                                            </div>
+                                          </Show>
+                                        </Show>
+                                      </Row>
                                     )}
                                   </For>
-                                </div>
-                              </Show>
-                            </dd>
-                            <dt class="text-muted-foreground">{t("settings.plugins.resources")}</dt>
-                            <dd class="break-words font-mono text-2xs">
-                              {plugin.resources.length
-                                ? plugin.resources.map((resource) => resource.key).join(", ")
-                                : t("settings.plugins.none")}
-                            </dd>
-                            <dt class="text-muted-foreground">{t("settings.plugins.panel")}</dt>
-                            <dd>
-                              {plugin.panel
-                                ? `${pluginDisplayName(plugin.id, plugin.panel.title)} (${plugin.panel.kind})`
-                                : t("settings.plugins.none")}
-                            </dd>
-                            <dt class="text-muted-foreground">{t("settings.plugins.hooks")}</dt>
-                            <dd>{hookSummary(plugin)}</dd>
-                          </dl>
-                          <Show when={plugin.settings}>
-                            <div class="mt-3 border-t border-border pt-3">
-                              <p class="mb-2 font-medium text-foreground">
-                                {t("settings.plugins.settings")}
-                              </p>
-                              <Show when={plugin.id === "background"}>
-                                <BackgroundImageSettings onChanged={refreshPlugins} />
-                              </Show>
-                              <Show when={plugin.id === "memory"}>
-                                <MemorySettings
-                                  disabled={plugin.state !== "running"}
-                                  onEnable={() => request(plugin, "enable")}
-                                />
-                              </Show>
-                              <For each={Object.entries(plugin.settings!.schema.properties)}>
-                                {([key, setting]) => (
-                                  <div class="mb-2 last:mb-0">
-                                    <p class="text-muted-foreground">
-                                      {pluginSettingTitle(plugin.id, key, setting.title ?? key)}
-                                    </p>
-                                    <Show when={setting.description}>
-                                      <p class="text-2xs text-muted-foreground">
-                                        {pluginSettingDescription(plugin.id, key, setting.description!)}
-                                      </p>
-                                    </Show>
-                                    <Show when={setting.type === "boolean"}>
-                                      <Switch
-                                        checked={String(settingValue(plugin, key)) === "true"}
-                                        aria-label={pluginSettingTitle(plugin.id, key, key)}
-                                        onChange={(next) => setSetting(plugin, key, next ? "true" : "false")}
-                                      />
-                                    </Show>
-                                    <Show when={setting.type === "enum"}>
-                                      <Segmented
-                                        label={pluginSettingTitle(plugin.id, key, key)}
-                                        value={String(settingValue(plugin, key) ?? "")}
-                                        options={(setting.enum ?? []).map((value) => ({
-                                          id: value,
-                                          label: pluginSettingValueLabel(plugin.id, key, value),
-                                        }))}
-                                        onChange={(value) => setSetting(plugin, key, value)}
-                                      />
-                                    </Show>
-                                    <Show when={setting.type === "string" || setting.type === "number"}>
-                                      <Show
-                                        when={
-                                          setting.type === "number" &&
-                                          setting.minimum !== undefined &&
-                                          setting.maximum !== undefined
-                                        }
-                                        fallback={
-                                          <TextFieldInput
-                                            type="text"
-                                            inputmode={setting.type === "number" ? "numeric" : undefined}
-                                            value={String(settingValue(plugin, key) ?? "")}
-                                            onInput={(e) => setSetting(plugin, key, e.currentTarget.value)}
-                                          />
-                                        }
+                                </Card>
+                                <Show when={draft()[plugin().id] || savedFeedback()[plugin().id]}>
+                                  <div class="sticky bottom-0 z-10 -mx-1 mt-3 flex justify-end gap-2 border-t border-border bg-background/95 px-1 py-3 backdrop-blur">
+                                    <Show
+                                      when={draft()[plugin().id]}
+                                      fallback={
+                                        <p role="status" class="flex items-center gap-1.5 text-xs text-emerald-500">
+                                          <Icon name="check" class="size-3.5" />
+                                          {savedFeedback()[plugin().id]}
+                                        </p>
+                                      }
+                                    >
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="quiet"
+                                        disabled={savingId() === plugin().id}
+                                        onClick={() => discardSettings(plugin())}
                                       >
-                                        <div class="mt-2 flex h-6 items-center gap-3">
-                                          <RangeField
-                                            min={setting.minimum}
-                                            max={setting.maximum}
-                                            step={setting.step ?? 1}
-                                            value={String(settingValue(plugin, key) ?? "")}
-                                            aria-label={pluginSettingTitle(plugin.id, key, key)}
-                                            onInput={(e) => setSetting(plugin, key, e.currentTarget.value)}
-                                          />
-                                          <span class="w-12 shrink-0 text-right text-2xs text-muted-foreground">
-                                            {String(settingValue(plugin, key) ?? "")}{setting.unit}
-                                          </span>
-                                        </div>
-                                      </Show>
+                                        {t("confirm.cancel")}
+                                      </Button>
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        disabled={savingId() === plugin().id}
+                                        aria-busy={savingId() === plugin().id}
+                                        onClick={() => void saveSettings(plugin())}
+                                      >
+                                        {savingId() === plugin().id
+                                          ? t("settings.plugins.settings.saving")
+                                          : plugin().state === "running" || plugin().state === "starting"
+                                            ? t("settings.plugins.settings.save")
+                                            : t("settings.plugins.settings.saveOnly")}
+                                      </Button>
                                     </Show>
                                   </div>
-                                )}
-                              </For>
-                              <Show when={draft()[plugin.id]}>
+                                </Show>
+                              </div>
+                            </Show>
+                          </Show>
+
+                          <Show when={detailTab() === "capabilities"}>
+                            <dl class="grid grid-cols-[5rem_minmax(0,1fr)] gap-x-4 gap-y-4 rounded-lg border border-border bg-card p-4 text-xs">
+                              <dt class="text-muted-foreground">{t("settings.plugins.tools")}</dt>
+                              <dd>
+                                <Show when={plugin().tools.length > 0} fallback={t("settings.plugins.none")}>
+                                  <div class="flex flex-wrap gap-1.5">
+                                    <For each={plugin().tools}>
+                                      {(tool) => (
+                                        <code class="rounded bg-secondary/70 px-1.5 py-0.5 font-mono text-2xs">
+                                          {plugin().id}_{tool.name}
+                                        </code>
+                                      )}
+                                    </For>
+                                  </div>
+                                </Show>
+                              </dd>
+                              <dt class="text-muted-foreground">{t("settings.plugins.resources")}</dt>
+                              <dd class="break-words font-mono text-2xs leading-5">
+                                {plugin().resources.length
+                                  ? plugin().resources.map((resource) => resource.key).join(", ")
+                                  : t("settings.plugins.none")}
+                              </dd>
+                              <dt class="text-muted-foreground">{t("settings.plugins.panel")}</dt>
+                              <dd>
+                                {plugin().panel
+                                  ? `${pluginDisplayName(plugin().id, plugin().panel!.title)} (${plugin().panel!.kind})`
+                                  : t("settings.plugins.none")}
+                              </dd>
+                              <dt class="text-muted-foreground">{t("settings.plugins.hooks")}</dt>
+                              <dd>{hookSummary(plugin())}</dd>
+                            </dl>
+                          </Show>
+
+                          <Show when={detailTab() === "about"}>
+                            <dl class="grid grid-cols-[5rem_minmax(0,1fr)] gap-x-4 gap-y-3 rounded-lg border border-border bg-card p-4 text-xs">
+                              <dt class="text-muted-foreground">{t("settings.plugins.id")}</dt>
+                              <dd><code class="font-mono text-2xs">{plugin().id}</code></dd>
+                              <dt class="text-muted-foreground">{t("settings.plugins.version")}</dt>
+                              <dd class="font-mono text-2xs">{plugin().version}</dd>
+                            </dl>
+                            <Show when={plugin().state !== "disabled"}>
+                              <div class="mt-4 flex flex-col gap-3 rounded-lg border border-border bg-card p-4 @min-[560px]/main:flex-row @min-[560px]/main:items-center @min-[560px]/main:justify-between">
+                                <div>
+                                  <p class="text-sm font-medium text-foreground">{t("settings.plugins.restart")}</p>
+                                  <p class="mt-1 max-w-xl text-2xs leading-4 text-muted-foreground">
+                                    {t("settings.plugins.restartHint")}
+                                  </p>
+                                </div>
                                 <Button
                                   type="button"
                                   size="sm"
-                                  variant="outline"
-                                  class="mt-2"
-                                  disabled={savingId() === plugin.id}
-                                  onClick={() => saveSettings(plugin)}
+                                  variant={restartConfirming() ? "destructive" : "outline"}
+                                  class="shrink-0"
+                                  disabled={busy() || transitional()}
+                                  onClick={() => request(plugin(), "restart")}
                                 >
-                                  {t("settings.plugins.settings.save")}
+                                  {restartConfirming()
+                                    ? t("settings.plugins.restartConfirm")
+                                    : t("settings.plugins.restart")}
                                 </Button>
-                              </Show>
-                            </div>
+                              </div>
+                            </Show>
                           </Show>
                         </div>
-                      </Show>
-                    </div>
-                  );
-                }}
-              </For>
-            </Card>
+                      </section>
+                    );
+                  }}
+                </Show>
+              </Show>
+            </div>
           </Show>
         </Show>
       </Show>
     </Group>
+  );
+}
+
+function DetailTabs(props: {
+  value: DetailTab;
+  settings: boolean;
+  onChange: (tab: DetailTab) => void;
+}) {
+  const options = (): { id: DetailTab; label: string }[] => [
+    ...(props.settings ? [{ id: "settings" as const, label: t("settings.plugins.settings") }] : []),
+    { id: "capabilities", label: t("settings.plugins.capabilities") },
+    { id: "about", label: t("settings.plugins.about") },
+  ];
+  const buttons = new Map<DetailTab, HTMLButtonElement>();
+  return (
+    <div class="mt-5 flex gap-5 border-b border-border" role="tablist" aria-label={t("settings.plugins.details")}>
+      <For each={options().map((option) => option.id)}>
+        {(id) => {
+          const option = () => options().find((item) => item.id === id)!;
+          onCleanup(() => buttons.delete(id));
+          return (
+            <Button
+              ref={(element) => buttons.set(id, element)}
+              type="button"
+              variant="quiet"
+              role="tab"
+              id={`plugin-detail-tab-${id}`}
+              aria-controls="plugin-detail-panel"
+              aria-selected={props.value === id}
+              tabIndex={props.value === id ? 0 : -1}
+              class={`-mb-px h-auto justify-start gap-0 rounded-none border-b-2 px-0.5 pb-2.5 ${
+                props.value === id
+                  ? "border-foreground font-medium text-foreground"
+                  : "border-transparent font-normal text-muted-foreground hover:text-foreground"
+              }`}
+              onClick={() => props.onChange(id)}
+              onKeyDown={(event) => {
+                const items = options();
+                handleRovingKey(
+                  event,
+                  items.findIndex((item) => item.id === id),
+                  items,
+                  (next) => props.onChange(next as DetailTab),
+                  items.map((item) => buttons.get(item.id)),
+                );
+              }}
+            >
+              {option().label}
+            </Button>
+          );
+        }}
+      </For>
+    </div>
   );
 }

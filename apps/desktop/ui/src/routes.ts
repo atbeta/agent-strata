@@ -4,7 +4,7 @@ export type Route =
   | { name: "fleet" }
   | { name: "session"; id: string }
   | { name: "compare"; a: string; b: string }
-  | { name: "settings"; section?: string };
+  | { name: "settings"; section?: string; plugin?: string };
 
 /**
  * The session a screen came from, as the href that goes back to it.
@@ -29,6 +29,6 @@ export function parseHash(): Route {
   const c = h.match(/^\/compare\/([^/]+)\/(.+)$/);
   if (c) return { name: "compare", a: decodeURIComponent(c[1]!), b: decodeURIComponent(c[2]!) };
   const settings = settingsPath(h);
-  if (settings) return { name: "settings", section: settings.section };
+  if (settings) return { name: "settings", section: settings.section, plugin: settings.plugin };
   return { name: "fleet" };
 }

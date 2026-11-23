@@ -1504,6 +1504,8 @@ export interface PluginSummary {
   name: string;
   version: string;
   description?: string;
+  summary?: string;
+  icon?: string;
   state: "disabled" | "starting" | "running" | "stopping" | "failed";
   error?: string;
   provides: string[];
@@ -1515,6 +1517,7 @@ export interface PluginSummary {
   default?: "enabled" | "disabled";
   ui?: {
     background?: { resource: string };
+    settings?: { component: string };
     toolRenderers: Record<string, { kind: string; icon?: string }>;
   };
   /** The settings the reader may change, with the values in force. */

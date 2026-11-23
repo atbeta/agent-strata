@@ -1,7 +1,7 @@
 // Durable memory: notes that outlive the session.
 //
 // The agent reads and writes them; the reader sees, edits, disables and
-// deletes them in Settings → Memory. They live one layer above the
+// deletes them in Settings → Plugins → Durable memory. They live one layer above the
 // repository — in the app's own data directory, not in a file the project
 // carries — so nothing here ends up in a commit, and a workspace that is
 // thrown away takes its notes with it.
@@ -40,6 +40,9 @@ export const manifest: PluginManifest = {
   version: "1.0.0",
   description:
     "Notes that carry across sessions: the reader's preferences and this workspace's conventions.",
+  summary: "Keep preferences and conventions across sessions",
+  icon: "brain",
+  ui: { settings: { component: "memory" }, toolRenderers: {} },
   // Off until the reader asks for it. What this plugin collects is the most
   // personal thing in the box, and nobody agreed to that by installing the
   // app.
@@ -72,7 +75,7 @@ export const manifest: PluginManifest = {
         "it: use a stable slug such as `deploy.prod`. Without a key, every call adds a",
         "new entry.",
         "",
-        "The reader sees every entry in Settings → Memory, where it can be edited,",
+        "The reader sees every entry in Settings → Plugins → Durable memory, where it can be edited,",
         "disabled or deleted.",
       ].join("\n"),
       input: {
