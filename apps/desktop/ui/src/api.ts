@@ -1511,6 +1511,8 @@ export interface PluginSummary {
   resources: { key: string; mime: string; scope: "session" | "global" }[];
   panel?: { id: string; title: string; kind: "logs" | "status" | "component"; icon?: string; resource?: string };
   hooks?: { beforeTool: string[]; systemPrompt: boolean };
+  /** Whether the plugin runs unless the reader says otherwise. */
+  default?: "enabled" | "disabled";
   ui?: {
     background?: { resource: string };
     toolRenderers: Record<string, { kind: string; icon?: string }>;

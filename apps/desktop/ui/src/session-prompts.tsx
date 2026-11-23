@@ -44,6 +44,7 @@ function askIcon(
   if (detail.kind === "command") return "terminal";
   if (detail.kind === "diff") return "pencil";
   if (detail.kind === "url") return "globe";
+  if (detail.kind === "memory") return "list";
   return toolIcon(tool, input);
 }
 
@@ -100,6 +101,16 @@ export function AskCard(props: {
     }
     if (view.kind === "url") {
       return <p class="break-all font-mono text-xs leading-5 text-foreground/90">{view.url}</p>;
+    }
+    if (view.kind === "memory") {
+      // The fact itself, in prose rather than as a shell command: this is
+      // something the model will read in every later session, so the reader
+      // approves it as a sentence.
+      return (
+        <p class="max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-md bg-code-surface px-3 py-2 text-xs leading-5 text-foreground/90">
+          {view.text}
+        </p>
+      );
     }
     // A flat object reads as a list of facts, not as a document: the braces,
     // quotes and indentation were most of what the card was showing.

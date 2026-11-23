@@ -171,6 +171,17 @@ export const PluginManifestSchema = z
     name: z.string().min(1),
     version: z.string().min(1),
     description: z.string().optional(),
+    /**
+     * Whether the plugin runs unless the reader says otherwise.
+     *
+     * A plugin that touches the reader's own data - their preferences, their
+     * files - has no business collecting it before they have agreed to it.
+     * Such a plugin ships `disabled` and waits to be turned on.
+     *
+     * Optional rather than defaulted, so a manifest written by hand does not
+     * have to repeat it; the host reads the absence as "enabled".
+     */
+    default: z.enum(["enabled", "disabled"]).optional(),
     engines: z.object({ strata: z.string().min(1) }).optional(),
     entry: z.discriminatedUnion("kind", [
       z.object({ kind: z.literal("builtin") }),
@@ -362,6 +373,14 @@ export interface PluginSummary {
   panel?: PluginManifest["panel"];
   hooks?: PluginManifest["hooks"];
   ui?: PluginManifest["ui"];
+  /**
+   * Whether the plugin runs unless the reader says otherwise.
+   *
+   * A surface has to be able to tell "this ships off, waiting for you" from
+   * "you turned this off" — they look the same on a switch and mean opposite
+   * things to the reader.
+   */
+  default?: "enabled" | "disabled";
   /**
    * The settings the reader may change, with the values in force.
    *

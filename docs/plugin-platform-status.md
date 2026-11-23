@@ -15,6 +15,8 @@ M0–M3 全部落地并通过检查（typecheck / lint / 包测试 / UI 测试 /
 
 **原生交互终端已落地。** `plugin-terminal` 用 Bun 原生 PTY（POSIX `openpty` / Windows ConPTY）提供 `terminal_create/list/read/write/signal/close`，agent 与用户底部 dock、右栏 Terminal 面板共享 terminal id。`service/src/plugins/upgrade.ts` 提供通用插件 WS 分发；有界 byte ring 支持 attach 重放，WS/panel 关闭只退订，显式 close、session/目录/插件清理才终止进程。终端只有 `mode: user/shared`：agent 创建默认 shared，用户创建默认 user；tab 前置单人/用户+Agent 组合图标点击切换，超长名称仅在实际截断时显示完整 Tip。user 对 agent 不可见，shared 下用户和 agent 都可读写，输入不改变模式，close 对双方都是真正关闭。write 合并输出等待，并以 `submit:true` 在 PTY 层补 Enter，绕开上游对行尾空白的裁剪；read/write 返回 `wait_reason`，静默仍不代表命令完成；read 始终使用最新 next_offset，避免旧游标重复输出；signal 在 POSIX 发往 TTY 前台进程组并拒杀 shell 自身，Windows 仅 SIGINT；close 返回 exited/unconfirmed，不把超时包装成完全清理。create/write 与 `dev_start` 一样使用 `allow` floor：普通默认策略询问，session auto 放行；create 的 command、write 的换行完整命令行与 submit:true 的命令都走 bash policy，auto 不覆盖 deny。配额只计 running，exited 保留 5 分钟且最多 32 条后回收。`terminal-plugin.test.ts` 跑真实工具 + WS 重连、cursor 分页、write/read 等待、共享双方写入、用户专用/共享切换与可见性；`real-pty.test.ts` 验证前台 job 信号；`lifecycle.test.ts` 验证 running 配额、退出 TTL 与 exited 上限。指引区分真实/生产秘密与任务明确提供的开发/测试凭据。agent 默认及带 command 的 shell 均不加载 zsh/bash/fish 用户配置，面板 shell 保持不变。`terminal-policy.test.ts` 验证普通模式询问、auto 下 create/write 放行及 deny 仍生效，`plugin-websocket.test.ts` 验证通用分发与 query token。跨 service/app 重启接管没有做，需要独立 supervisor；旧 OpenCode `/pty` 代理仍保留。
 
+**持久记忆已落地。** `plugin-memory` 提供 `memory_add/list/search/update/remove`，把「值得延续的约定与偏好」记在**应用自己的数据目录**里，而不是项目里的 AGENTS.md——它比仓库高一层，不进提交、不随仓库分发，也不必和同事共享同一份噪音。**它默认不运行**（manifest 的 `default: "disabled"`）：这个插件收集的是读者自己的偏好，没有人事先同意过，装上应用不等于同意开始记录，所以它出厂即关，等读者在设置里打开。全局（关于读者的偏好）与工作区（这个项目的惯例）两层，互不可见：工作区记忆只对本工作区的会话可见，全局记忆在所有工作区可见。存储是两份普通 JSON（`memory/global.json`、`memory/workspaces/<key>.json`）加一份工作区索引；写入走临时文件 + rename，读取按 size+mtime 缓存，所以手改文件下一轮就生效；JSON 坏了只报错不覆盖，写入前还会再确认文件没被手改过，避免默默吃掉别人的修改。注入走 `hooks.systemPrompt`：一段每轮不变的协议（何时该存、怎么改、怎么删）加上启用中记忆的快照，条目带 id。协议部分是固定的（671 字符），快照只在记忆变了时变，prompt cache 因此不抖。预算是**注入总量的硬上限**（协议、条目、省略说明都算进去），不是「条目的额度」——只有这样「记忆占多少上下文」才有确定答案；放不下的条目被省略，并告诉模型还有多少条没显示（它可以自己去 `memory_list` 取）。预算先扣固定协议，剩下的按 60/40 分给工作区与全局：工作区更具体所以先填，但封了顶，60 条长的工作区笔记挤不掉全局偏好；同一作用域内最新的先填，过期记忆最危险。**没有启用中的记忆时完全不注入**——从不用记忆的读者不为一轮固定协议付费。同 `key` 覆盖而不是叠加，`enabled: false` 保留但不注入，`maxEntries`/`maxEntryChars` 封顶。读者在设置 → 插件里展开「持久记忆」就能看到全部条目，可编辑、停用、忘掉（删除要确认）；agent 的写入经 policy，`allow` floor，与 `dev_start` 一样由读者的规则决定——加一条 `{ tool: "memory_*", effect: "allow" }` 就不再问。**禁用与忘掉是两件事**：禁用后插件不再提供工具、不再注入、不再响应路由，但写下的记忆原样留在 `plugins/memory/` 下，重新启用原样回来；`memory-disable.test.ts` 把这条边界钉住（工具表为空、提示词里没有记忆、路由 404、重新启用后记忆回来）。设置页在禁用时不再渲染注定失败的控件，而是说明「插件没有运行」并给一条重新启用的路。清空是另一个动作：`DELETE /plugins/memory/memories?scope=…` 清空一个范围，`scope=all` 连所有工作区一起清空，文件被清空而不删除。**会话整理**（从已结束的 session 提炼记忆）没做，那是 v2：CASF 里有可回放的证据、`sessions` 也能读，但「什么值得被提炼成一条记忆」的边界要另定。
+
 方案里 M0–M3 的**验收条目**逐条都有对应用例，不只是"功能跑通了"：
 
 | 验收条目 | 用例 |
@@ -34,10 +36,10 @@ M0–M3 全部落地并通过检查（typecheck / lint / 包测试 / UI 测试 /
 | 面板关闭/崩溃不影响主界面 | `plugin-panel.tsx` 的 fallback + `plugin-registry` 失败保留旧值 |
 
 ```
-bun run typecheck     # 18 projects
+bun run typecheck     # 19 projects
 bun run lint          # 0 warnings
-bun test packages     # 930 tests
-bun run test:ui       # 1341 tests
+bun test packages     # 978 tests
+bun run test:ui       # 1377 tests
 cargo test --locked   # 70 tests (apps/desktop/src-tauri)
 bun run sidecar       # 64.8 MB, includes every builtin plugin
 ```
@@ -50,6 +52,7 @@ bun run sidecar       # 64.8 MB, includes every builtin plugin
 | `packages/service/src/plugins/` | `host.ts`（registry/生命周期/guards/timeout/hooks）、`routes.ts`（HTTP 面）、`upgrade.ts`（插件 WS）、`call.ts`（请求解析）、`builtin.ts`（一行一个）、`mcp.ts`（ACP 的 MCP 面）、`tickets.ts`（per-session endpoint） |
 | `packages/plugin-dev-process` | `src/index.ts`（manifest + 工具 + 面板路由）、`src/dev-process.ts`（原管理器整体搬入）、`src/guidance.ts`（GUIDANCE + `detaches`） |
 | `packages/plugin-terminal` | `src/index.ts`（工具/HTTP/WS）、`manager.ts`（PTY 生命周期）、`output.ts`（byte ring）、`native.ts`（Bun PTY 与进程树清理） |
+| `packages/plugin-memory` | `src/index.ts`（manifest + 工具 + 设置页路由）、`store.ts`（JSON 存储、原子写、mtime 缓存）、`render.ts`（提示词协议与预算）、`workspace.ts`（工作区键） |
 | `packages/plugin-browser` | `src/index.ts`（15 个工具 + 资源 + panel 路由）、`src/manager.ts`（BrowserManager）、`src/cdp.ts`（自写 CDP 客户端）、`src/snapshot.ts`（页面内快照/动作表达式） |
 | `packages/plugin-echo` | 参考插件：每类贡献各一份，用来证明"一个包 + 一行" |
 | `plugins/strata-shim.ts` | 唯一安装的 OpenCode 插件（取代 `dev-process.ts`） |
@@ -99,6 +102,10 @@ bun test packages/service/test/plugin-browser.test.ts    # browser_* 过 service
 bun test packages/service/test/browser-lifecycle.test.ts # session 结束/disable/正常关闭的清理
 bun test packages/plugin-browser                         # manager 对真 Chrome，含崩溃后接管
 bun test packages/plugin-sdk                             # manifest 与版本区间
+bun test packages/plugin-memory                          # store / 提示词预算 / 插件接线
+bun test packages/service/test/memory-plugin.test.ts     # 记忆过 service：工具、注入、设置页、policy
+bun test packages/service/test/memory-disable.test.ts     # 禁用边界：不注入不响应、数据仍在、清空
+bun test packages/service/test/plugin-default-off.test.ts # 出厂即关的插件：默认不跑、重启后仍按读者的选择
 
 # 编译产物里的真实链路（手动）
 bun run sidecar

@@ -25,6 +25,7 @@
 import type { RegisteredPlugin } from "./host";
 import { manifest as backgroundManifest, createBackgroundPlugin } from "@agent-strata/plugin-background";
 import { manifest as devManifest, createDevPlugin } from "@agent-strata/plugin-dev-process";
+import { manifest as memoryManifest, createMemoryPlugin } from "@agent-strata/plugin-memory";
 import { manifest as scheduleManifest, createSchedulePlugin } from "@agent-strata/plugin-schedule";
 import { manifest as sessionsManifest, createSessionsPlugin } from "@agent-strata/plugin-sessions";
 import { manifest as terminalManifest, createTerminalPlugin } from "@agent-strata/plugin-terminal";
@@ -71,6 +72,12 @@ export function builtinPlugins(options: BuiltinOptions): RegisteredPlugin[] {
     {
       manifest: terminalManifest,
       create: () => createTerminalPlugin({ workspaceOf: options.workspaceOf }),
+    },
+    {
+      manifest: memoryManifest,
+      // the notes live in the plugin's own data directory, so the only thing
+      // it needs from the host is which workspace a session works in
+      create: () => createMemoryPlugin({ workspaceOf: options.workspaceOf }),
     },
     {
       manifest: sessionsManifest,

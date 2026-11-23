@@ -33,6 +33,7 @@ const projects = [
   "packages/plugin-background",
   "packages/plugin-dev-process",
   "packages/plugin-echo",
+  "packages/plugin-memory",
   "packages/plugin-schedule",
   "packages/plugin-sessions",
   "packages/plugin-terminal",
