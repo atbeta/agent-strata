@@ -272,9 +272,15 @@ describe("the plugin platform", () => {
     const secondBase = `http://127.0.0.1:${second.port}`;
     try {
       let listing: { plugins: { id: string; state: string }[] } = { plugins: [] };
-      for (let i = 0; i < 240 && !listing.plugins.some((p) => p.id === "dev"); i++) {
+      // Wait for the states, not for the names: a plugin is listed as it
+      // registers and reaches "running" a moment later, so a listing taken
+      // too early would be a race rather than a fact.
+      for (let i = 0; i < 240; i++) {
         listing = (await (await fetch(`${secondBase}/plugins`)).json()) as typeof listing;
-        if (!listing.plugins.some((p) => p.id === "dev")) await Bun.sleep(50);
+        const dev = listing.plugins.find((p) => p.id === "dev");
+        const echo = listing.plugins.find((p) => p.id === "echo");
+        if (dev?.state === "running" && echo?.state === "disabled") break;
+        await Bun.sleep(50);
       }
       expect(listing.plugins.find((p) => p.id === "echo")?.state).toBe("disabled");
       expect(listing.plugins.find((p) => p.id === "dev")?.state).toBe("running");
@@ -754,19 +760,35 @@ describe("what a fresh install ships", () => {
     const svc = startService({ db: ":memory:", port: 0, desktopDir: desktop });
     try {
       let listing: { plugins: { id: string; state: string }[] } = { plugins: [] };
-      for (let i = 0; i < 240 && !listing.plugins.some((p) => p.id === "dev"); i++) {
+      // Wait for every plugin to be listed, not just for the first one: the
+      // registry fills in as the plugins register, and a listing taken
+      // half-way through would be a race rather than a fact.
+      for (let i = 0; i < 240 && listing.plugins.length < 6; i++) {
         listing = (await (await fetch(`http://127.0.0.1:${svc.port}/plugins`)).json()) as typeof listing;
-        if (!listing.plugins.some((p) => p.id === "dev")) await Bun.sleep(50);
+        if (listing.plugins.length < 6) await Bun.sleep(50);
       }
-      expect(listing.plugins.map((p) => p.id).sort()).toEqual(["background", "dev", "schedule", "sessions", "terminal"]);
+      expect(listing.plugins.map((p) => p.id).sort()).toEqual([
+        "background",
+        "dev",
+        "memory",
+        "schedule",
+        "sessions",
+        "terminal",
+      ]);
+      // The memory plugin is shipped but not running: what it collects is the
+      // reader's own preferences, and nobody agreed to that by installing
+      // the app.
+      expect(listing.plugins.find((p) => p.id === "memory")?.state).toBe("disabled");
       const table = (await (await fetch(`http://127.0.0.1:${svc.port}/plugins/tools`)).json()) as {
         tools: { name: string }[];
       };
       expect(table.tools.some((t) => t.name.startsWith("echo_"))).toBe(false);
+      expect(table.tools.some((t) => t.name.startsWith("memory_"))).toBe(false);
       const prompt = (await (await fetch(`http://127.0.0.1:${svc.port}/hooks/system-prompt?session=x`)).json()) as {
         text: string;
       };
       expect(prompt.text).not.toContain("echo plugin");
+      expect(prompt.text).not.toContain("## Saved memory");
     } finally {
       svc.stop();
       rmSync(desktop, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });

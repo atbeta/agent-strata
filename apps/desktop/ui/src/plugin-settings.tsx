@@ -4,6 +4,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Switch } from "@/components/ui/switch";
 import { RangeField } from "@/components/ui/range-field";
 import { BackgroundImageSettings } from "./background-image-settings";
+import { MemorySettings } from "./memory-settings";
 import { TextFieldInput } from "@/components/ui/text-field";
 import {
   setPluginLifecycle,
@@ -305,6 +306,14 @@ export function PluginSettings() {
                           </Button>
                         </div>
                       </Show>
+                      {/* A plugin that ships off and is still off is waiting for
+                          the reader, not switched off by them. The two look
+                          the same on a switch and mean opposite things. */}
+                      <Show when={plugin.default === "disabled" && plugin.state === "disabled"}>
+                        <p class="mt-2 text-2xs leading-4 text-muted-foreground">
+                          {t("settings.plugins.shipsOff")}
+                        </p>
+                      </Show>
                       <Show when={plugin.error}>
                         <p class="mt-2 whitespace-pre-wrap break-words text-2xs leading-4 text-destructive">
                           {plugin.error}
@@ -359,6 +368,12 @@ export function PluginSettings() {
                               </p>
                               <Show when={plugin.id === "background"}>
                                 <BackgroundImageSettings onChanged={refreshPlugins} />
+                              </Show>
+                              <Show when={plugin.id === "memory"}>
+                                <MemorySettings
+                                  disabled={plugin.state !== "running"}
+                                  onEnable={() => request(plugin, "enable")}
+                                />
                               </Show>
                               <For each={Object.entries(plugin.settings!.schema.properties)}>
                                 {([key, setting]) => (

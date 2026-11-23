@@ -8,6 +8,8 @@ export type PermissionView =
   | { kind: "paths"; paths: string[]; command?: string }
   | { kind: "diff"; path?: string; patch: string }
   | { kind: "url"; url: string }
+  /** A fact the agent wants to keep: the text itself is the ask. */
+  | { kind: "memory"; text: string }
   /** Nothing to show: the ask is the tool and its name, and a `{}` box would be
    *  a frame around nothing. */
   | { kind: "empty" }
@@ -100,6 +102,13 @@ export function permissionView(ask: { tool: string; input: Record<string, unknow
   if (SHELL.has(ask.tool)) {
     const command = typeof input.command === "string" && input.command ? input.command : patterns(input);
     if (command) return { kind: "command", command };
+  }
+  // The fact the agent wants to keep is the whole ask. A JSON dump of the
+  // tool's arguments put it between braces and quotes, which is the shape
+  // nobody reads before deciding.
+  if (ask.tool === "memory_add" || ask.tool === "memory_update") {
+    const text = typeof input.text === "string" ? input.text : "";
+    if (text) return { kind: "memory", text };
   }
   // Where an ask is about paths, the paths are the ask — even when a command
   // rides along. `external_directory` sends the file it wants to open, its

@@ -7,6 +7,7 @@ const NAME_KEYS: Record<string, MessageKey> = {
   schedule: "plugin.schedule.name",
   sessions: "plugin.sessions.name",
   terminal: "plugin.terminal.name",
+  memory: "plugin.memory.name",
 };
 
 const DESCRIPTION_KEYS: Record<string, MessageKey> = {
@@ -16,6 +17,7 @@ const DESCRIPTION_KEYS: Record<string, MessageKey> = {
   schedule: "plugin.schedule.description",
   sessions: "plugin.sessions.description",
   terminal: "plugin.terminal.description",
+  memory: "plugin.memory.description",
 };
 
 export function pluginDisplayName(id: string, fallback: string): string {
@@ -34,6 +36,9 @@ const SETTING_KEYS: Record<string, MessageKey> = {
   "background.blur": "plugin.background.blur",
   "background.scrim": "plugin.background.scrim",
   "sessions.scope": "plugin.sessions.scope",
+  "memory.maxPromptChars": "plugin.memory.maxPromptChars",
+  "memory.maxEntries": "plugin.memory.maxEntries",
+  "memory.maxEntryChars": "plugin.memory.maxEntryChars",
 };
 
 const SETTING_DESCRIPTION_KEYS: Record<string, MessageKey> = {
@@ -42,6 +47,9 @@ const SETTING_DESCRIPTION_KEYS: Record<string, MessageKey> = {
   "background.blur": "plugin.background.blur.description",
   "background.scrim": "plugin.background.scrim.description",
   "sessions.scope": "plugin.sessions.scope.description",
+  "memory.maxPromptChars": "plugin.memory.maxPromptChars.description",
+  "memory.maxEntries": "plugin.memory.maxEntries.description",
+  "memory.maxEntryChars": "plugin.memory.maxEntryChars.description",
 };
 
 const SETTING_VALUE_KEYS: Record<string, MessageKey> = {

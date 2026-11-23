@@ -123,6 +123,13 @@
         "@agent-strata/plugin-sdk": "workspace:*",
       },
     },
+    "packages/plugin-memory": {
+      "name": "@agent-strata/plugin-memory",
+      "version": "0.0.0",
+      "dependencies": {
+        "@agent-strata/plugin-sdk": "workspace:*",
+      },
+    },
     "packages/plugin-schedule": {
       "name": "@agent-strata/plugin-schedule",
       "version": "0.0.0",
@@ -191,6 +198,7 @@
         "@agent-strata/core": "workspace:*",
         "@agent-strata/plugin-background": "workspace:*",
         "@agent-strata/plugin-dev-process": "workspace:*",
+        "@agent-strata/plugin-memory": "workspace:*",
         "@agent-strata/plugin-schedule": "workspace:*",
         "@agent-strata/plugin-sdk": "workspace:*",
         "@agent-strata/plugin-sessions": "workspace:*",
@@ -232,6 +240,8 @@
     "@agent-strata/plugin-dev-process": ["@agent-strata/plugin-dev-process@workspace:packages/plugin-dev-process"],
 
     "@agent-strata/plugin-echo": ["@agent-strata/plugin-echo@workspace:packages/plugin-echo"],
+
+    "@agent-strata/plugin-memory": ["@agent-strata/plugin-memory@workspace:packages/plugin-memory"],
 
     "@agent-strata/plugin-schedule": ["@agent-strata/plugin-schedule@workspace:packages/plugin-schedule"],
 

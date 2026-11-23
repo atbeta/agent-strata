@@ -118,6 +118,13 @@ export class PluginHost {
   /** Per-plugin tool tables, dropped when that plugin's instance changes. */
   private readonly toolCache = new Map<string, ToolEntry[]>();
   private readonly disabled = new Set<string>();
+  /**
+   * Plugins the reader turned on that do not run by default.
+   *
+   * The mirror of `disabled`: a plugin that ships off has to be remembered
+   * as on, or the reader's choice would be undone by the next restart.
+   */
+  private readonly enabled = new Set<string>();
   /** The reader's choices per plugin, from the state file. */
   private readonly settings = new Map<string, Record<string, unknown>>();
   private readonly listeners = new Set<() => void>();
@@ -147,14 +154,32 @@ export class PluginHost {
     });
   }
 
-  /** Start every registered plugin that is not disabled, in registration order. */
+  /**
+   * Start every registered plugin that is not disabled, in registration order.
+   *
+   * A plugin that ships disabled stays off until the reader turns it on, and
+   * it says so in the settings page rather than silently collecting data.
+   */
   async startAll(): Promise<void> {
     for (const id of this.registered.keys()) {
-      if (this.disabled.has(id)) continue;
+      if (!this.runsByDefault(id)) continue;
       await this.enable(id).catch((e: unknown) => {
         this.options.logger.error(`could not enable plugin ${id}`, e);
       });
     }
+  }
+
+  /**
+   * Whether a plugin runs without the reader having asked.
+   *
+   * The reader's own choice wins over the manifest's default in both
+   * directions: a plugin that ships off stays off until it is turned on, and
+   * a plugin that ships on stays on until it is turned off.
+   */
+  private runsByDefault(id: string): boolean {
+    if (this.enabled.has(id)) return true;
+    if (this.disabled.has(id)) return false;
+    return this.records.get(id)?.manifest.default !== "disabled";
   }
 
   async enable(id: string): Promise<void> {
@@ -198,6 +223,9 @@ export class PluginHost {
       record.state = "running";
       record.initializedAt = Date.now();
       this.disabled.delete(id);
+      // A plugin that ships off is now on by the reader's choice, and that
+      // choice has to outlive a restart.
+      if (record.manifest.default === "disabled") this.enabled.add(id);
       this.persist();
       this.changed();
     } catch (e) {
@@ -213,6 +241,9 @@ export class PluginHost {
     const record = this.records.get(id);
     if (!record) throw new Error(`no plugin "${id}"`);
     this.disabled.add(id);
+    // A plugin that ships off is back to its default: the reader's "on" no
+    // longer applies, so the next restart leaves it where it started.
+    if (record.manifest.default === "disabled") this.enabled.delete(id);
     await this.stopRecord(record);
     this.persist();
     this.changed();
@@ -292,6 +323,10 @@ export class PluginHost {
       panel: r.manifest.panel,
       hooks: r.manifest.hooks,
       ui: r.manifest.ui,
+      // Whether this plugin runs unless the reader says otherwise. The page
+      // needs it to tell "off because it ships off" from "off because the
+      // reader turned it off" — two very different facts.
+      default: r.manifest.default ?? "enabled",
       settings: r.manifest.settings
         ? { schema: r.manifest.settings, values: this.effectiveSettings(r.manifest.id) }
         : undefined,
@@ -750,6 +785,10 @@ export class PluginHost {
       if (Array.isArray(disabled)) {
         for (const id of disabled) if (typeof id === "string") this.disabled.add(id);
       }
+      const enabled = (raw as { enabled?: unknown }).enabled;
+      if (Array.isArray(enabled)) {
+        for (const id of enabled) if (typeof id === "string") this.enabled.add(id);
+      }
       const settings = (raw as { settings?: unknown }).settings;
       if (settings && typeof settings === "object") {
         for (const [id, values] of Object.entries(settings as Record<string, unknown>)) {
@@ -760,7 +799,8 @@ export class PluginHost {
       }
     } catch {
       // A corrupt state file must not stop the service: the default is
-      // "everything enabled", which is what a missing file means too.
+      // "everything the manifest says", which is what a missing file means
+      // too.
     }
   }
 
@@ -768,10 +808,14 @@ export class PluginHost {
     try {
       // The settings key appears only once a plugin has some, so a file
       // written before this existed stays byte for byte what it was.
+      // The enabled key is the same: it appears only once a plugin that
+      // ships disabled has been turned on.
       const state: {
         disabled: string[];
+        enabled?: string[];
         settings?: Record<string, Record<string, unknown>>;
       } = { disabled: [...this.disabled].sort() };
+      if (this.enabled.size > 0) state.enabled = [...this.enabled].sort();
       if (this.settings.size > 0) state.settings = Object.fromEntries(this.settings);
       writeSecureJson(this.stateFile, state);
     } catch (e) {
