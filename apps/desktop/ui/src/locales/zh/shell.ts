@@ -439,7 +439,6 @@ export default {
   "settings.plugins.state.running": "运行中",
   "settings.plugins.state.stopping": "停止中",
   "settings.plugins.state.failed": "失败",
-  "settings.plugins.shipsOff": "这个插件默认不运行，等你打开它。",
   "settings.appearance": "外观",
   "settings.appearance.hint": "配色方案、主题、字体和语言的改动立即生效。代码、命令和差异用代码字体，终端可以单独指定。",
   "settings.session.group": "会话",

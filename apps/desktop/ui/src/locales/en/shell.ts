@@ -446,7 +446,6 @@ export default {
   "settings.plugins.state.running": "Running",
   "settings.plugins.state.stopping": "Stopping",
   "settings.plugins.state.failed": "Failed",
-  "settings.plugins.shipsOff": "This plugin does not run until you turn it on.",
   "settings.appearance": "Appearance",
   "settings.appearance.hint":
     "Color scheme, theme, font, and language changes apply immediately. Code, commands, and diffs use the code font; the terminal can use its own.",
