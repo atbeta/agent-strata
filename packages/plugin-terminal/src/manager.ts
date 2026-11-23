@@ -18,8 +18,6 @@ import type {
 interface Entry {
   info: PtyInfo;
   ring: OutputRing;
-  /** The width the slave is wrapping at. Reads use it to put a hard-wrapped row back on one line. */
-  cols: number;
   child?: PtyProcess;
   listeners: Set<(event: PtyEvent) => void>;
   exitedAt?: number;
@@ -104,7 +102,6 @@ export class PtyManager {
     const entry: Entry = {
       info,
       ring: new OutputRing(this.outputBytes),
-      cols: input.cols,
       listeners: new Set(),
     };
     this.entries.set(id, entry);
@@ -181,13 +178,7 @@ export class PtyManager {
   resize(sessionId: string, id: string, rows: number, cols: number): void {
     const entry = this.ownedEntry(sessionId, id);
     if (!entry.child || entry.info.status !== "running") throw new Error(`terminal ${id} has exited`);
-    entry.cols = cols;
     entry.child.terminal.resize(cols, rows);
-  }
-
-  /** The width currently in effect, for rejoining rows the terminal wrapped. */
-  columns(sessionId: string, id: string): number {
-    return this.agentEntry(sessionId, id).cols;
   }
 
   read(sessionId: string, id: string, offset?: number, maxBytes = 16 * 1024): PtyReadPage {

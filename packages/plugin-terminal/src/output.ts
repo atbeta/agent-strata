@@ -64,18 +64,23 @@ export class OutputRing {
  * The text a reader would have left on each line, not every cursor motion.
  *
  * A bare carriage return rewrites the current line. Treating it as a newline
- * is what turned a redraw, or a row the PTY had broken at the margin, into a
- * stack of short and blank lines. Hard wraps at `cols` are joined back: a
- * fragment that fills the width and does not end on a space is the middle of
- * a row, and one blank line after it is the extra row a full-width wrap leaves.
+ * is what turned a redraw into a stack of short and blank lines. The rest of
+ * the cursor vocabulary is honoured the same way: a backspace steps back, an
+ * erase-in-line clears the part it names.
+ *
+ * A row the terminal broke at the margin is left broken. It used to be joined
+ * back to the row after it, on the theory that a piece filling the width is
+ * the middle of a row. That theory does not hold: `ps` truncates its own
+ * output to the terminal width, so a finished row is exactly as wide as the
+ * margin, and joining two finished rows loses the line between them.
+ *
  * Runs of blank lines collapse to one. The result is still lines of text.
  */
-export function terminalText(data: Uint8Array, cols?: number): string {
+export function terminalText(data: Uint8Array): string {
   const text = new TextDecoder().decode(data);
-  const lines = foldLines(text);
-  const joined = unwrapWidth(lines, cols).map((line) => line.replace(/[ \t]+$/, ""));
+  const lines = foldLines(text).map((line) => line.replace(/[ \t]+$/, ""));
   const ended = text.endsWith("\n");
-  const body = joined.join("\n") + (ended ? "\n" : "");
+  const body = lines.join("\n") + (ended ? "\n" : "");
   return body.replace(/\n{3,}/g, "\n\n");
 }
 
@@ -118,7 +123,9 @@ function foldLines(text: string): string[] {
       continue;
     }
     const code = ch.charCodeAt(0);
-    if (code < 0x20 || code === 0x7f) continue;
+    // A tab is a separator, not a control code: `ps` and `ss` put one between
+    // columns, and dropping it merges two fields into one word.
+    if ((code < 0x20 && code !== 0x09) || code === 0x7f) continue;
     line = col < line.length ? line.slice(0, col) + ch + line.slice(col + 1) : line + ch;
     col++;
   }
@@ -143,7 +150,19 @@ function consumeEscape(
     }
     return text.length - 1;
   }
-  if (next !== "[") return Math.min(at + 1, text.length - 1);
+  if (next !== "[") {
+    // ESC, then any intermediates (0x20-0x2f) and one final byte (0x30-0x7e):
+    // `ESC ( B` selects a character set and is three bytes long, so skipping
+    // only the escape would leave its `B` in the text.
+    let i = at + 1;
+    while (i < text.length) {
+      const code = text.charCodeAt(i);
+      if (code >= 0x30 && code <= 0x7e) return i;
+      if (code < 0x20 || code > 0x2f) return i - 1;
+      i++;
+    }
+    return text.length - 1;
+  }
   let i = at + 2;
   let params = "";
   while (i < text.length) {
@@ -161,32 +180,4 @@ function consumeEscape(
     i++;
   }
   return text.length - 1;
-}
-
-/**
- * Put a row the terminal broke at the margin back together.
- *
- * A piece that fills `cols` and does not end on whitespace is not a finished
- * line — `ss` and `ps` get cut there, and the following blank row is the extra
- * line a full-width wrap leaves behind. A real line that happens to be exactly
- * `cols` wide and ends on a word can be joined too; that is rarer than the cut.
- */
-function unwrapWidth(lines: string[], cols: number | undefined): string[] {
-  if (cols === undefined || cols < 2) return lines;
-  const out: string[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    let line = lines[i]!;
-    while (isWrap(line, cols) && i + 1 < lines.length) {
-      let next = i + 1;
-      if (lines[next] === "" && next + 1 < lines.length) next++;
-      i = next;
-      line += lines[i] ?? "";
-    }
-    out.push(line);
-  }
-  return out;
-}
-
-function isWrap(line: string, cols: number): boolean {
-  return line.length > 0 && line.length % cols === 0 && /\S$/.test(line);
 }

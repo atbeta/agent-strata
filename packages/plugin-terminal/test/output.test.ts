@@ -36,12 +36,23 @@ describe("terminal output", () => {
     expect(terminalText(bytes("hello\r\u001b[Kworld\n"))).toBe("world\n");
   });
 
-  test("a row wrapped at the margin is one line again, without the blank row", () => {
-    expect(terminalText(bytes("abcdefgh\n\nijklmnop\n"), 8)).toBe("abcdefghijklmnop\n");
+  test("a row that fills the width stays its own row", () => {
+    // `ps` truncates its own output to the terminal width, so a finished row
+    // is exactly as wide as the margin. Rejoining on the width would join two
+    // finished rows and lose the line between them, so the width is not used
+    // to rejoin anything.
+    expect(terminalText(bytes("12345678\nnext line\n"))).toBe("12345678\nnext line\n");
+    expect(terminalText(bytes("AAAAAAAA\nBBBBBBBB\nCCCCCCCC\n"))).toBe(
+      "AAAAAAAA\nBBBBBBBB\nCCCCCCCC\n",
+    );
   });
 
-  test("a finished line that merely fills the width stays its own row", () => {
-    expect(terminalText(bytes("abcd    \nefgh\n"), 8)).toBe("abcd\nefgh\n");
+  test("a tab between fields is kept", () => {
+    expect(terminalText(bytes("name\tvalue\n1\t2\n"))).toBe("name\tvalue\n1\t2\n");
+  });
+
+  test("a character-set escape leaves nothing behind", () => {
+    expect(terminalText(bytes("x\u001b(B\u001b[0my\n"))).toBe("xy\n");
   });
 
   test("a banner's run of blank lines collapses to one", () => {
