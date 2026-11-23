@@ -1,4 +1,4 @@
-import { For, Show, splitProps, type JSX } from "solid-js";
+import { For, onCleanup, Show, splitProps, type JSX } from "solid-js";
 import { cn } from "@/lib/utils";
 import { handleRovingKey } from "@/roving-key";
 
@@ -37,9 +37,22 @@ export function MiniTabs(raw: {
   const [local, rest] = splitProps(raw, ["value", "options", "onChange", "kind", "label", "panelId", "class", "children"]);
   const kind = () => local.kind ?? "radio";
   const selectedIndex = () => Math.max(0, local.options.findIndex((option) => option.id === local.value));
-  const items: HTMLButtonElement[] = [];
-  const navigate = (event: KeyboardEvent, index: number) =>
-    handleRovingKey(event, index, local.options, local.onChange, items);
+  // Keyed on the id, not the option object. Callers rebuild the array whenever
+  // a neighbouring count changes — the rail does it on every transcript tick —
+  // and `<For>` throws a button away when its object is a new one. The press
+  // that was on it never becomes a click, and the selected chip flashes.
+  const buttons = new Map<string, HTMLButtonElement>();
+  const navigate = (event: KeyboardEvent, id: string) => {
+    const options = local.options;
+    const index = options.findIndex((option) => option.id === id);
+    handleRovingKey(
+      event,
+      index,
+      options,
+      local.onChange,
+      options.map((option) => buttons.get(option.id)),
+    );
+  };
   return (
     <div
       class={cn("flex items-center gap-0.5", local.class)}
@@ -47,31 +60,39 @@ export function MiniTabs(raw: {
       aria-label={local.label}
       {...rest}
     >
-      <For each={local.options}>
-        {(option, index) => (
-          <button
-            ref={(el) => (items[index()] = el)}
-            type="button"
-            role={kind() === "tabs" ? "tab" : "radio"}
-            id={kind() === "tabs" && local.panelId ? `${local.panelId}-tab-${option.id}` : undefined}
-            aria-controls={kind() === "tabs" ? local.panelId : undefined}
-            aria-selected={kind() === "tabs" ? local.value === option.id : undefined}
-            aria-checked={kind() === "radio" ? local.value === option.id : undefined}
-            tabIndex={selectedIndex() === index() ? 0 : -1}
-            class={`whitespace-nowrap rounded-md px-1.5 py-0.5 text-2xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-              local.value === option.id
-                ? "bg-secondary text-foreground"
-                : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
-            }`}
-            onClick={() => local.onChange(option.id)}
-            onKeyDown={(e) => navigate(e, index())}
-          >
-            {option.label}
-            <Show when={option.count !== undefined && option.count > 0}>
-              <span class="text-muted-foreground"> {option.count}</span>
+      <For each={local.options.map((option) => option.id)}>
+        {(id) => {
+          const option = () => local.options.find((item) => item.id === id);
+          onCleanup(() => buttons.delete(id));
+          return (
+            <Show when={option()}>
+              {(item) => (
+                <button
+                  ref={(el) => buttons.set(id, el)}
+                  type="button"
+                  role={kind() === "tabs" ? "tab" : "radio"}
+                  id={kind() === "tabs" && local.panelId ? `${local.panelId}-tab-${id}` : undefined}
+                  aria-controls={kind() === "tabs" ? local.panelId : undefined}
+                  aria-selected={kind() === "tabs" ? local.value === id : undefined}
+                  aria-checked={kind() === "radio" ? local.value === id : undefined}
+                  tabIndex={selectedIndex() === local.options.findIndex((item) => item.id === id) ? 0 : -1}
+                  class={`whitespace-nowrap rounded-md px-1.5 py-0.5 text-2xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                    local.value === id
+                      ? "bg-secondary text-foreground"
+                      : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+                  }`}
+                  onClick={() => local.onChange(id)}
+                  onKeyDown={(e) => navigate(e, id)}
+                >
+                  {item().label}
+                  <Show when={item().count !== undefined && item().count > 0}>
+                    <span class="text-muted-foreground"> {item().count}</span>
+                  </Show>
+                </button>
+              )}
             </Show>
-          </button>
-        )}
+          );
+        }}
       </For>
       {local.children}
     </div>
