@@ -81,9 +81,12 @@ export const manifest: PluginManifest = {
         "timeout, session_exit, or aborted. output_idle only means no PTY output arrived in",
         "that window; it is not a command-completion signal. An interactive shell has no",
         "portable command boundary. For a long command, increase wait_ms; for process exit,",
-        "inspect terminal.status and exit_code. The result is a linear text stream, not a screen snapshot.",
-        "Use non-interactive batch modes for TUI programs and an explicit echo of $? when an exit",
-        "code is needed. Separate sections with printable markers, not clear.",
+        "inspect terminal.status and exit_code. Carriage returns overwrite the current line,",
+        "a row wrapped at the terminal width is joined back, and runs of blank lines collapse",
+        "to one. It is still a linear text stream, not a screen snapshot: an SSH banner stays,",
+        "and ps or ss are not split into fields. Use non-interactive batch modes for TUI programs",
+        "and an explicit echo of $? when an exit code is needed. Separate sections with printable",
+        "markers, not clear.",
       ].join("\n"),
       input: {
         type: "object",
@@ -181,7 +184,7 @@ export function createTerminalPlugin(options: TerminalPluginOptions): StrataPlug
     if (!shell) throw new Error("unknown shell");
     const cwd = resolveWorkdir(workspace(sessionId), input.workdir);
     const command = typeof input.command === "string" && input.command.trim() ? input.command : undefined;
-    const size = terminalSize(input.rows ?? 24, input.cols ?? 80);
+    const size = terminalSize(input.rows ?? 24, input.cols ?? 240);
     return manager().create({
       sessionId,
       title: terminalTitle(input.title) ?? command?.slice(0, 40) ?? shell.name,
@@ -246,7 +249,7 @@ export function createTerminalPlugin(options: TerminalPluginOptions): StrataPlug
             manager(), req.sessionId, id, offset,
             Math.min(Math.max(maxBytes, 1), 64 * 1024), waitMs, quietMs, req.signal,
           );
-          return { output: JSON.stringify({ written, terminal: manager().getAgent(req.sessionId, id), ...pageOutput(page) }) };
+          return { output: JSON.stringify({ written, terminal: manager().getAgent(req.sessionId, id), ...pageOutput(page, manager().columns(req.sessionId, id)) }) };
         }
         if (req.tool === "read") {
           const offset = optionalInteger(req.input.offset, "offset");
@@ -257,7 +260,7 @@ export function createTerminalPlugin(options: TerminalPluginOptions): StrataPlug
             manager(), req.sessionId, id, offset,
             Math.min(Math.max(maxBytes, 1), 64 * 1024), waitMs, quietMs, req.signal,
           );
-          return { output: JSON.stringify({ terminal: manager().getAgent(req.sessionId, id), ...pageOutput(page) }) };
+          return { output: JSON.stringify({ terminal: manager().getAgent(req.sessionId, id), ...pageOutput(page, manager().columns(req.sessionId, id)) }) };
         }
         if (req.tool === "signal") {
           const signal = req.input.signal;
@@ -394,9 +397,9 @@ interface ReadResult extends PtyReadPage {
   wait_reason: TerminalWaitReason;
 }
 
-function pageOutput(page: ReadResult) {
+function pageOutput(page: ReadResult, cols?: number) {
   return {
-    output: terminalText(page.data),
+    output: terminalText(page.data, cols),
     next_offset: page.next_offset,
     dropped: page.dropped,
     new_output: page.new_output,

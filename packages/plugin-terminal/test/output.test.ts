@@ -27,5 +27,24 @@ describe("terminal output", () => {
 
   test("agent output drops display controls rather than terminal text", () => {
     expect(terminalText(bytes("a\r\n\u001b[31mred\u001b[0m\u0007b"))).toBe("a\nredb");
+    expect(terminalText(bytes("\u001b]0;title\u0007next"))).toBe("next");
+  });
+
+  test("a carriage return rewrites the line instead of starting another", () => {
+    expect(terminalText(bytes("hello\rworld"))).toBe("world");
+    expect(terminalText(bytes("\r10%\r100%\n"))).toBe("100%\n");
+    expect(terminalText(bytes("hello\r\u001b[Kworld\n"))).toBe("world\n");
+  });
+
+  test("a row wrapped at the margin is one line again, without the blank row", () => {
+    expect(terminalText(bytes("abcdefgh\n\nijklmnop\n"), 8)).toBe("abcdefghijklmnop\n");
+  });
+
+  test("a finished line that merely fills the width stays its own row", () => {
+    expect(terminalText(bytes("abcd    \nefgh\n"), 8)).toBe("abcd\nefgh\n");
+  });
+
+  test("a banner's run of blank lines collapses to one", () => {
+    expect(terminalText(bytes("banner\n\n\n\nps\n"))).toBe("banner\n\nps\n");
   });
 });
