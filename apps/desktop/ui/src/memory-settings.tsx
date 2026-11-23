@@ -71,7 +71,9 @@ export function MemorySettings(props: { disabled?: boolean; onEnable?: () => voi
     return parts[parts.length - 1] ?? path;
   };
 
-  const options = () => [
+  // The global scope is not a directory, so it carries no path: the detail
+  // is the one field a scope may be without.
+  const options = (): { id: string; label: string; detail?: string }[] => [
     { id: GLOBAL, label: t("plugin.memory.scope.global") },
     ...workspaces().map((workspace) => ({
       id: workspace.key,

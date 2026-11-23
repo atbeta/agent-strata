@@ -86,7 +86,7 @@ export function MiniTabs(raw: {
                   onKeyDown={(e) => navigate(e, id)}
                 >
                   {item().label}
-                  <Show when={item().count !== undefined && item().count > 0}>
+                  <Show when={(item().count ?? 0) > 0}>
                     <span class="text-muted-foreground"> {item().count}</span>
                   </Show>
                 </button>
