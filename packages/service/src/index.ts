@@ -379,10 +379,22 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   });
   const activeSyncs = new Map<string, { done: number; total: number }>();
   const pendingSyncs = new Set<string>();
+  /**
+   * A sync is announced only once it writes something the reader will see
+   * change. The crawl that only confirms what the store already holds is
+   * most syncs, and announcing it held the reader's list still, muted the
+   * sounds and spun the strip every time, for nothing.
+   */
   const syncDriver = (driver: BackendDriver) => {
     pendingSyncs.delete(driver.id);
-    activeSyncs.set(driver.id, { done: 0, total: 0 });
-    broadcast({ type: "sync.started", connection_id: driver.id });
+    let announced = false;
+    let at = { done: 0, total: 0 };
+    const announce = () => {
+      if (announced || stopped) return;
+      announced = true;
+      activeSyncs.set(driver.id, { ...at });
+      broadcast({ type: "sync.started", connection_id: driver.id, ...at });
+    };
     const reconciled = new Set<string>();
     return driver
       .sync({
@@ -408,15 +420,21 @@ export function startService(opts: ServiceOpts = {}): RunningService {
           return rows;
         },
         reconciled: (casfId) => reconciled.add(casfId),
+        // A deleted session keeps its events, so it is still known.
+        known: (casfId) => store.lastSeq(casfId) > 0,
+        importing: announce,
         progress: (done, total) => {
+          at = { done, total };
+          if (!announced) return;
           activeSyncs.set(driver.id, { done, total });
           broadcast({ type: "sync.progress", connection_id: driver.id, done, total });
         },
       })
       .then((imported) => ({ imported, reconciled: reconciled.size }))
       .finally(() => {
-        activeSyncs.delete(driver.id);
         pendingSyncs.delete(driver.id);
+        if (!announced) return;
+        activeSyncs.delete(driver.id);
         broadcast({ type: "sync.finished", connection_id: driver.id });
       });
   };

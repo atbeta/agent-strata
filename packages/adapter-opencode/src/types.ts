@@ -81,6 +81,15 @@ export interface OpencodeSyncGuard {
   local?: () => { id: string; directory?: string }[];
   /** a local session the reconcile pass confirmed the upstream deleted */
   reconciled?: (casfId: string) => void;
+  /** whether the store already holds the session, deleted ones included */
+  known?: (casfId: string) => boolean;
+  /**
+   * The sync is about to write something the reader will see change: a
+   * session the store does not hold, a transcript the live stream did not
+   * carry, or a rebuild. A crawl that only confirms what the store already
+   * says never calls it. May be called more than once.
+   */
+  importing?: () => void;
   /** sessions read so far / sessions found; fires once discovery knows the total */
   progress?(done: number, total: number): void;
 }

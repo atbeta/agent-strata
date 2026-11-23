@@ -205,3 +205,93 @@ describe("refreshSessions", () => {
     expect(reads).toEqual(["live"]);
   });
 });
+
+describe("when a sync is a change the reader will see", () => {
+  /** Sessions listed with their update times; the store's revision for each is `stored`. */
+  const setup = (opts: {
+    listed: Session[];
+    stored?: Record<string, number>;
+    carried?: string[];
+  }) => {
+    const reads: string[] = [];
+    const settled: string[] = [];
+    const client = {
+      project: { list: async () => ({ data: [] }) },
+      permission: { list: async () => ({ data: [] }) },
+      question: { list: async () => ({ data: [] }) },
+      session: {
+        children: async () => ({ data: [] }),
+        get: async (query: { sessionID: string }) => ({
+          data: opts.listed.find((s) => s.id === query.sessionID),
+        }),
+        messages: async (query: { sessionID: string }) => {
+          reads.push(query.sessionID);
+          return { data: [] };
+        },
+        todo: async () => ({ data: [] }),
+      },
+      experimental: { session: { list: async () => ({ data: opts.listed }) } },
+    } as unknown as OpencodeClient;
+    const carried = new Set(opts.carried ?? []);
+    const importer = createSessionImport({
+      client,
+      directory: "/repo",
+      sink: {
+        append: () => [],
+        replaceSession: () => 0,
+        sessionRevision: (id) => opts.stored?.[id.replace(/^opencode:/, "")] ?? null,
+        markRevision: () => {},
+      },
+      ingestor: { handle: () => {}, handleBatch: () => {} },
+      carried: (id) => carried.has(id),
+      settled: (id) => {
+        carried.delete(id);
+        settled.push(id);
+      },
+    });
+    return { importer, reads, settled };
+  };
+
+  test("a crawl that only confirms what the store holds is not announced", async () => {
+    const { importer, reads } = setup({ listed: [root("a", 5), root("b", 7)], stored: { a: 5, b: 7 } });
+    let announced = 0;
+    await importer.refreshSessions({ known: () => true, importing: () => (announced += 1) });
+    expect(reads).toEqual([]);
+    expect(announced).toBe(0);
+  });
+
+  test("a session the store has never held is announced", async () => {
+    const { importer } = setup({ listed: [root("a", 5), root("fresh", 9)], stored: { a: 5 } });
+    let announced = 0;
+    await importer.refreshSessions({
+      known: (id) => id === "opencode:a",
+      importing: () => (announced += 1),
+    });
+    expect(announced).toBeGreaterThan(0);
+  });
+
+  test("a transcript the stream carried settles quietly; one it did not is announced", async () => {
+    const quiet = setup({ listed: [root("used", 9)], stored: { used: 5 }, carried: ["used"] });
+    let announced = 0;
+    await quiet.importer.refreshSessions({ known: () => true, importing: () => (announced += 1) });
+    expect(quiet.reads).toEqual(["used"]);
+    expect(quiet.settled).toEqual(["used"]);
+    expect(announced).toBe(0);
+
+    const loud = setup({ listed: [root("tui", 9)], stored: { tui: 5 } });
+    await loud.importer.refreshSessions({ known: () => true, importing: () => (announced += 1) });
+    expect(loud.reads).toEqual(["tui"]);
+    expect(announced).toBe(1);
+  });
+
+  test("a rebuild is announced even for a session the stream carried", async () => {
+    const { importer } = setup({ listed: [root("old", 9)], stored: { old: 5 }, carried: ["old"] });
+    let announced = 0;
+    await importer.refreshSessions({
+      known: () => true,
+      stale: () => true,
+      importing: () => (announced += 1),
+    });
+    expect(announced).toBe(1);
+  });
+});

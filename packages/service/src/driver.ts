@@ -159,6 +159,14 @@ export interface SyncGuard {
   local?: () => { id: string; directory?: string }[];
   /** a local session the reconcile pass confirmed the backend deleted */
   reconciled?: (casfId: string) => void;
+  /** whether the store already holds the session, deleted ones included */
+  known?: (casfId: string) => boolean;
+  /**
+   * The sync is about to write something the reader will see change. Until a
+   * driver says so, the sync is not announced; a driver that never says so
+   * syncs without the reader's list ever being held.
+   */
+  importing?: () => void;
   /** sessions read so far / sessions found; fires once discovery knows the total */
   progress?(done: number, total: number): void;
 }

@@ -112,6 +112,14 @@ export function createSessionImport(args: {
    * stream already stored; it is imported once it stops instead.
    */
   following?: (sessionID: string) => boolean;
+  /**
+   * The live stream has written this session since it was last imported, so
+   * the store already shows what the server has. Its import only settles the
+   * final clocks and the todo table, and does not hold the reader's list.
+   */
+  carried?: (sessionID: string) => boolean;
+  /** the session was just imported; what the stream carried is settled */
+  settled?: (sessionID: string) => void;
 }) {
   const { client, ingestor } = args;
   const opts = { directory: args.directory, sink: args.sink };
@@ -123,6 +131,7 @@ export function createSessionImport(args: {
   const noteRevision = (sessionID: string, rev: number) => {
     importedRevision.set(sessionID, rev);
     opts.sink.markRevision?.(`opencode:${sessionID}`, rev);
+    args.settled?.(sessionID);
   };
   const sessionInfo = async (sessionID: string, directory?: string): Promise<Session> => {
     const sess = await client.session.get({ sessionID, directory: directory ?? opts.directory });
@@ -345,6 +354,8 @@ export function createSessionImport(args: {
       // one, so most sessions arrive by this road. Claiming here is what
       // keeps a second OpenCode from making all of them unroutable.
       guard?.claimed?.(`opencode:${info.id}`);
+      // A row the store has never held is a change the reader will see.
+      if (guard?.known && !guard.known(`opencode:${info.id}`)) guard.importing?.();
       try {
         ingestor.handle({
           id: `sync:${info.id}:${info.time?.updated ?? 0}`,
@@ -453,8 +464,10 @@ export function createSessionImport(args: {
         tick();
         return;
       }
+      const casfId = `opencode:${info.id}`;
       try {
-        if (guard?.stale?.(`opencode:${info.id}`)) {
+        if (guard?.stale?.(casfId)) {
+          guard?.importing?.();
           await turn(async () => {
             await rebuildSession(info.id, directory);
             noteRevision(info.id, updated);
@@ -463,6 +476,8 @@ export function createSessionImport(args: {
         } else {
           const snap = await fetchSnapshot(info.id, directory);
           if (snap) {
+            const settling = args.carried?.(info.id) === true && guard?.known?.(casfId) === true;
+            if (!settling) guard?.importing?.();
             await turn(async () => {
               ingestor.handleBatch(snap.events);
               noteRevision(info.id, snap.updated);

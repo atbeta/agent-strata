@@ -335,6 +335,12 @@ export async function connectOpencode(opts: {
 
   /** Sessions this stream has carried; forgotten once the store calls them idle. */
   const followed = new Set<string>();
+  /**
+   * Sessions this stream has written since their last import. `followed`
+   * forgets a session once it is idle; this one is kept until the import that
+   * settles it, which may be a slow sync several minutes later.
+   */
+  const carried = new Set<string>();
   const sessionImport = createSessionImport({
     client,
     directory: opts.directory,
@@ -342,6 +348,8 @@ export async function connectOpencode(opts: {
     ingestor,
     following: (sessionID) =>
       followed.has(sessionID) && opts.sink.sessionRunning?.(`opencode:${sessionID}`).running === true,
+    carried: (sessionID) => carried.has(sessionID),
+    settled: (sessionID) => carried.delete(sessionID),
   });
   /**
    * When each session last said anything. The bus heartbeats keep the socket
@@ -359,6 +367,7 @@ export async function connectOpencode(opts: {
       if (typeof sid === "string") {
         lastEventAt.set(sid, Date.now());
         followed.add(sid);
+        carried.add(sid);
       }
       ingestor.handle(evt);
     },

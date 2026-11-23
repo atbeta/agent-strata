@@ -304,7 +304,7 @@ describe("connection lifecycle routes", () => {
     }
   });
 
-  test("/connections says starting, then syncing, then idle as a connect's sync runs", async () => {
+  test("/connections says starting, then syncing, then idle as a connect's sync brings a session", async () => {
     const gate = () => {
       let open = false;
       const waiters: (() => void)[] = [];
@@ -319,16 +319,23 @@ describe("connection lifecycle routes", () => {
       };
     };
     const sessions = gate();
-    const projects = gate();
+    const children = gate();
+    const info = { id: "ses_new", title: "new", directory: "/repo", time: { created: 1, updated: 2 } };
+    // The connect's index sees nothing; the sync's crawl then finds a session
+    // the store has never held, which is a change the reader will see.
+    let listed = 0;
     const oc = fakeOpencode({
       "/session": async () => {
         await sessions.hold();
+        listed += 1;
+        return Response.json(listed === 1 ? [] : [info]);
+      },
+      "/session/ses_new/children": async () => {
+        await children.hold();
         return Response.json([]);
       },
-      "/project": async () => {
-        await projects.hold();
-        return Response.json([]);
-      },
+      "/session/ses_new": () => Response.json(info),
+      "/session/ses_new/message": () => Response.json([]),
     });
     const svc = startService({ db: ":memory:", port: 0 });
     const base = `http://127.0.0.1:${svc.port}`;
@@ -359,10 +366,59 @@ describe("connection lifecycle routes", () => {
     expect(connected.id).toStartWith("opencode:");
     const syncing = await until("syncing");
     expect(syncing).toMatchObject({ sync: "syncing", syncDone: 0, syncTotal: 0 });
-    projects.release();
+    children.release();
     const idle = await until("idle");
     expect(idle?.sync).toBe("idle");
     expect(idle?.syncDone).toBeUndefined();
+    oc.stop();
+    svc.stop();
+  });
+
+  test("a sync that finds nothing new is never announced", async () => {
+    const info = { id: "ses_old", title: "old", directory: "/repo", time: { created: 1, updated: 2 } };
+    const oc = fakeOpencode({
+      "/session": () => Response.json([info]),
+      "/session/ses_old": () => Response.json(info),
+      "/session/ses_old/message": () => Response.json([]),
+    });
+    const svc = startService({ db: ":memory:", port: 0 });
+    const base = `http://127.0.0.1:${svc.port}`;
+    const connected = (await fetch(`${base}/connect`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ baseUrl: oc.baseUrl }),
+    }).then((r) => r.json())) as { id: string };
+    // The connect's own sync imports the session once.
+    expect((await fetch(`${base}/sync`, { method: "POST" })).status).toBe(200);
+
+    const res = await fetch(`${base}/stream`);
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let text = "";
+    let reading = true;
+    const pump = (async () => {
+      while (reading) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        text += decoder.decode(value, { stream: true });
+      }
+    })();
+    await Bun.sleep(100);
+    const synced = (await fetch(`${base}/sync`, { method: "POST" }).then((r) => r.json())) as { imported: number };
+    await Bun.sleep(100);
+    reading = false;
+    await reader.cancel();
+    await pump.catch(() => {});
+
+    expect(synced.imported).toBe(0);
+    expect(text).toContain("service.connected");
+    expect(text).not.toContain("sync.started");
+    expect(text).not.toContain("sync.progress");
+    expect(text).not.toContain("sync.finished");
+    const conn = ((await fetch(`${base}/connections`).then((r) => r.json())) as {
+      connections: { id: string; sync?: string }[];
+    }).connections.find((c) => c.id === connected.id);
+    expect(conn?.sync).toBe("idle");
     oc.stop();
     svc.stop();
   });
