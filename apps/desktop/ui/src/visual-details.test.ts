@@ -19,6 +19,10 @@ describe("visual details", () => {
   test("fleet responds to the main column and names its rank radio group", () => {
     const source = read("fleet-view.tsx");
     expect(source).toContain("@min-[768px]/main:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)]");
+    // The trend takes three of the four period cells above it, so the rules line up.
+    expect(source).toContain("@min-[768px]/main:grid-cols-[minmax(0,3fr)_minmax(0,1fr)]");
+    expect(source).toContain('Tip label={t("info.tool_calls.failed"');
+    expect(source).not.toContain("text-status-error");
     expect(source).toContain("@min-[640px]/main:grid-cols-4");
     expect(source).toContain("@max-[767px]/main:border-t");
     expect(source).toContain('kind="radio"');

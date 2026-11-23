@@ -574,7 +574,8 @@ function PeriodTabs(props: {
 
 /**
  * The window's usage: fourteen days on the left, the window's own figures on
- * the right.
+ * the right. The left takes three quarters, the same width as the first three
+ * period cells above, so the two rules land on one line.
  *
  * The dollar figure is an estimate and nothing more — on a subscription it is
  * a list price nobody pays — so it sits as one row among the measured ones,
@@ -597,7 +598,7 @@ function UsageCard(props: {
     </div>
   );
   return (
-    <Card as="section" class="grid overflow-hidden @min-[768px]/main:grid-cols-[minmax(0,1fr)_15rem]">
+    <Card as="section" class="grid overflow-hidden @min-[768px]/main:grid-cols-[minmax(0,3fr)_minmax(0,1fr)]">
       <TrendChart points={props.points} since={props.since} all={props.all} />
       <div class="border-border px-4 py-3.5 @max-[767px]/main:border-t @min-[768px]/main:border-l">
         {row(t("fleet.overview.estCost"), () => (
@@ -605,14 +606,14 @@ function UsageCard(props: {
         ))}
         {row(t("fleet.overview.cacheHit"), () => fmtShare(cacheEfficiency(props.totals!) * 100))}
         {row(t("fleet.overview.tools"), () => (
-          <>
-            {num(props.totals!.tools)}
-            <Show when={props.totals!.toolErrors > 0}>
-              <span class="text-status-error">
-                {` · ${t("info.tool_calls.failed", { n: num(props.totals!.toolErrors) })}`}
-              </span>
-            </Show>
-          </>
+          <Show
+            when={props.totals!.toolErrors > 0}
+            fallback={num(props.totals!.tools)}
+          >
+            <Tip label={t("info.tool_calls.failed", { n: num(props.totals!.toolErrors) })}>
+              <span>{num(props.totals!.tools)}</span>
+            </Tip>
+          </Show>
         ))}
         <Show when={!props.totals || props.totals.usageSessions > 0}>
           {row(t("fleet.overview.toolsPerSession"), () =>
