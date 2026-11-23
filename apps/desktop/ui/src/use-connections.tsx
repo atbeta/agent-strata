@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 
 const NEW_CONN_KEY = "strata.newSessionConnection";
+export const MANUAL_SYNC_MIN_MS = 1_000;
 
 export function endpointHost(url: string): string {
   if (url.startsWith("acp://")) return url.slice("acp://".length);
@@ -262,16 +263,33 @@ export function useConnections(opts: {
   const [lastPullAt, setLastPullAt] = createSignal<number>();
   const [manualSync, setManualSync] = createSignal<ManualSync>();
   let manualFade: ReturnType<typeof setTimeout> | undefined;
+  let manualSettle: ReturnType<typeof setTimeout> | undefined;
+  let manualGeneration = 0;
+  let manualStartedAt = 0;
   const startManualSync = () => {
+    manualGeneration += 1;
+    manualStartedAt = Date.now();
+    clearTimeout(manualSettle);
     clearTimeout(manualFade);
     setManualSync({ phase: "running" });
   };
   const settleManualSync = (result: Exclude<ManualSync, { phase: "running" }>) => {
+    const generation = manualGeneration;
+    const remaining = Math.max(0, MANUAL_SYNC_MIN_MS - (Date.now() - manualStartedAt));
+    clearTimeout(manualSettle);
     clearTimeout(manualFade);
-    setManualSync(result);
-    manualFade = setTimeout(() => setManualSync(undefined), 4_000);
+    const settle = () => {
+      if (generation !== manualGeneration) return;
+      setManualSync(result);
+      manualFade = setTimeout(() => setManualSync(undefined), 4_000);
+    };
+    if (remaining === 0) settle();
+    else manualSettle = setTimeout(settle, remaining);
   };
-  onCleanup(() => clearTimeout(manualFade));
+  onCleanup(() => {
+    clearTimeout(manualSettle);
+    clearTimeout(manualFade);
+  });
   let pullNow: (() => void) | undefined;
   const bindSyncNow = (fn: () => void) => {
     pullNow = fn;
