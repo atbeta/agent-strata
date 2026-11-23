@@ -591,10 +591,12 @@ function glyphFor(name: Name, cls: string | undefined): JSX.Element {
         <path d="M6.003 5.125a4 4 0 0 0-2.526 5.77" />
       </Glyph>
     );
+  // A stroked square at 12px is the character 口. Stop is the filled block
+  // a media control uses; the corner radius keeps it from reading as a pixel.
   if (name === "stop")
     return (
       <Glyph class={cls}>
-        <rect x="4" y="4" width="8" height="8" rx="1" />
+        <rect x="3.25" y="3.25" width="9.5" height="9.5" rx="1.5" fill="currentColor" stroke="none" />
       </Glyph>
     );
   if (name === "plus")

@@ -25,11 +25,14 @@ export function Group(props: {
   return (
     <section class="mt-8">
       <div class="flex items-baseline justify-between gap-3">
-        <h2 class="text-2xs font-medium text-muted-foreground">{props.label}</h2>
+        {/* One step under a row label (14px, foreground) and one step over the
+            hint. At 12px the medium weight disappears in Chinese, so a title
+            and its description in the same size and colour read as one block. */}
+        <h2 class="text-xs font-medium text-foreground">{props.label}</h2>
         {props.aside}
       </div>
       <Show when={props.hint}>
-        <p class="mt-1 text-2xs leading-4 text-muted-foreground">{props.hint}</p>
+        <p class="mt-1.5 text-2xs leading-5 text-muted-foreground">{props.hint}</p>
       </Show>
       <div class="mt-2">{props.children}</div>
     </section>

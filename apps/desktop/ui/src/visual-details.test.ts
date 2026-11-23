@@ -106,4 +106,18 @@ describe("visual details", () => {
     expect(source).not.toContain("root.dataset.codeSize");
     expect(source).toContain(String.raw`/^[\p{L}\p{N} ._-]+$/u`);
   });
+
+  test("a settings group title sits above its description", () => {
+    const source = read("settings-blocks.tsx");
+    const group = source.slice(source.indexOf("export function Group"), source.indexOf("export function Card"));
+    expect(group).toContain('class="text-xs font-medium text-foreground"');
+    expect(group).toContain('class="mt-1.5 text-2xs leading-5 text-muted-foreground"');
+  });
+
+  test("stop is a filled block, not an outline that reads as a square", () => {
+    const icons = read("icons.tsx");
+    const stop = icons.slice(icons.indexOf('if (name === "stop")'), icons.indexOf('if (name === "plus")'));
+    expect(stop).toContain('fill="currentColor"');
+    expect(stop).toContain('stroke="none"');
+  });
 });
