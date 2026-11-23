@@ -250,6 +250,44 @@ test("turning the plugin on loads the workspaces it has seen", async () => {
   expect(seen.some((line) => line.includes("/plugins/memory/workspaces"))).toBe(true);
 });
 
+test("a workspace read that lands after the plugin was turned off paints no error", async () => {
+  // A plugin that is off answers no route, so a read still in flight fails.
+  // That failure must not show up next to the "the plugin is not running"
+  // notice — the reader turned it off on purpose.
+  setLocale("zh");
+  let release: (() => void) | undefined;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/plugins/memory/workspaces")) {
+      return gate.then(
+        () => new Response(JSON.stringify({ error: "not found" }), { status: 404 }),
+      );
+    }
+    if (url.includes("/plugins/memory/memories")) {
+      return Promise.resolve(new Response(JSON.stringify({ scope: "global", memories }), { status: 200 }));
+    }
+    return Promise.reject(new Error(`unexpected ${url}`));
+  });
+
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const [disabled, setDisabled] = createSignal(false);
+  dispose = render(() => <MemorySettings disabled={disabled()} />, host);
+
+  await vi.waitFor(() => expect(host.textContent).toContain("Traditional Chinese"));
+  setDisabled(true);
+  await vi.waitFor(() => expect(host.textContent).toContain("插件没有运行"));
+
+  // The read comes back now, failing the way a plugin that is off would.
+  release!();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  expect(host.querySelector("p[role='alert']")).toBeNull();
+});
+
 test("forgetting everything asks first, and names what it will do", async () => {
   setLocale("zh");
   const seen: string[] = [];
