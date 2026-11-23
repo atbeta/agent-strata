@@ -428,21 +428,23 @@ export function toolHeadline(call: Pick<ToolCallView, "tool" | "input">): ToolHe
   const url = field(input, ["url", "href"]);
   const processId = field(input, ["process_id"]);
 
-  // The dev_* family renders as shell work but the verb is the action, not
-  // "Dev_start": `Start pnpm dev`, `Stop dev_x`, and an empty title where the
-  // tool takes no argument.
+  // The dev_* family renders as shell work, but the verb is the tool's own
+  // name in every locale, the way the terminal family below is: "Dev start",
+  // "Dev logs", "Dev stop", "Dev list". A translated verb named nothing, and
+  // the reader could not tell which tool ran. Only the title differs: the
+  // command that was started, the process it names, or nothing for a list.
   const tool = call.tool.toLowerCase();
   if (tool === "dev_start") {
-    return { kind, verb: t("tool.verb.dev.start"), title: command ? commandLine(command) : call.tool };
+    return { kind, verb: toolWords(call.tool), title: command ? commandLine(command) : call.tool };
   }
   if (tool === "dev_logs") {
-    return { kind, verb: t("tool.verb.dev.logs"), title: processId ?? call.tool };
+    return { kind, verb: toolWords(call.tool), title: processId ?? call.tool };
   }
   if (tool === "dev_stop") {
-    return { kind, verb: t("tool.verb.dev.stop"), title: processId ?? call.tool };
+    return { kind, verb: toolWords(call.tool), title: processId ?? call.tool };
   }
   if (tool === "dev_list") {
-    return { kind, verb: t("tool.verb.dev.list"), title: "" };
+    return { kind, verb: toolWords(call.tool), title: "" };
   }
 
   // The plugin terminal family follows the same rule as dev_*: shell work,

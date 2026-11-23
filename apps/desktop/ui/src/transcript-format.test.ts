@@ -144,30 +144,32 @@ describe("tool headlines", () => {
     });
   });
 
-  test("a dev tool reads as the shell work it is, named by its action", () => {
+  test("a dev tool reads as the shell work it is, named by its own name", () => {
     // `Dev_start` was the fallback — a capitalised tool name with the
     // underscore still in it. The family renders like the terminal it runs in
-    // (the shell kind gets the `$ command` well), and the verb is the action.
+    // (the shell kind gets the `$ command` well). The verb is the tool's own
+    // name in every locale, the way the terminal family below is: a translated
+    // verb named nothing, and the reader could not tell which tool ran.
     withLocale("en", () => {
       expect(toolHeadline({ tool: "dev_start", input: { command: "pnpm dev --port 3000" } })).toEqual({
         kind: "shell",
-        verb: "Start",
+        verb: "Dev start",
         title: "pnpm dev --port 3000",
       });
       expect(toolHeadline({ tool: "dev_logs", input: { process_id: "dev_01" } })).toEqual({
         kind: "shell",
-        verb: "Logs",
+        verb: "Dev logs",
         title: "dev_01",
       });
-      expect(toolHeadline({ tool: "dev_stop", input: { process_id: "dev_01" } }).verb).toBe("Stop");
+      expect(toolHeadline({ tool: "dev_stop", input: { process_id: "dev_01" } }).verb).toBe("Dev stop");
       expect(toolHeadline({ tool: "dev_list", input: {} })).toEqual({
         kind: "shell",
-        verb: "List",
+        verb: "Dev list",
         title: "",
       });
     });
     withLocale("zh", () => {
-      expect(toolHeadline({ tool: "dev_start", input: { command: "pnpm dev" } }).verb).toBe("启动");
+      expect(toolHeadline({ tool: "dev_start", input: { command: "pnpm dev" } }).verb).toBe("Dev start");
     });
   });
 

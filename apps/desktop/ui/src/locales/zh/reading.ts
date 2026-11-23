@@ -13,10 +13,6 @@ export default {
   "tool.verb.plan": "计划",
   "tool.verb.task": "子会话",
   "tool.verb.question": "提问",
-  "tool.verb.dev.start": "启动",
-  "tool.verb.dev.logs": "日志",
-  "tool.verb.dev.stop": "停止",
-  "tool.verb.dev.list": "列出",
   "tool.terminal.noOutput": "没有新输出",
 
   "tool.search.in": "在 {path} 中",
