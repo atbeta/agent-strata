@@ -43,6 +43,8 @@ export function MemorySettings(props: { disabled?: boolean; onEnable?: () => voi
   const [clearing, setClearing] = createSignal<"" | MemoryScope | "all">("");
   /** Counts the reads, so a slow one cannot land on a scope nobody is on. */
   let loadToken = 0;
+  /** Counts the workspace reads, so a slow one cannot land on a plugin that was turned off. */
+  let workspaceToken = 0;
 
   /** Where the page is looking: everywhere, or one workspace. */
   const target = (): { scope: MemoryScope; workspace?: string } => {
@@ -85,12 +87,20 @@ export function MemorySettings(props: { disabled?: boolean; onEnable?: () => voi
   // showing nothing but the Global tab, with the workspace memories unreachable
   // until it was reopened.
   createEffect(() => {
+    // Every run of this effect invalidates the request before it, so a reply
+    // that arrives after the plugin was turned off cannot paint an error on a
+    // page that says the plugin is not running.
+    const token = ++workspaceToken;
     if (props.disabled) return;
     void listMemoryWorkspaces()
-      .then(setWorkspaces)
-      .catch((reason: unknown) =>
-        setError(reason instanceof Error ? reason.message : String(reason)),
-      );
+      .then((rows) => {
+        if (token !== workspaceToken) return;
+        setWorkspaces(rows);
+      })
+      .catch((reason: unknown) => {
+        if (token !== workspaceToken) return;
+        setError(reason instanceof Error ? reason.message : String(reason));
+      });
   });
 
   // The scope decides which file is read, and a plugin restart changes what is
@@ -98,7 +108,13 @@ export function MemorySettings(props: { disabled?: boolean; onEnable?: () => voi
   createEffect(() => {
     scope();
     registryVersion();
-    if (props.disabled) return;
+    if (props.disabled) {
+      // The plugin answers no route now, so a read still in flight will fail.
+      // It must not fail into a page that is telling the reader the plugin is
+      // not running.
+      loadToken += 1;
+      return;
+    }
     void load();
   });
 
