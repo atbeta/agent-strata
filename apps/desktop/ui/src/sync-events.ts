@@ -28,6 +28,35 @@ export function changesSessionList(type: string | undefined): boolean {
 }
 
 /**
+ * The ticks the service no longer backs.
+ *
+ * A tick is the reader's record that a sync is running for that connection.
+ * The service keeps its own record, and it is the authority: the tick can
+ * outlive the event that would have cleared it, because that event rides the
+ * stream and a stream that breaks mid-sync never delivers it. A connection
+ * the service calls idle, or one it no longer lists at all, has no sync
+ * behind it.
+ *
+ * A connection whose state is unknown is left alone. The service always
+ * answers with one of the three, but a stale tick held for good is a milder
+ * fault than a live one cleared early.
+ */
+export function staleSyncTicks(
+  ticks: ReadonlyMap<string, unknown>,
+  connections: readonly { id: string; sync?: "starting" | "syncing" | "idle" }[],
+): string[] {
+  return [...ticks.keys()].filter((id) => {
+    const conn = connections.find((c) => c.id === id);
+    // A connection the service no longer lists is gone, and so is its sync.
+    if (!conn) return true;
+    // A connection whose state is unknown is left alone: the service always
+    // answers with one of the three, and a tick held for good is a milder
+    // fault than a live one cleared early.
+    return conn.sync === "idle";
+  });
+}
+
+/**
  * Whether the background pull may run now.
  *
  * A pull asks every backend for its whole project list and session tree. The

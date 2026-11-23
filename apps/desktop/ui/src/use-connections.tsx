@@ -11,6 +11,7 @@ import {
   type ConnectionsResponse,
 } from "./api";
 import { settled } from "./resource";
+import { staleSyncTicks } from "./sync-events";
 import { backendHeadline, viewPhase, type ViewPhase } from "./connection-status";
 import { explain, fadeSignal } from "./errors";
 import { t } from "./i18n";
@@ -61,6 +62,8 @@ export function endpointShort(url: string): string {
 export function useConnections(opts: {
   currentDir: () => string | undefined;
   onChanged: () => void;
+  /** Every sync is over, however it ended: the last tick is gone. */
+  onSyncOver?: () => void;
 }) {
   // The first read waits out the race with the service coming up. A fetch that
   // fails in that race is not "no backend" — concluding that paints the
@@ -162,25 +165,87 @@ export function useConnections(opts: {
   );
   const [syncShown, setSyncShown] = createSignal(false);
   let syncGrace: ReturnType<typeof setTimeout> | undefined;
+
+  /**
+   * The check that finds a tick the stream lost.
+   *
+   * `sync.finished` rides the socket. A socket that breaks in the middle of a
+   * sync never delivers it, and the tick then holds everything still for
+   * good: the pull stays off, the transcript's own events are dropped, and
+   * the spinner never stops.
+   *
+   * So a tick that is still up is checked against the service, which is the
+   * authority. The read has to be a request of its own, issued after the
+   * `sync.started` that made the tick: the snapshot in hand may have been
+   * taken before that and would answer `idle` for a sync that is running —
+   * which would clear a live sync and let the token total climb again, row
+   * by row. The service writes the sync into `activeSyncs` before it
+   * broadcasts `sync.started`, so a request that leaves after the tick
+   * exists reads the truth.
+   */
+  const reconcileTicks = async () => {
+    // Only the ids this read can speak for: a tick that appeared while the
+    // request was in flight is younger than the rows it answers.
+    const ids = [...syncTicks().keys()];
+    if (ids.length === 0) return;
+    let rows: ConnectionsResponse;
+    try {
+      rows = await getJson<ConnectionsResponse>("/connections");
+    } catch {
+      return; // the service is unreachable; the next tick asks again
+    }
+    const known = new Map(ids.map((id) => [id, true]));
+    for (const id of staleSyncTicks(known, rows.connections)) dropTick(id);
+  };
+
+  /**
+   * The check runs while a tick is up. It starts with the first tick and
+   * stops with the last, rather than through an effect: a progress event
+   * arrives often enough that an effect reading the ticks would rebuild the
+   * timer before it ever fired.
+   */
+  let reconcileTimer: ReturnType<typeof setInterval> | undefined;
+  const stopReconciling = () => {
+    if (!reconcileTimer) return;
+    clearInterval(reconcileTimer);
+    reconcileTimer = undefined;
+  };
+  const startReconciling = () => {
+    if (reconcileTimer) return;
+    reconcileTimer = setInterval(() => void reconcileTicks(), 1_000);
+  };
+  onCleanup(stopReconciling);
+
+  /**
+   * A tick goes away — the service said the sync finished, or the tick was
+   * found stale. Either way the last one to go is the moment the reader gets
+   * the list back: the strip comes down and everything is read once more.
+   */
+  const dropTick = (id: string) => {
+    const next = new Map(syncTicks());
+    next.delete(id);
+    setSyncTicks(next);
+    if (next.size > 0) return;
+    clearTimeout(syncGrace);
+    setSyncShown(false);
+    stopReconciling();
+    // The list is held still while any sync runs; reread once, when the
+    // last one is over, rather than on every connection's finish.
+    opts.onChanged();
+    opts.onSyncOver?.();
+  };
+
   const onSyncEvent = (evt: { type?: string; connection_id?: string; done?: number; total?: number }) => {
     const id = evt.connection_id ?? "";
     if (evt.type === "sync.finished") {
-      const next = new Map(syncTicks());
-      next.delete(id);
-      setSyncTicks(next);
-      if (next.size === 0) {
-        clearTimeout(syncGrace);
-        setSyncShown(false);
-        // The list is held still while any sync runs; reread once, when the
-        // last one is over, rather than on every connection's finish.
-        opts.onChanged();
-      }
+      dropTick(id);
       return;
     }
     const idle = syncTicks().size === 0;
     const next = new Map(syncTicks());
     next.set(id, { done: evt.done ?? 0, total: evt.total ?? 0 });
     setSyncTicks(next);
+    startReconciling();
     if (idle) syncGrace = setTimeout(() => setSyncShown(true), 1_500);
   };
   const clearSyncGrace = () => clearTimeout(syncGrace);
@@ -232,6 +297,7 @@ export function useConnections(opts: {
     syncBusy,
     onSyncEvent,
     clearSyncGrace,
+    reconcileTicks,
   };
 }
 

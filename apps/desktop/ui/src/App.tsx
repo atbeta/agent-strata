@@ -79,10 +79,29 @@ export function App() {
     clock,
     activeId,
   });
-  const conns = useConnections({ currentDir: () => ws.lastDir() ?? undefined, onChanged: () => list.refetch() });
-  const boot = useStartup({ conns, list, ws });
   /** A finished sync is the one moment the overview's usage buckets move. */
   const [usageKey, setUsageKey] = createSignal(1);
+  /**
+   * Set while a sync runs, so the workspace list is taken once when it ends.
+   * It lives here rather than in the mount below because the wrap-up that
+   * consumes it can happen without an event: a tick the stream lost is
+   * cleared by asking the service, and that path ends the sync too.
+   */
+  let wsStale = false;
+  const conns = useConnections({
+    currentDir: () => ws.lastDir() ?? undefined,
+    onChanged: () => list.refetch(),
+    onSyncOver: () => {
+      setUsageKey((n) => n + 1);
+      // Metadata events seen during the sync were deliberately not reread;
+      // take the workspace list once the sync is over.
+      if (wsStale) {
+        wsStale = false;
+        void ws.refetchWs();
+      }
+    },
+  });
+  const boot = useStartup({ conns, list, ws });
 
   /**
    * Where an undirected "+" lands: the session being read first — the eye is
@@ -289,7 +308,6 @@ export function App() {
       if (document.visibilityState === "visible") pull();
     };
     document.addEventListener("visibilitychange", onVisibility);
-    let wsStale = false;
     const errorSoundAt = new Map<string, number>();
     const announceSound = (evt: { type?: string; session_id?: string; data?: unknown }) => {
       if (conns.syncTicks().size > 0) return;
@@ -325,16 +343,6 @@ export function App() {
           // middle of this sync; the finish does the reread instead. The
           // finish clears its own queued copy so the reread happens once.
           if (evt.type === "sync.started" || evt.type === "sync.finished") clearTimeout(timer);
-          const allDone = conns.syncTicks().size === 0;
-          if (evt.type === "sync.finished" && allDone) {
-            setUsageKey((n) => n + 1);
-            // Metadata events seen during the sync were deliberately not
-            // reread; take the workspace list once the sync is over.
-            if (wsStale) {
-              wsStale = false;
-              void ws.refetchWs();
-            }
-          }
           return;
         }
         announceSound(evt);
@@ -402,6 +410,16 @@ export function App() {
       if (esClosed) return;
       es = new EventSource(url);
       es.onmessage = onStreamMessage;
+      // A socket that breaks in the middle of a sync never delivers
+      // sync.finished, and the tick it left behind holds the list still for
+      // good. The browser reconnects on its own; ask the service who is
+      // still syncing at once rather than waiting for the next poll.
+      es.onerror = () => {
+        void conns.reconcileTicks();
+      };
+      es.onopen = () => {
+        void conns.reconcileTicks();
+      };
     });
     const onKey = (e: KeyboardEvent) => {
       if (e.isComposing) return;

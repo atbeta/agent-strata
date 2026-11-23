@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { changesSessionList, pullAllowed } from "./sync-events";
+import { changesSessionList, pullAllowed, staleSyncTicks } from "./sync-events";
 
 describe("when the background pull may run", () => {
   test("a visible, launched window with no sync in flight pulls", () => {
@@ -49,5 +49,41 @@ describe("what may move the list during a sync", () => {
   test("metadata waits for the single reread at the finish", () => {
     expect(changesSessionList("session.updated")).toBe(false);
     expect(changesSessionList(undefined)).toBe(false);
+  });
+});
+
+describe("the ticks the service no longer backs", () => {
+  const ticks = (...ids: string[]) => new Map(ids.map((id) => [id, { done: 0, total: 0 }]));
+
+  test("a connection the service calls idle has no sync behind it", () => {
+    expect(
+      staleSyncTicks(ticks("a", "b"), [
+        { id: "a", sync: "idle" },
+        { id: "b", sync: "syncing" },
+      ]),
+    ).toEqual(["a"]);
+  });
+
+  test("a connection the service no longer lists is gone with its tick", () => {
+    expect(staleSyncTicks(ticks("a"), [{ id: "b", sync: "syncing" }])).toEqual(["a"]);
+  });
+
+  test("a sync that is starting or running keeps its tick", () => {
+    expect(
+      staleSyncTicks(ticks("a", "b"), [
+        { id: "a", sync: "starting" },
+        { id: "b", sync: "syncing" },
+      ]),
+    ).toEqual([]);
+  });
+
+  test("a connection whose state is unknown is left alone", () => {
+    // The service always answers with one of the three, but a tick held for
+    // good is a milder fault than a live one cleared early.
+    expect(staleSyncTicks(ticks("a"), [{ id: "a" }])).toEqual([]);
+  });
+
+  test("no ticks, nothing to reconcile", () => {
+    expect(staleSyncTicks(new Map(), [{ id: "a", sync: "idle" }])).toEqual([]);
   });
 });
