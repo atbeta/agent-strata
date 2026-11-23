@@ -272,6 +272,8 @@ export default {
   "terminal.shellDefault": "Default ({name})",
   "terminal.shellFallback": "The default terminal set to “{name}” is not available; using the backend default instead.",
   "terminal.shellDismiss": "Got it",
+  "terminal.pill.user": "Only you",
+  "terminal.pill.shared": "Shared with the agent",
   "review.session": "This session",
   "review.git": "Uncommitted",
   "review.branch": "vs {branch}",

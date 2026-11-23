@@ -273,6 +273,8 @@ export default {
   "terminal.shellDefault": "默认（{name}）",
   "terminal.shellFallback": "设为「{name}」的默认终端当前不可用，已改用后端默认。",
   "terminal.shellDismiss": "知道了",
+  "terminal.pill.user": "仅自己",
+  "terminal.pill.shared": "与 Agent 共享",
   "review.session": "本会话",
   "review.git": "未提交",
   "review.branch": "对比 {branch}",

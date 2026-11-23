@@ -6,7 +6,7 @@ import { tn } from "./i18n";
 
 export interface TerminalSummary {
   count: () => number;
-  titles: () => string[];
+  details: () => string[];
   open: () => void;
   active?: () => boolean;
 }
@@ -15,7 +15,7 @@ export function TerminalPill(props: TerminalSummary) {
   const countText = () => tn("composer.terminals", props.count());
   return (
     <Show when={props.count() > 0}>
-      <Tip label={props.titles().join("\n") || countText()}>
+      <Tip label={props.details().join("\n") || countText()}>
         <Button
           type="button"
           variant="outline"

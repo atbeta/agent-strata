@@ -1,5 +1,6 @@
 import { createEffect, createMemo, createResource, onCleanup } from "solid-js";
 import { listTerminals, streamUrlFor } from "./api";
+import { terminalDetail } from "./terminal-summary";
 
 export type Terminals = ReturnType<typeof useTerminals>;
 
@@ -19,7 +20,7 @@ export function useTerminals(sessionId: () => string, enabled: () => boolean = (
   );
   const running = createMemo(() => (sessions() ?? []).filter((row) => row.status === "running"));
   const count = createMemo(() => running().length);
-  const titles = createMemo(() => running().map((row) => row.title).filter(Boolean));
+  const details = createMemo(() => running().map(terminalDetail));
 
   createEffect(() => {
     if (!enabled()) return;
@@ -43,5 +44,5 @@ export function useTerminals(sessionId: () => string, enabled: () => boolean = (
     });
   });
 
-  return { sessions, count, titles, refetch };
+  return { sessions, count, details, refetch };
 }

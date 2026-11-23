@@ -24,7 +24,7 @@ test("the pill stays hidden until a terminal exists, then opens its panel", asyn
     () => (
       <TerminalPill
         count={count}
-        titles={() => ["终端 1"]}
+        details={() => ["终端 1 · 仅自己 · agent-strata"]}
         open={open}
         active={active}
       />
@@ -43,4 +43,9 @@ test("the pill stays hidden until a terminal exists, then opens its panel", asyn
   expect(open).toHaveBeenCalledOnce();
   setActive(true);
   expect(button.className).toContain("border-input");
+  expect(button.querySelector("svg")).not.toBeNull();
+  button.parentElement?.dispatchEvent(new MouseEvent("mouseenter"));
+  await vi.waitFor(() => {
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe("终端 1 · 仅自己 · agent-strata");
+  });
 });

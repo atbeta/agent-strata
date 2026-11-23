@@ -959,7 +959,7 @@ export function SessionDetail(props: {
                       terminalEnabled()
                         ? {
                             count: terminals.count,
-                            titles: terminals.titles,
+                            details: terminals.details,
                             open: () => openPanel("plugin:terminal"),
                             active: () =>
                               panelOpen() && !traceBlock() && panelTab() === "plugin:terminal",
