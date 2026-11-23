@@ -26,6 +26,10 @@ export type ThemeId =
   | "nord"
   | "rosepine"
   | "everforest"
+  | "github"
+  | "kanagawa"
+  | "flexoki"
+  | "monokai"
   | "aurora-vivid"
   | "sunset-vivid"
   | "ocean-vivid";
@@ -128,6 +132,38 @@ export const THEMES: readonly Theme[] = [
     swatch: {
       dark: { background: "#2d353b", surface: "#343f44", accent: "#a7c080" },
       light: { background: "#fdf6e3", surface: "#fffaf0", accent: "#5c7400" },
+    },
+  },
+  {
+    id: "github",
+    name: "GitHub",
+    swatch: {
+      dark: { background: "#0d1117", surface: "#161b22", accent: "#4493f8" },
+      light: { background: "#f6f8fa", surface: "#ffffff", accent: "#0969da" },
+    },
+  },
+  {
+    id: "kanagawa",
+    name: "Kanagawa",
+    swatch: {
+      dark: { background: "#1f1f28", surface: "#16161d", accent: "#7e9cd8" },
+      light: { background: "#f2ecbc", surface: "#faf6d4", accent: "#4d699b" },
+    },
+  },
+  {
+    id: "flexoki",
+    name: "Flexoki",
+    swatch: {
+      dark: { background: "#100f0f", surface: "#1c1b1a", accent: "#4989c0" },
+      light: { background: "#fffcf0", surface: "#ffffff", accent: "#205ea6" },
+    },
+  },
+  {
+    id: "monokai",
+    name: "Monokai",
+    swatch: {
+      dark: { background: "#272822", surface: "#1e1f1c", accent: "#fa4989" },
+      light: { background: "#f8f8f2", surface: "#ffffff", accent: "#dc0653" },
     },
   },
   {
