@@ -73,7 +73,14 @@ describe("the snapshot's sync flag", () => {
     // The footer's dot reaches the window's own pull, and any pull restarts the pace.
     expect(app).toContain('conns.bindSyncNow(() => pull("manual"));');
     expect(app).toContain("if (!pullDue({ reason, connected: conns.connected(), sinceLast })) return;");
-    expect(app).toContain("conns.setLastPullAt(Date.now());");
+    // Only a pull that landed moves the pace; a failed one is retried on the next tick.
+    const settled = app.slice(app.indexOf("const job = syncBackend();"), app.indexOf("() => {\n            if (manual) conns.settleManualSync({ phase: \"failed\" });"));
+    expect(settled).toContain("conns.setLastPullAt(Date.now());");
+    expect(app.slice(app.indexOf("const pull = ("), app.indexOf("const job = syncBackend();"))).not.toContain("setLastPullAt");
+    // A click that launch or a running sync holds back is run once they clear, not dropped.
+    expect(app).toContain("setManualHeld(true);");
+    expect(app).toContain("if (!manualHeld() || !boot.ready() || conns.syncTicks().size > 0) return;");
+    expect(app).toContain('untrack(() => pull("manual"));');
     expect(app).toContain("setInterval(() => pull(\"timer\"), PULL_TICK_MS)");
     // A stream that comes back missed what was said while it was down.
     const reopen = app.slice(app.indexOf("es.onopen = () => {"), app.indexOf("opened = true;"));

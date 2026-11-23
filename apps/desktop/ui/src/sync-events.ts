@@ -61,10 +61,12 @@ export function staleSyncTicks(
  *
  * A pull asks every backend for its whole project list and session tree. The
  * timer and the focus listener both call it, and neither knows whether the
- * window is on screen; a hidden window pulls again when it comes back.
+ * window is on screen; a hidden window pulls again when it comes back. A
+ * click is not held back by visibility: the window may have been covered
+ * between the click and the moment launch or a running sync let it through.
  */
-export function pullAllowed(state: { ready: boolean; syncing: boolean; hidden: boolean }): boolean {
-  return state.ready && !state.syncing && !state.hidden;
+export function pullAllowed(state: { ready: boolean; syncing: boolean; hidden: boolean; manual?: boolean }): boolean {
+  return state.ready && !state.syncing && (state.manual === true || !state.hidden);
 }
 
 /** How often the pull timer wakes; also the pace while nothing is connected. */

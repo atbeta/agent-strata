@@ -14,13 +14,16 @@ describe("when the background pull may run", () => {
     expect(pullAllowed({ ready: true, syncing: false, hidden: false })).toBe(true);
   });
 
-  test("a hidden window does not, whatever woke the pull", () => {
+  test("a hidden window does not, unless the reader asked", () => {
     expect(pullAllowed({ ready: true, syncing: false, hidden: true })).toBe(false);
+    expect(pullAllowed({ ready: true, syncing: false, hidden: true, manual: true })).toBe(true);
   });
 
-  test("launch and a running sync still hold it back", () => {
-    expect(pullAllowed({ ready: false, syncing: false, hidden: false })).toBe(false);
-    expect(pullAllowed({ ready: true, syncing: true, hidden: false })).toBe(false);
+  test("launch and a running sync still hold it back, a click included", () => {
+    for (const manual of [false, true]) {
+      expect(pullAllowed({ ready: false, syncing: false, hidden: false, manual })).toBe(false);
+      expect(pullAllowed({ ready: true, syncing: true, hidden: false, manual })).toBe(false);
+    }
   });
 });
 

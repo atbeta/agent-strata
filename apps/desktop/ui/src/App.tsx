@@ -1,4 +1,4 @@
-import { createEffect, createResource, createSignal, on, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createResource, createSignal, on, onCleanup, onMount, Show, untrack } from "solid-js";
 import {
   apiFetch,
   createWorktree,
@@ -95,6 +95,8 @@ export function App() {
    * cleared by asking the service, and that path ends the sync too.
    */
   let wsStale = false;
+  /** A click on the footer's dot that launch or a running sync is holding. */
+  const [manualHeld, setManualHeld] = createSignal(false);
   const conns = useConnections({
     currentDir: () => ws.lastDir() ?? undefined,
     onChanged: () => list.refetch(),
@@ -305,20 +307,29 @@ export function App() {
       // During launch the gate owns the wait and the service is already
       // connecting; a full project/session read would only add work to the
       // sync it is waiting for. A running sync rereads on its finish, so a
-      // poll landing in the middle would only compete with it.
-      if (!pullAllowed({ ready: boot.ready(), syncing: conns.syncTicks().size > 0, hidden: document.hidden })) return;
+      // poll landing in the middle would only compete with it. A click is
+      // held, not dropped: it spins now and runs once the way is clear.
+      if (!pullAllowed({ ready: boot.ready(), syncing: conns.syncTicks().size > 0, hidden: document.hidden, manual })) {
+        if (manual) {
+          conns.startManualSync();
+          setManualHeld(true);
+        }
+        return;
+      }
       const last = conns.lastPullAt();
       const sinceLast = last === undefined ? undefined : Date.now() - last;
       if (!pullDue({ reason, connected: conns.connected(), sinceLast })) return;
-      // Any pull restarts the pace, the reader's own included: a click is not
-      // followed by a timer pull a moment later.
-      conns.setLastPullAt(Date.now());
       if (manual) conns.startManualSync();
       const job = syncBackend();
       pulling = job;
       void job
         .then(
           (r) => {
+            // Any pull that landed restarts the pace, the reader's own
+            // included: a click is not followed by a timer pull a moment
+            // later. One that failed does not, so the next tick tries again
+            // rather than five minutes on.
+            conns.setLastPullAt(Date.now());
             if (manual) conns.settleManualSync({ phase: "done", imported: r.imported });
           },
           () => {
@@ -333,6 +344,11 @@ export function App() {
         });
     };
     conns.bindSyncNow(() => pull("manual"));
+    createEffect(() => {
+      if (!manualHeld() || !boot.ready() || conns.syncTicks().size > 0) return;
+      setManualHeld(false);
+      untrack(() => pull("manual"));
+    });
     pull("timer");
     // The plugin registry is loaded once here and refreshed by the stream:
     // the transcript asks it which renderer a tool row gets, and the rail asks

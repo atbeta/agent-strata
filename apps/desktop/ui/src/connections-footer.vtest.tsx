@@ -1,7 +1,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
-import { t } from "./i18n";
+import { LOCALE_TAG, locale, setLocale, t } from "./i18n";
 import { ConnectionsFooter, type ConnectionsCtl, type ManualSync } from "./use-connections";
 
 let dispose: (() => void) | undefined;
@@ -50,11 +50,23 @@ test("the dot is a button that asks for a sync", () => {
   expect(syncNow).toHaveBeenCalledTimes(1);
 });
 
-test("the offer names when the last sync was", () => {
-  const at = new Date(2026, 10, 23, 9, 5).getTime();
-  const { dot } = mountFooter({ lastPullAt: at });
-  const time = new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  expect(dot().getAttribute("aria-label")).toBe(`${t("sidebar.sync.now")} · ${t("sidebar.sync.last", { time })}`);
+test("the offer names when the last sync was, in the window's language rather than the system's", () => {
+  const today = new Date();
+  const at = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 9, 5).getTime();
+  const was = locale();
+  try {
+    for (const next of ["en", "zh"] as const) {
+      setLocale(next);
+      const { dot } = mountFooter({ lastPullAt: at });
+      const time = new Intl.DateTimeFormat(LOCALE_TAG[next], { hour: "2-digit", minute: "2-digit" }).format(at);
+      expect(dot().getAttribute("aria-label")).toBe(`${t("sidebar.sync.now")} · ${t("sidebar.sync.last", { time })}`);
+      dispose?.();
+      dispose = undefined;
+      document.body.innerHTML = "";
+    }
+  } finally {
+    setLocale(was);
+  }
 });
 
 test("a sync the reader asked for spins at once and then says what it found", () => {

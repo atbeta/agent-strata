@@ -14,7 +14,7 @@ import { settled } from "./resource";
 import { staleSyncTicks } from "./sync-events";
 import { backendHeadline, viewPhase, type ViewPhase } from "./connection-status";
 import { explain, fadeSignal } from "./errors";
-import { t } from "./i18n";
+import { shortStamp, t } from "./i18n";
 import { Icon } from "./icons";
 import { Tip } from "./tip";
 import { Button } from "@/components/ui/button";
@@ -359,7 +359,7 @@ export function syncDotLabel(
     return manual.imported > 0 ? t("sidebar.sync.done", { count: manual.imported }) : t("sidebar.sync.upToDate");
   }
   if (lastPullAt === undefined) return t("sidebar.sync.now");
-  const time = new Date(lastPullAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const time = shortStamp(lastPullAt);
   return `${t("sidebar.sync.now")} · ${t("sidebar.sync.last", { time })}`;
 }
 
