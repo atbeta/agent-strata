@@ -10,6 +10,8 @@ describe("settings sections", () => {
   test("a known block has its own address", () => {
     expect(settingsPath("/settings/opencode")).toEqual({ section: "opencode" });
     expect(settingsSection("opencode")).toBe("opencode");
+    expect(settingsPath("/settings/notifications")).toEqual({ section: "notifications" });
+    expect(settingsSection("notifications")).toBe("notifications");
     expect(settingsSection("plugins")).toBe("plugins");
     expect(settingsSection("skills")).toBe("skills");
     expect(settingsSection("permission")).toBe("permission");

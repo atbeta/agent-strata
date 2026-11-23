@@ -31,14 +31,7 @@ import {
   type Theme,
   type ThemeId,
 } from "./theme";
-import {
-  disableNotify,
-  enableNotify,
-  openNotificationSettings,
-  readNotify,
-  sendTestNotification,
-  type NotifyKind,
-} from "./notify";
+import { openNotificationSettings, sendTestNotification } from "./notify";
 import {
   CONTENT_SIZES,
   isInstalled,
@@ -47,7 +40,7 @@ import {
   type ContentSize,
   type FontChoice,
 } from "./font";
-import { readThinkingOpen, saveThinkingOpen } from "./thinking";
+import { NotificationSettings } from "./notification-settings";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -68,7 +61,6 @@ import { ProviderSettings } from "./providers";
 import { MaintenanceSettings } from "./maintenance";
 import { PluginSettings } from "./plugin-settings";
 import { SkillSettings } from "./skill-settings";
-import { SoundSettings } from "./sound-settings";
 import { SETTINGS_SECTIONS, settingsSection } from "./settings-sections";
 import { Tip } from "./tip";
 import { handleRovingKey } from "./roving-key";
@@ -257,10 +249,6 @@ export function SettingsPage(props: { section?: string; plugin?: string; skill?:
   const [hydrated, setHydrated] = createSignal(false);
   const [saveErr, setSaveErr] = fadeSignal("");
   const [fonts, setFonts] = createSignal<FontChoice>(readFonts());
-  const [thinkingOpen, setThinkingOpen] = createSignal(readThinkingOpen());
-  const [notifyDone, setNotifyDone] = createSignal(readNotify("done"));
-  const [notifyQuestion, setNotifyQuestion] = createSignal(readNotify("question"));
-  const [notifyErr, setNotifyErr] = fadeSignal<{ kind: NotifyKind; text: string } | undefined>(undefined);
   const [loginUser, setLoginUser] = createSignal("");
   const [loginPass, setLoginPass] = createSignal("");
   const [loginBusy, setLoginBusy] = createSignal(false);
@@ -565,45 +553,6 @@ export function SettingsPage(props: { section?: string; plugin?: string; skill?:
     location.hash = id === SETTINGS_SECTIONS[0].id ? "/settings" : `/settings/${id}`;
   };
 
-  const toggleNotify = async (kind: NotifyKind) => {
-    const on = kind === "done" ? notifyDone() : notifyQuestion();
-    const setOn = kind === "done" ? setNotifyDone : setNotifyQuestion;
-    if (on) {
-      disableNotify(kind);
-      setOn(false);
-      setNotifyErr(undefined);
-      return;
-    }
-    const ok = await enableNotify(kind);
-    setOn(readNotify(kind) && ok);
-    setNotifyErr(ok ? undefined : { kind, text: t("settings.notify.blocked") });
-    if (!ok) disableNotify(kind);
-  };
-
-  /** One notification kind — the rows differ only in which key they move. */
-  const notifyRow = (kind: NotifyKind, on: () => boolean) => (
-    <Row
-      label={t(`settings.notify.${kind}.title`)}
-      hint={t(`settings.notify.${kind}.hint`)}
-      note={
-        <Show when={notifyErr()?.kind === kind}>
-          <p class="mt-1.5 flex items-center gap-1.5 text-2xs text-destructive">
-            <Icon name="alert" class="size-3 shrink-0" />
-            {notifyErr()?.text}
-          </p>
-        </Show>
-      }
-    >
-      <Switch
-        checked={on()}
-        aria-label={t(`settings.notify.${kind}.title`)}
-        onChange={(next) => {
-          if (next !== on()) void toggleNotify(kind);
-        }}
-      />
-    </Row>
-  );
-
   const pickMode = async (next: OpencodeLaunchMode) => {
     if (next === mode()) return;
     const previous = mode();
@@ -783,27 +732,10 @@ export function SettingsPage(props: { section?: string; plugin?: string; skill?:
         </Card>
       </Group>
 
-      {/* Thinking and notifications are session behaviour, not appearance:
-          how a session talks to you while it runs and when it stops. */}
-      <Group label={t("settings.session.group")}>
-      <Card>
-        <Row label={t("settings.thinking.title")} hint={t("settings.thinking.hint")}>
-          <Switch
-            checked={thinkingOpen()}
-            aria-label={t("settings.thinking.title")}
-            onChange={(next) => {
-              setThinkingOpen(next);
-              saveThinkingOpen(next);
-            }}
-          />
-        </Row>
+      </Show>
 
-        {notifyRow("done", notifyDone)}
-        {notifyRow("question", notifyQuestion)}
-      </Card>
-      </Group>
-
-      <SoundSettings />
+      <Show when={section() === "notifications"}>
+        <NotificationSettings />
       </Show>
 
       <Show when={section() === "backends"}>
@@ -1227,11 +1159,18 @@ export function SettingsPage(props: { section?: string; plugin?: string; skill?:
               {t("settings.about.copyDiagnostics")}
             </Button>
           </Row>
-          {/* Only a dev shell borrows Terminal's notification identity; a
-              packaged build has its own, so the caveat would only mislead there. */}
+          {/* What the reader can act on, in the build they are holding: a
+              packaged app notifies under its own name, and a missing banner is
+              almost always the system permission. A dev build borrows the
+              launching process's identity — build-time trivia that is not worth
+              a row in the About pane. */}
           <Row
             label={t("settings.about.notifications")}
-            hint={import.meta.env.DEV ? t("settings.about.notifyHint") : undefined}
+            hint={
+              inDesktopShell()
+                ? t("settings.about.notifyHint", { app: APP_NAME })
+                : undefined
+            }
             note={diagLine("notify")}
           >
             <div class="flex justify-end gap-2">

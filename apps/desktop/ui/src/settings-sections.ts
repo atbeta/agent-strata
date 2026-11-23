@@ -10,6 +10,7 @@ import type { Name } from "./icons";
  */
 export const SETTINGS_SECTIONS = [
   { id: "interface", label: "settings.section.interface", icon: "monitor" },
+  { id: "notifications", label: "settings.section.notifications", icon: "bell" },
   { id: "models", label: "settings.section.models", icon: "cube" },
   { id: "opencode", label: "settings.section.opencode", icon: "opencode" },
   { id: "skills", label: "settings.section.skills", icon: "spark" },
