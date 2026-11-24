@@ -1,5 +1,6 @@
 import { createEffect, createMemo, createResource, createSignal, onCleanup, type Accessor } from "solid-js";
 import { getJson, readViewTail, type SessionView } from "./api";
+import { createLatestFrame } from "./latest-frame";
 import { applyStreamingSnapshot, type StreamingSnapshot } from "./live";
 import { settled } from "./resource";
 import { createSessionViewLoader } from "./session-view-loader";
@@ -207,9 +208,8 @@ export function useSessionView(
     });
   });
 
-  const paintSnapshot = (snap: StreamingSnapshot) => {
+  const frames = createLatestFrame<StreamingSnapshot>(100, (snap) => {
     if (replayPos() !== null) return;
-    if (settled(view)?.busy !== true && !deps.generating()) return;
     mutate((v) => {
       if (!v) return v;
       const next = applyStreamingSnapshot(v, snap);
@@ -224,6 +224,12 @@ export function useSessionView(
       }
       return next;
     });
+  });
+  onCleanup(() => frames.cancel());
+  const paintSnapshot = (snap: StreamingSnapshot) => {
+    if (replayPos() !== null) return;
+    if (settled(view)?.busy !== true && !deps.generating()) return;
+    frames.schedule(snap);
   };
 
   /** The reader asked again: the automatic attempts start over too. */
@@ -233,6 +239,7 @@ export function useSessionView(
   };
   /** A different session in this pane: paint its cached view now, if there is one. */
   const resetView = (id: string) => {
+    frames.cancel();
     const hit = peekView(id);
     filesKey = hit?.filesKey;
     forceFull = false;
