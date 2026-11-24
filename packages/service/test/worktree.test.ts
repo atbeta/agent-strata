@@ -81,6 +81,18 @@ describe("worktreeAdd", () => {
     );
   });
 
+  test("a name cannot escape the checkout root", async () => {
+    const repo = makeRepo();
+    const state = tempDir();
+    await expect(
+      worktreeAdd({ dir: repo, stateDir: state, name: "../../escaped", branch: "strata/safe" }),
+    ).rejects.toThrow("invalid worktree name");
+    expect(existsSync(join(state, "escaped"))).toBe(false);
+    await expect(worktreeAdd({ dir: repo, stateDir: state, name: "nested/name" })).rejects.toThrow(
+      "invalid worktree name",
+    );
+  });
+
   test("two adds in a row do not collide on the same name", async () => {
     const repo = makeRepo();
     const state = tempDir();
@@ -132,6 +144,22 @@ describe("worktreeRemove", () => {
       "uncommitted changes",
     );
     await worktreeRemove({ dir: wt.directory, force: true, stateDir: state });
+    expect(existsSync(wt.directory)).toBe(false);
+  });
+
+  test("missing git metadata does not bypass the dirty check", async () => {
+    const repo = makeRepo();
+    const state = tempDir();
+    const wt = await worktreeAdd({ dir: repo, stateDir: state });
+    writeFileSync(join(wt.directory, "dirty"), "do not lose");
+    rmSync(join(wt.directory, ".git"));
+
+    await expect(
+      worktreeRemove({ dir: wt.directory, stateDir: state, repos: async () => [repo] }),
+    ).rejects.toThrow("uncommitted changes");
+    expect(readFileSync(join(wt.directory, "dirty"), "utf8")).toBe("do not lose");
+
+    await worktreeRemove({ dir: wt.directory, stateDir: state, force: true, repos: async () => [repo] });
     expect(existsSync(wt.directory)).toBe(false);
   });
 

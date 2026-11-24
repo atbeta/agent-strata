@@ -8,7 +8,7 @@ import { spawn } from "bun";
 import { createHash, randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, rmdirSync, statSync } from "node:fs";
 import type { Dirent } from "node:fs";
-import { basename, dirname, join, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 
 /** A git failure worded for a person, carrying the status the route answers. */
 export class WorktreeError extends Error {
@@ -349,11 +349,14 @@ export async function worktreeAdd(opts: {
     .update(repo)
     .digest("hex")
     .slice(0, 6)}`;
+  const base = opts.name?.trim() || slug();
+  if (base === "." || base === ".." || isAbsolute(base) || base !== basename(base)) {
+    throw new WorktreeError("invalid worktree name", 400);
+  }
   // New checkouts go under the first root only. The legacy one stays known
   // for the ones already there; it is not a second place to create.
   const parent = join(worktreeRoots(opts.stateDir, opts.root)[0]!, key);
   mkdirSync(parent, { recursive: true });
-  const base = opts.name?.trim() || slug();
   for (let i = 1; i <= 10; i += 1) {
     const name = i === 1 ? base : `${base}-${i}`;
     const dest = join(parent, name);
@@ -432,10 +435,17 @@ export async function worktreeRemove(opts: {
     await removeDirectory(dir, opts.release);
     return;
   }
-  // An emptied checkout has nothing left to lose, so the question of
-  // uncommitted changes cannot be asked of it.
-  if (!opts.force && info && (await git(["-C", dir, "status", "--porcelain"]))) {
-    throw new WorktreeError("worktree has uncommitted changes", 409);
+  if (!opts.force) {
+    if (info && (await git(["-C", dir, "status", "--porcelain"]))) {
+      throw new WorktreeError("worktree has uncommitted changes", 409);
+    }
+    // A missing `.git` file does not prove the checkout was emptied. Git's
+    // registration can recover the owner, but without the metadata there is no
+    // status to inspect, so only a missing or genuinely empty directory is safe
+    // to remove without the reader's explicit force.
+    if (!info && owner && existsSync(dir) && readdirSync(dir).length > 0) {
+      throw new WorktreeError("worktree has uncommitted changes", 409);
+    }
   }
   // git compares the path it recorded, so it has to be given that spelling —
   // the resolved one is a path it has never heard of.

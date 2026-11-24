@@ -7,8 +7,6 @@ import {
   deleteLegacy,
   optimizeMaintenance,
   readMaintenance,
-  readWorktreeRoot,
-  setWorktreeRoot,
   syncBackends,
   type CleanResult,
   type MaintenanceSnapshot,
@@ -45,15 +43,6 @@ export function MaintenanceSettings() {
   const [days, setDays] = createSignal(30);
   const [daysText, setDaysText] = createSignal("30");
   const [archivedOnly, setArchivedOnly] = createSignal(false);
-  /**
-   * Where new checkouts go.
-   *
-   * Kept as text while it is being typed and saved on blur or Enter: the
-   * setting is a folder the reader is copying from somewhere else, and saving
-   * per keystroke would either fail on every intermediate path or store one.
-   */
-  const [worktree, { refetch: refetchWorktree }] = createResource(readWorktreeRoot);
-  const [worktreeText, setWorktreeText] = createSignal<string>();
   // Vacuum and a previewed clean stay a second press: the first rewrites a
   // file it has already copied, the second applies a list the reader is
   // looking at. Deleting a backup or an old snapshot is not that — the file
@@ -221,37 +210,6 @@ export function MaintenanceSettings() {
     </Show>
   );
 
-  /**
-   * Save the folder checkouts are made under.
-   *
-   * An empty field is a real answer — it means "put it back" — so it is sent
-   * as empty rather than skipped. The service decides whether the folder is
-   * usable and says why when it is not; this only carries the text there and
-   * keeps the field on what was actually stored.
-   */
-  const saveWorktreeRoot = () => {
-    const typed = worktreeText();
-    if (typed === undefined) return;
-    const next = typed.trim();
-    const current = worktree()?.worktreeRoot ?? "";
-    if (next === current) return;
-    void run(
-      "worktree-root",
-      () => setWorktreeRoot(next),
-      (saved) => {
-        setWorktreeText(undefined);
-        void refetchWorktree();
-        setFeedback({
-          key: "worktree-root",
-          ok: true,
-          text: saved.worktreeRoot
-            ? t("maintenance.worktree.saved", { path: saved.worktreeRoot })
-            : t("maintenance.worktree.cleared"),
-        });
-      },
-    );
-  };
-
   return (
     <div>
       <Show when={snapshot.error}>
@@ -325,42 +283,6 @@ export function MaintenanceSettings() {
                     </div>
                   ))}
                 </div>
-              </Card>
-            </Group>
-
-            <Group label={t("maintenance.worktree")} hint={t("maintenance.worktree.hint")}>
-              <Card>
-                <Row
-                  label={t("maintenance.worktree.label")}
-                  note={note("worktree-root")}
-                  controlClass="min-w-0 flex-1"
-                >
-                  <TextFieldInput
-                    size="sm"
-                    class="w-full font-mono text-2xs"
-                    spellcheck={false}
-                    placeholder={worktree()?.createsIn ?? t("maintenance.worktree.default")}
-                    value={worktreeText() ?? worktree()?.worktreeRoot ?? ""}
-                    disabled={busy() === "worktree-root"}
-                    onInput={(event) => setWorktreeText(event.currentTarget.value)}
-                    onKeyDown={(event) => {
-                      if (event.key !== "Enter") return;
-                      event.preventDefault();
-                      saveWorktreeRoot();
-                    }}
-                    onBlur={() => saveWorktreeRoot()}
-                  />
-                </Row>
-                <Show when={worktree()?.createsIn}>
-                  {(where) => (
-                    <p
-                      class="truncate border-t border-border px-4 py-2 font-mono text-2xs text-muted-foreground"
-                      title={where()}
-                    >
-                      {t("maintenance.worktree.createsIn", { path: where() })}
-                    </p>
-                  )}
-                </Show>
               </Card>
             </Group>
 
