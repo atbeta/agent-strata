@@ -82,23 +82,23 @@ export function makeSessionControl(deps: SessionOpsDeps) {
         canPrompt: conn.capabilities.prompt,
       })),
     connectionOf: (sessionId: string) => deps.connections.connectionOf(sessionId),
-    create: async (opts: { connectionId: string; title?: string; directory?: string }) => {
+    create: async (opts: { connectionId: string; title?: string; directory?: string }, signal?: AbortSignal) => {
       const conn = deps.connections.get(opts.connectionId);
       if (!conn) throw new Error(`no such connection: ${opts.connectionId}`);
       if (!conn.capabilities.prompt) {
         throw new Error(`connection ${opts.connectionId} cannot create sessions`);
       }
-      const created = await conn.createSession({ title: opts.title, directory: opts.directory });
+      const created = await conn.createSession({ title: opts.title, directory: opts.directory, signal });
       adoptSession(deps, conn, created, opts.directory);
       return { sessionId: created.casfId };
     },
-    prompt: async (sessionId: string, text: string) => {
+    prompt: async (sessionId: string, text: string, signal?: AbortSignal) => {
       const conn = deps.driverFor(sessionId);
       if (!conn) throw new Error("no backend connected");
       const native = conn.nativeId(sessionId);
       if (!native) throw new Error("session is not owned by a connected backend");
       deps.connections.own(sessionId, conn.id);
-      await sendPrompt(deps, sessionId, conn, native, [{ type: "text", text }]);
+      await sendPrompt(deps, sessionId, conn, native, [{ type: "text", text }], { signal });
     },
   };
 }

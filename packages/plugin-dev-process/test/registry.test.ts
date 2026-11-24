@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { decodeRecords, readRecords, writeRecords } from "../src/registry";
@@ -77,6 +77,26 @@ describe("registry codec", () => {
       expect(decodeRecords("not json")).toEqual([]);
       expect(decodeRecords("{}")).toEqual([]);
     } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a failed replacement leaves the last good registry intact", () => {
+    const dir = mkdtempSync(join(tmpdir(), "strata-registry-"));
+    const file = join(dir, "processes.json");
+    const now = Date.now;
+    try {
+      writeRecords(file, [
+        { id: "dev_keep", session_id: "s", command: "serve", cwd: dir, started_at: 10, state: "running" },
+      ]);
+      Date.now = () => 1234;
+      const blocked = `${file}.tmp-${process.pid}-1234`;
+      mkdirSync(blocked);
+
+      expect(() => writeRecords(file, [])).toThrow();
+      expect(readRecords(file).map((row) => row.id)).toEqual(["dev_keep"]);
+    } finally {
+      Date.now = now;
       rmSync(dir, { recursive: true, force: true });
     }
   });

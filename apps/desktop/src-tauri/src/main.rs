@@ -1258,8 +1258,7 @@ impl Sidecars {
                     };
                     eprintln!("agent-strata: {detail}");
                     log_note(&log, &detail);
-                    let _ = child.kill();
-                    let _ = child.wait();
+                    reap(&mut child);
                     None
                 }
             }
@@ -1990,5 +1989,16 @@ mod tests {
         reap(&mut child);
         let still_alive = unsafe { kill(pid as i32, 0) == 0 };
         assert!(!still_alive, "child {pid} was still alive after close");
+    }
+
+    #[test]
+    fn a_failed_service_start_reaps_the_process_group() {
+        let src = include_str!("main.rs");
+        let start = src.find("did not answer within 5s").expect("failure branch");
+        let body = &src[start..];
+        let end = body.find("// The handshake").expect("branch end");
+        let body = &body[..end];
+        assert!(body.contains("reap(&mut child)"), "failure still kills only the service:\n{body}");
+        assert!(!body.contains("child.kill()"), "failure kept the single-process kill:\n{body}");
     }
 }

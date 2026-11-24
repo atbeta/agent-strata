@@ -1,4 +1,5 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import type { DevLost, PersistedProcess } from "./types";
 
 /**
@@ -61,7 +62,20 @@ export function decodeRecords(raw: string, now: () => number = Date.now): Persis
 }
 
 export function writeRecords(file: string, processes: PersistedProcess[]): void {
-  writeFileSync(file, JSON.stringify({ version: 2, processes }));
+  mkdirSync(dirname(file), { recursive: true });
+  const tmp = `${file}.tmp-${process.pid}-${Date.now()}`;
+  try {
+    writeFileSync(tmp, JSON.stringify({ version: 2, processes }), { mode: 0o600 });
+    chmodSync(tmp, 0o600);
+    renameSync(tmp, file);
+  } catch (error) {
+    try {
+      unlinkSync(tmp);
+    } catch {
+      // The temporary file was never created, or was already renamed.
+    }
+    throw error;
+  }
 }
 
 function parseLost(value: unknown): DevLost | undefined {

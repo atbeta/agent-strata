@@ -582,11 +582,14 @@ export async function connectOpencode(opts: {
       clearInterval(restoreTimer);
       clearInterval(quietTimer);
     },
-    async createSession(sessOpts?: { title?: string; directory?: string }) {
-      const r = await client.session.create({
-        title: sessOpts?.title,
-        directory: sessOpts?.directory ?? opts.directory,
-      });
+    async createSession(sessOpts?: { title?: string; directory?: string; signal?: AbortSignal }) {
+      const r = await client.session.create(
+        {
+          title: sessOpts?.title,
+          directory: sessOpts?.directory ?? opts.directory,
+        },
+        { signal: sessOpts?.signal },
+      );
       if (!r.data) throw new Error("session.create returned no data");
       return { id: r.data.id };
     },
@@ -598,10 +601,12 @@ export async function connectOpencode(opts: {
         agent?: string;
         variant?: string;
         directory?: string;
+        signal?: AbortSignal;
       },
     ) {
       const said = parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
       let sent: Awaited<ReturnType<typeof client.session.promptAsync>>;
+      const timeout = AbortSignal.timeout(promptAcceptMs);
       try {
         sent = await client.session.promptAsync(
           {
@@ -613,7 +618,7 @@ export async function connectOpencode(opts: {
             ...(promptOpts?.variant ? ({ variant: promptOpts.variant } as object) : {}),
             parts,
           },
-          { signal: AbortSignal.timeout(promptAcceptMs) },
+          { signal: promptOpts?.signal ? AbortSignal.any([timeout, promptOpts.signal]) : timeout },
         );
       } catch (err) {
         throw new Error(promptFailure(err, said));

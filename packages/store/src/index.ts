@@ -292,6 +292,7 @@ export function openStore(path: string | ":memory:"): Store {
   // ~/.agent-strata fails with SQLITE_CANTOPEN. Create it up front.
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
   const db = new Database(path === ":memory:" ? ":memory:" : path);
+  db.exec("PRAGMA busy_timeout=5000");
   if (path !== ":memory:") db.exec("PRAGMA journal_mode=WAL");
   db.exec(`
     CREATE TABLE IF NOT EXISTS events(
@@ -417,6 +418,10 @@ export function openStore(path: string | ":memory:"): Store {
       console.error("parent backfill failed:", error);
     }
   }
+
+  // A deferred read-to-write upgrade in WAL returns SQLITE_BUSY immediately;
+  // taking the write lock up front is what lets busy_timeout do its job.
+  const writeTransaction = <T,>(fn: () => T): (() => T) => () => db.transaction(fn).immediate();
 
   const listeners = new Set<(e: Event) => void>();
 
@@ -619,7 +624,7 @@ export function openStore(path: string | ":memory:"): Store {
   const store: Store = {
     append(inputs, opts) {
       const parsed = parseAll(inputs);
-      const result = db.transaction(() => insertAll(parsed, opts))();
+      const result = writeTransaction(() => insertAll(parsed, opts))();
       notify(result.inserted);
       return result.out;
     },
@@ -632,7 +637,7 @@ export function openStore(path: string | ":memory:"): Store {
       }
       const parsed = parseAll(inputs);
       const marks = replaceTypes.map(() => "?").join(",");
-      return db.transaction(() => {
+      return writeTransaction(() => {
         if (replaceTypes.length > 0) {
           db.query(
             `DELETE FROM events_fts WHERE event_id IN
@@ -991,7 +996,7 @@ export function openStore(path: string | ":memory:"): Store {
 
     deleteSessions(session_ids) {
       if (session_ids.length === 0) return 0;
-      return db.transaction(() => {
+      return writeTransaction(() => {
         let deleted = 0;
         for (const id of session_ids) {
           deleted += (
@@ -1011,7 +1016,7 @@ export function openStore(path: string | ":memory:"): Store {
     deleteRebuildable(session_ids) {
       if (session_ids.length === 0) return 0;
       const marks = REBUILDABLE_EVENT_TYPES.map(() => "?").join(",");
-      return db.transaction(() => {
+      return writeTransaction(() => {
         let deleted = 0;
         for (const id of session_ids) {
           const before = (
@@ -1119,7 +1124,7 @@ export function openStore(path: string | ":memory:"): Store {
             }[];
             if (chunk.length === 0) break;
 
-            db.transaction(() => {
+            writeTransaction(() => {
               const ins = db.query(
                 "INSERT INTO events_fts(event_id,session_id,text) VALUES(?,?,?)",
               );

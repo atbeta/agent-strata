@@ -21,8 +21,8 @@ import type { SchedulesFile } from "./schedules-file";
 export interface ScheduleControl {
   connections(): { id: string; agent: string; canPrompt: boolean }[];
   connectionOf(sessionId: string): string | undefined;
-  create(opts: { connectionId: string; title?: string; directory?: string }): Promise<{ sessionId: string }>;
-  prompt(sessionId: string, text: string): Promise<void>;
+  create(opts: { connectionId: string; title?: string; directory?: string }, signal?: AbortSignal): Promise<{ sessionId: string }>;
+  prompt(sessionId: string, text: string, signal?: AbortSignal): Promise<void>;
 }
 
 export interface EngineDeps {
@@ -37,15 +37,20 @@ export interface EngineDeps {
   now(): number;
   /** a missed fire still runs when it is this recent (default 30 min) */
   catchupWindowMs: number;
+  /** one create/prompt may not hold the whole firing loop longer than this */
+  operationTimeoutMs?: number;
 }
 
 /** Never arm further out than this — the timer cap and sleep drift both live inside it. */
 const REARM_CAP_MS = 6 * 60 * 60 * 1000;
+const OPERATION_TIMEOUT_MS = 30_000;
 
 export class ScheduleEngine {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private readonly firing = new Set<string>();
+  private readonly inflight = new Set<AbortController>();
   private stopped = true;
+  private generation = 0;
 
   constructor(private readonly deps: EngineDeps) {}
 
@@ -58,9 +63,10 @@ export class ScheduleEngine {
 
   async stop(): Promise<void> {
     this.stopped = true;
+    this.generation += 1;
     if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
-    // a fire already in flight finishes against whatever backend is still up
+    for (const controller of this.inflight) controller.abort(new Error("schedule stopped"));
   }
 
   /** The soonest pending wake, for callers that just changed the table. */
@@ -90,8 +96,10 @@ export class ScheduleEngine {
    * `missed`; either way the schedule advances — never a backlog replay.
    */
   async runDue(catchup: boolean): Promise<void> {
+    const generation = this.generation;
     const now = this.deps.now();
     for (const s of this.deps.file.load()) {
+      if (generation !== this.generation) return;
       if (!s.enabled || s.next_at === null || this.firing.has(s.id)) continue;
       const due = Date.parse(s.next_at);
       if (due > now) continue;
@@ -120,8 +128,23 @@ export class ScheduleEngine {
     }
   }
 
+  private operation<T>(work: Promise<T>, controller: AbortController): Promise<T> {
+    if (controller.signal.aborted) return Promise.reject(controller.signal.reason);
+    return new Promise<T>((resolve, reject) => {
+      const abort = () => reject(controller.signal.reason);
+      controller.signal.addEventListener("abort", abort, { once: true });
+      work.then(resolve, reject).finally(() => controller.signal.removeEventListener("abort", abort));
+    });
+  }
+
   private async fire(id: string, result: RunResult): Promise<void> {
     this.firing.add(id);
+    const controller = new AbortController();
+    this.inflight.add(controller);
+    const deadline = setTimeout(
+      () => controller.abort(new Error("schedule operation timed out")),
+      this.deps.operationTimeoutMs ?? OPERATION_TIMEOUT_MS,
+    );
     const now = this.deps.now();
     try {
       const s = this.deps.file.load().find((x) => x.id === id);
@@ -183,13 +206,19 @@ export class ScheduleEngine {
           const conn = s.target.connection_id ?? this.deps.control.connectionOf(s.created_by);
           if (!conn) throw new Error("no connection to create a session on");
           const directory = this.deps.workspaceOf(s.created_by);
-          const created = await this.deps.control.create({
-            connectionId: conn,
-            title: `schedule: ${s.name}`,
-            directory,
-          });
+          const created = await this.operation(
+            this.deps.control.create(
+              {
+                connectionId: conn,
+                title: `schedule: ${s.name}`,
+                directory,
+              },
+              controller.signal,
+            ),
+            controller,
+          );
           s.last_note = `new session ${created.sessionId}`;
-          await this.deps.control.prompt(created.sessionId, this.text(s));
+          await this.operation(this.deps.control.prompt(created.sessionId, this.text(s), controller.signal), controller);
         } else {
           // Re-checked: the session may have turned busy between the check
           // above and this prompt. A prompt that lands on a running turn is
@@ -203,7 +232,7 @@ export class ScheduleEngine {
             this.deps.emit({ type: "changed" });
             return;
           }
-          await this.deps.control.prompt(s.target.session_id, this.text(s));
+          await this.operation(this.deps.control.prompt(s.target.session_id, this.text(s), controller.signal), controller);
         }
         this.deps.file.mutate((all) => {
           const cur = all.find((x) => x.id === id);
@@ -217,6 +246,8 @@ export class ScheduleEngine {
       }
       this.deps.emit({ type: "changed" });
     } finally {
+      clearTimeout(deadline);
+      this.inflight.delete(controller);
       this.firing.delete(id);
     }
   }

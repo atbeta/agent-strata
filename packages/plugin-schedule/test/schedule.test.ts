@@ -585,3 +585,70 @@ describe("the engine's last run", () => {
   });
 });
 
+
+
+describe("engine deadlines", () => {
+  test("a hung operation times out and the next due schedule still fires", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "sched-deadline-"));
+    const first = seed(dir, { name: "first" });
+    const second = seed(dir, { name: "second" });
+    const deps = engineDeps(dir, {
+      operationTimeoutMs: 20,
+      control: {
+        ...control(),
+        prompt: async (_sessionId: string, text: string, signal?: AbortSignal) => {
+          if (!text.includes("first")) return;
+          return new Promise<void>((_resolve, reject) => {
+            if (signal?.aborted) reject(signal.reason);
+            else signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+          });
+        },
+      },
+    });
+    const engine = new ScheduleEngine(deps);
+
+    await engine.runDue(false);
+    await engine.stop();
+
+    expect(deps.file.load().find((row) => row.id === first.id)).toMatchObject({
+      last_result: "failed",
+      last_note: "schedule operation timed out",
+    });
+    expect(deps.file.load().find((row) => row.id === second.id)?.last_result).toBe("ok");
+  });
+
+  test("stop aborts the current operation and does not fire the next schedule", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "sched-stop-"));
+    const first = seed(dir, { name: "first" });
+    const second = seed(dir, { name: "second" });
+    let aborted = false;
+    const prompted: string[] = [];
+    const deps = engineDeps(dir, {
+      control: {
+        ...control(),
+        prompt: async (_sessionId: string, text: string, signal?: AbortSignal) => {
+          prompted.push(text);
+          return new Promise<void>((_resolve, reject) => {
+            signal?.addEventListener("abort", () => {
+              aborted = true;
+              reject(signal.reason);
+            }, { once: true });
+          });
+        },
+      },
+    });
+    const engine = new ScheduleEngine(deps);
+    const due = engine.runDue(false);
+
+    await engine.stop();
+    await due;
+
+    expect(aborted).toBe(true);
+    expect(prompted).toHaveLength(1);
+    expect(deps.file.load().find((row) => row.id === first.id)).toMatchObject({
+      last_result: "failed",
+      last_note: "schedule stopped",
+    });
+    expect(deps.file.load().find((row) => row.id === second.id)?.last_run_at).toBeUndefined();
+  });
+});

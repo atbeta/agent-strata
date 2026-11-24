@@ -1190,3 +1190,39 @@ describe("running sessions, asked of the whole store at once", () => {
     s.close();
   });
 });
+
+
+describe("store locking", () => {
+  test("a writer waits for another process to release its write lock", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "strata-store-lock-"));
+    const path = join(dir, "events.db");
+    const store = openStore(path);
+    const source = `
+      import { Database } from "bun:sqlite";
+      const db = new Database(process.argv.at(-1));
+      db.exec("BEGIN IMMEDIATE");
+      console.log("locked");
+      await Bun.sleep(150);
+      db.exec("COMMIT");
+      db.close();
+    `;
+    const proc = Bun.spawn(["bun", "-e", source, path], { stdout: "pipe", stderr: "pipe" });
+    try {
+      const reader = proc.stdout.getReader();
+      const first = await reader.read();
+      expect(new TextDecoder().decode(first.value)).toContain("locked");
+      reader.releaseLock();
+
+      const started = performance.now();
+      store.append([mk("locked", "session.started", { workspace: "/locked" })]);
+      const elapsed = performance.now() - started;
+      expect(elapsed).toBeGreaterThanOrEqual(75);
+      expect(await proc.exited).toBe(0);
+      expect(store.lastSeq("locked")).toBe(1);
+    } finally {
+      proc.kill();
+      store.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

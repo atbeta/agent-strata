@@ -80,6 +80,7 @@ export interface PromptOpts {
   variant?: string;
   /** project directory this session lives in; overrides the connection default */
   directory?: string;
+  signal?: AbortSignal;
 }
 
 export interface CommandOpts extends PromptOpts {
@@ -187,7 +188,7 @@ export interface BackendDriver {
   /** absent for a backend with nothing beyond the command plane */
   extension?: BackendExtension;
   stop(): void;
-  createSession(opts?: { title?: string; directory?: string }): Promise<{ casfId: string; nativeId: string }>;
+  createSession(opts?: { title?: string; directory?: string; signal?: AbortSignal }): Promise<{ casfId: string; nativeId: string }>;
   prompt(nativeId: string, parts: PromptPart[], opts?: PromptOpts): Promise<void>;
   /** run one of the backend's commands; resolves once it has started */
   command?(nativeId: string, name: string, args: string, opts?: CommandOpts): Promise<void>;
