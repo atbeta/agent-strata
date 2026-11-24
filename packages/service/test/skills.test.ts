@@ -98,6 +98,32 @@ describe("skill discovery and files", () => {
     expect(Object.keys(publicSkill(skills[0]!))).not.toContain("managedRoot");
   });
 
+  test("Agents and Claude skills outside the workspace are global, not other", () => {
+    const root = temp();
+    const workspace = join(root, "repo");
+    const agents = join(root, "home", ".agents", "skills", "shared", "SKILL.md");
+    const claude = join(root, "home", ".claude", "skills", "review", "SKILL.md");
+    const project = join(workspace, ".agents", "skills", "local", "SKILL.md");
+    const custom = join(root, "elsewhere", "custom.md");
+    const skills = listSkills({
+      connectionId: "conn",
+      workspace,
+      roots: [],
+      local: true,
+      active: [
+        { name: "Agents Global", location: agents, content: "Agents" },
+        { name: "Claude Global", location: claude, content: "Claude" },
+        { name: "Agents Project", location: project, content: "Project" },
+        { name: "Custom", location: custom, content: "Custom" },
+      ],
+    });
+
+    expect(skills.find((skill) => skill.location === agents)).toMatchObject({ source: "agents", scope: "global" });
+    expect(skills.find((skill) => skill.location === claude)).toMatchObject({ source: "claude", scope: "global" });
+    expect(skills.find((skill) => skill.location === project)).toMatchObject({ source: "agents", scope: "project" });
+    expect(skills.find((skill) => skill.location === custom)).toMatchObject({ source: "custom", scope: "other" });
+  });
+
   test("create, edit and delete stay in a managed root and directory deletion includes support files", () => {
     const root = temp();
     const managed: ManagedRoot = {

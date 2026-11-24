@@ -180,9 +180,14 @@ function sourceAt(location: string, roots: ManagedRoot[], workspace: string, loc
   else if (/[\\/]\.claude[\\/]skills[\\/]/.test(location)) source = "claude";
   else if (/[\\/]\.agents[\\/]skills[\\/]/.test(location)) source = "agents";
   else source = "custom";
+  const scope = lexicalInside(workspace, location)
+    ? ("project" as const)
+    : source === "claude" || source === "agents"
+      ? ("global" as const)
+      : ("other" as const);
   return {
     source,
-    scope: lexicalInside(workspace, location) ? ("project" as const) : ("other" as const),
+    scope,
     writable: false,
     readonlyReason: readonlyFor(source, local),
   };

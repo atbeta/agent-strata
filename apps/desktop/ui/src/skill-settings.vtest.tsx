@@ -248,6 +248,21 @@ test("the compact directory filters scopes, opens details, and guards an unsaved
       files: [],
     },
     {
+      key: "agents-global-skill-key",
+      id: "agents-global-skill",
+      name: "Agents Global Skill",
+      description: "A global compatibility skill",
+      content: "Agents global instructions",
+      autoInvoke: true,
+      location: "/home/.agents/skills/shared/SKILL.md",
+      source: "agents",
+      scope: "global",
+      status: "active",
+      writable: false,
+      directoryForm: true,
+      files: [],
+    },
+    {
       key: projectKey,
       id: "project-skill",
       name: "Project Skill",
@@ -309,6 +324,7 @@ test("the compact directory filters scopes, opens details, and guards an unsaved
   );
   globalFilter!.click();
   expect(host.textContent).toContain("Global Skill");
+  expect(host.querySelector("nav[aria-label]")?.textContent).toContain("Agents Global Skill");
   expect(host.textContent).not.toContain("Project Skill");
   const globalRow = [...host.querySelectorAll<HTMLButtonElement>("nav[aria-label] button")].find(
     (item) => item.textContent?.includes("Global Skill"),
