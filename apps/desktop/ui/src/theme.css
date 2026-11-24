@@ -2339,6 +2339,402 @@ html[data-theme="ocean-vivid"][data-scheme="light"] {
   --diagram-note-border: #d5ae52;
 }
 
+html[data-theme="candy-vivid"][data-scheme="dark"] {
+  --background: #211020;
+  --sidebar: #180b18;
+  --foreground: #fff0fa;
+  --card: #2b162b;
+  --card-foreground: #fff0fa;
+  --popover: #2b162b;
+  --popover-foreground: #fff0fa;
+  --primary: #ff9bd7;
+  --primary-foreground: #39102e;
+  --secondary: #47203f;
+  --secondary-foreground: #fff0fa;
+  --muted: #381a34;
+  --muted-foreground: #e2b9d3;
+  --faint-foreground: #cba3bd;
+  --accent: #5a2850;
+  --accent-foreground: #fff0fa;
+  --destructive: #f8767a;
+  --destructive-foreground: #35101e;
+  --ring: #ff9bd7;
+  --status-active: #82e8ad;
+  --status-completed: #d786bb;
+  --status-error: #f8767a;
+  --status-cancelled: #f3cc68;
+  --status-pending: #cba3bd;
+  --event-user: #ff9bd7;
+  --event-assistant: #82e8ad;
+  --event-tool: #c7a3ff;
+  --event-permission: #ffb48c;
+  --event-file: #72dce8;
+  --cost-up: #f8767a;
+  --cost-down: #82e8ad;
+  --cost-flat: #e2b9d3;
+  --chart-1: #ff9bd7;
+  --chart-2: #82e8ad;
+  --chart-3: #ffb48c;
+  --chart-4: #72dce8;
+  --chart-5: #c7a3ff;
+  --diff-add-fg: #82e8ad;
+  --diff-add-bg: #82e8ad24;
+  --diff-del-fg: #f8767a;
+  --diff-del-bg: #f8767a24;
+  --code-surface: #180b18;
+  --code-header: #381a34;
+  --syntax-comment: #cba3bd;
+  --syntax-string: #82e8ad;
+  --syntax-number: #f3cc68;
+  --syntax-keyword: #c7a3ff;
+  --syntax-function: #d786bb;
+  --syntax-property: #72dce8;
+  --syntax-type: #ffb0c2;
+  --syntax-punctuation: #e2b9d3;
+  --diagram-node: #47203f;
+  --diagram-node-text: #fff0fa;
+  --diagram-node-border: #794065;
+  --diagram-line: #cba3bd;
+  --diagram-secondary: #5a2850;
+  --diagram-tertiary: #4d2346;
+  --diagram-cluster: #2b162b;
+  --diagram-cluster-border: #47203f;
+  --diagram-label-bg: #211020;
+  --diagram-note-bg: #493719;
+  --diagram-note-text: #ffd166;
+  --diagram-note-border: #806a2b;
+}
+
+html[data-theme="candy-vivid"][data-scheme="light"] {
+  --background: #fff7fc;
+  --sidebar: #f9e8f4;
+  --foreground: #3d1832;
+  --card: #ffffff;
+  --card-foreground: #3d1832;
+  --popover: #ffffff;
+  --popover-foreground: #3d1832;
+  --primary: #a3267c;
+  --primary-foreground: #ffffff;
+  --secondary: #f4dcee;
+  --secondary-foreground: #3d1832;
+  --muted: #f8eaf3;
+  --muted-foreground: #70445f;
+  --faint-foreground: #7c536c;
+  --accent: #edcde3;
+  --accent-foreground: #3d1832;
+  --destructive: #b32035;
+  --destructive-foreground: #ffffff;
+  --ring: #a3267c;
+  --status-active: #087a4d;
+  --status-completed: #813566;
+  --status-error: #b32035;
+  --status-cancelled: #846200;
+  --status-pending: #7c536c;
+  --event-user: #a3267c;
+  --event-assistant: #087a4d;
+  --event-tool: #6b3fa0;
+  --event-permission: #9a4a00;
+  --event-file: #006c78;
+  --cost-up: #b32035;
+  --cost-down: #087a4d;
+  --cost-flat: #70445f;
+  --chart-1: #a3267c;
+  --chart-2: #087a4d;
+  --chart-3: #9a4a00;
+  --chart-4: #006c78;
+  --chart-5: #6b3fa0;
+  --diff-add-fg: #087a4d;
+  --diff-add-bg: #087a4d24;
+  --diff-del-fg: #b32035;
+  --diff-del-bg: #b3203524;
+  --code-surface: #fbf0f8;
+  --code-header: #f2e0ee;
+  --syntax-comment: #7c536c;
+  --syntax-string: #087a4d;
+  --syntax-number: #846200;
+  --syntax-keyword: #6b3fa0;
+  --syntax-function: #813566;
+  --syntax-property: #006c78;
+  --syntax-type: #9a3555;
+  --syntax-punctuation: #70445f;
+  --diagram-node: #ffffff;
+  --diagram-node-text: #3d1832;
+  --diagram-node-border: #ddb8d2;
+  --diagram-line: #7c536c;
+  --diagram-secondary: #f4dcee;
+  --diagram-tertiary: #f8eaf3;
+  --diagram-cluster: #fff7fc;
+  --diagram-cluster-border: #edcde3;
+  --diagram-label-bg: #fff7fc;
+  --diagram-note-bg: #fff0c2;
+  --diagram-note-text: #6c4500;
+  --diagram-note-border: #d5ae52;
+}
+
+html[data-theme="forest-vivid"][data-scheme="dark"] {
+  --background: #111c14;
+  --sidebar: #0b140e;
+  --foreground: #eff8ec;
+  --card: #19271d;
+  --card-foreground: #eff8ec;
+  --popover: #19271d;
+  --popover-foreground: #eff8ec;
+  --primary: #b4e582;
+  --primary-foreground: #1d3012;
+  --secondary: #2b402c;
+  --secondary-foreground: #eff8ec;
+  --muted: #233523;
+  --muted-foreground: #bad0b3;
+  --faint-foreground: #a3bba0;
+  --accent: #395238;
+  --accent-foreground: #eff8ec;
+  --destructive: #f8767a;
+  --destructive-foreground: #35101e;
+  --ring: #b4e582;
+  --status-active: #7fe0a0;
+  --status-completed: #8db96a;
+  --status-error: #f8767a;
+  --status-cancelled: #e7ca65;
+  --status-pending: #a3bba0;
+  --event-user: #b4e582;
+  --event-assistant: #7fe0a0;
+  --event-tool: #e6c876;
+  --event-permission: #f2b18a;
+  --event-file: #72dcb5;
+  --cost-up: #f8767a;
+  --cost-down: #7fe0a0;
+  --cost-flat: #bad0b3;
+  --chart-1: #b4e582;
+  --chart-2: #7fe0a0;
+  --chart-3: #f2b18a;
+  --chart-4: #72dcb5;
+  --chart-5: #e6c876;
+  --diff-add-fg: #7fe0a0;
+  --diff-add-bg: #7fe0a024;
+  --diff-del-fg: #f8767a;
+  --diff-del-bg: #f8767a24;
+  --code-surface: #0b140e;
+  --code-header: #233523;
+  --syntax-comment: #a3bba0;
+  --syntax-string: #7fe0a0;
+  --syntax-number: #e7ca65;
+  --syntax-keyword: #e6c876;
+  --syntax-function: #8db96a;
+  --syntax-property: #72dcb5;
+  --syntax-type: #a9c8ff;
+  --syntax-punctuation: #bad0b3;
+  --diagram-node: #2b402c;
+  --diagram-node-text: #eff8ec;
+  --diagram-node-border: #4e6c4c;
+  --diagram-line: #a3bba0;
+  --diagram-secondary: #395238;
+  --diagram-tertiary: #30462f;
+  --diagram-cluster: #19271d;
+  --diagram-cluster-border: #2b402c;
+  --diagram-label-bg: #111c14;
+  --diagram-note-bg: #3c341b;
+  --diagram-note-text: #ffd166;
+  --diagram-note-border: #74652f;
+}
+
+html[data-theme="forest-vivid"][data-scheme="light"] {
+  --background: #f6fbf2;
+  --sidebar: #e8f2e2;
+  --foreground: #21301d;
+  --card: #ffffff;
+  --card-foreground: #21301d;
+  --popover: #ffffff;
+  --popover-foreground: #21301d;
+  --primary: #4a730c;
+  --primary-foreground: #ffffff;
+  --secondary: #e2edda;
+  --secondary-foreground: #21301d;
+  --muted: #edf4e8;
+  --muted-foreground: #4e6247;
+  --faint-foreground: #5c7055;
+  --accent: #d2e3c7;
+  --accent-foreground: #21301d;
+  --destructive: #b32035;
+  --destructive-foreground: #ffffff;
+  --ring: #4a730c;
+  --status-active: #247447;
+  --status-completed: #4e6f25;
+  --status-error: #b32035;
+  --status-cancelled: #765f00;
+  --status-pending: #5c7055;
+  --event-user: #4a730c;
+  --event-assistant: #247447;
+  --event-tool: #7b5c00;
+  --event-permission: #945000;
+  --event-file: #007055;
+  --cost-up: #b32035;
+  --cost-down: #247447;
+  --cost-flat: #4e6247;
+  --chart-1: #4a730c;
+  --chart-2: #247447;
+  --chart-3: #945000;
+  --chart-4: #007055;
+  --chart-5: #7b5c00;
+  --diff-add-fg: #247447;
+  --diff-add-bg: #24744724;
+  --diff-del-fg: #b32035;
+  --diff-del-bg: #b3203524;
+  --code-surface: #f0f6eb;
+  --code-header: #e4edde;
+  --syntax-comment: #5c7055;
+  --syntax-string: #247447;
+  --syntax-number: #765f00;
+  --syntax-keyword: #7b5c00;
+  --syntax-function: #4e6f25;
+  --syntax-property: #007055;
+  --syntax-type: #3c609c;
+  --syntax-punctuation: #4e6247;
+  --diagram-node: #ffffff;
+  --diagram-node-text: #21301d;
+  --diagram-node-border: #bfd2b2;
+  --diagram-line: #5c7055;
+  --diagram-secondary: #e2edda;
+  --diagram-tertiary: #edf4e8;
+  --diagram-cluster: #f6fbf2;
+  --diagram-cluster-border: #d2e3c7;
+  --diagram-label-bg: #f6fbf2;
+  --diagram-note-bg: #fff0c2;
+  --diagram-note-text: #6c4500;
+  --diagram-note-border: #d5ae52;
+}
+
+html[data-theme="midnight-vivid"][data-scheme="dark"] {
+  --background: #0a1024;
+  --sidebar: #060b1b;
+  --foreground: #edf1ff;
+  --card: #111a35;
+  --card-foreground: #edf1ff;
+  --popover: #111a35;
+  --popover-foreground: #edf1ff;
+  --primary: #8fa8ff;
+  --primary-foreground: #101b3d;
+  --secondary: #1d2b52;
+  --secondary-foreground: #edf1ff;
+  --muted: #182344;
+  --muted-foreground: #b5c0e5;
+  --faint-foreground: #9daacf;
+  --accent: #2b3b68;
+  --accent-foreground: #edf1ff;
+  --destructive: #f8767a;
+  --destructive-foreground: #35101e;
+  --ring: #8fa8ff;
+  --status-active: #7de2ae;
+  --status-completed: #6f8fd4;
+  --status-error: #f8767a;
+  --status-cancelled: #e5c86b;
+  --status-pending: #9daacf;
+  --event-user: #8fa8ff;
+  --event-assistant: #7de2ae;
+  --event-tool: #b5a4ff;
+  --event-permission: #f0b28b;
+  --event-file: #79c9f2;
+  --cost-up: #f8767a;
+  --cost-down: #7de2ae;
+  --cost-flat: #b5c0e5;
+  --chart-1: #8fa8ff;
+  --chart-2: #7de2ae;
+  --chart-3: #f0b28b;
+  --chart-4: #79c9f2;
+  --chart-5: #b5a4ff;
+  --diff-add-fg: #7de2ae;
+  --diff-add-bg: #7de2ae24;
+  --diff-del-fg: #f8767a;
+  --diff-del-bg: #f8767a24;
+  --code-surface: #060b1b;
+  --code-header: #182344;
+  --syntax-comment: #9daacf;
+  --syntax-string: #7de2ae;
+  --syntax-number: #e5c86b;
+  --syntax-keyword: #b5a4ff;
+  --syntax-function: #6f8fd4;
+  --syntax-property: #79c9f2;
+  --syntax-type: #c0d3ff;
+  --syntax-punctuation: #b5c0e5;
+  --diagram-node: #1d2b52;
+  --diagram-node-text: #edf1ff;
+  --diagram-node-border: #3a4c7e;
+  --diagram-line: #9daacf;
+  --diagram-secondary: #2b3b68;
+  --diagram-tertiary: #233158;
+  --diagram-cluster: #111a35;
+  --diagram-cluster-border: #1d2b52;
+  --diagram-label-bg: #0a1024;
+  --diagram-note-bg: #353223;
+  --diagram-note-text: #ffd166;
+  --diagram-note-border: #6b5a2a;
+}
+
+html[data-theme="midnight-vivid"][data-scheme="light"] {
+  --background: #f5f7ff;
+  --sidebar: #e7ebfa;
+  --foreground: #17233f;
+  --card: #ffffff;
+  --card-foreground: #17233f;
+  --popover: #ffffff;
+  --popover-foreground: #17233f;
+  --primary: #365bb5;
+  --primary-foreground: #ffffff;
+  --secondary: #e0e7f8;
+  --secondary-foreground: #17233f;
+  --muted: #edf0fa;
+  --muted-foreground: #4b5875;
+  --faint-foreground: #5a6782;
+  --accent: #ccd6f0;
+  --accent-foreground: #17233f;
+  --destructive: #b32035;
+  --destructive-foreground: #ffffff;
+  --ring: #365bb5;
+  --status-active: #247447;
+  --status-completed: #3f568f;
+  --status-error: #b32035;
+  --status-cancelled: #746000;
+  --status-pending: #5a6782;
+  --event-user: #365bb5;
+  --event-assistant: #247447;
+  --event-tool: #5b43a6;
+  --event-permission: #945000;
+  --event-file: #006a9a;
+  --cost-up: #b32035;
+  --cost-down: #247447;
+  --cost-flat: #4b5875;
+  --chart-1: #365bb5;
+  --chart-2: #247447;
+  --chart-3: #945000;
+  --chart-4: #006a9a;
+  --chart-5: #5b43a6;
+  --diff-add-fg: #247447;
+  --diff-add-bg: #24744724;
+  --diff-del-fg: #b32035;
+  --diff-del-bg: #b3203524;
+  --code-surface: #eff2fb;
+  --code-header: #e4e9f6;
+  --syntax-comment: #5a6782;
+  --syntax-string: #247447;
+  --syntax-number: #746000;
+  --syntax-keyword: #5b43a6;
+  --syntax-function: #3f568f;
+  --syntax-property: #006a9a;
+  --syntax-type: #3e649f;
+  --syntax-punctuation: #4b5875;
+  --diagram-node: #ffffff;
+  --diagram-node-text: #17233f;
+  --diagram-node-border: #bac6e2;
+  --diagram-line: #5a6782;
+  --diagram-secondary: #e0e7f8;
+  --diagram-tertiary: #edf0fa;
+  --diagram-cluster: #f5f7ff;
+  --diagram-cluster-border: #ccd6f0;
+  --diagram-label-bg: #f5f7ff;
+  --diagram-note-bg: #fff0c2;
+  --diagram-note-text: #6c4500;
+  --diagram-note-border: #d5ae52;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-sidebar: var(--sidebar);
@@ -2823,8 +3219,27 @@ textarea {
    design; that is what makes `.md` sizeable from the outside. */
 @layer components {
   .md {
+    /* Derived content roles, rather than another full palette per theme. Vivid
+       borrows hues that already have AA text contrast; body copy and fenced
+       code stay neutral, so the colour identifies structure instead of noise. */
+    --md-heading: var(--foreground);
+    --md-table-header: var(--foreground);
+    --md-strong: var(--foreground);
+    --md-emphasis: var(--foreground);
+    --md-inline-code: var(--foreground);
+    --md-list-marker: var(--muted-foreground);
+    --md-quote-border: var(--border);
     @apply text-base leading-[1.7] text-foreground/90;
     word-break: break-word;
+  }
+  html[data-theme$="-vivid"] .md {
+    --md-heading: var(--primary);
+    --md-table-header: var(--md-heading);
+    --md-strong: var(--syntax-number);
+    --md-emphasis: var(--syntax-keyword);
+    --md-inline-code: var(--syntax-property);
+    --md-list-marker: var(--event-file);
+    --md-quote-border: var(--event-tool);
   }
   .md > :first-child { margin-top: 0; }
   .md > :last-child { margin-bottom: 0; }
@@ -2837,23 +3252,28 @@ textarea {
   .md p { @apply my-3; }
   .md-bubble p + p { @apply mt-2.5; }
   .md h1, .md h2, .md h3, .md h4 {
-    @apply mb-2.5 mt-5 font-semibold text-foreground;
+    @apply mb-2.5 mt-5 font-semibold;
+    color: var(--md-heading);
   }
   /* A ladder that never collides with the 14px body. */
   .md h1 { @apply text-2xl; }
   .md h2 { @apply text-xl; }
   .md h3 { @apply text-lg; }
   .md h4 { @apply text-base; }
+  .md strong { color: var(--md-strong); }
+  .md em { color: var(--md-emphasis); }
   .md ul, .md ol { @apply my-3 pl-5; }
   .md ul { list-style: disc; }
   .md ol { list-style: decimal; }
   .md li { @apply my-1; }
+  .md li::marker { color: var(--md-list-marker); }
   .md li > p { @apply my-1; }
   .md code {
     /* No border and almost no padding: an inline chip inside a Chinese
        sentence was taller than the line, and the gap around a full-width
        bracket read as a hole. */
-    @apply rounded bg-code-header px-1 py-px font-mono text-xs text-foreground/90;
+    @apply rounded bg-code-header px-1 py-px font-mono text-xs;
+    color: var(--md-inline-code);
   }
   .md pre {
     @apply my-3 overflow-x-auto rounded-lg border border-border bg-code-surface p-3;
@@ -2866,6 +3286,7 @@ textarea {
   }
   .md pre code {
     @apply block rounded-none border-0 bg-transparent p-0 text-xs leading-relaxed;
+    color: var(--foreground);
     white-space: pre;
   }
   .md pre[data-lang] code { @apply p-3; }
@@ -2938,7 +3359,8 @@ textarea {
     @apply mt-1 text-2xs text-destructive/90;
   }
   .md blockquote {
-    @apply my-3 border-l-2 border-border pl-3 text-muted-foreground;
+    @apply my-3 border-l-2 pl-3 text-muted-foreground;
+    border-color: var(--md-quote-border);
   }
   .md a { @apply text-event-user underline underline-offset-2; }
   .md hr { @apply my-4 border-border; }
@@ -2948,7 +3370,10 @@ textarea {
   .md th, .md td {
     @apply border border-border px-2.5 py-1.5 text-left;
   }
-  .md th { @apply bg-secondary font-medium; }
+  .md th {
+    @apply bg-secondary font-medium;
+    color: var(--md-table-header);
+  }
   .md img { @apply max-w-full cursor-zoom-in rounded-lg; }
 }
 

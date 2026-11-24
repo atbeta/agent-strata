@@ -32,7 +32,10 @@ export type ThemeId =
   | "monokai"
   | "aurora-vivid"
   | "sunset-vivid"
-  | "ocean-vivid";
+  | "ocean-vivid"
+  | "candy-vivid"
+  | "forest-vivid"
+  | "midnight-vivid";
 
 /** Three marks that identify a palette in a picker: page, surface, accent. */
 export type ThemeSwatch = {
@@ -188,6 +191,30 @@ export const THEMES: readonly Theme[] = [
     swatch: {
       dark: { background: "#071b2a", surface: "#0c2638", accent: "#64d9ff" },
       light: { background: "#f4fbff", surface: "#ffffff", accent: "#006eaa" },
+    },
+  },
+  {
+    id: "candy-vivid",
+    name: "Candy Vivid",
+    swatch: {
+      dark: { background: "#211020", surface: "#2b162b", accent: "#ff9bd7" },
+      light: { background: "#fff7fc", surface: "#ffffff", accent: "#a3267c" },
+    },
+  },
+  {
+    id: "forest-vivid",
+    name: "Forest Vivid",
+    swatch: {
+      dark: { background: "#111c14", surface: "#19271d", accent: "#b4e582" },
+      light: { background: "#f6fbf2", surface: "#ffffff", accent: "#4a730c" },
+    },
+  },
+  {
+    id: "midnight-vivid",
+    name: "Midnight Vivid",
+    swatch: {
+      dark: { background: "#0a1024", surface: "#111a35", accent: "#8fa8ff" },
+      light: { background: "#f5f7ff", surface: "#ffffff", accent: "#365bb5" },
     },
   },
 ];

@@ -340,6 +340,39 @@ describe("theme.css", () => {
     }
   });
 
+  test("Vivid markdown aliases existing palette roles", () => {
+    const vivid = tokens(block('html[data-theme$="-vivid"] .md'));
+    expect(Object.fromEntries(vivid)).toEqual({
+      "--md-heading": "var(--primary)",
+      "--md-table-header": "var(--md-heading)",
+      "--md-strong": "var(--syntax-number)",
+      "--md-emphasis": "var(--syntax-keyword)",
+      "--md-inline-code": "var(--syntax-property)",
+      "--md-list-marker": "var(--event-file)",
+      "--md-quote-border": "var(--event-tool)",
+    });
+    // Inline-code colour belongs to inline chips, not to unclassified fence text.
+    expect(block(".md pre code")).toContain("color: var(--foreground)");
+  });
+
+  test("Vivid markdown text keeps AA contrast on its own surfaces", () => {
+    for (const theme of THEMES.filter((theme) => theme.id.endsWith("-vivid"))) {
+      for (const scheme of ["dark", "light"] as const) {
+        const values = valuesFor(theme.id, scheme);
+        for (const [role, surface, label] of [
+          ["syntax-property", "code-header", "inline code"],
+          ["primary", "secondary", "table header"],
+        ] as const) {
+          const ratio = contrast(
+            colorToHex(values.get(`--${role}`)!),
+            colorToHex(values.get(`--${surface}`)!),
+          );
+          expect(ratio, `${theme.id}/${scheme} ${label}`).toBeGreaterThanOrEqual(4.45);
+        }
+      }
+    }
+  });
+
   test("a filled button's label keeps AA contrast against its fill", () => {
     // The text test above never sees these pairs: the label is
     // `primary-foreground`, and the fill is `primary`, which is also drawn as
@@ -402,7 +435,7 @@ describe("theme.css", () => {
 
   test("every palette token has a consumer", () => {
     // A token nobody reads is a promise the UI never keeps: the cost deltas
-    // were defined in all twenty-six blocks and drawn in none, so the compare
+    // were defined in every palette block and drawn in none, so the compare
     // view showed every change in the same grey. The palette is where a
     // colour is declared; this is where it has to be spent.
     const css = read("theme.css");
