@@ -58,6 +58,7 @@ export default {
   "sidebar.session.compare": "对比用量",
   "sidebar.session.archive": "归档",
   "sidebar.session.delete": "删除",
+  "sidebar.session.deleting": "删除中…",
   "sidebar.session.deleteTitle": "删除「{name}」",
   "sidebar.sessionCount.one": "{n} 个会话",
   "sidebar.sessionCount.other": "{n} 个会话",
@@ -84,7 +85,6 @@ export default {
   "sidebar.archived.confirm": "确认删除",
   "sidebar.archived.localConfirm": "仅删本地",
   "sidebar.archived.restored": "已恢复。",
-  "sidebar.archived.deleted": "已删除。",
   "sidebar.more": "显示更多会话",
   "sidebar.group.more": "还有 {n} 条",
 

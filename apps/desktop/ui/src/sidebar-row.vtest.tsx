@@ -90,3 +90,33 @@ test("the pinned marker shares the menu icon's angle", () => {
   expect(marker).not.toBeNull();
   expect(marker?.querySelector("path")?.getAttribute("d")).toBe("M12 17v5");
 });
+
+test("a deleting row stays visible but cannot be opened or changed", () => {
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const onOpen = vi.fn();
+  dispose = render(
+    () => (
+      <SessionListItem
+        id="session-1"
+        title="Nightly"
+        active={false}
+        status={sessionStatus({})}
+        time="12:00"
+        onOpen={onOpen}
+        onRename={async () => {}}
+        onArchive={async () => {}}
+        onDelete={() => {}}
+        deleting={true}
+        pinned={false}
+        onTogglePin={() => {}}
+      />
+    ),
+    host,
+  );
+
+  expect(host.textContent).toContain(t("sidebar.session.deleting"));
+  expect(host.querySelector<HTMLButtonElement>("[data-row-menu]")?.disabled).toBe(true);
+  host.querySelector<HTMLElement>("[role=button]")?.click();
+  expect(onOpen).not.toHaveBeenCalled();
+});

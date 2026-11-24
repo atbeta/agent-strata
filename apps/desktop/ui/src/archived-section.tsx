@@ -71,22 +71,14 @@ export function ArchivedSection(props: {
       setBusy("");
     }
   };
-  const remove = async (row: SessionRow, data: SessionData) => {
+  const remove = (row: SessionRow, data: SessionData) => {
     const id = row.summary.session_id;
-    setBusy(id);
+    setConfirm(undefined);
     setError("");
     setNote(undefined);
-    try {
+    void props.list.runDelete(id, async () => {
       await deleteSession(id, !data.can_delete);
-      setConfirm(undefined);
-      setNote({ id, text: t("sidebar.archived.deleted") });
-      void props.list.refetch();
-    } catch (e) {
-      setConfirm(undefined);
-      setError(explain(e));
-    } finally {
-      setBusy("");
-    }
+    });
   };
 
   return (
@@ -115,13 +107,14 @@ export function ArchivedSection(props: {
               // The date holds the slot until the row is pointed at or focused;
               // a row in the middle of a request keeps the actions visible but
               // disabled.
-              const held = () => busy() === id;
+              const held = () => busy() === id || props.list.isDeleting(id);
               return (
                 <li>
                   <div class="group/arch relative flex items-center">
                     <RowButton
                       class="min-w-0 flex-1 gap-2 px-1 py-1 text-sm text-muted-foreground hover:text-foreground"
                       title={folder() ? `${title()} · ${folder()}` : title()}
+                      disabled={props.list.isDeleting(id)}
                       onClick={() => props.onOpen(id)}
                     >
                       <span class="min-w-0 flex-1 truncate">{title()}</span>
@@ -138,32 +131,37 @@ export function ArchivedSection(props: {
                         held() ? "opacity-100" : "opacity-0"
                       }`}
                     >
-                      <Tip label={t("sidebar.archived.restore")}>
-                        <Button
-                          type="button"
-                          size="icon-2xs"
-                          variant="icon"
-                          class="shrink-0"
-                          aria-label={t("sidebar.archived.restore")}
-                          disabled={busy() === id}
-                          onClick={() => void restore(row)}
-                        >
-                          <Icon name="undo" class="size-3" />
-                        </Button>
-                      </Tip>
-                      <Tip label={t("sidebar.archived.delete")}>
-                        <Button
-                          type="button"
-                          size="icon-2xs"
-                          variant="icon"
-                          class="shrink-0 hover:text-destructive"
-                          aria-label={t("sidebar.archived.delete")}
-                          disabled={busy() === id}
-                          onClick={() => void askDelete(row)}
-                        >
-                          <Icon name="trash" class="size-3" />
-                        </Button>
-                      </Tip>
+                      <Show
+                        when={!props.list.isDeleting(id)}
+                        fallback={<span class="px-1 text-2xs text-muted-foreground">{t("sidebar.session.deleting")}</span>}
+                      >
+                        <Tip label={t("sidebar.archived.restore")}>
+                          <Button
+                            type="button"
+                            size="icon-2xs"
+                            variant="icon"
+                            class="shrink-0"
+                            aria-label={t("sidebar.archived.restore")}
+                            disabled={busy() === id}
+                            onClick={() => void restore(row)}
+                          >
+                            <Icon name="undo" class="size-3" />
+                          </Button>
+                        </Tip>
+                        <Tip label={t("sidebar.archived.delete")}>
+                          <Button
+                            type="button"
+                            size="icon-2xs"
+                            variant="icon"
+                            class="shrink-0 hover:text-destructive"
+                            aria-label={t("sidebar.archived.delete")}
+                            disabled={busy() === id}
+                            onClick={() => void askDelete(row)}
+                          >
+                            <Icon name="trash" class="size-3" />
+                          </Button>
+                        </Tip>
+                      </Show>
                     </div>
                   </div>
                 </li>
@@ -190,14 +188,11 @@ export function ArchivedSection(props: {
           confirm()?.data.can_delete ? t("sidebar.archived.confirm") : t("sidebar.archived.localConfirm")
         }
         cancelLabel={t("confirm.cancel")}
-        pending={busy() === confirm()?.row.summary.session_id}
         onConfirm={() => {
           const target = confirm();
-          if (target) void remove(target.row, target.data);
+          if (target) remove(target.row, target.data);
         }}
-        onCancel={() => {
-          if (busy() !== confirm()?.row.summary.session_id) setConfirm(undefined);
-        }}
+        onCancel={() => setConfirm(undefined)}
       />
     </div>
   );

@@ -30,6 +30,8 @@ export function SessionListItem(props: {
   onRename: (title: string) => Promise<void>;
   onArchive: () => Promise<void>;
   onDelete: () => void;
+  /** A delete is running in the background; keep the row visible but inactive. */
+  deleting?: boolean;
   /** Whether the row sits in the pinned group; the menu reads one of two words. */
   pinned: boolean;
   onTogglePin: () => void;
@@ -117,11 +119,11 @@ export function SessionListItem(props: {
 
   return (
     <ContextMenu>
-      <ContextMenuTrigger class="contents" disabled={editing()}>
+      <ContextMenuTrigger class="contents" disabled={editing() || props.deleting}>
         <ListRow
           active={props.active}
           onOpen={props.onOpen}
-          disabled={editing()}
+          disabled={editing() || props.deleting}
           onMouseEnter={() => setHot(true)}
           onMouseLeave={() => setHot(false)}
           class="group"
@@ -183,12 +185,13 @@ export function SessionListItem(props: {
                 reveal() ? "invisible" : ""
               }`}
             >
-              {props.time}
+              {props.deleting ? t("sidebar.session.deleting") : props.time}
             </span>
             <DropdownMenu placement="bottom-end" open={menuOpen()} onOpenChange={setMenuOpen}>
               <DropdownMenuTrigger
                 variant="icon"
                 size="icon-xs"
+                disabled={props.deleting}
                 class={`absolute right-1 top-1/2 -translate-y-1/2 hover:bg-background ${
                   reveal()
                     ? ""

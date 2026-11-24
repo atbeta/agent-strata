@@ -127,7 +127,7 @@ export function useSessionList(opts: {
   // spinning forever.
   let opened = false;
   const [limit, setLimit] = createSignal(200);
-  const [data, { refetch }] = createResource(limit, (n) => {
+  const [data, { refetch, mutate }] = createResource(limit, (n) => {
     // `roots=1`: the sidebar renders roots only, so the limit has to count
     // roots. Paging unfiltered and dropping children in the client meant a
     // page could arrive filled with subagent sessions and render as an empty
@@ -456,6 +456,34 @@ export function useSessionList(opts: {
     }
   };
 
+  const [deleting, setDeleting] = createSignal<ReadonlySet<string>>(new Set());
+  const runDelete = async (id: string, fn: () => Promise<void>) => {
+    if (deleting().has(id)) return;
+    setActionErr("");
+    setDeleting((current) => new Set(current).add(id));
+    if (opts.activeId() === id) location.hash = "/";
+    try {
+      await fn();
+      // The stream owns the reconciling reread. Removing the row here as well
+      // keeps a successful delete immediate when the stream is disconnected.
+      mutate((current) =>
+        current
+          ? { ...current, sessions: current.sessions.filter((row) => row.summary.session_id !== id) }
+          : current,
+      );
+    } catch (e) {
+      // The row was never removed optimistically, so clearing `deleting` is
+      // enough to put it back into service after a refused or uncertain delete.
+      setActionErr(explain(e));
+    } finally {
+      setDeleting((current) => {
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
+    }
+  };
+
   return {
     data,
     refetch,
@@ -481,6 +509,8 @@ export function useSessionList(opts: {
     actionErr,
     setActionErr,
     runAction,
+    runDelete,
+    isDeleting: (id: string) => deleting().has(id),
     more,
     loadMore,
   };

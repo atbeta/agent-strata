@@ -1331,3 +1331,64 @@ describe("runOpencodeStream", () => {
     abort.abort();
   });
 });
+
+
+describe("session deletion", () => {
+  const eventStream = () =>
+    new Response(
+      new ReadableStream<Uint8Array>({
+        start(ctrl) {
+          ctrl.enqueue(new TextEncoder().encode('data: {"type":"server.connected","properties":{}}\n\n'));
+        },
+      }),
+      { status: 200, headers: { "content-type": "text/event-stream" } },
+    );
+
+  test("an HTTP error does not append a deleted event", async () => {
+    const { connectOpencode } = await import("../src/index");
+    const store = openStore(":memory:");
+    const conn = await connectOpencode({
+      baseUrl: "http://fake",
+      sink: store,
+      fetch: (async (input: Request | URL | string) => {
+        const req = input instanceof Request ? input : new Request(input);
+        if (req.method === "DELETE") return Response.json({ message: "backend refused" }, { status: 500 });
+        return eventStream();
+      }) as typeof fetch,
+      connectTimeoutMs: 5_000,
+    });
+    try {
+      await expect(conn.deleteSession("ses_1", "/repo")).rejects.toThrow("backend refused");
+      expect(store.read({ session_id: "opencode:ses_1" })).toEqual([]);
+    } finally {
+      conn.stop();
+      store.close();
+    }
+  });
+
+  test("a quiet backend times out without appending a deleted event", async () => {
+    const { connectOpencode } = await import("../src/index");
+    const store = openStore(":memory:");
+    const conn = await connectOpencode({
+      baseUrl: "http://fake",
+      sink: store,
+      fetch: (async (input: Request | URL | string) => {
+        const req = input instanceof Request ? input : new Request(input);
+        if (req.method !== "DELETE") return eventStream();
+        return new Promise<Response>((_resolve, reject) => {
+          if (req.signal.aborted) reject(req.signal.reason);
+          else req.signal.addEventListener("abort", () => reject(req.signal.reason), { once: true });
+        });
+      }) as typeof fetch,
+      connectTimeoutMs: 5_000,
+      deleteTimeoutMs: 20,
+    });
+    try {
+      await expect(conn.deleteSession("ses_1", "/repo")).rejects.toThrow();
+      expect(store.read({ session_id: "opencode:ses_1" })).toEqual([]);
+    } finally {
+      conn.stop();
+      store.close();
+    }
+  });
+});

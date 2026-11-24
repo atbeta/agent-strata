@@ -289,6 +289,7 @@ export function App() {
     let timer: ReturnType<typeof setTimeout> | undefined;
     /** Set when a turn ends; the overview's usage buckets are read again with the list. */
     let usageStale = false;
+    let connectionsStale = false;
     /** The pull in flight. A second one would only queue another crawl behind it. */
     let pulling: Promise<{ imported: number }> | undefined;
     const pull = (reason: PullReason) => {
@@ -462,11 +463,15 @@ export function App() {
       }
       const behindSync = conns.syncTicks().size > 0;
       if (behindSync && !changesSessionList(type)) return;
+      if (type !== "session.deleted") connectionsStale = true;
       clearTimeout(timer);
       timer = setTimeout(
         () => {
           list.refetch();
-          conns.refetchConns();
+          if (connectionsStale) {
+            connectionsStale = false;
+            conns.refetchConns();
+          }
           if (wsStale) {
             wsStale = false;
             void ws.refetchWs();

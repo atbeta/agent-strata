@@ -57,6 +57,7 @@ export default {
   "sidebar.session.compare": "Compare usage",
   "sidebar.session.archive": "Archive",
   "sidebar.session.delete": "Delete",
+  "sidebar.session.deleting": "Deleting…",
   "sidebar.session.deleteTitle": "Delete \"{name}\"",
   "sidebar.sessionCount.one": "{n} session",
   "sidebar.sessionCount.other": "{n} sessions",
@@ -83,7 +84,6 @@ export default {
   "sidebar.archived.confirm": "Delete",
   "sidebar.archived.localConfirm": "Delete local only",
   "sidebar.archived.restored": "Restored.",
-  "sidebar.archived.deleted": "Deleted.",
   "sidebar.more": "Show more sessions",
   "sidebar.group.more": "{n} more",
 

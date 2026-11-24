@@ -151,7 +151,6 @@ export function Sidebar(props: {
 }) {
   const list = () => props.list;
   const [sessionDelete, setSessionDelete] = createSignal<{ id: string; title: string; data: SessionData }>();
-  const [sessionDeleteBusy, setSessionDeleteBusy] = createSignal(false);
   const askDeleteSession = (id: string, title: string) => {
     void readSessionData(id).then(
       (data) => setSessionDelete({ id, title, data }),
@@ -160,20 +159,11 @@ export function Sidebar(props: {
   };
   const commitDeleteSession = () => {
     const pending = sessionDelete();
-    if (!pending || sessionDeleteBusy()) return;
-    setSessionDeleteBusy(true);
-    void list()
-      .runAction(
-        pending.id,
-        async () => {
-          await deleteSession(pending.id, !pending.data.can_delete);
-        },
-        true,
-      )
-      .finally(() => {
-        setSessionDeleteBusy(false);
-        setSessionDelete(undefined);
-      });
+    if (!pending) return;
+    setSessionDelete(undefined);
+    void list().runDelete(pending.id, async () => {
+      await deleteSession(pending.id, !pending.data.can_delete);
+    });
   };
 
   /**
@@ -539,6 +529,7 @@ export function Sidebar(props: {
                   onRename={(title) => list().runAction(id, () => renameSession(id, title), false)}
                   onArchive={() => list().runAction(id, () => archiveSession(id), true)}
                   onDelete={() => askDeleteSession(id, displayTitle(s().title ?? s().summary.title) ?? t("common.untitled"))}
+                  deleting={list().isDeleting(id)}
                   pinned={list().pins().includes(id)}
                   onTogglePin={() => list().togglePinned(id)}
                   onCompare={
@@ -992,11 +983,8 @@ export function Sidebar(props: {
             : t("sidebar.archived.localConfirm")
         }
         cancelLabel={t("confirm.cancel")}
-        pending={sessionDeleteBusy()}
         onConfirm={commitDeleteSession}
-        onCancel={() => {
-          if (!sessionDeleteBusy()) setSessionDelete(undefined);
-        }}
+        onCancel={() => setSessionDelete(undefined)}
       />
     </aside>
   );

@@ -92,6 +92,7 @@ function errorMessage(e: unknown): string {
 export const PROMPT_NOT_ACCEPTED = "prompt was not accepted";
 
 const ABORT_REQUEST_MS = 5_000;
+const DELETE_REQUEST_MS = 15_000;
 
 /**
  * How long a stop's status re-read may take before it stops mattering.
@@ -130,6 +131,7 @@ export async function connectOpencode(opts: {
   /** How long prompt_async may take to accept. It returns once the run has started. */
   promptAcceptMs?: number;
   abortTimeoutMs?: number;
+  deleteTimeoutMs?: number;
   /** Testing seam: how quiet a session believed running may get before its status is asked. */
   quietProbeMs?: number;
   /** Testing seam: how often a still-quiet, still-busy session is asked again. */
@@ -959,7 +961,11 @@ export async function connectOpencode(opts: {
       }
     },
     async deleteSession(sessionID: string, directory?: string) {
-      await client.session.delete({ sessionID, directory: directory ?? opts.directory });
+      const res = await client.session.delete(
+        { sessionID, directory: directory ?? opts.directory },
+        { signal: AbortSignal.timeout(opts.deleteTimeoutMs ?? DELETE_REQUEST_MS) },
+      );
+      if (res.error) throw new Error(errorMessage(res.error));
       ingestor.handle({
         id: `write:${sessionID}:deleted`,
         type: "session.deleted",
