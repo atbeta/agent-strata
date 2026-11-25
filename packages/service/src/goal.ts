@@ -140,21 +140,26 @@ export function goalBlockedByReply(input: {
  * Whether a session runs unattended: nobody is expected to answer its
  * questions in time.
  *
- * An active goal makes its own rounds autonomous. A session a schedule
- * spawned is unattended from its first prompt — which is the engine's own
- * `[scheduled:` text, so the transcript itself is the provenance record and
- * a restart or a rename does not lose it. A met, paused, or blocked goal is
- * back in the reader's hands, so its questions are theirs again.
+ * An active goal makes its own rounds autonomous. A turn a schedule sent is
+ * unattended — whether the schedule spawned the session or fired into one
+ * the reader already had. Its prompt is the engine's own `[scheduled:` text,
+ * so the transcript itself is the provenance record and a restart or a
+ * rename does not lose it. Once the reader types again the latest turn is
+ * theirs, and so are its questions; a met, paused, or blocked goal is back
+ * in their hands the same way.
  */
 export function sessionAutonomous(
   view: Pick<SessionView, "goal" | "goal_met" | "goal_paused" | "goal_blocked" | "turns">,
 ): boolean {
   if (view.goal && !view.goal_met && !view.goal_paused && !view.goal_blocked) return true;
-  const first = view.turns[0]?.user
-    ?.filter((block) => block.type === "text")
-    .map((block) => block.text)
-    .join("\n");
-  return first?.startsWith("[scheduled:") ?? false;
+  for (let i = view.turns.length - 1; i >= 0; i--) {
+    const text = view.turns[i]!.user
+      ?.filter((block) => block.type === "text")
+      .map((block) => block.text)
+      .join("\n");
+    if (text) return text.startsWith("[scheduled:");
+  }
+  return false;
 }
 
 /**

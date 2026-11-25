@@ -149,9 +149,15 @@ export class PermissionRequests {
       return;
     }
     if (!autonomous) return;
+    this.scheduleAutoAnswer(requestId);
+  }
+
+  private scheduleAutoAnswer(requestId: string): void {
     const timer = setTimeout(() => {
+      this.questionTimers.delete(requestId);
       void this.autoAnswerQuestion(requestId).catch((error) => {
         console.error("question auto-answer failed:", error);
+        if (this.pendingQuestions.has(requestId)) this.scheduleAutoAnswer(requestId);
       });
     }, this.questionTimeoutMs);
     (timer as { unref?: () => void }).unref?.();
@@ -161,13 +167,18 @@ export class PermissionRequests {
   /**
    * Answer a question nobody answered, with judgment guidance rather than a
    * choice. A failure leaves the question pending — the reader can still
-   * answer, which is strictly better than eating the question.
+   * answer, which is strictly better than eating the question — and the
+   * deadline comes round again, so an unattended run is not stuck on it
+   * because one attempt fell on a reply in flight or a backend that was away.
    */
   private async autoAnswerQuestion(requestId: string): Promise<void> {
     const question = this.pendingQuestions.get(requestId);
-    if (!question || question.submitting) return;
+    if (!question) return;
     const conn = this.deps.driverFor(question.session_id);
-    if (!conn?.replyQuestion) return;
+    if (question.submitting || !conn?.replyQuestion) {
+      this.scheduleAutoAnswer(requestId);
+      return;
+    }
     const answers = question.questions.map(() => [QUESTION_TIMEOUT_ANSWER]);
     question.submitting = true;
     try {
@@ -396,9 +407,12 @@ export class PermissionRequests {
     answers?: string[][],
     meta?: { by: "auto"; reason: string },
   ): void {
+    // The backend reports the reply under the opencode id as well, and the
+    // store keeps whichever lands first — an auto answer under that id lost
+    // its `by` whenever the backend's copy won.
     this.deps.store.append([
       makeEvent({
-        id: `opencode:${requestId}:question.resolved`,
+        id: meta ? `desktop:${requestId}:question.resolved` : `opencode:${requestId}:question.resolved`,
         session_id: sessionId,
         source: { backend: "desktop" },
         type: "question.resolved",

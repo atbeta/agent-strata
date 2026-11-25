@@ -317,7 +317,11 @@ describe("a question on an unattended session", () => {
       },
     }) as Extract<EventInput, { type: "question.asked" }>;
 
-  function timeoutHarness(view: object, questionTimeoutMs = 20) {
+  function timeoutHarness(
+    view: object,
+    questionTimeoutMs = 20,
+    before?: (store: ReturnType<typeof openStore>, requestId: string) => void,
+  ) {
     const store = openStore(":memory:");
     const replies: { requestId: string; answers: string[][] }[] = [];
     const requests = new PermissionRequests({
@@ -325,6 +329,7 @@ describe("a question on an unattended session", () => {
       sessionView: () => ({ pending_questions: [], turns: [], ...view }) as unknown as SessionView,
       driverFor: () => ({
         replyQuestion: async (requestId: string, answers: string[][]) => {
+          before?.(store, requestId);
           replies.push({ requestId, answers });
         },
       }),
@@ -358,6 +363,45 @@ describe("a question on an unattended session", () => {
     store.close();
   });
 
+  test("the automatic mark survives the backend's own copy of the reply landing first", async () => {
+    const seen: EventInput[] = [];
+    const { store, requests } = timeoutHarness({ goal: "ship it" }, 20, (store, requestId) => {
+      store.append([
+        makeEvent({
+          id: `opencode:${requestId}:question.resolved`,
+          session_id: "opencode:s1",
+          source: { backend: "opencode" },
+          type: "question.resolved",
+          data: { request_id: requestId, decision: "reply", answers: [["x"]] },
+        }) as EventInput,
+      ]);
+    });
+    store.subscribe((e) => seen.push(e));
+    void requests.onQuestion(asked("q1"));
+    await sleep(60);
+    const auto = seen.find((e) => e.type === "question.resolved" && e.data.by === "auto");
+    expect(auto?.id).toBe("desktop:q1:question.resolved");
+    store.close();
+  });
+
+  test("a failed automatic answer comes round again", async () => {
+    let attempts = 0;
+    const { store, requests, replies } = timeoutHarness({ goal: "ship it" }, 20, () => {
+      if (attempts++ === 0) throw new Error("backend away");
+    });
+    const error = console.error;
+    console.error = () => {};
+    try {
+      void requests.onQuestion(asked("q1"));
+      await sleep(100);
+    } finally {
+      console.error = error;
+    }
+    expect(replies).toHaveLength(1);
+    expect(requests.pendingQuestions.has("q1")).toBe(false);
+    store.close();
+  });
+
   test("an interactive session's question waits past the same window", async () => {
     const { store, requests, replies } = timeoutHarness({ goal: undefined });
     void requests.onQuestion(asked("q1"));
@@ -384,6 +428,34 @@ describe("a question on an unattended session", () => {
     void requests.onQuestion(asked("q1"));
     await sleep(60);
     expect(replies).toHaveLength(1);
+    store.close();
+  });
+
+  test("a schedule firing into an existing session makes that turn autonomous", async () => {
+    const { store, requests, replies } = timeoutHarness({
+      goal: undefined,
+      turns: [
+        { user: [{ type: "text", text: "look at the logs" }], assistant: [] },
+        { user: [{ type: "text", text: "[scheduled: nightly]\\n\\ndo the thing" }], assistant: [] },
+      ],
+    });
+    void requests.onQuestion(asked("q1"));
+    await sleep(60);
+    expect(replies).toHaveLength(1);
+    store.close();
+  });
+
+  test("a scheduled session the reader typed into again is theirs to answer", async () => {
+    const { store, requests, replies } = timeoutHarness({
+      goal: undefined,
+      turns: [
+        { user: [{ type: "text", text: "[scheduled: nightly]\\n\\ndo the thing" }], assistant: [] },
+        { user: [{ type: "text", text: "now fix what you found" }], assistant: [] },
+      ],
+    });
+    void requests.onQuestion(asked("q1"));
+    await sleep(60);
+    expect(replies).toHaveLength(0);
     store.close();
   });
 
