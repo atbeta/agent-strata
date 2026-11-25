@@ -43,4 +43,9 @@ describe("folderConnection", () => {
     expect(pick([], { local: true, preferred: "rem" })).toEqual({ id: "eng" });
     expect(pick([], { local: true, preferred: "rem", live: [remote] })).toEqual({ id: undefined });
   });
+
+  test("a worktree is not refused because the folder's remote server is away", () => {
+    const rows = [{ dir: "/repo", source: { color: 0, name: "家里 101", connected: false } }];
+    expect(pick(rows, { local: true, preferred: "rem" })).toEqual({ id: "eng" });
+  });
 });

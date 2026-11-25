@@ -165,7 +165,10 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         // a backend that cannot list projects still contributes its sessions
       }
     }
-    for (const summary of store.listSessions()) {
+    // A disconnected server's folders go with its sessions: left behind, one
+    // was an empty project whose new session opened on whichever server was
+    // the default, where the path need not exist.
+    for (const summary of store.listSessions({ exceptOrigins: hiddenOrigins() })) {
       if (connectionId !== undefined) {
         const owner = conns.connectionOf(summary.session_id);
         const belongs =

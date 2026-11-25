@@ -24,6 +24,7 @@ import { Card, Group, Row, Segmented, pickerTrigger } from "./settings-blocks";
 import { endpointShort, type ConnectionsCtl } from "./use-connections";
 import type { Connection, ConnectionAttempt } from "./api";
 import { sourceColor } from "./source-color";
+import { Tip } from "./tip";
 
 /** The tier a badge names, in the user's terms: where the machine is. */
 function tierWord(tier: Connection["tier"]): string {
@@ -187,12 +188,16 @@ export function BackendSettings(props: { conns: ConnectionsCtl }) {
                     </span>
                     <div class="flex shrink-0 flex-wrap items-center gap-2">
                       <Show when={live().length > 1 && c().newSessionConnection() !== conn.id}>
-                        <Button size="sm" variant="quiet" onClick={() => c().chooseNewConn(conn.id)}>
-                          {t("settings.backends.useForNew")}
-                        </Button>
+                        <Tip label={t("settings.backends.useForNewHint")}>
+                          <Button size="sm" variant="quiet" onClick={() => c().chooseNewConn(conn.id)}>
+                            {t("settings.backends.useForNew")}
+                          </Button>
+                        </Tip>
                       </Show>
                       <Show when={live().length > 1 && c().newSessionConnection() === conn.id}>
-                        <span class="text-2xs text-muted-foreground">{t("sidebar.backend.newTarget")}</span>
+                        <Tip label={t("settings.backends.useForNewHint")}>
+                          <span class="text-2xs text-muted-foreground">{t("sidebar.backend.newTarget")}</span>
+                        </Tip>
                       </Show>
                       <Button size="sm" variant="outline" onClick={() => c().disconnect(conn.id)}>
                         {t("settings.backends.disconnect")}

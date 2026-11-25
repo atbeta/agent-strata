@@ -144,6 +144,7 @@ export default {
   "settings.backends.add.hint": "OpenCode 填服务地址直连；ACP 用命令在本机拉起一个适配器。",
   "settings.backends.forget": "不再连接",
   "settings.backends.useForNew": "用于新会话",
+  "settings.backends.useForNewHint": "新会话默认开在这台；已经有会话的文件夹，仍开在它原来那台服务器上。",
   "settings.backends.disconnect": "断开",
   "connect.form.command": "启动命令，如 opencode acp",
   "sidebar.backend.newTarget": "新会话",

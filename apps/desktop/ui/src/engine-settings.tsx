@@ -361,11 +361,17 @@ export function EngineSettings(props: { conns: ConnectionsCtl }) {
                 {(conn) => (
                   <Show
                     when={props.conns.newSessionConnection() !== conn().id}
-                    fallback={<span class="text-2xs text-muted-foreground">{t("sidebar.backend.newTarget")}</span>}
+                    fallback={
+                      <Tip label={t("settings.backends.useForNewHint")}>
+                        <span class="text-2xs text-muted-foreground">{t("sidebar.backend.newTarget")}</span>
+                      </Tip>
+                    }
                   >
-                    <Button size="sm" variant="quiet" onClick={() => props.conns.chooseNewConn(conn().id)}>
-                      {t("settings.backends.useForNew")}
-                    </Button>
+                    <Tip label={t("settings.backends.useForNewHint")}>
+                      <Button size="sm" variant="quiet" onClick={() => props.conns.chooseNewConn(conn().id)}>
+                        {t("settings.backends.useForNew")}
+                      </Button>
+                    </Tip>
                   </Show>
                 )}
               </Show>

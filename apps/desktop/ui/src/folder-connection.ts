@@ -13,7 +13,8 @@ type FolderRow = { connection_id?: string; source?: SessionSource };
  * would be the wrong machine.
  *
  * `local` is for a worktree: this machine's git made it, so only a server on
- * this machine can open it. No `id` means none is connected.
+ * this machine can open it, and the folder's own server being away says
+ * nothing about which. No `id` means none is connected.
  */
 export function folderConnection<Row extends FolderRow>(opts: {
   dir: string | undefined;
@@ -27,11 +28,13 @@ export function folderConnection<Row extends FolderRow>(opts: {
   const live = new Map(opts.connections.map((conn) => [conn.id, conn]));
   const newest = opts.dir ? opts.rows.find((row) => opts.workspaceOf(row) === opts.dir) : undefined;
   const owner = newest?.connection_id !== undefined && live.has(newest.connection_id) ? newest.connection_id : undefined;
+  const preferred = opts.preferred && live.has(opts.preferred) ? opts.preferred : undefined;
+  if (opts.local) {
+    const local = [owner, preferred].find((id) => id !== undefined && live.get(id)?.tier === "local");
+    return { id: local ?? opts.connections.find((conn) => conn.tier === "local")?.id };
+  }
   if (!owner && newest?.source && !newest.source.local && !newest.source.connected) {
     return { offline: newest.source.name };
   }
-  const chosen = owner ?? (opts.preferred && live.has(opts.preferred) ? opts.preferred : undefined);
-  if (!opts.local) return { id: chosen };
-  if (chosen && live.get(chosen)?.tier === "local") return { id: chosen };
-  return { id: opts.connections.find((conn) => conn.tier === "local")?.id };
+  return { id: owner ?? preferred };
 }

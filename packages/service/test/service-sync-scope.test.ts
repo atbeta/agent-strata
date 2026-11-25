@@ -86,9 +86,15 @@ describe("a sync reconciles only the sessions its own server holds", () => {
         connections: { id: string; color?: number }[];
       };
       expect(listed.connections[0]?.color).toBe(0);
-      // disconnecting forgets the server: its sessions leave the list but not the store
+      const folders = async () =>
+        ((await fetch(`${base}/workspaces`).then((r) => r.json())) as { workspaces: { directory: string }[] }).workspaces.map(
+          (w) => w.directory,
+        );
+      expect(await folders()).toContain("/srv");
+      // disconnecting forgets the server: its sessions and folders leave the list but not the store
       await fetch(`${base}/connections/${encodeURIComponent(listed.connections[0]!.id)}`, { method: "DELETE" });
       expect(await row(base, "opencode:ses_remote")).toBeUndefined();
+      expect(await folders()).not.toContain("/srv");
       expect(svc.store.listSessions().map((s) => s.session_id)).toContain("opencode:ses_remote");
       expect(await row(base, "opencode:ses_local")).toBeDefined();
       await connected(base, remote);

@@ -144,6 +144,8 @@ export default {
     "OpenCode connects to a running server by address; ACP launches a local adapter from a command.",
   "settings.backends.forget": "Don't reconnect",
   "settings.backends.useForNew": "Use for new sessions",
+  "settings.backends.useForNewHint":
+    "New sessions open here by default; a folder that already has sessions keeps opening them on its own server.",
   "settings.backends.add": "Add a backend",
   "settings.backends.disconnect": "Disconnect",
   "connect.form.command": "command, e.g. opencode acp",
