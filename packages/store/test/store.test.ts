@@ -843,6 +843,37 @@ describe("store.query", () => {
     s.close();
   });
 
+  test("an origin keeps its place when its first sessions are deleted", () => {
+    const s = openStore(":memory:");
+    s.append([mk("a_1", "session.started", { workspace: "/repo" })], { origin: "opencode:http://a" });
+    s.append([mk("b_1", "session.started", { workspace: "/repo" })], { origin: "opencode:http://b" });
+    s.append([mk("a_2", "session.started", { workspace: "/repo" })], { origin: "opencode:http://a" });
+    s.deleteSessions(["a_1"]);
+    expect(s.originOrder()).toEqual(["opencode:http://a", "opencode:http://b"]);
+    s.deleteSessions(["a_2"]);
+    expect(s.originOrder()).toEqual(["opencode:http://a", "opencode:http://b"]);
+    s.close();
+  });
+
+  test("a store from before the origin order fills it from its sessions", () => {
+    const dir = mkdtempSync(join(tmpdir(), "strata-origins-"));
+    try {
+      const path = join(dir, "events.db");
+      const s = openStore(path);
+      s.append([mk("b_1", "session.started", { workspace: "/repo" })], { origin: "opencode:http://b" });
+      s.append([mk("a_1", "session.started", { workspace: "/repo" })], { origin: "opencode:http://a" });
+      s.close();
+      const raw = new Database(path);
+      raw.exec("DROP TABLE origins");
+      raw.close();
+      const reopened = openStore(path);
+      expect(reopened.originOrder()).toEqual(["opencode:http://b", "opencode:http://a"]);
+      reopened.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("a fresh store needs no rebuild", async () => {
     const s = openStore(":memory:");
     expect(s.reindexPending()).toBe(false);

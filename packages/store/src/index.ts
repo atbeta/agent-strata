@@ -179,7 +179,7 @@ export interface Store {
   deletedSessions(): string[];
   /** Every session of a backend with the server recorded as its owner. */
   sessionOrigins(backend: string): { session_id: string; workspace: string | null; origin: string | null }[];
-  /** Each recorded origin once, in the order the store first held a session from it. */
+  /** Each recorded origin once, in the order the store first held a session from it — deleting those sessions does not move it. */
   originOrder(): string[];
   /** Remove every event, the session row and its revision marker. */
   deleteSessions(session_ids: string[]): number;
@@ -347,6 +347,19 @@ export function openStore(path: string | ":memory:"): Store {
   if (!sessionColumns.some((c) => c.name === "parent_session_id")) {
     db.exec("ALTER TABLE sessions ADD COLUMN parent_session_id TEXT");
   }
+  // Each origin in the order it was first seen, kept apart from the sessions:
+  // read off the sessions, the order moved whenever a server's earliest one
+  // was deleted, and with it every server's colour.
+  const hadOrigins = db.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='origins'").get();
+  db.exec("CREATE TABLE IF NOT EXISTS origins(origin TEXT PRIMARY KEY)");
+  if (!hadOrigins) {
+    db.exec(
+      "INSERT OR IGNORE INTO origins(origin) SELECT origin FROM sessions WHERE origin IS NOT NULL GROUP BY origin ORDER BY MIN(rowid)",
+    );
+  }
+  const noteOrigin = (origin: string): void => {
+    db.query("INSERT OR IGNORE INTO origins(origin) VALUES(?)").run(origin);
+  };
 
   // The index's segmentation is a property of the rows already written, not of
   // the schema: a store created before the CJK change holds the old single-token
@@ -520,6 +533,7 @@ export function openStore(path: string | ":memory:"): Store {
             opts.origin,
             stored.session_id,
           );
+          noteOrigin(opts.origin);
         }
         if (item.clock && item.clock !== stored.ts) {
           const next = parseEvent({ ...stored, ts: item.clock });
@@ -616,6 +630,7 @@ export function openStore(path: string | ":memory:"): Store {
         db.query(
           "UPDATE sessions SET origin=? WHERE session_id=? AND (origin IS NULL OR ?=1)",
         ).run(opts.origin, sessionId, opts.claimOrigin === true ? 1 : 0);
+        noteOrigin(opts.origin);
       }
       const text = ftsText(event);
       if (text.trim()) {
@@ -1013,9 +1028,7 @@ export function openStore(path: string | ":memory:"): Store {
     },
 
     originOrder() {
-      const rows = db
-        .query("SELECT origin FROM sessions WHERE origin IS NOT NULL GROUP BY origin ORDER BY MIN(rowid)")
-        .all() as { origin: string }[];
+      const rows = db.query("SELECT origin FROM origins ORDER BY rowid").all() as { origin: string }[];
       return rows.map((r) => r.origin);
     },
 
