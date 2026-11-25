@@ -256,7 +256,7 @@ export function GoalStrip(props: { g: GoalCtl }) {
                 variant="quiet"
                 class="shrink-0"
                 disabled={g().busy()}
-                onClick={() => void g().hold(!g().pausedShown())}
+                onClick={() => void g().hold(!g().blockedShown() && !g().pausedShown())}
               >
                 {g().pausedShown() || g().blockedShown() ? t("goal.resume") : t("goal.pause")}
               </Button>
