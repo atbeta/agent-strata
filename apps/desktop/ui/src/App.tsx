@@ -54,6 +54,7 @@ import {
   type PullReason,
 } from "./sync-events";
 import { createDebouncer } from "./debounce";
+import { folderConnection } from "./folder-connection";
 
 export function App() {
   const [route, setRoute] = createSignal<Route>(parseHash(), { equals: sameRoute });
@@ -605,14 +606,33 @@ export function App() {
     });
   });
 
-  const newSession = async (dir?: string, worktreeOf?: string): Promise<string | undefined> => {
+  const connectionFor = (dir: string | undefined, local = false) =>
+    folderConnection({
+      dir,
+      rows: list.library(),
+      workspaceOf: list.sessionWorkspace,
+      connections: settled(conns.conns)?.connections ?? [],
+      preferred: conns.newSessionConnection(),
+      local,
+    });
+
+  const newSession = async (
+    dir?: string,
+    worktreeOf?: string,
+    connection?: string,
+  ): Promise<string | undefined> => {
     list.setActionErr("");
     const directory = dir ?? defaultDir();
+    const target = connection ? { id: connection } : connectionFor(directory);
+    if (target.offline) {
+      list.setActionErr(t("sidebar.newSession.offline", { name: target.offline }));
+      return undefined;
+    }
     try {
       const res = await apiFetch("/sessions", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ directory, connection_id: conns.newSessionConnection() }),
+        body: JSON.stringify({ directory, connection_id: target.id }),
       });
       const body = (await res.json()) as { id?: string; error?: string };
       if (body.id) {
@@ -654,11 +674,21 @@ export function App() {
       list.setActionErr(t("worktree.noDir"));
       return;
     }
+    const target = connectionFor(base, true);
+    if (target.offline) {
+      list.setActionErr(t("sidebar.newSession.offline", { name: target.offline }));
+      return;
+    }
+    const connection = target.id;
+    if (!connection) {
+      list.setActionErr(t("worktree.needsLocal"));
+      return;
+    }
     setWorktreeJob({ dir: base, stage: "worktree" });
     try {
       const wt = await createWorktree(base);
       setWorktreeJob({ dir: base, stage: "session" });
-      const id = await newSession(wt.directory, base);
+      const id = await newSession(wt.directory, base, connection);
       if (!id) await removeWorktree(wt.directory, true).catch(() => {});
       else void ws.refetchWs();
     } catch (e) {
