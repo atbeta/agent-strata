@@ -110,6 +110,8 @@ export interface RemotePtyApi {
     directory: string,
     input: { command?: string; args?: string[]; cwd?: string; title?: string; env?: Record<string, string>; rows?: number; cols?: number },
   ): Promise<{ id: string; title: string; command: string; cwd: string; status: string; pid?: number }>;
+  /** The exit code is not on the socket; the server reports it on the record. */
+  get?(directory: string, id: string): Promise<{ status: string; exit_code?: number }>;
   remove(directory: string, id: string): Promise<void>;
   resize(directory: string, id: string, size: { rows: number; cols: number }): Promise<void>;
   open(directory: string, id: string, cursor?: number): Promise<{ url: string; headers: Record<string, string> }>;

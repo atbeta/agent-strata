@@ -104,6 +104,10 @@ export function opencodeExtension(opts: {
         if (input.rows && input.cols) body.size = { rows: input.rows, cols: input.cols };
         return one(await send("POST", "/pty", directory, body));
       },
+      get: async (directory, id) => {
+        if (!PTY_ID.test(id)) throw new TerminalError("not found", 404);
+        return one(await send("GET", `/pty/${encodeURIComponent(id)}`, directory));
+      },
       remove: async (directory, id) => {
         if (!PTY_ID.test(id)) throw new TerminalError("not found", 404);
         await read(await send("DELETE", `/pty/${encodeURIComponent(id)}`, directory));

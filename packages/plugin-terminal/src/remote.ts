@@ -57,6 +57,9 @@ export interface RemotePtyManagerOptions {
 }
 
 const textEncoder = new TextEncoder();
+/** A connection that stayed up this long earns the reconnect budget back; a flapping one does not. */
+const STABLE_MS = 10_000;
+const MAX_QUEUED = 256;
 
 function asBytes(data: unknown): Uint8Array | undefined {
   if (data instanceof Uint8Array) return data;
@@ -184,8 +187,10 @@ export class RemotePtyManager {
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(typeof data === "string" ? data : new TextDecoder().decode(data));
     } else {
+      if (entry.inputQueue.length >= MAX_QUEUED) {
+        throw new Error(`terminal ${id} is reconnecting and is not taking more input yet`);
+      }
       entry.inputQueue.push(data);
-      if (entry.inputQueue.length > 256) entry.inputQueue.splice(0, entry.inputQueue.length - 256);
     }
     return typeof data === "string" ? data.length : data.byteLength;
   }
@@ -247,6 +252,11 @@ export class RemotePtyManager {
     } catch {
       // the session may already be gone on the far side; closing must not fail for it
     }
+    if (entry.reaper) clearTimeout(entry.reaper);
+    if (entry.info.status === "running") {
+      entry.info.status = "exited";
+      entry.exitedAt = Date.now();
+    }
     this.entries.delete(id);
     for (const listener of entry.listeners) listener({ type: "exit", exitCode: entry.info.exit_code });
     entry.listeners.clear();
@@ -287,8 +297,9 @@ export class RemotePtyManager {
       // connection's meta frame has landed — everything before it is replay,
       // already covered by the cursor the server reports in that frame.
       let live = false;
+      let openedAt: number | undefined;
       ws.addEventListener("open", () => {
-        entry.reconnects = 0;
+        openedAt = Date.now();
         for (const queued of entry.inputQueue) {
           ws.send(typeof queued === "string" ? queued : new TextDecoder().decode(queued));
         }
@@ -314,9 +325,10 @@ export class RemotePtyManager {
       ws.addEventListener("close", (ev) => {
         // 1000 is the process ending, 4404 the session being gone — both final.
         if (ev.code === 1000 || ev.code === 4404) {
-          if (!entry.intentionalClose) this.settle(entry, null);
+          if (!entry.intentionalClose) void this.ended(entry);
           return;
         }
+        if (openedAt !== undefined && Date.now() - openedAt >= STABLE_MS) entry.reconnects = 0;
         dropped();
       });
       ws.addEventListener("error", () => {
@@ -357,8 +369,31 @@ export class RemotePtyManager {
     return entry;
   }
 
+  /** The server ended it: its record holds the exit code the socket does not carry. */
+  private async ended(entry: RemoteEntry): Promise<void> {
+    if (!entry.api.get) {
+      this.settle(entry, null);
+      return;
+    }
+    let code: number | null = null;
+    try {
+      const row = await entry.api.get(entry.directory, entry.info.id);
+      if (typeof row.exit_code === "number") code = row.exit_code;
+    } catch {
+      // gone with its session; the terminal still ended
+    }
+    this.settle(entry, code);
+  }
+
+  /**
+   * Ended without the reader closing it — the process exited, its session
+   * went, or the connection was given up on. The server owns the pty, so it
+   * is removed there too: a terminal given up on here would otherwise keep a
+   * shell running on that machine that nothing could reach again.
+   */
   private settle(entry: RemoteEntry, exitCode: number | null): void {
-    if (entry.info.status === "exited") return;
+    if (entry.info.status === "exited" || entry.intentionalClose) return;
+    void entry.api.remove(entry.directory, entry.info.id).catch(() => undefined);
     entry.info.status = "exited";
     entry.info.exit_code = exitCode;
     entry.exitedAt = Date.now();

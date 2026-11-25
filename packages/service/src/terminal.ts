@@ -23,6 +23,7 @@ export interface PtyInfo {
   cwd: string;
   status: "running" | "exited";
   pid?: number;
+  exit_code?: number;
 }
 
 export interface TerminalCreateInput {
@@ -39,6 +40,7 @@ export interface TerminalApi {
   shells(directory: string): Promise<PtyShell[]>;
   list(directory: string): Promise<PtyInfo[]>;
   create(directory: string, input: TerminalCreateInput): Promise<PtyInfo>;
+  get(directory: string, id: string): Promise<PtyInfo>;
   remove(directory: string, id: string): Promise<void>;
   resize(directory: string, id: string, size: { rows: number; cols: number }): Promise<void>;
   /** Mint a ticket and the upstream socket. The ticket never leaves this process. */
@@ -102,6 +104,7 @@ export function ptyInfo(value: unknown): PtyInfo | undefined {
     cwd: typeof row.cwd === "string" ? row.cwd : "",
     status: row.status === "exited" ? "exited" : "running",
     ...(typeof row.pid === "number" ? { pid: row.pid } : {}),
+    ...(typeof row.exitCode === "number" ? { exit_code: row.exitCode } : {}),
   };
 }
 

@@ -250,6 +250,64 @@ describe("a terminal on the backend's machine", () => {
     expect(new TextDecoder().decode(manager.read("s1", info.id).data)).toBe("alive");
   });
 
+  test("a terminal given up on is removed on the far side, not left running there", async () => {
+    const { manager, api, calls, sockets } = harness(1);
+    const info = await manager.create(input({ api, directory: "/w" }));
+    await flush();
+    sockets[0]!.open();
+    sockets[0]!.drop(1006);
+    await Bun.sleep(700);
+    sockets.at(-1)!.drop(1006);
+    await flush();
+    expect(manager.get("s1", info.id).status).toBe("exited");
+    expect(calls.remove).toEqual([info.id]);
+  });
+
+  test("a server that accepts and drops at once spends the budget instead of resetting it", async () => {
+    const { manager, api, sockets } = harness(1);
+    const info = await manager.create(input({ api, directory: "/w" }));
+    await flush();
+    sockets[0]!.open();
+    sockets[0]!.drop(1012);
+    await Bun.sleep(700);
+    expect(sockets).toHaveLength(2);
+    sockets[1]!.open();
+    sockets[1]!.drop(1012);
+    await Bun.sleep(700);
+    expect(sockets).toHaveLength(2);
+    expect(manager.get("s1", info.id).status).toBe("exited");
+  });
+
+  test("the exit code is read from the server's record when the process ends", async () => {
+    const { manager, api, calls, sockets } = harness();
+    api.get = async () => ({ status: "exited", exit_code: 3 });
+    const info = await manager.create(input({ api, directory: "/w" }));
+    await flush();
+    sockets[0]!.open();
+    sockets[0]!.emit("close", { code: 1000 });
+    await flush();
+    expect(manager.get("s1", info.id)).toMatchObject({ status: "exited", exit_code: 3 });
+    expect(calls.remove).toEqual([info.id]);
+  });
+
+  test("closing reports the terminal exited", async () => {
+    const { manager, api, sockets } = harness();
+    const seen: string[] = [];
+    manager.onChange((info) => seen.push(info.status));
+    const info = await manager.create(input({ api, directory: "/w" }));
+    await flush();
+    sockets[0]!.open();
+    await manager.close("s1", info.id);
+    expect(seen.at(-1)).toBe("exited");
+  });
+
+  test("input past the reconnect queue is refused, not silently dropped", async () => {
+    const { manager, api } = harness();
+    const info = await manager.create(input({ api, directory: "/w" }));
+    for (let i = 0; i < 256; i++) manager.write("s1", info.id, "x");
+    expect(() => manager.write("s1", info.id, "y")).toThrow("reconnecting");
+  });
+
   test("a first connect that never succeeds is declared lost, not a zombie", async () => {
     const api: RemotePtyApi = {
       shells: async () => [],
