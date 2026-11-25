@@ -192,6 +192,18 @@ export interface Connection {
   directory?: string;
   /** OpenCode only: the shell spawned this server, or it is someone else's. */
   placement?: ConnectionPlacement;
+  /**
+   * Where the server's machine is: this one (its files are editable here, a
+   * terminal spawns locally) or another. Says nothing about plugins — that
+   * is `plugins`.
+   */
+  tier?: "local" | "remote";
+  /**
+   * Whether the backend's agent carries the app's plugin tools, guards and
+   * prompt contributions: probed from its own tool table, with locality only
+   * as the fallback when the probe could not answer.
+   */
+  plugins?: boolean;
   /** the service's own sync word: "starting" until the run begins, counts only while "syncing" */
   sync?: "starting" | "syncing" | "idle";
   syncDone?: number;

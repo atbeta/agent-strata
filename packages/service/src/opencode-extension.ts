@@ -20,6 +20,8 @@ export const OPENCODE_EXTENSION_PATHS: ReadonlySet<string> = new Set([
   "/mcp",
   "/formatter",
   "/path",
+  // the backend's own tool table — what the capability probe reads
+  "/experimental/tool/ids",
 ]);
 
 const TIMEOUT_MS = 15_000;

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { connectionMemory, endpointOf, looksEmbedded } from "../src/connections";
+import { connectionMemory, endpointOf, looksEmbedded, machineTier } from "../src/connections";
 
 /** The shape the shell gives the server it starts. */
 const embedded = (port: number) => ({
@@ -196,5 +196,17 @@ describe("connection memory", () => {
     const mode = statSync(join(dir, "connections.json")).mode & 0o777;
     expect(mode).toBe(0o600);
     rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe("machineTier", () => {
+  test("loopback is local, anything else is remote, ACP is local by construction", () => {
+    expect(machineTier("opencode", "http://127.0.0.1:4096")).toBe("local");
+    expect(machineTier("opencode", "http://localhost:4096")).toBe("local");
+    expect(machineTier("opencode", "http://[::1]:4096")).toBe("local");
+    expect(machineTier("opencode", "http://192.168.5.101:14198")).toBe("remote");
+    expect(machineTier("opencode", "https://opencode.example.com")).toBe("remote");
+    expect(machineTier("acp", "acp://opencode acp")).toBe("local");
+    expect(machineTier("acp", "")).toBe("local");
   });
 });

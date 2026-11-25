@@ -30,6 +30,7 @@ import {
   connectionMemory,
   endpointOf,
   isEmbeddedOrigin,
+  isLoopback,
   looksEmbedded,
   sessionOrigin,
   type ConnectBody,
@@ -279,12 +280,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       if (!driver?.nativeId(sessionId) || !terminal) return undefined;
       // A loopback backend shares this machine — a local spawn is both
       // correct there and strictly more capable (signals, exit codes).
-      try {
-        const host = new URL(driver.baseUrl).hostname;
-        if (host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]") return undefined;
-      } catch {
-        return undefined;
-      }
+      if (isLoopback(driver.baseUrl)) return undefined;
       const directory = directoryOf(sessionId) ?? driver.directory;
       return directory ? { api: terminal, directory } : undefined;
     },
@@ -645,6 +641,39 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     attempts.delete(endpoint);
   };
 
+  /**
+   * What a live probe of the backend's tool table found, per connection.
+   *
+   * The shim registers this service's plugin tools into the backend's own
+   * table, so asking the backend which tools it has answers the capability
+   * question directly instead of inferring it from the address: a remote
+   * machine that genuinely carries the shim reads as capable, and a loopback
+   * server started with a foreign config reads as not. A missing entry is an
+   * inconclusive probe (old backend without the endpoint, or a hiccup), which
+   * the reader treats by falling back to where the machine is.
+   */
+  const pluginProbes = new Map<string, boolean>();
+  const probePluginTools = (driver: BackendDriver) => {
+    if (driver.backend !== "opencode") return;
+    const ext = driver.extension;
+    if (ext?.kind !== "opencode") return;
+    void (async () => {
+      try {
+        // The comparison set is this service's own table, and that table is
+        // only complete once the plugins have finished starting — probe too
+        // early and an empty set reads every backend as incapable.
+        await pluginsReady;
+        const res = await ext.get("/experimental/tool/ids", new URLSearchParams(), driver.directory);
+        if (!res.ok) return;
+        const ids = (await res.json()) as unknown;
+        if (!Array.isArray(ids)) return;
+        const names = new Set(plugins.toolTable().map((entry) => entry.name));
+        pluginProbes.set(driver.id, ids.some((id) => typeof id === "string" && names.has(id)));
+      } catch {
+        // An inconclusive probe says nothing; the locality inference below stands in.
+      }
+    })();
+  };
   const inflightConnects = new Map<string, Promise<{ id: string; indexed: number }>>();
   const dismissedEmbedded = new Map<string, string>();
   const connectBackend = (body: ConnectBody): Promise<{ id: string; indexed: number }> => {
@@ -713,6 +742,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       throw new Error("service is stopped");
     }
     conns.add(driver, policy, body.password);
+    probePluginTools(driver);
     pendingSyncs.add(driver.id);
     let indexed: string[] = [];
     try {
@@ -865,6 +895,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       if (conns.passwordOf(current.id) === status.password) return;
       current.stop();
       conns.remove(current.id);
+      pluginProbes.delete(current.id);
       claims.release(current.id);
     }
     if (attempts.has(url)) return;
@@ -949,6 +980,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
 
     const connection = await connectionRoute(req, path, {
       connections: conns,
+      pluginProbes,
       attempts,
       activeSyncs,
       pendingSyncs,
@@ -1036,7 +1068,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     return directory ? { directory, terminal } : undefined;
   };
 
-  void plugins.startAll().catch((error: unknown) => {
+  const pluginsReady = plugins.startAll().catch((error: unknown) => {
     console.error("plugins failed to start:", error);
   });
 

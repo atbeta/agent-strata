@@ -55,7 +55,8 @@ describe("the connect panel", () => {
   test("the corner shows live status and leaves management to settings", () => {
     const footer = read("use-connections.tsx");
     expect(footer).toContain('location.hash = "/settings/backends"');
-    expect(footer).toContain("conn.placement");
+    expect(footer).toContain("conn.tier");
+    expect(footer).not.toContain("conn.placement");
     expect(footer).not.toContain("data-connect-keep");
     expect(footer).not.toContain("LAUNCHING");
     const page = read("backend-settings.tsx");
@@ -63,5 +64,20 @@ describe("the connect panel", () => {
     expect(page).toContain("settings.backends.forget");
     expect(page).toContain("connect.kind.acp");
     expect(page).toContain("settings.backends.history");
+    // the engine is the app's foundation, apart from the added servers
+    expect(page).toContain("settings.engine.title");
+    expect(page).toContain("conn.placement === \"embed\"");
+    // a remote server names its missing capability where it is added and listed
+    expect(page).toContain("connect.remoteNotice");
+    expect(page).toContain("settings.backends.pluginsMissing");
+    // an engine switched off is the setting, not an outage
+    expect(page).toContain("settings.engine.off");
+    expect(page).toContain("/settings/opencode");
+    // and the session itself carries the tier where the reader works
+    const header = read("session-header.tsx");
+    expect(header).toContain("session.remote.badge");
+    expect(header).toContain("session.remote.tip");
+    const detail = read("session-detail.tsx");
+    expect(detail).toContain("conn.tier === \"remote\"");
   });
 });

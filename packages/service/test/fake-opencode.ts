@@ -4,6 +4,7 @@ export function fakeOpencode(
   sockets?: {
     message(ws: { send(data: string | Uint8Array): void }, message: string | Uint8Array): void;
   },
+  hostname = "127.0.0.1",
 ) {
   const seen: { path: string; query: URLSearchParams; method: string; body: string }[] = [];
   const enc = new TextEncoder();
@@ -34,7 +35,7 @@ export function fakeOpencode(
     );
   };
   const server = Bun.serve({
-    hostname: "127.0.0.1",
+    hostname,
     port: 0,
     websocket: {
       message(ws, message) {
@@ -63,6 +64,7 @@ export function fakeOpencode(
   });
   return {
     baseUrl: `http://127.0.0.1:${server.port}`,
+    port: server.port,
     seen,
     push(frame: unknown) {
       for (const send of listeners) send(frame);

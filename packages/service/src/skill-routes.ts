@@ -1,7 +1,6 @@
 import { isAbsolute, join, resolve } from "node:path";
 import type { ConnectionRegistry } from "./connection-registry";
-import { connectionPlacement } from "./connection-phase";
-import { readOpencodeStatus } from "./opencode-status";
+import { machineTier } from "./connections";
 import {
   createSkill,
   deleteSkill,
@@ -46,8 +45,10 @@ async function context(deps: SkillDeps, connectionId: string, workspace: string)
   if (![...known.keys()].some((dir) => samePath(dir, workspace))) {
     throw new SkillError("workspace is not known to this connection", 400, "workspace_unknown");
   }
-  const local =
-    connectionPlacement(connection.backend, connection.baseUrl, readOpencodeStatus(deps.desktopDir)) === "embed";
+  // Writable means the files are on this machine: the question is where the
+  // server is, never who spawned it — a local server someone else started has
+  // its workspace here just the same.
+  const local = machineTier(connection.backend, connection.baseUrl) === "local";
   const roots: ManagedRoot[] = [
     {
       root: join(workspace, ".opencode", "skills"),
@@ -154,9 +155,7 @@ export async function skillRoute(
           connection: {
             id: connection.id,
             name: connection.name,
-            local:
-              connectionPlacement(connection.backend, connection.baseUrl, readOpencodeStatus(deps.desktopDir)) ===
-              "embed",
+            local: machineTier(connection.backend, connection.baseUrl) === "local",
           },
           globalAvailable: Boolean(deps.opencodeConfigDir),
         });

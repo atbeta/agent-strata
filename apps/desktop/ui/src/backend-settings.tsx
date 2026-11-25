@@ -1,5 +1,5 @@
 import { createResource, createSignal, For, Show } from "solid-js";
-import { backendLabel, listTerminals } from "./api";
+import { backendLabel, listTerminals, readOpencodeLaunch } from "./api";
 import { settled } from "./resource";
 import { readMru } from "./session-switch";
 import {
@@ -21,18 +21,27 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Card, Group, Row, Segmented, pickerTrigger } from "./settings-blocks";
 import { endpointShort, type ConnectionsCtl } from "./use-connections";
-import type { ConnectionAttempt, ConnectionPlacement } from "./api";
+import type { Connection, ConnectionAttempt } from "./api";
 
-function placementWord(placement: ConnectionPlacement | undefined): string {
-  if (placement === "embed") return t("connect.placement.embed");
-  if (placement === "external") return t("connect.placement.external");
+/** The tier a badge names, in the user's terms: where the machine is. */
+function tierWord(tier: Connection["tier"]): string {
+  if (tier === "remote") return t("connect.tier.remote");
+  if (tier === "local") return t("connect.tier.local");
   return "";
 }
 
+/** Loopback is this machine — the same line the service draws for the tier. */
+function loopbackUrl(raw: string): boolean {
+  try {
+    const host = new URL(raw).hostname.toLowerCase();
+    return host === "localhost" || host === "::1" || host === "[::1]" || host.startsWith("127.");
+  } catch {
+    return false;
+  }
+}
+
 function attemptLine(attempt: ConnectionAttempt): string {
-  const place = placementWord(attempt.placement);
-  const host = endpointShort(attempt.endpoint);
-  return place ? `${host} · ${place}` : host;
+  return endpointShort(attempt.endpoint);
 }
 
 /**
@@ -104,63 +113,151 @@ const fieldLabel = "block text-2xs text-muted-foreground mb-1";
 export function BackendSettings(props: { conns: ConnectionsCtl }) {
   const c = () => props.conns;
   const live = () => settled(c().conns)?.connections ?? [];
+  // The engine the shell spawned is the app's foundation, not one of the
+  // servers the reader added — it is presented apart, and it cannot be
+  // dropped from here. Everything else is a server, local or remote by where
+  // its machine is.
+  const engine = () => live().find((conn) => conn.placement === "embed");
+  const servers = () => live().filter((conn) => conn.placement !== "embed");
+  // Whether the reader switched the engine off. A missing engine is then the
+  // setting doing its job, not an outage a restart would repair.
+  const [launch] = createResource(() => readOpencodeLaunch().catch(() => undefined));
+  const engineOff = () => settled(launch)?.mode === "external";
+  const manageEngine = () => (
+    <Button
+      size="sm"
+      variant="outline"
+      class="shrink-0"
+      onClick={() => {
+        location.hash = "/settings/opencode";
+      }}
+    >
+      {t("settings.engine.manage")}
+    </Button>
+  );
+  // Its own line under the row: beside the name it squeezed the tier badge
+  // into a column one glyph wide.
+  const pluginsMissingLine = (conn: Connection) => (
+    <Show when={conn.plugins === false}>
+      <p class="mt-1.5 flex items-start gap-1.5 text-2xs leading-4 text-muted-foreground">
+        <Icon name="alert" class="mt-0.5 size-3 shrink-0" />
+        <span>{t("settings.backends.pluginsMissing")}</span>
+      </p>
+    </Show>
+  );
   const pending = () =>
     c().attempts().filter((attempt) => !live().some((conn) => conn.baseUrl === attempt.endpoint));
   const [shellDefault, setShellDefault] = createSignal(readTerminalShell());
+  const remoteNotice = () => {
+    if (c().connKind() !== "opencode") return false;
+    const raw = c().connUrl().trim();
+    if (!raw) return false;
+    try {
+      new URL(raw);
+    } catch {
+      return false;
+    }
+    return !loopbackUrl(raw);
+  };
 
   return (
     <>
+      <Group label={t("settings.engine.title")} hint={t("settings.engine.hint")}>
+        <Card>
+          <Show
+            when={engine()}
+            fallback={
+              <div class="flex flex-col gap-2.5 py-3 @min-[560px]/main:flex-row @min-[560px]/main:items-center @min-[560px]/main:justify-between @min-[560px]/main:gap-3">
+                <p class="text-sm text-muted-foreground">
+                  {engineOff() ? t("settings.engine.off") : t("settings.engine.offline")}
+                </p>
+                {manageEngine()}
+              </div>
+            }
+          >
+            {(conn) => (
+              <div class="py-3">
+                <div class="flex flex-col gap-2.5 @min-[560px]/main:flex-row @min-[560px]/main:items-center @min-[560px]/main:gap-3">
+                  <div class="flex shrink-0 items-center gap-2.5">
+                    <span class="size-1.5 shrink-0 rounded-full bg-status-active" />
+                    <span class="text-sm font-medium">{backendLabel(conn().backend)}</span>
+                    <span class="whitespace-nowrap rounded-sm bg-secondary/60 px-1.5 py-0.5 text-2xs text-muted-foreground">
+                      {t("connect.tier.local")}
+                    </span>
+                  </div>
+                  <span
+                    class="min-w-0 truncate font-mono text-2xs text-muted-foreground @min-[560px]/main:flex-1"
+                    title={conn().baseUrl}
+                  >
+                    {conn().baseUrl}
+                  </span>
+                  {/* A foundation is not disconnected from here — its lifecycle
+                      lives on the OpenCode page — but which backend a new
+                      session lands on is the reader's choice, and the engine
+                      is one of the choices. */}
+                  <div class="flex shrink-0 items-center gap-2">
+                    <Show when={live().length > 1 && c().newSessionConnection() !== conn().id}>
+                      <Button size="sm" variant="quiet" onClick={() => c().chooseNewConn(conn().id)}>
+                        {t("settings.backends.useForNew")}
+                      </Button>
+                    </Show>
+                    <Show when={live().length > 1 && c().newSessionConnection() === conn().id}>
+                      <span class="text-2xs text-muted-foreground">{t("sidebar.backend.newTarget")}</span>
+                    </Show>
+                    {manageEngine()}
+                  </div>
+                </div>
+                {pluginsMissingLine(conn())}
+              </div>
+            )}
+          </Show>
+        </Card>
+      </Group>
+
       <Group label={t("settings.backends.connected")} hint={t("settings.backends.history")}>
         <Card class="px-0">
           <Show
-            when={live().length > 0}
+            when={servers().length > 0}
             fallback={
               <p class="px-4 py-3 text-sm text-muted-foreground">{t("settings.backends.none")}</p>
             }
           >
-            <For each={live()}>
+            <For each={servers()}>
               {(conn) => (
-                <div class="flex flex-col gap-2.5 px-4 py-3 @min-[560px]/main:flex-row @min-[560px]/main:items-center @min-[560px]/main:gap-3">
-                  <div class="flex shrink-0 items-center gap-2.5">
-                    <span class="size-1.5 shrink-0 rounded-full bg-status-active" />
-                    <span class="text-sm font-medium">{backendLabel(conn.backend)}</span>
-                    <Show when={placementWord(conn.placement)}>
-                      {(word) => (
-                        <span class="rounded-sm bg-secondary/60 px-1.5 py-0.5 text-2xs text-muted-foreground">
-                          {word()}
-                        </span>
-                      )}
-                    </Show>
-                  </div>
-                  <span
-                    class="min-w-0 truncate font-mono text-2xs text-muted-foreground @min-[560px]/main:flex-1"
-                    title={conn.baseUrl}
-                  >
-                    {conn.baseUrl}
-                  </span>
-                  <div class="flex shrink-0 flex-wrap items-center gap-2">
-                    <Show when={live().length > 1 && c().newSessionConnection() !== conn.id}>
-                      <Button
-                        size="sm"
-                        variant="quiet"
-                        onClick={() => c().chooseNewConn(conn.id)}
-                      >
-                        {t("settings.backends.useForNew")}
-                      </Button>
-                    </Show>
-                    <Show when={live().length > 1 && c().newSessionConnection() === conn.id}>
-                      <span class="text-2xs text-muted-foreground">
-                        {t("sidebar.backend.newTarget")}
-                      </span>
-                    </Show>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => c().disconnect(conn.id)}
+                <div class="px-4 py-3">
+                  <div class="flex flex-col gap-2.5 @min-[560px]/main:flex-row @min-[560px]/main:items-center @min-[560px]/main:gap-3">
+                    <div class="flex shrink-0 items-center gap-2.5">
+                      <span class="size-1.5 shrink-0 rounded-full bg-status-active" />
+                      <span class="text-sm font-medium">{backendLabel(conn.backend)}</span>
+                      <Show when={tierWord(conn.tier)}>
+                        {(word) => (
+                          <span class="whitespace-nowrap rounded-sm bg-secondary/60 px-1.5 py-0.5 text-2xs text-muted-foreground">
+                            {word()}
+                          </span>
+                        )}
+                      </Show>
+                    </div>
+                    <span
+                      class="min-w-0 truncate font-mono text-2xs text-muted-foreground @min-[560px]/main:flex-1"
+                      title={conn.baseUrl}
                     >
-                      {t("settings.backends.disconnect")}
-                    </Button>
+                      {conn.baseUrl}
+                    </span>
+                    <div class="flex shrink-0 flex-wrap items-center gap-2">
+                      <Show when={live().length > 1 && c().newSessionConnection() !== conn.id}>
+                        <Button size="sm" variant="quiet" onClick={() => c().chooseNewConn(conn.id)}>
+                          {t("settings.backends.useForNew")}
+                        </Button>
+                      </Show>
+                      <Show when={live().length > 1 && c().newSessionConnection() === conn.id}>
+                        <span class="text-2xs text-muted-foreground">{t("sidebar.backend.newTarget")}</span>
+                      </Show>
+                      <Button size="sm" variant="outline" onClick={() => c().disconnect(conn.id)}>
+                        {t("settings.backends.disconnect")}
+                      </Button>
+                    </div>
                   </div>
+                  {pluginsMissingLine(conn)}
                 </div>
               )}
             </For>
@@ -276,6 +373,12 @@ export function BackendSettings(props: { conns: ConnectionsCtl }) {
                       />
                     </div>
                   </div>
+                  <Show when={remoteNotice()}>
+                    <p class="flex items-start gap-1.5 text-2xs text-muted-foreground">
+                      <Icon name="alert" class="mt-0.5 size-3 shrink-0" />
+                      <span>{t("connect.remoteNotice")}</span>
+                    </p>
+                  </Show>
                 </>
               }
             >

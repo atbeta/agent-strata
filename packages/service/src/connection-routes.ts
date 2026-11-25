@@ -1,10 +1,26 @@
 import { connectionPhase, connectionPlacement, sameEndpoint } from "./connection-phase";
 import { REMEMBERED_PROBE_MS } from "./boot-connect";
-import { endpointOf, type ConnectBody, type connectionMemory } from "./connections";
+import { endpointOf, machineTier, type ConnectBody, type connectionMemory } from "./connections";
 import type { ConnectionRegistry } from "./connection-registry";
 import type { BackendDriver, ModelChoice } from "./driver";
 import type { SessionClaims } from "./identity";
 import { readOpencodeStatus } from "./opencode-status";
+
+/**
+ * Whether the agent on this backend can reach the plugin tools.
+ *
+ * ACP drivers are handed the tools over their per-session MCP endpoint by
+ * construction. OpenCode gets them only through the shim file inside its own
+ * process, and the shim's presence is what the probe measures. When the probe
+ * never answered, the machine's locality stands in: a backend on this machine
+ * is one the desktop shell can have installed the shim into, a remote one is
+ * not — imperfect, but the same inference the pre-probe behaviour made.
+ */
+function pluginCapability(conn: BackendDriver, probed: boolean | undefined): boolean {
+  if (conn.backend !== "opencode") return true;
+  if (probed !== undefined) return probed;
+  return machineTier(conn.backend, conn.baseUrl) === "local";
+}
 
 export interface ConnectionAttempt {
   endpoint: string;
@@ -18,6 +34,8 @@ export async function connectionRoute(
   path: string,
   deps: {
     connections: ConnectionRegistry;
+    /** live probe results: whether the backend's tool table carries the plugin tools */
+    pluginProbes: Map<string, boolean>;
     attempts: Map<string, ConnectionAttempt>;
     activeSyncs: Map<string, { done: number; total: number }>;
     pendingSyncs: Set<string>;
@@ -92,6 +110,8 @@ export async function connectionRoute(
       directory: conn.directory,
       capabilities: { ...conn.capabilities, extension: conn.extension?.kind },
       placement: connectionPlacement(conn.backend, conn.baseUrl, launch),
+      tier: machineTier(conn.backend, conn.baseUrl),
+      plugins: pluginCapability(conn, deps.pluginProbes.get(conn.id)),
       sync: deps.activeSyncs.has(conn.id) ? "syncing" : deps.pendingSyncs.has(conn.id) ? "starting" : "idle",
       ...(deps.activeSyncs.has(conn.id)
         ? {
@@ -150,6 +170,7 @@ export async function connectionRoute(
     }
     conn.stop();
     deps.connections.remove(conn.id);
+    deps.pluginProbes.delete(conn.id);
     deps.claims.release(conn.id);
     deps.memory.forget(conn.baseUrl);
     return Response.json({ ok: true });

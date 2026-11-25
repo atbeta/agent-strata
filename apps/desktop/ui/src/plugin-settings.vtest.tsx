@@ -168,3 +168,18 @@ test("a disabled plugin saves without claiming that it restarted", async () => {
   await vi.waitFor(() => expect(host.textContent).toContain("设置已保存。"));
   expect(host.textContent).not.toContain("插件已重启");
 });
+
+test("enabling a plugin names the backends its tools and guards do not reach", async () => {
+  setLocale("zh");
+  stubApi([sessions, memory]);
+  const [unreached, setUnreached] = createSignal<string[]>([]);
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  dispose = render(() => <PluginSettings unreached={unreached()} />, host);
+  await vi.waitFor(() => expect(host.textContent).toContain("检索历史会话内容"));
+  // every backend carries the shim: nothing is the exception, nothing is said
+  expect(host.textContent).not.toContain("未检测到应用插件");
+  setUnreached(["192.168.5.101:14198"]);
+  await vi.waitFor(() => expect(host.textContent).toContain("未检测到应用插件"));
+  expect(host.textContent).toContain("192.168.5.101:14198");
+});

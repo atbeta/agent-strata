@@ -15,6 +15,7 @@ import {
   setOpencodeBinary,
 } from "./opencode-runtime";
 import { copyText } from "./clipboard";
+import { settled } from "./resource";
 import { inDesktopShell } from "./shell";
 import { LOCALES, LOCALE_LABEL, locale, setLocale, stamp, t, type Locale } from "./i18n";
 import { fadeSignal } from "./errors";
@@ -55,7 +56,7 @@ import { TextFieldInput } from "@/components/ui/text-field";
 import { Card, Group, PillGroup, Row, Segmented, pickerTrigger } from "./settings-blocks";
 import { runtimeErrorText } from "./runtime-error";
 import { BackendSettings } from "./backend-settings";
-import type { ConnectionsCtl } from "./use-connections";
+import { endpointShort, type ConnectionsCtl } from "./use-connections";
 import { PolicyEditor } from "./policy";
 import { ProviderSettings } from "./providers";
 import { MaintenanceSettings } from "./maintenance";
@@ -65,13 +66,6 @@ import { WorktreeSettings } from "./worktree-settings";
 import { SETTINGS_SECTIONS, settingsSection } from "./settings-sections";
 import { Tip } from "./tip";
 import { handleRovingKey } from "./roving-key";
-
-/** A function, not a const: the labels are translated, so they have to be read
- *  during render for a language switch to reach them. */
-const OPENCODE_MODES = (): { id: OpencodeLaunchMode; label: string; hint: string }[] => [
-  { id: "embed", label: t("settings.opencode.embed"), hint: t("settings.opencode.embedHint") },
-  { id: "external", label: t("settings.opencode.external"), hint: t("settings.opencode.externalHint") },
-];
 
 const CODE_PRESETS = [
   "Cascadia Code",
@@ -261,6 +255,13 @@ export function SettingsPage(props: { section?: string; plugin?: string; skill?:
   };
 
   const launchData = () => (launch.error ? undefined : launch());
+  /** The connection the shell's own server answers on, once the service has made it. */
+  const engineConnection = () =>
+    settled(props.conns.conns)?.connections.find((conn) => conn.placement === "embed");
+  const unreachedBackends = () =>
+    (settled(props.conns.conns)?.connections ?? [])
+      .filter((conn) => conn.plugins === false)
+      .map((conn) => endpointShort(conn.baseUrl));
   const runtimeSource = () => {
     switch (runtime()?.source) {
       case "setting":
@@ -747,15 +748,13 @@ export function SettingsPage(props: { section?: string; plugin?: string; skill?:
       <Show when={section() === "opencode"}>
       <Group label={t("settings.opencode.runtime")} hint={t("settings.opencode.runtimeHint")}>
       <Card>
+        {/* The saved mode is a lifecycle answer — does the app start its own
+            OpenCode — not a place: a server the reader runs on this machine
+            is as local as the engine, and the Backends page says so. An
+            on/off switch keeps it from reading as a second local/remote pair. */}
         <Row
           label={t("settings.opencode.mode")}
-          hint={t("settings.opencode.modeHint", {
-            desc: (OPENCODE_MODES().find((m) => m.id === mode())?.hint ?? "").replace(
-              /[.。]\s*$/,
-              "",
-            ),
-          })}
-
+          hint={mode() === "embed" ? t("settings.opencode.modeOn") : t("settings.opencode.modeOff")}
           note={
             <>
               {/* The timing belongs to the switch itself, not to one option's
@@ -772,11 +771,10 @@ export function SettingsPage(props: { section?: string; plugin?: string; skill?:
             </>
           }
         >
-          <Segmented
-            label={t("settings.opencode.mode")}
-            value={mode()}
-            onChange={(id) => void pickMode(id as OpencodeLaunchMode)}
-            options={OPENCODE_MODES().map((item) => ({ id: item.id, label: item.label }))}
+          <Switch
+            checked={mode() === "embed"}
+            aria-label={t("settings.opencode.mode")}
+            onChange={(on) => void pickMode(on ? "embed" : "external")}
           />
         </Row>
 
@@ -904,6 +902,12 @@ export function SettingsPage(props: { section?: string; plugin?: string; skill?:
                   <p class="mt-1.5 flex items-center gap-1.5 text-2xs text-muted-foreground">
                     <Icon name="check" class="size-3 shrink-0" />
                     {runtimeNote()}
+                  </p>
+                </Show>
+                <Show when={engineConnection()?.plugins === false}>
+                  <p class="mt-1.5 flex items-start gap-1.5 text-2xs leading-4 text-muted-foreground">
+                    <Icon name="alert" class="mt-0.5 size-3 shrink-0" />
+                    {t("settings.opencode.pluginsMissing")}
                   </p>
                 </Show>
                 <Show when={launchData()?.state === "missing"}>
@@ -1065,7 +1069,7 @@ export function SettingsPage(props: { section?: string; plugin?: string; skill?:
       </Show>
 
       <Show when={section() === "plugins"}>
-        <PluginSettings pluginId={props.plugin} />
+        <PluginSettings pluginId={props.plugin} unreached={unreachedBackends()} />
       </Show>
 
       <Show when={section() === "permission"}>

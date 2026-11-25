@@ -62,7 +62,7 @@ export function agentNameOf(command: string): string {
   return (command.split(/[\\/]/).pop() ?? command).replace(/\.(exe|cmd|bat)$/i, "");
 }
 
-function isLoopback(url: string | undefined): boolean {
+export function isLoopback(url: string | undefined): boolean {
   if (!url) return false;
   try {
     const host = new URL(url).hostname.toLowerCase();
@@ -70,6 +70,27 @@ function isLoopback(url: string | undefined): boolean {
   } catch {
     return false;
   }
+}
+
+export type MachineTier = "local" | "remote";
+
+/**
+ * Where a backend's machine is — never who started the process: a server the
+ * reader runs on loopback is as local as the one the shell spawned. Local
+ * means its files are this machine's files and a terminal spawns here. ACP is
+ * local by construction: its agent is a process spawned here.
+ *
+ * Whether the agent carries the plugin tools is a separate question, answered
+ * by probing the backend's tool table; this is only that probe's fallback.
+ *
+ * A tunnel that makes a remote machine answer on loopback reads as local.
+ * That is a wrong answer in the safe direction for the terminal (a local
+ * spawn is what the user of a tunnel usually means).
+ */
+export function machineTier(backend: string, baseUrl: string | undefined): MachineTier {
+  if (backend !== "opencode") return "local";
+  if (!baseUrl || baseUrl.startsWith("acp://")) return "local";
+  return isLoopback(baseUrl) ? "local" : "remote";
 }
 
 /**

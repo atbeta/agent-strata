@@ -49,6 +49,8 @@ export type SessionRowSummary = {
   busy?: boolean;
   needs_input?: boolean;
   shell?: { command: string; detail: string };
+  /** the connection claiming this session, when a connected backend does */
+  connection_id?: string;
 };
 
 /**

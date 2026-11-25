@@ -51,7 +51,11 @@ const STATE_TONES: Record<PluginSummary["state"], string> = {
 const UNDO_MS = 10_000;
 type DetailTab = "settings" | "capabilities" | "about";
 
-export function PluginSettings(props: { pluginId?: string }) {
+export function PluginSettings(props: {
+  pluginId?: string;
+  /** connected backends whose agent was probed without the app's plugin — where tools and guards do not reach */
+  unreached?: string[];
+}) {
   const [busyId, setBusyId] = createSignal("");
   const [feedback, setFeedback] = fadeKeyed();
   const [savedFeedback, setSavedFeedback] = fadeKeyed();
@@ -235,6 +239,15 @@ export function PluginSettings(props: { pluginId?: string }) {
 
   return (
     <Group label={t("settings.section.plugins")} hint={t("settings.plugins.hint")}>
+      {/* Enabling a plugin here is not the same as the agent having it: the
+          tools and guards travel through the shim inside each OpenCode, and
+          a backend without it is the exception worth naming. */}
+      <Show when={(props.unreached ?? []).length > 0}>
+        <p class="mb-2 flex items-start gap-1.5 text-2xs leading-4 text-muted-foreground">
+          <Icon name="alert" class="mt-0.5 size-3 shrink-0" />
+          <span>{t("settings.plugins.unreached", { hosts: (props.unreached ?? []).join(", ") })}</span>
+        </p>
+      </Show>
       <Show
         when={!pluginsReadFailed()}
         fallback={

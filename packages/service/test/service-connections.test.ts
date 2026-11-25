@@ -100,10 +100,10 @@ describe("connection lifecycle routes", () => {
     expect(connected.status).toBe(200);
     const embedded = (await fetch(`${base}/connections`).then((r) => r.json())) as {
       phase: string;
-      connections: { placement?: string; baseUrl: string }[];
+      connections: { placement?: string; baseUrl: string; tier?: string }[];
     };
     expect(embedded.phase).toBe("connected");
-    expect(embedded.connections[0]).toMatchObject({ baseUrl: oc.baseUrl, placement: "embed" });
+    expect(embedded.connections[0]).toMatchObject({ baseUrl: oc.baseUrl, placement: "embed", tier: "local" });
     writeFileSync(join(desktopDir, "desktop.json"), JSON.stringify({ opencode: "external" }));
     const external = (await fetch(`${base}/connections`).then((r) => r.json())) as { connections: { placement?: string }[] };
     expect(external.connections[0]?.placement).toBe("external");
@@ -114,6 +114,62 @@ describe("connection lifecycle routes", () => {
     svc.stop();
     oc.stop();
     rmSync(desktopDir, { recursive: true, force: true });
+  });
+
+  test("the plugin probe reads capability off the backend's own tool table", async () => {
+    const withShim = fakeOpencode({
+      "/experimental/tool/ids": () => Response.json(["bash", "read", "terminal_create", "memory_write"]),
+    });
+    const plain = fakeOpencode({
+      "/experimental/tool/ids": () => Response.json(["bash", "read", "edit"]),
+    });
+    const svc = startService({ db: ":memory:", port: 0, desktopDir: mkdtempSync(join(tmpdir(), "strata-probe-")) });
+    const base = `http://127.0.0.1:${svc.port}`;
+    for (const oc of [withShim, plain]) {
+      const res = await fetch(`${base}/connect`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ baseUrl: oc.baseUrl }),
+      });
+      expect(res.status).toBe(200);
+    }
+    // The probe is asynchronous to the connect, and it waits on plugin
+    // startup; poll until its answers converge.
+    let rows: { baseUrl: string; plugins?: boolean }[] = [];
+    const read = () =>
+      rows.find((row) => row.baseUrl === withShim.baseUrl)?.plugins === true &&
+      rows.find((row) => row.baseUrl === plain.baseUrl)?.plugins === false;
+    for (let i = 0; i < 40 && !read(); i++) {
+      rows = ((await fetch(`${base}/connections`).then((r) => r.json())) as { connections: typeof rows }).connections;
+      await Bun.sleep(100);
+    }
+    expect(rows.find((row) => row.baseUrl === withShim.baseUrl)?.plugins).toBe(true);
+    expect(rows.find((row) => row.baseUrl === plain.baseUrl)?.plugins).toBe(false);
+    svc.stop();
+    withShim.stop();
+    plain.stop();
+  });
+
+  test("a backend without the probe endpoint falls back to the locality inference", async () => {
+    // The fake serves no /experimental/tool/ids route, so the probe is
+    // inconclusive; a loopback backend then reads as capable, the same
+    // inference the pre-probe behaviour made.
+    const oc = fakeOpencode();
+    const svc = startService({ db: ":memory:", port: 0, desktopDir: mkdtempSync(join(tmpdir(), "strata-probe-")) });
+    const base = `http://127.0.0.1:${svc.port}`;
+    const res = await fetch(`${base}/connect`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ baseUrl: oc.baseUrl }),
+    });
+    expect(res.status).toBe(200);
+    await Bun.sleep(400);
+    const rows = ((await fetch(`${base}/connections`).then((r) => r.json())) as {
+      connections: { plugins?: boolean }[];
+    }).connections;
+    expect(rows[0]?.plugins).toBe(true);
+    svc.stop();
+    oc.stop();
   });
 
   test("autoConnect to a dead backend retries then gives up, service stays up", async () => {

@@ -7,7 +7,6 @@ import {
   getJson,
   getJsonWhenUp,
   type ConnectionAttempt,
-  type ConnectionPlacement,
   type ConnectionsResponse,
 } from "./api";
 import { settled } from "./resource";
@@ -358,10 +357,9 @@ export type ConnectionsCtl = ReturnType<typeof useConnections>;
 
 export type ManualSync = { phase: "running" } | { phase: "done"; imported: number } | { phase: "failed" };
 
-function placementWord(placement: ConnectionPlacement | undefined): string {
-  if (placement === "embed") return t("connect.placement.embed");
-  if (placement === "external") return t("connect.placement.external");
-  return "";
+/** In the footer only the exception earns a word: a server on another machine. */
+function tierMark(tier: "local" | "remote" | undefined): string {
+  return tier === "remote" ? t("connect.tier.remote") : "";
 }
 
 /** What the footer's dot says: the sync that is running, the answer to a click, or the offer of one. */
@@ -382,9 +380,7 @@ export function syncDotLabel(
 }
 
 function attemptLine(attempt: ConnectionAttempt): string {
-  const place = placementWord(attempt.placement);
-  const host = endpointShort(attempt.endpoint);
-  return place ? `${host} · ${place}` : host;
+  return endpointShort(attempt.endpoint);
 }
 
 const HEADLINE_KEY = {
@@ -454,7 +450,7 @@ export function ConnectionsFooter(props: { conns: ConnectionsCtl }) {
                     <Tip label={endpointHost(conn.baseUrl)} class="min-w-0">
                       <span class="truncate">
                         {backendLabel(conn.backend)}
-                        <Show when={placementWord(conn.placement)}>
+                        <Show when={tierMark(conn.tier)}>
                           {(word) => <span class="text-2xs text-muted-foreground"> {word()}</span>}
                         </Show>
                       </span>

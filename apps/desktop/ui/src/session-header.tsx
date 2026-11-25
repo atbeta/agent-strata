@@ -83,6 +83,8 @@ export function SessionHeader(props: {
   view: SessionView;
   sessions: SessionRowSummary[];
   branch: string | undefined;
+  /** the session's backend is on another machine: the badge the reader keeps seeing */
+  remote?: boolean;
   opencode: boolean;
   search: ReturnType<typeof useSessionSearch>;
   tools: ReturnType<typeof useMcpTools>;
@@ -174,6 +176,13 @@ export function SessionHeader(props: {
               {folderLabel(ws())}
             </span>
           )}
+        </Show>
+        <Show when={props.remote}>
+          <Tip label={t("session.remote.tip")} class="@max-[440px]:hidden">
+            <span class="flex shrink-0 items-baseline gap-1 rounded-sm bg-secondary/60 px-1.5 py-0.5 text-2xs text-muted-foreground">
+              {t("session.remote.badge")}
+            </span>
+          </Tip>
         </Show>
         <Show when={props.branch}>
           {(branch) => (

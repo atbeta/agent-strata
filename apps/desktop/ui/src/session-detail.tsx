@@ -153,6 +153,18 @@ export function SessionDetail(props: {
   // pill must keep working while the rail is closed.
   const dev = useDevProcesses(() => props.id, opencode);
   const schedulesEnabled = () => opencode() && isPluginPanelTab("plugin:schedule");
+  // A remote backend the probe found without the app's plugin, joined
+  // through the sidebar row's connection claim. A disconnected backend
+  // answers nothing — the transcript is history then either way, so the
+  // badge simply stays off.
+  const sessionRemote = () => {
+    const row = props.sessions.find((s) => s.summary.session_id === props.id);
+    if (!row?.connection_id) return false;
+    return (props.connections ?? []).some(
+      (conn) => conn.id === row.connection_id && conn.tier === "remote" && conn.plugins === false,
+    );
+  };
+
   const terminalEnabled = () => opencode() && isPluginPanelTab("plugin:terminal");
   const schedules = useSchedules(() => props.id, schedulesEnabled);
   const terminals = useTerminals(() => props.id, terminalEnabled);
@@ -736,6 +748,7 @@ export function SessionDetail(props: {
             <>
               <SessionHeader
                 view={v()}
+                remote={sessionRemote()}
                 sessions={props.sessions}
                 branch={settled(vcs)?.branch ?? undefined}
                 opencode={opencode()}
