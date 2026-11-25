@@ -178,8 +178,7 @@ test("enabling a plugin names the backends its tools and guards do not reach", a
   dispose = render(() => <PluginSettings unreached={unreached()} />, host);
   await vi.waitFor(() => expect(host.textContent).toContain("检索历史会话内容"));
   // every backend carries the shim: nothing is the exception, nothing is said
-  expect(host.textContent).not.toContain("未检测到应用插件");
+  expect(host.textContent).not.toContain("不支持插件");
   setUnreached(["192.168.5.101:14198"]);
-  await vi.waitFor(() => expect(host.textContent).toContain("未检测到应用插件"));
-  expect(host.textContent).toContain("192.168.5.101:14198");
+  await vi.waitFor(() => expect(host.textContent).toContain("192.168.5.101:14198 不支持插件"));
 });
