@@ -70,16 +70,28 @@ const localServer: Connection = {
   plugins: true,
 };
 
+function launchIs(launch: unknown) {
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL) =>
+    String(input).includes("/desktop/opencode") ? Response.json(launch) : Response.json([]),
+  );
+}
+
+const running = {
+  mode: "embed",
+  state: "running",
+  runtime: { source: "path", bin: "/opt/homebrew/bin/opencode", version: "1.14.2" },
+};
+
 test("the engine is the foundation apart from the servers, and the tiers say what a server cannot do", async () => {
+  launchIs(running);
   const { ctl: c } = ctl([engine, remote, localServer]);
   const host = document.createElement("div");
   document.body.appendChild(host);
   dispose = render(() => <BackendSettings conns={c} />, host);
-  await vi.waitFor(() => expect(host.textContent).toContain(t("settings.engine.title")));
-
-  // the engine card carries its own url; the servers list does not repeat it
-  const engineCard = [...host.querySelectorAll("div")].find((el) => el.textContent?.includes("127.0.0.1:4096"));
-  expect(engineCard).toBeTruthy();
+  await vi.waitFor(() => expect(host.textContent).toContain(t("settings.opencode.state.running")));
+  expect(host.textContent).toContain(t("settings.engine.title"));
+  // the servers list does not repeat the engine
+  expect(host.textContent).not.toContain("127.0.0.1:4096");
   const serversGroup = [...host.querySelectorAll("section,div")].filter((el) =>
     el.textContent?.includes(t("settings.backends.connected")),
   );
@@ -93,8 +105,40 @@ test("the engine is the foundation apart from the servers, and the tiers say wha
   // exactly one missing-plugin line — the probed-capable servers carry none
   const missingLines = host.textContent!.split(t("settings.backends.pluginsMissing")).length - 1;
   expect(missingLines).toBe(1);
-  // the engine's lifecycle is managed on the OpenCode page, one click away
-  expect(host.textContent).toContain(t("settings.engine.manage"));
+  // the engine's lifecycle is right here, not a page away
+  expect(host.querySelector(`[aria-label="${t("settings.opencode.mode")}"]`)).not.toBeNull();
+  expect(host.textContent).toContain(t("settings.opencode.restart"));
+});
+
+test("the executable is folded away, with its version on the fold, until it is asked for", async () => {
+  launchIs(running);
+  const { ctl: c } = ctl([engine]);
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  dispose = render(() => <BackendSettings conns={c} />, host);
+  const fold = await vi.waitFor(() => {
+    const found = [...host.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")].find((b) =>
+      b.textContent?.includes(t("settings.engine.details")),
+    );
+    expect(found).toBeTruthy();
+    return found!;
+  });
+  expect(fold.textContent).toContain("1.14.2");
+  expect(host.textContent).not.toContain("/opt/homebrew/bin/opencode");
+  fold.click();
+  await vi.waitFor(() => expect(host.textContent).toContain("/opt/homebrew/bin/opencode"));
+  expect(fold.getAttribute("aria-expanded")).toBe("true");
+});
+
+test("a missing executable is not folded away", async () => {
+  launchIs({ mode: "embed", state: "missing", runtime: { source: "missing" } });
+  const { ctl: c } = ctl([]);
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  dispose = render(() => <BackendSettings conns={c} />, host);
+  await vi.waitFor(() => expect(host.textContent).toContain(t("settings.opencode.chooseBin")));
+  expect(host.textContent).toContain(t("settings.opencode.missing"));
+  expect(host.textContent).not.toContain(t("settings.engine.details"));
 });
 
 test("a local server the probe found without the plugin says so, though it is this machine", async () => {
@@ -109,32 +153,27 @@ test("a local server the probe found without the plugin says so, though it is th
 });
 
 test("an engine switched off reads as the setting, not an outage", async () => {
-  vi.stubGlobal("fetch", async (input: RequestInfo | URL) =>
-    String(input).includes("/desktop/opencode")
-      ? Response.json({ mode: "external", state: "external" })
-      : Response.json([]),
-  );
+  launchIs({ mode: "external", state: "external" });
   const { ctl: c } = ctl([remote]);
   const host = document.createElement("div");
   document.body.appendChild(host);
   dispose = render(() => <BackendSettings conns={c} />, host);
-  await vi.waitFor(() => expect(host.textContent).toContain(t("settings.engine.off")));
-  expect(host.textContent).not.toContain(t("settings.engine.offline"));
-  expect(host.textContent).toContain(t("settings.engine.manage"));
+  await vi.waitFor(() => expect(host.textContent).toContain(t("settings.opencode.modeOff")));
+  // nothing to start, restart or locate while it is off
+  const buttons = [...host.querySelectorAll("button")].map((b) => b.textContent?.trim());
+  expect(buttons).not.toContain(t("settings.opencode.start"));
+  expect(buttons).not.toContain(t("settings.opencode.restart"));
+  expect(host.textContent).not.toContain(t("settings.engine.details"));
 });
 
-test("an engine that should be running but is not points to its state", async () => {
-  vi.stubGlobal("fetch", async (input: RequestInfo | URL) =>
-    String(input).includes("/desktop/opencode")
-      ? Response.json({ mode: "embed", state: "starting" })
-      : Response.json([]),
-  );
+test("an engine that should be running but is not shows its state and a way to start it", async () => {
+  launchIs({ mode: "embed", state: "stopped" });
   const { ctl: c } = ctl([remote]);
   const host = document.createElement("div");
   document.body.appendChild(host);
   dispose = render(() => <BackendSettings conns={c} />, host);
-  await vi.waitFor(() => expect(host.textContent).toContain(t("settings.engine.offline")));
-  expect(host.textContent).not.toContain(t("settings.engine.off"));
+  await vi.waitFor(() => expect(host.textContent).toContain(t("settings.opencode.state.stopped")));
+  expect(host.textContent).toContain(t("settings.opencode.start"));
 });
 
 test("a remote server the probe found the plugin tools on carries no warning line", async () => {

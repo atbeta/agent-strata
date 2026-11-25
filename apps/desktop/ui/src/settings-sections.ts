@@ -12,7 +12,6 @@ export const SETTINGS_SECTIONS = [
   { id: "interface", label: "settings.section.interface", icon: "monitor" },
   { id: "notifications", label: "settings.section.notifications", icon: "bell" },
   { id: "models", label: "settings.section.models", icon: "cube" },
-  { id: "opencode", label: "settings.section.opencode", icon: "opencode" },
   { id: "backends", label: "settings.section.backends", icon: "server" },
   { id: "skills", label: "settings.section.skills", icon: "spark" },
   { id: "plugins", label: "settings.section.plugins", icon: "plug" },
@@ -39,7 +38,11 @@ export function settingsPath(
   };
 }
 
+/** Sections that were folded into another; their old addresses still land somewhere sensible. */
+const MOVED: Record<string, SettingsSectionId> = { opencode: "backends" };
+
 export function settingsSection(segment: string | undefined): SettingsSectionId {
-  const found = SETTINGS_SECTIONS.find((section) => section.id === segment);
+  const id = (segment && MOVED[segment]) ?? segment;
+  const found = SETTINGS_SECTIONS.find((section) => section.id === id);
   return found?.id ?? SETTINGS_SECTIONS[0].id;
 }

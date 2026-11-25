@@ -64,15 +64,17 @@ describe("the connect panel", () => {
     expect(page).toContain("settings.backends.forget");
     expect(page).toContain("connect.kind.acp");
     expect(page).toContain("settings.backends.history");
-    // the engine is the app's foundation, apart from the added servers
-    expect(page).toContain("settings.engine.title");
-    expect(page).toContain("conn.placement === \"embed\"");
+    // the engine is managed on the same page, apart from the added servers
+    expect(page).toContain("<EngineSettings");
+    expect(page).toContain("conn.placement !== \"embed\"");
     // a remote server names its missing capability where it is added and listed
     expect(page).toContain("connect.remoteNotice");
     expect(page).toContain("settings.backends.pluginsMissing");
-    // an engine switched off is the setting, not an outage
-    expect(page).toContain("settings.engine.off");
-    expect(page).toContain("/settings/opencode");
+    // an engine switched off is the setting, not an outage, and nothing sends the reader elsewhere for it
+    const engine = read("engine-settings.tsx");
+    expect(engine).toContain("settings.engine.title");
+    expect(engine).toContain("settings.opencode.modeOff");
+    expect(page + engine).not.toContain("/settings/opencode");
     // and the session itself carries the tier where the reader works
     const header = read("session-header.tsx");
     expect(header).toContain("session.remote.badge");

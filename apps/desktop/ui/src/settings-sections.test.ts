@@ -8,13 +8,18 @@ describe("settings sections", () => {
   });
 
   test("a known block has its own address", () => {
-    expect(settingsPath("/settings/opencode")).toEqual({ section: "opencode" });
-    expect(settingsSection("opencode")).toBe("opencode");
+    expect(settingsPath("/settings/backends")).toEqual({ section: "backends" });
+    expect(settingsSection("backends")).toBe("backends");
     expect(settingsPath("/settings/notifications")).toEqual({ section: "notifications" });
     expect(settingsSection("notifications")).toBe("notifications");
     expect(settingsSection("plugins")).toBe("plugins");
     expect(settingsSection("skills")).toBe("skills");
     expect(settingsSection("permission")).toBe("permission");
+  });
+
+  test("the old OpenCode address opens the page the engine moved to", () => {
+    expect(settingsSection("opencode")).toBe("backends");
+    expect(SETTINGS_SECTIONS.some((section) => (section.id as string) === "opencode")).toBe(false);
   });
 
   test("an id that is not registered yet still lands in settings, on the first block", () => {

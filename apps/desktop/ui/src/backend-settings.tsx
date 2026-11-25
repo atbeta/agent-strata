@@ -1,5 +1,6 @@
 import { createResource, createSignal, For, Show } from "solid-js";
-import { backendLabel, listTerminals, readOpencodeLaunch } from "./api";
+import { backendLabel, listTerminals } from "./api";
+import { EngineSettings } from "./engine-settings";
 import { settled } from "./resource";
 import { readMru } from "./session-switch";
 import {
@@ -114,28 +115,10 @@ const fieldLabel = "block text-2xs text-muted-foreground mb-1";
 export function BackendSettings(props: { conns: ConnectionsCtl }) {
   const c = () => props.conns;
   const live = () => settled(c().conns)?.connections ?? [];
-  // The engine the shell spawned is the app's foundation, not one of the
-  // servers the reader added — it is presented apart, and it cannot be
-  // dropped from here. Everything else is a server, local or remote by where
-  // its machine is.
-  const engine = () => live().find((conn) => conn.placement === "embed");
+  // The engine the shell spawned is presented apart, with its lifecycle, and
+  // it cannot be dropped from here. Everything else is a server, local or
+  // remote by where its machine is.
   const servers = () => live().filter((conn) => conn.placement !== "embed");
-  // Whether the reader switched the engine off. A missing engine is then the
-  // setting doing its job, not an outage a restart would repair.
-  const [launch] = createResource(() => readOpencodeLaunch().catch(() => undefined));
-  const engineOff = () => settled(launch)?.mode === "external";
-  const manageEngine = () => (
-    <Button
-      size="sm"
-      variant="outline"
-      class="shrink-0"
-      onClick={() => {
-        location.hash = "/settings/opencode";
-      }}
-    >
-      {t("settings.engine.manage")}
-    </Button>
-  );
   // Its own line under the row: beside the name it squeezed the tier badge
   // into a column one glyph wide.
   const pluginsMissingLine = (conn: Connection) => (
@@ -163,57 +146,7 @@ export function BackendSettings(props: { conns: ConnectionsCtl }) {
 
   return (
     <>
-      <Group label={t("settings.engine.title")} hint={t("settings.engine.hint")}>
-        <Card>
-          <Show
-            when={engine()}
-            fallback={
-              <div class="flex flex-col gap-2.5 py-3 @min-[560px]/main:flex-row @min-[560px]/main:items-center @min-[560px]/main:justify-between @min-[560px]/main:gap-3">
-                <p class="text-sm text-muted-foreground">
-                  {engineOff() ? t("settings.engine.off") : t("settings.engine.offline")}
-                </p>
-                {manageEngine()}
-              </div>
-            }
-          >
-            {(conn) => (
-              <div class="py-3">
-                <div class="flex flex-col gap-2.5 @min-[560px]/main:flex-row @min-[560px]/main:items-center @min-[560px]/main:gap-3">
-                  <div class="flex shrink-0 items-center gap-2.5">
-                    <span class="size-1.5 shrink-0 rounded-full bg-status-active" />
-                    <span class="text-sm font-medium">{backendLabel(conn().backend)}</span>
-                    <span class="whitespace-nowrap rounded-sm bg-secondary/60 px-1.5 py-0.5 text-2xs text-muted-foreground">
-                      {t("connect.tier.local")}
-                    </span>
-                  </div>
-                  <span
-                    class="min-w-0 truncate font-mono text-2xs text-muted-foreground @min-[560px]/main:flex-1"
-                    title={conn().baseUrl}
-                  >
-                    {conn().baseUrl}
-                  </span>
-                  {/* A foundation is not disconnected from here — its lifecycle
-                      lives on the OpenCode page — but which backend a new
-                      session lands on is the reader's choice, and the engine
-                      is one of the choices. */}
-                  <div class="flex shrink-0 items-center gap-2">
-                    <Show when={live().length > 1 && c().newSessionConnection() !== conn().id}>
-                      <Button size="sm" variant="quiet" onClick={() => c().chooseNewConn(conn().id)}>
-                        {t("settings.backends.useForNew")}
-                      </Button>
-                    </Show>
-                    <Show when={live().length > 1 && c().newSessionConnection() === conn().id}>
-                      <span class="text-2xs text-muted-foreground">{t("sidebar.backend.newTarget")}</span>
-                    </Show>
-                    {manageEngine()}
-                  </div>
-                </div>
-                {pluginsMissingLine(conn())}
-              </div>
-            )}
-          </Show>
-        </Card>
-      </Group>
+      <EngineSettings conns={props.conns} />
 
       <Group label={t("settings.backends.connected")} hint={t("settings.backends.history")}>
         <Card class="px-0">
