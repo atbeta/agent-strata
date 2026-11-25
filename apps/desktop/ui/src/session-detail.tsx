@@ -130,8 +130,9 @@ export function SessionDetail(props: {
     resetAsks,
     autoAcceptToggle,
   } = useSessionAsks(props, view, (message) => composer.setSendErr(message));
-  const [options, { refetch: refetchOptions }] = createResource(() =>
-    getJson<OptionsResponse>("/options"),
+  const [options, { refetch: refetchOptions }] = createResource(
+    () => props.id,
+    (id) => getJson<OptionsResponse>(`/options?session=${encodeURIComponent(id)}`),
   );
   const [caps, { refetch: refetchCaps }] = createResource(
     () => props.id,

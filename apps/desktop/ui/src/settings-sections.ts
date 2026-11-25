@@ -11,8 +11,8 @@ import type { Name } from "./icons";
 export const SETTINGS_SECTIONS = [
   { id: "interface", label: "settings.section.interface", icon: "monitor" },
   { id: "notifications", label: "settings.section.notifications", icon: "bell" },
-  { id: "models", label: "settings.section.models", icon: "cube" },
   { id: "backends", label: "settings.section.backends", icon: "server" },
+  { id: "models", label: "settings.section.models", icon: "cube" },
   { id: "skills", label: "settings.section.skills", icon: "spark" },
   { id: "plugins", label: "settings.section.plugins", icon: "plug" },
   { id: "permission", label: "settings.section.permission", icon: "shield" },

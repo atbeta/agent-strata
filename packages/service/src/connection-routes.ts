@@ -138,7 +138,12 @@ export async function connectionRoute(
   if (path === "/options" && req.method === "GET") {
     const models: ModelChoice[] = [];
     const agents: { name: string; mode?: string }[] = [];
-    for (const conn of deps.connections.values()) {
+    // A model belongs to a server: a session can only run what its own server
+    // has, and two servers that both hold a vendor would list it twice.
+    const session = new URL(req.url).searchParams.get("session");
+    const owner = session ? deps.connections.driverFor(session) : undefined;
+    const from = session ? (owner ? [owner] : []) : [...deps.connections.values()];
+    for (const conn of from) {
       try {
         models.push(...(await conn.listModels()));
         agents.push(...(await conn.listAgents()));

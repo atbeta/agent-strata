@@ -2,7 +2,6 @@ import { createEffect, createResource, createSignal, For, onCleanup, Show } from
 import {
   beginProviderLogin,
   finishProviderLogin,
-  getJson,
   listProviders,
   removeProviderKey,
   saveProviderKey,
@@ -15,7 +14,9 @@ import {
 import { t } from "./i18n";
 import { fadeKeyed } from "./errors";
 import { Icon } from "./icons";
-import { Card, Group } from "./settings-blocks";
+import { Card, Group, Segmented } from "./settings-blocks";
+import { settled } from "./resource";
+import { endpointShort, type ConnectionsCtl } from "./use-connections";
 import { Button } from "@/components/ui/button";
 import { Tip } from "./tip";
 import { Picker } from "@/components/ui/picker";
@@ -716,16 +717,46 @@ function ProviderList(props: { connectionId: string }) {
   );
 }
 
-export function ProviderSettings() {
-  const [conns] = createResource(() => getJson<{ connections: Connection[] }>("/connections"));
-  const opencode = () => (conns()?.connections ?? []).filter((conn) => conn.backend === "opencode");
+function serverName(conn: Connection): string {
+  return conn.placement === "embed" ? t("sidebar.source.local") : conn.name || endpointShort(conn.baseUrl);
+}
+
+/**
+ * A vendor key is written into one server's OpenCode, so the list is always
+ * one server's. With several, the reader picks which, starting on the one new
+ * sessions go to.
+ */
+export function ProviderSettings(props: { conns: ConnectionsCtl }) {
+  const opencode = () =>
+    (settled(props.conns.conns)?.connections ?? []).filter((conn) => conn.backend === "opencode");
+  const [picked, setPicked] = createSignal<string>();
+  const current = () => {
+    const list = opencode();
+    return (
+      list.find((conn) => conn.id === picked()) ??
+      list.find((conn) => conn.id === props.conns.newSessionConnection()) ??
+      list[0]
+    );
+  };
 
   return (
     <Group label={t("settings.provider.title")} hint={t("settings.provider.hint")}>
-      <Show when={!conns.loading && opencode().length === 0}>
+      <Show when={settled(props.conns.conns) !== undefined && opencode().length === 0}>
         <p class="mt-3 text-sm text-muted-foreground">{t("settings.provider.offline")}</p>
       </Show>
-      <For each={opencode()}>{(conn) => <ProviderList connectionId={conn.id} />}</For>
+      <Show when={opencode().length > 1}>
+        <div class="mt-3">
+          <Segmented
+            label={t("settings.provider.server")}
+            value={current()?.id ?? ""}
+            options={opencode().map((conn) => ({ id: conn.id, label: serverName(conn) }))}
+            onChange={setPicked}
+          />
+        </div>
+      </Show>
+      <Show when={current()?.id} keyed>
+        {(id) => <ProviderList connectionId={id} />}
+      </Show>
     </Group>
   );
 }

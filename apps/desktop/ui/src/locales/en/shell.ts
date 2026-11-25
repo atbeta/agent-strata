@@ -609,7 +609,9 @@ export default {
   "settings.opencode.loginFailed":
     "The domain account or password was refused. Check them and try again.",
   "settings.provider.title": "Model providers",
-  "settings.provider.hint": "API keys and sign-in are stored by OpenCode. This page does not keep them.",
+  "settings.provider.hint":
+    "API keys and sign-in are stored by that server's OpenCode, and a session can only use the models on its own server. This page does not keep them.",
+  "settings.provider.server": "Server",
   "settings.provider.offline":
     "The models here come from a connected OpenCode. Connect one under Engine & servers, then add an API key here.",
   "settings.provider.empty": "No provider accepts an API key.",

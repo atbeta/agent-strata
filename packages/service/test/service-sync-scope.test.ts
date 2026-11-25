@@ -160,3 +160,48 @@ describe("a sync reconciles only the sessions its own server holds", () => {
     }
   });
 });
+
+describe("a session's model choices come from its own server", () => {
+  const server = (sessionId: string, provider: string) => {
+    const info = { id: sessionId, directory: "/repo", title: sessionId, time: { created: 1, updated: 2 } };
+    return fakeOpencode({
+      "/session": () => Response.json([info]),
+      [`/session/${sessionId}`]: () => Response.json(info),
+      [`/session/${sessionId}/message`]: () => Response.json([]),
+      "/provider": () =>
+        Response.json({
+          all: [{ id: provider, name: provider, models: { m1: { name: `${provider} m1` } } }],
+          connected: [provider],
+          default: {},
+        }),
+      "/agent": () => Response.json([]),
+    });
+  };
+
+  test("/options?session= lists only the models of the server that holds the session", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "strata-options-"));
+    const a = server("ses_a", "anthropic");
+    const b = server("ses_b", "openai");
+    const svc = startService({ db: join(dir, "events.db"), port: 0, desktopDir: dir });
+    const base = `http://127.0.0.1:${svc.port}`;
+    const providers = async (query: string) => {
+      const body = (await fetch(`${base}/options${query}`).then((r) => r.json())) as {
+        models: { providerID: string }[];
+      };
+      return body.models.map((model) => model.providerID).sort();
+    };
+    try {
+      await connected(base, a);
+      await connected(base, b);
+      expect(await providers("")).toEqual(["anthropic", "openai"]);
+      expect(await providers("?session=opencode:ses_a")).toEqual(["anthropic"]);
+      expect(await providers("?session=opencode:ses_b")).toEqual(["openai"]);
+      expect(await providers("?session=opencode:nobody")).toEqual([]);
+    } finally {
+      svc.stop();
+      a.stop();
+      b.stop();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

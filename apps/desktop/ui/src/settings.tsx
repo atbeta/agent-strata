@@ -501,7 +501,7 @@ export function SettingsPage(props: { section?: string; plugin?: string; skill?:
       {/* Filling a key is a first-run task, not runtime surgery: it gets its
           own section instead of the bottom of the process manager. The keys
           themselves are written to OpenCode either way. */}
-      <ProviderSettings />
+      <ProviderSettings conns={props.conns} />
       </Show>
 
       <Show when={section() === "plugins"}>
