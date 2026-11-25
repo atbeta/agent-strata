@@ -121,7 +121,10 @@ export function useSessionList(opts: {
   isWorktree?: (dir: string | undefined) => boolean;
   clock: () => number;
   activeId: () => string | undefined;
+  /** Off the session on screen, to the overview; the window moves the screen with the address. */
+  leave?: () => void;
 }) {
+  const leave = opts.leave ?? (() => (location.hash = "/"));
   // The first read waits for the service to come up; every refetch after is an
   // ordinary request, so a momentary hiccup reports as an error instead of
   // spinning forever.
@@ -445,11 +448,11 @@ export function useSessionList(opts: {
   );
 
   const [actionErr, setActionErr] = fadeSignal("");
-  const runAction = async (id: string, fn: () => Promise<void>, leave: boolean) => {
+  const runAction = async (id: string, fn: () => Promise<void>, away: boolean) => {
     setActionErr("");
     try {
       await fn();
-      if (leave && opts.activeId() === id) location.hash = "/";
+      if (away && opts.activeId() === id) leave();
       refetch();
     } catch (e) {
       setActionErr(explain(e));
@@ -461,7 +464,7 @@ export function useSessionList(opts: {
     if (deleting().has(id)) return;
     setActionErr("");
     setDeleting((current) => new Set(current).add(id));
-    if (opts.activeId() === id) location.hash = "/";
+    if (opts.activeId() === id) leave();
     try {
       await fn();
       // The stream owns the reconciling reread. Removing the row here as well

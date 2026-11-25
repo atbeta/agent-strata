@@ -22,6 +22,11 @@ export function sessionBackHref(
   return `/session/${encodeURIComponent(id)}`;
 }
 
+/** Two reads of the address that name the same screen. */
+export function sameRoute(a: Route, b: Route): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 export function parseHash(): Route {
   const h = location.hash.slice(1);
   const s = h.match(/^\/session\/(.+)$/);

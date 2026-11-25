@@ -28,7 +28,10 @@ const row: SessionRow = {
   totals: { input: 0, output: 0, cost_usd: 0, tool_calls: 0, cache_read: 0, cache_write: 0 },
 };
 
-function mountController(activeId?: string): { ctl: SessionListCtl; requests: () => number } {
+function mountController(
+  activeId?: string,
+  leave?: () => void,
+): { ctl: SessionListCtl; requests: () => number } {
   let requests = 0;
   vi.stubGlobal("fetch", () => {
     requests += 1;
@@ -40,7 +43,7 @@ function mountController(activeId?: string): { ctl: SessionListCtl; requests: ()
   document.body.appendChild(host);
   let ctl: SessionListCtl | undefined;
   dispose = render(() => {
-    ctl = useSessionList({ extraDirs: () => [], clock: () => 0, activeId: () => activeId });
+    ctl = useSessionList({ extraDirs: () => [], clock: () => 0, activeId: () => activeId, leave });
     return <></>;
   }, host);
   return { ctl: ctl!, requests: () => requests };
@@ -63,6 +66,16 @@ test("a background delete keeps the pending row visible until it succeeds", asyn
   expect(ctl.isDeleting("opencode:a")).toBe(false);
   expect(ctl.sessions()).toHaveLength(0);
   expect(requests()).toBe(1);
+});
+
+test("deleting the open session leaves through the window, in the same frame as the confirm", async () => {
+  const leave = vi.fn();
+  const { ctl } = mountController("opencode:a", leave);
+  await vi.waitFor(() => expect(ctl.sessions()).toHaveLength(1));
+  const pending = ctl.runDelete("opencode:a", () => new Promise<void>(() => {}));
+  // Before the delete is even sent: the screen moves now, not on the next hashchange.
+  expect(leave).toHaveBeenCalledTimes(1);
+  void pending;
 });
 
 test("a failed background delete restores the row without another list request", async () => {

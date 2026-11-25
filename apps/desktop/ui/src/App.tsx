@@ -25,7 +25,7 @@ import { readSidebarOpen, writeSidebarOpen } from "./sidebar-visibility";
 import { t } from "./i18n";
 import { displayTitle } from "./session-title";
 import { isStreamingSnapshotMessage } from "./live";
-import { parseHash, sessionBackHref, type Route } from "./routes";
+import { parseHash, sameRoute, sessionBackHref, type Route } from "./routes";
 import { explain } from "./errors";
 import { createFreshSessions } from "./fresh-session";
 import { listLeaves, setPaneSession } from "./pane-tree";
@@ -56,7 +56,17 @@ import {
 import { createDebouncer } from "./debounce";
 
 export function App() {
-  const [route, setRoute] = createSignal<Route>(parseHash());
+  const [route, setRoute] = createSignal<Route>(parseHash(), { equals: sameRoute });
+  /**
+   * Off a session that is going away, in this frame. The address alone moves
+   * the screen only on the next `hashchange`, and a frame painted in between
+   * shows the session with its confirm dialog already gone — a flash of the
+   * thing just deleted before the overview replaces it.
+   */
+  const leaveToOverview = () => {
+    location.hash = "/";
+    setRoute(parseHash());
+  };
   const [clock, setClock] = createSignal(Date.now());
   const [customBackground, setCustomBackground] = createSignal(false);
   /**
@@ -85,6 +95,7 @@ export function App() {
     isWorktree: (dir) => ws.worktreeOf(dir) !== undefined,
     clock,
     activeId,
+    leave: leaveToOverview,
   });
   /** A finished sync is the one moment the overview's usage buckets move. */
   const [usageKey, setUsageKey] = createSignal(1);
@@ -426,7 +437,7 @@ export function App() {
             (r.name === "session" && r.id === evt.session_id) ||
             (r.name === "compare" && (r.a === evt.session_id || r.b === evt.session_id))
           ) {
-            location.hash = "/";
+            leaveToOverview();
           }
         }
       } catch {
