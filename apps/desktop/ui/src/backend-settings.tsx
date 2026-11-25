@@ -22,6 +22,7 @@ import {
 import { Card, Group, Row, Segmented, pickerTrigger } from "./settings-blocks";
 import { endpointShort, type ConnectionsCtl } from "./use-connections";
 import type { Connection, ConnectionAttempt } from "./api";
+import { sourceColor } from "./source-color";
 
 /** The tier a badge names, in the user's terms: where the machine is. */
 function tierWord(tier: Connection["tier"]): string {
@@ -228,6 +229,14 @@ export function BackendSettings(props: { conns: ConnectionsCtl }) {
                   <div class="flex flex-col gap-2.5 @min-[560px]/main:flex-row @min-[560px]/main:items-center @min-[560px]/main:gap-3">
                     <div class="flex shrink-0 items-center gap-2.5">
                       <span class="size-1.5 shrink-0 rounded-full bg-status-active" />
+                      {/* the colour its sessions carry in the list: this is where it is named */}
+                      <Show when={conn.color !== undefined}>
+                        <span
+                          class="h-3.5 w-[3px] shrink-0 rounded-full"
+                          style={{ "background-color": sourceColor(conn.color!) }}
+                          data-source-color={conn.color}
+                        />
+                      </Show>
                       <span class="text-sm font-medium">{backendLabel(conn.backend)}</span>
                       <Show when={tierWord(conn.tier)}>
                         {(word) => (

@@ -5,6 +5,9 @@ import type { SessionStatus } from "./session-status";
 import { SessionStatusMark } from "@/components/ui/session-status";
 import { ShellMark } from "./shell-mark";
 import { ListRow } from "@/components/ui/list-row";
+import { cn } from "@/lib/utils";
+import type { SessionSource } from "./api";
+import { sourceColor, sourceLabel } from "./source-color";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -42,11 +45,10 @@ export function SessionListItem(props: {
   onCompare?: () => void;
   /** Open this session in a side-by-side split pane. */
   onSplitOpen?: () => void;
-  /**
-   * Which server this session lives on, set only while one backend kind has
-   * more than one instance connected.
-   */
-  instance?: { short: string; tip: string };
+  /** Which server the session came from; a disconnected one dims the row. */
+  source?: SessionSource;
+  /** Draw the source's colour: only worth it while the list holds more than one source. */
+  showSource?: boolean;
   /** A server the shell has not exited. */
   shell?: { command: string; detail: string };
 }) {
@@ -57,6 +59,7 @@ export function SessionListItem(props: {
   // Pointer hover is immediate; group-focus-within below offers the same control
   // to keyboard navigation. An open portal menu also counts as staying on the row.
   const reveal = () => hot() || menuOpen();
+  const offline = () => props.source?.connected === false;
 
   createEffect(() => {
     if (!editing()) setDraft(props.title);
@@ -126,8 +129,20 @@ export function SessionListItem(props: {
           disabled={editing() || props.deleting}
           onMouseEnter={() => setHot(true)}
           onMouseLeave={() => setHot(false)}
-          class="group"
+          class={cn("group", offline() && !props.active && "opacity-55")}
         >
+          {/* Left of everything and outside the row's flow: a colour the eye
+              sorts by without reading, never a word that costs title width. */}
+          <Show when={props.showSource && props.source?.color !== undefined && props.source}>
+            {(source) => (
+              <span class="absolute inset-y-0 left-0 flex w-2 items-center justify-center" title={sourceLabel(source())}>
+                <span
+                  class={cn("h-4 w-[3px] rounded-full", !source().connected && "opacity-50")}
+                  style={{ "background-color": sourceColor(source().color!) }}
+                />
+              </span>
+            )}
+          </Show>
           {/* The one place a row says what state it is in. It used to be a
               six-pixel dot that only appeared while busy — no word, no name for a
               screen reader — plus a badge that existed only for pending input, so
@@ -137,21 +152,6 @@ export function SessionListItem(props: {
           <SessionStatusMark status={props.status} />
           <Show when={props.shell}>
             {(shell) => <ShellMark command={shell().command} detail={shell().detail} />}
-          </Show>
-          {/* Before the title, not after it: the title reserves its right padding
-              for the timestamp, which is absolutely positioned over the end of the
-              row, and a badge placed after the title lands on top of it. Left of
-              the title it also reads as what it is — row metadata, like the status
-              dot, rather than part of the session's name.
-              A native title on its own span: the session title is pointer-events-none
-              by design so the row's own hover label is the one that shows. */}
-          <Show when={props.instance && !editing()}>
-            <span
-              class="shrink-0 rounded-sm bg-secondary/70 px-1 font-mono text-2xs leading-none text-muted-foreground"
-              title={props.instance!.tip}
-            >
-              {props.instance!.short}
-            </span>
           </Show>
           <Show when={props.pinned && !editing()}>
             <Icon name="pin" class="size-3 shrink-0 rotate-45 text-muted-foreground" />

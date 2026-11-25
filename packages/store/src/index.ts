@@ -39,6 +39,8 @@ export interface SessionSummary {
   mapper: string | null;
   /** the session this was forked or handed off from; roots have none */
   parent_session_id: string | null;
+  /** the server the session was recorded from; null for records from before origins were kept */
+  origin?: string | null;
 }
 
 export interface SearchHit {
@@ -175,6 +177,8 @@ export interface Store {
   deletedSessions(): string[];
   /** Every session of a backend with the server recorded as its owner. */
   sessionOrigins(backend: string): { session_id: string; workspace: string | null; origin: string | null }[];
+  /** Each recorded origin once, in the order the store first held a session from it. */
+  originOrder(): string[];
   /** Remove every event, the session row and its revision marker. */
   deleteSessions(session_ids: string[]): number;
   /**
@@ -730,7 +734,7 @@ export function openStore(path: string | ":memory:"): Store {
 
     listSessions({ limit, backend, rootsOnly, workspace } = {}) {
       let sql =
-        "SELECT session_id,backend,workspace,title,started_at,last_seq,last_ts,mapper,parent_session_id FROM sessions";
+        "SELECT session_id,backend,workspace,title,started_at,last_seq,last_ts,mapper,parent_session_id,origin FROM sessions";
       const where: string[] = [];
       const params: (string | number)[] = [];
       if (backend !== undefined) {
@@ -1000,6 +1004,13 @@ export function openStore(path: string | ":memory:"): Store {
       return db
         .query("SELECT session_id, workspace, origin FROM sessions WHERE backend=?")
         .all(backend) as { session_id: string; workspace: string | null; origin: string | null }[];
+    },
+
+    originOrder() {
+      const rows = db
+        .query("SELECT origin FROM sessions WHERE origin IS NOT NULL GROUP BY origin ORDER BY MIN(rowid)")
+        .all() as { origin: string }[];
+      return rows.map((r) => r.origin);
     },
 
     deleteSessions(session_ids) {

@@ -5,6 +5,7 @@ import type { ConnectionRegistry } from "./connection-registry";
 import type { BackendDriver, ModelChoice } from "./driver";
 import type { SessionClaims } from "./identity";
 import { readOpencodeStatus } from "./opencode-status";
+import type { SessionSource } from "./sources";
 
 /**
  * Whether the agent on this backend can reach the plugin tools.
@@ -36,6 +37,8 @@ export async function connectionRoute(
     connections: ConnectionRegistry;
     /** live probe results: whether the backend's tool table carries the plugin tools */
     pluginProbes: Map<string, boolean>;
+    /** the server a connection's sessions are recorded under, as the session list names it */
+    sourceOf(id: string): SessionSource | undefined;
     attempts: Map<string, ConnectionAttempt>;
     activeSyncs: Map<string, { done: number; total: number }>;
     pendingSyncs: Set<string>;
@@ -112,6 +115,7 @@ export async function connectionRoute(
       placement: connectionPlacement(conn.backend, conn.baseUrl, launch),
       tier: machineTier(conn.backend, conn.baseUrl),
       plugins: pluginCapability(conn, deps.pluginProbes.get(conn.id)),
+      color: deps.sourceOf(conn.id)?.color,
       sync: deps.activeSyncs.has(conn.id) ? "syncing" : deps.pendingSyncs.has(conn.id) ? "starting" : "idle",
       ...(deps.activeSyncs.has(conn.id)
         ? {

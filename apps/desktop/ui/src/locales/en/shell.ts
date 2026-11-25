@@ -58,6 +58,8 @@ export default {
   "sidebar.session.archive": "Archive",
   "sidebar.session.delete": "Delete",
   "sidebar.session.deleting": "Deleting…",
+  "sidebar.source.local": "Local engine",
+  "sidebar.source.offline": "{name} · disconnected",
   "sidebar.session.deleteTitle": "Delete \"{name}\"",
   "sidebar.sessionCount.one": "{n} session",
   "sidebar.sessionCount.other": "{n} sessions",

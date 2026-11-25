@@ -16,6 +16,7 @@ import type { PluginHost } from "./plugins/host";
 import { readPromptParts } from "./prompt-parts";
 import { listRowOf, mergeUsage } from "./session-list";
 import { adoptSession, sendPrompt } from "./session-ops";
+import type { SessionSource } from "./sources";
 import { filesKeyOf, type ViewCache } from "./views";
 
 export async function sessionRoute(
@@ -37,6 +38,7 @@ export async function sessionRoute(
     directoryOf(sessionId: string): string | undefined;
     driverFor(sessionId: string): BackendDriver | undefined;
     broadcast(payload: unknown): void;
+    sources(): (origin: string | null | undefined) => SessionSource | undefined;
   },
 ): Promise<Response | undefined> {
   const url = new URL(req.url);
@@ -74,8 +76,10 @@ export async function sessionRoute(
         parent = parentRow.get(parent);
       }
     }
+    const sourceOf = deps.sources();
     const sessions = rows.map(({ summary, view }) => ({
       summary,
+      source: sourceOf(summary.origin),
       status: view.status,
       busy: view.busy,
       retry: view.retry,

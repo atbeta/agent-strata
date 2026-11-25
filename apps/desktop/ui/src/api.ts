@@ -52,6 +52,15 @@ export type {
   Turn,
 };
 
+export interface SessionSource {
+  /** the app's own engine: drawn without a colour */
+  local?: true;
+  /** index into the source palette; absent for the local engine */
+  color?: number;
+  name: string;
+  connected: boolean;
+}
+
 export interface SessionRow {
   summary: {
     session_id: string;
@@ -86,6 +95,12 @@ export interface SessionRow {
    * which server.
    */
   connection_id?: string;
+  /**
+   * The server the session was recorded from, read from the store rather than
+   * from whichever connection owns it now — so it outlasts a disconnect.
+   * Absent for records from before origins were kept.
+   */
+  source?: SessionSource;
   totals: {
     input: number;
     output: number;
@@ -204,6 +219,8 @@ export interface Connection {
    * as the fallback when the probe could not answer.
    */
   plugins?: boolean;
+  /** the source colour its sessions are drawn with in the list; absent for the local engine */
+  color?: number;
   /** the service's own sync word: "starting" until the run begins, counts only while "syncing" */
   sync?: "starting" | "syncing" | "idle";
   syncDone?: number;

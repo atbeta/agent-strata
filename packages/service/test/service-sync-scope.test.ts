@@ -46,7 +46,11 @@ async function connected(base: string, server: ReturnType<typeof fakeOpencode>) 
 
 async function row(base: string, sessionId: string) {
   const body = (await fetch(`${base}/sessions?roots=1`).then((r) => r.json())) as {
-    sessions: { summary: { session_id: string }; deleted?: boolean }[];
+    sessions: {
+      summary: { session_id: string };
+      deleted?: boolean;
+      source?: { local?: true; color?: number; name: string; connected: boolean };
+    }[];
   };
   return body.sessions.find((entry) => entry.summary.session_id === sessionId);
 }
@@ -71,6 +75,23 @@ describe("a sync reconciles only the sessions its own server holds", () => {
       expect(remote.seen.some((entry) => entry.path === "/session/ses_local")).toBe(false);
       expect(svc.store.deletedSessions()).not.toContain("opencode:ses_local");
       expect((await row(base, "opencode:ses_local"))?.deleted).toBe(false);
+      // the list still says where each came from, and which is reachable
+      expect((await row(base, "opencode:ses_local"))?.source).toEqual({ local: true, name: "", connected: false });
+      expect((await row(base, "opencode:ses_remote"))?.source).toEqual({
+        color: 0,
+        name: "127.0.0.1",
+        connected: true,
+      });
+      const listed = (await fetch(`${base}/connections`).then((r) => r.json())) as {
+        connections: { id: string; color?: number }[];
+      };
+      expect(listed.connections[0]?.color).toBe(0);
+      await fetch(`${base}/connections/${encodeURIComponent(listed.connections[0]!.id)}`, { method: "DELETE" });
+      expect((await row(base, "opencode:ses_remote"))?.source).toEqual({
+        color: 0,
+        name: "127.0.0.1",
+        connected: false,
+      });
     } finally {
       svc.stop();
       remote.stop();

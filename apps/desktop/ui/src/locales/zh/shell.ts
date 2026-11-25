@@ -59,6 +59,8 @@ export default {
   "sidebar.session.archive": "归档",
   "sidebar.session.delete": "删除",
   "sidebar.session.deleting": "删除中…",
+  "sidebar.source.local": "本机引擎",
+  "sidebar.source.offline": "{name} · 已断开",
   "sidebar.session.deleteTitle": "删除「{name}」",
   "sidebar.sessionCount.one": "{n} 个会话",
   "sidebar.sessionCount.other": "{n} 个会话",

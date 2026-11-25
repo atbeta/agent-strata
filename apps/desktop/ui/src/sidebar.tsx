@@ -2,7 +2,6 @@ import { createEffect, createMemo, For, onCleanup, Show, createSignal } from "so
 import { Portal } from "solid-js/web";
 import {
   archiveSession,
-  backendLabel,
   removeWorktree,
   renameSession,
   type SessionRow,
@@ -26,7 +25,7 @@ import { ProjectLensMenu } from "./project-lens";
 import type { StatusLens } from "./project-view";
 import { needsProjectView, partitionWorktreeGroups } from "./project-view";
 import type { ConnectionsCtl } from "./use-connections";
-import { endpointHost, endpointShort, ConnectionsFooter } from "./use-connections";
+import { ConnectionsFooter } from "./use-connections";
 import { sidebarEmptyKind } from "./connection-status";
 import { everyGroupFolded, foldGroups } from "./sidebar-visibility";
 import {
@@ -184,55 +183,18 @@ export function Sidebar(props: {
   };
 
   /**
-   * The connection ids the sidebar's sessions are actually spread across.
-   *
-   * A session carries a `backend`, but that names the kind and never the
-   * server, so nothing on the row says which instance produced it. Naming it
-   * is only worth the row width when the list is genuinely split: two
-   * OpenCodes over one agent's session store hold the same sessions, and which
-   * of them owns a given one is arbitrary, so the badge would repeat a single
-   * answer down the whole list. A session no connected backend owns counts as
-   * its own bucket, because that is the other case where the rows are not
-   * interchangeable.
+   * Whether the rows' source colours are worth drawing: only while the list
+   * holds sessions from more than one server. The local engine and records
+   * from before origins were kept share the uncoloured bucket — neither draws
+   * a colour, so telling them apart is not something the list can do anyway.
+   * The source is the recorded origin, not the owning connection, so a sync
+   * that briefly leaves a row unowned does not make the colours flicker.
    */
-  const splitInstances = createMemo(() => {
-    const ids = new Set<string>();
-    for (const g of list().groups()) for (const s of g.rows) ids.add(s.connection_id ?? "");
-    return ids;
+  const mixedSources = createMemo(() => {
+    const buckets = new Set<number | undefined>();
+    for (const g of list().groups()) for (const s of g.rows) buckets.add(s.source?.color);
+    return buckets.size >= 2;
   });
-
-  /**
-   * Whether the `port` badge on a row is worth showing, held still for a beat.
-   *
-   * A sync briefly leaves some rows without their connection id and fills it in
-   * on the next pass. Reading that directly made the badge appear and disappear
-   * down the whole list — a flicker with no meaning behind it. The split has to
-   * stay true for long enough to be a state rather than a frame.
-   */
-  const [splitSettled, setSplitSettled] = createSignal(false);
-  createEffect(() => {
-    const multiple = props.conns.phase() === "connected" && splitInstances().size >= 2;
-    const timer = setTimeout(() => setSplitSettled(multiple), 600);
-    onCleanup(() => clearTimeout(timer));
-  });
-
-  // The last badge a row had. A sync briefly drops `connection_id` from some
-  // rows; without this the badge under that row vanished for a frame even
-  // though the session had not moved.
-  const lastInstance = new Map<string, { short: string; tip: string }>();
-  const instanceOf = (s: SessionRow) => {
-    if (!splitSettled()) return undefined;
-    const c = s.connection_id
-      ? (settled(props.conns.conns)?.connections ?? []).find((x) => x.id === s.connection_id)
-      : undefined;
-    if (!c) return lastInstance.get(s.summary.session_id);
-    const badge = {
-      short: endpointShort(c.baseUrl),
-      tip: `${backendLabel(c.backend)} · ${endpointHost(c.baseUrl)}`,
-    };
-    lastInstance.set(s.summary.session_id, badge);
-    return badge;
-  };
 
   /**
    * Per-group visibility. `collapsed` hides a group entirely behind its
@@ -536,7 +498,8 @@ export function Sidebar(props: {
                     list().sessions().length >= 2 ? () => props.onCompare(id) : undefined
                   }
                   onSplitOpen={() => openSessionInSplit(id, "row")}
-                  instance={instanceOf(s())}
+                  source={s().source}
+                  showSource={mixedSources()}
                   shell={s().shell}
                 />
               );

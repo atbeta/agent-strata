@@ -23,6 +23,7 @@ import { ViewCache } from "./views";
 import { makeEvent, type EventInput } from "@agent-strata/schema";
 import { connectAcpDriver } from "./acp-driver";
 import { bootPlan, REMEMBERED_PROBE_MS } from "./boot-connect";
+import { sourceTable } from "./sources";
 import { sameEndpoint } from "./connection-phase";
 import { connectionRoute, type ConnectionAttempt } from "./connection-routes";
 import {
@@ -611,6 +612,18 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     }
   };
   const memory = connectionMemory(opts.db);
+  const sources = () => {
+    const live: string[] = [];
+    for (const conn of conns.values()) {
+      const origin = driverOrigins.get(conn.id);
+      if (origin) live.push(origin);
+    }
+    const names = new Map<string, string>();
+    for (const saved of memory.saved()) {
+      if (saved.name && saved.placement !== "embed") names.set(sessionOrigin(saved), saved.name);
+    }
+    return sourceTable({ recorded: store.originOrder(), live, names });
+  };
   /**
    * The generation the desktop was on when this service started.
    *
@@ -976,6 +989,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       directoryOf,
       driverFor,
       broadcast,
+      sources,
     });
     if (session) return session;
 
@@ -1006,6 +1020,10 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     const connection = await connectionRoute(req, path, {
       connections: conns,
       pluginProbes,
+      sourceOf: (id) => {
+        const origin = driverOrigins.get(id);
+        return origin ? sources()(origin) : undefined;
+      },
       attempts,
       activeSyncs,
       pendingSyncs,
