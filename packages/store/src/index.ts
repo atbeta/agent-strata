@@ -173,6 +173,8 @@ export interface Store {
   classCounts(session_ids?: string[]): SessionClassStats[];
   /** Sessions that carry a session.deleted event, however old. */
   deletedSessions(): string[];
+  /** Every session of a backend with the server recorded as its owner. */
+  sessionOrigins(backend: string): { session_id: string; workspace: string | null; origin: string | null }[];
   /** Remove every event, the session row and its revision marker. */
   deleteSessions(session_ids: string[]): number;
   /**
@@ -992,6 +994,12 @@ export function openStore(path: string | ":memory:"): Store {
         .query("SELECT DISTINCT session_id FROM events WHERE type='session.deleted'")
         .all() as { session_id: string }[];
       return rows.map((r) => r.session_id);
+    },
+
+    sessionOrigins(backend) {
+      return db
+        .query("SELECT session_id, workspace, origin FROM sessions WHERE backend=?")
+        .all(backend) as { session_id: string; workspace: string | null; origin: string | null }[];
     },
 
     deleteSessions(session_ids) {

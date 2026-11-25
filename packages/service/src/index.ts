@@ -32,6 +32,7 @@ import {
   isEmbeddedOrigin,
   isLoopback,
   looksEmbedded,
+  sameServer,
   sessionOrigin,
   type ConnectBody,
 } from "./connections";
@@ -397,6 +398,8 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   });
   const activeSyncs = new Map<string, { done: number; total: number }>();
   const pendingSyncs = new Set<string>();
+  /** the origin each connection writes its sessions under — the server identity a sync reconciles against */
+  const driverOrigins = new Map<string, string>();
   /**
    * A sync is announced only once it writes something the reader will see
    * change. The crawl that only confirms what the store already holds is
@@ -414,6 +417,20 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       broadcast({ type: "sync.started", connection_id: driver.id, ...at });
     };
     const reconciled = new Set<string>();
+    const mine = driverOrigins.get(driver.id);
+    // A server that lists one of these holds it, so its delete was heard
+    // second-hand — another server's 404, from before reconciling was scoped
+    // to the server that recorded the session — and the delete goes. A
+    // rebuild keeps session.deleted, so answering it with a session.updated
+    // would not outlast the next one. A delete the reader made here removes
+    // the events outright, and a real one leaves the server 404ing, so
+    // neither reaches this.
+    const deleted = new Set(store.deletedSessions());
+    const revive = (casfId: string) => {
+      if (!deleted.delete(casfId)) return;
+      announce();
+      replaceStored(casfId, [], { replaceTypes: ["session.deleted"] });
+    };
     return driver
       .sync({
         stale: (casfId) =>
@@ -425,15 +442,22 @@ export function startService(opts: ServiceOpts = {}): RunningService {
             claims.shadowed({ backend: driver.agent, native_id: native }, casfId)
           );
         },
-        claimed: (casfId) => conns.own(casfId, driver.id),
+        claimed: (casfId) => {
+          revive(casfId);
+          return conns.own(casfId, driver.id);
+        },
         local: () => {
           const gone = new Set(store.deletedSessions());
+          const legacy = singleOpencode(driver.baseUrl);
           const rows: { id: string; directory?: string }[] = [];
-          for (const summary of store.listSessions({ backend: driver.agent })) {
-            const id = driver.nativeId(summary.session_id);
-            if (!id || gone.has(summary.session_id)) continue;
-            if (claims.shadowed({ backend: driver.agent, native_id: id }, summary.session_id)) continue;
-            rows.push({ id, directory: summary.workspace ?? undefined });
+          for (const row of store.sessionOrigins(driver.agent)) {
+            // Only the server that recorded a session can say it is gone;
+            // any other 404s it for never having had it.
+            if (!sameServer(row.origin, mine, legacy)) continue;
+            const id = driver.nativeId(row.session_id);
+            if (!id || gone.has(row.session_id)) continue;
+            if (claims.shadowed({ backend: driver.agent, native_id: id }, row.session_id)) continue;
+            rows.push({ id, directory: row.workspace ?? undefined });
           }
           return rows;
         },
@@ -742,6 +766,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       throw new Error("service is stopped");
     }
     conns.add(driver, policy, body.password);
+    driverOrigins.set(driver.id, origin);
     probePluginTools(driver);
     pendingSyncs.add(driver.id);
     let indexed: string[] = [];

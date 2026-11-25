@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { connectionMemory, endpointOf, looksEmbedded, machineTier } from "../src/connections";
+import { connectionMemory, endpointOf, looksEmbedded, machineTier, sameServer } from "../src/connections";
 
 /** The shape the shell gives the server it starts. */
 const embedded = (port: number) => ({
@@ -208,5 +208,23 @@ describe("machineTier", () => {
     expect(machineTier("opencode", "https://opencode.example.com")).toBe("remote");
     expect(machineTier("acp", "acp://opencode acp")).toBe("local");
     expect(machineTier("acp", "")).toBe("local");
+  });
+});
+
+describe("sameServer", () => {
+  const remote = "opencode:http://192.168.5.101:14198";
+  test("every launch of the embedded engine is one server", () => {
+    expect(sameServer("opencode:embed:gen-1", "opencode:embed:gen-2", false)).toBe(true);
+    expect(sameServer("opencode:embed:gen-1", remote, false)).toBe(false);
+    expect(sameServer(remote, "opencode:embed:gen-2", false)).toBe(false);
+  });
+  test("any other server is its address", () => {
+    expect(sameServer(remote, remote, false)).toBe(true);
+    expect(sameServer(remote, "opencode:http://127.0.0.1:4096", false)).toBe(false);
+  });
+  test("a record without an origin belongs to the only server there is", () => {
+    expect(sameServer(null, remote, true)).toBe(true);
+    expect(sameServer(undefined, remote, false)).toBe(false);
+    expect(sameServer(remote, undefined, true)).toBe(false);
   });
 });

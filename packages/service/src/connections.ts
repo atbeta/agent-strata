@@ -58,6 +58,22 @@ export function isEmbeddedOrigin(origin: string | undefined): boolean {
   return origin?.startsWith("opencode:embed:") === true;
 }
 
+/**
+ * Whether a stored session was recorded by the server a connection talks to.
+ *
+ * Only that server can say a session is gone: any other answers 404 for it
+ * because it never had it. Every generation of the embedded engine is the
+ * same server — one data directory, a new password per launch. A record from
+ * before origins were kept belongs to whichever server it may; `legacy` says
+ * whether there is only one it could be.
+ */
+export function sameServer(stored: string | null | undefined, mine: string | undefined, legacy: boolean): boolean {
+  if (!stored) return legacy;
+  if (!mine) return false;
+  if (isEmbeddedOrigin(mine)) return isEmbeddedOrigin(stored);
+  return stored === mine;
+}
+
 export function agentNameOf(command: string): string {
   return (command.split(/[\\/]/).pop() ?? command).replace(/\.(exe|cmd|bat)$/i, "");
 }
