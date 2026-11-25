@@ -53,7 +53,6 @@ export function endpointShort(url: string): string {
   const port = colon === -1 ? "" : host.slice(colon + 1);
   return /^\d+$/.test(port) ? port : host;
 }
-
 /**
  * Everything the sidebar knows about backends: the connection list, the
  * connect form, which connection a new session lands on, and per-connection

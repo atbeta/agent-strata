@@ -35,7 +35,8 @@ import { explain as errorText, fadeSignal } from "./errors";
 import { t } from "./i18n";
 import { Icon } from "./icons";
 import { Tip } from "./tip";
-import { endpointShort, type ConnectionsCtl } from "./use-connections";
+import type { ConnectionsCtl } from "./use-connections";
+import { connectionName } from "./connection-name";
 import { Card, Group, Row, Segmented, pickerTrigger } from "./settings-blocks";
 import { SkillDetail } from "./skill-detail";
 import { SKILL_SOURCE_LABEL, skillStatusLabel } from "./skill-display";
@@ -176,9 +177,9 @@ export function SkillSettings(props: { conns: ConnectionsCtl; skillId?: string }
     }, SKILL_REFRESH_MS);
     onCleanup(() => clearInterval(timer));
   });
-  const connectionName = (id: string) => {
+  const nameOf = (id: string) => {
     const item = connections().find((candidate) => candidate.id === id);
-    return item?.name || `${item ? endpointShort(item.baseUrl) : id}`;
+    return item ? connectionName(item) : id;
   };
 
   const refresh = async () => {
@@ -357,7 +358,7 @@ export function SkillSettings(props: { conns: ConnectionsCtl; skillId?: string }
               <Row label={t("skills.connection")}>
                 <DropdownMenu>
                   <DropdownMenuTrigger class={pickerTrigger} aria-label={t("skills.connection")}>
-                    <span class="truncate">{connectionName(connectionId())}</span>
+                    <span class="truncate">{nameOf(connectionId())}</span>
                     <Icon name="chevron" class="size-3 shrink-0 text-muted-foreground" />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent class="max-h-80 w-[var(--kb-popper-anchor-width)] min-w-0 overflow-y-auto">
@@ -370,7 +371,7 @@ export function SkillSettings(props: { conns: ConnectionsCtl; skillId?: string }
                             setConnectionChoice(item.id);
                           }}
                         >
-                          <span class="min-w-0 flex-1 truncate">{connectionName(item.id)}</span>
+                          <span class="min-w-0 flex-1 truncate">{nameOf(item.id)}</span>
                           <Show when={item.id === connectionId()}>
                             <Icon name="check" class="size-3" />
                           </Show>

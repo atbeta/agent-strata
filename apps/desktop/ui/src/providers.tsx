@@ -6,7 +6,6 @@ import {
   removeProviderKey,
   saveProviderKey,
   type ApiProvider,
-  type Connection,
   type OAuthStart,
   type ProviderMethod,
   type ProviderPrompt,
@@ -16,7 +15,8 @@ import { fadeKeyed } from "./errors";
 import { Icon } from "./icons";
 import { Card, Group, Segmented } from "./settings-blocks";
 import { settled } from "./resource";
-import { endpointShort, type ConnectionsCtl } from "./use-connections";
+import type { ConnectionsCtl } from "./use-connections";
+import { connectionName } from "./connection-name";
 import { Button } from "@/components/ui/button";
 import { Tip } from "./tip";
 import { Picker } from "@/components/ui/picker";
@@ -717,10 +717,6 @@ function ProviderList(props: { connectionId: string }) {
   );
 }
 
-function serverName(conn: Connection): string {
-  return conn.placement === "embed" ? t("sidebar.source.local") : conn.name || endpointShort(conn.baseUrl);
-}
-
 /**
  * A vendor key is written into one server's OpenCode, so the list is always
  * one server's. With several, the reader picks which, starting on the one new
@@ -749,7 +745,7 @@ export function ProviderSettings(props: { conns: ConnectionsCtl }) {
           <Segmented
             label={t("settings.provider.server")}
             value={current()?.id ?? ""}
-            options={opencode().map((conn) => ({ id: conn.id, label: serverName(conn) }))}
+            options={opencode().map((conn) => ({ id: conn.id, label: connectionName(conn) }))}
             onChange={setPicked}
           />
         </div>
