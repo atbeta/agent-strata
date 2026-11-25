@@ -65,3 +65,21 @@ export function sourceTable(opts: {
     };
   };
 }
+
+/**
+ * Servers whose sessions the list leaves out: recorded, but neither connected
+ * nor remembered — the reader disconnected them. Their events stay in the
+ * store, and adding the server again brings the sessions back. A remembered
+ * server that is only unreachable keeps its sessions on show, dimmed; the
+ * local engine and sessions with no recorded origin are never left out.
+ */
+export function forgottenOrigins(opts: {
+  recorded: readonly string[];
+  live: readonly string[];
+  remembered: readonly string[];
+}): string[] {
+  const kept = new Set([...opts.live, ...opts.remembered]);
+  return opts.recorded.filter(
+    (origin) => origin.startsWith(OPENCODE) && !isEmbeddedOrigin(origin) && !kept.has(origin),
+  );
+}

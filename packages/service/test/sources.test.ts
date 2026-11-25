@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { SOURCE_COLORS, sourceTable } from "../src/sources";
+import { forgottenOrigins, SOURCE_COLORS, sourceTable } from "../src/sources";
 
 const a = "opencode:http://192.168.5.101:14198";
 const b = "opencode:https://opencode.example.com";
@@ -40,5 +40,14 @@ describe("sourceTable", () => {
     const many = Array.from({ length: SOURCE_COLORS + 1 }, (_, i) => `opencode:http://10.0.0.${i}:4096`);
     const source = sourceTable({ recorded: many, live: [] });
     expect(source(many[SOURCE_COLORS]!)?.color).toBe(0);
+  });
+});
+
+describe("forgottenOrigins", () => {
+  test("only a server neither connected nor remembered is left out", () => {
+    const c = "opencode:http://10.0.0.9:4096";
+    const recorded = [embed1, a, b, c, "acp:acp://claude"];
+    expect(forgottenOrigins({ recorded, live: [a], remembered: [b] })).toEqual([c]);
+    expect(forgottenOrigins({ recorded, live: [], remembered: [] })).toEqual([a, b, c]);
   });
 });

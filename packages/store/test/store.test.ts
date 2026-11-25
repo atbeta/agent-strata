@@ -832,6 +832,17 @@ describe("store.query", () => {
     s.close();
   });
 
+  test("left-out origins are dropped before the limit; sessions with no origin stay", () => {
+    const s = openStore(":memory:");
+    s.append([mk("gone_1", "session.started", { workspace: "/repo" })], { origin: "opencode:http://gone" });
+    s.append([mk("gone_2", "session.started", { workspace: "/repo" })], { origin: "opencode:http://gone" });
+    s.append([mk("kept", "session.started", { workspace: "/repo" })], { origin: "opencode:http://kept" });
+    s.append([mk("legacy", "session.started", { workspace: "/repo" })]);
+    const ids = s.listSessions({ limit: 2, exceptOrigins: ["opencode:http://gone"] }).map((x) => x.session_id);
+    expect(ids.sort()).toEqual(["kept", "legacy"]);
+    s.close();
+  });
+
   test("a fresh store needs no rebuild", async () => {
     const s = openStore(":memory:");
     expect(s.reindexPending()).toBe(false);

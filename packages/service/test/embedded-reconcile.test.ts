@@ -112,8 +112,9 @@ describe("embedded reconcile", () => {
       "opencode:old": false,
       "opencode:legacy": false,
       "opencode:current": true,
-      "opencode:external": true,
     });
+    // a server neither connected nor remembered is off the list, so ask the store
+    expect(svc.store.sessionRunning("opencode:external").running).toBe(true);
   });
 
   test("a remembered address that no longer answers does not keep the old marks standing", async () => {

@@ -86,11 +86,16 @@ describe("a sync reconciles only the sessions its own server holds", () => {
         connections: { id: string; color?: number }[];
       };
       expect(listed.connections[0]?.color).toBe(0);
+      // disconnecting forgets the server: its sessions leave the list but not the store
       await fetch(`${base}/connections/${encodeURIComponent(listed.connections[0]!.id)}`, { method: "DELETE" });
+      expect(await row(base, "opencode:ses_remote")).toBeUndefined();
+      expect(svc.store.listSessions().map((s) => s.session_id)).toContain("opencode:ses_remote");
+      expect(await row(base, "opencode:ses_local")).toBeDefined();
+      await connected(base, remote);
       expect((await row(base, "opencode:ses_remote"))?.source).toEqual({
         color: 0,
         name: "127.0.0.1",
-        connected: false,
+        connected: true,
       });
     } finally {
       svc.stop();
@@ -139,7 +144,7 @@ describe("a sync reconciles only the sessions its own server holds", () => {
     const svc = startService({ db, port: 0, desktopDir: dir });
     const base = `http://127.0.0.1:${svc.port}`;
     try {
-      expect((await row(base, "opencode:ses_back"))?.deleted).toBe(true);
+      expect(svc.store.deletedSessions()).toContain("opencode:ses_back");
       await connected(base, owner);
       expect((await row(base, "opencode:ses_back"))?.deleted).toBe(false);
       expect(svc.store.deletedSessions()).not.toContain("opencode:ses_back");

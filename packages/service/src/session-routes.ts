@@ -39,6 +39,7 @@ export async function sessionRoute(
     driverFor(sessionId: string): BackendDriver | undefined;
     broadcast(payload: unknown): void;
     sources(): (origin: string | null | undefined) => SessionSource | undefined;
+    hiddenOrigins(): string[];
   },
 ): Promise<Response | undefined> {
   const url = new URL(req.url);
@@ -56,6 +57,7 @@ export async function sessionRoute(
     const fetched = store.listSessions({
       backend: url.searchParams.get("backend") ?? undefined,
       rootsOnly,
+      exceptOrigins: deps.hiddenOrigins(),
       limit: requested + 1,
     });
     const more = fetched.length > requested;

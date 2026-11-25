@@ -113,6 +113,8 @@ export interface Store {
     backend?: string;
     rootsOnly?: boolean;
     workspace?: string;
+    /** left out before the limit applies, like `rootsOnly`; no-origin sessions stay */
+    exceptOrigins?: readonly string[];
   }): SessionSummary[];
   sessionMapper(session_id: string): string | null;
   /** record the mapping behind a session that has none yet; a recorded one is kept */
@@ -732,7 +734,7 @@ export function openStore(path: string | ":memory:"): Store {
       return rows.map((r) => parseEvent(JSON.parse(r.body)));
     },
 
-    listSessions({ limit, backend, rootsOnly, workspace } = {}) {
+    listSessions({ limit, backend, rootsOnly, workspace, exceptOrigins } = {}) {
       let sql =
         "SELECT session_id,backend,workspace,title,started_at,last_seq,last_ts,mapper,parent_session_id,origin FROM sessions";
       const where: string[] = [];
@@ -746,6 +748,10 @@ export function openStore(path: string | ":memory:"): Store {
         params.push(workspace);
       }
       if (rootsOnly === true) where.push("parent_session_id IS NULL");
+      if (exceptOrigins !== undefined && exceptOrigins.length > 0) {
+        where.push(`(origin IS NULL OR origin NOT IN (${exceptOrigins.map(() => "?").join(",")}))`);
+        params.push(...exceptOrigins);
+      }
       if (where.length > 0) sql += ` WHERE ${where.join(" AND ")}`;
       // Ties are real: an import without clocks gives many sessions the same
       // stamp, and SQLite does not promise an order for tied keys — which
