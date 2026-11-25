@@ -64,3 +64,53 @@ export interface PtyReadPage {
   next_offset: number;
   dropped: boolean;
 }
+
+/** A synchronous value or the promise of it — a manager method may be either. */
+export type MaybePromise<T> = T | Promise<T>;
+
+/**
+ * The surface the panel, the agent tools, and the lifecycle hooks share.
+ * The local manager spawns on this machine; the remote one drives the
+ * backend's own /pty API for sessions whose workspace lives there. Reads,
+ * offsets, replays, and change events behave the same on both — output is
+ * always buffered in this process, whoever owns the shell.
+ */
+export interface TerminalManager {
+  create(input: import("./manager").PtyCreateInput): MaybePromise<PtyInfo>;
+  list(sessionId?: string): PtyInfo[];
+  listAgent(sessionId: string): PtyInfo[];
+  get(sessionId: string, id: string): PtyInfo;
+  getAgent(sessionId: string, id: string): PtyInfo;
+  setMode(sessionId: string, id: string, mode: TerminalMode): PtyInfo;
+  write(sessionId: string, id: string, data: string | Uint8Array, actor?: TerminalActor): number;
+  signal(sessionId: string, id: string, signal: TerminalSignal, actor?: TerminalActor): Promise<void>;
+  resize(sessionId: string, id: string, rows: number, cols: number): MaybePromise<void>;
+  read(sessionId: string, id: string, offset?: number, maxBytes?: number): PtyReadPage;
+  readAgent(sessionId: string, id: string, offset?: number, maxBytes?: number): PtyReadPage;
+  attach(
+    sessionId: string,
+    id: string,
+    listener: (event: PtyEvent) => void,
+  ): { info: PtyInfo; replay: Uint8Array; unsubscribe: () => void };
+  close(sessionId: string, id: string, actor?: TerminalActor): Promise<PtyCloseResult>;
+  closeSession(sessionId: string): Promise<void>;
+  closeInside(directory: string, inside: (root: string, target: string) => boolean): Promise<void>;
+  closeAll(): Promise<void>;
+  onChange(listener: (info: PtyInfo) => void): () => void;
+}
+
+/**
+ * The piece of a backend's /pty API the remote manager drives. Structurally
+ * satisfied by the service's opencode extension — the plugin never imports
+ * the service, so the shape is restated here.
+ */
+export interface RemotePtyApi {
+  shells(directory: string): Promise<PtyShell[]>;
+  create(
+    directory: string,
+    input: { command?: string; args?: string[]; cwd?: string; title?: string; env?: Record<string, string>; rows?: number; cols?: number },
+  ): Promise<{ id: string; title: string; command: string; cwd: string; status: string; pid?: number }>;
+  remove(directory: string, id: string): Promise<void>;
+  resize(directory: string, id: string, size: { rows: number; cols: number }): Promise<void>;
+  open(directory: string, id: string, cursor?: number): Promise<{ url: string; headers: Record<string, string> }>;
+}

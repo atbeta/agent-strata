@@ -37,6 +37,14 @@ export interface BuiltinOptions {
   dataDir: string;
   /** Where a session's workspace is, for `guards.workspace` and the dev plugin. */
   workspaceOf: (sessionId: string) => string | undefined;
+  /**
+   * The backend's own terminal api for a session whose workspace lives on the
+   * backend's machine — undefined for anything local, where spawning here is
+   * both correct and strictly more capable.
+   */
+  terminalRemoteOf?: (sessionId: string) =>
+    | { api: import("@agent-strata/plugin-terminal").RemotePtyApi; directory: string }
+    | undefined;
   /** Read access to the session store, for plugins that let an agent look at other sessions. */
   sessions: {
     list(opts: { workspace?: string; limit?: number; rootsOnly?: boolean }): SessionSummary[];
@@ -71,7 +79,7 @@ export function builtinPlugins(options: BuiltinOptions): RegisteredPlugin[] {
     },
     {
       manifest: terminalManifest,
-      create: () => createTerminalPlugin({ workspaceOf: options.workspaceOf }),
+      create: () => createTerminalPlugin({ workspaceOf: options.workspaceOf, remoteOf: options.terminalRemoteOf }),
     },
     {
       manifest: memoryManifest,

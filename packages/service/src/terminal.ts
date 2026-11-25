@@ -22,16 +22,27 @@ export interface PtyInfo {
   command: string;
   cwd: string;
   status: "running" | "exited";
+  pid?: number;
+}
+
+export interface TerminalCreateInput {
+  command?: string;
+  args?: string[];
+  cwd?: string;
+  title?: string;
+  env?: Record<string, string>;
+  rows?: number;
+  cols?: number;
 }
 
 export interface TerminalApi {
   shells(directory: string): Promise<PtyShell[]>;
   list(directory: string): Promise<PtyInfo[]>;
-  create(directory: string, command: string | undefined, title: string | undefined): Promise<PtyInfo>;
+  create(directory: string, input: TerminalCreateInput): Promise<PtyInfo>;
   remove(directory: string, id: string): Promise<void>;
   resize(directory: string, id: string, size: { rows: number; cols: number }): Promise<void>;
   /** Mint a ticket and the upstream socket. The ticket never leaves this process. */
-  open(directory: string, id: string): Promise<{ url: string; headers: Record<string, string> }>;
+  open(directory: string, id: string, cursor?: number): Promise<{ url: string; headers: Record<string, string> }>;
 }
 
 export class TerminalError extends Error {
@@ -90,6 +101,7 @@ export function ptyInfo(value: unknown): PtyInfo | undefined {
     command: typeof row.command === "string" ? row.command : "",
     cwd: typeof row.cwd === "string" ? row.cwd : "",
     status: row.status === "exited" ? "exited" : "running",
+    ...(typeof row.pid === "number" ? { pid: row.pid } : {}),
   };
 }
 
@@ -170,7 +182,7 @@ export async function terminalRoute(
         if (!choice.ok) return json({ error: "unknown shell" }, 400);
         command = choice.command;
       }
-      return json(await terminal.create(directory, command, title.title));
+      return json(await terminal.create(directory, { command, title: title.title }));
     }
     if (hit.ptyId && !hit.action && req.method === "DELETE") {
       if (!PTY_ID.test(hit.ptyId)) return json({ error: "not found" }, 404);

@@ -34,6 +34,12 @@ export interface PtyCreateInput {
   cols: number;
   mode: TerminalMode;
   env?: Record<string, string>;
+  /**
+   * The backend binding a remote terminal is created through. Only the
+   * remote manager reads it; the local one spawns on this machine and
+   * never will.
+   */
+  remote?: { api: import("./types").RemotePtyApi; directory: string };
 }
 
 export interface PtyManagerOptions {

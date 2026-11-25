@@ -273,6 +273,21 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   for (const builtin of builtinPlugins({
     dataDir: desktopDir,
     workspaceOf: (sessionId) => directoryOf(sessionId) ?? driverFor(sessionId)?.directory,
+    terminalRemoteOf: (sessionId) => {
+      const driver = driverFor(sessionId);
+      const terminal = driver?.extension?.terminal;
+      if (!driver?.nativeId(sessionId) || !terminal) return undefined;
+      // A loopback backend shares this machine — a local spawn is both
+      // correct there and strictly more capable (signals, exit codes).
+      try {
+        const host = new URL(driver.baseUrl).hostname;
+        if (host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]") return undefined;
+      } catch {
+        return undefined;
+      }
+      const directory = directoryOf(sessionId) ?? driver.directory;
+      return directory ? { api: terminal, directory } : undefined;
+    },
     sessions: {
       list: (opts) => store.listSessions(opts),
       search: (query, opts) =>

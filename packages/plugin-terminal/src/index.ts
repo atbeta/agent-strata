@@ -11,8 +11,10 @@ import type {
 import { PtyManager } from "./manager";
 import { terminalText } from "./output";
 import { listShells, shellArgv, shellByName, terminalSize, terminalTitle } from "./shells";
-import type { PtyInfo, PtyReadPage, TerminalSignal, TerminalWaitReason } from "./types";
+import type { PtyInfo, PtyReadPage, PtyShell, RemotePtyApi, TerminalSignal, TerminalWaitReason } from "./types";
+import { existsSync } from "node:fs";
 import { pathInside, resolveWorkdir } from "./workspace";
+import { RemotePtyManager } from "./remote";
 
 export const manifest: PluginManifest = {
   id: "terminal",
@@ -157,17 +159,34 @@ const TOOLS = new Set(["create", "write", "read", "list", "signal", "close"]);
 
 export interface TerminalPluginOptions {
   workspaceOf(sessionId: string): string | undefined;
+  /**
+   * The backend binding for a session whose workspace lives on the backend's
+   * machine, or undefined for anything local. A session with a binding gets
+   * its terminals there; the shell the reader sees is a shell on the machine
+   * the files are on.
+   */
+  remoteOf?(sessionId: string): { api: RemotePtyApi; directory: string } | undefined;
   manager?: PtyManager;
+  remoteManager?: RemotePtyManager;
 }
 
 export function createTerminalPlugin(options: TerminalPluginOptions): StrataPlugin {
   let terminals: PtyManager | undefined;
+  let remoteTerminals: RemotePtyManager | undefined;
   let contextResolver: (given: string) => string = (given) => given;
 
-  const manager = (): PtyManager => {
+  const manager = (sessionId: string): PtyManager | RemotePtyManager => {
+    const remote = options.remoteOf?.(sessionId);
+    if (remote) {
+      if (!remoteTerminals) throw new Error("the terminal plugin was called before it initialized");
+      return remoteTerminals;
+    }
     if (!terminals) throw new Error("the terminal plugin was called before it initialized");
     return terminals;
   };
+
+  const managers = (): (PtyManager | RemotePtyManager)[] =>
+    [terminals, remoteTerminals].filter((m): m is PtyManager | RemotePtyManager => m !== undefined);
 
   const workspace = (sessionId: string): string => {
     const directory = options.workspaceOf(sessionId);
@@ -175,26 +194,40 @@ export function createTerminalPlugin(options: TerminalPluginOptions): StrataPlug
     return directory;
   };
 
-  const create = (
+  const create = async (
     sessionId: string,
     input: { command?: string; workdir?: string; shell?: unknown; title?: unknown; rows?: unknown; cols?: unknown },
     origin: "agent" | "user",
-  ): PtyInfo => {
-    const shells = listShells();
+  ): Promise<PtyInfo> => {
+    const remote = options.remoteOf?.(sessionId);
+    const shells = remote ? await remote.api.shells(remote.directory).catch(() => [] as PtyShell[]) : listShells();
+    if (remote && shells.length === 0) throw new Error("the backend did not offer any shells");
     const shell = shellByName(shells, input.shell);
     if (!shell) throw new Error("unknown shell");
-    const cwd = resolveWorkdir(workspace(sessionId), input.workdir);
+    const root = workspace(sessionId);
+    const cwd = remote ? resolveRemoteWorkdir(root, input.workdir) : resolveWorkdir(root, input.workdir);
+    // posix_spawn reports a missing cwd as ENOENT on the shell itself, which
+    // sends everyone hunting for an executable that exists. Say which is which.
+    if (!remote && !existsSync(cwd)) {
+      throw new Error(`the working directory does not exist on this machine: ${cwd}`);
+    }
     const command = typeof input.command === "string" && input.command.trim() ? input.command : undefined;
     const size = terminalSize(input.rows ?? 24, input.cols ?? 240);
-    return manager().create({
+    const platform: NodeJS.Platform = remote
+      ? shells.some((s) => s.name === "cmd" || s.name === "powershell")
+        ? "win32"
+        : "linux"
+      : process.platform;
+    return manager(sessionId).create({
       sessionId,
       title: terminalTitle(input.title) ?? command?.slice(0, 40) ?? shell.name,
-      argv: shellArgv(shell, command, process.platform, { profile: origin === "user" }),
+      argv: shellArgv(shell, command, platform, { profile: origin === "user" }),
       command: command ?? shell.path,
       cwd,
       mode: origin === "agent" ? "shared" : "user",
       ...size,
       ...(origin === "agent" ? { env: { ENV: "" } } : {}),
+      ...(remote ? { remote } : {}),
     });
   };
 
@@ -202,7 +235,8 @@ export function createTerminalPlugin(options: TerminalPluginOptions): StrataPlug
     async initialize(context: PluginContext) {
       contextResolver = context.resolveSession;
       terminals = options.manager ?? new PtyManager();
-      terminals.onChange((info) => {
+      remoteTerminals = options.remoteManager ?? new RemotePtyManager();
+      const announce = (info: PtyInfo) => {
         context.emit({
           type: "terminal.changed",
           data: {
@@ -212,7 +246,9 @@ export function createTerminalPlugin(options: TerminalPluginOptions): StrataPlug
             mode: info.mode,
           },
         });
-      });
+      };
+      terminals.onChange(announce);
+      remoteTerminals.onChange(announce);
     },
 
     listTools() {
@@ -223,34 +259,34 @@ export function createTerminalPlugin(options: TerminalPluginOptions): StrataPlug
       if (!TOOLS.has(req.tool)) return { output: `unknown tool ${req.tool}`, isError: true };
       try {
         if (req.tool === "create") {
-          const info = create(req.sessionId, {
+          const info = await create(req.sessionId, {
             command: typeof req.input.command === "string" ? req.input.command : undefined,
             workdir: typeof req.input.workdir === "string" ? req.input.workdir : undefined,
             title: req.input.title,
             rows: req.input.rows,
             cols: req.input.cols,
           }, "agent");
-          return { output: JSON.stringify({ terminal: info, next_offset: manager().readAgent(req.sessionId, info.id).next_offset }) };
+          return { output: JSON.stringify({ terminal: info, next_offset: manager(req.sessionId).readAgent(req.sessionId, info.id).next_offset }) };
         }
-        if (req.tool === "list") return { output: JSON.stringify({ terminals: manager().listAgent(req.sessionId) }) };
+        if (req.tool === "list") return { output: JSON.stringify({ terminals: manager(req.sessionId).listAgent(req.sessionId) }) };
         const id = typeof req.input.terminal_id === "string" ? req.input.terminal_id : "";
         if (!id) throw new Error("terminal_id is required");
-        manager().getAgent(req.sessionId, id);
+        manager(req.sessionId).getAgent(req.sessionId, id);
         if (req.tool === "write") {
           if (typeof req.input.data !== "string") throw new Error("data must be a string");
           if (req.input.submit !== undefined && typeof req.input.submit !== "boolean") throw new Error("submit must be a boolean");
           if (req.input.data.length > 64 * 1024) throw new Error("terminal input is too large");
           const data = req.input.submit === true ? `${req.input.data}\r` : req.input.data;
-          const offset = manager().readAgent(req.sessionId, id).next_offset;
-          const written = manager().write(req.sessionId, id, data, "agent");
+          const offset = manager(req.sessionId).readAgent(req.sessionId, id).next_offset;
+          const written = manager(req.sessionId).write(req.sessionId, id, data, "agent");
           const maxBytes = optionalInteger(req.input.max_bytes, "max_bytes") ?? 16 * 1024;
           const waitMs = Math.min(optionalInteger(req.input.wait_ms, "wait_ms") ?? 1000, 30_000);
           const quietMs = Math.min(optionalInteger(req.input.quiet_ms, "quiet_ms") ?? 200, waitMs);
           const page = await readWithWait(
-            manager(), req.sessionId, id, offset,
+            manager(req.sessionId), req.sessionId, id, offset,
             Math.min(Math.max(maxBytes, 1), 64 * 1024), waitMs, quietMs, req.signal,
           );
-          return { output: JSON.stringify({ written, terminal: manager().getAgent(req.sessionId, id), ...pageOutput(page) }) };
+          return { output: JSON.stringify({ written, terminal: manager(req.sessionId).getAgent(req.sessionId, id), ...pageOutput(page) }) };
         }
         if (req.tool === "read") {
           const offset = optionalInteger(req.input.offset, "offset");
@@ -258,21 +294,21 @@ export function createTerminalPlugin(options: TerminalPluginOptions): StrataPlug
           const waitMs = Math.min(optionalInteger(req.input.wait_ms, "wait_ms") ?? 1000, 30_000);
           const quietMs = Math.min(optionalInteger(req.input.quiet_ms, "quiet_ms") ?? 200, waitMs);
           const page = await readWithWait(
-            manager(), req.sessionId, id, offset,
+            manager(req.sessionId), req.sessionId, id, offset,
             Math.min(Math.max(maxBytes, 1), 64 * 1024), waitMs, quietMs, req.signal,
           );
-          return { output: JSON.stringify({ terminal: manager().getAgent(req.sessionId, id), ...pageOutput(page) }) };
+          return { output: JSON.stringify({ terminal: manager(req.sessionId).getAgent(req.sessionId, id), ...pageOutput(page) }) };
         }
         if (req.tool === "signal") {
           const signal = req.input.signal;
           if (typeof signal !== "string" || !["SIGINT", "SIGTERM", "SIGKILL", "SIGTSTP", "SIGHUP"].includes(signal)) {
             throw new Error("unknown terminal signal");
           }
-          await manager().signal(req.sessionId, id, signal as TerminalSignal, "agent");
-          return { output: JSON.stringify({ terminal: manager().getAgent(req.sessionId, id), signal }) };
+          await manager(req.sessionId).signal(req.sessionId, id, signal as TerminalSignal, "agent");
+          return { output: JSON.stringify({ terminal: manager(req.sessionId).getAgent(req.sessionId, id), signal }) };
         }
         if (req.tool === "close") {
-          const result = await manager().close(req.sessionId, id, "agent");
+          const result = await manager(req.sessionId).close(req.sessionId, id, "agent");
           return { output: JSON.stringify({ terminal_id: id, ...result }) };
         }
         throw new Error(`unknown tool ${req.tool}`);
@@ -294,22 +330,24 @@ export function createTerminalPlugin(options: TerminalPluginOptions): StrataPlug
       const one = /^\/terminals\/([\w.-]+)(?:\/(size|mode))?$/.exec(subpath);
       try {
         if (subpath === "/terminals" && req.method === "GET") {
-          return Response.json({ sessions: manager().list(sessionId), shells: listShells() });
+          const remote = options.remoteOf?.(sessionId);
+          const shells = remote ? await remote.api.shells(remote.directory).catch(() => [] as PtyShell[]) : listShells();
+          return Response.json({ sessions: manager(sessionId).list(sessionId), shells });
         }
         if (subpath === "/terminals" && req.method === "POST") {
           const body = (await req.json().catch(() => ({}))) as { shell?: unknown; title?: unknown };
-          return Response.json(create(sessionId, { shell: body.shell, title: body.title }, "user"));
+          return Response.json(await create(sessionId, { shell: body.shell, title: body.title }, "user"));
         }
         if (!one) return undefined;
         const id = one[1]!;
         if (subpath === `/terminals/${id}` && req.method === "DELETE") {
-          const result = await manager().close(sessionId, id);
+          const result = await manager(sessionId).close(sessionId, id);
           return Response.json(result);
         }
         if (subpath === `/terminals/${id}/size` && req.method === "POST") {
           const body = (await req.json().catch(() => ({}))) as { rows?: unknown; cols?: unknown };
           const size = terminalSize(body.rows, body.cols);
-          manager().resize(sessionId, id, size.rows, size.cols);
+          await manager(sessionId).resize(sessionId, id, size.rows, size.cols);
           return Response.json({ ok: true });
         }
         if (subpath === `/terminals/${id}/mode` && req.method === "POST") {
@@ -317,7 +355,7 @@ export function createTerminalPlugin(options: TerminalPluginOptions): StrataPlug
           if (body.mode !== "user" && body.mode !== "shared") {
             return Response.json({ error: "invalid mode" }, { status: 400 });
           }
-          return Response.json(manager().setMode(sessionId, id, body.mode));
+          return Response.json(manager(sessionId).setMode(sessionId, id, body.mode));
         }
         return Response.json({ error: "method not allowed" }, { status: 405 });
       } catch (error) {
@@ -338,7 +376,7 @@ export function createTerminalPlugin(options: TerminalPluginOptions): StrataPlug
       }
       const id = hit[1]!;
       try {
-        manager().get(sessionId, id);
+        manager(sessionId).get(sessionId, id);
       } catch {
         return Response.json({ error: "not found" }, { status: 404 });
       }
@@ -346,7 +384,7 @@ export function createTerminalPlugin(options: TerminalPluginOptions): StrataPlug
       return {
         handlers: {
           open(ws: PluginSocket) {
-            const attached = manager().attach(sessionId, id, (event) => {
+            const attached = manager(sessionId).attach(sessionId, id, (event) => {
               if (event.type === "data") ws.send(event.data);
               else ws.close();
             });
@@ -355,7 +393,7 @@ export function createTerminalPlugin(options: TerminalPluginOptions): StrataPlug
             if (attached.info.status === "exited") ws.close();
           },
           message(_ws: PluginSocket, message: string | Uint8Array) {
-            manager().write(sessionId, id, message);
+            manager(sessionId).write(sessionId, id, message);
           },
           close() {
             unsubscribe?.();
@@ -368,21 +406,22 @@ export function createTerminalPlugin(options: TerminalPluginOptions): StrataPlug
       if (req.key !== "terminals" || !req.sessionId) throw new Error("no such resource");
       return {
         mime: "application/json",
-        body: JSON.stringify({ sessions: manager().listAgent(req.sessionId) }),
+        body: JSON.stringify({ sessions: manager(req.sessionId).listAgent(req.sessionId) }),
       };
     },
 
     async sessionEnded(sessionId) {
-      await terminals?.closeSession(sessionId);
+      await Promise.all(managers().map((m) => m.closeSession(sessionId)));
     },
 
     async releaseDirectory(directory) {
-      await terminals?.closeInside(directory, pathInside);
+      await Promise.all(managers().map((m) => m.closeInside(directory, pathInside)));
     },
 
     async shutdown() {
-      await terminals?.closeAll();
+      await Promise.all(managers().map((m) => m.closeAll()));
       terminals = undefined;
+      remoteTerminals = undefined;
     },
   };
 
@@ -411,7 +450,7 @@ function pageOutput(page: ReadResult) {
 }
 
 async function readWithWait(
-  manager: PtyManager,
+  manager: PtyManager | RemotePtyManager,
   sessionId: string,
   id: string,
   offset: number | undefined,
@@ -517,10 +556,36 @@ export type {
   PtyReadPage,
   PtyShell,
   PtySpawnInput,
+  RemotePtyApi,
   TerminalActor,
+  TerminalManager,
   TerminalMode,
   TerminalSignal,
   TerminalWaitReason,
 } from "./types";
+export { RemotePtyManager } from "./remote";
 export { pathInside, resolveWorkdir } from "./workspace";
 export default createTerminalPlugin;
+
+/**
+ * The workspace of a remote session does not exist here, so the local
+ * filesystem checks in resolveWorkdir would lie. This is the same rule —
+ * the target must stay inside the workspace — done textually.
+ */
+export function resolveRemoteWorkdir(workspace: string, workdir?: string): string {
+  const root = workspace.replace(/[/\\]+$/, "") || "/";
+  const trimmed = workdir?.trim();
+  if (!trimmed) return root;
+  const sep = root.includes("\\") && !root.includes("/") ? "\\" : "/";
+  const out: string[] = [];
+  for (const seg of trimmed.split(/[/\\]+/)) {
+    if (!seg || seg === ".") continue;
+    if (seg === "..") {
+      if (out.length === 0) throw new Error(`workdir must stay inside the session workspace (${root})`);
+      out.pop();
+    } else {
+      out.push(seg);
+    }
+  }
+  return out.length ? `${root}${sep}${out.join(sep)}` : root;
+}

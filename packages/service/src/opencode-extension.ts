@@ -93,10 +93,13 @@ export function opencodeExtension(opts: {
           return info && info.status === "running" ? [info] : [];
         });
       },
-      create: async (directory, command, title) => {
-        const body: { cwd: string; command?: string; title?: string } = { cwd: directory };
-        if (command) body.command = command;
-        if (title) body.title = title;
+      create: async (directory, input) => {
+        const body: Record<string, unknown> = { cwd: input.cwd ?? directory };
+        if (input.command) body.command = input.command;
+        if (input.args) body.args = input.args;
+        if (input.title) body.title = input.title;
+        if (input.env) body.env = input.env;
+        if (input.rows && input.cols) body.size = { rows: input.rows, cols: input.cols };
         return one(await send("POST", "/pty", directory, body));
       },
       remove: async (directory, id) => {
@@ -107,7 +110,7 @@ export function opencodeExtension(opts: {
         if (!PTY_ID.test(id)) throw new TerminalError("not found", 404);
         await read(await send("PUT", `/pty/${encodeURIComponent(id)}`, directory, { size }));
       },
-      open: async (directory, id) => {
+      open: async (directory, id, cursor) => {
         if (!PTY_ID.test(id)) throw new TerminalError("not found", 404);
         const minted = (await read(await send("POST", `/pty/${encodeURIComponent(id)}/connect-token`, directory))) as {
           ticket?: unknown;
@@ -118,6 +121,7 @@ export function opencodeExtension(opts: {
         url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
         url.searchParams.set("directory", directory);
         url.searchParams.set("ticket", minted.ticket);
+        if (cursor !== undefined) url.searchParams.set("cursor", String(cursor));
         return { url: url.toString(), headers: { ...headers } };
       },
     },
