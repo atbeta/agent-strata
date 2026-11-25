@@ -6,5 +6,6 @@ import { join } from "node:path";
 // directory holds a live embedded server plus its remembered credentials, and
 // every test that omitted desktopDir would connect to it for real. Point the
 // default at a throwaway dir instead — tests that pass desktopDir explicitly
-// are unaffected.
-process.env.STRATA_DESKTOP_DIR ??= mkdtempSync(join(tmpdir(), "strata-desktop-"));
+// are unaffected. Assigned, not defaulted: the desktop shell sets this for
+// its service, and a terminal opened inside the app inherits the real one.
+process.env.STRATA_DESKTOP_DIR = mkdtempSync(join(tmpdir(), "strata-desktop-"));

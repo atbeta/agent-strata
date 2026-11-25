@@ -100,6 +100,7 @@ export function terminalEnv(): Record<string, string> {
   }
   for (const key of [
     "STRATA_PORT",
+    "STRATA_DESKTOP_DIR",
     "STRATA_API_TOKEN",
     "STRATA_SERVICE_URL",
     "STRATA_OPENCODE_URL",

@@ -175,6 +175,7 @@ describe("connection lifecycle routes", () => {
   test("autoConnect to a dead backend retries then gives up, service stays up", async () => {
     const svc = startService({
       db: ":memory:", port: 0, autoConnect: "http://127.0.0.1:1", autoConnectTimeoutMs: 400,
+      desktopDir: mkdtempSync(join(tmpdir(), "strata-dead-")),
     });
     await Bun.sleep(600);
     const health = await fetch(`http://127.0.0.1:${svc.port}/health`).then((r) => r.json());
@@ -266,7 +267,7 @@ describe("connection lifecycle routes", () => {
     writeFileSync(join(dir, "connections.json"), JSON.stringify([
       { baseUrl: "http://127.0.0.1:1" }, { baseUrl: oc.baseUrl },
     ]) + "\n");
-    const svc = startService({ db: join(dir, "events.db"), port: 0, autoConnectTimeoutMs: 2_000 });
+    const svc = startService({ db: join(dir, "events.db"), port: 0, desktopDir: dir, autoConnectTimeoutMs: 2_000 });
     const base = `http://127.0.0.1:${svc.port}`;
     const started = Date.now();
     let conns = 0;
@@ -378,10 +379,13 @@ describe("connection lifecycle routes", () => {
     const children = gate();
     const info = { id: "ses_new", title: "new", directory: "/repo", time: { created: 1, updated: 2 } };
     // The connect's index sees nothing; the sync's crawl then finds a session
-    // the store has never held, which is a change the reader will see.
+    // the store has never held, which is a change the reader will see. Only
+    // those two listings count: the event bus also lists sessions, to learn
+    // their directories, and taking its turn handed the index the session.
     let listed = 0;
     const oc = fakeOpencode({
-      "/session": async () => {
+      "/session": async (url) => {
+        if (url.pathname !== "/experimental/session") return Response.json([]);
         await sessions.hold();
         listed += 1;
         return Response.json(listed === 1 ? [] : [info]);
@@ -393,7 +397,7 @@ describe("connection lifecycle routes", () => {
       "/session/ses_new": () => Response.json(info),
       "/session/ses_new/message": () => Response.json([]),
     });
-    const svc = startService({ db: ":memory:", port: 0 });
+    const svc = startService({ db: ":memory:", port: 0, desktopDir: mkdtempSync(join(tmpdir(), "strata-sync-")) });
     const base = `http://127.0.0.1:${svc.port}`;
     const conn = async () =>
       ((await fetch(`${base}/connections`).then((r) => r.json())) as {
@@ -437,7 +441,7 @@ describe("connection lifecycle routes", () => {
       "/session/ses_old": () => Response.json(info),
       "/session/ses_old/message": () => Response.json([]),
     });
-    const svc = startService({ db: ":memory:", port: 0 });
+    const svc = startService({ db: ":memory:", port: 0, desktopDir: mkdtempSync(join(tmpdir(), "strata-sync-")) });
     const base = `http://127.0.0.1:${svc.port}`;
     const connected = (await fetch(`${base}/connect`, {
       method: "POST",
