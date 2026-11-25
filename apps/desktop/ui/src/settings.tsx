@@ -43,7 +43,8 @@ import { Switch } from "@/components/ui/switch";
 import { TextFieldInput } from "@/components/ui/text-field";
 import { Card, Group, PillGroup, Row, Segmented, pickerTrigger } from "./settings-blocks";
 import { BackendSettings } from "./backend-settings";
-import { endpointShort, type ConnectionsCtl } from "./use-connections";
+import type { ConnectionsCtl } from "./use-connections";
+import { connectionName } from "./connection-name";
 import { PolicyEditor } from "./policy";
 import { ProviderSettings } from "./providers";
 import { MaintenanceSettings } from "./maintenance";
@@ -234,7 +235,7 @@ export function SettingsPage(props: { section?: string; plugin?: string; skill?:
   const unreachedBackends = () =>
     (settled(props.conns.conns)?.connections ?? [])
       .filter((conn) => conn.plugins === false)
-      .map((conn) => endpointShort(conn.baseUrl));
+      .map((conn) => connectionName(conn));
   const testNotification = async () => {
     setDiagKey("notify");
     setDiagErr("");
