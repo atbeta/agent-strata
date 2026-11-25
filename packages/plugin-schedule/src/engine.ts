@@ -114,6 +114,27 @@ export class ScheduleEngine {
     }
   }
 
+  /**
+   * Settle a skipped fire, naming the kind of busy.
+   *
+   * A session with an open question or permission ask is not working — it is
+   * parked until a person answers, which can be hours. "Busy" reads as a beat
+   * that was simply crowded out; the reader debugging a run that never
+   * progresses deserves the difference.
+   */
+  private settleSkip(s: Schedule, now: number, sessionId: string): void {
+    let waiting = false;
+    try {
+      const view = this.deps.view(sessionId);
+      waiting =
+        view.pending_questions.length > 0 || view.pending_permissions.some((p) => p.decision === undefined);
+    } catch {
+      // An unreadable target has its own verdict upstream; a skip here is just busy.
+    }
+    if (waiting) this.settle(s, now, "skipped-waiting", "session was waiting on a person; not queued", "waiting");
+    else this.settle(s, now, "skipped-busy", "session was busy; not queued", "busy");
+  }
+
   /** Mark a schedule's last result and advance its next beat, atomically. */
   private settle(s: Schedule, now: number, result: RunResult, note?: string, code?: string): void {
     s.last_run_at = new Date(now).toISOString();
@@ -194,7 +215,7 @@ export class ScheduleEngine {
         if (busy) {
           this.deps.file.mutate((all) => {
             const cur = all.find((x) => x.id === id);
-            if (cur) this.settle(cur, now, "skipped-busy", "session was busy; not queued", "busy");
+            if (cur) this.settleSkip(cur, now, targetId);
           });
           this.deps.emit({ type: "changed" });
           return;
@@ -225,9 +246,10 @@ export class ScheduleEngine {
           // what a human's own send does too, but the engine promised not
           // to.
           if (this.busy(s.target.session_id)) {
+            const targetId = s.target.session_id;
             this.deps.file.mutate((all) => {
               const cur = all.find((x) => x.id === id);
-              if (cur) this.settle(cur, now, "skipped-busy", "session was busy; not queued", "busy");
+              if (cur) this.settleSkip(cur, now, targetId);
             });
             this.deps.emit({ type: "changed" });
             return;

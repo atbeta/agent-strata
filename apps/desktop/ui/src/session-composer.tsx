@@ -1313,6 +1313,10 @@ export function SessionComposer(props: {
   goalMet?: boolean;
   /** The reader paused the goal. The text stays; idle does not continue it. */
   goalPaused?: boolean;
+  /** The model reported itself blocked on the goal. The text stays; the loop stops. */
+  goalBlocked?: boolean;
+  /** Why the model reported itself blocked, when it said. */
+  goalBlockedReason?: string;
   /** Set when the session cannot take input — the reason replaces the
    *  placeholder and the box goes read-only. */
   readOnly?: () => string | undefined;
@@ -1324,7 +1328,14 @@ export function SessionComposer(props: {
   terminals?: TerminalSummary;
 }) {
   const c = () => props.c;
-  const g = useGoal(props.sessionId, () => props.goal, () => props.goalMet, () => props.goalPaused);
+  const g = useGoal(
+    props.sessionId,
+    () => props.goal,
+    () => props.goalMet,
+    () => props.goalPaused,
+    () => props.goalBlocked,
+    () => props.goalBlockedReason,
+  );
   const ro = createMemo(() => props.readOnly?.());
   const placeholder = () =>
     ro() ??

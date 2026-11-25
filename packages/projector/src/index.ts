@@ -156,6 +156,10 @@ export interface SessionView {
   goal_met?: boolean;
   /** The reader paused the goal. A later goal event without `paused` starts it again. */
   goal_paused?: boolean;
+  /** The model reported itself blocked. A later goal event without `blocked` resumes it. */
+  goal_blocked?: boolean;
+  /** Why the model reported itself blocked, when it said. */
+  goal_blocked_reason?: string;
   /** Seq of the goal event that set the current text, so an older reply cannot complete a goal that was just saved. */
   goal_seq?: number;
   turns: Turn[];
@@ -371,10 +375,16 @@ export function projectSession(events: Event[]): SessionView {
           else delete view.goal_met;
           if (e.data.paused) view.goal_paused = true;
           else delete view.goal_paused;
+          if (e.data.blocked) view.goal_blocked = true;
+          else delete view.goal_blocked;
+          if (e.data.reason) view.goal_blocked_reason = e.data.reason;
+          else delete view.goal_blocked_reason;
         } else {
           delete view.goal;
           delete view.goal_met;
           delete view.goal_paused;
+          delete view.goal_blocked;
+          delete view.goal_blocked_reason;
           delete view.goal_seq;
         }
         break;

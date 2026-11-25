@@ -162,6 +162,27 @@ describe("engine", () => {
     expect(Date.parse(saved.next_at!)).toBeGreaterThan(NOW);
   });
 
+  test("a session parked on a person is skipped as waiting, not busy", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "sched-"));
+    const calls: ControlCalls = { created: [], prompted: [] };
+    const deps = engineDeps(dir, {
+      control: control(calls),
+      view: () => ({
+        ...view(true),
+        pending_questions: [{ request_id: "q1" }],
+      } as unknown as SessionView),
+    });
+    const s = seed(dir, { when: { kind: "every", everyMs: 3600000 } });
+    const engine = new ScheduleEngine(deps);
+    await engine.runDue(false);
+    await engine.stop();
+
+    expect(calls.prompted).toHaveLength(0);
+    const saved = deps.file.load().find((x) => x.id === s.id)!;
+    expect(saved.last_result).toBe("skipped-waiting");
+    expect(saved.last_note).toContain("waiting on a person");
+  });
+
   test("a fire does not prompt a target outside the creator's workspace", async () => {
     const dir = mkdtempSync(join(tmpdir(), "sched-"));
     const calls: ControlCalls = { created: [], prompted: [] };

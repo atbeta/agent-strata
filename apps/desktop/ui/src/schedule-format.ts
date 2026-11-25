@@ -77,6 +77,8 @@ export function runResultText(result: string | undefined): string {
       return t("schedule.panel.result.ok");
     case "skipped-busy":
       return t("schedule.panel.result.skippedBusy");
+    case "skipped-waiting":
+      return t("schedule.panel.result.skippedWaiting");
     case "failed":
       return t("schedule.panel.result.failed");
     case "missed":
@@ -102,6 +104,7 @@ export function runResultTone(result: string | undefined): "neutral" | "warn" | 
     case "missed":
       return "bad";
     case "skipped-busy":
+    case "skipped-waiting":
     case "late":
       return "warn";
     default:

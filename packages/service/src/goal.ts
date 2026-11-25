@@ -3,6 +3,9 @@ import type { SessionView } from "@agent-strata/projector";
 /** The only reply that means the goal is finished. Anything else keeps going. */
 export const GOAL_MET = "GOAL MET";
 
+/** The last-line marker that means the goal cannot continue without the reader. */
+export const GOAL_BLOCKED = "GOAL BLOCKED";
+
 /** The plan entry a continuation should do next: the one in progress, else the first still pending. */
 export function nextPlanStep(
   plan: readonly { content: string; status: string }[] | undefined,
@@ -23,18 +26,45 @@ export function goalContinuation(goal: string, next?: string): string {
     goal,
   ];
   if (next) lines.push("", "Next plan item:", next);
-  lines.push("", "If the goal is already met, reply with exactly this line and nothing else:", GOAL_MET);
+  lines.push(
+    "",
+    "This is an unattended run. Do not ask the user questions: choose reasonable assumptions, note them in your reply, and keep going. A question you do ask sits unanswered for minutes and is then auto-answered with \"use your best judgment\", so asking only wastes time.",
+    "",
+    "If you are truly blocked on something only the user can provide or decide — credentials, a destructive or irreversible choice — end your turn with the following as the last line, replacing the bracketed part with what you need and why:",
+    `${GOAL_BLOCKED}: <what you need>`,
+    "",
+    "If the goal is already met, reply with exactly this line and nothing else:",
+    GOAL_MET,
+  );
   return lines.join("\n");
 }
 
 export function goalIsMet(text: string): boolean {
-  const line = text
+  return lastLine(text) === GOAL_MET;
+}
+
+function lastLine(text: string): string | undefined {
+  return text
     .trim()
     .split("\n")
     .map((l) => l.trim())
     .filter(Boolean)
     .at(-1);
-  return line === GOAL_MET;
+}
+
+/**
+ * The blocked report in a reply, when its last line is the marker.
+ *
+ * The marker alone still means blocked; the reason after the colon is what
+ * the reader needs to unstick it, so the continuation prompt demands one.
+ */
+export function goalBlockedReason(text: string): { reason?: string } | undefined {
+  const line = lastLine(text);
+  if (!line) return undefined;
+  if (line === GOAL_BLOCKED) return {};
+  if (!line.startsWith(`${GOAL_BLOCKED}:`) && !line.startsWith(`${GOAL_BLOCKED} `)) return undefined;
+  const reason = line.slice(GOAL_BLOCKED.length).replace(/^[: ]+\s*/, "").trim();
+  return reason ? { reason } : {};
 }
 
 export function sessionAwaiting(
@@ -87,6 +117,47 @@ export function goalMetByReply(input: {
 }
 
 /**
+ * A GOAL BLOCKED reply blocks the goal only when it was written after the goal
+ * was saved — the same guard as {@link goalMetByReply}, because an older
+ * report belongs to the previous run.
+ */
+export function goalBlockedByReply(input: {
+  goal?: string;
+  blocked?: boolean;
+  goalSeq?: number;
+  reply?: { text: string; seq?: number };
+}): { reason?: string } | undefined {
+  if (!input.goal || input.blocked || !input.reply) return undefined;
+  const hit = goalBlockedReason(input.reply.text);
+  if (!hit) return undefined;
+  if (input.goalSeq !== undefined) {
+    if (input.reply.seq === undefined || input.reply.seq <= input.goalSeq) return undefined;
+  }
+  return hit;
+}
+
+/**
+ * Whether a session runs unattended: nobody is expected to answer its
+ * questions in time.
+ *
+ * An active goal makes its own rounds autonomous. A session a schedule
+ * spawned is unattended from its first prompt — which is the engine's own
+ * `[scheduled:` text, so the transcript itself is the provenance record and
+ * a restart or a rename does not lose it. A met, paused, or blocked goal is
+ * back in the reader's hands, so its questions are theirs again.
+ */
+export function sessionAutonomous(
+  view: Pick<SessionView, "goal" | "goal_met" | "goal_paused" | "goal_blocked" | "turns">,
+): boolean {
+  if (view.goal && !view.goal_met && !view.goal_paused && !view.goal_blocked) return true;
+  const first = view.turns[0]?.user
+    ?.filter((block) => block.type === "text")
+    .map((block) => block.text)
+    .join("\n");
+  return first?.startsWith("[scheduled:") ?? false;
+}
+
+/**
  * Whether an idle session should be handed another step.
  *
  * `kicked` means a continuation was already sent and the run has not shown
@@ -109,8 +180,10 @@ export function shouldContinueGoal(input: {
   met?: boolean;
   /** Recorded on the goal itself. Resume is a separate write. */
   held?: boolean;
+  /** Recorded on the goal itself; the model asked for the reader, so the loop stops. */
+  blocked?: boolean;
 }): boolean {
-  if (!input.goal || input.met || input.held) return false;
+  if (!input.goal || input.met || input.held || input.blocked) return false;
   if (input.busy || input.paused || input.kicked || input.pending) return false;
   if (input.deleted || input.archived) return false;
   if (input.status !== "active") return false;

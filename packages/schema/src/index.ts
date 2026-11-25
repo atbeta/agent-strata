@@ -171,6 +171,10 @@ const data = {
     // Present when the reader paused this goal. Omitting it starts again,
     // the same way omitting `met` does.
     paused: z.boolean().optional(),
+    // Present when the model reported itself blocked. Omitting it resumes,
+    // the same way omitting `met` does.
+    blocked: z.boolean().optional(),
+    reason: z.string().optional(),
   }),
   "session.compacted": z.object({
     message_id: z.string().min(1),
@@ -315,6 +319,10 @@ const data = {
     request_id: z.string(),
     decision: z.enum(["reply", "reject"]),
     answers: z.array(z.array(z.string()).max(1_000)).max(1_000).optional(),
+    // Absent means the reader answered. `auto` is a timeout fallback written
+    // by the service itself, so the transcript does not read it as consent.
+    by: z.enum(["user", "auto"]).optional(),
+    reason: z.string().optional(),
   }),
 } as const;
 

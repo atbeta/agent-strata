@@ -928,6 +928,8 @@ export function SessionDetail(props: {
                     goal={v().goal}
                     goalMet={v().goal_met}
                     goalPaused={v().goal_paused}
+                    goalBlocked={v().goal_blocked}
+                    goalBlockedReason={v().goal_blocked_reason}
                     readOnly={() =>
                       v().parent_session_id
                         ? t("composer.childReadonly")

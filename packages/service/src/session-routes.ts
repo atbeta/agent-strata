@@ -729,15 +729,19 @@ export async function sessionRoute(
       let text: string | null = null;
       let paused = false;
       let met = false;
+      let blocked = false;
+      let reason: string | undefined;
       try {
         const view = deps.sessionView(sessionId);
         text = view.goal ?? null;
         paused = view.goal_paused === true;
         met = view.goal_met === true;
+        blocked = view.goal_blocked === true;
+        reason = view.goal_blocked_reason;
       } catch {
         text = null;
       }
-      return Response.json({ text, paused, met, session_id: sessionId });
+      return Response.json({ text, paused, met, blocked, ...(reason ? { reason } : {}), session_id: sessionId });
     }
     if (req.method === "DELETE") {
       store.append([
@@ -763,6 +767,9 @@ export async function sessionRoute(
         if (!view.goal) return Response.json({ error: "no goal" }, { status: 400 });
         if (body.paused) {
           if (view.goal_met) return Response.json({ error: "goal is met" }, { status: 409 });
+          // Pausing a blocked goal would silently lift the block: the write
+          // carries no `blocked`, and omission is what clears the flag.
+          if (view.goal_blocked) return Response.json({ error: "goal is blocked" }, { status: 409 });
           if (!view.goal_paused) {
             store.append([
               makeEvent({
@@ -775,7 +782,9 @@ export async function sessionRoute(
           }
           return Response.json({ ok: true, text: view.goal, paused: true, session_id: sessionId });
         }
-        if (view.goal_paused) {
+        if (view.goal_paused || view.goal_blocked) {
+          // The same write resumes either hold: the event carries no flag,
+          // so whichever of paused/blocked stood is lifted by its absence.
           store.append([
             makeEvent({
               session_id: sessionId,

@@ -13,6 +13,8 @@ export function useGoal(
   goal: () => string | undefined,
   met: () => boolean | undefined,
   paused: () => boolean | undefined,
+  blocked: () => boolean | undefined,
+  blockedReason: () => string | undefined,
 ) {
   const [draft, setDraft] = createSignal("");
   const [err, setErr] = fadeSignal("");
@@ -33,6 +35,7 @@ export function useGoal(
     if (heldPause() !== null) return heldPause() === true;
     return paused() === true;
   };
+  const blockedShown = () => !metShown() && blocked() === true;
 
   createEffect(() => {
     if (heldPause() === (paused() === true)) setHeldPause(null);
@@ -112,7 +115,7 @@ export function useGoal(
     }
   };
 
-  return { draft, setDraft, err, busy, open, setOpen, shown, metShown, pausedShown, openEditor, save, remove, hold };
+  return { draft, setDraft, err, busy, open, setOpen, shown, metShown, pausedShown, blockedShown, blockedReason, openEditor, save, remove, hold };
 }
 
 export type GoalCtl = ReturnType<typeof useGoal>;
@@ -234,16 +237,16 @@ export function GoalStrip(props: { g: GoalCtl }) {
               class={`size-3.5 shrink-0 ${g().metShown() || g().pausedShown() ? "text-muted-foreground" : "text-primary"}`}
             />
             <span class="shrink-0 text-2xs font-medium text-muted-foreground">
-              {g().metShown() ? t("goal.met") : g().pausedShown() ? t("goal.paused") : t("goal.label")}
+              {g().metShown() ? t("goal.met") : g().blockedShown() ? t("goal.blocked") : g().pausedShown() ? t("goal.paused") : t("goal.label")}
             </span>
-            <Tip label={text()} class="min-w-0 flex-1">
+            <Tip label={g().blockedShown() ? (g().blockedReason?.() ?? text()) : text()} class="min-w-0 flex-1">
               <Button
                 type="button"
                 variant="quiet"
                 class="h-auto min-w-0 flex-1 justify-start px-0 py-0 font-normal"
                 onClick={() => g().openEditor()}
               >
-                <span class={`truncate text-xs ${g().metShown() || g().pausedShown() ? "text-muted-foreground" : "text-foreground/80"}`}>{text()}</span>
+                <span class={`truncate text-xs ${g().metShown() || g().pausedShown() ? "text-muted-foreground" : "text-foreground/80"}`}>{g().blockedShown() ? (g().blockedReason?.() ?? text()) : text()}</span>
               </Button>
             </Tip>
             <Show when={!g().metShown()}>
@@ -255,7 +258,7 @@ export function GoalStrip(props: { g: GoalCtl }) {
                 disabled={g().busy()}
                 onClick={() => void g().hold(!g().pausedShown())}
               >
-                {g().pausedShown() ? t("goal.resume") : t("goal.pause")}
+                {g().pausedShown() || g().blockedShown() ? t("goal.resume") : t("goal.pause")}
               </Button>
             </Show>
             <Button

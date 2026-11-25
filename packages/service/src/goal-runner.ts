@@ -3,6 +3,7 @@ import { makeEvent, type EventInput } from "@agent-strata/schema";
 import type { Store } from "@agent-strata/store";
 import type { BackendDriver } from "./driver";
 import {
+  goalBlockedByReply,
   goalContinuation,
   goalMetByReply,
   lastAssistantReply,
@@ -64,13 +65,14 @@ export class GoalRunner {
     }
     const pending = sessionAwaiting(view) || this.deps.hasPending(sessionId);
     const goal = view.goal;
+    const reply = lastAssistantReply(view.turns);
     if (
       goal &&
       goalMetByReply({
         goal,
         met: view.goal_met,
         goalSeq: view.goal_seq,
-        reply: lastAssistantReply(view.turns),
+        reply,
       })
     ) {
       this.deps.store.append([
@@ -79,6 +81,25 @@ export class GoalRunner {
           source: { backend: "desktop" },
           type: "session.goal",
           data: { text: goal, met: true },
+        }) as EventInput,
+      ]);
+      return;
+    }
+    const blockedReport =
+      goal &&
+      goalBlockedByReply({
+        goal,
+        blocked: view.goal_blocked,
+        goalSeq: view.goal_seq,
+        reply,
+      });
+    if (goal && blockedReport) {
+      this.deps.store.append([
+        makeEvent({
+          session_id: sessionId,
+          source: { backend: "desktop" },
+          type: "session.goal",
+          data: { text: goal, blocked: true, ...(blockedReport.reason ? { reason: blockedReport.reason } : {}) },
         }) as EventInput,
       ]);
       return;
@@ -95,6 +116,7 @@ export class GoalRunner {
         kicked: this.goalKicked.has(sessionId),
         met: view.goal_met,
         held: view.goal_paused,
+        blocked: view.goal_blocked,
       })
     ) {
       return;

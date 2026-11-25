@@ -16,7 +16,7 @@ export type Target =
   | { kind: "session"; session_id: string }
   | { kind: "new_session"; connection_id?: string };
 
-export type RunResult = "ok" | "skipped-busy" | "failed" | "missed" | "late";
+export type RunResult = "ok" | "skipped-busy" | "skipped-waiting" | "failed" | "missed" | "late";
 
 export interface Schedule {
   id: string;

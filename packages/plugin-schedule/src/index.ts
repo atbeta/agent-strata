@@ -647,7 +647,10 @@ export function createSchedulePlugin(host: ScheduleHost): StrataPlugin {
     },
 
     async systemPrompt() {
-      return "A prompt prefixed `[scheduled: <name>]` was sent by a timer the user or an earlier session set — treat it as a queued request, not a fresh message from the person.";
+      return [
+        "A prompt prefixed `[scheduled: <name>]` was sent by a timer the user or an earlier session set — treat it as a queued request, not a fresh message from the person.",
+        "A scheduled prompt runs unattended: prefer reasonable assumptions over asking questions (note them in your reply), and if the task truly cannot proceed without the user, say what is needed in plain text and stop rather than asking a question nobody may see for hours.",
+      ].join("\n");
     },
   };
 }

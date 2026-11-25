@@ -483,6 +483,33 @@ describe("projector", () => {
     expect(cleared.goal_paused).toBeUndefined();
   });
 
+  test("a blocked goal keeps its reason and a later goal event lifts it", () => {
+    const blocked = projectSession([
+      mk("s", "session.started", { workspace: "/w" }),
+      mk("s", "session.goal", { text: "ship the fix" }),
+      mk("s", "session.goal", { text: "ship the fix", blocked: true, reason: "need credentials" }),
+    ]);
+    expect(blocked.goal).toBe("ship the fix");
+    expect(blocked.goal_blocked).toBe(true);
+    expect(blocked.goal_blocked_reason).toBe("need credentials");
+    expect(blocked.goal_met).toBeUndefined();
+    const resumed = projectSession([
+      mk("s2", "session.started", { workspace: "/w" }),
+      mk("s2", "session.goal", { text: "ship the fix", blocked: true, reason: "need credentials" }),
+      mk("s2", "session.goal", { text: "ship the fix" }),
+    ]);
+    expect(resumed.goal_blocked).toBeUndefined();
+    expect(resumed.goal_blocked_reason).toBeUndefined();
+    const cleared = projectSession([
+      mk("s3", "session.started", { workspace: "/w" }),
+      mk("s3", "session.goal", { text: "ship the fix", blocked: true, reason: "need credentials" }),
+      mk("s3", "session.goal", { text: null }),
+    ]);
+    expect(cleared.goal).toBeUndefined();
+    expect(cleared.goal_blocked).toBeUndefined();
+    expect(cleared.goal_blocked_reason).toBeUndefined();
+  });
+
   test("pausing a goal keeps the text and a later goal starts again", () => {
     const paused = projectSession([
       mk("s", "session.started", { workspace: "/w" }),

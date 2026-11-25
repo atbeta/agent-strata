@@ -2,6 +2,19 @@ import { makeEvent, type EventInput } from "@agent-strata/schema";
 import type { Store } from "@agent-strata/store";
 import type { SessionView } from "@agent-strata/projector";
 import type { BackendDriver } from "./driver";
+import { sessionAutonomous } from "./goal";
+
+/**
+ * What a timed-out question is answered with. It is deliberately not an
+ * answer to the question: silence is not consent, so the text hands the
+ * choice back to the model's judgment and fences off anything irreversible.
+ * The answer lands in the transcript as the reply, so it also reads as the
+ * audit trail of what happened.
+ */
+export const QUESTION_TIMEOUT_ANSWER =
+  "(no answer — the user is unavailable and this question timed out) " +
+  "Proceed with your best judgment: pick the safest reasonable option and note the assumption in your reply. " +
+  "If every option is destructive or irreversible, do not proceed — end your turn and state what you need.";
 
 export interface PendingAsk {
   request_id: string;
@@ -37,7 +50,9 @@ export class PermissionRequests {
   readonly pendingAsks = new Map<string, PendingAsk>();
   readonly pendingQuestions = new Map<string, PendingQuestion>();
   private readonly settledAsks = new Map<string, "allow" | "deny">();
+  private readonly questionTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly timeoutMs: number;
+  private readonly questionTimeoutMs: number;
 
   constructor(
     private readonly deps: {
@@ -61,9 +76,16 @@ export class PermissionRequests {
        */
       waiting?(ask: { session_id: string; request_id: string }): void;
       timeoutMs?: number;
+      /**
+       * How long an unattended session's question waits for the reader
+       * before the fallback answers it. Interactive sessions wait forever:
+       * the timer is only armed when the session runs autonomously.
+       */
+      questionTimeoutMs?: number;
     },
   ) {
     this.timeoutMs = deps.timeoutMs ?? 5 * 60_000;
+    this.questionTimeoutMs = deps.questionTimeoutMs ?? 10 * 60_000;
   }
 
   readonly onAsk = (
@@ -96,16 +118,66 @@ export class PermissionRequests {
   ): Promise<{ decision: "reply" | "reject"; answers?: string[][]; external?: boolean }> => {
     this.deps.store.append([req]);
     const data = req.data;
-    return new Promise((resolve) =>
-      this.pendingQuestions.set(data.request_id, {
-        request_id: data.request_id,
-        session_id: req.session_id,
-        questions: data.questions,
-        asked_at: req.ts,
-        resolve,
-      }),
+    const promise = new Promise<{ decision: "reply" | "reject"; answers?: string[][]; external?: boolean }>(
+      (resolve) =>
+        this.pendingQuestions.set(data.request_id, {
+          request_id: data.request_id,
+          session_id: req.session_id,
+          questions: data.questions,
+          asked_at: req.ts,
+          resolve,
+        }),
     );
+    this.armQuestionTimer(data.request_id, req.session_id);
+    return promise;
   };
+
+  /**
+   * The timeout on an unattended session's question.
+   *
+   * Autonomy is judged once, when the question lands: a goal that is paused
+   * or a session the reader walks back into keeps its human answerer, and a
+   * session that only later becomes autonomous does not retroactively arm.
+   * Interactive sessions never arm — their questions wait as long as the
+   * reader takes.
+   */
+  private armQuestionTimer(requestId: string, sessionId: string): void {
+    let autonomous = false;
+    try {
+      autonomous = sessionAutonomous(this.deps.sessionView(sessionId));
+    } catch {
+      return;
+    }
+    if (!autonomous) return;
+    const timer = setTimeout(() => {
+      void this.autoAnswerQuestion(requestId).catch((error) => {
+        console.error("question auto-answer failed:", error);
+      });
+    }, this.questionTimeoutMs);
+    (timer as { unref?: () => void }).unref?.();
+    this.questionTimers.set(requestId, timer);
+  }
+
+  /**
+   * Answer a question nobody answered, with judgment guidance rather than a
+   * choice. A failure leaves the question pending — the reader can still
+   * answer, which is strictly better than eating the question.
+   */
+  private async autoAnswerQuestion(requestId: string): Promise<void> {
+    const question = this.pendingQuestions.get(requestId);
+    if (!question || question.submitting) return;
+    const conn = this.deps.driverFor(question.session_id);
+    if (!conn?.replyQuestion) return;
+    const answers = question.questions.map(() => [QUESTION_TIMEOUT_ANSWER]);
+    question.submitting = true;
+    try {
+      await conn.replyQuestion(requestId, answers, this.deps.directoryOf(question.session_id));
+    } catch (error) {
+      question.submitting = false;
+      throw error;
+    }
+    this.resolveQuestionLocally(question.session_id, requestId, "reply", answers, { by: "auto", reason: "timeout" });
+  }
 
   readonly settleAsk = (requestId: string, decision: "allow" | "deny"): void => {
     this.rememberAsk(requestId, decision);
@@ -116,6 +188,9 @@ export class PermissionRequests {
   };
 
   readonly settleQuestion = (requestId: string): void => {
+    const timer = this.questionTimers.get(requestId);
+    if (timer) clearTimeout(timer);
+    this.questionTimers.delete(requestId);
     const question = this.pendingQuestions.get(requestId);
     if (!question) return;
     this.pendingQuestions.delete(requestId);
@@ -319,6 +394,7 @@ export class PermissionRequests {
     requestId: string,
     decision: "reply" | "reject",
     answers?: string[][],
+    meta?: { by: "auto"; reason: string },
   ): void {
     this.deps.store.append([
       makeEvent({
@@ -326,7 +402,7 @@ export class PermissionRequests {
         session_id: sessionId,
         source: { backend: "desktop" },
         type: "question.resolved",
-        data: { request_id: requestId, decision, answers },
+        data: { request_id: requestId, decision, answers, ...meta },
       }) as EventInput,
     ]);
     this.settleQuestion(requestId);

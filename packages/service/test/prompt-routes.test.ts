@@ -296,3 +296,106 @@ describe("prompt response routes", () => {
     store.close();
   });
 });
+
+
+describe("a question on an unattended session", () => {
+  const asked = (request_id: string) =>
+    makeEvent({
+      id: `opencode:${request_id}:question.asked`,
+      session_id: "opencode:s1",
+      source: { backend: "opencode" },
+      type: "question.asked",
+      data: {
+        request_id,
+        questions: [
+          {
+            question: "which database?",
+            header: "DB",
+            options: [{ label: "postgres", description: "" }],
+          },
+        ],
+      },
+    }) as Extract<EventInput, { type: "question.asked" }>;
+
+  function timeoutHarness(view: object, questionTimeoutMs = 20) {
+    const store = openStore(":memory:");
+    const replies: { requestId: string; answers: string[][] }[] = [];
+    const requests = new PermissionRequests({
+      store,
+      sessionView: () => ({ pending_questions: [], turns: [], ...view }) as unknown as SessionView,
+      driverFor: () => ({
+        replyQuestion: async (requestId: string, answers: string[][]) => {
+          replies.push({ requestId, answers });
+        },
+      }),
+      directoryOf: () => "/repo",
+      questionTimeoutMs,
+    });
+    return { store, requests, replies };
+  }
+
+  const sleep = (ms: number) => Bun.sleep(ms);
+
+  test("times out into a judgment answer marked as automatic", async () => {
+    const { store, requests, replies } = timeoutHarness({ goal: "ship it", goal_met: undefined });
+    void requests.onQuestion(asked("q1"));
+    expect(requests.pendingQuestions.has("q1")).toBe(true);
+    await sleep(60);
+    expect(replies).toHaveLength(1);
+    expect(replies[0]!.answers).toHaveLength(1);
+    expect(replies[0]!.answers[0]![0]).toContain("best judgment");
+    expect(requests.pendingQuestions.has("q1")).toBe(false);
+    const seen: EventInput[] = [];
+    store.subscribe((e) => seen.push(e));
+    void requests.onQuestion(asked("q2"));
+    await sleep(60);
+    const resolved = seen.find((e) => e.type === "question.resolved");
+    expect(resolved?.type).toBe("question.resolved");
+    if (resolved?.type === "question.resolved") {
+      expect(resolved.data.by).toBe("auto");
+      expect(resolved.data.reason).toBe("timeout");
+    }
+    store.close();
+  });
+
+  test("an interactive session's question waits past the same window", async () => {
+    const { store, requests, replies } = timeoutHarness({ goal: undefined });
+    void requests.onQuestion(asked("q1"));
+    await sleep(60);
+    expect(replies).toHaveLength(0);
+    expect(requests.pendingQuestions.has("q1")).toBe(true);
+    store.close();
+  });
+
+  test("a met goal's session is back in the reader's hands", async () => {
+    const { store, requests, replies } = timeoutHarness({ goal: "ship it", goal_met: true });
+    void requests.onQuestion(asked("q1"));
+    await sleep(60);
+    expect(replies).toHaveLength(0);
+    expect(requests.pendingQuestions.has("q1")).toBe(true);
+    store.close();
+  });
+
+  test("a schedule-spawned session is autonomous from its first prompt", async () => {
+    const { store, requests, replies } = timeoutHarness({
+      goal: undefined,
+      turns: [{ user: [{ type: "text", text: "[scheduled: nightly]\\n\\ndo the thing" }], assistant: [] }],
+    });
+    void requests.onQuestion(asked("q1"));
+    await sleep(60);
+    expect(replies).toHaveLength(1);
+    store.close();
+  });
+
+  test("an answer before the deadline is the one that lands", async () => {
+    const { store, requests, replies } = timeoutHarness({ goal: "ship it" });
+    void requests.onQuestion(asked("q1"));
+    const question = requests.pendingQuestions.get("q1")!;
+    requests.pendingQuestions.delete("q1");
+    requests.settleQuestion("q1");
+    await sleep(60);
+    expect(replies).toHaveLength(0);
+    expect(question).toBeDefined();
+    store.close();
+  });
+});

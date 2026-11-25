@@ -96,6 +96,9 @@ export interface ServiceOpts {
   autoConnectGeneration?: string;
   // directory holding desktop.json and opencode-status.json; default ~/.agent-strata
   desktopDir?: string;
+  // how long an unattended session's question waits before the judgment
+  // answer; default ten minutes, shorter in tests
+  questionTimeoutMs?: number;
   // the shell's resolved OpenCode config directory; global skills live below it
   opencodeConfigDir?: string;
   /**
@@ -206,6 +209,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     directoryOf: (sessionId) => directoryOf(sessionId),
     rememberAlways: (tool) => rememberAlways(tool),
     waiting: (ask) => broadcast({ type: "permission.waiting", ...ask }),
+    questionTimeoutMs: opts.questionTimeoutMs,
   });
   const goalRunner = new GoalRunner({
     store,

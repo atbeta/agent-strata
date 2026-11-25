@@ -281,4 +281,80 @@ describe("a goal continues the session when it goes idle", () => {
     expect((await run.goal("PUT", "   ")).status).toBe(400);
     run.stop();
   });
+
+  test("the continuation carries the unattended-run contract", async () => {
+    const run = await boot();
+    await run.goal("PUT", "ship the fix");
+    await run.waitFor(1);
+    expect(run.prompts()[0]!.body).toContain("unattended");
+    expect(run.prompts()[0]!.body).toContain("GOAL BLOCKED");
+    run.stop();
+  });
+
+  test("a GOAL BLOCKED reply stops the loop, and resume clears it", async () => {
+    const run = await boot();
+    await run.goal("PUT", "ship the fix");
+    await run.waitFor(1);
+    run.append("session.status", { state: "busy" }, "2026-01-01T00:00:02Z");
+    run.append(
+      "turn.assistant",
+      { turn_id: "t-blocked", content: [{ type: "text", text: "I cannot reach the registry.\nGOAL BLOCKED: need registry credentials" }] },
+      "2026-01-01T00:00:03Z",
+    );
+    run.append("session.status", { state: "idle" }, "2026-01-01T00:00:04Z");
+    await Bun.sleep(40);
+    expect(run.prompts()).toHaveLength(1);
+    const view = await run.view();
+    expect(view.goal_blocked).toBe(true);
+    expect(view.goal_blocked_reason).toBe("need registry credentials");
+    // A further idle does not continue a blocked goal either.
+    run.append("session.status", { state: "busy" }, "2026-01-01T00:00:05Z");
+    run.append("session.status", { state: "idle" }, "2026-01-01T00:00:06Z");
+    await Bun.sleep(40);
+    expect(run.prompts()).toHaveLength(1);
+    // Resume lifts the block and the loop starts again.
+    const resumed = await run.hold(false);
+    expect(resumed.status).toBe(200);
+    await run.waitFor(2);
+    expect(run.prompts()).toHaveLength(2);
+    expect((await run.view()).goal_blocked).toBeUndefined();
+    expect((await run.view()).goal_blocked_reason).toBeUndefined();
+    run.stop();
+  });
+
+  test("an older GOAL BLOCKED does not block a freshly saved goal", async () => {
+    const run = await boot();
+    run.append(
+      "turn.assistant",
+      { turn_id: "t-old", content: [{ type: "text", text: "GOAL BLOCKED: stale report" }] },
+      "2026-01-01T00:00:01Z",
+    );
+    await run.goal("PUT", "ship the fix");
+    await run.waitFor(1);
+    run.append("session.status", { state: "busy" }, "2026-01-01T00:00:02Z");
+    run.append("session.status", { state: "idle" }, "2026-01-01T00:00:03Z");
+    await run.waitFor(2);
+    expect((await run.view()).goal_blocked).toBeUndefined();
+    expect(run.prompts()).toHaveLength(2);
+    run.stop();
+  });
+
+  test("pausing a blocked goal is refused rather than lifting the block", async () => {
+    const run = await boot();
+    await run.goal("PUT", "ship the fix");
+    await run.waitFor(1);
+    run.append("session.status", { state: "busy" }, "2026-01-01T00:00:02Z");
+    run.append(
+      "turn.assistant",
+      { turn_id: "t-blocked", content: [{ type: "text", text: "GOAL BLOCKED: need credentials" }] },
+      "2026-01-01T00:00:03Z",
+    );
+    run.append("session.status", { state: "idle" }, "2026-01-01T00:00:04Z");
+    await Bun.sleep(40);
+    expect((await run.view()).goal_blocked).toBe(true);
+    expect((await run.hold(true)).status).toBe(409);
+    expect((await run.view()).goal_blocked).toBe(true);
+    expect((await run.view()).goal_paused).toBeUndefined();
+    run.stop();
+  });
 });
