@@ -97,6 +97,45 @@ describe("view body cache", () => {
     store.close();
   });
 
+  test("summaries under different keys keep each other", () => {
+    const store = openStore(":memory:");
+    for (const id of ["a", "b"]) store.append([mk(id, "turn.user", { turn_id: `${id}1`, content: [] })]);
+    let reads = 0;
+    const counted = { ...store, read: (opts: Parameters<typeof store.read>[0]) => (reads++, store.read(opts)) };
+    const cache = new ViewCache(counted, 1);
+    const pass = () => {
+      for (const id of ["a", "b"]) {
+        cache.summary(id, "list-row", (view) => view.turns.length);
+        cache.summary(id, "usage:UTC", (view) => view.totals.cost_usd);
+      }
+    };
+    pass();
+    reads = 0;
+    // The usage pass and the list pass take turns over the same sessions.
+    pass();
+    pass();
+    expect(reads).toBe(0);
+    store.close();
+  });
+
+  test("a page of sessions larger than the view cache is read once, not on every request", () => {
+    const store = openStore(":memory:");
+    const ids = Array.from({ length: 12 }, (_, i) => `s${i}`);
+    for (const id of ids) store.append([mk(id, "turn.user", { turn_id: `${id}t`, content: [] })]);
+    let reads = 0;
+    const counted = { ...store, read: (opts: Parameters<typeof store.read>[0]) => (reads++, store.read(opts)) };
+    const cache = new ViewCache(counted, 4);
+    cache.view("s0");
+    for (const id of ids) cache.summary(id, "list-row", (view) => view.turns.length);
+    reads = 0;
+    for (const id of ids) cache.summary(id, "list-row", (view) => view.turns.length);
+    expect(reads).toBe(0);
+    // And the transcript the reader had open is still held.
+    cache.view("s0");
+    expect(reads).toBe(0);
+    store.close();
+  });
+
   test("a bulk append invalidates the cached view and reads every page", () => {
     const store = openStore(":memory:");
     store.append([mk("a", "turn.user", { turn_id: "t0", content: [] })]);

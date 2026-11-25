@@ -43,6 +43,13 @@ export class PermissionRequests {
     private readonly deps: {
       store: Store;
       sessionView(sessionId: string): SessionView;
+      /**
+       * One session's open questions without building its whole view. The
+       * question list walks the recent sessions on every open and every event
+       * of the open session; through whole views it evicted the transcript the
+       * reader was looking at.
+       */
+      pendingQuestions?(sessionId: string): SessionView["pending_questions"];
       driverFor(sessionId: string): PromptDriver | undefined;
       directoryOf(sessionId: string): string | undefined;
       /** Persist an explicit allow for a tool this service asked about. */
@@ -118,7 +125,7 @@ export class PermissionRequests {
   pendingQuestionList(limit: number): unknown[] {
     const ids = this.deps.store.listSessions({ limit }).map((summary) => summary.session_id);
     return ids.flatMap((sessionId) =>
-      this.deps.sessionView(sessionId).pending_questions.map((question) => ({
+      this.questionsOf(sessionId).map((question) => ({
         ...question,
         session_id: sessionId,
       })),
@@ -283,12 +290,15 @@ export class PermissionRequests {
 
   private sessionIdOfPendingQuestion(requestId: string): string | undefined {
     for (const summary of this.deps.store.listSessions()) {
-      const view = this.deps.sessionView(summary.session_id);
-      if (view.pending_questions.some((question) => question.request_id === requestId)) {
+      if (this.questionsOf(summary.session_id).some((question) => question.request_id === requestId)) {
         return summary.session_id;
       }
     }
     return undefined;
+  }
+
+  private questionsOf(sessionId: string): SessionView["pending_questions"] {
+    return this.deps.pendingQuestions?.(sessionId) ?? this.deps.sessionView(sessionId).pending_questions;
   }
 
   private async replyQuestion(

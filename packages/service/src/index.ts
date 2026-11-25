@@ -13,6 +13,7 @@ import { createAuthorizer } from "./authorization";
 import { createPolicyRuntime } from "./policy-runtime";
 import { policyRoute } from "./policy-routes";
 import { PermissionRequests } from "./permission-requests";
+import { listRowOf } from "./session-list";
 import { ConnectionRegistry } from "./connection-registry";
 import { GoalRunner } from "./goal-runner";
 import type { BackendDriver, BackendSink } from "./driver";
@@ -200,6 +201,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   const permissionRequests = new PermissionRequests({
     store,
     sessionView: (sessionId) => sessionView(sessionId),
+    pendingQuestions: (sessionId) => listRowOf(sessionId, { views, live, sessionView }).questions,
     driverFor: (sessionId) => driverFor(sessionId),
     directoryOf: (sessionId) => directoryOf(sessionId),
     rememberAlways: (tool) => rememberAlways(tool),

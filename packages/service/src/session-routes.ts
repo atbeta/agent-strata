@@ -1,6 +1,6 @@
 import { UnknownCommandError } from "@agent-strata/adapter-opencode";
 import { sessionBriefing } from "@agent-strata/core";
-import { aggregate, projectSession, runningShell, type SessionView } from "@agent-strata/projector";
+import { projectSession, type SessionView } from "@agent-strata/projector";
 import { makeEvent, type EventInput } from "@agent-strata/schema";
 import type { Store } from "@agent-strata/store";
 import type { ConnectionRegistry } from "./connection-registry";
@@ -14,6 +14,7 @@ import { mcpAuthCode, mcpAuthStartView } from "./mcp-auth";
 import type { PermissionRequests } from "./permission-requests";
 import type { PluginHost } from "./plugins/host";
 import { readPromptParts } from "./prompt-parts";
+import { listRowOf, mergeUsage } from "./session-list";
 import { adoptSession, sendPrompt } from "./session-ops";
 import { filesKeyOf, type ViewCache } from "./views";
 
@@ -58,12 +59,12 @@ export async function sessionRoute(
     const more = fetched.length > requested;
     const summaries = more ? fetched.slice(0, requested) : fetched;
     const askSessions = new Set([...deps.permissions.pendingAsks.values()].map((pending) => pending.session_id));
-    const rows = summaries.map((summary) => ({ summary, view: deps.sessionView(summary.session_id) }));
+    const rows = summaries.map((summary) => ({ summary, view: listRowOf(summary.session_id, deps) }));
     const waiting = new Set(askSessions);
     for (const { summary, view } of rows) {
-      if (view.pending_questions.length > 0) waiting.add(summary.session_id);
+      if (view.questions.length > 0) waiting.add(summary.session_id);
     }
-    const parentRow = new Map(rows.map(({ summary, view }) => [summary.session_id, view.parent_session_id]));
+    const parentRow = new Map(rows.map(({ summary, view }) => [summary.session_id, view.parent]));
     const needsInput = new Set(waiting);
     for (const sessionId of waiting) {
       let parent = parentRow.get(sessionId);
@@ -73,27 +74,24 @@ export async function sessionRoute(
         parent = parentRow.get(parent);
       }
     }
-    const sessions = rows.map(({ summary, view }) => {
-      const shell = runningShell(view);
-      return {
-        summary,
-        status: view.status,
-        busy: view.busy,
-        retry: view.retry,
-        compacting: view.compacting === true,
-        session_error: view.session_error,
-        totals: view.totals,
-        title: view.title,
-        workspace: view.workspace,
-        parent: view.parent_session_id,
-        archived: view.archived === true,
-        deleted: view.deleted === true,
-        needs_input: needsInput.has(summary.session_id),
-        ...(shell ? { shell } : {}),
-        connection_id: deps.driverFor(summary.session_id)?.id,
-      };
-    });
-    return Response.json({ sessions, aggregate: aggregate(rows.map((row) => row.view)), more });
+    const sessions = rows.map(({ summary, view }) => ({
+      summary,
+      status: view.status,
+      busy: view.busy,
+      retry: view.retry,
+      compacting: view.compacting,
+      session_error: view.session_error,
+      totals: view.totals,
+      title: view.title,
+      workspace: view.workspace,
+      parent: view.parent,
+      archived: view.archived,
+      deleted: view.deleted,
+      needs_input: needsInput.has(summary.session_id),
+      ...(view.shell ? { shell: view.shell } : {}),
+      connection_id: deps.driverFor(summary.session_id)?.id,
+    }));
+    return Response.json({ sessions, aggregate: mergeUsage(rows.map((row) => row.view.usage)), more });
   }
 
   const sessionViewMatch = path.match(/^\/sessions\/([^/]+)\/view$/);

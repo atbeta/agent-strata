@@ -19,9 +19,11 @@ export class ViewCache {
   /**
    * Small values derived from a session's view, for every session rather than
    * the few whose events fit in `entries`: a pass over the whole store would
-   * otherwise reread every session past the capacity each time it runs.
+   * otherwise reread every session past the capacity each time it runs. One
+   * slot per key: the list row and the usage buckets are asked of the same
+   * sessions in turn, and a single slot had each evict the other.
    */
-  private summaries = new Map<string, { head: number; key: string; value: unknown }>();
+  private summaries = new Map<string, Map<string, { head: number; value: unknown }>>();
 
   constructor(
     private store: Store,
@@ -85,10 +87,14 @@ export class ViewCache {
   /** `derive(view)` for this session, computed again only once the session moves or `key` changes. */
   summary<T>(sessionId: string, key: string, derive: (view: SessionView) => T): T {
     const head = this.store.lastSeq(sessionId);
-    const held = this.summaries.get(sessionId);
-    if (held && held.head === head && held.key === key) return held.value as T;
+    let slots = this.summaries.get(sessionId);
+    const held = slots?.get(key);
+    if (held && held.head === head) return held.value as T;
     const value = derive(this.peek(sessionId));
-    this.summaries.set(sessionId, { head, key, value });
+    if (!slots) this.summaries.set(sessionId, (slots = new Map()));
+    // A session that moved has nothing worth keeping under its other keys.
+    for (const [other, slot] of slots) if (slot.head !== head) slots.delete(other);
+    slots.set(key, { head, value });
     return value;
   }
 
