@@ -10,6 +10,9 @@
   - Component tests: `bun test` cannot compile Solid JSX (the tsconfig keeps `"jsx": "preserve"`, bun has no solid transform), so `*.vtest.tsx` files mount components via vitest + vite-plugin-solid + jsdom (`vitest.config.ts`). The `.vtest.` suffix keeps them out of `bun test`'s `.test.` glob. Mount a component there when a bug could only surface at render time.
 - `cargo test --locked` in `apps/desktop/src-tauri`: Tauri shell tests. Push and pull request run these; a release runs the check job only, so a shell-test failure does not skip the installers.
 
+## Settings sections (`apps/desktop/ui/src/settings-sections.ts`)
+- A section's `id` is not its meaning: `notifications` is labelled 「会话与通知」/「Sessions & notifications」 and already hosts the 「会话」 group (thinking toggle, notify switches) plus `SoundSettings`. Judge where a setting belongs by the label and what the section actually contains, never by the id or the icon — a worktree-folder setting sitting there is deliberate, not a misplacement.
+
 ## Package boundaries
 - Import workspace packages by name (`@agent-strata/*`), never by path. A specifier containing `packages/` fails `no-restricted-imports`; a relative hop into another package's directory fails `scripts/check-boundaries.ts` (runs inside `bun run lint`).
 - Each package's `package.json` `exports` map is the whole reachable surface. To expose a module outside `src/index.ts`, add a subpath there (see `@agent-strata/service`'s `./prompt-parts`); deep imports not listed fail resolution.
