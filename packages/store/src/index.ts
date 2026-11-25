@@ -179,6 +179,8 @@ export interface Store {
   deletedSessions(): string[];
   /** Every session of a backend with the server recorded as its owner. */
   sessionOrigins(backend: string): { session_id: string; workspace: string | null; origin: string | null }[];
+  /** The server one session was recorded from; null when unknown. */
+  sessionOrigin(session_id: string): string | null;
   /** Each recorded origin once, in the order the store first held a session from it — deleting those sessions does not move it. */
   originOrder(): string[];
   /** Remove every event, the session row and its revision marker. */
@@ -1025,6 +1027,13 @@ export function openStore(path: string | ":memory:"): Store {
       return db
         .query("SELECT session_id, workspace, origin FROM sessions WHERE backend=?")
         .all(backend) as { session_id: string; workspace: string | null; origin: string | null }[];
+    },
+
+    sessionOrigin(session_id) {
+      return (
+        (db.query("SELECT origin FROM sessions WHERE session_id=?").get(session_id) as { origin: string | null } | null)
+          ?.origin ?? null
+      );
     },
 
     originOrder() {

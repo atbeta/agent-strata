@@ -404,6 +404,10 @@ export function startService(opts: ServiceOpts = {}): RunningService {
   const pendingSyncs = new Set<string>();
   /** the origin each connection writes its sessions under — the server identity a sync reconciles against */
   const driverOrigins = new Map<string, string>();
+  conns.locate({
+    originOf: (sessionId) => store.sessionOrigin(sessionId) ?? undefined,
+    serves: (origin, driver) => sameServer(origin, driverOrigins.get(driver.id), false),
+  });
   /**
    * A sync is announced only once it writes something the reader will see
    * change. The crawl that only confirms what the store already holds is

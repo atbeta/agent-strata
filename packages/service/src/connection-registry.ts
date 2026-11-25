@@ -6,6 +6,20 @@ export class ConnectionRegistry {
   private readonly owners = new Map<string, string>();
   private readonly connPolicy = new Map<string, (sessionId: string) => Policy | undefined>();
   private readonly connPassword = new Map<string, string | undefined>();
+  private recorded?: {
+    originOf(sessionId: string): string | undefined;
+    serves(origin: string, driver: BackendDriver): boolean;
+  };
+
+  /**
+   * Where an unclaimed session was recorded from. Without it the registry can
+   * only guess — the one connection, or the one of the session's backend —
+   * and the guess handed a disconnected server's session to whatever was
+   * still connected: its models, its capabilities, and its prompts.
+   */
+  locate(recorded: NonNullable<ConnectionRegistry["recorded"]>): void {
+    this.recorded = recorded;
+  }
 
   get size(): number {
     return this.conns.size;
@@ -65,6 +79,11 @@ export class ConnectionRegistry {
   driverFor(sessionId: string): BackendDriver | undefined {
     const owned = this.owners.get(sessionId);
     if (owned) return this.conns.get(owned);
+    const origin = this.recorded?.originOf(sessionId);
+    if (origin !== undefined) {
+      for (const conn of this.conns.values()) if (this.recorded!.serves(origin, conn)) return conn;
+      return undefined;
+    }
     if (this.conns.size === 1) return this.conns.values().next().value;
     const backend = sessionId.split(":")[0];
     const matches = [...this.conns.values()].filter((conn) => conn.backend === backend);
