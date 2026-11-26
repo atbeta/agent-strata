@@ -1,4 +1,4 @@
-import type { SessionRow, StrataEvent } from "./api";
+import type { StrataEvent } from "./api";
 import { realWorkspace } from "./api";
 import { eventText, previewWindow, type PreviewWindow } from "./search-format";
 import type { AppCommand } from "./commands";
@@ -30,6 +30,22 @@ export type PanelHit =
 /** The groups, in the order a reader meets them. */
 export const PANEL_GROUPS = ["command", "session", "event"] as const;
 export type PanelGroup = (typeof PANEL_GROUPS)[number];
+
+/**
+ * A session the panel can offer.
+ *
+ * The id is its own field. The row the palette holds is a lighter shape than a
+ * `SessionRow` — a display title over the summary — and reading the id out of
+ * `summary` instead opened `#/session/undefined`: the view request for a
+ * session that does not exist, which the page reports as the local service
+ * being unreachable.
+ */
+export interface PanelSession {
+  id: string;
+  title?: string | null;
+  workspace?: string | null;
+  summary?: { title?: string | null; workspace?: string | null };
+}
 
 export const SESSION_LIMIT = 8;
 export const EVENT_LIMIT = 12;
@@ -63,7 +79,7 @@ export function groupOf(hit: PanelHit): PanelGroup | undefined {
 export function buildPanelHits(input: {
   query: string;
   commands: readonly AppCommand[];
-  sessions: readonly SessionRow[];
+  sessions: readonly PanelSession[];
   events: readonly StrataEvent[] | undefined;
   label: (group: string) => string;
   commandGroupLabel: (id: string) => string;
@@ -75,17 +91,17 @@ export function buildPanelHits(input: {
   const sessions = q
     ? input.sessions
         .filter((s) => {
-          const title = (s.title ?? s.summary.title ?? s.summary.session_id).toLowerCase();
-          const ws = (realWorkspace(s.workspace ?? s.summary.workspace) ?? "").toLowerCase();
+          const title = (s.title ?? s.summary?.title ?? s.id).toLowerCase();
+          const ws = (realWorkspace(s.workspace ?? s.summary?.workspace) ?? "").toLowerCase();
           return title.includes(q) || ws.includes(q);
         })
         .slice(0, SESSION_LIMIT)
         .map((s) => ({
           kind: "session" as const,
-          key: `session:${s.summary.session_id}`,
-          id: s.summary.session_id,
-          title: s.title ?? s.summary.title ?? "",
-          hint: projectLabel(realWorkspace(s.workspace ?? s.summary.workspace)),
+          key: `session:${s.id}`,
+          id: s.id,
+          title: s.title ?? s.summary?.title ?? "",
+          hint: projectLabel(realWorkspace(s.workspace ?? s.summary?.workspace)),
         }))
     : [];
   /**

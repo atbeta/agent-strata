@@ -4,6 +4,7 @@ import {
   actionableIndexAt,
   buildPanelHits,
   type PanelHit,
+  type PanelSession,
 } from "./command-panel-hits";
 import { commandGroup, commandList, formatChord } from "./commands";
 import { t } from "./i18n";
@@ -133,7 +134,7 @@ export function CommandPalette(props: {
    */
   query: string;
   onQuery: (query: string) => void;
-  sessions: { id: string; title: string; workspace?: string | null; summary?: { title?: string | null; workspace?: string | null } }[];
+  sessions: PanelSession[];
   events?: readonly { id: string; session_id: string; type: string; ts: string; data: Record<string, unknown> }[];
   searching?: boolean;
   searchWaiting?: boolean;
@@ -155,7 +156,7 @@ export function CommandPalette(props: {
     buildPanelHits({
       query: query(),
       commands: commandList(),
-      sessions: props.sessions as never,
+      sessions: props.sessions,
       events: props.events as never,
       label: (g) => GROUP_LABEL[g]?.() ?? g,
       commandGroupLabel: (id) => commandGroupLabel(id),

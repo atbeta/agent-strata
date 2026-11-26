@@ -4,9 +4,10 @@ import {
   actionableIndexAt,
   buildPanelHits,
   type PanelHit,
+  type PanelSession,
 } from "./command-panel-hits";
 import type { AppCommand } from "./commands";
-import type { SessionRow, StrataEvent } from "./api";
+import type { StrataEvent } from "./api";
 
 const cmd = (id: string, title: string): AppCommand => ({
   id,
@@ -21,20 +22,22 @@ const commands = [
   cmd("pane.splitRight", "向右拆分窗格"),
 ];
 
-const sessions = [
+// The shape the palette is actually handed: the id lives on the row, and the
+// summary under it carries the title and the workspace but not the id.
+const sessions: PanelSession[] = [
   {
-    summary: { session_id: "s1", title: "查询开机时间", workspace: "D:\\Code\\lector" },
+    id: "opencode:s1",
+    summary: { title: "查询开机时间", workspace: "D:\\Code\\lector" },
     title: "查询开机时间",
     workspace: "D:\\Code\\lector",
-    status: "idle",
   },
   {
-    summary: { session_id: "s2", title: "缓存失效排查", workspace: "C:\\Users\\Beta" },
+    id: "opencode:s2",
+    summary: { title: "缓存失效排查", workspace: "C:\\Users\\Beta" },
     title: "缓存失效排查",
     workspace: "C:\\Users\\Beta",
-    status: "idle",
   },
-] as unknown as SessionRow[];
+];
 
 const events = [
   {
@@ -97,6 +100,14 @@ describe("the panel searches three things at once", () => {
     expect(kinds(hits)).toContain("session");
     expect(kinds(hits)).toContain("event");
     expect(titles(hits)).toContain("缓存失效排查");
+  });
+
+  test("a session hit opens the session it names", () => {
+    // The id has to be the one the row carries. Reading it out of the summary
+    // instead — which does not have one — opened a session called "undefined"
+    // and the page reported the local service as unreachable.
+    const hit = build("缓存").find((h) => h.kind === "session") as Extract<PanelHit, { kind: "session" }>;
+    expect(hit.id).toBe("opencode:s2");
   });
 
   test("a session matches on its project as well as its title", () => {
