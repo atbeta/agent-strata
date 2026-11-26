@@ -91,7 +91,7 @@ describe("the service exposes the opencode launch mode and status", () => {
     await withDesktopDir(async (_desktopDir, base) => {
       const res = await fetch(`${base}/desktop/opencode`);
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ mode: "embed", state: "unmanaged" });
+      expect(await res.json()).toEqual({ mode: "embed", apiVersion: "v1", state: "unmanaged" });
     });
   });
 
@@ -102,7 +102,7 @@ describe("the service exposes the opencode launch mode and status", () => {
         JSON.stringify({ mode: "embed", state: "missing", password: "secret" }),
       );
       const got = (await fetch(`${base}/desktop/opencode`).then((r) => r.json())) as Record<string, unknown>;
-      expect(got).toEqual({ mode: "embed", state: "missing" });
+      expect(got).toEqual({ mode: "embed", apiVersion: "v1", state: "missing" });
       expect(got).not.toHaveProperty("password");
     });
   });
@@ -115,7 +115,7 @@ describe("the service exposes the opencode launch mode and status", () => {
         JSON.stringify({ mode: "embed", state: "running", url: "http://127.0.0.1:9" }),
       );
       const got = await fetch(`${base}/desktop/opencode`).then((r) => r.json());
-      expect(got).toEqual({ mode: "external", state: "running", url: "http://127.0.0.1:9" });
+      expect(got).toEqual({ mode: "external", apiVersion: "v1", state: "running", url: "http://127.0.0.1:9" });
     });
   });
 
@@ -128,24 +128,26 @@ describe("the service exposes the opencode launch mode and status", () => {
       const got = await fetch(`${base}/desktop/opencode`).then((r) => r.json());
       expect(got).toEqual({
         mode: "embed",
+        apiVersion: "v1",
         state: "unmanaged",
         runtime: { source: "setting", bin: "/opt/opencode", version: "1.18.30", checked_at: 1_700_000_000 },
       });
     });
   });
 
-  test("PUT /desktop/opencode saves the mode for the next launch", async () => {
+  test("PUT /desktop/opencode saves the mode and API version for the next launch", async () => {
     await withDesktopDir(async (desktopDir, base) => {
       writeFileSync(join(desktopDir, "desktop.json"), JSON.stringify({ opencode: "embed", opencodeBin: "/opt/opencode" }));
       const res = await fetch(`${base}/desktop/opencode`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ mode: "external" }),
+        body: JSON.stringify({ mode: "external", apiVersion: "v2" }),
       });
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ mode: "external", applied: "next-launch" });
+      expect(await res.json()).toEqual({ mode: "external", apiVersion: "v2", applied: "next-launch" });
       expect(JSON.parse(readFileSync(join(desktopDir, "desktop.json"), "utf8"))).toEqual({
         opencode: "external",
+        opencodeApi: "v2",
         opencodeBin: "/opt/opencode",
       });
 

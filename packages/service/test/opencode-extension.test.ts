@@ -34,6 +34,17 @@ describe("opencode extension", () => {
     expect(q.getAll("directory")).toEqual(["/repo"]);
   });
 
+  test("a v2 list response is unwrapped to the v1 array shape", async () => {
+    const ext = opencodeExtension({
+      baseUrl: "http://fake",
+      apiVersion: "v2",
+      fetch: (async () => Response.json({ location: { directory: "/repo" }, data: [{ name: "init" }] })) as unknown as typeof fetch,
+    });
+    const res = await ext.get("/command", new URLSearchParams());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([{ name: "init" }]);
+  });
+
   test("without a session directory the connection's own is used, and none at all is fine", async () => {
     await opencodeExtension({ baseUrl, directory: "/conn" }).get("/vcs", new URLSearchParams());
     expect(new URLSearchParams(seen.at(-1)!.query).get("directory")).toBe("/conn");

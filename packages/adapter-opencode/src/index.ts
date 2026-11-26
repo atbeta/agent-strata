@@ -1,10 +1,10 @@
 import {
-  createOpencodeClient,
   type Event,
   type FilePartInput,
   type OpencodeClient,
 } from "@opencode-ai/sdk/v2";
 import type { PolicySource } from "@agent-strata/policy";
+import { createVersionedOpencodeClient } from "./v2-client";
 import { createSessionImport, listRootSessions } from "./import";
 import { createIngestor } from "./ingest";
 import { OpencodeMapper } from "./map";
@@ -116,6 +116,7 @@ export function promptFailure(err: unknown, text: string): string {
 
 export async function connectOpencode(opts: {
   baseUrl: string;
+  apiVersion?: "v1" | "v2";
   directory?: string;
   // HTTP basic auth for `opencode serve --username/--password`
   username?: string;
@@ -284,8 +285,9 @@ export async function connectOpencode(opts: {
       // reader may already be released
     }
   });
-  const client: OpencodeClient = createOpencodeClient({
+  const client: OpencodeClient = createVersionedOpencodeClient({
     baseUrl: opts.baseUrl,
+    apiVersion: opts.apiVersion,
     directory: opts.directory,
     headers:
       opts.username !== undefined || opts.password !== undefined
@@ -359,6 +361,39 @@ export async function connectOpencode(opts: {
    * session — a frame without a `sessionID` refreshes nothing.
    */
   const lastEventAt = new Map<string, number>();
+  const v2Refreshes = new Map<
+    string,
+    { timer?: ReturnType<typeof setTimeout>; running: boolean; again: boolean; notBefore: number }
+  >();
+  const refreshV2 = (sessionID: string, delayMs = 150, rebuild = false, onComplete?: () => void) => {
+    if (opts.apiVersion !== "v2") return;
+    const state = v2Refreshes.get(sessionID) ?? { running: false, again: false, notBefore: 0 };
+    v2Refreshes.set(sessionID, state);
+    state.again = true;
+    state.notBefore = Math.max(state.notBefore, Date.now() + delayMs);
+    if (state.timer) clearTimeout(state.timer);
+    state.timer = setTimeout(() => {
+      state.timer = undefined;
+      const run = async () => {
+        if (state.running) return;
+        state.running = true;
+        try {
+          do {
+            state.again = false;
+            if (rebuild) await sessionImport.rebuildSession(sessionID, opts.directory);
+            else await sessionImport.importSession(sessionID, opts.directory, { force: true });
+            if (state.again) await Bun.sleep(Math.max(0, state.notBefore - Date.now()));
+          } while (state.again && !abort.signal.aborted);
+          onComplete?.();
+        } catch (err) {
+          if (!abort.signal.aborted) console.error(`opencode v2 refresh failed for ${sessionID}:`, err);
+        } finally {
+          state.running = false;
+        }
+      };
+      void run();
+    }, Math.max(0, state.notBefore - Date.now()));
+  };
   await runOpencodeStream({
     client,
     abort,
@@ -370,6 +405,24 @@ export async function connectOpencode(opts: {
         lastEventAt.set(sid, Date.now());
         followed.add(sid);
         carried.add(sid);
+        if (opts.apiVersion === "v2" && evt.type === "session.idle") {
+          refreshV2(sid, 1_000, true, () =>
+            ingestor.append([
+              {
+                id: `opencode:${sid}:status:${evt.id}`,
+                session_id: `opencode:${sid}`,
+                source: { backend: "opencode" },
+                type: "session.status",
+                ts: new Date().toISOString(),
+                data: { state: "idle" },
+              },
+            ]),
+          );
+          return;
+        }
+        if (evt.type !== "message.part.updated" && evt.type !== "message.part.delta" && (evt.type as string) !== "session.step.ended") {
+          refreshV2(sid);
+        }
       }
       ingestor.handle(evt);
     },
@@ -560,7 +613,7 @@ export async function connectOpencode(opts: {
     if (dir) q.set("directory", dir);
     const timeout = AbortSignal.timeout(300_000);
     return rawFetch(
-      new Request(`${opts.baseUrl.replace(/\/+$/, "")}${path}?${q}`, {
+      new Request(`${opts.baseUrl.replace(/\/+$/, "")}${opts.apiVersion === "v2" ? "/api" : ""}${path}?${q}`, {
         method: "POST",
         headers: {
           ...(opts.username !== undefined || opts.password !== undefined
@@ -581,6 +634,10 @@ export async function connectOpencode(opts: {
       ingestor.stop();
       clearInterval(restoreTimer);
       clearInterval(quietTimer);
+      for (const state of v2Refreshes.values()) {
+        if (state.timer) clearTimeout(state.timer);
+      }
+      v2Refreshes.clear();
     },
     async createSession(sessOpts?: { title?: string; directory?: string; signal?: AbortSignal }) {
       const r = await client.session.create(

@@ -6,7 +6,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::model::{
-    Attention, AttentionKind, OpencodeMode, OpencodeRuntime, RuntimeError, RuntimeSource,
+    Attention, AttentionKind, OpencodeApiVersion, OpencodeMode, OpencodeRuntime, RuntimeError,
+    RuntimeSource,
 };
 use super::output::{classify, last_meaningful_line};
 use super::process::{command_for, kill_tree};
@@ -30,21 +31,41 @@ fn home_dir() -> Option<PathBuf> {
     None
 }
 
-/// The names a binary can have on this platform.
-pub fn candidate_names() -> Vec<&'static str> {
+/// Prefer a versioned alias, then accept the unversioned name for validation.
+pub fn candidate_names(api_version: OpencodeApiVersion) -> Vec<&'static str> {
     #[cfg(windows)]
     {
-        vec![
-            "opencode",
-            "opencode.exe",
-            "opencode.cmd",
-            "opencode.bat",
-            "opencode.ps1",
-        ]
+        match api_version {
+            OpencodeApiVersion::V1 => vec![
+                "opencode1",
+                "opencode1.exe",
+                "opencode-v1",
+                "opencode-v1.exe",
+                "opencode",
+                "opencode.exe",
+                "opencode.cmd",
+                "opencode.bat",
+                "opencode.ps1",
+            ],
+            OpencodeApiVersion::V2 => vec![
+                "opencode2",
+                "opencode2.exe",
+                "opencode-v2",
+                "opencode-v2.exe",
+                "opencode",
+                "opencode.exe",
+                "opencode.cmd",
+                "opencode.bat",
+                "opencode.ps1",
+            ],
+        }
     }
     #[cfg(not(windows))]
     {
-        vec!["opencode"]
+        match api_version {
+            OpencodeApiVersion::V1 => vec!["opencode1", "opencode-v1", "opencode"],
+            OpencodeApiVersion::V2 => vec!["opencode2", "opencode-v2", "opencode"],
+        }
     }
 }
 
@@ -74,8 +95,11 @@ pub fn fallback_dirs() -> Vec<PathBuf> {
     dirs
 }
 
-fn find_in(dirs: impl IntoIterator<Item = PathBuf>) -> Option<PathBuf> {
-    let names = candidate_names();
+fn find_in(
+    dirs: impl IntoIterator<Item = PathBuf>,
+    api_version: OpencodeApiVersion,
+) -> Option<PathBuf> {
+    let names = candidate_names(api_version);
     for dir in dirs {
         for name in &names {
             let candidate = dir.join(name);
@@ -251,7 +275,12 @@ fn version_token(line: &str) -> Option<&str> {
     numeric.then_some(token)
 }
 
-fn runtime_for(bin: PathBuf, source: RuntimeSource, checked_at: u64) -> OpencodeRuntime {
+fn runtime_for(
+    bin: PathBuf,
+    source: RuntimeSource,
+    checked_at: u64,
+    api_version: OpencodeApiVersion,
+) -> OpencodeRuntime {
     if !bin.is_file() {
         return OpencodeRuntime {
             source,
@@ -267,13 +296,27 @@ fn runtime_for(bin: PathBuf, source: RuntimeSource, checked_at: u64) -> Opencode
         };
     }
     match version_of(&bin) {
-        Ok(version) => OpencodeRuntime {
-            source,
-            bin: Some(bin.to_string_lossy().into_owned()),
-            version: Some(version),
-            error: None,
-            checked_at,
-        },
+        Ok(version) => {
+            let matches = version
+                .split(['-', '+'])
+                .next()
+                .and_then(|core| core.split('.').next())
+                .and_then(|major| major.parse::<u64>().ok())
+                == Some(api_version.major());
+            OpencodeRuntime {
+                source,
+                bin: Some(bin.to_string_lossy().into_owned()),
+                error: (!matches).then(|| {
+                    RuntimeError::VersionMismatch {
+                        expected: api_version.major(),
+                        actual: version.clone(),
+                    }
+                    .to_stored()
+                }),
+                version: Some(version),
+                checked_at,
+            }
+        }
         Err(error) => OpencodeRuntime {
             source,
             bin: Some(bin.to_string_lossy().into_owned()),
@@ -288,6 +331,7 @@ fn runtime_for(bin: PathBuf, source: RuntimeSource, checked_at: u64) -> Opencode
 pub fn detect_runtime_with(
     dir: &Path,
     mode: OpencodeMode,
+    api_version: OpencodeApiVersion,
     env_bin: Option<PathBuf>,
 ) -> OpencodeRuntime {
     let checked_at = now_secs();
@@ -300,17 +344,18 @@ pub fn detect_runtime_with(
             checked_at,
         };
     }
-    if let Some(chosen) = read_desktop_bin(&dir.join("desktop.json")) {
-        return runtime_for(chosen, RuntimeSource::Setting, checked_at);
+    if let Some(chosen) = read_desktop_bin(&dir.join("desktop.json"), api_version) {
+        return runtime_for(chosen, RuntimeSource::Setting, checked_at, api_version);
     }
     if let Some(from_env) = env_bin.filter(|path| !path.as_os_str().is_empty()) {
-        return runtime_for(from_env, RuntimeSource::Env, checked_at);
+        return runtime_for(from_env, RuntimeSource::Env, checked_at, api_version);
     }
     if let Some(found) = find_in(
         env::split_paths(&env::var_os("PATH").unwrap_or_default())
             .chain(fallback_dirs().into_iter()),
+        api_version,
     ) {
-        return runtime_for(found, RuntimeSource::Path, checked_at);
+        return runtime_for(found, RuntimeSource::Path, checked_at, api_version);
     }
     OpencodeRuntime {
         source: RuntimeSource::Missing,
@@ -321,17 +366,22 @@ pub fn detect_runtime_with(
     }
 }
 
-pub fn detect_runtime(dir: &Path, mode: OpencodeMode) -> OpencodeRuntime {
+pub fn detect_runtime(
+    dir: &Path,
+    mode: OpencodeMode,
+    api_version: OpencodeApiVersion,
+) -> OpencodeRuntime {
     detect_runtime_with(
         dir,
         mode,
+        api_version,
         env::var_os("STRATA_OPENCODE_BIN").map(PathBuf::from),
     )
 }
 
 /// Resolve the binary embed mode would use, without running it.
-pub fn resolve_bin(dir: &Path) -> Option<PathBuf> {
-    if let Some(chosen) = read_desktop_bin(&dir.join("desktop.json")) {
+pub fn resolve_bin(dir: &Path, api_version: OpencodeApiVersion) -> Option<PathBuf> {
+    if let Some(chosen) = read_desktop_bin(&dir.join("desktop.json"), api_version) {
         return Some(chosen);
     }
     if let Some(from_env) = env::var_os("STRATA_OPENCODE_BIN")
@@ -343,6 +393,7 @@ pub fn resolve_bin(dir: &Path) -> Option<PathBuf> {
     find_in(
         env::split_paths(&env::var_os("PATH").unwrap_or_default())
             .chain(fallback_dirs().into_iter()),
+        api_version,
     )
 }
 
@@ -367,8 +418,18 @@ mod tests {
     #[test]
     fn detect_runtime_reports_a_setting_that_is_not_a_file() {
         let desktop = temp_path("desktop.json");
-        write_desktop_bin(&desktop, Some("/definitely/not/an/opencode")).unwrap();
-        let runtime = detect_runtime_with(desktop.parent().unwrap(), OpencodeMode::Embed, None);
+        write_desktop_bin(
+            &desktop,
+            Some("/definitely/not/an/opencode"),
+            OpencodeApiVersion::V1,
+        )
+        .unwrap();
+        let runtime = detect_runtime_with(
+            desktop.parent().unwrap(),
+            OpencodeMode::Embed,
+            OpencodeApiVersion::V1,
+            None,
+        );
         assert_eq!(runtime.source, RuntimeSource::Setting);
         assert!(runtime.version.is_none());
         assert!(runtime.error.unwrap().contains("not a file"));
@@ -380,6 +441,7 @@ mod tests {
         let runtime = detect_runtime_with(
             desktop.parent().unwrap(),
             OpencodeMode::External,
+            OpencodeApiVersion::V1,
             Some(PathBuf::from("/does/not/matter")),
         );
         assert_eq!(runtime.source, RuntimeSource::External);
@@ -417,8 +479,13 @@ mod tests {
         let bin = desktop.parent().unwrap().join("opencode");
         fs::write(&bin, "#!/bin/sh\necho 1.18.30\n").unwrap();
         fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
-        write_desktop_bin(&desktop, Some(bin.to_str().unwrap())).unwrap();
-        let runtime = detect_runtime_with(desktop.parent().unwrap(), OpencodeMode::Embed, None);
+        write_desktop_bin(&desktop, Some(bin.to_str().unwrap()), OpencodeApiVersion::V1).unwrap();
+        let runtime = detect_runtime_with(
+            desktop.parent().unwrap(),
+            OpencodeMode::Embed,
+            OpencodeApiVersion::V1,
+            None,
+        );
         assert_eq!(runtime.source, RuntimeSource::Setting);
         assert_eq!(runtime.version.as_deref(), Some("1.18.30"));
         assert!(runtime.error.is_none());
@@ -436,8 +503,8 @@ mod tests {
             fs::write(path, format!("#!/bin/sh\necho {version}\n")).unwrap();
             fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
         }
-        write_desktop_bin(&desktop, Some(chosen.to_str().unwrap())).unwrap();
-        let runtime = detect_runtime_with(dir, OpencodeMode::Embed, Some(from_env));
+        write_desktop_bin(&desktop, Some(chosen.to_str().unwrap()), OpencodeApiVersion::V1).unwrap();
+        let runtime = detect_runtime_with(dir, OpencodeMode::Embed, OpencodeApiVersion::V1, Some(from_env));
         assert_eq!(runtime.source, RuntimeSource::Setting);
         assert_eq!(runtime.version.as_deref(), Some("1.18.30"));
     }
@@ -451,8 +518,22 @@ mod tests {
         let from_env = dir.join("from-env");
         fs::write(&from_env, "#!/bin/sh\necho 1.19.3\n").unwrap();
         fs::set_permissions(&from_env, fs::Permissions::from_mode(0o755)).unwrap();
-        let runtime = detect_runtime_with(dir, OpencodeMode::Embed, Some(from_env));
+        let runtime = detect_runtime_with(dir, OpencodeMode::Embed, OpencodeApiVersion::V1, Some(from_env));
         assert_eq!(runtime.source, RuntimeSource::Env);
         assert_eq!(runtime.version.as_deref(), Some("1.19.3"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_v2_binary_is_rejected_when_v1_is_selected() {
+        use std::os::unix::fs::PermissionsExt;
+        let desktop = temp_path("desktop.json");
+        let dir = desktop.parent().unwrap();
+        let bin = dir.join("opencode-v2");
+        fs::write(&bin, "#!/bin/sh\necho 'opencode v2.4.1'\n").unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+        let runtime = detect_runtime_with(dir, OpencodeMode::Embed, OpencodeApiVersion::V1, Some(bin));
+        assert_eq!(runtime.version.as_deref(), Some("2.4.1"));
+        assert_eq!(runtime.error.as_deref(), Some("versionMismatch:1:2.4.1"));
     }
 }

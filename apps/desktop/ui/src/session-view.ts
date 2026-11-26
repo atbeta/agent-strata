@@ -22,7 +22,7 @@ export function useSessionView(
   const { replayPos } = deps;
   const opening = peekView(props.id);
   /** the background re-import that lands after the stored view is already up */
-  const [importing, setImporting] = createSignal(true);
+  const [importing, setImporting] = createSignal(false);
   // The files list key travels with the cached view so a warm open can leave
   // an unchanged list off the wire. forceFull skips the cache for one fetch.
   let filesKey: string | undefined = opening?.filesKey;

@@ -15,6 +15,7 @@ const PREFIX = "opencode:";
 export async function connectOpencodeDriver(opts: {
   sink: Sink;
   baseUrl: string;
+  apiVersion?: "v1" | "v2";
   name?: string;
   directory?: string;
   username?: string;
@@ -31,6 +32,7 @@ export async function connectOpencodeDriver(opts: {
   let syncing: Promise<number> | undefined;
   const conn = await connectOpencode({
     baseUrl: opts.baseUrl,
+    apiVersion: opts.apiVersion,
     directory: opts.directory,
     username: opts.username,
     password: opts.password,
@@ -66,10 +68,11 @@ export async function connectOpencodeDriver(opts: {
       revert: true,
       fork: true,
       summarize: true,
-      share: true,
+      share: opts.apiVersion !== "v2",
     },
     extension: opencodeExtension({
       baseUrl: opts.baseUrl,
+      apiVersion: opts.apiVersion,
       directory: opts.directory,
       username: opts.username,
       password: opts.password,

@@ -1,10 +1,14 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { OpencodeLaunchMode, OpencodeLaunchState } from "@agent-strata/api";
+import type { OpencodeApiVersion, OpencodeLaunchMode, OpencodeLaunchState } from "@agent-strata/api";
 import { sameEndpoint } from "./connection-phase";
 
 export function isOpencodeMode(value: unknown): value is OpencodeLaunchMode {
   return value === "embed" || value === "external";
+}
+
+export function isOpencodeApiVersion(value: unknown): value is OpencodeApiVersion {
+  return value === "v1" || value === "v2";
 }
 
 function isOpencodeState(value: unknown): value is OpencodeLaunchState {
@@ -36,6 +40,15 @@ export function readOpencodeMode(dir: string): OpencodeLaunchMode {
     if (isOpencodeMode(mode)) return mode;
   }
   return "embed";
+}
+
+export function readOpencodeApiVersion(dir: string): OpencodeApiVersion {
+  const parsed = readDesktopJson(join(dir, "desktop.json"));
+  if (parsed && typeof parsed === "object" && parsed !== null) {
+    const version = (parsed as { opencodeApi?: unknown }).opencodeApi;
+    if (isOpencodeApiVersion(version)) return version;
+  }
+  return "v1";
 }
 
 /**
@@ -107,6 +120,7 @@ function readOpencodeRuntime(dir: string): OpencodeRuntime | undefined {
 
 export function readOpencodeStatus(dir: string): {
   mode: OpencodeLaunchMode;
+  apiVersion: OpencodeApiVersion;
   state: OpencodeLaunchState;
   url?: string;
   runtime?: OpencodeRuntime;
@@ -115,10 +129,11 @@ export function readOpencodeStatus(dir: string): {
   generation?: string;
 } {
   const mode = readOpencodeMode(dir);
+  const apiVersion = readOpencodeApiVersion(dir);
   const runtime = readOpencodeRuntime(dir);
   const parsed = readDesktopJson(join(dir, "opencode-status.json"));
   if (!parsed || typeof parsed !== "object" || parsed === null) {
-    return runtime ? { mode, state: "unmanaged", runtime } : { mode, state: "unmanaged" };
+    return runtime ? { mode, apiVersion, state: "unmanaged", runtime } : { mode, apiVersion, state: "unmanaged" };
   }
   const rec = parsed as {
     state?: unknown;
@@ -128,10 +143,11 @@ export function readOpencodeStatus(dir: string): {
     generation?: unknown;
   };
   if (!isOpencodeState(rec.state)) {
-    return runtime ? { mode, state: "unmanaged", runtime } : { mode, state: "unmanaged" };
+    return runtime ? { mode, apiVersion, state: "unmanaged", runtime } : { mode, apiVersion, state: "unmanaged" };
   }
   const body: {
     mode: OpencodeLaunchMode;
+    apiVersion: OpencodeApiVersion;
     state: OpencodeLaunchState;
     url?: string;
     runtime?: OpencodeRuntime;
@@ -140,6 +156,7 @@ export function readOpencodeStatus(dir: string): {
     generation?: string;
   } = {
     mode,
+    apiVersion,
     state: rec.state,
   };
   if (typeof rec.url === "string") body.url = rec.url;

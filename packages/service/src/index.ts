@@ -754,7 +754,10 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     }
     const launch = readOpencodeStatus(desktopDir);
     const generation = embeddedGeneration(launch);
-    const origin = sessionOrigin(body, generation);
+    const origin = sessionOrigin(
+      { ...body, apiVersion: body.apiVersion ?? (body.placement === "embed" ? launch.apiVersion : "v1") },
+      generation,
+    );
     const scopedSink = sinkFor(origin);
     const explicit: Policy | undefined = body.policy ? loadPolicy(body.policy) : undefined;
     const policy = policyRuntime.policyForConnection(explicit);
@@ -764,6 +767,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
       driver = await connectOpencodeDriver({
         sink: scopedSink,
         baseUrl: body.baseUrl,
+        apiVersion: body.apiVersion ?? (body.placement === "embed" ? launch.apiVersion : "v1"),
         name: body.name,
         directory: body.directory,
         username: body.username,
@@ -906,6 +910,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
           username: opts.autoConnectUsername,
           password: opts.autoConnectPassword,
           placement,
+          apiVersion: placement === "embed" ? readOpencodeStatus(desktopDir).apiVersion : "v1",
         },
         ...remembered.filter((conn) => endpointOf(conn) !== opts.autoConnect).map(withEmbeddedCredentials),
       ]

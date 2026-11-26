@@ -34,6 +34,22 @@ pub enum OpencodeMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OpencodeApiVersion {
+    V1,
+    V2,
+}
+
+impl OpencodeApiVersion {
+    pub fn major(self) -> u64 {
+        match self {
+            OpencodeApiVersion::V1 => 1,
+            OpencodeApiVersion::V2 => 2,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum OpencodeState {
     Starting,
@@ -94,6 +110,7 @@ pub enum RuntimeError {
     VersionExited { detail: String },
     VersionEmpty,
     VersionTimeout { seconds: u64 },
+    VersionMismatch { expected: u64, actual: String },
     NotFound,
 }
 
@@ -112,6 +129,9 @@ impl RuntimeError {
             RuntimeError::VersionExited { detail } => format!("versionExited:{detail}"),
             RuntimeError::VersionEmpty => "versionEmpty".into(),
             RuntimeError::VersionTimeout { seconds } => format!("versionTimeout:{seconds}"),
+            RuntimeError::VersionMismatch { expected, actual } => {
+                format!("versionMismatch:{expected}:{actual}")
+            }
             RuntimeError::NotFound => "notFound".into(),
         }
     }

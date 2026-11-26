@@ -218,6 +218,11 @@ describe("sameServer", () => {
     expect(sameServer("opencode:embed:gen-1", remote, false)).toBe(false);
     expect(sameServer(remote, "opencode:embed:gen-2", false)).toBe(false);
   });
+  test("v1 and v2 embedded storage do not reconcile each other", () => {
+    expect(sameServer("opencode:embed:v1:gen-1", "opencode:embed:v2:gen-2", false)).toBe(false);
+    expect(sameServer("opencode:embed:v2:gen-1", "opencode:embed:v2:gen-2", false)).toBe(true);
+    expect(sameServer("opencode:embed:gen-1", "opencode:embed:v1:gen-2", false)).toBe(true);
+  });
   test("any other server is its address", () => {
     expect(sameServer(remote, remote, false)).toBe(true);
     expect(sameServer(remote, "opencode:http://127.0.0.1:4096", false)).toBe(false);

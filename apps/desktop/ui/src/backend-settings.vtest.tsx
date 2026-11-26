@@ -78,6 +78,7 @@ function launchIs(launch: unknown) {
 
 const running = {
   mode: "embed",
+  apiVersion: "v1",
   state: "running",
   runtime: { source: "path", bin: "/opt/homebrew/bin/opencode", version: "1.14.2" },
 };
@@ -107,7 +108,34 @@ test("the engine is the foundation apart from the servers, and the tiers say wha
   expect(missingLines).toBe(1);
   // the engine's lifecycle is right here, not a page away
   expect(host.querySelector(`[aria-label="${t("settings.opencode.mode")}"]`)).not.toBeNull();
+  expect(host.querySelector(`[role="radio"][aria-checked="true"]`)?.textContent).toBe("v1");
   expect(host.textContent).toContain(t("settings.opencode.restart"));
+});
+
+test("switching the API major saves v2 and keeps the rest of the launch mode", async () => {
+  let current = { ...running };
+  let saved: Record<string, unknown> | undefined;
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (!String(input).includes("/desktop/opencode")) return Response.json([]);
+    if (init?.method === "PUT") {
+      saved = JSON.parse(String(init.body)) as Record<string, unknown>;
+      current = { ...current, apiVersion: "v2" };
+      return Response.json({ mode: "embed", apiVersion: "v2", applied: "next-launch" });
+    }
+    return Response.json(current);
+  });
+  const { ctl: c } = ctl([engine]);
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  dispose = render(() => <BackendSettings conns={c} />, host);
+  const v2 = await vi.waitFor(() => {
+    const found = [...host.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((b) => b.textContent === "v2");
+    expect(found).toBeTruthy();
+    return found!;
+  });
+  v2.click();
+  await vi.waitFor(() => expect(saved).toEqual({ mode: "embed", apiVersion: "v2" }));
+  expect(host.textContent).not.toContain(t("settings.opencode.desktopOnly"));
 });
 
 test("the executable is folded away, with its version on the fold, until it is asked for", async () => {

@@ -3,6 +3,7 @@ import {
   type ApiProvider,
   type OAuthStart,
   type OpencodeLaunch,
+  type OpencodeApiVersion,
   type OpencodeLaunchMode,
 } from "@agent-strata/api";
 
@@ -11,6 +12,7 @@ export type {
   DevStopResult,
   OAuthStart,
   OpencodeLaunch,
+  OpencodeApiVersion,
   OpencodeLaunchMode,
   OpencodeLaunchState,
   OpencodeRuntime,
@@ -1297,14 +1299,15 @@ export function readOpencodeLaunch(): Promise<OpencodeLaunch> {
 
 export async function saveOpencodeMode(
   mode: OpencodeLaunchMode,
-): Promise<{ mode: OpencodeLaunchMode; applied: "next-launch" }> {
+  apiVersion?: OpencodeApiVersion,
+): Promise<{ mode: OpencodeLaunchMode; apiVersion: OpencodeApiVersion; applied: "next-launch" }> {
   const res = await apiFetch("/desktop/opencode", {
     method: "PUT",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ mode }),
+    body: JSON.stringify({ mode, ...(apiVersion ? { apiVersion } : {}) }),
   });
   await throwOnError(res);
-  return (await res.json()) as { mode: OpencodeLaunchMode; applied: "next-launch" };
+  return (await res.json()) as { mode: OpencodeLaunchMode; apiVersion: OpencodeApiVersion; applied: "next-launch" };
 }
 
 export async function savePolicy(policy: Policy): Promise<void> {

@@ -4,6 +4,8 @@ import { writeSecureJson } from "./secure-write";
 
 export interface ConnectBody {
   backend?: string;
+  /** opencode: which HTTP API generation the server exposes; absent means v1 */
+  apiVersion?: "v1" | "v2";
   /** opencode: the `opencode serve` URL */
   baseUrl?: string;
   /** acp: the agent's executable and arguments, spoken to over stdio */
@@ -49,7 +51,8 @@ export function endpointOf(body: ConnectBody): string {
 export function sessionOrigin(body: ConnectBody, generation?: string): string {
   const backend = body.backend ?? "opencode";
   if (backend === "opencode" && body.placement === "embed") {
-    return `opencode:embed:${generation || `endpoint:${endpointOf(body)}`}`;
+    const api = body.apiVersion ?? "v1";
+    return `opencode:embed:${api}:${generation || `endpoint:${endpointOf(body)}`}`;
   }
   return `${backend}:${endpointOf(body)}`;
 }
@@ -58,19 +61,22 @@ export function isEmbeddedOrigin(origin: string | undefined): boolean {
   return origin?.startsWith("opencode:embed:") === true;
 }
 
+function embeddedApi(origin: string): "v1" | "v2" {
+  if (origin.startsWith("opencode:embed:v2:")) return "v2";
+  return "v1";
+}
+
 /**
  * Whether a stored session was recorded by the server a connection talks to.
  *
  * Only that server can say a session is gone: any other answers 404 for it
- * because it never had it. Every generation of the embedded engine is the
- * same server — one data directory, a new password per launch. A record from
- * before origins were kept belongs to whichever server it may; `legacy` says
- * whether there is only one it could be.
+ * because it never had it. Generations of one API major share storage; v1 and
+ * v2 do not, so switching majors must not reconcile the other major's records.
  */
 export function sameServer(stored: string | null | undefined, mine: string | undefined, legacy: boolean): boolean {
   if (!stored) return legacy;
   if (!mine) return false;
-  if (isEmbeddedOrigin(mine)) return isEmbeddedOrigin(stored);
+  if (isEmbeddedOrigin(mine)) return isEmbeddedOrigin(stored) && embeddedApi(stored) === embeddedApi(mine);
   return stored === mine;
 }
 

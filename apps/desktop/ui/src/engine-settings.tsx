@@ -2,6 +2,7 @@ import { createEffect, createResource, createSignal, Show } from "solid-js";
 import {
   readOpencodeLaunch,
   saveOpencodeMode,
+  type OpencodeApiVersion,
   type OpencodeLaunchMode,
   type OpencodeRuntime,
 } from "./api";
@@ -20,7 +21,7 @@ import { Icon } from "./icons";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { TextFieldInput } from "@/components/ui/text-field";
-import { Card, Group, Row } from "./settings-blocks";
+import { Card, Group, Row, Segmented } from "./settings-blocks";
 import { runtimeErrorText } from "./runtime-error";
 import { Tip } from "./tip";
 import type { ConnectionsCtl } from "./use-connections";
@@ -36,6 +37,7 @@ import type { ConnectionsCtl } from "./use-connections";
 export function EngineSettings(props: { conns: ConnectionsCtl }) {
   const [launch, { refetch: refetchLaunch }] = createResource(readOpencodeLaunch);
   const [mode, setMode] = createSignal<OpencodeLaunchMode>("embed");
+  const [apiVersion, setApiVersion] = createSignal<OpencodeApiVersion>("v1");
   const [runtime, setRuntime] = createSignal<OpencodeRuntime>();
   const [runtimeBusy, setRuntimeBusy] = createSignal(false);
   const [runtimeErr, setRuntimeErr] = fadeSignal("");
@@ -257,6 +259,7 @@ export function EngineSettings(props: { conns: ConnectionsCtl }) {
     const data = launchData();
     if (data) {
       setMode(data.mode);
+      setApiVersion(data.apiVersion ?? "v1");
       setRuntime(data.runtime);
       setHydrated(true);
     } else if (launch.error) {
@@ -277,6 +280,22 @@ export function EngineSettings(props: { conns: ConnectionsCtl }) {
       await refetchLaunch();
     } catch (e) {
       setMode(previous);
+      setSaveErr(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const pickApiVersion = async (next: OpencodeApiVersion) => {
+    if (next === apiVersion()) return;
+    const previous = apiVersion();
+    setApiVersion(next);
+    setSaveErr("");
+    try {
+      await saveOpencodeMode(mode(), next);
+      await refetchLaunch();
+      if (inDesktopShell()) await checkRuntime();
+      else setRuntime(launchData()?.runtime);
+    } catch (e) {
+      setApiVersion(previous);
       setSaveErr(e instanceof Error ? e.message : String(e));
     }
   };
@@ -317,6 +336,20 @@ export function EngineSettings(props: { conns: ConnectionsCtl }) {
             until the saved choice arrives; waiting for it keeps an engine that
             is off from flashing these rows on open. */}
         <Show when={hydrated() && mode() !== "external"}>
+          <Row
+            label={t("settings.opencode.apiVersion")}
+            hint={t("settings.opencode.apiVersionHint")}
+          >
+            <Segmented
+              label={t("settings.opencode.apiVersion")}
+              value={apiVersion()}
+              options={[
+                { id: "v1", label: "v1" },
+                { id: "v2", label: "v2" },
+              ]}
+              onChange={(next) => void pickApiVersion(next as OpencodeApiVersion)}
+            />
+          </Row>
           <Row
             label={t("settings.opencode.state")}
             note={

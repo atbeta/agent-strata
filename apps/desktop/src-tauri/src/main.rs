@@ -32,10 +32,10 @@ use std::time::{Duration, Instant};
 
 use embed::{
     child_env, cleanup_stale_opencode, cleanup_stale_service, command_for, detect_runtime,
-    health_ok, plan_with_port, previous_port, random_password, read_mode, reap_opencode_on_port,
-    resolve_bin, resolve_mode, serve_args, service_env, supervise, write_pid, write_pid_plain,
-    write_runtime, write_status, write_status_with_generation, Attention, OpencodeMode,
-    OpencodePlan, OpencodeState, Spawned, AUTH_PROMPT, AUTH_REFUSED,
+    health_ok, plan_with_port, previous_port, random_password, read_api_version, read_mode,
+    reap_opencode_on_port, resolve_bin, resolve_mode, serve_args, service_env, supervise, write_pid,
+    write_pid_plain, write_runtime, write_status, write_status_with_generation, Attention,
+    OpencodeMode, OpencodePlan, OpencodeState, Spawned, AUTH_PROMPT, AUTH_REFUSED,
 };
 
 use std::thread::JoinHandle;
@@ -644,7 +644,8 @@ fn spawn_opencode_supervisor(
     // a path check only — the version probe that would park on a fork's domain
     // login belongs to the supervisor thread, where a wait cannot hold the
     // window shut.
-    let Some(bin) = resolve_bin(data).filter(|path| path.is_file()) else {
+    let api_version = read_api_version(&data.join("desktop.json"));
+    let Some(bin) = resolve_bin(data, api_version).filter(|path| path.is_file()) else {
         let generation = random_password();
         let _ = write_status_with_generation(
             &status_path,
@@ -723,9 +724,25 @@ fn spawn_opencode_supervisor(
         // The version probe runs here, not on the launch path: it costs
         // seconds on a fork parked at its domain login, and a synchronous
         // probe once kept the window from ever appearing.
-        let runtime = detect_runtime(&thread_data, OpencodeMode::Embed);
+        let runtime = detect_runtime(&thread_data, OpencodeMode::Embed, api_version);
         let runtime_path = thread_data.join("opencode-runtime.json");
         let _ = write_runtime(&runtime_path, &runtime);
+        if runtime
+            .error
+            .as_deref()
+            .is_some_and(|error| error.starts_with("versionMismatch:"))
+        {
+            let _ = write_status_with_generation(
+                &status_path,
+                OpencodeMode::Embed,
+                OpencodeState::Missing,
+                None,
+                None,
+                &planned.generation,
+            );
+            log_note(&supervise_log, "the selected opencode binary has the wrong major version");
+            return;
+        }
         // The probe above ran before the server could answer, so a fork parked
         // at its domain login wrote `authParked` and nothing ever replaced it.
         // The reader signed in, the server came up, and the settings page went
@@ -858,11 +875,11 @@ fn spawn_opencode_supervisor(
                 let runtime_path = runtime_path.clone();
                 let reprobe_data = thread_data.clone();
                 move |p| {
-                    let ok = health_ok(&p.url, &p.username, &p.password);
+                    let ok = health_ok(&p.url, &p.username, &p.password, api_version);
                     if ok && !reprobed.swap(true, Ordering::SeqCst) {
                         // Written before `supervise` records Running, so the
                         // next launch read cannot see the stale error either.
-                        let fresh = detect_runtime(&reprobe_data, OpencodeMode::Embed);
+                        let fresh = detect_runtime(&reprobe_data, OpencodeMode::Embed, api_version);
                         let _ = write_runtime(&runtime_path, &fresh);
                     }
                     ok
@@ -938,7 +955,7 @@ impl Sidecars {
         // and running it on this synchronous path once kept the window from
         // ever appearing.
         if mode == OpencodeMode::External {
-            let runtime = detect_runtime(&data, mode);
+            let runtime = detect_runtime(&data, mode, read_api_version(&data.join("desktop.json")));
             let runtime_path = data.join("opencode-runtime.json");
             if let Err(e) = write_runtime(&runtime_path, &runtime) {
                 eprintln!(
@@ -1609,8 +1626,9 @@ fn open_with_notepad(path: &Path) -> std::io::Result<()> {
 #[tauri::command]
 fn opencode_runtime() -> Result<embed::OpencodeRuntime, String> {
     let data = data_dir();
-    let mode = read_mode(&data.join("desktop.json"));
-    let runtime = detect_runtime(&data, mode);
+    let desktop = data.join("desktop.json");
+    let mode = read_mode(&desktop);
+    let runtime = detect_runtime(&data, mode, read_api_version(&desktop));
     write_runtime(&data.join("opencode-runtime.json"), &runtime)
         .map_err(|e| format!("could not write runtime status: {e}"))?;
     Ok(runtime)
@@ -1621,10 +1639,12 @@ fn opencode_runtime() -> Result<embed::OpencodeRuntime, String> {
 #[tauri::command]
 fn set_opencode_bin(path: Option<String>) -> Result<embed::OpencodeRuntime, String> {
     let data = data_dir();
-    embed::write_desktop_bin(&data.join("desktop.json"), path.as_deref())
+    let desktop = data.join("desktop.json");
+    let api_version = read_api_version(&desktop);
+    embed::write_desktop_bin(&desktop, path.as_deref(), api_version)
         .map_err(|e| format!("could not save the opencode path: {e}"))?;
-    let mode = read_mode(&data.join("desktop.json"));
-    let runtime = detect_runtime(&data, mode);
+    let mode = read_mode(&desktop);
+    let runtime = detect_runtime(&data, mode, api_version);
     write_runtime(&data.join("opencode-runtime.json"), &runtime)
         .map_err(|e| format!("could not write runtime status: {e}"))?;
     Ok(runtime)
@@ -1890,6 +1910,7 @@ mod tests {
         super::embed::write_desktop_bin(
             &data.join("desktop.json"),
             Some(missing.to_str().unwrap()),
+            super::embed::OpencodeApiVersion::V1,
         )
         .unwrap();
         let status_path = data.join("opencode-status.json");

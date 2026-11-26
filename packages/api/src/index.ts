@@ -58,6 +58,7 @@ export interface OAuthStart {
 }
 
 export type OpencodeLaunchMode = "embed" | "external";
+export type OpencodeApiVersion = "v1" | "v2";
 export type OpencodeLaunchState =
   | "starting"
   | "running"
@@ -81,6 +82,7 @@ export interface OpencodeRuntime {
 
 export interface OpencodeLaunch {
   mode: OpencodeLaunchMode;
+  apiVersion: OpencodeApiVersion;
   state: OpencodeLaunchState;
   url?: string;
   runtime?: OpencodeRuntime;

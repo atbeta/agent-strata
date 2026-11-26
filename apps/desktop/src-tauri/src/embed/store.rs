@@ -2,7 +2,9 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use super::model::{Attention, OpencodeMode, OpencodePlan, OpencodeState, OpencodeStatus};
+use super::model::{
+    Attention, OpencodeApiVersion, OpencodeMode, OpencodePlan, OpencodeState, OpencodeStatus,
+};
 
 #[derive(Serialize, Deserialize)]
 struct ModeFile {
@@ -123,10 +125,28 @@ pub fn read_status(path: &Path) -> Option<OpencodeStatus> {
     serde_json::from_str(&text).ok()
 }
 
-pub fn read_desktop_bin(path: &Path) -> Option<PathBuf> {
+pub fn read_api_version(path: &Path) -> OpencodeApiVersion {
+    let text = std::fs::read_to_string(path).ok();
+    let value = text.and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok());
+    match value.as_ref().and_then(|value| value.get("opencodeApi")) {
+        Some(serde_json::Value::String(version)) if version == "v2" => OpencodeApiVersion::V2,
+        _ => OpencodeApiVersion::V1,
+    }
+}
+
+pub fn read_desktop_bin(path: &Path, version: OpencodeApiVersion) -> Option<PathBuf> {
     let text = std::fs::read_to_string(path).ok()?;
     let value: serde_json::Value = serde_json::from_str(&text).ok()?;
-    let bin = value.get("opencodeBin")?.as_str()?.trim();
+    let key = match version {
+        OpencodeApiVersion::V1 => "opencodeBinV1",
+        OpencodeApiVersion::V2 => "opencodeBinV2",
+    };
+    let configured = value.get(key).or_else(|| {
+        (version == OpencodeApiVersion::V1)
+            .then(|| value.get("opencodeBin"))
+            .flatten()
+    })?;
+    let bin = configured.as_str()?.trim();
     if bin.is_empty() {
         None
     } else {
@@ -162,16 +182,27 @@ fn update_desktop_file(
     Ok(())
 }
 
-/// Preserve unrelated fields when changing the chosen binary.
-pub fn write_desktop_bin(path: &Path, bin: Option<&str>) -> std::io::Result<()> {
+/// Preserve unrelated fields when changing the chosen binary for one API major.
+pub fn write_desktop_bin(
+    path: &Path,
+    bin: Option<&str>,
+    version: OpencodeApiVersion,
+) -> std::io::Result<()> {
     update_desktop_file(path, |object| {
+        let key = match version {
+            OpencodeApiVersion::V1 => "opencodeBinV1",
+            OpencodeApiVersion::V2 => "opencodeBinV2",
+        };
         match bin.map(str::trim).filter(|value| !value.is_empty()) {
             Some(chosen) => {
-                object.insert("opencodeBin".into(), serde_json::json!(chosen));
+                object.insert(key.into(), serde_json::json!(chosen));
             }
             None => {
-                object.remove("opencodeBin");
+                object.remove(key);
             }
+        }
+        if version == OpencodeApiVersion::V1 {
+            object.remove("opencodeBin");
         }
     })
 }
@@ -257,9 +288,14 @@ mod tests {
     fn desktop_bin_round_trips_and_keeps_other_fields() {
         let desktop = temp_path("desktop.json");
         fs::write(&desktop, r#"{"opencode":"external","other":1}"#).unwrap();
-        write_desktop_bin(&desktop, Some("/opt/example/opencode")).unwrap();
+        write_desktop_bin(
+            &desktop,
+            Some("/opt/example/opencode"),
+            OpencodeApiVersion::V1,
+        )
+        .unwrap();
         assert_eq!(
-            read_desktop_bin(&desktop),
+            read_desktop_bin(&desktop, OpencodeApiVersion::V1),
             Some(PathBuf::from("/opt/example/opencode"))
         );
         let value: serde_json::Value =
@@ -267,11 +303,31 @@ mod tests {
         assert_eq!(value["opencode"], "external");
         assert_eq!(value["other"], 1);
 
-        write_desktop_bin(&desktop, None).unwrap();
-        assert_eq!(read_desktop_bin(&desktop), None);
+        write_desktop_bin(&desktop, None, OpencodeApiVersion::V1).unwrap();
+        assert_eq!(read_desktop_bin(&desktop, OpencodeApiVersion::V1), None);
         let value: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(&desktop).unwrap()).unwrap();
         assert_eq!(value["opencode"], "external");
+    }
+
+    #[test]
+    fn api_version_defaults_to_v1_and_binary_paths_are_independent() {
+        let desktop = temp_path("desktop.json");
+        assert_eq!(read_api_version(&desktop), OpencodeApiVersion::V1);
+        fs::write(&desktop, r#"{"opencodeBin":"/legacy/v1"}"#).unwrap();
+        assert_eq!(
+            read_desktop_bin(&desktop, OpencodeApiVersion::V1),
+            Some(PathBuf::from("/legacy/v1"))
+        );
+        write_desktop_bin(&desktop, Some("/opt/v2"), OpencodeApiVersion::V2).unwrap();
+        assert_eq!(
+            read_desktop_bin(&desktop, OpencodeApiVersion::V1),
+            Some(PathBuf::from("/legacy/v1"))
+        );
+        assert_eq!(
+            read_desktop_bin(&desktop, OpencodeApiVersion::V2),
+            Some(PathBuf::from("/opt/v2"))
+        );
     }
 
     #[test]

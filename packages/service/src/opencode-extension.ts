@@ -28,12 +28,13 @@ const TIMEOUT_MS = 15_000;
 
 export function opencodeExtension(opts: {
   baseUrl: string;
+  apiVersion?: "v1" | "v2";
   directory?: string;
   username?: string;
   password?: string;
   fetch?: typeof fetch;
 }): BackendExtension {
-  const base = opts.baseUrl.replace(/\/+$/, "");
+  const base = `${opts.baseUrl.replace(/\/+$/, "")}${opts.apiVersion === "v2" ? "/api" : ""}`;
   const headers: Record<string, string> =
     opts.username !== undefined || opts.password !== undefined
       ? { authorization: `Basic ${btoa(`${opts.username ?? ""}:${opts.password ?? ""}`)}` }
@@ -57,16 +58,21 @@ export function opencodeExtension(opts: {
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     });
   };
+  const unwrap = (value: unknown): unknown => {
+    if (opts.apiVersion !== "v2" || !value || typeof value !== "object" || Array.isArray(value)) return value;
+    const body = value as { data?: unknown; location?: unknown };
+    return body.location !== undefined && body.data !== undefined ? body.data : value;
+  };
   const read = async (res: Response): Promise<unknown> => {
     if (!res.ok) throw new TerminalError("terminal failed", res.status === 404 ? 404 : 502);
-    return res.json().catch(() => undefined);
+    return unwrap(await res.json().catch(() => undefined));
   };
   const readJson = async (res: Response, secret = ""): Promise<unknown> => {
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       throw new ProviderAuthError(safeProviderError(text, secret), res.status === 404 ? 404 : 502);
     }
-    return res.json().catch(() => undefined);
+    return unwrap(await res.json().catch(() => undefined));
   };
   const one = async (res: Response): Promise<PtyInfo> => {
     const info = ptyInfo(await read(res));
@@ -183,7 +189,7 @@ export function opencodeExtension(opts: {
         );
       },
     },
-    get(path, query, directory, signal) {
+    async get(path, query, directory, signal) {
       if (!OPENCODE_EXTENSION_PATHS.has(path)) return Promise.resolve(new Response(null, { status: 404 }));
       const q = new URLSearchParams(query);
       // Where the read happens is strata's to choose (the session's directory,
@@ -202,12 +208,15 @@ export function opencodeExtension(opts: {
       const dir = directory || opts.directory;
       if (dir) q.set("directory", dir);
       const qs = q.toString();
-      return doFetch(`${base}${upstream}${qs ? `?${qs}` : ""}`, {
+      const res = await doFetch(`${base}${upstream}${qs ? `?${qs}` : ""}`, {
         headers,
         // the credentials are for this server only
         redirect: "error",
         signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(TIMEOUT_MS)]) : AbortSignal.timeout(TIMEOUT_MS),
       });
+      if (opts.apiVersion !== "v2" || !res.ok) return res;
+      const body = unwrap(await res.json().catch(() => undefined));
+      return Response.json(body, { status: res.status, statusText: res.statusText, headers: res.headers });
     },
   };
 }

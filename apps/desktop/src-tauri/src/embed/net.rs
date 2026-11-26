@@ -2,6 +2,8 @@ use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::time::Duration;
 
+use super::model::OpencodeApiVersion;
+
 pub fn free_port() -> std::io::Result<u16> {
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let port = listener.local_addr()?.port();
@@ -50,7 +52,12 @@ fn http_host(url: &str) -> Option<String> {
     Some(host.to_string())
 }
 
-pub fn health_ok(url: &str, username: &str, password: &str) -> bool {
+pub fn health_ok(
+    url: &str,
+    username: &str,
+    password: &str,
+    api_version: OpencodeApiVersion,
+) -> bool {
     let Some(host) = http_host(url) else {
         return false;
     };
@@ -73,8 +80,12 @@ pub fn health_ok(url: &str, username: &str, password: &str) -> bool {
         return false;
     }
     let credential = format!("{username}:{password}");
+    let path = match api_version {
+        OpencodeApiVersion::V1 => "/global/health",
+        OpencodeApiVersion::V2 => "/api/session?limit=1",
+    };
     let request = format!(
-        "GET /global/health HTTP/1.1\r\nHost: {host}\r\nAuthorization: Basic {}\r\nConnection: close\r\n\r\n",
+        "GET {path} HTTP/1.1\r\nHost: {host}\r\nAuthorization: Basic {}\r\nConnection: close\r\n\r\n",
         encode_base64_std(credential.as_bytes())
     );
     if stream.write_all(request.as_bytes()).is_err() {
@@ -88,7 +99,13 @@ pub fn health_ok(url: &str, username: &str, password: &str) -> bool {
     };
     let text = String::from_utf8_lossy(&buf[..n]);
     let status_line = text.lines().next().unwrap_or("");
-    status_line.contains(" 200 ")
+    if !status_line.contains(" 200 ") {
+        return false;
+    }
+    api_version == OpencodeApiVersion::V1
+        || text
+            .to_ascii_lowercase()
+            .contains("content-type: application/json")
 }
 
 #[cfg(test)]
@@ -110,6 +127,40 @@ mod tests {
 
     #[test]
     fn health_ok_is_false_on_a_closed_port() {
-        assert!(!health_ok("http://127.0.0.1:1", "opencode", "x"));
+        assert!(!health_ok(
+            "http://127.0.0.1:1",
+            "opencode",
+            "x",
+            OpencodeApiVersion::V1
+        ));
+    }
+
+    #[test]
+    fn v2_health_uses_the_session_api_and_rejects_the_web_app() {
+        for (content_type, expected) in [("application/json", true), ("text/html", false)] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let server = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0u8; 1024];
+                let n = stream.read(&mut request).unwrap();
+                let request = String::from_utf8_lossy(&request[..n]);
+                assert!(request.starts_with("GET /api/session?limit=1 HTTP/1.1\r\n"));
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]"
+                );
+                stream.write_all(response.as_bytes()).unwrap();
+            });
+            assert_eq!(
+                health_ok(
+                    &format!("http://127.0.0.1:{port}"),
+                    "opencode",
+                    "x",
+                    OpencodeApiVersion::V2
+                ),
+                expected
+            );
+            server.join().unwrap();
+        }
     }
 }

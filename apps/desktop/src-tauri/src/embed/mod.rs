@@ -11,7 +11,8 @@ mod supervisor;
 mod test_support;
 
 pub(crate) use model::{
-    resolve_mode, Attention, OpencodeMode, OpencodePlan, OpencodeRuntime, OpencodeState,
+    resolve_mode, Attention, OpencodeApiVersion, OpencodeMode, OpencodePlan, OpencodeRuntime,
+    OpencodeState,
 };
 pub(crate) use net::{health_ok, port_is_free};
 pub(crate) use output::{classify, AUTH_PROMPT, AUTH_REFUSED};
@@ -26,7 +27,7 @@ pub(crate) use process::{
 };
 pub(crate) use runtime::{detect_runtime, resolve_bin, write_runtime};
 pub(crate) use store::{
-    read_confirm_exit, read_mode, write_confirm_exit, write_desktop_bin, write_status,
-    write_status_with_generation,
+    read_api_version, read_confirm_exit, read_mode, write_confirm_exit, write_desktop_bin,
+    write_status, write_status_with_generation,
 };
 pub(crate) use supervisor::{supervise, Spawned};

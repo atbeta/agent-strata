@@ -4,6 +4,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import { editorCommand } from "./editor";
 import { checkPaths } from "./paths";
 import {
+  isOpencodeApiVersion,
   isOpencodeMode,
   readDesktopJson,
   readOpencodeStatus,
@@ -125,19 +126,27 @@ export async function desktopRoute(
   }
 
   if (path === "/desktop/opencode" && req.method === "PUT") {
-    const body = (await req.json().catch(() => null)) as { mode?: unknown } | null;
+    const body = (await req.json().catch(() => null)) as { mode?: unknown; apiVersion?: unknown } | null;
     const mode = body?.mode;
-    if (!isOpencodeMode(mode)) {
-      return Response.json({ error: "mode must be embed or external" }, { status: 400 });
+    const apiVersion = body?.apiVersion;
+    if (
+      (mode === undefined && apiVersion === undefined) ||
+      (mode !== undefined && !isOpencodeMode(mode)) ||
+      (apiVersion !== undefined && !isOpencodeApiVersion(apiVersion))
+    ) {
+      return Response.json({ error: "invalid OpenCode launch settings" }, { status: 400 });
     }
+    const current = readOpencodeStatus(deps.desktopDir);
+    const nextMode = mode ?? current.mode;
+    const nextApiVersion = apiVersion ?? current.apiVersion;
     const previous = readDesktopJson(join(deps.desktopDir, "desktop.json"));
     const next =
       previous && typeof previous === "object" && !Array.isArray(previous)
-        ? { ...(previous as Record<string, unknown>), opencode: mode }
-        : { opencode: mode };
+        ? { ...(previous as Record<string, unknown>), opencode: nextMode, opencodeApi: nextApiVersion }
+        : { opencode: nextMode, opencodeApi: nextApiVersion };
     mkdirSync(deps.desktopDir, { recursive: true });
     writeSecureJson(join(deps.desktopDir, "desktop.json"), next);
-    return Response.json({ mode, applied: "next-launch" });
+    return Response.json({ mode: nextMode, apiVersion: nextApiVersion, applied: "next-launch" });
   }
 
   /**
