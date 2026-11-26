@@ -25,5 +25,8 @@ pub(crate) use process::{
     write_pid_plain,
 };
 pub(crate) use runtime::{detect_runtime, resolve_bin, write_runtime};
-pub(crate) use store::{read_mode, write_desktop_bin, write_status, write_status_with_generation};
+pub(crate) use store::{
+    read_confirm_exit, read_mode, write_confirm_exit, write_desktop_bin, write_status,
+    write_status_with_generation,
+};
 pub(crate) use supervisor::{supervise, Spawned};

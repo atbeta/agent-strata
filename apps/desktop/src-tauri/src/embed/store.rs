@@ -134,8 +134,16 @@ pub fn read_desktop_bin(path: &Path) -> Option<PathBuf> {
     }
 }
 
-/// Preserve unrelated fields when changing the chosen binary.
-pub fn write_desktop_bin(path: &Path, bin: Option<&str>) -> std::io::Result<()> {
+/// Change one key of the shell's desktop.json while preserving the rest.
+///
+/// The file holds more than one concern — the opencode mode, the chosen
+/// binary, the shell's own preferences — so every writer goes through here:
+/// a write that rewrote only what it knew about would silently drop the keys
+/// the others set.
+fn update_desktop_file(
+    path: &Path,
+    update: impl FnOnce(&mut serde_json::Map<String, serde_json::Value>),
+) -> std::io::Result<()> {
     let mut value: serde_json::Value = std::fs::read_to_string(path)
         .ok()
         .and_then(|text| serde_json::from_str(&text).ok())
@@ -143,17 +151,7 @@ pub fn write_desktop_bin(path: &Path, bin: Option<&str>) -> std::io::Result<()> 
     if !value.is_object() {
         value = serde_json::json!({});
     }
-    {
-        let object = value.as_object_mut().expect("checked above");
-        match bin.map(str::trim).filter(|value| !value.is_empty()) {
-            Some(chosen) => {
-                object.insert("opencodeBin".into(), serde_json::json!(chosen));
-            }
-            None => {
-                object.remove("opencodeBin");
-            }
-        }
-    }
+    update(value.as_object_mut().expect("checked above"));
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -162,6 +160,44 @@ pub fn write_desktop_bin(path: &Path, bin: Option<&str>) -> std::io::Result<()> 
     std::fs::write(path, format!("{json}\n"))?;
     owner_only(path);
     Ok(())
+}
+
+/// Preserve unrelated fields when changing the chosen binary.
+pub fn write_desktop_bin(path: &Path, bin: Option<&str>) -> std::io::Result<()> {
+    update_desktop_file(path, |object| {
+        match bin.map(str::trim).filter(|value| !value.is_empty()) {
+            Some(chosen) => {
+                object.insert("opencodeBin".into(), serde_json::json!(chosen));
+            }
+            None => {
+                object.remove("opencodeBin");
+            }
+        }
+    })
+}
+
+/// Whether quitting the shell asks for confirmation first.
+///
+/// The shell, not the page, is what intercepts a close or quit request, so
+/// the answer has to be readable without the webview: this is read straight
+/// from the file at the moment the request arrives, never cached.
+pub fn read_confirm_exit(path: &Path) -> bool {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return false;
+    };
+    value
+        .get("confirmExit")
+        .and_then(|flag| flag.as_bool())
+        .unwrap_or(false)
+}
+
+pub fn write_confirm_exit(path: &Path, enabled: bool) -> std::io::Result<()> {
+    update_desktop_file(path, |object| {
+        object.insert("confirmExit".into(), serde_json::json!(enabled));
+    })
 }
 
 pub(crate) const PID_FILE_VERSION: u8 = 1;
@@ -236,6 +272,23 @@ mod tests {
         let value: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(&desktop).unwrap()).unwrap();
         assert_eq!(value["opencode"], "external");
+    }
+
+    #[test]
+    fn confirm_exit_round_trips_and_keeps_other_fields() {
+        let desktop = temp_path("desktop-confirm.json");
+        assert!(!read_confirm_exit(&desktop));
+
+        fs::write(&desktop, r#"{"opencode":"external","other":1}"#).unwrap();
+        write_confirm_exit(&desktop, true).unwrap();
+        assert!(read_confirm_exit(&desktop));
+        let value: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&desktop).unwrap()).unwrap();
+        assert_eq!(value["opencode"], "external");
+        assert_eq!(value["other"], 1);
+
+        write_confirm_exit(&desktop, false).unwrap();
+        assert!(!read_confirm_exit(&desktop));
     }
 
     #[test]

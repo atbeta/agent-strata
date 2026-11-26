@@ -1,4 +1,4 @@
-import { createSignal, Show } from "solid-js";
+import { createResource, createSignal, Show } from "solid-js";
 import { Switch } from "@/components/ui/switch";
 import {
   disableNotify,
@@ -7,6 +7,8 @@ import {
   type NotifyKind,
 } from "./notify";
 import { readThinkingOpen, saveThinkingOpen } from "./thinking";
+import { readConfirmQuit, saveConfirmQuit } from "./quit-confirm";
+import { inDesktopShell } from "./shell";
 import { fadeSignal } from "./errors";
 import { t } from "./i18n";
 import { Icon } from "./icons";
@@ -15,6 +17,9 @@ import { SoundSettings } from "./sound-settings";
 
 export function NotificationSettings() {
   const [thinkingOpen, setThinkingOpen] = createSignal(readThinkingOpen());
+  // The shell's file is the truth here, not the page: the toggle reads it back
+  // rather than trusting a copy the webview keeps.
+  const [confirmQuit, { mutate: setConfirmQuit }] = createResource(readConfirmQuit);
   const [notifyDone, setNotifyDone] = createSignal(readNotify("done"));
   const [notifyQuestion, setNotifyQuestion] = createSignal(readNotify("question"));
   const [notifyErr, setNotifyErr] = fadeSignal<{ kind: NotifyKind; text: string } | undefined>(undefined);
@@ -73,6 +78,20 @@ export function NotificationSettings() {
           </Row>
           {notifyRow("done", notifyDone)}
           {notifyRow("question", notifyQuestion)}
+          {/* Quitting is a shell affair — a browser tab has no close request
+              to intercept, so the row itself is desktop-only. */}
+          <Show when={inDesktopShell()}>
+            <Row label={t("settings.quitConfirm.title")} hint={t("settings.quitConfirm.hint")}>
+              <Switch
+                checked={confirmQuit() ?? false}
+                aria-label={t("settings.quitConfirm.title")}
+                onChange={(next) => {
+                  setConfirmQuit(next);
+                  void saveConfirmQuit(next);
+                }}
+              />
+            </Row>
+          </Show>
         </Card>
       </Group>
       <SoundSettings />

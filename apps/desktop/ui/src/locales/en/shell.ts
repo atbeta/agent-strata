@@ -535,6 +535,12 @@ export default {
     "Notifications are blocked. Desktop builds show no separate permission prompt; if no banner appears, allow this app in the system notification settings.",
   "settings.thinking.title": "Thinking",
   "settings.thinking.hint": "Whether a thought starts open. Each one can still be collapsed.",
+  "settings.quitConfirm.title": "Confirm before quitting",
+  "settings.quitConfirm.hint":
+    "Ask before the window closes or the app quits, so a slip cannot interrupt a turn the local engine is still running.",
+  "quit.confirm.title": "Quit the app?",
+  "quit.confirm.body": "A turn the local engine is still running stops with the app.",
+  "quit.confirm.confirm": "Quit",
   "settings.font.ui": "Interface font",
   "settings.font.code": "Code font",
   "settings.font.terminal": "Terminal font",

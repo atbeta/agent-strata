@@ -40,7 +40,7 @@ use embed::{
 
 use std::thread::JoinHandle;
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 struct Sidecars {
     shutdown: Arc<AtomicBool>,
@@ -1630,6 +1630,65 @@ fn set_opencode_bin(path: Option<String>) -> Result<embed::OpencodeRuntime, Stri
     Ok(runtime)
 }
 
+// Quit confirmation.
+//
+// Three roads lead out of the app, and they do not meet inside the runtime:
+//
+// - closing the window — the traffic lights, the Windows caption button,
+//   Alt+F4 — arrives as `WindowEvent::CloseRequested` and can be prevented;
+// - the last window finishing its close, or a programmatic `exit`, arrives
+//   as `RunEvent::ExitRequested` and can be prevented;
+// - Cmd+Q, the dock's Quit and the application menu on macOS reach
+//   `applicationWillTerminate` directly, and the process is gone before any
+//   of that fires (tauri#9198). The one point ahead of them is the menu:
+//   the shell installs its own application menu whose Quit item is a plain
+//   menu event, so the request lands here instead of in AppKit.
+//
+// All three are funnelled to the page, which asks the reader and answers
+// back through `confirm_quit`. The answer has to come back rather than be
+// given ahead of time: a quit the reader never saw is the thing the setting
+// exists to stop.
+//
+// The setting itself is read from desktop.json at the moment the request
+// arrives — never cached — because the menu event and the shell state can
+// otherwise disagree about a toggle the page flipped seconds ago.
+static QUIT_CONFIRMED: AtomicBool = AtomicBool::new(false);
+
+/// The menu item standing in for the application menu's Quit on macOS.
+const QUIT_MENU_ID: &str = "shell-quit";
+
+/// Whether the shell asks before quitting, straight from the shell's file.
+fn confirm_exit_on() -> bool {
+    embed::read_confirm_exit(&data_dir().join("desktop.json"))
+}
+
+/// Hand the quit decision to the page. The reader's answer comes back as the
+/// `confirm_quit` command; until then nothing has been prevented irrevocably,
+/// because the request that triggered this was already paused by its caller.
+fn ask_page_to_quit(app: &tauri::AppHandle) {
+    let _ = app.emit("shell-quit-requested", ());
+}
+
+#[tauri::command]
+fn read_confirm_exit() -> bool {
+    confirm_exit_on()
+}
+
+#[tauri::command]
+fn set_confirm_exit(enabled: bool) -> Result<(), String> {
+    embed::write_confirm_exit(&data_dir().join("desktop.json"), enabled)
+        .map_err(|e| format!("could not save the quit confirmation setting: {e}"))
+}
+
+/// The page's yes to the question `shell-quit-requested` asked. The flag is
+/// what lets this exit back through the same handlers unchallenged: they
+/// intercept requests the reader has not answered, and this one they have.
+#[tauri::command]
+fn confirm_quit(app: tauri::AppHandle) {
+    QUIT_CONFIRMED.store(true, Ordering::SeqCst);
+    app.exit(0);
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -1648,7 +1707,22 @@ fn main() {
             open_notification_settings,
             opencode_runtime,
             set_opencode_bin,
+            read_confirm_exit,
+            set_confirm_exit,
+            confirm_quit,
         ])
+        .on_menu_event(|app, event| {
+            // The stand-in Quit item is the only custom entry in the menu.
+            // With the setting off it is exactly the Quit it replaced; with it
+            // on, the decision belongs to the page like every other quit road.
+            if event.id().0 == QUIT_MENU_ID {
+                if confirm_exit_on() {
+                    ask_page_to_quit(app);
+                } else {
+                    app.exit(0);
+                }
+            }
+        })
         .setup(|app| {
             // macOS keeps the overlay title bar and traffic lights. Windows
             // drops the native caption so the webview's drag strip and caption
@@ -1664,6 +1738,37 @@ fn main() {
                     }
                 }
             }
+            // The synthesized application menu quits through AppKit, ahead of
+            // every event the runtime offers — see the note at QUIT_CONFIRMED.
+            // Replacing it is what puts Cmd+Q, the menu's Quit and the same
+            // accelerator on equal footing with the window's close button: the
+            // item is a menu event here, not a termination there. Everything
+            // else on the menu is the predefined set the synthesized one
+            // carried, so the trade is invisible outside the Quit row.
+            #[cfg(target_os = "macos")]
+            {
+                use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+                let quit_text = format!("Quit {}", brand::get().product_name);
+                let quit = MenuItem::with_id(app, QUIT_MENU_ID, quit_text, true, Some("CmdOrCtrl+Q"))?;
+                let app_menu = Submenu::with_items(
+                    app,
+                    brand::get().product_name,
+                    true,
+                    &[
+                        &PredefinedMenuItem::about(app, None, None)?,
+                        &PredefinedMenuItem::separator(app)?,
+                        &PredefinedMenuItem::services(app, None)?,
+                        &PredefinedMenuItem::separator(app)?,
+                        &PredefinedMenuItem::hide(app, None)?,
+                        &PredefinedMenuItem::hide_others(app, None)?,
+                        &PredefinedMenuItem::show_all(app, None)?,
+                        &PredefinedMenuItem::separator(app)?,
+                        &quit,
+                    ],
+                )?;
+                app.set_menu(Menu::with_items(app, &[&app_menu])?)?;
+            }
+
             app.manage(Sidecars::start());
 
             // The page shows this window itself, after two frames, which is
@@ -1690,6 +1795,29 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("error while building agent-strata")
         .run(|app, event| match event {
+            // The window's own close — traffic lights, the caption button,
+            // Alt+F4 — is the one quit road Windows and Linux have, and one of
+            // two on macOS. Preventing it keeps the window exactly as it was
+            // while the page asks; a cancel there is genuinely a cancel.
+            tauri::RunEvent::WindowEvent {
+                event: tauri::WindowEvent::CloseRequested { api, .. },
+                ..
+            } => {
+                if !QUIT_CONFIRMED.load(Ordering::SeqCst) && confirm_exit_on() {
+                    api.prevent_close();
+                    ask_page_to_quit(app);
+                }
+            }
+            // Programmatic exits and the last-window-closed cascade. The
+            // cascade only reaches here when the close itself was already
+            // allowed, so this arm is mostly the shell agreeing with itself:
+            // `confirm_quit` re-enters through it, which is what the flag is for.
+            tauri::RunEvent::ExitRequested { api, .. } => {
+                if !QUIT_CONFIRMED.load(Ordering::SeqCst) && confirm_exit_on() {
+                    api.prevent_exit();
+                    ask_page_to_quit(app);
+                }
+            }
             tauri::RunEvent::Exit => {
                 if let Some(sidecars) = app.try_state::<Sidecars>() {
                     sidecars.shutdown();

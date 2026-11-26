@@ -45,6 +45,8 @@ import { playSound, soundForEvent } from "./sound";
 import { StartupGate } from "./startup-gate";
 import { useStartup } from "./use-startup";
 import { ImageViewerHost } from "./image-viewer";
+import { ConfirmDialog } from "./components/ui/confirm-dialog";
+import { confirmQuit, installQuitListener } from "./quit-confirm";
 import {
   changesSessionList,
   isDevEvent,
@@ -277,9 +279,20 @@ export function App() {
     chordHeld: () => chordHeld,
   });
 
+  /** Set when the shell has paused a quit for the reader to answer. The
+   *  signal is the dedupe as well: a second Cmd+Q while the question is up
+   *  sets the same true again, and nothing doubles. */
+  const [quitAsked, setQuitAsked] = createSignal(false);
+
   onMount(() => {
     const onHash = () => setRoute(parseHash());
     window.addEventListener("hashchange", onHash);
+    // The shell emits when a quit needs the reader's yes; outside the desktop
+    // shell this installs nothing and the dialog never opens.
+    let stopQuitListener: (() => void) | undefined;
+    void installQuitListener(() => setQuitAsked(true)).then((stop) => {
+      stopQuitListener = stop;
+    });
     // Before anything else: a link clicked in the first frame must not be the
     // one that empties the window.
     const removeLinkHandler = installExternalLinkHandler();
@@ -597,6 +610,7 @@ export function App() {
       clearInterval(clockTimer);
       clearInterval(syncTimer);
       uninstallProgress();
+      stopQuitListener?.();
       clearTimeout(timer);
       conns.clearSyncGrace();
       window.removeEventListener("focus", onFocus);
@@ -1028,6 +1042,18 @@ export function App() {
       <ImageViewerHost />
       </>
       </Show>
+      {/* Outside the boot gate: a quit attempted on the startup screen is
+          still a quit, and a question that waits for boot.ready would never
+          reach the reader of a stuck launch. */}
+      <ConfirmDialog
+        open={quitAsked()}
+        title={t("quit.confirm.title")}
+        description={t("quit.confirm.body")}
+        confirmLabel={t("quit.confirm.confirm")}
+        cancelLabel={t("confirm.cancel")}
+        onConfirm={() => void confirmQuit()}
+        onCancel={() => setQuitAsked(false)}
+      />
       </div>
     </div>
   );
