@@ -76,7 +76,14 @@ export function SessionDetail(props: {
   connections?: Connection[];
 }) {
   const panes = usePaneActions(props);
-  const [maxSeq, { refetch: refetchSeq }] = createResource(() => props.id, readHead);
+  // The probe degrades to undefined, never an errored resource: offline means
+  // the head is unknown, which is what undefined already says before the first
+  // load. A rejecting fetcher is worse than that — the first reactive read of
+  // an errored resource rethrows inside the resource's own settle, and that
+  // throw escapes as an unhandled rejection nobody can catch.
+  const [maxSeq, { refetch: refetchSeq }] = createResource(() => props.id, (id) =>
+    readHead(id).catch(() => undefined),
+  );
   const {
     replayPos,
     traceOn,
