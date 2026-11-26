@@ -1,6 +1,7 @@
 import { createEffect, createMemo, createResource, onCleanup } from "solid-js";
 import { listTerminals, streamUrlFor } from "./api";
 import { terminalDetail } from "./terminal-summary";
+import { settled } from "./resource";
 
 export type Terminals = ReturnType<typeof useTerminals>;
 
@@ -18,7 +19,20 @@ export function useTerminals(sessionId: () => string, enabled: () => boolean = (
     () => (enabled() ? sessionId() : undefined),
     (id) => listTerminals(id).then((listed) => listed.sessions),
   );
-  const running = createMemo(() => (sessions() ?? []).filter((row) => row.status === "running"));
+  /**
+   * Read through `settled`, never bare.
+   *
+   * The list is a `/plugins/terminal/...` call, and that route answers 404
+   * `no such plugin` whenever the terminal plugin is not running — disabled
+   * here, absent on a remote backend, or still starting. A bare read of an
+   * errored resource throws, and the throw lands in the component that owns
+   * this memo: the whole session page unmounts into "无法连接到本地服务",
+   * which is exactly the wrong thing to say about a terminal list. No
+   * terminals is the honest answer, and the pane hides itself.
+   */
+  const running = createMemo(() =>
+    (settled(sessions) ?? []).filter((row) => row.status === "running"),
+  );
   const count = createMemo(() => running().length);
   const details = createMemo(() => running().map(terminalDetail));
 

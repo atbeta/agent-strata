@@ -1,6 +1,7 @@
 import { createEffect, createMemo, createResource, onCleanup } from "solid-js";
 import { listSchedules, type ScheduleCandidate, type ScheduleRow } from "./api";
 import { t } from "./i18n";
+import { settled } from "./resource";
 import { scheduleFacts } from "./schedule-format";
 import { nextScheduleRow, scheduleRowsForSession } from "./schedule-summary";
 
@@ -11,10 +12,15 @@ export function useSchedules(sessionId: () => string, enabled: () => boolean = (
     () => (enabled() ? sessionId() : undefined),
     (id) => listSchedules(id),
   );
-  const rows = createMemo<ScheduleRow[]>(() => data()?.schedules ?? []);
-  const candidates = createMemo<ScheduleCandidate[]>(() => data()?.candidates ?? []);
+  // Read through `settled`: the route is `/plugins/schedule/...`, which answers
+  // 404 when the schedule plugin is not running. A bare read throws, and the
+  // throw unmounts the session page into "无法连接到本地服务" over what is
+  // really "this session has no schedules". `loadState` below still reports the
+  // failure to the panel that wants to show it.
+  const rows = createMemo<ScheduleRow[]>(() => settled(data)?.schedules ?? []);
+  const candidates = createMemo<ScheduleCandidate[]>(() => settled(data)?.candidates ?? []);
   const loadState = (): "loading" | "ready" | "error" => {
-    if (data() !== undefined) return "ready";
+    if (settled(data) !== undefined) return "ready";
     if (data.error) return "error";
     return "loading";
   };
