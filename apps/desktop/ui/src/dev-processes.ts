@@ -1,6 +1,7 @@
 import { createEffect, createMemo, createResource, onCleanup } from "solid-js";
 import { deleteDevProcess, listDevProcesses, stopDevProcess } from "./api";
 import { devRunning } from "./dev-state";
+import { settled } from "./resource";
 
 export type DevProcesses = ReturnType<typeof useDevProcesses>;
 
@@ -21,7 +22,10 @@ export function useDevProcesses(sessionId: () => string, enabled: () => boolean 
     () => (enabled() ? sessionId() : undefined),
     (id) => listDevProcesses(id).then((r) => r.processes),
   );
-  const running = createMemo(() => (processes() ?? []).filter(devRunning));
+  // Read through settled: the route answers 404 when the dev plugin is not
+  // running, and a bare read of an errored resource throws. The throw leaves
+  // the component that owns this memo, and the session page with it.
+  const running = createMemo(() => (settled(processes) ?? []).filter(devRunning));
   const count = createMemo(() => running().length);
   const commands = createMemo(() => running().map((p) => p.command));
   const stop = async (id: string) => {

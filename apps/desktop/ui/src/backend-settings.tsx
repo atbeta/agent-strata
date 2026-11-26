@@ -66,9 +66,14 @@ function TerminalShellPicker(props: { label: string; value: string; onChange: (n
     async (sessionId) => (sessionId ? ((await listTerminals(sessionId)).shells ?? []) : []),
   );
 
-  const available = () => shellChoices(shells() ?? []);
+  // settled, never a bare read: the terminal route answers 404 when the
+  // terminal plugin is not running, and reading an errored resource throws.
+  const available = () => shellChoices(settled(shells) ?? []);
   const chosen = () => (props.value === "" ? t("terminal.shellBackend") : props.value);
-  const missing = () => props.value !== "" && shells() !== undefined && !isShellAvailable(props.value, shells()!);
+  const missing = () =>
+    props.value !== "" &&
+    settled(shells) !== undefined &&
+    !isShellAvailable(props.value, settled(shells)!);
 
   return (
     <div class="w-full">

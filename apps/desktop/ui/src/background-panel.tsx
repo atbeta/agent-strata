@@ -9,6 +9,7 @@ import { fmtLatency } from "./transcript-format";
 import { Button } from "@/components/ui/button";
 import { RowButton } from "@/components/ui/row-button";
 import { Tip } from "./tip";
+import { settled } from "./resource";
 
 /** How often the running time and the open log refresh. */
 const TICK_MS = 1_000;
@@ -147,7 +148,9 @@ export function BackgroundPanel(props: {
   const [openId, setOpenId] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal<string | null>(null);
   const [err, setErr] = fadeSignal("");
-  const rows = stableDevRows(() => props.processes() ?? []);
+  // settled, never a bare read: this resource answers 404 when the dev plugin
+  // is not running, and reading an errored resource throws.
+  const rows = stableDevRows(() => settled(props.processes) ?? []);
 
   createEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), TICK_MS);
@@ -184,7 +187,7 @@ export function BackgroundPanel(props: {
         <p class="shrink-0 border-b border-border px-3 py-1.5 text-xs text-destructive">{err()}</p>
       </Show>
       <Show
-        when={props.processes()}
+        when={settled(props.processes)}
         fallback={
           <Show
             when={props.processes.error}
@@ -207,7 +210,7 @@ export function BackgroundPanel(props: {
           </div>
         </Show>
         <Show
-          when={(props.processes() ?? []).length > 0}
+          when={(settled(props.processes) ?? []).length > 0}
           fallback={
             <EmptyState
               icon="terminal"
