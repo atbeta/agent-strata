@@ -539,7 +539,7 @@ export default {
   "settings.quitConfirm.hint":
     "Ask before the window closes or the app quits, so a slip cannot interrupt a turn the local engine is still running.",
   "quit.confirm.title": "Quit the app?",
-  "quit.confirm.body": "A turn the local engine is still running stops with the app.",
+  "quit.confirm.body": "Any session still in progress will stop, and background tasks will be ended as well.",
   "quit.confirm.confirm": "Quit",
   "settings.font.ui": "Interface font",
   "settings.font.code": "Code font",

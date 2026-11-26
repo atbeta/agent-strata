@@ -40,19 +40,19 @@ export function ConfirmDialog(props: {
         >
           <DialogPrimitive.Content
             aria-label={props.title}
-            class="dialog-pop surface-dialog w-[22rem] max-w-full rounded-xl bg-popover p-4 text-popover-foreground"
+            class="dialog-pop surface-dialog w-[26rem] max-w-full rounded-xl bg-popover p-5 text-popover-foreground"
             onOpenAutoFocus={(event) => {
               event.preventDefault();
               cancelEl?.focus();
             }}
           >
-            <DialogPrimitive.Title class="text-sm font-semibold text-foreground">
+            <DialogPrimitive.Title class="text-base font-semibold text-foreground">
               {props.title}
             </DialogPrimitive.Title>
-            <DialogPrimitive.Description class="mt-1.5 text-xs leading-5 text-muted-foreground">
+            <DialogPrimitive.Description class="mt-2 text-sm leading-6 text-muted-foreground">
               {props.description}
             </DialogPrimitive.Description>
-            <div class="mt-4 flex justify-end gap-2">
+            <div class="mt-5 flex justify-end gap-2">
               <Button
                 ref={(el: HTMLButtonElement) => {
                   cancelEl = el;
