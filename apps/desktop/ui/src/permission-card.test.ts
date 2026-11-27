@@ -100,6 +100,15 @@ describe("permission card body", () => {
     });
   });
 
+  test("a v2 shell ask shows the commands instead of a collapsed array", () => {
+    expect(
+      permissionView({
+        tool: "shell",
+        input: { patterns: ["ls -1t ~", "head -40"] },
+      }),
+    ).toEqual({ kind: "command", command: "ls -1t ~\nhead -40" });
+  });
+
   test("anything else stays raw json", () => {
     expect(permissionView({ tool: "task", input: { description: "look" } })).toEqual({ kind: "json" });
   });

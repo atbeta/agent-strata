@@ -241,7 +241,36 @@ function latestUserMessageID(pendingUsers: Map<string, Part>, sessionID: string)
   return messageID;
 }
 
-function normalizeV2Event(raw: unknown, pendingUsers: Map<string, Part>): Event | undefined {
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string");
+}
+
+/**
+ * A v2 permission row, in the shape the v1 mapper already understands.
+ *
+ * The live event is `permission.v2.asked`: `action` is the tool, `resources`
+ * are the command lines, and the call id sits on `source.id` rather than
+ * `tool.callID`. A list row has the same shape and no `tool`.
+ */
+function legacyPermission(raw: Obj): Obj {
+  const source = object(raw.source);
+  const tool = object(raw.tool);
+  const messageID = text(tool.messageID, text(source.messageID));
+  const callID = text(tool.callID, text(source.callID, text(source.id)));
+  const patterns = Array.isArray(raw.patterns) ? stringList(raw.patterns) : stringList(raw.resources);
+  const always = Array.isArray(raw.always) ? stringList(raw.always) : stringList(raw.save);
+  return {
+    ...raw,
+    permission: text(raw.permission, text(raw.action)),
+    patterns,
+    metadata: object(raw.metadata),
+    always,
+    ...(messageID || callID ? { tool: { messageID, callID } } : {}),
+  };
+}
+
+export function normalizeV2Event(raw: unknown, pendingUsers: Map<string, Part>): Event | undefined {
   if (!raw || typeof raw !== "object") return undefined;
   let envelope = raw as Obj;
   if (envelope.payload && typeof envelope.payload === "object") envelope = object(envelope.payload);
@@ -357,13 +386,21 @@ function normalizeV2Event(raw: unknown, pendingUsers: Map<string, Part>): Event 
       },
     } as Event;
   }
-  if (type === "permission.asked") {
+  if (type === "permission.asked" || type === "permission.v2.asked") {
     return {
       ...base,
+      type: "permission.asked",
+      properties: legacyPermission(data),
+    } as Event;
+  }
+  if (type === "permission.replied" || type === "permission.v2.replied") {
+    return {
+      ...base,
+      type: "permission.replied",
       properties: {
-        ...data,
-        permission: text(data.permission, text(data.action)),
-        patterns: Array.isArray(data.patterns) ? data.patterns : Array.isArray(data.resources) ? data.resources : [],
+        sessionID: text(data.sessionID, sessionID),
+        requestID: text(data.requestID, text(data.id)),
+        reply: text(data.reply, text(data.decision)),
       },
     } as Event;
   }
@@ -467,14 +504,7 @@ export function createVersionedOpencodeClient(
     }
     return {
       ...result,
-      data: rows.map((raw) => {
-        const row = object(raw);
-        return {
-          ...row,
-          permission: text(row.permission, text(row.action)),
-          patterns: row.patterns ?? row.resources ?? [],
-        };
-      }),
+      data: rows.map((raw) => legacyPermission(object(raw))),
     };
   };
   const listQuestions = async (directory?: string) => {
@@ -805,7 +835,15 @@ export function createVersionedOpencodeClient(
       list: (options: { directory?: string }) => listPermissions(options.directory),
       reply: async (options: { requestID: string; reply: "once" | "always" | "reject"; message?: string; directory?: string }) => {
         const sessionID = await sessionIDFor(options.requestID, options.directory, false);
-        const result = await client.v2.session.permission.reply({ ...options, sessionID });
+        // The SDK still posts `{ reply }`. This server requires `{ decision }`
+        // and answers 204 with an empty body, which is a successful reply.
+        const result = await request(
+          `/api/session/${encodeURIComponent(sessionID)}/permission/${encodeURIComponent(options.requestID)}/reply`,
+          {
+            method: "POST",
+            body: { decision: options.reply, ...(options.message ? { message: options.message } : {}) },
+          },
+        );
         return { ...result, data: result.error ? undefined : true };
       },
     },

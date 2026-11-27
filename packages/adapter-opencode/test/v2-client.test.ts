@@ -3,7 +3,7 @@ import { openStore } from "@agent-strata/store";
 import { connectOpencode } from "../src/index";
 import { OpencodeMapper } from "../src/map";
 import { snapshotEvents } from "../src/mapping/snapshot";
-import { createVersionedOpencodeClient } from "../src/v2-client";
+import { createVersionedOpencodeClient, normalizeV2Event } from "../src/v2-client";
 
 const info = {
   id: "ses_v2",
@@ -288,5 +288,82 @@ describe("OpenCode client versions", () => {
       conn.stop();
       store.close();
     }
+  });
+
+  test("a v2 permission reply posts decision and a 204 counts as answered", async () => {
+    const calls: { path: string; method: string; body?: unknown }[] = [];
+    const client = createVersionedOpencodeClient({
+      baseUrl: "http://fake",
+      apiVersion: "v2",
+      fetch: (async (input: Request | URL | string) => {
+        const req = requestOf(input);
+        const path = new URL(req.url).pathname;
+        const body = req.method === "POST" ? ((await req.json()) as unknown) : undefined;
+        calls.push({ path, method: req.method, body });
+        if (path === "/api/permission/request") {
+          return Response.json({
+            data: [
+              {
+                id: "per_1",
+                sessionID: "ses_1",
+                action: "shell",
+                resources: ["ls", "head -40"],
+                source: { type: "tool", messageID: "msg_1", id: "call_1" },
+              },
+            ],
+          });
+        }
+        if (path === "/api/session/ses_1/permission/per_1/reply") return new Response(null, { status: 204 });
+        return new Response("not found", { status: 404 });
+      }) as typeof fetch,
+    });
+    const listed = await client.permission.list({ directory: "/repo" });
+    expect(listed.data?.[0]).toMatchObject({
+      permission: "shell",
+      patterns: ["ls", "head -40"],
+      tool: { messageID: "msg_1", callID: "call_1" },
+    });
+    const replied = await client.permission.reply({ requestID: "per_1", reply: "once", directory: "/repo" });
+    expect(replied.data).toBe(true);
+    expect(replied.error).toBeUndefined();
+    const post = calls.find((call) => call.path.endsWith("/reply"));
+    expect(post?.method).toBe("POST");
+    expect(post?.body).toEqual({ decision: "once" });
+  });
+});
+
+describe("v2 permission events", () => {
+  test("permission.v2.asked becomes a shell permission with the call id", () => {
+    const event = normalizeV2Event(
+      {
+        type: "permission.v2.asked",
+        properties: {
+          id: "per_1",
+          sessionID: "ses_1",
+          action: "shell",
+          resources: ["ls", "head -40"],
+          source: { type: "tool", messageID: "msg_1", id: "call_1" },
+        },
+      },
+      new Map(),
+    );
+    expect(event?.type).toBe("permission.asked");
+    expect(event?.properties).toMatchObject({
+      permission: "shell",
+      patterns: ["ls", "head -40"],
+      tool: { messageID: "msg_1", callID: "call_1" },
+    });
+  });
+
+  test("permission.v2.replied carries decision as the reply", () => {
+    const event = normalizeV2Event(
+      {
+        type: "permission.v2.replied",
+        properties: { sessionID: "ses_1", requestID: "per_1", decision: "reject" },
+      },
+      new Map(),
+    );
+    expect(event?.type).toBe("permission.replied");
+    expect(event?.properties).toMatchObject({ requestID: "per_1", reply: "reject" });
   });
 });

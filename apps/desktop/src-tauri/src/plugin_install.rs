@@ -8,10 +8,11 @@
 // the plugin is also named through `OPENCODE_CONFIG_CONTENT`, which covers a
 // config directory that is not writable.
 //
-// One file, and it stays one file: the shim asks the service which tools
-// exist. A capability added to the service appears here without this module
-// changing, which is the whole reason it is a shim rather than one installed
-// plugin per capability.
+// The shim asks the service which tools exist. A capability added to the
+// service appears here without this module changing, which is the whole reason
+// it is a shim rather than one installed plugin per capability. v1 and v2 need
+// different export shapes, so a v2 server also gets `strata-shim-v2.ts`; a v1
+// server has that file removed.
 //
 // Why a file rather than an inline spec: OpenCode resolves plugin specs
 // relative to the config file that declared them, and a `file://` URL is the
@@ -27,6 +28,11 @@ use std::path::{Path, PathBuf};
 /// not a runtime one, which is the right place for it to fail.
 pub const STRATA_SHIM: &str = include_str!("../../../../plugins/strata-shim.ts");
 
+/// The OpenCode 2 shim. A v2 server rejects the function export above; this
+/// file is an `{ id, setup }` object. It is written only for a v2 server and
+/// removed again for v1, because both files share one plugin directory.
+pub const STRATA_SHIM_V2: &str = include_str!("../../../../plugins/strata-shim-v2.ts");
+
 /// What the shim is called on disk.
 ///
 /// Kept stable: an installer upgrade rewrites this file in place, and a rename
@@ -34,6 +40,9 @@ pub const STRATA_SHIM: &str = include_str!("../../../../plugins/strata-shim.ts")
 /// every tool registered twice, and the stale copy pointing at routes that may
 /// no longer exist.
 const SHIM_FILE: &str = "strata-shim.ts";
+
+/// The v2 variant, beside the v1 file. A rename would leave the old copy loaded.
+const SHIM_V2_FILE: &str = "strata-shim-v2.ts";
 
 /// Plugins an earlier version installed and this one must remove.
 ///
@@ -90,8 +99,8 @@ pub fn handshake_path(config_dir: &Path) -> PathBuf {
     config_dir.join("strata-service.json")
 }
 
-/// Install the plugin at `dir`, returning the file written.
-pub fn install_plugin(dir: &Path) -> std::io::Result<PathBuf> {
+/// Write the v1 shim and drop plugins this build no longer installs.
+fn install_shared(dir: &Path) -> std::io::Result<PathBuf> {
     let folder = dir.join("plugin");
     std::fs::create_dir_all(&folder)?;
     let path = folder.join(SHIM_FILE);
@@ -105,6 +114,25 @@ pub fn install_plugin(dir: &Path) -> std::io::Result<PathBuf> {
     for retired in RETIRED_HANDSHAKES {
         let _ = std::fs::remove_file(dir.join(retired));
     }
+    Ok(path)
+}
+
+/// Install the v1 plugin at `dir`, returning the file written.
+///
+/// A v2 shim left from a previous API selection is removed: a v1 server would
+/// load every file in the directory, and an object export is not a v1 plugin.
+pub fn install_plugin(dir: &Path) -> std::io::Result<PathBuf> {
+    let path = install_shared(dir)?;
+    let _ = std::fs::remove_file(dir.join("plugin").join(SHIM_V2_FILE));
+    Ok(path)
+}
+
+/// Install both shims. The v2 server ignores the v1 file's failed load and
+/// runs this one. The returned path is the v2 file.
+pub fn install_v2_plugin(dir: &Path) -> std::io::Result<PathBuf> {
+    let _ = install_shared(dir)?;
+    let path = dir.join("plugin").join(SHIM_V2_FILE);
+    std::fs::write(&path, STRATA_SHIM_V2)?;
     Ok(path)
 }
 
@@ -201,6 +229,40 @@ mod tests {
             Path::new("/home/u/.config/opencode/strata-service.json")
         );
         assert!(STRATA_SHIM.contains("strata-service.json"));
+    }
+
+    #[test]
+    fn the_v2_shim_is_one_object_export_with_no_imports() {
+        assert!(STRATA_SHIM_V2.contains("id: \"strata\""));
+        assert!(STRATA_SHIM_V2.contains("async setup"));
+        assert!(STRATA_SHIM_V2.contains("STRATA_SERVICE_URL"));
+        assert!(STRATA_SHIM_V2.contains("/plugins/tools"));
+        assert!(STRATA_SHIM_V2.contains("/hooks/before-tool"));
+        assert!(STRATA_SHIM_V2.contains("/hooks/system-prompt"));
+        assert!(STRATA_SHIM_V2.contains("execute.before"));
+        assert!(!STRATA_SHIM_V2.contains("Bun.spawn"));
+        let exports = STRATA_SHIM_V2
+            .lines()
+            .filter(|line| line.starts_with("export "))
+            .count();
+        assert_eq!(exports, 1);
+        assert!(!STRATA_SHIM_V2.contains("from \""));
+        assert!(!STRATA_SHIM_V2.contains("from '"));
+    }
+
+    #[test]
+    fn v2_install_writes_the_variant_and_v1_install_removes_it() {
+        let dir = std::env::temp_dir().join(format!("strata-plugin-v2-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let v2 = install_v2_plugin(&dir).unwrap();
+        assert_eq!(v2.file_name().unwrap(), SHIM_V2_FILE);
+        assert_eq!(std::fs::read_to_string(&v2).unwrap(), STRATA_SHIM_V2);
+        assert!(dir.join("plugin").join(SHIM_FILE).is_file());
+
+        let v1 = install_plugin(&dir).unwrap();
+        assert!(v1.is_file());
+        assert!(!v2.exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

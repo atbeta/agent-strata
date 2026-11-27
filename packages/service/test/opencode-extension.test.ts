@@ -89,4 +89,47 @@ describe("opencode extension", () => {
     expect(OPENCODE_EXTENSION_PATHS.has("/config")).toBe(false);
     expect(OPENCODE_EXTENSION_PATHS.has("/command")).toBe(true);
   });
+
+  test("v2 file routes use the fs api and the shapes the file browser reads", async () => {
+    const hits: string[] = [];
+    const ext = opencodeExtension({
+      baseUrl: "http://fake",
+      apiVersion: "v2",
+      directory: "/repo",
+      fetch: (async (input: Request | URL | string) => {
+        const url = new URL(input instanceof Request ? input.url : String(input));
+        hits.push(`${url.pathname}${url.search}`);
+        if (url.pathname === "/api/fs/list") {
+          return Response.json({
+            location: { directory: "/repo" },
+            data: [
+              { path: "src/", type: "directory" },
+              { path: "readme.md", type: "file" },
+            ],
+          });
+        }
+        if (url.pathname === "/api/fs/read/readme.md") {
+          return new Response("# hi\n", { headers: { "content-type": "text/markdown" } });
+        }
+        if (url.pathname === "/api/fs/find") {
+          return Response.json({ location: { directory: "/repo" }, data: [{ path: "readme.md", type: "file" }] });
+        }
+        return new Response("no", { status: 404 });
+      }) as typeof fetch,
+    });
+    const listed = await ext.get("/file", new URLSearchParams({ path: "" }), "/repo");
+    expect(await listed.json()).toEqual([
+      { name: "src", path: "src", absolute: "/repo/src", type: "directory", ignored: false },
+      { name: "readme.md", path: "readme.md", absolute: "/repo/readme.md", type: "file", ignored: false },
+    ]);
+    expect(hits[0]).toContain("/api/fs/list");
+    expect(decodeURIComponent(hits[0]!)).toContain("location[directory]=/repo");
+    const body = await ext.get("/file/content", new URLSearchParams({ path: "readme.md" }), "/repo");
+    expect(await body.json()).toEqual({ type: "text", content: "# hi\n", mimeType: "text/markdown" });
+    const found = await ext.get("/find/file", new URLSearchParams({ query: "readme", limit: "20" }), "/repo");
+    expect(await found.json()).toEqual(["readme.md"]);
+    const blocked = await ext.get("/file/content", new URLSearchParams({ path: "../secrets" }), "/repo");
+    expect(blocked.status).toBe(404);
+    expect(hits.some((hit) => hit.includes("secrets"))).toBe(false);
+  });
 });

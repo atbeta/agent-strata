@@ -65,4 +65,21 @@ describe("OpencodeMapper", () => {
     expect(res.data).toMatchObject({ decision: "deny", by: "user", scope: "once" });
   });
 
+  test("a v2 shell permission shows the commands and keeps the call id", () => {
+    const m = new OpencodeMapper();
+    m.handle(sessionCreated());
+    const asked = m.handle({
+      id: "pa-shell",
+      type: "permission.asked",
+      properties: {
+        id: "perm-shell", sessionID: sid, permission: "shell",
+        patterns: ["ls -1t ~", "head -40"], metadata: {}, always: [],
+        tool: { messageID: "a1", callID: "call-shell" },
+      },
+    } as unknown as Event);
+    const req = asked.find((e) => e.type === "permission.requested")!;
+    expect(req.data).toMatchObject({ call_id: "call-shell", tool: "shell" });
+    expect(req.data.input.command).toBe("ls -1t ~\nhead -40");
+  });
+
 });

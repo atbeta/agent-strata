@@ -719,6 +719,26 @@ export function startService(opts: ServiceOpts = {}): RunningService {
         // only complete once the plugins have finished starting — probe too
         // early and an empty set reads every backend as incapable.
         await pluginsReady;
+        if (ext.apiVersion === "v2") {
+          // v2 has no tool-id list. The plugin catalogue says whether our
+          // shim loaded: a failed v1-shaped file in the same directory does
+          // not count, and a missing entry is "not capable", not "unknown".
+          const res = await ext.get("/plugin", new URLSearchParams(), driver.directory);
+          if (!res.ok) return;
+          const body = (await res.json()) as unknown;
+          if (!Array.isArray(body)) return;
+          pluginProbes.set(
+            driver.id,
+            body.some((row) => {
+              if (!row || typeof row !== "object") return false;
+              const item = row as { id?: unknown; source?: { path?: unknown }; state?: { status?: unknown } };
+              const path = typeof item.source?.path === "string" ? item.source.path : "";
+              const ours = item.id === "strata" || path.includes("strata-shim-v2");
+              return ours && item.state?.status === "active";
+            }),
+          );
+          return;
+        }
         const res = await ext.get("/experimental/tool/ids", new URLSearchParams(), driver.directory);
         if (!res.ok) return;
         const ids = (await res.json()) as unknown;
@@ -851,7 +871,7 @@ export function startService(opts: ServiceOpts = {}): RunningService {
     if (!generation) return;
     const endpoint = opts.autoConnect ?? status.url;
     const current = sessionOrigin(
-      { backend: "opencode", placement: "embed", baseUrl: endpoint },
+      { backend: "opencode", placement: "embed", baseUrl: endpoint, apiVersion: status.apiVersion },
       generation,
     );
     // The opencode servers that are alive right now.

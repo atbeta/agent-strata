@@ -33,9 +33,10 @@ use std::time::{Duration, Instant};
 use embed::{
     child_env, cleanup_stale_opencode, cleanup_stale_service, command_for, detect_runtime,
     health_ok, plan_with_port, previous_port, random_password, read_api_version, read_mode,
-    reap_opencode_on_port, resolve_bin, resolve_mode, serve_args, service_env, supervise, write_pid,
-    write_pid_plain, write_runtime, write_status, write_status_with_generation, Attention,
-    OpencodeMode, OpencodePlan, OpencodeState, Spawned, AUTH_PROMPT, AUTH_REFUSED,
+    reap_opencode_on_port, resolve_bin, resolve_mode, serve_args, service_env, supervise,
+    write_pid, write_pid_plain, write_runtime, write_status, write_status_with_generation,
+    Attention, OpencodeApiVersion, OpencodeMode, OpencodePlan, OpencodeState, Spawned, AUTH_PROMPT,
+    AUTH_REFUSED,
 };
 
 use std::thread::JoinHandle;
@@ -782,7 +783,20 @@ fn spawn_opencode_supervisor(
                     // that is not writable from taking the tools away from the
                     // server we started.
                     if let Some(dir) = plugin_config_dir.clone() {
-                        if let Ok(plugin) = plugin_install::install_plugin(&dir) {
+                        // v2 wants the plugin path to be the directory. v1
+                        // wants the file. The v2 file is removed again when
+                        // this server is v1, so a downgrade does not leave it
+                        // loaded.
+                        let installed = if api_version == OpencodeApiVersion::V2 {
+                            plugin_install::install_v2_plugin(&dir).map(|path| {
+                                path.parent()
+                                    .map(|folder| folder.to_path_buf())
+                                    .unwrap_or(path)
+                            })
+                        } else {
+                            plugin_install::install_plugin(&dir)
+                        };
+                        if let Ok(plugin) = installed {
                             owned.push((
                                 "OPENCODE_CONFIG_CONTENT".into(),
                                 plugin_install::config_content(&plugin),
@@ -1101,8 +1115,14 @@ impl Sidecars {
         // themselves gets it too. Installing it only in the embed branch was the
         // bug — the external server never saw the tools, so the model kept
         // reaching for `Start-Process`.
+        let api_version = read_api_version(&data.join("desktop.json"));
         if let Some(dir) = plugin_install::opencode_config_dir() {
-            match plugin_install::install_plugin(&dir) {
+            let installed = if api_version == OpencodeApiVersion::V2 {
+                plugin_install::install_v2_plugin(&dir)
+            } else {
+                plugin_install::install_plugin(&dir)
+            };
+            match installed {
                 Ok(path) => {
                     log_note(
                         &log,

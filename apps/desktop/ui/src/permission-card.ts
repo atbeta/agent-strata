@@ -1,6 +1,6 @@
 import { APP_NAME } from "./app-name";
 
-const SHELL = new Set(["bash", "pwsh", "powershell", "cmd"]);
+const SHELL = new Set(["bash", "pwsh", "powershell", "cmd", "shell"]);
 
 export type PermissionView =
   | { kind: "command"; command: string }

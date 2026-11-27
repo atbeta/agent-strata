@@ -9,7 +9,7 @@ import {
   type SessionDiagnostic,
 } from "@agent-strata/schema";
 
-export const SHELL_PERMS = new Set(["bash", "pwsh", "powershell", "cmd"]);
+export const SHELL_PERMS = new Set(["bash", "pwsh", "powershell", "cmd", "shell"]);
 
 // OpenCode clocks are unix milliseconds. Fixture and synthetic values below
 // this are not real instants, so those events keep the ingest clock.

@@ -272,6 +272,7 @@ export class PermissionRequests {
         return { ok: true };
       } catch (error) {
         ask.submitting = false;
+        console.error("permission reply failed:", error);
         return { ok: false, status: 502, error: String(error) };
       }
     }

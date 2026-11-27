@@ -122,6 +122,8 @@ export interface BackendCapabilities {
  */
 export interface BackendExtension {
   kind: "opencode";
+  /** which OpenCode HTTP generation this extension talks to */
+  apiVersion?: "v1" | "v2";
   /** the backend API paths a client may read */
   paths: ReadonlySet<string>;
   get(path: string, query: URLSearchParams, directory?: string, signal?: AbortSignal): Promise<Response>;
