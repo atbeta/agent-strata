@@ -132,4 +132,53 @@ describe("opencode extension", () => {
     expect(blocked.status).toBe(404);
     expect(hits.some((hit) => hit.includes("secrets"))).toBe(false);
   });
+
+  test("v2 workspace reads use location and the shapes the panels already read", async () => {
+    const hits: string[] = [];
+    const ext = opencodeExtension({
+      baseUrl: "http://fake",
+      apiVersion: "v2",
+      fetch: (async (input: Request | URL | string) => {
+        const url = new URL(input instanceof Request ? input.url : String(input));
+        hits.push(`${url.pathname}${url.search}`);
+        if (url.pathname === "/api/vcs") {
+          return Response.json({ location: { directory: "/repo" }, data: { branch: { current: "main", default: "main" } } });
+        }
+        if (url.pathname === "/api/vcs/diff") {
+          return Response.json({ location: { directory: "/repo" }, data: [] });
+        }
+        if (url.pathname === "/api/mcp") {
+          return Response.json({
+            location: { directory: "/repo" },
+            data: [{ name: "mcp-gateway", status: { status: "connected" } }],
+          });
+        }
+        if (url.pathname === "/api/skill") {
+          return Response.json({
+            location: { directory: "/repo" },
+            data: [{ name: "OpenCode", path: "/repo/.opencode/skill/opencode/SKILL.md", content: "hi" }],
+          });
+        }
+        if (url.pathname === "/api/config/shell") {
+          return Response.json([{ name: "zsh", path: "/bin/zsh", acceptable: true }]);
+        }
+        return new Response("no", { status: 404 });
+      }) as typeof fetch,
+    });
+    expect(await (await ext.get("/vcs", new URLSearchParams(), "/repo")).json()).toEqual({
+      branch: "main",
+      default_branch: "main",
+    });
+    expect(decodeURIComponent(hits[0]!)).toContain("location[directory]=/repo");
+    await ext.get("/vcs/diff", new URLSearchParams({ mode: "git" }), "/repo");
+    expect(hits[1]).toContain("mode=working");
+    expect(await (await ext.get("/mcp", new URLSearchParams(), "/repo")).json()).toEqual({
+      "mcp-gateway": { status: "connected" },
+    });
+    expect(await (await ext.get("/skill", new URLSearchParams(), "/repo")).json()).toEqual([
+      { name: "OpenCode", path: "/repo/.opencode/skill/opencode/SKILL.md", content: "hi", location: "/repo/.opencode/skill/opencode/SKILL.md" },
+    ]);
+    expect(await ext.terminal?.shells("/repo")).toEqual([{ name: "zsh", path: "/bin/zsh", acceptable: true }]);
+    expect(hits.at(-1)).toContain("/api/config/shell");
+  });
 });

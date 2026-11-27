@@ -54,6 +54,54 @@ function textual(mime: string): boolean {
   );
 }
 
+/** v2 reports the branch as `{ current, default }`. The rail reads two strings. */
+function v2Vcs(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const branch = (value as { branch?: unknown }).branch;
+  if (!branch || typeof branch !== "object" || Array.isArray(branch)) return value;
+  const row = branch as { current?: unknown; default?: unknown };
+  return {
+    branch: typeof row.current === "string" ? row.current : null,
+    default_branch: typeof row.default === "string" ? row.default : null,
+  };
+}
+
+/** v2 lists servers. The tools panel reads a record keyed by name. */
+function v2Mcp(value: unknown): unknown {
+  if (!Array.isArray(value)) return value;
+  const out: Record<string, { status: string; error?: string }> = {};
+  for (const row of value) {
+    if (!row || typeof row !== "object") continue;
+    const item = row as { name?: unknown; status?: unknown };
+    if (typeof item.name !== "string" || !item.name) continue;
+    const status = item.status;
+    if (typeof status === "string") {
+      out[item.name] = { status };
+      continue;
+    }
+    if (!status || typeof status !== "object") continue;
+    const nested = status as { status?: unknown; error?: unknown };
+    if (typeof nested.status !== "string") continue;
+    out[item.name] = {
+      status: nested.status,
+      ...(typeof nested.error === "string" && nested.error ? { error: nested.error } : {}),
+    };
+  }
+  return out;
+}
+
+/** v2 names the file `path`. The panel's tip reads `location`. */
+function v2Skills(value: unknown): unknown {
+  if (!Array.isArray(value)) return value;
+  return value.map((row) => {
+    if (!row || typeof row !== "object") return row;
+    const item = row as { location?: unknown; path?: unknown };
+    if (typeof item.location === "string") return row;
+    if (typeof item.path !== "string") return row;
+    return { ...item, location: item.path };
+  });
+}
+
 function fileNodes(rows: unknown, directory: string | undefined) {
   if (!Array.isArray(rows)) return [];
   const root = directory ? directory.replace(/[\\/]+$/, "") : "";
@@ -92,7 +140,9 @@ export function opencodeExtension(opts: {
   const doFetch = opts.fetch ?? fetch;
   const send = (method: string, path: string, directory: string | undefined, body?: unknown, signal?: AbortSignal) => {
     const q = new URLSearchParams();
-    if (directory) q.set("directory", directory);
+    // v2 selects the workspace with `location[directory]`. The v1 `directory`
+    // query is ignored, and a read would land in the server's own root.
+    if (directory) q.set(opts.apiVersion === "v2" ? "location[directory]" : "directory", directory);
     const ticket = path.endsWith("/connect-token");
     const timeout = AbortSignal.timeout(signal ? 300_000 : TIMEOUT_MS);
     return doFetch(`${base}${path}?${q}`, {
@@ -191,7 +241,8 @@ export function opencodeExtension(opts: {
       await read(await send("POST", "/instance/dispose", directory));
     },
     terminal: {
-      shells: async (directory) => ptyShells(await read(await send("GET", "/pty/shells", directory))),
+      shells: async (directory) =>
+        ptyShells(await read(await send("GET", opts.apiVersion === "v2" ? "/config/shell" : "/pty/shells", directory))),
       list: async (directory) => {
         const rows = await read(await send("GET", "/pty", directory));
         if (!Array.isArray(rows)) return [];
@@ -305,10 +356,11 @@ export function opencodeExtension(opts: {
         upstream = `/session/${encodeURIComponent(session)}/diff`;
       }
       const dir = directory || opts.directory;
+      if (opts.apiVersion === "v2" && path === "/vcs/diff" && q.get("mode") === "git") q.set("mode", "working");
       if (opts.apiVersion === "v2" && (path === "/file" || path === "/file/content" || path === "/find/file")) {
         return v2Files(path, q, dir, signal);
       }
-      if (dir) q.set("directory", dir);
+      if (dir) q.set(opts.apiVersion === "v2" ? "location[directory]" : "directory", dir);
       const qs = q.toString();
       const res = await doFetch(`${base}${upstream}${qs ? `?${qs}` : ""}`, {
         headers,
@@ -318,7 +370,8 @@ export function opencodeExtension(opts: {
       });
       if (opts.apiVersion !== "v2" || !res.ok) return res;
       const body = unwrap(await res.json().catch(() => undefined));
-      return Response.json(body, { status: res.status, statusText: res.statusText, headers: res.headers });
+      const shaped = path === "/vcs" ? v2Vcs(body) : path === "/mcp" ? v2Mcp(body) : path === "/skill" ? v2Skills(body) : body;
+      return Response.json(shaped, { status: res.status, statusText: res.statusText, headers: res.headers });
     },
   };
 }
